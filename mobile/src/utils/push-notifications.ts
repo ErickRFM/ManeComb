@@ -33,6 +33,17 @@ export type PushRouteIntent = {
   deepLink?: string | null;
 };
 
+function invokePushCallback(
+  callback: (intent: PushRouteIntent) => void | Promise<void>,
+  intent: PushRouteIntent
+) {
+  try {
+    void Promise.resolve(callback(intent)).catch(() => undefined);
+  } catch {
+    // Push navigation must not create an unhandled rejection.
+  }
+}
+
 export async function configureAppNotifications() {
   if (notificationsConfigured) {
     return;
@@ -221,25 +232,33 @@ export function addPushResponseListener(
   let activeSubscription: { remove: () => void } | null = null;
   let disposed = false;
 
-  void getNotificationsModule().then((Notifications) => {
-    if (!Notifications || disposed) {
-      return;
-    }
-
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (disposed || !response?.notification?.request?.content?.data) {
+  void getNotificationsModule()
+    .then((Notifications) => {
+      if (!Notifications || disposed) {
         return;
       }
 
-      void callback(
-        getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>)
-      );
-    });
+      void Notifications.getLastNotificationResponseAsync()
+        .then((response) => {
+          if (disposed || !response?.notification?.request?.content?.data) {
+            return;
+          }
 
-    activeSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      void callback(getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>));
-    });
-  });
+          invokePushCallback(
+            callback,
+            getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>)
+          );
+        })
+        .catch(() => undefined);
+
+      activeSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        invokePushCallback(
+          callback,
+          getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>)
+        );
+      });
+    })
+    .catch(() => undefined);
 
   return () => {
     disposed = true;

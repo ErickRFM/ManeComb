@@ -8,6 +8,10 @@ function getOrderOrganizationId(order) {
 }
 
 function isPastDate(value) {
+  if (!value) {
+    return false;
+  }
+
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }

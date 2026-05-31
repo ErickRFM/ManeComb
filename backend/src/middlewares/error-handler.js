@@ -1,10 +1,10 @@
-const { sendSentryErrorEvent } = require("../services/telemetry");
+const { recordAppEventSafely, sendSentryErrorEvent } = require("../services/telemetry");
 
 function errorHandler(error, req, res, next) {
   console.error("[api:error]", error);
 
   const traceId = req?.traceId || res?.locals?.traceId || null;
-  void req?.app?.locals?.store?.recordAppEvent?.({
+  recordAppEventSafely(req?.app?.locals?.store, {
     type: "api_exception",
     scope: "api",
     level: "critical",

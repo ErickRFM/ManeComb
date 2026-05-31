@@ -282,8 +282,28 @@ async function testCriticalFlows() {
     assert.equal(incidentResponse.payload.ok, true);
     assert.equal(incidentResponse.payload.data.severity, "critical");
 
+    const logoutResponse = await requestJson(`${context.url}/auth/logout`, {
+      body: JSON.stringify({
+        refreshToken: loginResponse.payload.refreshToken
+      }),
+      method: "POST"
+    });
+
+    assert.equal(logoutResponse.status, 200);
+    assert.equal(logoutResponse.payload.ok, true);
+
+    const rejectedRefreshResponse = await requestJson(`${context.url}/auth/refresh`, {
+      body: JSON.stringify({
+        refreshToken: loginResponse.payload.refreshToken
+      }),
+      method: "POST"
+    });
+
+    assert.equal(rejectedRefreshResponse.status, 401);
+    assert.equal(rejectedRefreshResponse.payload.ok, false);
+
     console.log(
-      "ok - flujo humo login/mapa/chat/checkout/incidentes responde correctamente con el store disponible"
+      "ok - flujo humo login/mapa/chat/checkout/incidentes/logout responde correctamente con el store disponible"
     );
   } finally {
     if (createdTeamUserId) {

@@ -27,7 +27,7 @@ const rtcRoutes = require("./modules/rtc/routes");
 const userRoutes = require("./modules/users/routes");
 const vehicleRoutes = require("./modules/vehicles/routes");
 const { getStorageMode } = require("./services/storage");
-const { getOrCreateTraceId } = require("./services/telemetry");
+const { getOrCreateTraceId, recordAppEventSafely } = require("./services/telemetry");
 const { getRuntimeReadiness } = require("./services/runtime-readiness");
 const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
@@ -84,7 +84,7 @@ function createApp({ store, getDbState }) {
       const type =
         res.statusCode >= 400 ? "api_error" : durationMs >= 900 ? "api_slow" : "api_trace";
 
-      void app.locals.store.recordAppEvent({
+      recordAppEventSafely(app.locals.store, {
         type,
         scope: "api",
         level,

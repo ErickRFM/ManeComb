@@ -153,6 +153,18 @@ async function runActivationKeyFlow() {
     assert.equal(firstDriver.status, 201);
     assert.equal(firstDriver.payload.user.role, "driver");
     assert.equal(firstDriver.payload.user.organizationId, registerOwner.payload.user.organizationId);
+    assert.equal(firstDriver.payload.dashboard.fleet.length, 1);
+    assert.equal(firstDriver.payload.dashboard.fleet[0].code, "CB-T01");
+
+    const driverDashboard = await requestJson(`${context.url}/dashboard/overview`, {
+      headers: {
+        Authorization: `Bearer ${firstDriver.payload.token}`
+      }
+    });
+
+    assert.equal(driverDashboard.status, 200);
+    assert.equal(driverDashboard.payload.data.fleet.length, 1);
+    assert.equal(driverDashboard.payload.data.fleet[0].code, "CB-T01");
 
     const reusedKey = await requestJson(`${context.url}/driver/activation/register`, {
       body: JSON.stringify({
@@ -182,6 +194,18 @@ async function runActivationKeyFlow() {
     });
 
     assert.equal(secondDriver.status, 201);
+
+    const ownerDashboard = await requestJson(`${context.url}/dashboard/overview`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    assert.equal(ownerDashboard.status, 200);
+    assert.deepEqual(
+      ownerDashboard.payload.data.fleet.map((vehicle) => vehicle.code).sort(),
+      ["CB-T01", "CB-T02"]
+    );
 
     const thirdKeyResponse = await requestJson(`${context.url}/admin/activation-keys/generate`, {
       headers: {

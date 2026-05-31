@@ -6,6 +6,14 @@ function getOrCreateTraceId(rawTraceId) {
   return safeTraceId || randomUUID();
 }
 
+function recordAppEventSafely(store, payload) {
+  try {
+    void Promise.resolve(store?.recordAppEvent?.(payload)).catch(() => undefined);
+  } catch {
+    // Telemetry must never affect the request lifecycle.
+  }
+}
+
 function parseSentryDsn() {
   if (!SENTRY_DSN) {
     return null;
@@ -69,5 +77,6 @@ async function sendSentryErrorEvent(payload) {
 
 module.exports = {
   getOrCreateTraceId,
+  recordAppEventSafely,
   sendSentryErrorEvent
 };
