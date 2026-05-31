@@ -1,0 +1,33 @@
+# Dependencies
+**/node_modules/
+
+# Local environment files
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Generated builds and caches
+mobile/.expo/
+mobile/web-build/
+mobile/dist/
+mobile/android/
+mobile/ios/
+mobile/.gradle-local/
+mobile/.android-tools-download/
+mobile/test-results/
+mobile/playwright-report/
+mobile/coverage/
+backend/uploads/
+*.tsbuildinfo
+*.apk
+
+# Logs
+*.log
+codex-logs/
+
+# Editor and OS files
+.idea/
+.DS_Store
+
+# Preserved history from the previous nested mobile repository
+.mobile-git-backup/

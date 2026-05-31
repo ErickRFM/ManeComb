@@ -1,0 +1,111 @@
+{
+  "expo": {
+    "name": "ManeComb",
+    "slug": "combis-control",
+    "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobile",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "ManeComb usa el microfono para radio operativa, notas de voz y transmision en vivo entre operadores.",
+        "NSUserNotificationsUsageDescription": "ManeComb envia alertas criticas, SOS y avisos operativos en tiempo real.",
+        "NSLocationWhenInUseUsageDescription": "ManeComb usa tu ubicacion para mostrar el mapa en tiempo real, calcular rutas y compartir seguimiento operativo.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ManeComb necesita ubicacion continua para mantener el seguimiento de ruta y la supervision operativa en tiempo real.",
+        "NSCameraUsageDescription": "ManeComb usa la camara para enviar evidencia visual y transmision en vivo.",
+        "NSPhotoLibraryUsageDescription": "ManeComb accede a la galeria para enviar fotos y videos de evidencia operativa."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_CONNECT",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO"
+      ],
+      "package": "com.anonymous.combiscontrol"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E11D2F",
+          "defaultChannel": "operacion-general"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#050c16",
+          "dark": {
+            "backgroundColor": "#050c16"
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ManeComb usa tu ubicacion para mostrar el mapa en tiempo real, calcular rutas y seguir unidades cercanas.",
+          "locationAlwaysAndWhenInUsePermission": "ManeComb usa ubicacion continua para mantener seguimiento preciso, rutas y alertas operativas.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-audio",
+      "expo-video",
+      "expo-web-browser",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

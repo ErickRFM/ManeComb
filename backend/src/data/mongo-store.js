@@ -1,0 +1,2796 @@
+const bcrypt = require("bcryptjs");
+const { randomUUID } = require("crypto");
+const {
+  getCommercialPlanById,
+  getCommercialPlanPricing
+} = require("../config/commercial-plans");
+const { createSeedState } = require("./seedData");
+const { decryptChatPayload, encryptChatPayload } = require("../utils/chat-crypto");
+const { validatePasswordStrength } = require("../utils/password-policy");
+const { isServiceDate, toServiceDate } = require("../utils/service-date");
+const {
+  ActivationKeyModel,
+  AppEventModel,
+  CommercialLeadModel,
+  ConversationModel,
+  DocumentModel,
+  IncidentModel,
+  NotificationModel,
+  RtcSessionModel,
+  RouteModel,
+  TripLogModel,
+  UserModel,
+  VehicleModel
+} = require("./models");
+
+function buildAvatar(name) {
+  return String(name)
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((chunk) => chunk[0]?.toUpperCase() || "")
+    .join("");
+}
+
+function normalizeRole(role) {
+  return [
+    "owner",
+    "admin",
+    "dispatcher",
+    "supervisor",
+    "billing_manager",
+    "support",
+    "viewer",
+    "driver"
+  ].includes(role) ? role : "driver";
+}
+
+function normalizeAccountType(accountType, role = "driver") {
+  if (String(accountType || "").trim() === "company_owner") {
+    return "company_owner";
+  }
+
+  return role === "supervisor" && String(accountType || "").trim() === "customer"
+    ? "company_owner"
+    : "operations";
+}
+
+function normalizeUserStatus(value) {
+  return ["active", "pending", "suspended"].includes(String(value || "").trim())
+    ? String(value || "").trim()
+    : "active";
+}
+
+function resolveOrganizationId(payload = {}, fallbackEmail = "") {
+  const explicit = String(payload.organizationId || "").trim();
+
+  if (explicit) {
+    return slugifyCompanyName(explicit) || explicit;
+  }
+
+  const companyName =
+    payload.companyProfile?.companyName ||
+    payload.companyName ||
+    payload.organizationSlug ||
+    payload.name ||
+    "";
+  const fromCompany = slugifyCompanyName(companyName);
+
+  if (fromCompany) {
+    return fromCompany;
+  }
+
+  const email = String(payload.email || fallbackEmail || "").trim().toLowerCase();
+  return slugifyCompanyName(email.split("@")[0] || "cuenta");
+}
+
+function getUserOrganizationId(user) {
+  if (!user) {
+    return "";
+  }
+
+  return (
+    String(user.organizationId || "").trim() ||
+    resolveOrganizationId(
+      {
+        companyProfile: user.companyProfile,
+        companyName: user.companyProfile?.companyName,
+        name: user.name,
+        email: user.email
+      },
+      user.email
+    )
+  );
+}
+
+function canAccessAllOrganizations(user) {
+  return user?.role === "admin" && user?.accountType !== "company_owner";
+}
+
+function getOrganizationQuery(user) {
+  if (!user || canAccessAllOrganizations(user)) {
+    return {};
+  }
+
+  const organizationId = getUserOrganizationId(user);
+  return organizationId ? { organizationId } : { organizationId: "__missing__" };
+}
+
+function normalizeStatus(status, role) {
+  if (status && typeof status === "string") {
+    return status;
+  }
+
+  return role === "driver" ? "offline" : "online";
+}
+
+function normalizeShift(shift, role) {
+  if (shift && typeof shift === "string") {
+    return shift;
+  }
+
+  if (role === "admin") {
+    return "Centro de control";
+  }
+
+  return "Pendiente asignacion";
+}
+
+function normalizePaymentMethod(method) {
+  return ["card", "spei", "transfer"].includes(String(method || "").trim())
+    ? String(method || "").trim()
+    : "spei";
+}
+
+function slugifyCompanyName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function toPlain(doc) {
+  if (!doc) {
+    return null;
+  }
+
+  const plain = typeof doc.toObject === "function" ? doc.toObject({ flattenMaps: true }) : { ...doc };
+  const { _id, __v, ...rest } = plain;
+
+  return {
+    id: _id,
+    ...rest
+  };
+}
+
+function sanitizeUser(doc) {
+  if (!doc) {
+    return null;
+  }
+
+  const plain = toPlain(doc);
+  const { passwordHash, pushSubscriptions, e2eeBackups, ...safeUser } = plain;
+  safeUser.accountType = normalizeAccountType(safeUser.accountType, safeUser.role);
+  safeUser.organizationId = getUserOrganizationId(safeUser);
+  safeUser.userStatus = normalizeUserStatus(safeUser.userStatus);
+  safeUser.lastAccessAt = safeUser.lastAccessAt || null;
+  safeUser.invitedAt = safeUser.invitedAt || null;
+  safeUser.suspendedAt = safeUser.userStatus === "suspended" ? safeUser.suspendedAt || null : null;
+  return safeUser;
+}
+
+function serializeE2eeBackupEntry(entry, includeCipher = false) {
+  if (!entry) {
+    return null;
+  }
+
+  const plain = typeof entry.toObject === "function" ? entry.toObject() : { ...entry };
+  const safeEntry = {
+    deviceId: String(plain.deviceId || "").trim(),
+    publicKey: String(plain.publicKey || "").trim(),
+    backupVersion: String(plain.backupVersion || "secretbox-v1").trim() || "secretbox-v1",
+    platform: String(plain.platform || "unknown").trim() || "unknown",
+    label: String(plain.label || "").trim(),
+    updatedAt: plain.updatedAt || new Date().toISOString(),
+    restoredAt: plain.restoredAt || null
+  };
+
+  if (includeCipher) {
+    safeEntry.backupCipher = String(plain.backupCipher || "").trim();
+  }
+
+  return safeEntry;
+}
+
+function serializeRoute(doc) {
+  return toPlain(doc);
+}
+
+function serializeVehicle(doc) {
+  return toPlain(doc);
+}
+
+function serializeIncident(doc) {
+  return toPlain(doc);
+}
+
+function serializeDocument(doc) {
+  return toPlain(doc);
+}
+
+function serializeNotification(doc) {
+  return toPlain(doc);
+}
+
+function serializeConversation(doc) {
+  return toPlain(doc);
+}
+
+function serializeTripLog(doc) {
+  return toPlain(doc);
+}
+
+function serializeCommercialOrder(doc) {
+  return toPlain(doc);
+}
+
+function normalizeConversationKind(kind, participants = []) {
+  if (kind === "group" || kind === "direct") {
+    return kind;
+  }
+
+  return participants.length > 2 ? "group" : "direct";
+}
+
+function normalizeConversationChannelMode(channelMode) {
+  return channelMode === "radio" ? "radio" : "chat";
+}
+
+function getStoredMessagePayload(message) {
+  if (message?.payloadEncrypted) {
+    return decryptChatPayload(message.payloadEncrypted);
+  }
+
+  return null;
+}
+
+function serializeChatMessageEntry(message, conversationId, userMap = null) {
+  if (!message) {
+    return null;
+  }
+
+  const plainMessage =
+    typeof message.toObject === "function" ? message.toObject() : { ...message };
+  const decryptedPayload = getStoredMessagePayload(plainMessage) || {};
+  const kind = ["audio", "image", "video"].includes(plainMessage.kind)
+    ? plainMessage.kind
+    : "text";
+  const e2eeEnvelope =
+    decryptedPayload.e2eeEnvelope && typeof decryptedPayload.e2eeEnvelope === "object"
+      ? decryptedPayload.e2eeEnvelope
+      : null;
+  const text =
+    typeof decryptedPayload.text === "string"
+      ? decryptedPayload.text
+      : typeof plainMessage.text === "string"
+        ? plainMessage.text
+        : "";
+  const transcript =
+    typeof decryptedPayload.transcript === "string"
+      ? decryptedPayload.transcript
+      : typeof plainMessage.transcript === "string"
+        ? plainMessage.transcript
+        : "";
+  const textPreview =
+    typeof plainMessage.textPreview === "string" && plainMessage.textPreview.trim()
+      ? plainMessage.textPreview.trim()
+      : kind === "audio"
+        ? transcript
+          ? `Audio: ${transcript}`
+          : text
+            ? `Nota de voz: ${text}`
+            : "Nota de voz"
+        : e2eeEnvelope
+          ? "Mensaje cifrado de extremo a extremo"
+          : text;
+
+  return {
+    id: plainMessage.id,
+    senderId: plainMessage.senderId,
+    conversationId,
+    kind,
+    text,
+    textPreview,
+    audioUrl:
+      typeof decryptedPayload.audioUrl === "string" ? decryptedPayload.audioUrl : null,
+    transcript,
+    durationSeconds: Number(
+      decryptedPayload.durationSeconds || plainMessage.durationSeconds || 0
+    ),
+    mimeType:
+      String(decryptedPayload.mimeType || plainMessage.mimeType || "").trim() || "",
+    e2eeEnvelope,
+    encrypted: Boolean(plainMessage.isEncrypted || plainMessage.payloadEncrypted),
+    createdAt: plainMessage.createdAt,
+    sender: userMap?.get(plainMessage.senderId) || null
+  };
+}
+
+function buildStoredChatMessage(senderId, input) {
+  const safeInput =
+    typeof input === "string"
+      ? {
+          text: input,
+          kind: "text"
+        }
+      : input || {};
+  const kind = ["audio", "image", "video"].includes(safeInput.kind) ? safeInput.kind : "text";
+  const e2eeEnvelope =
+    safeInput.e2eeEnvelope && typeof safeInput.e2eeEnvelope === "object"
+      ? {
+          version: String(safeInput.e2eeEnvelope.version || "x25519-xsalsa20-poly1305"),
+          nonce: String(safeInput.e2eeEnvelope.nonce || "").trim(),
+          ciphertext: String(safeInput.e2eeEnvelope.ciphertext || "").trim(),
+          recipientId: String(safeInput.e2eeEnvelope.recipientId || "").trim(),
+          senderPublicKey: String(safeInput.e2eeEnvelope.senderPublicKey || "").trim()
+        }
+      : null;
+  const text = String(safeInput.text || "").trim();
+  const transcript = String(safeInput.transcript || "").trim();
+  const textPreview = String(safeInput.textPreview || "").trim();
+  const payload = {
+    text: e2eeEnvelope ? "" : text,
+    audioUrl: String(safeInput.audioUrl || "").trim() || null,
+    transcript,
+    mimeType: String(safeInput.mimeType || "").trim() || "",
+    durationSeconds: Math.max(0, Number(safeInput.durationSeconds) || 0),
+    e2eeEnvelope
+  };
+
+  return {
+    id: randomUUID(),
+    senderId,
+    kind,
+    text: kind === "text" && !e2eeEnvelope ? text : "",
+    textPreview:
+      kind === "audio"
+        ? transcript
+          ? `Audio: ${transcript}`
+          : text
+            ? `Nota de voz: ${text}`
+            : "Nota de voz"
+        : kind === "image"
+          ? text || "Imagen"
+          : kind === "video"
+            ? text || "Video"
+            : textPreview || (e2eeEnvelope ? "Mensaje cifrado de extremo a extremo" : text),
+    payloadEncrypted: encryptChatPayload(payload),
+    isEncrypted: true,
+    transcript,
+    mimeType: payload.mimeType,
+    durationSeconds: payload.durationSeconds,
+    createdAt: new Date()
+  };
+}
+
+function buildConversationSummary(conversation, currentUserId, userMap) {
+  const plain = serializeConversation(conversation);
+  const participants = plain.participants
+    .map((participantId) => userMap.get(participantId))
+    .filter(Boolean);
+  const conversationKind = normalizeConversationKind(plain.kind, plain.participants);
+  const directCounterpart =
+    conversationKind === "direct"
+      ? participants.find((participant) => participant.id !== currentUserId) || participants[0]
+      : null;
+  const lastMessage = plain.messages[plain.messages.length - 1];
+
+  return {
+    id: plain.id,
+    title: directCounterpart?.name || plain.title,
+    kind: conversationKind,
+    channelMode: normalizeConversationChannelMode(plain.channelMode),
+    description: String(plain.description || "").trim(),
+    encrypted: plain.encrypted !== false,
+    participants,
+    lastMessage: serializeChatMessageEntry(lastMessage, plain.id, userMap),
+    unreadCount: Number(toUnreadByObject(plain.unreadBy)[currentUserId] || 0)
+  };
+}
+
+function sortConversationsByActivity(conversations) {
+  return [...conversations].sort((left, right) => {
+    const leftDate = left.lastMessage?.createdAt ? new Date(left.lastMessage.createdAt).getTime() : 0;
+    const rightDate = right.lastMessage?.createdAt ? new Date(right.lastMessage.createdAt).getTime() : 0;
+
+    if (leftDate !== rightDate) {
+      return rightDate - leftDate;
+    }
+
+    if (left.channelMode !== right.channelMode) {
+      return left.channelMode === "chat" ? -1 : 1;
+    }
+
+    if (left.kind !== right.kind) {
+      return left.kind === "group" ? -1 : 1;
+    }
+
+    return left.title.localeCompare(right.title, "es-MX");
+  });
+}
+
+function toUnreadByObject(unreadBy) {
+  if (!unreadBy) {
+    return {};
+  }
+
+  if (typeof unreadBy.get === "function") {
+    return Object.fromEntries(unreadBy.entries());
+  }
+
+  if (unreadBy instanceof Map) {
+    return Object.fromEntries(unreadBy.entries());
+  }
+
+  return { ...unreadBy };
+}
+
+function buildAlert(label, tone, meta) {
+  return {
+    id: randomUUID(),
+    label,
+    tone,
+    ...meta
+  };
+}
+
+function getDocumentStatus(expiresAt) {
+  const safeExpiresAt = new Date(expiresAt);
+
+  if (Number.isNaN(safeExpiresAt.getTime())) {
+    return "vigente";
+  }
+
+  const remainingTime = safeExpiresAt.getTime() - Date.now();
+
+  if (remainingTime < 0) {
+    return "vencido";
+  }
+
+  if (remainingTime <= 14 * 24 * 60 * 60 * 1000) {
+    return "por_vencer";
+  }
+
+  return "vigente";
+}
+
+function normalizeReviewStatus(reviewStatus) {
+  if (["approved", "rejected", "pending_review"].includes(reviewStatus)) {
+    return reviewStatus;
+  }
+
+  return "pending_review";
+}
+
+async function ensureUniqueEmail(email, ignoreUserId = null) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const existing = await UserModel.findOne({ email: normalizedEmail }).lean();
+
+  if (existing && existing._id !== ignoreUserId) {
+    throw new Error("El correo ya existe");
+  }
+
+  return normalizedEmail;
+}
+
+function buildCompanyProfile(payload, email) {
+  const source = payload.companyProfile || {};
+  const companyName =
+    String(source.companyName || payload.companyName || "").trim();
+  const legalName =
+    String(source.legalName || payload.legalName || companyName).trim();
+  const billingEmail =
+    String(source.billingEmail || payload.billingEmail || email || "").trim().toLowerCase();
+
+  return {
+    companyName,
+    legalName,
+    taxId: String(source.taxId || payload.taxId || "").trim().toUpperCase(),
+    billingEmail,
+    billingAddress: String(source.billingAddress || payload.billingAddress || "").trim()
+  };
+}
+
+function mergeCompanyProfile(existing, payload, fallbackEmail) {
+  const next = {
+    companyName: String(existing?.companyName || "").trim(),
+    legalName: String(existing?.legalName || "").trim(),
+    taxId: String(existing?.taxId || "").trim(),
+    billingEmail: String(existing?.billingEmail || fallbackEmail || "").trim().toLowerCase(),
+    billingAddress: String(existing?.billingAddress || "").trim()
+  };
+  const source = payload.companyProfile || {};
+
+  if (typeof payload.companyName === "string" || typeof source.companyName === "string") {
+    next.companyName = String(source.companyName || payload.companyName || "").trim();
+  }
+
+  if (typeof payload.legalName === "string" || typeof source.legalName === "string") {
+    next.legalName = String(source.legalName || payload.legalName || "").trim();
+  } else if (!next.legalName && next.companyName) {
+    next.legalName = next.companyName;
+  }
+
+  if (typeof payload.taxId === "string" || typeof source.taxId === "string") {
+    next.taxId = String(source.taxId || payload.taxId || "").trim().toUpperCase();
+  }
+
+  if (typeof payload.billingEmail === "string" || typeof source.billingEmail === "string") {
+    next.billingEmail = String(source.billingEmail || payload.billingEmail || "").trim().toLowerCase();
+  }
+
+  if (
+    typeof payload.billingAddress === "string" ||
+    typeof source.billingAddress === "string"
+  ) {
+    next.billingAddress = String(source.billingAddress || payload.billingAddress || "").trim();
+  }
+
+  return next;
+}
+
+function buildPaymentProfile(payload) {
+  const source = payload.paymentProfile || {};
+
+  return {
+    preferredMethod: normalizePaymentMethod(source.preferredMethod || payload.preferredMethod),
+    cardholderName: String(source.cardholderName || payload.cardholderName || "").trim(),
+    cardBrand: String(source.cardBrand || payload.cardBrand || "").trim(),
+    cardLast4: String(source.cardLast4 || payload.cardLast4 || "").replace(/[^\d]/g, "").slice(-4),
+    cardExpMonth: String(source.cardExpMonth || payload.cardExpMonth || "").replace(/[^\d]/g, "").slice(0, 2),
+    cardExpYear: String(source.cardExpYear || payload.cardExpYear || "").replace(/[^\d]/g, "").slice(-2),
+    customerReference: String(
+      source.customerReference || payload.customerReference || ""
+    ).trim()
+  };
+}
+
+function mergePaymentProfile(existing, payload) {
+  const source = payload.paymentProfile || {};
+  const pick = (field) => {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      return source[field];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      return payload[field];
+    }
+
+    return existing?.[field];
+  };
+  const next = {
+    preferredMethod: normalizePaymentMethod(pick("preferredMethod")),
+    cardholderName: String(pick("cardholderName") || "").trim(),
+    cardBrand: String(pick("cardBrand") || "").trim(),
+    cardLast4: String(pick("cardLast4") || "")
+      .replace(/[^\d]/g, "")
+      .slice(-4),
+    cardExpMonth: String(pick("cardExpMonth") || "")
+      .replace(/[^\d]/g, "")
+      .slice(0, 2),
+    cardExpYear: String(pick("cardExpYear") || "")
+      .replace(/[^\d]/g, "")
+      .slice(-2),
+    customerReference: String(pick("customerReference") || "").trim()
+  };
+
+  return next;
+}
+
+async function syncDriverVehicleAssignment(userId, nextVehicleId = null) {
+  const now = new Date();
+  await VehicleModel.updateMany(
+    {
+      driverId: userId,
+      ...(nextVehicleId ? { _id: { $ne: nextVehicleId } } : {})
+    },
+    {
+      $set: {
+        driverId: null,
+        updatedAt: now
+      }
+    }
+  );
+
+  if (!nextVehicleId) {
+    return;
+  }
+
+  const targetVehicle = await VehicleModel.findById(nextVehicleId).lean();
+
+  if (targetVehicle?.driverId && targetVehicle.driverId !== userId) {
+    await UserModel.updateOne(
+      { _id: targetVehicle.driverId },
+      {
+        $set: {
+          vehicleId: null
+        }
+      }
+    );
+  }
+
+  await VehicleModel.updateOne(
+    { _id: nextVehicleId },
+    {
+      $set: {
+        driverId: userId,
+        updatedAt: now
+      }
+    }
+  );
+}
+
+async function ensureMongoSeedData() {
+  const counts = await Promise.all([
+    UserModel.countDocuments(),
+    RouteModel.countDocuments(),
+    VehicleModel.countDocuments(),
+    IncidentModel.countDocuments(),
+    ConversationModel.countDocuments(),
+    DocumentModel.countDocuments(),
+    NotificationModel.countDocuments(),
+    TripLogModel.countDocuments(),
+    CommercialLeadModel.countDocuments()
+  ]);
+
+  if (counts.slice(0, 8).every((count) => count > 0)) {
+    return;
+  }
+
+  const seed = createSeedState();
+
+  if (counts[0] === 0) {
+    await UserModel.insertMany(
+      seed.users.map((user) => ({
+        _id: user.id,
+        ...user,
+        avatarUrl: user.avatarUrl || null
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[1] === 0) {
+    await RouteModel.insertMany(
+      seed.routes.map((route) => ({
+        _id: route.id,
+        ...route
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[2] === 0) {
+    await VehicleModel.insertMany(
+      seed.vehicles.map((vehicle) => ({
+        _id: vehicle.id,
+        ...vehicle
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[3] === 0) {
+    await IncidentModel.insertMany(
+      seed.incidents.map((incident) => ({
+        _id: incident.id,
+        ...incident
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[4] === 0) {
+    await ConversationModel.insertMany(
+      seed.conversations.map((conversation) => ({
+        _id: conversation.id,
+        organizationId: conversation.organizationId,
+        title: conversation.title,
+        participants: conversation.participants,
+        unreadBy: conversation.unreadBy,
+        messages: conversation.messages
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[5] === 0) {
+    await DocumentModel.insertMany(
+      seed.documents.map((document) => ({
+        _id: document.id,
+        ...document
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[6] === 0) {
+    await NotificationModel.insertMany(
+      seed.notifications.map((notification) => ({
+        _id: notification.id,
+        ...notification
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[7] === 0) {
+    await TripLogModel.insertMany(
+      seed.tripLogs.map((tripLog) => ({
+        _id: tripLog.id,
+        ...tripLog
+      })),
+      { ordered: false }
+    );
+  }
+
+  if (counts[0] === 0 && counts[8] === 0) {
+    await CommercialLeadModel.insertMany(
+      seed.commercialOrders.map((order) => ({
+        _id: order.id,
+        ...order
+      })),
+      { ordered: false }
+    );
+  }
+}
+
+async function createMongoStore() {
+  await ensureMongoSeedData();
+
+  async function getUserById(userId) {
+    const user = await UserModel.findById(userId).lean();
+    return sanitizeUser(user);
+  }
+
+  async function findUserByEmail(email) {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      return null;
+    }
+
+    const user = await UserModel.findOne({ email: normalizedEmail }).lean();
+    return sanitizeUser(user);
+  }
+
+  async function getVehicleById(vehicleId) {
+    if (!vehicleId) {
+      return null;
+    }
+
+    const vehicle = await VehicleModel.findById(vehicleId).lean();
+    return serializeVehicle(vehicle);
+  }
+
+  async function getCommercialOrderById(orderId) {
+    if (!orderId) {
+      return null;
+    }
+
+    const order = await CommercialLeadModel.findById(orderId).lean();
+    return serializeCommercialOrder(order);
+  }
+
+  async function getRouteById(routeId) {
+    if (!routeId) {
+      return null;
+    }
+
+    const route = await RouteModel.findById(routeId).lean();
+    return serializeRoute(route);
+  }
+
+  async function listTripLogs({ vehicleId, serviceDate, limit = 12 }) {
+    if (!vehicleId) {
+      return [];
+    }
+
+    const safeLimit = Math.max(1, Math.min(50, Number(limit) || 12));
+    const filter = {
+      vehicleId
+    };
+
+    if (isServiceDate(serviceDate)) {
+      filter.serviceDate = serviceDate;
+    }
+
+    const tripLogs = await TripLogModel.find(filter).sort({ finishedAt: -1 }).limit(safeLimit).lean();
+
+    return tripLogs.map((tripLog) => serializeTripLog(tripLog));
+  }
+
+  async function createTripLog(payload) {
+    const vehicle = await VehicleModel.findById(payload.vehicleId).lean();
+    const startedAt = new Date(payload.startedAt);
+    const finishedAt = new Date(payload.finishedAt);
+
+    if (!vehicle) {
+      throw new Error("Unidad no encontrada");
+    }
+
+    if (Number.isNaN(startedAt.getTime()) || Number.isNaN(finishedAt.getTime())) {
+      throw new Error("Las fechas del recorrido no son validas");
+    }
+
+    const serviceDate =
+      (isServiceDate(payload.serviceDate) ? payload.serviceDate : null) ||
+      toServiceDate(finishedAt) ||
+      toServiceDate(startedAt);
+    const existingTripLog = await TripLogModel.findOne({
+      vehicleId: vehicle._id,
+      serviceDate,
+      startedAt,
+      finishedAt
+    }).lean();
+
+    if (existingTripLog) {
+      return serializeTripLog(existingTripLog);
+    }
+
+    const existingLaps = await TripLogModel.countDocuments({
+      vehicleId: vehicle._id,
+      serviceDate
+    });
+
+    const tripLog = await TripLogModel.create({
+      _id: randomUUID(),
+      organizationId: String(vehicle.organizationId || "").trim(),
+      vehicleId: vehicle._id,
+      vehicleCode: payload.vehicleCode || vehicle.code,
+      lap: existingLaps + 1,
+      serviceDate,
+      originLabel: String(payload.originLabel || "").trim(),
+      destinationLabel: String(payload.destinationLabel || "").trim(),
+      origin: payload.origin,
+      destination: payload.destination,
+      startedAt,
+      finishedAt,
+      durationSeconds: Math.max(1, Number(payload.durationSeconds) || 0),
+      distanceMeters: Math.max(0, Number(payload.distanceMeters) || 0),
+      plannedDurationSeconds: Math.max(0, Number(payload.plannedDurationSeconds) || 0),
+      provider: payload.provider || "system",
+      registeredBy: payload.registeredBy
+    });
+
+    return serializeTripLog(tripLog);
+  }
+
+  async function createDocument(payload) {
+    const ownerType = payload.ownerType === "vehicle" ? "vehicle" : "driver";
+    const ownerId = String(payload.ownerId || "").trim();
+    const expiresAt = new Date(payload.expiresAt);
+    const name = String(payload.name || payload.originalFileName || "Documento").trim();
+
+    if (!ownerId || !name) {
+      throw new Error("ownerId y name son obligatorios");
+    }
+
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    if (ownerType === "driver") {
+      const owner = await UserModel.findById(ownerId).lean();
+
+      if (!owner) {
+        throw new Error("Propietario del documento no encontrado");
+      }
+    }
+
+    if (ownerType === "vehicle") {
+      const owner = await VehicleModel.findById(ownerId).lean();
+
+      if (!owner) {
+        throw new Error("Unidad del documento no encontrada");
+      }
+    }
+
+    const document = await DocumentModel.create({
+      _id: randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      ownerType,
+      ownerId,
+      name,
+      category: String(payload.category || "evidence").trim().toLowerCase() || "evidence",
+      status: getDocumentStatus(expiresAt),
+      expiresAt,
+      fileUrl: payload.fileUrl || null,
+      storageType: String(payload.storageType || "local").trim() || "local",
+      mimeType: String(payload.mimeType || "").trim(),
+      fileSize: Math.max(0, Number(payload.fileSize) || 0),
+      uploadedAt: new Date(),
+      uploadedBy: String(payload.uploadedBy || "").trim(),
+      originalFileName: String(payload.originalFileName || name).trim(),
+      storageKey: String(payload.storageKey || "").trim(),
+      reviewStatus: normalizeReviewStatus(payload.reviewStatus),
+      reviewedAt: payload.reviewedAt || null,
+      reviewedBy: payload.reviewedBy || null,
+      reviewNotes: String(payload.reviewNotes || "").trim()
+    });
+
+    return serializeDocument(document);
+  }
+
+  async function reviewDocument(documentId, payload) {
+    const document = await DocumentModel.findByIdAndUpdate(
+      documentId,
+      {
+        $set: {
+          reviewStatus: normalizeReviewStatus(String(payload.reviewStatus || "").trim()),
+          reviewNotes: String(payload.reviewNotes || "").trim(),
+          reviewedBy: String(payload.reviewedBy || "").trim() || null,
+          reviewedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return serializeDocument(document);
+  }
+
+  async function createCommercialOrder(payload) {
+    const plan = getCommercialPlanById(payload.planId);
+
+    if (!plan) {
+      throw new Error("Plan comercial no encontrado");
+    }
+
+    const orderCount = await CommercialLeadModel.countDocuments();
+    const billingProfile = buildCompanyProfile(payload, payload.email);
+    const pricing = getCommercialPlanPricing(plan, payload.selectedAddOns);
+    const order = await CommercialLeadModel.create({
+      _id: randomUUID(),
+      referenceCode: `MNCB-${String(orderCount + 1).padStart(4, "0")}`,
+      ownerUserId: String(payload.ownerUserId || "").trim() || null,
+      ownerAccountEmail: String(payload.ownerAccountEmail || payload.email || "")
+        .trim()
+        .toLowerCase(),
+      organizationId: resolveOrganizationId(payload, payload.ownerAccountEmail || payload.email),
+      organizationSlug:
+        slugifyCompanyName(payload.organizationSlug || payload.companyName) ||
+        `cuenta-${orderCount + 1}`,
+      accountStatus: String(payload.accountStatus || "registered").trim() || "registered",
+      companyName: String(payload.companyName || "").trim(),
+      contactName: String(payload.contactName || "").trim(),
+      email: String(payload.email || "").trim().toLowerCase(),
+      phone: String(payload.phone || "").trim(),
+      billingProfile,
+      planId: plan.id,
+      planName: plan.name,
+      fleetSize: plan.units,
+      basePlanPrice: pricing.basePlanPrice,
+      addOns: pricing.addOns,
+      addOnsTotal: pricing.addOnsTotal,
+      radioFeatureEnabled: pricing.radioFeatureEnabled,
+      totalPrice: pricing.totalPrice,
+      pricePerVehicle: plan.pricePerVehicle,
+      strategy: plan.strategy,
+      paymentMethod: String(payload.paymentMethod || "card").trim() || "card",
+      paymentProvider: String(payload.paymentProvider || "manual").trim() || "manual",
+      checkoutUrl: payload.checkoutUrl || null,
+      paymentExternalReference: String(payload.paymentExternalReference || "").trim(),
+      paymentProviderReference: String(payload.paymentProviderReference || "").trim(),
+      paymentStatus: "pending",
+      paymentApprovedAt: null,
+      status: "new",
+      source: String(payload.source || "landing-web").trim() || "landing-web",
+      needsOnboarding:
+        typeof payload.needsOnboarding === "boolean" ? payload.needsOnboarding : true,
+      needsInvoice: typeof payload.needsInvoice === "boolean" ? payload.needsInvoice : true,
+      requestTrial: Boolean(payload.requestTrial),
+      trialDays: Boolean(payload.requestTrial) ? Math.max(1, Number(plan.trialDays) || 7) : 0,
+      trialStartedAt: null,
+      trialEndsAt: null,
+      trialStatus: Boolean(payload.requestTrial) ? "requested" : "not_requested",
+      notes: String(payload.notes || "").trim(),
+      activationStatus: "pending_payment",
+      activationStartedAt: null,
+      activatedAt: null,
+      activationNotes: "",
+      onboardingStatus: "pending",
+      onboardingChecklist: [],
+      fleetSetupStatus: "pending",
+      starterFleet: [],
+      launchSummary: "",
+      lastEmailStatus: "pending",
+      lastWhatsappStatus: "pending",
+      lastContactedAt: null,
+      createdAt: new Date()
+    });
+
+    return serializeCommercialOrder(order);
+  }
+
+  async function updateCommercialOrder(orderId, payload) {
+    const update = {};
+
+    Object.entries(payload || {}).forEach(([key, value]) => {
+      if (typeof value !== "undefined") {
+        update[key] = value;
+      }
+    });
+
+    const order = await CommercialLeadModel.findByIdAndUpdate(
+      orderId,
+      {
+        $set: update
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return serializeCommercialOrder(order);
+  }
+
+  async function listCommercialOrders() {
+    const orders = await CommercialLeadModel.find().sort({ createdAt: -1 }).lean();
+    return orders.map((order) => serializeCommercialOrder(order));
+  }
+
+  async function listCommercialOrdersForUser(user) {
+    if (!user?.id && !user?.email) {
+      return [];
+    }
+
+    const normalizedEmail = String(user.email || "").trim().toLowerCase();
+    const organizationId = getUserOrganizationId(user);
+    const orders = await CommercialLeadModel.find({
+      $or: [
+        { ownerUserId: user.id || null },
+        ...(organizationId ? [{ organizationId }, { organizationSlug: organizationId }] : []),
+        ...(normalizedEmail
+          ? [{ ownerAccountEmail: normalizedEmail }, { email: normalizedEmail }]
+          : [])
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return orders.map((order) => serializeCommercialOrder(order));
+  }
+
+  async function findCommercialOrderByExternalReference(externalReference) {
+    const order = await CommercialLeadModel.findOne({
+      $or: [
+        { paymentExternalReference: externalReference },
+        { referenceCode: externalReference }
+      ]
+    }).lean();
+
+    return serializeCommercialOrder(order);
+  }
+
+  async function listActivationKeysForCompany(companyId) {
+    const safeCompanyId = String(companyId || "").trim();
+
+    if (!safeCompanyId) {
+      return [];
+    }
+
+    const keys = await ActivationKeyModel.find({ companyId: safeCompanyId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return keys.map((entry) => toPlain(entry));
+  }
+
+  async function findActivationKeyByKey(keyValue) {
+    const normalizedKey = String(keyValue || "").trim().toUpperCase();
+
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const activationKey = await ActivationKeyModel.findOne({ key: normalizedKey }).lean();
+    return toPlain(activationKey);
+  }
+
+  async function createActivationKey(payload) {
+    const activationKey = await ActivationKeyModel.create({
+      _id: String(payload.id || "").trim() || randomUUID(),
+      key: String(payload.key || "").trim().toUpperCase(),
+      companyId: String(payload.companyId || "").trim(),
+      adminId: String(payload.adminId || "").trim(),
+      planId: String(payload.planId || "").trim(),
+      orderId: String(payload.orderId || "").trim() || null,
+      status: payload.status || "available",
+      usedByDriverId: payload.usedByDriverId || null,
+      expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(),
+      usedAt: payload.usedAt ? new Date(payload.usedAt) : null,
+      createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date()
+    });
+
+    return toPlain(activationKey);
+  }
+
+  async function updateActivationKey(activationKeyId, payload, filter = {}) {
+    const update = {};
+
+    Object.entries(payload || {}).forEach(([key, value]) => {
+      if (typeof value === "undefined") {
+        return;
+      }
+
+      update[key] = ["expiresAt", "usedAt", "createdAt"].includes(key) && value ? new Date(value) : value;
+    });
+
+    const activationKey = await ActivationKeyModel.findOneAndUpdate(
+      {
+        _id: activationKeyId,
+        ...(filter.companyId ? { companyId: filter.companyId } : {}),
+        ...(filter.status ? { status: filter.status } : {})
+      },
+      {
+        $set: update
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return toPlain(activationKey);
+  }
+
+  async function markActivationKeyUsed(activationKeyId, { companyId, driverId }) {
+    const activationKey = await ActivationKeyModel.findOneAndUpdate(
+      {
+        _id: activationKeyId,
+        companyId,
+        status: "available",
+        usedByDriverId: null
+      },
+      {
+        $set: {
+          status: "used",
+          usedByDriverId: String(driverId || "").trim() || null,
+          usedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return toPlain(activationKey);
+  }
+
+  async function createRtcSession(payload) {
+    const session = await RtcSessionModel.create({
+      _id: randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      roomId: String(payload.roomId || "").trim(),
+      initiatedBy: String(payload.initiatedBy || "").trim() || null,
+      participantUserIds: payload.participantUserIds || [],
+      participantNames: payload.participantNames || [],
+      startedAt: new Date(),
+      endedAt: null,
+      durationSeconds: 0,
+      status: "active",
+      sharedScreen: Boolean(payload.sharedScreen),
+      offerCount: Math.max(0, Number(payload.offerCount) || 0),
+      lastEventAt: new Date()
+    });
+
+    return toPlain(session);
+  }
+
+  async function updateRtcSession(sessionId, payload) {
+    const existing = await RtcSessionModel.findById(sessionId).lean();
+
+    if (!existing) {
+      return null;
+    }
+
+    const update = {
+      ...payload,
+      lastEventAt: new Date()
+    };
+    const endedAt = payload.endedAt ? new Date(payload.endedAt) : existing.endedAt;
+    const startedAt = existing.startedAt ? new Date(existing.startedAt) : null;
+
+    if (startedAt && endedAt) {
+      update.durationSeconds = Math.max(
+        0,
+        Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)
+      );
+    }
+
+    const session = await RtcSessionModel.findByIdAndUpdate(
+      sessionId,
+      {
+        $set: update
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return toPlain(session);
+  }
+
+  async function listRtcSessions({ roomId, limit = 20 } = {}) {
+    const query = roomId ? { roomId } : {};
+    const sessions = await RtcSessionModel.find(query)
+      .sort({ startedAt: -1 })
+      .limit(Math.max(1, Number(limit) || 20))
+      .lean();
+
+    return sessions.map((session) => toPlain(session));
+  }
+
+  async function enrichVehicle(vehicleDoc, routeMap = null, userMap = null) {
+    if (!vehicleDoc) {
+      return null;
+    }
+
+    const vehicle = serializeVehicle(vehicleDoc);
+    const route =
+      routeMap?.get(vehicle.routeId) ||
+      (vehicle.routeId ? await RouteModel.findById(vehicle.routeId).lean().then(serializeRoute) : null);
+    const driver =
+      userMap?.get(vehicle.driverId) ||
+      (vehicle.driverId ? await UserModel.findById(vehicle.driverId).lean().then(sanitizeUser) : null);
+
+    return {
+      ...vehicle,
+      route: route || null,
+      driver: driver || null,
+      routeName: route?.name || "Sin ruta",
+      routeCode: route?.code || "N/A",
+      routeColor: route?.color || "#8892b0",
+      driverName: driver?.name || "Pendiente asignacion"
+    };
+  }
+
+  async function authenticate(email, password) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await UserModel.findOne({ email: normalizedEmail }).lean();
+
+    if (!user) {
+      return null;
+    }
+
+    const isValid = bcrypt.compareSync(password, user.passwordHash);
+    if (!isValid) {
+      return null;
+    }
+
+    if (normalizeUserStatus(user.userStatus) === "suspended") {
+      return null;
+    }
+
+    await UserModel.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          lastAccessAt: new Date(),
+          organizationId: getUserOrganizationId(user)
+        }
+      }
+    );
+
+    return sanitizeUser({
+      ...user,
+      lastAccessAt: new Date(),
+      organizationId: getUserOrganizationId(user)
+    });
+  }
+
+  async function listUsers(currentUser = null) {
+    const roleOrder = {
+      admin: 0,
+      supervisor: 1,
+      driver: 2
+    };
+    const organizationId = getUserOrganizationId(currentUser);
+    const filter = canAccessAllOrganizations(currentUser) || !organizationId ? {} : { organizationId };
+
+    const users = await UserModel.find(filter).lean();
+
+    return users
+      .map((user) => sanitizeUser(user))
+      .sort((left, right) => {
+        const leftOrder = roleOrder[left.role] ?? 99;
+        const rightOrder = roleOrder[right.role] ?? 99;
+
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        return left.name.localeCompare(right.name, "es-MX");
+      });
+  }
+
+  async function createUser(payload, forcedRole = null) {
+    const name = String(payload.name || "").trim();
+    const password = String(payload.password || "").trim();
+
+    if (!name || !payload.email || !password) {
+      throw new Error("Nombre, correo y contraseña son obligatorios");
+    }
+
+    const passwordValidationError = validatePasswordStrength(password);
+    if (passwordValidationError) {
+      throw new Error(passwordValidationError);
+    }
+
+    const role = forcedRole || normalizeRole(payload.role);
+    const email = await ensureUniqueEmail(payload.email);
+    const userId = String(payload.id || "").trim() || randomUUID();
+    const nextVehicleId = role === "driver" ? payload.vehicleId || null : null;
+    const companyProfile = buildCompanyProfile(payload, email);
+    const paymentProfile = buildPaymentProfile(payload);
+    const e2eePublicKey = String(payload.e2eePublicKey || "").trim();
+    const accountType = normalizeAccountType(payload.accountType, role);
+    const organizationId = resolveOrganizationId(
+      {
+        ...payload,
+        companyProfile
+      },
+      email
+    );
+    const userStatus = normalizeUserStatus(payload.userStatus || "active");
+
+    const user = await UserModel.create({
+      _id: userId,
+      name,
+      email,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role,
+      accountType,
+      organizationId,
+      userStatus,
+      lastAccessAt: null,
+      invitedAt: payload.invitedAt ? new Date(payload.invitedAt) : new Date(),
+      suspendedAt: userStatus === "suspended" ? new Date() : null,
+      phone: String(payload.phone || "").trim() || "Pendiente",
+      shift: normalizeShift(payload.shift, role),
+      status: normalizeStatus(payload.status, role),
+      avatar: buildAvatar(name),
+      avatarUrl: payload.avatarUrl || null,
+      vehicleId: nextVehicleId,
+      activationKeyId: String(payload.activationKeyId || "").trim() || null,
+      activatedAt: payload.activatedAt ? new Date(payload.activatedAt) : null,
+      e2eePublicKey,
+      e2eeKeyRotatedAt: payload.e2eeKeyRotatedAt || new Date(),
+      e2eeBackups: [],
+      companyProfile,
+      paymentProfile
+    });
+
+    await syncDriverVehicleAssignment(userId, nextVehicleId);
+    return sanitizeUser(user);
+  }
+
+  async function registerUser(payload) {
+    const isCommercialOwner = String(payload.accountType || "").trim() === "company_owner";
+    return createUser(payload, isCommercialOwner ? "owner" : "driver");
+  }
+
+  async function updateUser(userId, payload) {
+    const user = await UserModel.findById(userId);
+
+    if (!user) {
+      return null;
+    }
+
+    if (payload.email) {
+      user.email = await ensureUniqueEmail(payload.email, user._id);
+    }
+
+    if (payload.name) {
+      user.name = String(payload.name).trim();
+      user.avatar = buildAvatar(user.name);
+    }
+
+    if (typeof payload.avatarUrl !== "undefined") {
+      user.avatarUrl = payload.avatarUrl || null;
+    }
+
+    if (typeof payload.e2eePublicKey === "string") {
+      user.e2eePublicKey = payload.e2eePublicKey.trim();
+    }
+
+    if (payload.e2eeKeyRotatedAt) {
+      user.e2eeKeyRotatedAt = new Date(payload.e2eeKeyRotatedAt);
+    }
+
+    if (typeof payload.phone === "string") {
+      user.phone = payload.phone.trim() || "Pendiente";
+    }
+
+    if (typeof payload.organizationId === "string") {
+      user.organizationId = resolveOrganizationId(payload, user.email);
+    }
+
+    if (typeof payload.userStatus === "string") {
+      user.userStatus = normalizeUserStatus(payload.userStatus);
+      user.suspendedAt =
+        user.userStatus === "suspended"
+          ? user.suspendedAt || new Date()
+          : null;
+    }
+
+    if (
+      payload.companyProfile ||
+      typeof payload.companyName === "string" ||
+      typeof payload.legalName === "string" ||
+      typeof payload.taxId === "string" ||
+      typeof payload.billingEmail === "string" ||
+      typeof payload.billingAddress === "string"
+    ) {
+      user.companyProfile = mergeCompanyProfile(user.companyProfile, payload, user.email);
+      user.markModified("companyProfile");
+    }
+
+    if (
+      payload.paymentProfile ||
+      typeof payload.preferredMethod === "string" ||
+      typeof payload.cardholderName === "string" ||
+      typeof payload.cardBrand === "string" ||
+      typeof payload.cardLast4 === "string" ||
+      typeof payload.cardExpMonth === "string" ||
+      typeof payload.cardExpYear === "string" ||
+      typeof payload.customerReference === "string"
+    ) {
+      user.paymentProfile = mergePaymentProfile(user.paymentProfile, payload);
+      user.markModified("paymentProfile");
+    }
+
+    if (typeof payload.shift === "string") {
+      user.shift = payload.shift.trim() || normalizeShift("", user.role);
+    }
+
+    const nextRole = payload.role ? normalizeRole(payload.role) : user.role;
+    user.role = nextRole;
+    if (typeof payload.accountType === "string") {
+      user.accountType = normalizeAccountType(payload.accountType, nextRole);
+    } else {
+      user.accountType = normalizeAccountType(user.accountType, nextRole);
+    }
+    if (!user.organizationId) {
+      user.organizationId = resolveOrganizationId(user, user.email);
+    }
+    user.status = normalizeStatus(payload.status || user.status, nextRole);
+
+    let nextVehicleId = user.vehicleId;
+    if (typeof payload.vehicleId !== "undefined") {
+      nextVehicleId = nextRole === "driver" ? payload.vehicleId || null : null;
+    } else if (nextRole !== "driver") {
+      nextVehicleId = null;
+    }
+
+    user.vehicleId = nextVehicleId;
+
+    if (typeof payload.activationKeyId !== "undefined") {
+      user.activationKeyId = String(payload.activationKeyId || "").trim() || null;
+    }
+
+    if (typeof payload.activatedAt !== "undefined") {
+      user.activatedAt = payload.activatedAt ? new Date(payload.activatedAt) : null;
+    }
+
+    if (payload.password && String(payload.password).trim()) {
+      const nextPassword = String(payload.password).trim();
+      const passwordValidationError = validatePasswordStrength(nextPassword);
+
+      if (passwordValidationError) {
+        throw new Error(passwordValidationError);
+      }
+
+      user.passwordHash = bcrypt.hashSync(nextPassword, 10);
+    }
+
+    await user.save();
+    await syncDriverVehicleAssignment(user._id, nextVehicleId);
+
+    return sanitizeUser(user.toObject());
+  }
+
+  async function deleteUser(userId) {
+    const user = await UserModel.findById(userId).lean();
+
+    if (!user) {
+      return false;
+    }
+
+    await UserModel.deleteOne({ _id: userId });
+    await VehicleModel.updateMany(
+      { driverId: userId },
+      {
+        $set: {
+          driverId: null,
+          updatedAt: new Date()
+        }
+      }
+    );
+    await VehicleModel.updateMany(
+      { supervisorId: userId },
+      {
+        $set: {
+          supervisorId: null,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    const conversations = await ConversationModel.find({ participants: userId });
+    await Promise.all(
+      conversations.map(async (conversation) => {
+        conversation.participants = conversation.participants.filter((participantId) => participantId !== userId);
+        const unreadBy = toUnreadByObject(conversation.unreadBy);
+        delete unreadBy[userId];
+        conversation.unreadBy = new Map(Object.entries(unreadBy));
+        conversation.markModified("unreadBy");
+
+        if (!conversation.participants.length) {
+          await ConversationModel.deleteOne({ _id: conversation._id });
+          return;
+        }
+
+        await conversation.save();
+      })
+    );
+
+    await DocumentModel.deleteMany({
+      ownerType: "driver",
+      ownerId: userId
+    });
+
+    await NotificationModel.updateMany(
+      {},
+      {
+        $pull: {
+          readBy: userId
+        }
+      }
+    );
+
+    return true;
+  }
+
+  async function getDocumentsForUser(user) {
+    const tenantFilter = [getOrganizationQuery(user)];
+    const filter =
+      user.role === "driver"
+        ? {
+            $and: [
+              ...tenantFilter,
+              {
+                $or: [
+                  { ownerType: "driver", ownerId: user.id },
+                  { ownerType: "vehicle", ownerId: user.vehicleId }
+                ]
+              }
+            ]
+          }
+        : { $and: tenantFilter };
+
+    const [documents, users, vehicles, routes] = await Promise.all([
+      DocumentModel.find(filter).sort({ expiresAt: 1 }).lean(),
+      UserModel.find().lean(),
+      VehicleModel.find().lean(),
+      RouteModel.find().lean()
+    ]);
+
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+    const routeMap = new Map(routes.map((entry) => [entry._id, serializeRoute(entry)]));
+    const vehicleMap = new Map(vehicles.map((entry) => [entry._id, entry]));
+
+    return Promise.all(
+      documents.map(async (document) => {
+        const plain = serializeDocument(document);
+
+        return {
+          ...plain,
+          owner:
+            plain.ownerType === "driver"
+              ? userMap.get(plain.ownerId) || null
+              : await enrichVehicle(vehicleMap.get(plain.ownerId), routeMap, userMap)
+        };
+      })
+    );
+  }
+
+  async function getDocumentByStorageKey(storageKey) {
+    const document = await DocumentModel.findOne({
+      storageKey: String(storageKey || "").trim()
+    }).lean();
+
+    return document ? serializeDocument(document) : null;
+  }
+
+  async function listDocuments(filters = {}) {
+    const query = {};
+
+    if (filters.ownerType) {
+      query.ownerType = filters.ownerType;
+    }
+
+    if (filters.reviewStatus) {
+      query.reviewStatus = filters.reviewStatus;
+    }
+
+    if (filters.organizationId) {
+      query.organizationId = filters.organizationId;
+    }
+
+    const [documents, users, vehicles, routes] = await Promise.all([
+      DocumentModel.find(query).sort({ expiresAt: 1 }).lean(),
+      UserModel.find().lean(),
+      VehicleModel.find().lean(),
+      RouteModel.find().lean()
+    ]);
+
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+    const routeMap = new Map(routes.map((entry) => [entry._id, serializeRoute(entry)]));
+    const vehicleMap = new Map(vehicles.map((entry) => [entry._id, entry]));
+
+    return await Promise.all(
+      documents.map(async (document) => {
+        const plain = serializeDocument(document);
+
+        return {
+          ...plain,
+          owner:
+            plain.ownerType === "driver"
+              ? userMap.get(plain.ownerId) || null
+              : await enrichVehicle(vehicleMap.get(plain.ownerId), routeMap, userMap)
+        };
+      })
+    );
+  }
+
+  async function getNotificationsForUser(user) {
+    const organizationId = getUserOrganizationId(user);
+    const organizationQuery = getOrganizationQuery(user);
+    const roleAudience = canAccessAllOrganizations(user)
+      ? { targetRoles: user.role }
+      : { organizationId, targetRoles: user.role };
+    const notifications = await NotificationModel.find({
+      ...organizationQuery,
+      $or: [
+        roleAudience,
+        { targetUserIds: user.id }
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return notifications.map((notification) => {
+      const plain = serializeNotification(notification);
+
+      return {
+        ...plain,
+        isRead: plain.readBy.includes(user.id)
+      };
+    });
+  }
+
+  async function markNotificationAsRead(notificationId, userId) {
+    const user = await UserModel.findById(userId).lean();
+    const allowedNotificationIds = new Set(
+      (user ? await getNotificationsForUser(user) : []).map((notification) => notification.id)
+    );
+
+    if (!allowedNotificationIds.has(notificationId)) {
+      return null;
+    }
+
+    const notification = await NotificationModel.findByIdAndUpdate(
+      notificationId,
+      {
+        $addToSet: {
+          readBy: userId
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!notification) {
+      return null;
+    }
+
+    const plain = serializeNotification(notification);
+    return {
+      ...plain,
+      isRead: true
+    };
+  }
+
+  async function createNotification(payload) {
+    const notification = await NotificationModel.create({
+      _id: randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      title: String(payload.title || "").trim(),
+      body: String(payload.body || "").trim(),
+      level: String(payload.level || "info").trim() || "info",
+      targetRoles: Array.isArray(payload.targetRoles) ? payload.targetRoles : [],
+      targetUserIds: Array.isArray(payload.targetUserIds) ? payload.targetUserIds : [],
+      category: String(payload.category || "system").trim() || "system",
+      data: payload.data || null,
+      createdAt: new Date(),
+      readBy: []
+    });
+
+    return serializeNotification(notification);
+  }
+
+  async function registerPushSubscription(userId, payload) {
+    const safeToken = String(payload?.token || "").trim();
+
+    if (!safeToken) {
+      throw new Error("El token push es obligatorio");
+    }
+
+    const user = await UserModel.findById(userId);
+
+    if (!user) {
+      throw new Error("Usuario no encontrado");
+    }
+
+    const currentSubscriptions = Array.isArray(user.pushSubscriptions)
+      ? user.pushSubscriptions.map((entry) => ({
+          token: String(entry.token || "").trim(),
+          platform: String(entry.platform || "unknown").trim() || "unknown",
+          deviceName: String(entry.deviceName || "").trim(),
+          updatedAt: entry.updatedAt || new Date()
+        }))
+      : [];
+
+    const nextSubscriptions = [
+      {
+        token: safeToken,
+        platform: String(payload?.platform || "unknown").trim() || "unknown",
+        deviceName: String(payload?.deviceName || "").trim(),
+        updatedAt: new Date()
+      },
+      ...currentSubscriptions.filter((entry) => entry.token !== safeToken)
+    ].slice(0, 8);
+
+    user.pushSubscriptions = nextSubscriptions;
+    user.markModified("pushSubscriptions");
+    await user.save();
+
+    return nextSubscriptions;
+  }
+
+  async function unregisterPushSubscription(userId, token) {
+    const safeToken = String(token || "").trim();
+
+    if (!safeToken) {
+      return [];
+    }
+
+    const user = await UserModel.findById(userId);
+
+    if (!user) {
+      return [];
+    }
+
+    user.pushSubscriptions = (user.pushSubscriptions || []).filter(
+      (entry) => String(entry.token || "").trim() !== safeToken
+    );
+    user.markModified("pushSubscriptions");
+    await user.save();
+
+    return user.pushSubscriptions;
+  }
+
+  async function getUserE2eeBackup(userId, deviceId = "") {
+    const user = await UserModel.findById(userId).lean();
+
+    if (!user) {
+      return null;
+    }
+
+    const safeDeviceId = String(deviceId || "").trim();
+    const backups = Array.isArray(user.e2eeBackups) ? user.e2eeBackups : [];
+    const targetBackup =
+      backups.find((entry) => String(entry.deviceId || "").trim() === safeDeviceId) ||
+      backups
+        .slice()
+        .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))[0] ||
+      null;
+
+    return serializeE2eeBackupEntry(targetBackup, true);
+  }
+
+  async function upsertUserE2eeBackup(userId, payload) {
+    const deviceId = String(payload?.deviceId || "").trim();
+
+    if (!deviceId) {
+      throw new Error("deviceId es obligatorio para el respaldo E2EE");
+    }
+
+    const user = await UserModel.findById(userId);
+
+    if (!user) {
+      throw new Error("Usuario no encontrado");
+    }
+
+    const nextEntry = {
+      deviceId,
+      publicKey: String(payload.publicKey || user.e2eePublicKey || "").trim(),
+      backupCipher: String(payload.backupCipher || "").trim(),
+      backupVersion: String(payload.backupVersion || "secretbox-v1").trim() || "secretbox-v1",
+      platform: String(payload.platform || "unknown").trim() || "unknown",
+      label: String(payload.label || "").trim(),
+      updatedAt: new Date(),
+      restoredAt: payload.restoredAt ? new Date(payload.restoredAt) : null
+    };
+
+    const currentBackups = Array.isArray(user.e2eeBackups)
+      ? user.e2eeBackups.map((entry) => ({
+          deviceId: String(entry.deviceId || "").trim(),
+          publicKey: String(entry.publicKey || "").trim(),
+          backupCipher: String(entry.backupCipher || "").trim(),
+          backupVersion: String(entry.backupVersion || "secretbox-v1").trim() || "secretbox-v1",
+          platform: String(entry.platform || "unknown").trim() || "unknown",
+          label: String(entry.label || "").trim(),
+          updatedAt: entry.updatedAt || new Date(),
+          restoredAt: entry.restoredAt || null
+        }))
+      : [];
+
+    user.e2eeBackups = [nextEntry, ...currentBackups.filter((entry) => entry.deviceId !== deviceId)].slice(0, 8);
+    user.markModified("e2eeBackups");
+
+    if (nextEntry.publicKey && nextEntry.publicKey !== user.e2eePublicKey) {
+      user.e2eePublicKey = nextEntry.publicKey;
+      user.e2eeKeyRotatedAt = nextEntry.updatedAt;
+    }
+
+    await user.save();
+
+    return serializeE2eeBackupEntry(nextEntry, true);
+  }
+
+  async function listPushSubscriptionsForUsers(userIds = []) {
+    const safeUserIds = Array.from(
+      new Set((Array.isArray(userIds) ? userIds : []).map((entry) => String(entry || "").trim()).filter(Boolean))
+    );
+
+    if (!safeUserIds.length) {
+      return [];
+    }
+
+    const users = await UserModel.find({
+      _id: { $in: safeUserIds },
+      "pushSubscriptions.0": { $exists: true }
+    }).lean();
+
+    return users.flatMap((entry) =>
+      (entry.pushSubscriptions || []).map((subscription) => ({
+        userId: entry._id,
+        role: entry.role,
+        name: entry.name,
+        token: String(subscription.token || "").trim(),
+        platform: String(subscription.platform || "unknown").trim() || "unknown",
+        deviceName: String(subscription.deviceName || "").trim()
+      }))
+    );
+  }
+
+  async function listPushSubscriptionsForRoles(roles = [], organizationId = "") {
+    const safeRoles = Array.from(
+      new Set((Array.isArray(roles) ? roles : []).map((entry) => String(entry || "").trim()).filter(Boolean))
+    );
+
+    if (!safeRoles.length) {
+      return [];
+    }
+
+    const users = await UserModel.find({
+      role: { $in: safeRoles },
+      organizationId: String(organizationId || "").trim(),
+      "pushSubscriptions.0": { $exists: true }
+    }).lean();
+
+    return users.flatMap((entry) =>
+      (entry.pushSubscriptions || []).map((subscription) => ({
+        userId: entry._id,
+        role: entry.role,
+        name: entry.name,
+        token: String(subscription.token || "").trim(),
+        platform: String(subscription.platform || "unknown").trim() || "unknown",
+        deviceName: String(subscription.deviceName || "").trim()
+      }))
+    );
+  }
+
+  async function recordAppEvent(payload) {
+    const type = String(payload?.type || "").trim();
+
+    if (!type) {
+      return null;
+    }
+
+    const event = await AppEventModel.create({
+      _id: randomUUID(),
+      type,
+      scope: String(payload.scope || "system").trim() || "system",
+      level: String(payload.level || "info").trim() || "info",
+      status: String(payload.status || "ok").trim() || "ok",
+      route: String(payload.route || "").trim(),
+      method: String(payload.method || "").trim(),
+      userId: payload.userId ? String(payload.userId).trim() : null,
+      entityId: payload.entityId ? String(payload.entityId).trim() : null,
+      message: String(payload.message || "").trim(),
+      durationMs: Math.max(0, Number(payload.durationMs) || 0),
+      metadata: payload.metadata || null,
+      createdAt: new Date()
+    });
+
+    return toPlain(event);
+  }
+
+  async function getOperationalInsights({ hours = 24, limit = 10 } = {}) {
+    const safeHours = Math.max(1, Number(hours) || 24);
+    const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
+    const since = new Date(Date.now() - safeHours * 60 * 60 * 1000);
+
+    const [
+      apiErrors,
+      slowRequests,
+      pushDelivered,
+      pushFailed,
+      checkoutEvents,
+      latestEvents,
+      activeCriticalIncidents,
+      recentRtcSessions
+    ] = await Promise.all([
+      AppEventModel.countDocuments({
+        scope: "api",
+        createdAt: { $gte: since },
+        $or: [{ type: "api_error" }, { level: "danger" }, { level: "critical" }]
+      }),
+      AppEventModel.countDocuments({
+        type: "api_slow",
+        createdAt: { $gte: since }
+      }),
+      AppEventModel.countDocuments({
+        type: "push_sent",
+        createdAt: { $gte: since }
+      }),
+      AppEventModel.countDocuments({
+        type: "push_failed",
+        createdAt: { $gte: since }
+      }),
+      AppEventModel.countDocuments({
+        scope: "commercial",
+        createdAt: { $gte: since }
+      }),
+      AppEventModel.find({
+        createdAt: { $gte: since }
+      })
+        .sort({ createdAt: -1 })
+        .limit(safeLimit)
+        .lean(),
+      IncidentModel.countDocuments({
+        status: { $ne: "resolved" },
+        severity: "critical"
+      }),
+      RtcSessionModel.find({})
+        .sort({ startedAt: -1 })
+        .limit(20)
+        .lean()
+    ]);
+
+    const completedRtcSessions = recentRtcSessions.filter((entry) => entry.status === "completed");
+    const averageRtcDurationSeconds = completedRtcSessions.length
+      ? Math.round(
+          completedRtcSessions.reduce((sum, entry) => sum + Number(entry.durationSeconds || 0), 0) /
+            completedRtcSessions.length
+        )
+      : 0;
+
+    return {
+      windowHours: safeHours,
+      apiErrors,
+      slowRequests,
+      pushDelivered,
+      pushFailed,
+      checkoutEvents,
+      activeCriticalIncidents,
+      rtc: {
+        recentSessions: recentRtcSessions.length,
+        completedSessions: completedRtcSessions.length,
+        averageDurationSeconds: averageRtcDurationSeconds
+      },
+      recentEvents: latestEvents.map((entry) => toPlain(entry))
+    };
+  }
+
+  async function getFleetSummary(user = null) {
+    const [vehicles, routes, users] = await Promise.all([
+      VehicleModel.find({
+        ...getOrganizationQuery(user),
+        ...(user?.role === "driver" ? { _id: user.vehicleId } : {})
+      }).lean(),
+      RouteModel.find().lean(),
+      UserModel.find().lean()
+    ]);
+
+    const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return vehicles.map((vehicle) => {
+      const plain = serializeVehicle(vehicle);
+      const route = routeMap.get(plain.routeId);
+      const driver = userMap.get(plain.driverId);
+
+      return {
+        ...plain,
+        routeName: route?.name || "Sin ruta",
+        routeCode: route?.code || "N/A",
+        routeColor: route?.color || "#8892b0",
+        driverName: driver?.name || "Pendiente asignacion"
+      };
+    });
+  }
+
+  async function getLiveLocations() {
+    const [fleet, routes, incidents] = await Promise.all([
+      getFleetSummary(),
+      RouteModel.find().lean(),
+      IncidentModel.find({ status: { $ne: "resolved" } }).lean()
+    ]);
+
+    const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
+    const fleetMap = new Map(fleet.map((vehicle) => [vehicle.id, vehicle]));
+
+    return {
+      updatedAt: new Date().toISOString(),
+      center: {
+        latitude: 19.4326,
+        longitude: -99.1332
+      },
+      routes: routes.map((route) => serializeRoute(route)),
+      vehicles: fleet,
+      incidents: incidents.map((incident) => {
+        const plain = serializeIncident(incident);
+
+        return {
+          ...plain,
+          route: routeMap.get(plain.routeId) || null,
+          vehicle: fleetMap.get(plain.vehicleId) || null
+        };
+      })
+    };
+  }
+
+  async function getDashboardOverview(user) {
+    const organizationQuery = getOrganizationQuery(user);
+    const [fleet, incidents, documents, notifications] = await Promise.all([
+      getFleetSummary(user),
+      IncidentModel.find({
+        ...organizationQuery,
+        status: { $ne: "resolved" },
+        ...(user.role === "driver"
+          ? {
+              $or: [
+                { reporterId: user.id },
+                { vehicleId: user.vehicleId }
+              ]
+            }
+          : {})
+      }).lean(),
+      DocumentModel.find(organizationQuery).lean(),
+      getNotificationsForUser(user)
+    ]);
+
+    const activeVehicles = fleet.filter((vehicle) => vehicle.status === "on-route");
+    const averageOccupancy = activeVehicles.length
+      ? Math.round(
+          activeVehicles.reduce(
+            (sum, vehicle) => sum + vehicle.occupancy / vehicle.capacity,
+            0
+          ) * 100 / activeVehicles.length
+        )
+      : 0;
+
+    const expiringDocuments = documents.filter(
+      (document) =>
+        new Date(document.expiresAt).getTime() - Date.now() <= 14 * 24 * 60 * 60 * 1000
+    );
+
+    const baseMetrics = [
+      {
+        id: "units-on-route",
+        label: "Unidades activas",
+        value: `${activeVehicles.length}/${fleet.length}`,
+        trend: "+1 vs ayer",
+        tone: "positive"
+      },
+      {
+        id: "punctuality",
+        label: "Puntualidad",
+        value: `${Math.max(84, 96 - incidents.length * 4)}%`,
+        trend: incidents.length > 1 ? "Atencion en ruta R-21" : "Operacion estable",
+        tone: incidents.length > 1 ? "warning" : "positive"
+      },
+      {
+        id: "occupancy",
+        label: "Aforo promedio",
+        value: `${averageOccupancy}%`,
+        trend: averageOccupancy > 75 ? "Carga alta en hora pico" : "Carga controlada",
+        tone: averageOccupancy > 75 ? "warning" : "info"
+      },
+      {
+        id: "documents",
+        label: "Documentos urgentes",
+        value: `${expiringDocuments.length}`,
+        trend: "Requieren seguimiento",
+        tone: expiringDocuments.length ? "danger" : "positive"
+      }
+    ];
+
+    const roleHero = {
+      admin: {
+        eyebrow: "Centro de control",
+        title: "Visibilidad total de la flotilla en un vistazo",
+        description: "Monitorea unidades, incidencias y documentos con una sola consola movil."
+      },
+      supervisor: {
+        eyebrow: "Operacion en campo",
+        title: "Prioriza retrasos, bloqueos y checklist criticos",
+        description: "Resuelve incidencias antes de que peguen en el servicio."
+      },
+      driver: {
+        eyebrow: "Cabina",
+        title: "Tu turno, tu ruta y tu respaldo operativo",
+        description: "Consulta tu avance, reporta incidencias y mantente comunicado sin distraerte."
+      }
+    };
+
+    const tailoredFleet =
+      user.role === "driver" && user.vehicleId
+        ? fleet.filter((vehicle) => vehicle.id === user.vehicleId)
+        : fleet;
+
+    const alerts = [
+      ...incidents.map((incident) => {
+        const plain = serializeIncident(incident);
+
+        return buildAlert(plain.title, plain.severity, {
+          subtitle: plain.description,
+          status: plain.status
+        });
+      }),
+      ...expiringDocuments.slice(0, 2).map((document) => {
+        const plain = serializeDocument(document);
+
+        return buildAlert(plain.name, plain.status === "vencido" ? "danger" : "warning", {
+          subtitle: `Vence ${new Date(plain.expiresAt).toLocaleDateString("es-MX")}`,
+          status: plain.status
+        });
+      })
+    ].slice(0, 5);
+
+    return {
+      hero: roleHero[user.role] || roleHero.admin,
+      metrics: baseMetrics,
+      fleet: tailoredFleet,
+      alerts,
+      notifications: notifications.slice(0, 4),
+      shift: {
+        label: user.shift,
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        nextCheckpointInMinutes: user.role === "driver" ? 12 : 18
+      }
+    };
+  }
+
+  async function getUserProfile(userId) {
+    const [user, vehicle] = await Promise.all([
+      UserModel.findById(userId).lean(),
+      UserModel.findById(userId)
+        .lean()
+        .then(async (entry) => {
+          if (!entry?.vehicleId) {
+            return null;
+          }
+
+          const [vehicleDoc, routeDoc, driverDoc] = await Promise.all([
+            VehicleModel.findOne({
+              _id: entry.vehicleId,
+              ...getOrganizationQuery(entry)
+            }).lean(),
+            VehicleModel.findOne({
+              _id: entry.vehicleId,
+              ...getOrganizationQuery(entry)
+            })
+              .lean()
+              .then((vehicleEntry) =>
+                vehicleEntry?.routeId ? RouteModel.findById(vehicleEntry.routeId).lean() : null
+              ),
+            VehicleModel.findOne({
+              _id: entry.vehicleId,
+              ...getOrganizationQuery(entry)
+            })
+              .lean()
+              .then((vehicleEntry) =>
+                vehicleEntry?.driverId ? UserModel.findById(vehicleEntry.driverId).lean() : null
+              )
+          ]);
+
+          const routeMap = new Map(routeDoc ? [[routeDoc._id, serializeRoute(routeDoc)]] : []);
+          const userMap = new Map(driverDoc ? [[driverDoc._id, sanitizeUser(driverDoc)]] : []);
+
+          return enrichVehicle(vehicleDoc, routeMap, userMap);
+        })
+    ]);
+
+    const safeUser = sanitizeUser(user);
+
+    return {
+      user: safeUser,
+      vehicle,
+      documents: safeUser ? await getDocumentsForUser(safeUser) : []
+    };
+  }
+
+  async function listIncidents(user) {
+    const filter = {
+      ...getOrganizationQuery(user),
+      ...(user.role === "driver"
+        ? {
+            $or: [
+              { reporterId: user.id },
+              { vehicleId: user.vehicleId }
+            ]
+          }
+        : {})
+    };
+
+    const [incidents, routes, vehicles, users] = await Promise.all([
+      IncidentModel.find(filter).sort({ createdAt: -1 }).lean(),
+      RouteModel.find().lean(),
+      VehicleModel.find().lean(),
+      UserModel.find().lean()
+    ]);
+
+    const routeMap = new Map(routes.map((entry) => [entry._id, serializeRoute(entry)]));
+    const vehicleMap = new Map(vehicles.map((entry) => [entry._id, serializeVehicle(entry)]));
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return incidents.map((incident) => {
+      const plain = serializeIncident(incident);
+
+      return {
+        ...plain,
+        route: routeMap.get(plain.routeId) || null,
+        vehicle: vehicleMap.get(plain.vehicleId) || null,
+        reporter: userMap.get(plain.reporterId) || null
+      };
+    });
+  }
+
+  async function createIncident(user, payload) {
+    const fleet = await getFleetSummary(user);
+    const assignedVehicleId =
+      payload.vehicleId ||
+      user.vehicleId ||
+      fleet.find((vehicle) => vehicle.driverId === user.id)?.id;
+    const assignedVehicle = fleet.find((vehicle) => vehicle.id === assignedVehicleId);
+    const routeId = payload.routeId || assignedVehicle?.routeId;
+
+    const incident = await IncidentModel.create({
+      _id: randomUUID(),
+      organizationId: getUserOrganizationId(user) || String(assignedVehicle?.organizationId || "").trim(),
+      title: payload.title,
+      type: payload.type,
+      severity: payload.severity || "medium",
+      status: "open",
+      routeId: routeId || (await RouteModel.findOne().lean())?._id,
+      vehicleId: assignedVehicleId || null,
+      reporterId: user.id,
+      description: payload.description,
+      createdAt: new Date(),
+      updatedAt: null,
+      media: payload.media || []
+    });
+
+    return serializeIncident(incident);
+  }
+
+  async function createVehicle(payload) {
+    const routeId =
+      String(payload.routeId || "").trim() ||
+      (await RouteModel.findOne().lean())?._id ||
+      "route-1";
+    const vehicle = await VehicleModel.create({
+      _id: String(payload.id || "").trim() || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      code: String(payload.code || "").trim(),
+      plate: String(payload.plate || "").trim(),
+      routeId,
+      driverId: String(payload.driverId || "").trim() || null,
+      supervisorId: String(payload.supervisorId || "").trim() || null,
+      status: String(payload.status || "available").trim() || "available",
+      occupancy: Math.max(0, Number(payload.occupancy) || 0),
+      capacity: Math.max(1, Number(payload.capacity) || 18),
+      etaMinutes: null,
+      delayMinutes: 0,
+      speed: 0,
+      fuel: Math.max(0, Math.min(100, Number(payload.fuel) || 100)),
+      updatedAt: new Date(),
+      location: payload.location || {
+        latitude: 19.4326,
+        longitude: -99.1332
+      },
+      assignedRoute: null
+    });
+
+    return enrichVehicle(vehicle.toObject());
+  }
+
+  async function updateIncidentStatus(incidentId, status) {
+    const incident = await IncidentModel.findByIdAndUpdate(
+      incidentId,
+      {
+        $set: {
+          status,
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return serializeIncident(incident);
+  }
+
+  async function getConversationById(conversationId) {
+    const conversation = await ConversationModel.findById(conversationId).lean();
+    return serializeConversation(conversation);
+  }
+
+  async function canUserAccessConversation(userId, conversationOrId) {
+    const [user, conversation] = await Promise.all([
+      UserModel.findById(userId).lean(),
+      typeof conversationOrId === "string"
+        ? ConversationModel.findById(conversationOrId).lean()
+        : Promise.resolve(conversationOrId)
+    ]);
+    const organizationId = getUserOrganizationId(user);
+
+    return Boolean(
+      user &&
+      conversation &&
+      organizationId &&
+      String(conversation.organizationId || "").trim() === organizationId &&
+      conversation.participants.includes(userId)
+    );
+  }
+
+  async function ensureCoreConversation({
+    id,
+    organizationId,
+    title,
+    description,
+    channelMode = "chat"
+  }) {
+    const users = await UserModel.find({ organizationId }).lean();
+    const participantIds = users.map((entry) => entry._id);
+    const unreadSeed = {};
+
+    participantIds.forEach((participantId) => {
+      unreadSeed[participantId] = 0;
+    });
+
+    const existingConversation = await ConversationModel.findById(id);
+
+    if (!existingConversation) {
+      const defaultSender = users.find((entry) => entry.role === "admin") || users[0];
+      const welcomeText =
+        channelMode === "radio"
+          ? "Canal general de radio listo. Usa notas de voz para coordinacion rapida."
+          : "Canal general listo. Aqui puede coordinarse toda la operacion.";
+      const welcomeMessage = defaultSender
+        ? buildStoredChatMessage(defaultSender._id, {
+            kind: "text",
+            text: welcomeText
+          })
+        : null;
+
+      await ConversationModel.create({
+        _id: id,
+        organizationId,
+        title,
+        kind: "group",
+        channelMode: normalizeConversationChannelMode(channelMode),
+        description: String(description || "").trim(),
+        encrypted: true,
+        participants: participantIds,
+        unreadBy: unreadSeed,
+        messages: welcomeMessage ? [welcomeMessage] : []
+      });
+
+      return;
+    }
+
+    const unreadBy = {
+      ...unreadSeed,
+      ...toUnreadByObject(existingConversation.unreadBy)
+    };
+
+    existingConversation.title = title;
+    existingConversation.organizationId = organizationId;
+    existingConversation.kind = "group";
+    existingConversation.channelMode = normalizeConversationChannelMode(channelMode);
+    existingConversation.description = String(description || "").trim();
+    existingConversation.encrypted = true;
+    existingConversation.participants = participantIds;
+    existingConversation.unreadBy = new Map(Object.entries(unreadBy));
+    existingConversation.markModified("unreadBy");
+    await existingConversation.save();
+  }
+
+  async function ensureCoreChatConversations(userId) {
+    const user = await UserModel.findById(userId).lean();
+    const organizationId = getUserOrganizationId(user);
+
+    if (!organizationId) {
+      throw new Error("La cuenta no tiene organizacion asignada");
+    }
+
+    await ensureCoreConversation({
+      id: `conversation-ops:${organizationId}`,
+      organizationId,
+      title: "General operativo",
+      description: "Canal grupal para anuncios, estado de ruta y coordinacion de toda la operacion.",
+      channelMode: "chat"
+    });
+    await ensureCoreConversation({
+      id: `conversation-radio-general:${organizationId}`,
+      organizationId,
+      title: "Radio general",
+      description: "Canal de radio para notas de voz cortas, avisos y coordinacion inmediata.",
+      channelMode: "radio"
+    });
+
+    return {
+      chatConversationId: `conversation-ops:${organizationId}`,
+      organizationId,
+      radioConversationId: `conversation-radio-general:${organizationId}`
+    };
+  }
+
+  async function listChatContactsForUser(userId) {
+    const currentUser = await UserModel.findById(userId).lean();
+    const organizationId = getUserOrganizationId(currentUser);
+    const [users, conversations] = await Promise.all([
+      UserModel.find({ _id: { $ne: userId }, organizationId }).lean(),
+      ConversationModel.find({
+        kind: "direct",
+        organizationId,
+        participants: userId
+      }).lean()
+    ]);
+
+    return users
+      .map((entry) => {
+        const safeUser = sanitizeUser(entry);
+        const directConversation = conversations.find(
+          (conversation) =>
+            normalizeConversationChannelMode(conversation.channelMode) === "chat" &&
+            conversation.participants.includes(entry._id)
+        );
+        const radioConversation = conversations.find(
+          (conversation) =>
+            normalizeConversationChannelMode(conversation.channelMode) === "radio" &&
+            conversation.participants.includes(entry._id)
+        );
+
+        return {
+          ...safeUser,
+          directConversationId: directConversation?._id || null,
+          radioConversationId: radioConversation?._id || null
+        };
+      })
+      .sort((left, right) => {
+        const leftRoleOrder = { admin: 0, supervisor: 1, driver: 2 }[left.role] ?? 99;
+        const rightRoleOrder = { admin: 0, supervisor: 1, driver: 2 }[right.role] ?? 99;
+
+        if (leftRoleOrder !== rightRoleOrder) {
+          return leftRoleOrder - rightRoleOrder;
+        }
+
+        return left.name.localeCompare(right.name, "es-MX");
+      });
+  }
+
+  async function ensureGeneralConversation(userId, channelMode = "chat") {
+    const core = await ensureCoreChatConversations(userId);
+    const conversationId =
+      normalizeConversationChannelMode(channelMode) === "radio"
+        ? core.radioConversationId
+        : core.chatConversationId;
+    const [conversation, users] = await Promise.all([
+      ConversationModel.findById(conversationId).lean(),
+      UserModel.find({ organizationId: core.organizationId }).lean()
+    ]);
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return buildConversationSummary(conversation, userId, userMap);
+  }
+
+  async function ensureDirectConversation(userId, targetUserId, { channelMode = "chat" } = {}) {
+    const safeTargetUserId = String(targetUserId || "").trim();
+
+    if (!safeTargetUserId || safeTargetUserId === userId) {
+      throw new Error("Selecciona otro participante para abrir el canal");
+    }
+
+    const [sourceUser, targetUser] = await Promise.all([
+      UserModel.findById(userId).lean(),
+      UserModel.findById(safeTargetUserId).lean()
+    ]);
+
+    if (!sourceUser || !targetUser) {
+      throw new Error("Participante no encontrado");
+    }
+
+    const organizationId = getUserOrganizationId(sourceUser);
+
+    if (!organizationId || getUserOrganizationId(targetUser) !== organizationId) {
+      throw new Error("Participante no encontrado");
+    }
+
+    const normalizedChannelMode = normalizeConversationChannelMode(channelMode);
+    const directConversations = await ConversationModel.find({
+      kind: "direct",
+      organizationId,
+      channelMode: normalizedChannelMode,
+      participants: { $all: [userId, safeTargetUserId] }
+    });
+    const existingConversation = directConversations.find(
+      (conversation) => conversation.participants.length === 2
+    );
+
+    if (existingConversation) {
+      const userMap = new Map([
+        [sourceUser._id, sanitizeUser(sourceUser)],
+        [targetUser._id, sanitizeUser(targetUser)]
+      ]);
+
+      return buildConversationSummary(existingConversation.toObject(), userId, userMap);
+    }
+
+    const unreadBy = {
+      [userId]: 0,
+      [safeTargetUserId]: 0
+    };
+    const titlePrefix = normalizedChannelMode === "radio" ? "Radio directo" : "Directo";
+    const conversation = await ConversationModel.create({
+      _id: randomUUID(),
+      organizationId,
+      title: `${titlePrefix}: ${targetUser.name}`,
+      kind: "direct",
+      channelMode: normalizedChannelMode,
+      description:
+        normalizedChannelMode === "radio"
+          ? `Canal de voz directo entre ${sourceUser.name} y ${targetUser.name}.`
+          : `Conversacion directa entre ${sourceUser.name} y ${targetUser.name}.`,
+      encrypted: true,
+      participants: [userId, safeTargetUserId],
+      unreadBy,
+      messages: [
+        buildStoredChatMessage(userId, {
+          kind: "text",
+          text:
+            normalizedChannelMode === "radio"
+              ? `Canal de radio abierto con ${targetUser.name}.`
+              : `Canal directo abierto con ${targetUser.name}.`
+        })
+      ]
+    });
+    const userMap = new Map([
+      [sourceUser._id, sanitizeUser(sourceUser)],
+      [targetUser._id, sanitizeUser(targetUser)]
+    ]);
+
+    return buildConversationSummary(conversation.toObject(), userId, userMap);
+  }
+
+  async function getConversationsForUser(userId) {
+    const core = await ensureCoreChatConversations(userId);
+
+    const [conversations, users] = await Promise.all([
+      ConversationModel.find({ participants: userId, organizationId: core.organizationId }).lean(),
+      UserModel.find({ organizationId: core.organizationId }).lean()
+    ]);
+
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return sortConversationsByActivity(
+      conversations.map((conversation) => buildConversationSummary(conversation, userId, userMap))
+    );
+  }
+
+  async function getMessages(conversationId, userId) {
+    const conversation = await ConversationModel.findById(conversationId);
+
+    if (!conversation || !(await canUserAccessConversation(userId, conversation))) {
+      return null;
+    }
+
+    const unreadBy = toUnreadByObject(conversation.unreadBy);
+    unreadBy[userId] = 0;
+    conversation.unreadBy = new Map(Object.entries(unreadBy));
+    conversation.markModified("unreadBy");
+    await conversation.save();
+
+    const users = await UserModel.find({
+      _id: { $in: conversation.messages.map((message) => message.senderId) }
+    }).lean();
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return conversation.messages.map((message) =>
+      serializeChatMessageEntry(message, conversationId, userMap)
+    );
+  }
+
+  async function addMessage(conversationId, senderId, input) {
+    const conversation = await ConversationModel.findById(conversationId);
+
+    if (!conversation || !(await canUserAccessConversation(senderId, conversation))) {
+      return null;
+    }
+
+    const message = buildStoredChatMessage(senderId, input);
+
+    conversation.messages.push(message);
+    const unreadBy = toUnreadByObject(conversation.unreadBy);
+    conversation.participants
+      .filter((participantId) => participantId !== senderId)
+      .forEach((participantId) => {
+        unreadBy[participantId] = (unreadBy[participantId] || 0) + 1;
+      });
+    conversation.unreadBy = new Map(Object.entries(unreadBy));
+    conversation.markModified("unreadBy");
+    await conversation.save();
+
+    const sender = await UserModel.findById(senderId).lean();
+
+    return {
+      ...serializeChatMessageEntry(message, conversationId),
+      sender: sanitizeUser(sender)
+    };
+  }
+
+  async function canUserAccessChatMedia(userId, storageKey) {
+    const mediaPath = `/api/chat/media/${encodeURIComponent(String(storageKey || "").trim())}`;
+    const user = await UserModel.findById(userId).lean();
+    const organizationId = getUserOrganizationId(user);
+    const conversations = await ConversationModel.find({ participants: userId, organizationId }).lean();
+
+    return conversations.some((conversation) =>
+      conversation.messages.some((message) => {
+        const payload = decryptChatPayload(message.payloadEncrypted);
+        return payload?.audioUrl === mediaPath;
+      })
+    );
+  }
+
+  async function updateVehicleLocation({ vehicleId, coordinates, speed }) {
+    const update = {
+      location: {
+        latitude: Number(coordinates.latitude),
+        longitude: Number(coordinates.longitude)
+      },
+      updatedAt: new Date()
+    };
+
+    if (typeof speed === "number") {
+      update.speed = speed;
+    }
+
+    const vehicle = await VehicleModel.findByIdAndUpdate(
+      vehicleId,
+      {
+        $set: update
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!vehicle) {
+      return null;
+    }
+
+    return enrichVehicle(vehicle);
+  }
+
+  async function assignRouteToVehicle({ vehicleId, assignment }) {
+    const vehicle = await VehicleModel.findByIdAndUpdate(
+      vehicleId,
+      {
+        $set: {
+          assignedRoute: assignment,
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!vehicle) {
+      return null;
+    }
+
+    return enrichVehicle(vehicle);
+  }
+
+  return {
+    addMessage,
+    assignRouteToVehicle,
+    authenticate,
+    canUserAccessConversation,
+    canUserAccessChatMedia,
+    createActivationKey,
+    createNotification,
+    createCommercialOrder,
+    createIncident,
+    createRtcSession,
+    createVehicle,
+    createUser,
+    deleteUser,
+    ensureDirectConversation,
+    ensureGeneralConversation,
+    findCommercialOrderByExternalReference,
+    findActivationKeyByKey,
+    findUserByEmail,
+    getConversationById,
+    getConversationsForUser,
+    getDashboardOverview,
+    getDocumentByStorageKey,
+    getDocumentsForUser,
+    getLiveLocations,
+    getMessages,
+    getNotificationsForUser,
+    getOperationalInsights,
+    getUserE2eeBackup,
+    getUserById,
+    getUserProfile,
+    getVehicleById,
+    getCommercialOrderById,
+    listActivationKeysForCompany,
+    listCommercialOrders,
+    listCommercialOrdersForUser,
+    listChatContactsForUser,
+    listDocuments,
+    listIncidents,
+    listPushSubscriptionsForRoles,
+    listPushSubscriptionsForUsers,
+    listRtcSessions,
+    listTripLogs,
+    listUsers,
+    markActivationKeyUsed,
+    markNotificationAsRead,
+    recordAppEvent,
+    registerPushSubscription,
+    registerUser,
+    reviewDocument,
+    upsertUserE2eeBackup,
+    unregisterPushSubscription,
+    updateIncidentStatus,
+    updateActivationKey,
+    updateUser,
+    updateVehicleLocation,
+    createDocument,
+    createTripLog,
+    updateCommercialOrder,
+    updateRtcSession
+  };
+}
+
+module.exports = {
+  createMongoStore
+};

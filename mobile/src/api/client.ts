@@ -1,0 +1,1097 @@
+import axios, { isAxiosError, type AxiosError } from 'axios';
+import {
+  API_ORIGIN as RESOLVED_API_ORIGIN,
+  API_URL as RESOLVED_API_URL,
+  SOCKET_URL as RESOLVED_SOCKET_URL,
+  mobileLog,
+  runtimeNetworkConfig,
+  wait,
+} from '@/src/api/mobile-runtime';
+import type {
+  CommercialCheckoutPayload,
+  CommercialCheckoutResult,
+  CommercialPlan,
+  DriverActivationRegisterPayload,
+  DriverActivationValidation,
+  DocumentReviewPayload,
+  E2eeBackupRecord,
+  GeoPoint,
+  ChatDirectoryContact,
+  ChatMessage,
+  ConversationChannelMode,
+  ConversationSummary,
+  DashboardData,
+  DocumentItem,
+  Incident,
+  IncidentStatus,
+  LiveLocationsData,
+  LoginResult,
+  NavigationPlaceResult,
+  NavigationPlan,
+  VehicleTripRecord,
+  NotificationItem,
+  OperationalObservabilitySnapshot,
+  PortalInvoice,
+  PortalActivationKeysResponse,
+  PortalOnboarding,
+  PortalOverview,
+  PortalPaymentMethod,
+  PortalSession,
+  PortalSubscription,
+  ProfileMutationPayload,
+  RegisterPayload,
+  RtcIceConfig,
+  RtcSessionRecord,
+  SessionResult,
+  User,
+  UserMutationPayload,
+  Vehicle,
+} from '@/src/types/app';
+
+const REQUEST_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS || 15000);
+const MAX_NETWORK_RETRIES = 2;
+const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options']);
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+let lastTraceId: string | null = null;
+let refreshTokenPromise: Promise<string | null> | null = null;
+
+type SessionRecoveryConfig = {
+  getRefreshToken: () => Promise<string | null> | string | null;
+  onTokenRefresh: (result: LoginResult) => Promise<void> | void;
+  onSessionExpired: () => Promise<void> | void;
+  onNetworkSignal?: (signal: 'online' | 'offline' | 'recovering') => void;
+};
+
+type RetryableRequestConfig = NonNullable<AxiosError['config']> & {
+  _authRetry?: boolean;
+  _retryCount?: number;
+  _skipAuthRefresh?: boolean;
+  _skipNetworkRetry?: boolean;
+  _allowRetry?: boolean;
+};
+
+type ApiErrorMessageOptions = {
+  apiUrl?: string;
+  hasInternet?: boolean | null;
+};
+
+let sessionRecoveryConfig: SessionRecoveryConfig | null = null;
+
+function generateTraceId() {
+  if (typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `trace-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function signalNetwork(signal: 'online' | 'offline' | 'recovering') {
+  sessionRecoveryConfig?.onNetworkSignal?.(signal);
+}
+
+function getRequestMethod(config: RetryableRequestConfig | undefined) {
+  return String(config?.method || 'get').toLowerCase();
+}
+
+function isNetworkLikeError(error: unknown) {
+  if (!isAxiosError(error)) {
+    return false;
+  }
+
+  return (
+    !error.response ||
+    error.code === 'ERR_NETWORK' ||
+    error.code === 'ECONNABORTED' ||
+    error.code === 'ETIMEDOUT' ||
+    /network|timeout|aborted/i.test(error.message || '')
+  );
+}
+
+function isTimeoutError(error: AxiosError) {
+  return (
+    error.code === 'ECONNABORTED' ||
+    error.code === 'ETIMEDOUT' ||
+    /timeout|timed out|aborted/i.test(error.message || '')
+  );
+}
+
+function getRequestUrl(config: AxiosError['config'] | undefined) {
+  const baseURL = config?.baseURL || RESOLVED_API_URL;
+  const url = config?.url || '';
+
+  try {
+    return new URL(url, baseURL.endsWith('/') ? baseURL : `${baseURL}/`).toString();
+  } catch {
+    return `${baseURL}${url}`;
+  }
+}
+
+function getResponseTraceId(error: AxiosError) {
+  const responseData = error.response?.data as { traceId?: unknown } | undefined;
+  const dataTraceId = responseData?.traceId;
+  const headerTraceId = error.response?.headers?.['x-trace-id'];
+  return String(dataTraceId || headerTraceId || '').trim();
+}
+
+const SENSITIVE_LOG_KEYS = new Set([
+  'authorization',
+  'password',
+  'token',
+  'refreshToken',
+  'refresh_token',
+  'backupCipher',
+]);
+
+function sanitizeForLog(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === 'undefined') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 600 ? `${value.slice(0, 600)}...` : value;
+  }
+
+  if (typeof value !== 'object') {
+    return value;
+  }
+
+  if (depth > 2) {
+    return '[Object]';
+  }
+
+  const constructorName = (value as { constructor?: { name?: string } }).constructor?.name;
+
+  if (constructorName === 'FormData') {
+    return '[FormData]';
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map((entry) => sanitizeForLog(entry, depth + 1));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [
+      key,
+      SENSITIVE_LOG_KEYS.has(key) ? '[redacted]' : sanitizeForLog(entryValue, depth + 1),
+    ])
+  );
+}
+
+function logHttpError(error: AxiosError) {
+  mobileLog('http', 'request failed', {
+    body: sanitizeForLog(error.response?.data),
+    code: error.code,
+    message: error.message,
+    method: String(error.config?.method || 'GET').toUpperCase(),
+    status: error.response?.status || null,
+    timeout: error.config?.timeout,
+    url: getRequestUrl(error.config),
+  });
+}
+
+export function getApiErrorMessage(
+  error: unknown,
+  fallbackMessage = 'No fue posible completar la solicitud.',
+  options: ApiErrorMessageOptions = {}
+) {
+  if (!isAxiosError(error)) {
+    return error instanceof Error ? error.message : fallbackMessage;
+  }
+
+  const apiUrl = options.apiUrl || RESOLVED_API_URL;
+  const status = error.response?.status;
+  const responseData = error.response?.data as { message?: unknown } | undefined;
+  const apiMessage = responseData?.message;
+  const traceId = getResponseTraceId(error);
+  const traceSuffix = traceId ? ` Codigo: ${traceId}` : '';
+
+  if (options.hasInternet === false && !error.response) {
+    return 'El celular no tiene internet o no esta conectado a la Wi-Fi. Conectalo a la misma red que la laptop e intenta de nuevo.';
+  }
+
+  if (isTimeoutError(error)) {
+    return `Timeout: el backend no respondio a tiempo en ${apiUrl}. Verifica que Node este encendido y que el puerto este abierto.`;
+  }
+
+  if (!error.response) {
+    if (/cleartext|not permitted|CLEARTEXT/i.test(error.message || '')) {
+      return 'Android bloqueo HTTP sin SSL. La app ya permite cleartext en desarrollo; reinstala/recompila el APK si sigues viendo este error.';
+    }
+
+    if (/handshake|ssl|certificate|cert/i.test(error.message || '')) {
+      return 'Error de SSL/handshake: el backend local esta en HTTP. Usa una URL http:// o publica un backend HTTPS valido.';
+    }
+
+    return `No se pudo conectar con el backend local en ${apiUrl}. Verifica que el servidor Node este encendido, que el puerto 5000 este permitido por Windows Firewall y que el celular este en la misma Wi-Fi.`;
+  }
+
+  if (status === 400 && typeof apiMessage === 'string' && apiMessage.trim()) {
+    return apiMessage;
+  }
+
+  if (status === 401) {
+    return typeof apiMessage === 'string' && apiMessage.trim()
+      ? apiMessage
+      : 'Credenciales incorrectas o sesión expirada.';
+  }
+
+  if (status === 403) {
+    return typeof apiMessage === 'string' && apiMessage.trim()
+      ? apiMessage
+      : 'No tienes permisos para realizar esta accion.';
+  }
+
+  if (status === 404) {
+    if (typeof apiMessage === 'string' && apiMessage.trim()) {
+      return apiMessage;
+    }
+
+    return `API no encontrada: ${getRequestUrl(error.config)}. Revisa que la ruta exista en el backend local.`;
+  }
+
+  if (status === 409 && typeof apiMessage === 'string' && apiMessage.trim()) {
+    return apiMessage;
+  }
+
+  if (status === 429) {
+    return 'Demasiados intentos. Espera un momento e intenta de nuevo.';
+  }
+
+  if (status && status >= 500) {
+    return `Error interno del servidor (${status}). Revisa la consola del backend.${traceSuffix}`;
+  }
+
+  if (typeof apiMessage === 'string' && apiMessage.trim()) {
+    return apiMessage;
+  }
+
+  return fallbackMessage;
+}
+
+function shouldRetryRequest(error: AxiosError) {
+  const config = error.config as RetryableRequestConfig | undefined;
+
+  if (!config || config._skipNetworkRetry) {
+    return false;
+  }
+
+  const retryCount = config._retryCount || 0;
+
+  if (retryCount >= MAX_NETWORK_RETRIES) {
+    return false;
+  }
+
+  const method = getRequestMethod(config);
+  const methodAllowsRetry = IDEMPOTENT_METHODS.has(method) || config._allowRetry === true;
+  const retryableStatus = error.response?.status
+    ? RETRYABLE_STATUS_CODES.has(error.response.status)
+    : false;
+
+  return methodAllowsRetry && (retryableStatus || isNetworkLikeError(error));
+}
+
+function isAuthRefreshCandidate(error: AxiosError) {
+  const config = error.config as RetryableRequestConfig | undefined;
+  const url = String(config?.url || '');
+
+  return (
+    error.response?.status === 401 &&
+    Boolean(config) &&
+    !config?._authRetry &&
+    !config?._skipAuthRefresh &&
+    !url.includes('/auth/login') &&
+    !url.includes('/auth/register') &&
+    !url.includes('/auth/logout') &&
+    !url.includes('/auth/refresh')
+  );
+}
+
+async function refreshAccessToken() {
+  if (!sessionRecoveryConfig) {
+    return null;
+  }
+
+  if (!refreshTokenPromise) {
+    refreshTokenPromise = Promise.resolve(sessionRecoveryConfig.getRefreshToken())
+      .then(async (refreshToken) => {
+        if (!refreshToken) {
+          return null;
+        }
+
+        const response = await apiClient.post<LoginResult>(
+          '/auth/refresh',
+          { refreshToken },
+          {
+            _allowRetry: true,
+            _skipAuthRefresh: true,
+          } as RetryableRequestConfig
+        );
+
+        await sessionRecoveryConfig?.onTokenRefresh(response.data);
+        setAuthToken(response.data.token);
+        return response.data.token;
+      })
+      .finally(() => {
+        refreshTokenPromise = null;
+      });
+  }
+
+  return refreshTokenPromise;
+}
+
+export const API_URL = RESOLVED_API_URL;
+export const SOCKET_URL = RESOLVED_SOCKET_URL;
+export const API_ORIGIN = RESOLVED_API_ORIGIN;
+
+export const apiClient = axios.create({
+  baseURL: API_URL,
+  timeout: REQUEST_TIMEOUT_MS,
+});
+
+mobileLog('network', 'runtime URLs resolved', runtimeNetworkConfig);
+
+apiClient.interceptors.request.use((config) => {
+  const traceId = generateTraceId();
+  lastTraceId = traceId;
+  config.headers = config.headers || {};
+  config.headers['x-trace-id'] = traceId;
+  config.headers['x-client-platform'] = runtimeNetworkConfig.platform;
+  mobileLog('http', `${String(config.method || 'GET').toUpperCase()} ${getRequestUrl(config)}`, {
+    data: sanitizeForLog(config.data),
+    params: sanitizeForLog(config.params),
+    timeout: config.timeout || REQUEST_TIMEOUT_MS,
+    traceId,
+  });
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => {
+    const traceId = String(response.headers['x-trace-id'] || '').trim();
+    if (traceId) {
+      lastTraceId = traceId;
+    }
+    mobileLog('http', `${response.status} ${String(response.config.method || 'GET').toUpperCase()} ${getRequestUrl(response.config)}`, {
+      body: sanitizeForLog(response.data),
+      traceId: traceId || lastTraceId,
+    });
+    signalNetwork('online');
+    return response;
+  },
+  async (error) => {
+    const traceId = String(error?.response?.headers?.['x-trace-id'] || '').trim();
+    if (traceId) {
+      lastTraceId = traceId;
+    }
+
+    if (!isAxiosError(error)) {
+      return Promise.reject(error);
+    }
+
+    const config = error.config as RetryableRequestConfig | undefined;
+    logHttpError(error);
+
+    if (isAuthRefreshCandidate(error)) {
+      try {
+        const nextToken = await refreshAccessToken();
+
+        if (nextToken && config) {
+          config._authRetry = true;
+          config.headers = config.headers || {};
+          config.headers.Authorization = `Bearer ${nextToken}`;
+          mobileLog('auth', 'access token refreshed after 401');
+          return apiClient(config);
+        }
+      } catch (refreshError) {
+        if (isAxiosError(refreshError) && refreshError.response?.status === 401) {
+          await sessionRecoveryConfig?.onSessionExpired();
+        }
+
+        return Promise.reject(refreshError);
+      }
+    }
+
+    if (shouldRetryRequest(error)) {
+      const retryConfig = config as RetryableRequestConfig;
+      retryConfig._retryCount = (retryConfig._retryCount || 0) + 1;
+      signalNetwork('recovering');
+      const delayMs = 650 * 2 ** (retryConfig._retryCount - 1);
+      mobileLog('network', `retrying request ${retryConfig.method || 'GET'} ${retryConfig.url}`, {
+        attempt: retryConfig._retryCount,
+        delayMs,
+      });
+      await wait(delayMs);
+      return apiClient(retryConfig);
+    }
+
+    if (isNetworkLikeError(error)) {
+      signalNetwork('offline');
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export function configureApiSessionRecovery(config: SessionRecoveryConfig | null) {
+  sessionRecoveryConfig = config;
+}
+
+export function getLastApiTraceId() {
+  return lastTraceId;
+}
+
+export function setAuthToken(token: string | null) {
+  if (token) {
+    apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+    return;
+  }
+
+  delete apiClient.defaults.headers.common.Authorization;
+}
+
+export async function loginRequest(email: string, password: string) {
+  const response = await apiClient.post<LoginResult>('/auth/login', {
+    email,
+    password,
+  });
+
+  return response.data;
+}
+
+export async function registerRequest(payload: RegisterPayload) {
+  const response = await apiClient.post<LoginResult>('/auth/register', payload);
+  return response.data;
+}
+
+export async function getSessionRequest() {
+  const response = await apiClient.get<SessionResult>('/auth/session');
+  return response.data;
+}
+
+export async function refreshSessionRequest(refreshToken: string) {
+  const response = await apiClient.post<LoginResult>('/auth/refresh', {
+    refreshToken,
+  }, {
+    _allowRetry: true,
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
+
+  return response.data;
+}
+
+export async function healthRequest() {
+  const response = await apiClient.get('/health', {
+    _allowRetry: true,
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
+
+  return response.data;
+}
+
+export async function logoutRequest(refreshToken?: string | null) {
+  await apiClient.post('/auth/logout', {
+    refreshToken,
+  });
+}
+
+export async function logoutAllRequest(keepCurrent = false) {
+  await apiClient.post('/auth/logout-all', {
+    keepCurrent,
+  });
+}
+
+export async function getE2eeBackupRequest(deviceId?: string) {
+  const response = await apiClient.get<{ ok: boolean; data: E2eeBackupRecord | null }>(
+    '/auth/e2ee-backup',
+    {
+      params: deviceId ? { deviceId } : undefined,
+    }
+  );
+
+  return response.data.data;
+}
+
+export async function upsertE2eeBackupRequest(payload: {
+  deviceId: string;
+  publicKey: string;
+  backupCipher: string;
+  backupVersion?: string;
+  platform?: string;
+  label?: string;
+  restoredAt?: string | null;
+}) {
+  const response = await apiClient.put<{ ok: boolean; data: E2eeBackupRecord }>(
+    '/auth/e2ee-backup',
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function getDashboardRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: DashboardData }>('/dashboard/overview');
+  return response.data.data;
+}
+
+export async function getLocationsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: LiveLocationsData }>('/locations/live');
+  return response.data.data;
+}
+
+export async function getIncidentsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: Incident[] }>('/incidents');
+  return response.data.data;
+}
+
+export async function createIncidentRequest(payload: {
+  title: string;
+  type: string;
+  description: string;
+  severity: string;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: Incident }>('/incidents', payload);
+  return response.data.data;
+}
+
+export async function updateIncidentStatusRequest(incidentId: string, status: IncidentStatus) {
+  const response = await apiClient.patch<{ ok: boolean; data: Incident }>(
+    `/incidents/${incidentId}/status`,
+    { status }
+  );
+  return response.data.data;
+}
+
+export async function getConversationsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: ConversationSummary[] }>(
+    '/chat/conversations'
+  );
+  return response.data.data;
+}
+
+export async function getChatContactsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: ChatDirectoryContact[] }>(
+    '/chat/contacts'
+  );
+  return response.data.data;
+}
+
+export async function openGeneralConversationRequest(channelMode: ConversationChannelMode = 'chat') {
+  const response = await apiClient.post<{ ok: boolean; data: ConversationSummary }>(
+    '/chat/conversations/general',
+    {
+      channelMode,
+    }
+  );
+
+  return response.data.data;
+}
+
+export async function openDirectConversationRequest(
+  targetUserId: string,
+  channelMode: ConversationChannelMode = 'chat'
+) {
+  const response = await apiClient.post<{ ok: boolean; data: ConversationSummary }>(
+    '/chat/conversations/direct',
+    {
+      targetUserId,
+      channelMode,
+    }
+  );
+
+  return response.data.data;
+}
+
+export async function getMessagesRequest(conversationId: string) {
+  const response = await apiClient.get<{ ok: boolean; data: ChatMessage[] }>(
+    `/chat/conversations/${conversationId}/messages`
+  );
+  return response.data.data;
+}
+
+export async function sendMessageRequest(
+  conversationId: string,
+  payload: {
+    text?: string;
+    textPreview?: string;
+    e2eeEnvelope?: {
+      version: string;
+      nonce: string;
+      ciphertext: string;
+      recipientId: string;
+      senderPublicKey?: string;
+    } | null;
+  }
+) {
+  const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
+    `/chat/conversations/${conversationId}/messages`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function sendVoiceMessageRequest(conversationId: string, formData: FormData) {
+  const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
+    `/chat/conversations/${conversationId}/audio`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 45000,
+      _allowRetry: true,
+    } as RetryableRequestConfig
+  );
+
+  return response.data.data;
+}
+
+export async function sendMediaMessageRequest(conversationId: string, formData: FormData) {
+  const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
+    `/chat/conversations/${conversationId}/media`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 45000,
+      _allowRetry: true,
+    } as RetryableRequestConfig
+  );
+
+  return response.data.data;
+}
+
+export async function transcribeVoiceSearchRequest(formData: FormData) {
+  const response = await apiClient.post<{ ok: boolean; data: { transcript: string } }>(
+    '/chat/transcribe-search',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 45000,
+      _allowRetry: true,
+    } as RetryableRequestConfig
+  );
+
+  return response.data.data.transcript || '';
+}
+
+export async function getDocumentsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: DocumentItem[] }>('/documents');
+  return response.data.data;
+}
+
+export async function uploadDocumentRequest(formData: FormData) {
+  const response = await apiClient.post<{ ok: boolean; data: DocumentItem }>(
+    '/documents',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000,
+      _allowRetry: true,
+    } as RetryableRequestConfig
+  );
+
+  return response.data.data;
+}
+
+export function resolveAssetUrl(fileUrl: string | null | undefined) {
+  if (!fileUrl) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(fileUrl)) {
+    return fileUrl;
+  }
+
+  return `${API_ORIGIN}${fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`}`;
+}
+
+export async function getNotificationsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: NotificationItem[] }>('/notifications');
+  return response.data.data;
+}
+
+export async function markNotificationReadRequest(notificationId: string) {
+  const response = await apiClient.post<{ ok: boolean; data: NotificationItem }>(
+    `/notifications/${notificationId}/read`
+  );
+  return response.data.data;
+}
+
+export async function registerPushSubscriptionRequest(payload: {
+  token: string;
+  platform: string;
+  deviceName?: string;
+}) {
+  await apiClient.post('/notifications/push-subscriptions', payload);
+}
+
+export async function unregisterPushSubscriptionRequest(token: string) {
+  await apiClient.delete(`/notifications/push-subscriptions/${encodeURIComponent(token)}`);
+}
+
+export async function getVehiclesRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: Vehicle[] }>('/vehicles');
+  return response.data.data;
+}
+
+export async function updateVehicleLocationRequest(payload: {
+  vehicleId: string;
+  coordinates: GeoPoint;
+  speed?: number | null;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/locations/update', payload);
+  return response.data.data;
+}
+
+export async function searchNavigationPlacesRequest(query: string, origin: GeoPoint) {
+  const response = await apiClient.get<{ ok: boolean; data: { provider: 'google' | 'system'; results: NavigationPlaceResult[] } }>(
+    '/navigation/search',
+    {
+      params: {
+        q: query,
+        latitude: origin.latitude,
+        longitude: origin.longitude,
+      },
+    }
+  );
+
+  return response.data.data;
+}
+
+export async function planNavigationRouteRequest(payload: {
+  origin: GeoPoint;
+  destination: GeoPoint;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: NavigationPlan }>('/navigation/plan', payload);
+  return response.data.data;
+}
+
+export async function assignVehicleRouteRequest(payload: {
+  vehicleId: string;
+  origin: GeoPoint;
+  destination: GeoPoint;
+  originLabel?: string;
+  destinationLabel: string;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/navigation/assign', payload);
+  return response.data.data;
+}
+
+export async function getNavigationTripLogsRequest(params: {
+  vehicleId: string;
+  date?: string;
+  limit?: number;
+}) {
+  const response = await apiClient.get<{
+    ok: boolean;
+    data: {
+      vehicleId: string;
+      serviceDate: string;
+      logs: VehicleTripRecord[];
+    };
+  }>('/navigation/trips', {
+    params: {
+      vehicleId: params.vehicleId,
+      date: params.date,
+      limit: params.limit,
+    },
+  });
+
+  return response.data.data;
+}
+
+export async function createNavigationTripLogRequest(payload: {
+  vehicleId: string;
+  vehicleCode?: string;
+  serviceDate?: string;
+  originLabel: string;
+  destinationLabel: string;
+  origin: GeoPoint;
+  destination: GeoPoint;
+  startedAt: string;
+  finishedAt: string;
+  durationSeconds: number;
+  distanceMeters: number;
+  plannedDurationSeconds: number;
+  provider?: string;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: VehicleTripRecord }>(
+    '/navigation/trips',
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function getCommercialPlansRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: CommercialPlan[] }>('/commercial/plans');
+  return response.data.data;
+}
+
+export async function getMyCommercialOrdersRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: CommercialCheckoutResult[] }>(
+    '/commercial/me'
+  );
+  return response.data.data;
+}
+
+export async function createCommercialCheckoutRequest(payload: CommercialCheckoutPayload) {
+  const response = await apiClient.post<{ ok: boolean; data: CommercialCheckoutResult }>(
+    '/commercial/checkout',
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function confirmCommercialPaymentRequest(payload: {
+  paymentId?: string;
+  externalReference?: string;
+  referenceCode?: string;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: CommercialCheckoutResult }>(
+    '/commercial/confirm',
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function getCommercialOrdersRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: CommercialCheckoutResult[] }>(
+    '/commercial/orders'
+  );
+
+  return response.data.data;
+}
+
+export async function updateCommercialOrderRequest(
+  orderId: string,
+  payload: Partial<Pick<CommercialCheckoutResult, 'activationStatus' | 'activationNotes' | 'status'>>
+) {
+  const response = await apiClient.patch<{ ok: boolean; data: CommercialCheckoutResult }>(
+    `/commercial/orders/${orderId}`,
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function getUsersRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: User[] }>('/users');
+  return response.data.data;
+}
+
+export async function getPortalOverviewRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalOverview }>('/portal/overview');
+  return response.data.data;
+}
+
+export async function getPortalOnboardingRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalOnboarding }>('/portal/onboarding');
+  return response.data.data;
+}
+
+export async function getAdminActivationKeysRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalActivationKeysResponse }>(
+    '/admin/activation-keys'
+  );
+  return response.data.data;
+}
+
+export async function generateAdminActivationKeyRequest() {
+  const response = await apiClient.post<{ ok: boolean; data: PortalActivationKeysResponse }>(
+    '/admin/activation-keys/generate'
+  );
+  return response.data.data;
+}
+
+export async function revokeAdminActivationKeyRequest(activationKeyId: string) {
+  const response = await apiClient.patch<{ ok: boolean; data: PortalActivationKeysResponse }>(
+    `/admin/activation-keys/${encodeURIComponent(activationKeyId)}/revoke`
+  );
+  return response.data.data;
+}
+
+export async function updatePortalOnboardingStepRequest(stepId: string, status: string) {
+  const response = await apiClient.patch<{ ok: boolean; data: PortalOnboarding }>(
+    `/portal/onboarding/${encodeURIComponent(stepId)}`,
+    { status }
+  );
+  return response.data.data;
+}
+
+export async function getAccountSubscriptionRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalSubscription }>(
+    '/account/subscription'
+  );
+  return response.data.data;
+}
+
+export async function changeAccountPlanRequest(planId: string, selectedAddOns: string[] = []) {
+  const response = await apiClient.patch<{ ok: boolean; data: PortalSubscription }>(
+    '/account/subscription/plan',
+    {
+      planId,
+      selectedAddOns,
+    }
+  );
+  return response.data.data;
+}
+
+export async function cancelAccountSubscriptionRequest(reason?: string) {
+  const response = await apiClient.post<{ ok: boolean; data: PortalSubscription }>(
+    '/account/subscription/cancel',
+    {
+      reason,
+    }
+  );
+  return response.data.data;
+}
+
+export async function getAccountInvoicesRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalInvoice[] }>('/account/invoices');
+  return response.data.data;
+}
+
+export async function getAccountPaymentMethodsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalPaymentMethod[] }>(
+    '/account/payment-methods'
+  );
+  return response.data.data;
+}
+
+export async function createAccountPaymentMethodRequest(payload: Partial<PortalPaymentMethod> & {
+  providerToken?: string;
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: PortalPaymentMethod[] }>(
+    '/account/payment-methods',
+    payload
+  );
+  return response.data.data;
+}
+
+export async function updateAccountPaymentMethodRequest(
+  paymentMethodId: string,
+  payload: Partial<PortalPaymentMethod> & { providerToken?: string }
+) {
+  const response = await apiClient.patch<{ ok: boolean; data: PortalPaymentMethod[] }>(
+    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function deleteAccountPaymentMethodRequest(paymentMethodId: string) {
+  const response = await apiClient.delete<{ ok: boolean; data: PortalPaymentMethod[] }>(
+    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}`
+  );
+  return response.data.data;
+}
+
+export async function setDefaultAccountPaymentMethodRequest(paymentMethodId: string) {
+  const response = await apiClient.post<{ ok: boolean; data: PortalPaymentMethod[] }>(
+    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}/default`
+  );
+  return response.data.data;
+}
+
+export async function getAccountSessionsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: PortalSession[] }>('/account/sessions');
+  return response.data.data;
+}
+
+export async function revokeAccountSessionRequest(sessionId: string) {
+  await apiClient.delete(`/account/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function validateDriverActivationKeyRequest(key: string) {
+  const response = await apiClient.post<{ ok: boolean; data: DriverActivationValidation }>(
+    '/driver/activation/validate',
+    { key }
+  );
+  return response.data.data;
+}
+
+export async function registerDriverActivationRequest(payload: DriverActivationRegisterPayload) {
+  const response = await apiClient.post<LoginResult & { activation?: unknown }>(
+    '/driver/activation/register',
+    payload,
+    {
+      _allowRetry: true,
+      _skipAuthRefresh: true,
+    } as RetryableRequestConfig
+  );
+  return response.data;
+}
+
+export async function updateProfileRequest(payload: ProfileMutationPayload) {
+  const response = await apiClient.patch<{ ok: boolean; data: User }>('/users/me', payload);
+  return response.data.data;
+}
+
+export async function createUserRequest(payload: UserMutationPayload) {
+  const response = await apiClient.post<{ ok: boolean; data: User }>('/users', payload);
+  return response.data.data;
+}
+
+export async function updateUserRequest(userId: string, payload: UserMutationPayload) {
+  const response = await apiClient.patch<{ ok: boolean; data: User }>(`/users/${userId}`, payload);
+  return response.data.data;
+}
+
+export async function deleteUserRequest(userId: string) {
+  await apiClient.delete(`/users/${userId}`);
+}
+
+export async function getAllDocumentsRequest(params?: {
+  ownerType?: 'driver' | 'vehicle';
+  reviewStatus?: string;
+}) {
+  const response = await apiClient.get<{ ok: boolean; data: DocumentItem[] }>('/documents/admin', {
+    params,
+  });
+
+  return response.data.data;
+}
+
+export async function reviewDocumentRequest(documentId: string, payload: DocumentReviewPayload) {
+  const response = await apiClient.patch<{ ok: boolean; data: DocumentItem }>(
+    `/documents/${documentId}/review`,
+    payload
+  );
+
+  return response.data.data;
+}
+
+export async function getRtcConfigRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: RtcIceConfig }>('/rtc/config');
+  return response.data.data;
+}
+
+export async function getRtcSessionsRequest(params?: { roomId?: string; limit?: number }) {
+  const response = await apiClient.get<{ ok: boolean; data: RtcSessionRecord[] }>('/rtc/sessions', {
+    params,
+  });
+
+  return response.data.data;
+}
+
+export async function getOperationalObservabilityRequest(params?: {
+  hours?: number;
+  limit?: number;
+}) {
+  const response = await apiClient.get<{ ok: boolean; data: OperationalObservabilitySnapshot }>(
+    '/ops/observability',
+    {
+      params,
+    }
+  );
+
+  return response.data.data;
+}

@@ -1,0 +1,15 @@
+{
+  "name": "combis-app",
+  "private": true,
+  "scripts": {
+    "mobile": "npm --prefix mobile start",
+    "mobile:clear": "npm --prefix mobile run start:clear",
+    "mobile:phone": "npm --prefix mobile run start:phone",
+    "mobile:phone:lan": "npm --prefix mobile run start:phone:lan",
+    "mobile:tunnel": "npm --prefix mobile run start:tunnel",
+    "mobile:web": "npm --prefix mobile run web",
+    "desktop": "npm --prefix mobile run web",
+    "backend": "npm --prefix backend run dev",
+    "lint:mobile": "npm --prefix mobile run lint"
+  }
+}
