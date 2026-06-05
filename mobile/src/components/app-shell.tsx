@@ -1,5 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, usePathname } from 'expo-router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router, usePathname } from '@/src/navigation/router';
 import { useMemo, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Platform,

@@ -1,5 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, usePathname } from 'expo-router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router, usePathname } from '@/src/navigation/router';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -17,10 +17,10 @@ function normalizePath(pathname: string) {
 
 function isSectionActive(pathname: string, href: string) {
   const normalizedPathname = normalizePath(pathname);
-  const normalizedHref = href === '/(tabs)' ? '/' : normalizePath(href);
+  const normalizedHref = href === '/(tabs)' ? '/dashboard' : normalizePath(href);
 
-  if (normalizedHref === '/') {
-    return normalizedPathname === '/' || normalizedPathname === '/(tabs)';
+  if (normalizedHref === '/dashboard') {
+    return normalizedPathname === '/dashboard' || normalizedPathname === '/(tabs)' || normalizedPathname === '/index';
   }
 
   return normalizedPathname === normalizedHref || normalizedPathname.startsWith(`${normalizedHref}/`);

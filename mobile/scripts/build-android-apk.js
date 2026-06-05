@@ -157,31 +157,28 @@ const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   ...process.env,
   CI: '1',
   NODE_ENV: 'production',
-  EXPO_ANDROID_CLEARTEXT:
-    process.env.EXPO_ANDROID_CLEARTEXT || fileEnv.EXPO_ANDROID_CLEARTEXT || '1',
-  EXPO_PUBLIC_API_TIMEOUT_MS:
-    process.env.EXPO_PUBLIC_API_TIMEOUT_MS || fileEnv.EXPO_PUBLIC_API_TIMEOUT_MS || '15000',
-  EXPO_PUBLIC_API_URL:
-    process.env.EXPO_PUBLIC_API_URL || fileEnv.EXPO_PUBLIC_API_URL || '',
-  EXPO_PUBLIC_SOCKET_URL:
-    process.env.EXPO_PUBLIC_SOCKET_URL || fileEnv.EXPO_PUBLIC_SOCKET_URL || '',
-  EXPO_PUBLIC_LAN_HOST:
-    process.env.EXPO_PUBLIC_LAN_HOST || fileEnv.EXPO_PUBLIC_LAN_HOST || '',
+  MANECOMB_ANDROID_CLEARTEXT:
+    process.env.MANECOMB_ANDROID_CLEARTEXT || fileEnv.MANECOMB_ANDROID_CLEARTEXT || '1',
+  MANECOMB_API_TIMEOUT_MS:
+    process.env.MANECOMB_API_TIMEOUT_MS || fileEnv.MANECOMB_API_TIMEOUT_MS || '15000',
+  MANECOMB_API_URL:
+    process.env.MANECOMB_API_URL || fileEnv.MANECOMB_API_URL || '',
+  MANECOMB_SOCKET_URL:
+    process.env.MANECOMB_SOCKET_URL || fileEnv.MANECOMB_SOCKET_URL || '',
+  MANECOMB_LAN_HOST:
+    process.env.MANECOMB_LAN_HOST || fileEnv.MANECOMB_LAN_HOST || '',
   // Move Gradle cache OUT of OneDrive to avoid locking issues
   GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
 });
 
-console.log('[apk] Modo: APK standalone release (sin Expo Go/dev client)');
+console.log('[apk] Modo: APK standalone release React Native CLI');
 console.log(`[apk] Android SDK: ${sdkRoot}`);
 console.log(`[apk] JAVA_HOME: ${javaHome}`);
 console.log(`[apk] GRADLE_USER_HOME: ${gradleUserHome}`);
 
-// 2. Ensure Android directory exists
 if (!fs.existsSync(androidDir)) {
-  console.log('[apk] Generando directorio native (prebuild)...');
-  run('npx', ['expo', 'prebuild', '--platform', 'android', '--no-install'], {
-    env,
-  });
+  console.error('[apk] No se encontro android/. En React Native CLI el proyecto nativo debe estar versionado.');
+  process.exit(2);
 }
 
 // 3. Patch Node path (Fixes common Windows issue)

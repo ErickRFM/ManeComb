@@ -1,8 +1,13 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "baseUrl": ".",
     "strict": true,
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "paths": {
       "@/*": [
         "./*"
@@ -10,14 +15,28 @@
       "ventas/*": [
         "../ventas/*"
       ]
-    }
+    },
+    "types": [
+      "react",
+      "jest"
+    ]
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "App.tsx",
+    "index.js",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "constants/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     "../ventas/**/*.ts",
-    "../ventas/**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "../ventas/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios",
+    "web-build",
+    "dist"
   ]
 }

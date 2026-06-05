@@ -1,9 +1,6 @@
 import { ThemeProvider } from '@react-navigation/native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFonts } from 'expo-font';
-import * as SplashScreen from 'expo-splash-screen';
-import { Stack, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { Stack, useRouter, type ErrorBoundaryProps } from '@/src/navigation/router';
+import { StatusBar } from '@/src/native/status-bar';
 import { useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -13,8 +10,6 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { isCustomerAccount } from '@/src/utils/account-routing';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
-
-void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const { theme } = useAppTheme();
@@ -37,7 +32,6 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function RootLayout() {
   const router = useRouter();
   const { navigationTheme, theme } = useAppTheme();
-  const [iconsLoaded, iconFontError] = useFonts(MaterialCommunityIcons.font);
   const splashHiddenRef = useRef(false);
   const { handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(useShallow((state) => ({
     handlePushIntent: state.handlePushIntent,
@@ -53,9 +47,8 @@ export default function RootLayout() {
     }
 
     splashHiddenRef.current = true;
-    void SplashScreen.hideAsync().catch(() => undefined);
   }, []);
-  const isReady = isHydrated && !isBootstrapping && (iconsLoaded || Boolean(iconFontError));
+  const isReady = isHydrated && !isBootstrapping;
   const hideSplashWhenReady = useCallback(() => {
     if (isReady) {
       hideSplash();

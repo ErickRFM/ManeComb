@@ -1,17 +1,17 @@
 const { Server } = require("socket.io");
-const { CLIENT_ORIGIN } = require("../config/env");
+const { CORS_ORIGIN, CLIENT_ORIGINS } = require("../config/env");
 const { canAccessTenantResource, getOrganizationId } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient } = require("../services/redis");
 const { verifyToken } = require("../utils/jwt");
 
 function registerSocketServer(server, store) {
-  const allowCredentials = CLIENT_ORIGIN !== "*";
+  const allowCredentials = !CLIENT_ORIGINS.includes("*");
   const rtcRooms = new Map();
   const activeRtcSessions = new Map();
   const io = new Server(server, {
     cors: {
-      origin: CLIENT_ORIGIN,
+      origin: CORS_ORIGIN,
       credentials: allowCredentials
     },
     transports: ["websocket", "polling"],

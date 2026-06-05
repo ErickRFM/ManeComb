@@ -1,7 +1,6 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
-import { router, useLocalSearchParams } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { StatusBar } from '@/src/native/status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
+import { readRuntimeValue } from '@/src/config/api_config';
 import { updateVehicleLocationRequest } from '@/src/api/client';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
 import { StatusPill } from '@/src/components/status-pill';
@@ -72,16 +72,13 @@ function toGooglePoint(point: GeoPoint) {
 }
 
 function readGoogleMapsApiKey() {
-  const envValue = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+  const envValue = readRuntimeValue('GOOGLE_MAPS_API_KEY', 'MANECOMB_GOOGLE_MAPS_API_KEY');
 
   if (envValue) {
     return envValue;
   }
 
-  const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
-  const extraValue = extra?.googleMapsApiKey ?? extra?.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-  return typeof extraValue === 'string' ? extraValue.trim() : '';
+  return readRuntimeValue('googleMapsApiKey');
 }
 
 function loadGoogleMaps(apiKey: string) {
@@ -501,7 +498,7 @@ export function MapScreen() {
                     Google Maps web no esta configurado
                   </Text>
                   <Text style={[styles.mapNoticeText, { color: theme.colors.muted }]}>
-                    Define EXPO_PUBLIC_GOOGLE_MAPS_API_KEY para que web use el mismo proveedor que movil.
+                    Define MANECOMB_GOOGLE_MAPS_API_KEY para que web use el mismo proveedor que movil.
                   </Text>
                 </View>
               </View>

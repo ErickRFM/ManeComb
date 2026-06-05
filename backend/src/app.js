@@ -5,7 +5,7 @@ const express = require("express");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
-const { CLIENT_ORIGIN, TRUST_PROXY } = require("./config/env");
+const { CORS_ORIGIN, CLIENT_ORIGINS, TRUST_PROXY } = require("./config/env");
 const accountRoutes = require("./modules/account/routes");
 const {
   adminActivationKeyRoutes,
@@ -34,7 +34,7 @@ const { notFound } = require("./middlewares/not-found");
 
 function createApp({ store, getDbState }) {
   const app = express();
-  const allowCredentials = CLIENT_ORIGIN !== "*";
+  const allowCredentials = !CLIENT_ORIGINS.includes("*");
 
   app.locals.store = store;
   app.locals.getDbState = getDbState;
@@ -43,7 +43,7 @@ function createApp({ store, getDbState }) {
 
   app.use(
     cors({
-      origin: CLIENT_ORIGIN,
+      origin: CORS_ORIGIN,
       credentials: allowCredentials
     })
   );

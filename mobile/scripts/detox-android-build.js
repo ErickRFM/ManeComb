@@ -41,25 +41,14 @@ function run(command, args, options = {}) {
 }
 
 if (!fs.existsSync(androidDir)) {
-  run(
-    'npx',
-    ['expo', 'prebuild', '--platform', 'android'],
-    {
-      env: {
-        ...process.env,
-        CI: '1',
-      },
-    }
-  );
+  console.error('[detox] No se encontro android/. En React Native CLI el proyecto nativo debe estar versionado.');
+  process.exit(2);
 }
 
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   ...process.env,
   CI: '1',
   NODE_ENV: 'production',
-  EXPO_NO_TELEMETRY: '1',
-  EXPO_ROUTER_APP_ROOT: 'app',
-  EXPO_ROUTER_IMPORT_MODE: 'sync',
   GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
 });
 patchAndroidNodePath(androidDir, env.NODE_BINARY);

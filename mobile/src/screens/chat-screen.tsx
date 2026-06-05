@@ -1,6 +1,6 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import * as ImagePicker from '@/src/native/image-picker';
+import { useVideoPlayer, VideoView } from '@/src/native/video';
 import { io, type Socket } from 'socket.io-client';
 import {
   RecordingPresets,
@@ -9,7 +9,7 @@ import {
   useAudioPlayer,
   useAudioPlayerStatus,
   useAudioRecorder,
-} from 'expo-audio';
+} from '@/src/native/audio';
 import { createElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,

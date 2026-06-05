@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack } from '@/src/navigation/router';
 
 export default function PortalLayout() {
   return (

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import * as Location from 'expo-location';
+import * as Location from '@/src/native/location';
 import type { GeoPoint } from '@/src/types/app';
-import { isExpoGo } from '@/src/utils/expo-runtime';
 
 type LiveLocationPoint = GeoPoint & {
   accuracy: number | null;
@@ -79,7 +78,7 @@ export function useUserLocation() {
           navigator.geolocation.clearWatch(webWatcherIdRef.current);
         }
       } catch {
-        // Expo web can throw while detaching subscriptions; cleanup should stay best-effort.
+        // Cleanup should stay best-effort because native/web subscriptions can throw while detaching.
       }
 
       webWatcherIdRef.current = null;
@@ -89,7 +88,7 @@ export function useUserLocation() {
       try {
         watcherRef.current.remove();
       } catch {
-        // Expo web can throw while detaching subscriptions; cleanup should stay best-effort.
+        // Cleanup should stay best-effort because native/web subscriptions can throw while detaching.
       }
     }
 
@@ -122,11 +121,9 @@ export function useUserLocation() {
       await Location.enableNetworkProviderAsync().catch(() => undefined);
     }
 
-    const background = isExpoGo()
-      ? { status: Location.PermissionStatus.UNDETERMINED }
-      : await Location.requestBackgroundPermissionsAsync().catch(() => ({
-          status: Location.PermissionStatus.UNDETERMINED,
-        }));
+    const background = await Location.requestBackgroundPermissionsAsync().catch(() => ({
+      status: Location.PermissionStatus.UNDETERMINED,
+    }));
 
     const currentPosition = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.BestForNavigation,

@@ -1,6 +1,6 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { Image } from '@/src/native/image';
+import { router } from '@/src/navigation/router';
 import { useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';

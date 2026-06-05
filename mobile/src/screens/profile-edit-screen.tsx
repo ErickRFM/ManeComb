@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import * as ImagePicker from '@/src/native/image-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';

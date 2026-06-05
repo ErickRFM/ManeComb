@@ -1,5 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';

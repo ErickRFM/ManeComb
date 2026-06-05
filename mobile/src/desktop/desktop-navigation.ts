@@ -1,4 +1,4 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { Role } from '@/src/types/app';
 
 export type AppSectionKey =
@@ -17,6 +17,7 @@ export type AppSection = {
   key: AppSectionKey;
   href:
     | '/'
+    | '/dashboard'
     | '/(tabs)'
     | '/mapa'
     | '/incidencias'
@@ -36,7 +37,7 @@ export type AppSection = {
 const appSections: AppSection[] = [
   {
     key: 'index',
-    href: '/(tabs)',
+    href: '/dashboard',
     label: 'Panel',
     eyebrow: 'Centro de control',
     title: 'Operación general',
@@ -111,7 +112,7 @@ const appSections: AppSection[] = [
 
 function normalizePathname(pathname: string) {
   if (!pathname || pathname === '/(tabs)' || pathname === '/index') {
-    return '/';
+    return '/dashboard';
   }
 
   const normalized = pathname.replace(/\/+$/, '');

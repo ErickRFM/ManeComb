@@ -1,4 +1,4 @@
-import { Link, Redirect, router } from 'expo-router';
+import { Link, Redirect, router } from '@/src/navigation/router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,

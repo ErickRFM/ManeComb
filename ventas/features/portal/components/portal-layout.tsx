@@ -1,5 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { Redirect, router, useLocalSearchParams, usePathname } from '@/src/navigation/router';
 import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Pressable,

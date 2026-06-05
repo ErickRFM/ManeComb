@@ -538,8 +538,8 @@ El proyecto contempla variables para:
 - `MONGO_URI` y `REQUIRE_MONGO`.
 - `CLIENT_ORIGIN`.
 - `JWT_SECRET`.
-- `EXPO_PUBLIC_API_URL`.
-- `EXPO_PUBLIC_SOCKET_URL`.
+- `MANECOMB_API_URL`.
+- `MANECOMB_SOCKET_URL`.
 - Configuracion de pagos.
 - Configuracion de Cloudinary.
 - Configuracion de STUN/TURN.

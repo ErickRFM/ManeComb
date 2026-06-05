@@ -49,4 +49,10 @@ app-example
 
 # generated native folders
 /ios
-/android
+
+# local Android build outputs and machine-specific files
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/.cxx/
+/android/local.properties

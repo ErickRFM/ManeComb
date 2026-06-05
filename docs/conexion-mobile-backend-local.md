@@ -1,28 +1,36 @@
 # Conexion movil con backend local
 
-Esta app movil es Expo/React Native. La configuracion equivalente a `api_config.dart`
-esta en `mobile/src/config/api_config.ts`.
+La app movil es React Native CLI. La configuracion de red vive en
+`mobile/src/config/api_config.ts` y se ajusta localmente con `mobile/.env`
+o `mobile/.env.local`.
 
 ## IP local
 
-La IP Wi-Fi detectada en esta laptop es:
-
-```text
-192.168.21.254
-```
-
-Para cambiarla, edita:
-
-- `mobile/src/config/api_config.ts`: `localIp`
-- `mobile/.env`: `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_SOCKET_URL`, `EXPO_PUBLIC_LAN_HOST`
-
-Tambien puedes ejecutar desde `mobile/`:
+Detecta y guarda la IPv4 LAN real de la PC con:
 
 ```powershell
-npm run start:phone:lan
+cd C:\Users\erik5\OneDrive\Escritorio\combis-app\mobile
+npm run device:lan
 ```
 
-Ese script detecta la IP privada activa, actualiza `mobile/.env` y arranca Expo en LAN.
+El script ignora adaptadores VMware, VirtualBox, WSL, Hyper-V, Docker y
+Bluetooth, y actualiza:
+
+- `mobile/.env.local`
+- `mobile/.env`
+
+Ejemplo:
+
+```env
+MANECOMB_API_URL=http://192.168.1.80:5000/api
+MANECOMB_SOCKET_URL=http://192.168.1.80:5000
+MANECOMB_LAN_HOST=192.168.1.80
+MANECOMB_API_TIMEOUT_MS=15000
+MANECOMB_ANDROID_CLEARTEXT=1
+```
+
+Android Emulator usa `http://10.0.2.2:5000/api` automaticamente cuando detecta
+un backend local en la misma PC.
 
 ## Backend
 
@@ -37,7 +45,7 @@ CLIENT_ORIGIN=*
 Arranque:
 
 ```powershell
-cd backend
+cd C:\Users\erik5\OneDrive\Escritorio\combis-app\backend
 npm run dev
 ```
 
@@ -46,13 +54,13 @@ Health checks:
 ```text
 http://localhost:5000/health
 http://localhost:5000/api/health
-http://192.168.21.254:5000/health
+http://<IP-LAN-PC>:5000/health
 ```
 
 Desde el navegador del celular abre:
 
 ```text
-http://192.168.21.254:5000/health
+http://<IP-LAN-PC>:5000/health
 ```
 
 Si eso no responde, la app tampoco podra hacer login o registro.
@@ -62,13 +70,13 @@ Si eso no responde, la app tampoco podra hacer login o registro.
 Abre PowerShell como administrador y ejecuta:
 
 ```powershell
-New-NetFirewallRule -DisplayName "Combis Backend 5000" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow
+netsh advfirewall firewall add rule name="ManeComb API 5000" dir=in action=allow protocol=TCP localport=5000
 ```
 
 Verifica el puerto desde Windows:
 
 ```powershell
-Test-NetConnection 192.168.21.254 -Port 5000
+Test-NetConnection <IP-LAN-PC> -Port 5000
 ```
 
 ## Misma red Wi-Fi
@@ -76,16 +84,16 @@ Test-NetConnection 192.168.21.254 -Port 5000
 - Laptop y celular deben estar en la misma Wi-Fi.
 - Evita redes de invitados: muchas bloquean trafico entre dispositivos.
 - Si usas VPN, desactivala para probar o permite trafico LAN.
-- Prueba ping desde otro equipo si tienes uno: `ping 192.168.21.254`.
+- Prueba ping desde otro equipo si tienes uno: `ping <IP-LAN-PC>`.
 
-## Android e iOS
+## Android
 
-- Android Emulator usa `http://10.0.2.2:5000/api`.
-- iOS Simulator usa `http://localhost:5000/api`.
-- Celular fisico usa `http://192.168.21.254:5000/api`.
-
-La app intenta detectar el host de Metro/Expo en desarrollo. En builds instalados,
-usa `localIp` y las variables `EXPO_PUBLIC_*`.
+- Android Emulator: `http://10.0.2.2:5000/api`.
+- Celular fisico por Wi-Fi/LAN: `http://<IP-LAN-PC>:5000/api`.
+- Celular fisico por USB reverse: `http://127.0.0.1:5000/api`.
+- Metro React Native CLI: `npm --prefix mobile start`.
+- Instalar/correr en emulador: `npm --prefix mobile run android`.
+- Instalar/correr en celular fisico: `npm --prefix mobile run android:device`.
 
 ## HTTP local
 
@@ -93,7 +101,7 @@ El backend local no tiene SSL, por eso Android debe permitir HTTP cleartext en
 desarrollo. Ya esta activado con:
 
 ```env
-EXPO_ANDROID_CLEARTEXT=1
+MANECOMB_ANDROID_CLEARTEXT=1
 ```
 
 Y el manifiesto Android incluye:

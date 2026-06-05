@@ -1,10 +1,9 @@
-import Constants from 'expo-constants';
-import * as Linking from 'expo-linking';
+import Config from 'react-native-config';
 import { NativeModules, Platform } from 'react-native';
 
-// Cambia esta IP cuando la laptop cambie de red Wi-Fi.
-// En Windows puedes verla con: ipconfig -> Adaptador Wi-Fi -> Direccion IPv4.
-export const localIp = '192.168.21.254';
+// Fallback LAN usado si no existe MANECOMB_LAN_HOST en .env/.env.local.
+// En Windows puedes regenerarlo con: npm run device:lan
+export const localIp = '192.168.1.80';
 export const localBackendPort = 5000;
 export const apiPath = '/api';
 
@@ -28,22 +27,16 @@ export type RuntimeTarget =
   | 'production'
   | 'configured';
 
-function readExtraValue(key: string) {
-  const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
-  const value = extra?.[key];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function readRuntimeValue(...keys: string[]) {
+export function readRuntimeValue(...keys: string[]) {
   for (const key of keys) {
     const envValue = process.env[key]?.trim();
     if (envValue) {
       return envValue;
     }
 
-    const extraValue = readExtraValue(key);
-    if (extraValue) {
-      return extraValue;
+    const configValue = Config[key]?.trim();
+    if (configValue) {
+      return configValue;
     }
   }
 
@@ -63,7 +56,7 @@ function parseUrl(value: string | undefined | null) {
 }
 
 function isProductionEnvironment() {
-  const value = readRuntimeValue('EXPO_PUBLIC_APP_ENV', 'APP_ENV') || process.env.NODE_ENV || '';
+  const value = readRuntimeValue('MANECOMB_APP_ENV', 'APP_ENV') || process.env.NODE_ENV || '';
   return value.toLowerCase() === 'production';
 }
 
@@ -120,16 +113,6 @@ function getWebRuntimeHost() {
   return window.location.hostname || null;
 }
 
-function getExpoRuntimeHost() {
-  const expoUrl = parseUrl(Linking.createURL('/'));
-
-  if (!expoUrl?.hostname || shouldReplaceHost(expoUrl.hostname)) {
-    return null;
-  }
-
-  return expoUrl.hostname;
-}
-
 function isProbablyAndroidEmulator() {
   if (Platform.OS !== 'android') {
     return false;
@@ -154,6 +137,10 @@ function isProbablyAndroidEmulator() {
   );
 }
 
+function isPhysicalAndroidDevice() {
+  return Platform.OS === 'android' && !isProbablyAndroidEmulator();
+}
+
 function getNativeBundleHost() {
   if (Platform.OS === 'web') {
     return null;
@@ -172,7 +159,7 @@ function getNativeBundleHost() {
   const hostname = scriptUrl.hostname.toLowerCase();
 
   if (Platform.OS === 'android' && isLoopbackHost(hostname)) {
-    return androidEmulatorHost;
+    return isProbablyAndroidEmulator() ? androidEmulatorHost : null;
   }
 
   if (hostname === '0.0.0.0' || hostname === 'tu_ip_local') {
@@ -188,8 +175,7 @@ function getNativeBundleHost() {
 
 function getExplicitLanHost() {
   return (
-    readRuntimeValue('EXPO_PUBLIC_LAN_HOST', 'EXPO_PUBLIC_DEV_SERVER_HOST', 'MANECOMB_LAN_HOST') ||
-    readExtraValue('lanHost') ||
+    readRuntimeValue('MANECOMB_LAN_HOST', 'MANECOMB_DEV_SERVER_HOST') ||
     localIp
   ).trim();
 }
@@ -207,14 +193,8 @@ function inferDevelopmentHost() {
     return nativeBundleHost;
   }
 
-  const expoRuntimeHost = getExpoRuntimeHost();
-
-  if (expoRuntimeHost && isLocalNetworkHost(expoRuntimeHost)) {
-    return expoRuntimeHost;
-  }
-
   if (Platform.OS === 'android') {
-    return androidEmulatorHost;
+    return isProbablyAndroidEmulator() ? androidEmulatorHost : getExplicitLanHost();
   }
 
   if (Platform.OS === 'ios') {
@@ -255,6 +235,7 @@ export function resolveRuntimeUrl(
 ) {
   const fallbackUrl = parseUrl(fallbackValue);
   const parsedUrl = parseUrl(value) ?? fallbackUrl;
+  const hasExplicitValue = Boolean(value?.trim());
 
   if (!parsedUrl || !fallbackUrl) {
     return {
@@ -267,13 +248,18 @@ export function resolveRuntimeUrl(
   const runtimeHost = inferDevelopmentHost();
   const shouldUseRuntimeHost = !isProductionEnvironment() && isLocalNetworkHost(configuredHost);
   const hostname =
-    shouldUseRuntimeHost && Platform.OS === 'android' && isProbablyAndroidEmulator()
-      ? androidEmulatorHost
-      : shouldUseRuntimeHost
-        ? runtimeHost
-        : shouldReplaceHost(configuredHost)
-          ? getExplicitLanHost()
-          : configuredHost;
+    !isProductionEnvironment() &&
+    hasExplicitValue &&
+    isPhysicalAndroidDevice() &&
+    isLoopbackHost(configuredHost)
+      ? configuredHost
+      : shouldUseRuntimeHost && Platform.OS === 'android' && isProbablyAndroidEmulator()
+        ? androidEmulatorHost
+        : shouldUseRuntimeHost
+          ? runtimeHost
+          : shouldReplaceHost(configuredHost)
+            ? getExplicitLanHost()
+            : configuredHost;
   const protocol = parsedUrl.protocol || fallbackUrl.protocol || 'http:';
   const port = parsedUrl.port || fallbackUrl.port || (kind === 'api' ? String(localBackendPort) : '');
   const fallbackPath = kind === 'api' ? apiPath : '';
@@ -290,12 +276,12 @@ const apiFallbackUrl = isProductionEnvironment() ? productionApiUrl : defaultLoc
 const socketFallbackUrl = isProductionEnvironment() ? productionSocketUrl : defaultLocalSocketUrl;
 
 const resolvedApi = resolveRuntimeUrl(
-  readRuntimeValue('EXPO_PUBLIC_API_URL', 'apiUrl'),
+  readRuntimeValue('MANECOMB_API_URL', 'apiUrl'),
   apiFallbackUrl,
   'api'
 );
 const resolvedSocket = resolveRuntimeUrl(
-  readRuntimeValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl'),
+  readRuntimeValue('MANECOMB_SOCKET_URL', 'socketUrl'),
   socketFallbackUrl,
   'socket'
 );
@@ -303,6 +289,7 @@ const resolvedSocket = resolveRuntimeUrl(
 export const API_URL = resolvedApi.url;
 export const SOCKET_URL = resolvedSocket.url;
 export const API_ORIGIN = API_URL.replace(/\/api$/, '');
+export const API_TIMEOUT_MS = Number(readRuntimeValue('MANECOMB_API_TIMEOUT_MS') || 15000);
 
 export const runtimeNetworkConfig = {
   apiOrigin: API_ORIGIN,

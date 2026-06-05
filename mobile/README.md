@@ -1,50 +1,64 @@
-# Welcome to your Expo app 👋
+# ManeComb Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+App movil React Native CLI para Android/iOS. El entrypoint es `index.js`, que registra `App.tsx`.
 
-## Get started
+## Desarrollo Android
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+npm install
+npm start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+En otra terminal:
 
-## Learn more
+```powershell
+npm run android
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Para celular fisico Android:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```powershell
+npm run device:lan
+npm run device:doctor
+npm run android:device
+```
 
-## Join the community
+Para iniciar Metro con cache limpia:
 
-Join our community of developers creating universal apps.
+```powershell
+npm run start:clear
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Builds
+
+```powershell
+npm run build:apk:android
+npm run android:debug
+npm run android:install
+```
+
+El proyecto nativo Android vive en `android/` y debe mantenerse versionado. No regeneres `android/` con herramientas de Expo.
+
+## Configuracion
+
+Variables aceptadas:
+
+- `MANECOMB_API_URL`, por ejemplo `http://<IP-LAN-PC>:5000/api`.
+- `MANECOMB_SOCKET_URL`, por ejemplo `http://<IP-LAN-PC>:5000`.
+- `MANECOMB_LAN_HOST`, por ejemplo `<IP-LAN-PC>`.
+- `MANECOMB_API_TIMEOUT_MS=15000`.
+- `GOOGLE_MAPS_API_KEY` o `MANECOMB_GOOGLE_MAPS_API_KEY` para Google Maps.
+- `MANECOMB_ANDROID_CLEARTEXT=1` para permitir HTTP local en desarrollo.
+
+Android Emulator usa `10.0.2.2` automaticamente cuando detecta backend local en la misma PC.
+Celular fisico usa la IPv4 LAN escrita por `npm run device:lan` en `.env.local` y `.env`.
+
+## Validacion rapida
+
+```powershell
+npm run typecheck
+npm run lint
+cd android
+.\gradlew.bat clean
+.\gradlew.bat assembleDebug
+```

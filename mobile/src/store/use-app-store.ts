@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/src/native/secure-store';
 import { AppState as NativeAppState, Platform } from 'react-native';
 import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
@@ -93,7 +93,7 @@ import {
 } from '@/src/utils/chat-e2ee';
 import {
   configureAppNotifications,
-  requestExpoPushToken,
+  requestNativePushToken,
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
 
@@ -422,7 +422,7 @@ async function refreshPendingSyncCount(set: StoreSet) {
 async function registerCurrentPushToken() {
   try {
     await configureAppNotifications();
-    const pushToken = await requestExpoPushToken();
+    const pushToken = await requestNativePushToken();
 
     if (!pushToken) {
       return;

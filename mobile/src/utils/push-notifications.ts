@@ -1,28 +1,4 @@
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
-import { isExpoGo } from '@/src/utils/expo-runtime';
-
 let notificationsConfigured = false;
-let notificationsModulePromise: Promise<typeof import('expo-notifications') | null> | null = null;
-
-function isAndroidExpoGo() {
-  return (
-    Platform.OS === 'android' &&
-    isExpoGo()
-  );
-}
-
-async function getNotificationsModule() {
-  if (Platform.OS === 'web' || isExpoGo()) {
-    return null;
-  }
-
-  if (!notificationsModulePromise) {
-    notificationsModulePromise = import('expo-notifications').catch(() => null);
-  }
-
-  return notificationsModulePromise;
-}
 
 export type PushRouteIntent = {
   target: 'chat' | 'radio' | 'sos' | 'incidents' | 'notifications' | 'unknown';
@@ -33,97 +9,17 @@ export type PushRouteIntent = {
   deepLink?: string | null;
 };
 
-function invokePushCallback(
-  callback: (intent: PushRouteIntent) => void | Promise<void>,
-  intent: PushRouteIntent
-) {
-  try {
-    void Promise.resolve(callback(intent)).catch(() => undefined);
-  } catch {
-    // Push navigation must not create an unhandled rejection.
-  }
-}
-
 export async function configureAppNotifications() {
   if (notificationsConfigured) {
     return;
   }
 
-  if (Platform.OS === 'web') {
-    notificationsConfigured = true;
-    return;
-  }
-
-  const Notifications = await getNotificationsModule();
-  if (!Notifications) {
-    notificationsConfigured = true;
-    return;
-  }
-
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  });
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('operacion-general', {
-      name: 'Operacion general',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 200, 150, 200],
-      lightColor: '#E11D2F',
-    });
-    await Notifications.setNotificationChannelAsync('sos-critical', {
-      name: 'SOS critico',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 300, 150, 300, 150, 300],
-      lightColor: '#E11D2F',
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    });
-  }
-
   notificationsConfigured = true;
 }
 
-export async function requestExpoPushToken() {
-  if (Platform.OS === 'web' || isExpoGo()) {
-    return null;
-  }
-
-  const Notifications = await getNotificationsModule();
-  if (!Notifications) {
-    return null;
-  }
-
+export async function requestNativePushToken() {
   await configureAppNotifications();
-
-  const permissionState = await Notifications.getPermissionsAsync();
-  const finalStatus =
-    permissionState.granted || permissionState.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
-      ? permissionState.status
-      : (await Notifications.requestPermissionsAsync()).status;
-
-  if (finalStatus !== 'granted') {
-    return null;
-  }
-
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ||
-    Constants.easConfig?.projectId ||
-    null;
-
-  if (!projectId) {
-    return null;
-  }
-
-  const token = await Notifications.getExpoPushTokenAsync({
-    projectId,
-  });
-
-  return token.data || null;
+  return null;
 }
 
 export async function showInAppNotification(payload: {
@@ -132,34 +28,8 @@ export async function showInAppNotification(payload: {
   data?: Record<string, unknown>;
   category?: string;
 }) {
-  if (Platform.OS === 'web') {
-    return;
-  }
-
-  const Notifications = await getNotificationsModule();
-  if (!Notifications) {
-    return;
-  }
-
+  void payload;
   await configureAppNotifications();
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: payload.title,
-      body: payload.body,
-      sound: true,
-      ...(Platform.OS === 'android'
-        ? {
-            channelId:
-              payload.category === 'sos' ? 'sos-critical' : 'operacion-general',
-          }
-        : {}),
-      data: {
-        ...(payload.data || {}),
-        notificationCategory: payload.category || 'system',
-      },
-    },
-    trigger: null,
-  });
 }
 
 export function getPushRouteIntent(rawData: Record<string, unknown> | null | undefined): PushRouteIntent {
@@ -225,43 +95,8 @@ export function getPushRouteIntent(rawData: Record<string, unknown> | null | und
 export function addPushResponseListener(
   callback: (intent: PushRouteIntent) => void | Promise<void>
 ) {
-  if (Platform.OS === 'web' || isAndroidExpoGo()) {
-    return () => undefined;
-  }
-
-  let activeSubscription: { remove: () => void } | null = null;
-  let disposed = false;
-
-  void getNotificationsModule()
-    .then((Notifications) => {
-      if (!Notifications || disposed) {
-        return;
-      }
-
-      void Notifications.getLastNotificationResponseAsync()
-        .then((response) => {
-          if (disposed || !response?.notification?.request?.content?.data) {
-            return;
-          }
-
-          invokePushCallback(
-            callback,
-            getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>)
-          );
-        })
-        .catch(() => undefined);
-
-      activeSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-        invokePushCallback(
-          callback,
-          getPushRouteIntent(response.notification.request.content.data as Record<string, unknown>)
-        );
-      });
-    })
-    .catch(() => undefined);
-
+  void callback;
   return () => {
-    disposed = true;
-    activeSubscription?.remove();
+    // Native push provider is intentionally not wired until FCM/Notifee credentials exist.
   };
 }

@@ -1,6 +1,7 @@
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import {
   API_ORIGIN,
+  API_TIMEOUT_MS,
   API_URL,
   SOCKET_URL,
   isDevRuntime,
@@ -8,7 +9,7 @@ import {
   runtimeNetworkConfig,
 } from '@/src/config/api_config';
 
-export { API_ORIGIN, API_URL, SOCKET_URL, isDevRuntime, mobileLog, runtimeNetworkConfig };
+export { API_ORIGIN, API_TIMEOUT_MS, API_URL, SOCKET_URL, isDevRuntime, mobileLog, runtimeNetworkConfig };
 
 export type MobileNetworkSnapshot = {
   isConnected: boolean | null;
@@ -53,5 +54,5 @@ export function isNetworkReachable(snapshot: MobileNetworkSnapshot | null | unde
 }
 
 export function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise<void>((resolve) => setTimeout(() => resolve(), ms));
 }

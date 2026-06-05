@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { Image } from '@/src/native/image';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';

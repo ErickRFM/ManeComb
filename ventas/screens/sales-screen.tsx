@@ -1,6 +1,6 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
+import { StatusBar } from '@/src/native/status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,

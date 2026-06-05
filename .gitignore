@@ -7,13 +7,18 @@
 **/.env.*.local
 
 # Generated builds and caches
+.gradle/
 mobile/.expo/
 mobile/web-build/
 mobile/dist/
-mobile/android/
 mobile/ios/
 mobile/.gradle-local/
 mobile/.android-tools-download/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/app/.cxx/
+mobile/android/local.properties
 mobile/test-results/
 mobile/playwright-report/
 mobile/coverage/

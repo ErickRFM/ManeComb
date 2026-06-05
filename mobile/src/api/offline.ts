@@ -304,8 +304,9 @@ function buildState(): OfflineState {
 let offlineState = buildState();
 
 function stripUser(user: OfflineUser): User {
-  const { password, ...safeUser } = user;
-  return safeUser;
+  const safeUser = { ...user } as Partial<OfflineUser>;
+  delete safeUser.password;
+  return safeUser as User;
 }
 
 function findUserByToken(token: string) {

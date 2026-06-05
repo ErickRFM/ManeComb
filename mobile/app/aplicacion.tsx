@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect } from '@/src/navigation/router';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getOperationalHome } from '@/src/utils/account-routing';

@@ -2,7 +2,7 @@
 
 Base operativa para gestion de combis con:
 
-- `mobile/`: app Expo Router con login, dashboard, mapa, incidencias, chat y perfil.
+- `mobile/`: app React Native CLI con login, dashboard, mapa, incidencias, chat y perfil.
 - `backend/`: API Express con JWT, comercial, documentos, RTC, chat, incidencias, mapa y sockets.
 
 ## Arranque rapido
@@ -14,9 +14,8 @@ Base operativa para gestion de combis con:
 2. Mobile:
    - `cd mobile`
    - copia `.env.example` a `.env` y ajusta la IP si usaras telefono fisico
-   - web / LAN local: `npm run web`
-   - telefono fisico con Expo Go: `npm run start:phone`
-   - telefono fisico en la misma Wi-Fi: `npm run start:phone:lan`
+   - Metro: `npm start`
+   - Android emulator/celular USB: `npm run android`
 
 ## Accesos iniciales
 
@@ -24,9 +23,9 @@ Base operativa para gestion de combis con:
 - `supervisor@combis.app` / `Ruta123!`
 - `chofer@combis.app` / `Ruta123!`
 
-## Ruta comercial web
+## Ruta comercial
 
-- Con backend en `http://localhost:5000` y Expo Web activo, abre `http://localhost:8081/ventas`.
+- Con backend en `http://localhost:5000`, la ruta comercial vive dentro de la app mobile: `/ventas`, `/ventas/login`, `/ventas/registro`.
 
 ## Notas
 
@@ -41,5 +40,5 @@ Base operativa para gestion de combis con:
 - Base E2E:
   - web: `cd mobile && npm run test:e2e:web`
   - movil: `cd mobile && npm run build:e2e:mobile && npm run test:e2e:mobile`
-- Para Expo Go en telefono fisico, `start:phone` detecta la IP actual de tu laptop, actualiza `mobile/.env` y usa `--go --tunnel -c`.
+- Guia sin Expo para encender todo: `docs/how-to-run-without-expo.md`.
 - Guia de conexion local movil/backend: `docs/conexion-mobile-backend-local.md`.

@@ -1,4 +1,4 @@
-import { Link, router, usePathname } from 'expo-router';
+import { Link, router, usePathname } from '@/src/navigation/router';
 import { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';

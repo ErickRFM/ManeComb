@@ -1,4 +1,4 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -6,8 +6,8 @@ import {
   useAudioPlayer,
   useAudioPlayerStatus,
   useAudioRecorder,
-} from 'expo-audio';
-import * as Haptics from 'expo-haptics';
+} from '@/src/native/audio';
+import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,

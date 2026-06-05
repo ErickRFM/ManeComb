@@ -1,6 +1,7 @@
 import axios, { isAxiosError, type AxiosError } from 'axios';
 import {
   API_ORIGIN as RESOLVED_API_ORIGIN,
+  API_TIMEOUT_MS as RESOLVED_API_TIMEOUT_MS,
   API_URL as RESOLVED_API_URL,
   SOCKET_URL as RESOLVED_SOCKET_URL,
   mobileLog,
@@ -48,7 +49,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 
-const REQUEST_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS || 15000);
+const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
 const MAX_NETWORK_RETRIES = 2;
 const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options']);
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);

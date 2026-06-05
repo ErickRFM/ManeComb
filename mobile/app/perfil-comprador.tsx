@@ -1,4 +1,4 @@
-import { Redirect, useLocalSearchParams } from 'expo-router';
+import { Redirect, useLocalSearchParams } from '@/src/navigation/router';
 
 export default function BuyerProfileRoute() {
   const params = useLocalSearchParams<{ planId?: string | string[]; trial?: string | string[] }>();

@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect } from '@/src/navigation/router';
 import { Platform } from 'react-native';
 import { SalesScreen } from 'ventas/screens/sales-screen';
 

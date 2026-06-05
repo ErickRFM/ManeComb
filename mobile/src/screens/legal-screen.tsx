@@ -1,6 +1,6 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
+import { StatusBar } from '@/src/native/status-bar';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Typography } from '@/constants/theme';

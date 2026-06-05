@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link } from '@/src/navigation/router';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -19,7 +19,7 @@ export default function ModalScreen() {
         La plataforma ya esta lista para operar con tu backend.
       </Text>
       <Text style={[styles.body, { color: theme.colors.muted }]}>
-        Si vas a probar en telefono fisico, usa la IP Wi-Fi de tu laptop en `EXPO_PUBLIC_LAN_HOST`.
+        Si vas a probar en telefono fisico, usa la IP Wi-Fi de tu laptop en `MANECOMB_LAN_HOST`.
       </Text>
       <Link href="/mapa" dismissTo style={[styles.link, { color: theme.colors.accent }]}>
         Volver al tablero
