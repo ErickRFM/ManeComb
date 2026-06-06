@@ -14,38 +14,60 @@ type LocationSnapshot = {
   key: string;
 };
 
+function readLocationSnapshot(): LocationSnapshot {
+  if (typeof window === 'undefined') {
+    return { pathname: '/', search: '', key: 'server' };
+  }
+
+  const pathname = window.location.pathname || '/';
+  const search = window.location.search || '';
+
+  return {
+    pathname,
+    search,
+    key: `${pathname}${search}`,
+  };
+}
+
+let cachedSnapshot = readLocationSnapshot();
 const RouterContext = createContext<LocationSnapshot>({
-  pathname: typeof window === 'undefined' ? '/' : window.location.pathname,
-  search: typeof window === 'undefined' ? '' : window.location.search,
-  key: 'initial',
+  ...cachedSnapshot,
 });
 
 const listeners = new Set<() => void>();
 
 function emitRouteChange() {
+  cachedSnapshot = readLocationSnapshot();
   listeners.forEach((listener) => listener());
 }
 
 function subscribe(listener: () => void) {
+  const handlePopState = () => {
+    cachedSnapshot = readLocationSnapshot();
+    listener();
+  };
+
   listeners.add(listener);
-  window.addEventListener('popstate', listener);
+  window.addEventListener('popstate', handlePopState);
 
   return () => {
     listeners.delete(listener);
-    window.removeEventListener('popstate', listener);
+    window.removeEventListener('popstate', handlePopState);
   };
 }
 
 function getSnapshot(): LocationSnapshot {
   if (typeof window === 'undefined') {
-    return { pathname: '/', search: '', key: 'server' };
+    return cachedSnapshot;
   }
 
-  return {
-    pathname: window.location.pathname || '/',
-    search: window.location.search || '',
-    key: `${window.location.pathname}${window.location.search}`,
-  };
+  const nextSnapshot = readLocationSnapshot();
+
+  if (nextSnapshot.key !== cachedSnapshot.key) {
+    cachedSnapshot = nextSnapshot;
+  }
+
+  return cachedSnapshot;
 }
 
 function toUrl(target: RouteTarget) {

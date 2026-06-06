@@ -1,9 +1,8 @@
 import './global.css';
 
-import { AppRegistry } from 'react-native';
+import { createRoot } from 'react-dom/client';
 import { App } from './App';
-
-AppRegistry.registerComponent('ManeCombVentas', () => App);
+import { ErrorBoundary } from './components/error-boundary';
 
 const root = document.getElementById('root');
 
@@ -11,6 +10,8 @@ if (!root) {
   throw new Error('No se encontro el nodo root para montar ManeComb Ventas.');
 }
 
-AppRegistry.runApplication('ManeCombVentas', {
-  rootTag: root,
-});
+createRoot(root).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

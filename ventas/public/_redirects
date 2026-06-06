@@ -1,1 +1,9 @@
-/* /index.html 200
+/ventas /index.html 200
+/ventas/* /index.html 200
+/portal /index.html 200
+/portal/* /index.html 200
+/usuarios /index.html 200
+/mapa /index.html 200
+/radio /index.html 200
+/terminos /index.html 200
+/privacidad /index.html 200

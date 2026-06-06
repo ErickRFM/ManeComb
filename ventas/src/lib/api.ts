@@ -78,6 +78,15 @@ async function unwrapData<T>(request: Promise<{ data: { data?: T } | T }>) {
   const response = await request;
   const payload = response.data as { data?: T } | T;
 
+  if (typeof payload === 'string') {
+    const looksLikeHtml = /<!doctype|<html|<\/html>/i.test(payload);
+    throw new Error(
+      looksLikeHtml
+        ? 'El backend respondio HTML en lugar de JSON. Revisa VITE_API_URL.'
+        : 'El backend respondio texto en lugar de JSON.'
+    );
+  }
+
   if (payload && typeof payload === 'object' && 'data' in payload) {
     return (payload as { data: T }).data;
   }
@@ -106,7 +115,8 @@ export async function logoutRequest(refreshToken?: string | null) {
 }
 
 export async function getCommercialPlansRequest() {
-  return await unwrapData<any[]>(apiClient.get('/commercial/plans'));
+  const plans = await unwrapData<any[]>(apiClient.get('/commercial/plans'));
+  return Array.isArray(plans) ? plans : [];
 }
 
 export async function getUsersRequest() {
