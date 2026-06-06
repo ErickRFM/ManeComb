@@ -11,9 +11,6 @@
     "paths": {
       "@/*": [
         "./*"
-      ],
-      "ventas/*": [
-        "../ventas/*"
       ]
     },
     "types": [
@@ -28,9 +25,7 @@
     "app/**/*.tsx",
     "constants/**/*.ts",
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "../ventas/**/*.ts",
-    "../ventas/**/*.tsx"
+    "src/**/*.tsx"
   ],
   "exclude": [
     "node_modules",

@@ -116,6 +116,41 @@ function isTimeoutError(error: AxiosError) {
   );
 }
 
+function parseApiUrl(value: string) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalBackendUrl(value: string) {
+  const url = parseApiUrl(value);
+  const hostname = url?.hostname?.toLowerCase() || '';
+
+  return (
+    !url ||
+    url.protocol === 'http:' ||
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname.startsWith('127.') ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  );
+}
+
+function isProductionBackendUrl(value: string) {
+  const url = parseApiUrl(value);
+  const hostname = url?.hostname?.toLowerCase() || '';
+
+  return Boolean(url && !isLocalBackendUrl(value) && (url.protocol === 'https:' || hostname.includes('onrender.com')));
+}
+
+export function getBackendLabel(apiUrl = RESOLVED_API_URL) {
+  return isProductionBackendUrl(apiUrl) ? 'backend de produccion' : 'backend local';
+}
+
 function getRequestUrl(config: AxiosError['config'] | undefined) {
   const baseURL = config?.baseURL || RESOLVED_API_URL;
   const url = config?.url || '';
@@ -200,6 +235,7 @@ export function getApiErrorMessage(
   }
 
   const apiUrl = options.apiUrl || RESOLVED_API_URL;
+  const backendLabel = getBackendLabel(apiUrl);
   const status = error.response?.status;
   const responseData = error.response?.data as { message?: unknown } | undefined;
   const apiMessage = responseData?.message;
@@ -211,7 +247,9 @@ export function getApiErrorMessage(
   }
 
   if (isTimeoutError(error)) {
-    return `Timeout: el backend no respondio a tiempo en ${apiUrl}. Verifica que Node este encendido y que el puerto este abierto.`;
+    return isProductionBackendUrl(apiUrl)
+      ? `Timeout: el backend de produccion no respondio a tiempo en ${apiUrl}. Verifica tu internet y el estado de Render.`
+      : `Timeout: el backend local no respondio a tiempo en ${apiUrl}. Verifica que Node este encendido y que el puerto este abierto.`;
   }
 
   if (!error.response) {
@@ -220,10 +258,14 @@ export function getApiErrorMessage(
     }
 
     if (/handshake|ssl|certificate|cert/i.test(error.message || '')) {
-      return 'Error de SSL/handshake: el backend local esta en HTTP. Usa una URL http:// o publica un backend HTTPS valido.';
+      return isProductionBackendUrl(apiUrl)
+        ? 'Error de SSL/handshake con el backend de produccion. Verifica el certificado HTTPS de Render.'
+        : 'Error de SSL/handshake: el backend local esta en HTTP. Usa una URL http:// o publica un backend HTTPS valido.';
     }
 
-    return `No se pudo conectar con el backend local en ${apiUrl}. Verifica que el servidor Node este encendido, que el puerto 5000 este permitido por Windows Firewall y que el celular este en la misma Wi-Fi.`;
+    return isProductionBackendUrl(apiUrl)
+      ? `No se pudo conectar con el backend de produccion en ${apiUrl}. Verifica tu internet y que Render este activo.`
+      : `No se pudo conectar con el backend local en ${apiUrl}. Verifica que el servidor Node este encendido, que el puerto 5000 este permitido por Windows Firewall y que el celular este en la misma Wi-Fi.`;
   }
 
   if (status === 400 && typeof apiMessage === 'string' && apiMessage.trim()) {
@@ -247,7 +289,7 @@ export function getApiErrorMessage(
       return apiMessage;
     }
 
-    return `API no encontrada: ${getRequestUrl(error.config)}. Revisa que la ruta exista en el backend local.`;
+    return `API no encontrada: ${getRequestUrl(error.config)}. Revisa que la ruta exista en el ${backendLabel}.`;
   }
 
   if (status === 409 && typeof apiMessage === 'string' && apiMessage.trim()) {

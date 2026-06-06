@@ -15,19 +15,49 @@ if (localPropertiesFile.exists()) {
     }
 }
 
+def readLocalOrEnvironmentValue = { String key ->
+    def value = localProperties.getProperty(key)
+    if (value == null || !value.toString().trim()) {
+        value = System.getenv(key)
+    }
+
+    return value?.toString()?.trim()
+}
+
+def readRuntimeBuildValue = { String key ->
+    def value = System.getenv(key)
+    if (value == null || !value.toString().trim()) {
+        value = localProperties.getProperty(key)
+    }
+    if ((value == null || !value.toString().trim()) && project.ext.has('env')) {
+        value = project.ext.env[key]
+    }
+
+    return value?.toString()?.trim()
+}
+
+def releaseStoreFile = readLocalOrEnvironmentValue('MANECOMB_UPLOAD_STORE_FILE') ?: readLocalOrEnvironmentValue('MYAPP_UPLOAD_STORE_FILE')
+def releaseStorePassword = readLocalOrEnvironmentValue('MANECOMB_UPLOAD_STORE_PASSWORD') ?: readLocalOrEnvironmentValue('MYAPP_UPLOAD_STORE_PASSWORD')
+def releaseKeyAlias = readLocalOrEnvironmentValue('MANECOMB_UPLOAD_KEY_ALIAS') ?: readLocalOrEnvironmentValue('MYAPP_UPLOAD_KEY_ALIAS')
+def releaseKeyPassword = readLocalOrEnvironmentValue('MANECOMB_UPLOAD_KEY_PASSWORD') ?: readLocalOrEnvironmentValue('MYAPP_UPLOAD_KEY_PASSWORD')
+def hasReleaseSigningConfig = [
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+].every { it != null && it.toString().trim() }
+
 def resolveGoogleMapsApiKey = {
     def key = findProperty('GOOGLE_MAPS_API_KEY')
-        ?: localProperties.getProperty('GOOGLE_MAPS_API_KEY')
-        ?: localProperties.getProperty('MANECOMB_GOOGLE_MAPS_API_KEY')
-        ?: System.getenv('GOOGLE_MAPS_API_KEY')
-        ?: System.getenv('MANECOMB_GOOGLE_MAPS_API_KEY')
+        ?: readRuntimeBuildValue('GOOGLE_MAPS_API_KEY')
+        ?: readRuntimeBuildValue('MANECOMB_GOOGLE_MAPS_API_KEY')
 
     return key?.toString()?.trim() ?: 'DEV_GOOGLE_MAPS_API_KEY_NOT_SET'
 }
 
 def googleMapsApiKey = resolveGoogleMapsApiKey()
 def allowCleartextTraffic = {
-    def explicit = System.getenv('MANECOMB_ANDROID_CLEARTEXT')
+    def explicit = readRuntimeBuildValue('MANECOMB_ANDROID_CLEARTEXT')
     if (explicit != null && explicit.trim()) {
         return explicit.trim() == '1' || explicit.trim().equalsIgnoreCase('true')
     }
@@ -142,15 +172,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (hasReleaseSigningConfig) {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig = signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig = signingConfigs.debug
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.release
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources = enableShrinkResources.toBoolean()
             minifyEnabled = enableMinifyInReleaseBuilds
@@ -161,6 +199,24 @@ android {
     }
     androidResources {
         ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def needsReleaseSigning = taskGraph.allTasks.any {
+        it.path == ':app:assembleRelease' || it.path == ':app:bundleRelease'
+    }
+
+    if (needsReleaseSigning && !hasReleaseSigningConfig) {
+        throw new GradleException(
+            'ManeComb release signing no esta configurado. Define MANECOMB_UPLOAD_STORE_FILE, ' +
+            'MANECOMB_UPLOAD_STORE_PASSWORD, MANECOMB_UPLOAD_KEY_ALIAS y MANECOMB_UPLOAD_KEY_PASSWORD ' +
+            'en android/local.properties o como variables de entorno.'
+        )
+    }
+
+    if (needsReleaseSigning && hasReleaseSigningConfig && !rootProject.file(releaseStoreFile).exists()) {
+        throw new GradleException("No existe el keystore release: ${rootProject.file(releaseStoreFile)}")
     }
 }
 

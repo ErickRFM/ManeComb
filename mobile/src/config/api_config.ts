@@ -7,9 +7,8 @@ export const localIp = '192.168.1.80';
 export const localBackendPort = 5000;
 export const apiPath = '/api';
 
-// Cambia estos valores cuando publiques el backend con HTTPS.
-export const productionApiUrl = 'https://api.tu-dominio.com/api';
-export const productionSocketUrl = 'https://api.tu-dominio.com';
+export const productionApiUrl = 'https://manecomb.onrender.com/api';
+export const productionSocketUrl = 'https://manecomb.onrender.com';
 
 export const androidEmulatorHost = '10.0.2.2';
 export const iosSimulatorHost = 'localhost';
@@ -103,6 +102,10 @@ function isPrivateIpv4Host(hostname: string | null | undefined) {
 
 function isLocalNetworkHost(hostname: string | null | undefined) {
   return shouldReplaceHost(hostname) || isLoopbackHost(hostname) || isPrivateIpv4Host(hostname);
+}
+
+function isRenderProductionHost(hostname: string | null | undefined) {
+  return Boolean(hostname && hostname.toLowerCase() === 'manecomb.onrender.com');
 }
 
 function getWebRuntimeHost() {
@@ -261,7 +264,21 @@ export function resolveRuntimeUrl(
             ? getExplicitLanHost()
             : configuredHost;
   const protocol = parsedUrl.protocol || fallbackUrl.protocol || 'http:';
-  const port = parsedUrl.port || fallbackUrl.port || (kind === 'api' ? String(localBackendPort) : '');
+  const explicitPort = parsedUrl.port;
+  const fallbackPort = hasExplicitValue ? '' : fallbackUrl.port;
+  const shouldUseLocalDefaultPort =
+    !explicitPort &&
+    !fallbackPort &&
+    protocol === 'http:' &&
+    isLocalNetworkHost(hostname) &&
+    (kind === 'api' || kind === 'socket');
+  const resolvedPort = explicitPort || fallbackPort || (shouldUseLocalDefaultPort ? String(localBackendPort) : '');
+  const port =
+    protocol === 'https:' &&
+    isRenderProductionHost(hostname) &&
+    resolvedPort === String(localBackendPort)
+      ? ''
+      : resolvedPort;
   const fallbackPath = kind === 'api' ? apiPath : '';
   const pathname = (parsedUrl.pathname || fallbackUrl.pathname || fallbackPath).replace(/\/$/, '');
   const url = `${protocol}//${hostname}${port ? `:${port}` : ''}${pathname}`;

@@ -29,6 +29,25 @@ function parseOrigins(value) {
     .filter(Boolean);
 }
 
+const DEFAULT_CLIENT_ORIGINS = [
+  "https://manecomb1.pages.dev",
+  "https://*.manecomb1.pages.dev",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
+];
+
+function mergeOrigins(...originLists) {
+  const uniqueOrigins = new Set();
+
+  originLists.flat().forEach((origin) => {
+    if (origin) {
+      uniqueOrigins.add(origin);
+    }
+  });
+
+  return Array.from(uniqueOrigins);
+}
+
 function escapeRegex(value) {
   return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 }
@@ -66,8 +85,11 @@ const MONGO_SERVER_SELECTION_TIMEOUT_MS = Number(
   process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 8000
 );
 const REQUIRE_MONGO = parseBoolean(process.env.REQUIRE_MONGO, true);
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
-const CLIENT_ORIGINS = parseOrigins(CLIENT_ORIGIN);
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || DEFAULT_CLIENT_ORIGINS.join(",");
+const configuredClientOrigins = parseOrigins(CLIENT_ORIGIN);
+const CLIENT_ORIGINS = configuredClientOrigins.includes("*")
+  ? ["*"]
+  : mergeOrigins(DEFAULT_CLIENT_ORIGINS, configuredClientOrigins);
 const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
   ? "*"
   : (origin, callback) => callback(null, isClientOriginAllowed(origin));
@@ -130,6 +152,7 @@ module.exports = {
   REQUIRE_MONGO,
   CLIENT_ORIGIN,
   CLIENT_ORIGINS,
+  DEFAULT_CLIENT_ORIGINS,
   CORS_ORIGIN,
   isClientOriginAllowed,
   GOOGLE_MAPS_API_KEY,

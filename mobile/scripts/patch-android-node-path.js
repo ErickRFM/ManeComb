@@ -33,6 +33,18 @@ function patchAndroidNodePath(androidDir, nodePath = process.execPath) {
     let next = source;
     const nodeExecLine = `def nodeExecutable = System.getenv('NODE_BINARY') ?: '${escapedNodePath}'`;
 
+    if (
+      !next.includes('commandLine("node",') &&
+      !next.includes("def nodeExecutable = System.getenv('NODE_BINARY') ?:")
+    ) {
+      return next;
+    }
+
+    next = next.replace(
+      /pluginManagement\s*\{\s*includeBuild\(([^)]*)\)\s*\}/,
+      'pluginManagement {\n  includeBuild($1)\n}'
+    );
+
     next = next.replace(
       /pluginManagement \{[ \t]*(?=def nodeExecutable =)/,
       'pluginManagement {\n  '

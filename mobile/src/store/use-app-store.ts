@@ -62,7 +62,7 @@ import {
   subscribeMobileNetwork,
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
-import { usePortalStore } from 'ventas/features/portal/store/use-portal-store';
+import { usePortalStore } from '@/src/store/portal-store-bridge';
 import type {
   ChatMessage,
   ChatDirectoryContact,

@@ -35,18 +35,19 @@ const { notFound } = require("./middlewares/not-found");
 function createApp({ store, getDbState }) {
   const app = express();
   const allowCredentials = !CLIENT_ORIGINS.includes("*");
+  const corsOptions = {
+    origin: CORS_ORIGIN,
+    credentials: allowCredentials,
+    optionsSuccessStatus: 204
+  };
 
   app.locals.store = store;
   app.locals.getDbState = getDbState;
   app.locals.io = null;
   app.set("trust proxy", TRUST_PROXY ? 1 : false);
 
-  app.use(
-    cors({
-      origin: CORS_ORIGIN,
-      credentials: allowCredentials
-    })
-  );
+  app.use(cors(corsOptions));
+  app.options(/.*/, cors(corsOptions));
   app.use(
     helmet({
       crossOriginResourcePolicy: false

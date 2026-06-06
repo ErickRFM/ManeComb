@@ -25,6 +25,9 @@ mobile/coverage/
 backend/uploads/
 *.tsbuildinfo
 *.apk
+*.aab
+*.jks
+*.keystore
 
 # Logs
 *.log

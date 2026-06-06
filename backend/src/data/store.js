@@ -402,7 +402,7 @@ function createEmbeddedStore() {
   }
 
   function ensureConversationRecord(conversation) {
-    if (!conversation || !conversation.participants.includes(senderId)) {
+    if (!conversation) {
       return null;
     }
 

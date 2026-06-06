@@ -20,6 +20,7 @@ import { Typography } from '@/constants/theme';
 import {
   API_URL,
   getApiErrorMessage,
+  getBackendLabel,
   healthRequest,
   validateDriverActivationKeyRequest,
 } from '@/src/api/client';
@@ -226,9 +227,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
         status?: string;
       };
       const pingMs = Date.now() - startedAt;
+      const backendLabel = getBackendLabel(API_URL);
       setHelperTone('success');
       setHelperMessage(
-        `Conexion OK (${pingMs} ms). Backend: ${health.status || 'ok'} / ${health.mode || 'local'}. URL: ${API_URL}`
+        `Conexion OK (${pingMs} ms). ${backendLabel}: ${health.status || 'ok'} / ${health.mode || 'online'}. URL: ${API_URL}`
       );
     } catch (error) {
       setHelperMessage(

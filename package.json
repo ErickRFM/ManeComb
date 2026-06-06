@@ -9,6 +9,7 @@
     "dev:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-windows.ps1 all",
     "check": "npm --prefix mobile run typecheck && npm --prefix mobile run lint && npm --prefix backend test",
     "build:android:debug": "npm --prefix mobile run android:debug",
+    "build:android:release": "npm --prefix mobile run android:release",
     "build:android:install": "npm --prefix mobile run android:install",
     "mobile": "npm --prefix mobile start",
     "mobile:clear": "npm --prefix mobile run start:clear",

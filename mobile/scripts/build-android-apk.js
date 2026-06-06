@@ -15,12 +15,23 @@ const releaseApkPath = path.join(
   'release',
   'app-release.apk'
 );
+const releaseAabPath = path.join(
+  androidDir,
+  'app',
+  'build',
+  'outputs',
+  'bundle',
+  'release',
+  'app-release.aab'
+);
 const distDir = path.join(projectRoot, 'dist');
-const outputApkPath = path.join(distDir, 'combis-control-standalone-release.apk');
+const outputApkPath = path.join(distDir, 'app-release.apk');
+const outputAabPath = path.join(distDir, 'app-release.aab');
+const legacyOutputApkPath = path.join(distDir, 'combis-control-standalone-release.apk');
 const gradlePassthroughArgs = process.argv.slice(2);
 
-function readEnvFile() {
-  const envPath = path.join(projectRoot, '.env');
+function readEnvFile(fileName) {
+  const envPath = path.join(projectRoot, fileName);
 
   if (!fs.existsSync(envPath)) {
     return {};
@@ -40,6 +51,14 @@ function readEnvFile() {
       })
   );
 }
+
+const productionDefaults = {
+  MANECOMB_APP_ENV: 'production',
+  MANECOMB_API_URL: 'https://manecomb.onrender.com/api',
+  MANECOMB_SOCKET_URL: 'https://manecomb.onrender.com',
+  MANECOMB_API_TIMEOUT_MS: '15000',
+  MANECOMB_ANDROID_CLEARTEXT: '0',
+};
 
 function findAvailableSubstDrive() {
   const preferredDrives = ['M', 'R', 'T', 'U', 'V', 'W'];
@@ -151,27 +170,24 @@ function run(command, args, options = {}) {
 }
 
 // 1. Setup Environment with OneDrive Isolation
-const fileEnv = readEnvFile();
+const fileEnv = {
+  ...productionDefaults,
+  ...readEnvFile('.env.production'),
+};
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
-  ...fileEnv,
   ...process.env,
+  ...fileEnv,
   CI: '1',
   NODE_ENV: 'production',
-  MANECOMB_ANDROID_CLEARTEXT:
-    process.env.MANECOMB_ANDROID_CLEARTEXT || fileEnv.MANECOMB_ANDROID_CLEARTEXT || '1',
-  MANECOMB_API_TIMEOUT_MS:
-    process.env.MANECOMB_API_TIMEOUT_MS || fileEnv.MANECOMB_API_TIMEOUT_MS || '15000',
-  MANECOMB_API_URL:
-    process.env.MANECOMB_API_URL || fileEnv.MANECOMB_API_URL || '',
-  MANECOMB_SOCKET_URL:
-    process.env.MANECOMB_SOCKET_URL || fileEnv.MANECOMB_SOCKET_URL || '',
-  MANECOMB_LAN_HOST:
-    process.env.MANECOMB_LAN_HOST || fileEnv.MANECOMB_LAN_HOST || '',
+  ENVFILE: '.env.production',
   // Move Gradle cache OUT of OneDrive to avoid locking issues
   GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
 });
 
-console.log('[apk] Modo: APK standalone release React Native CLI');
+console.log('[apk] Modo: release React Native CLI (APK + AAB)');
+console.log('[apk] Envfile: .env.production');
+console.log(`[apk] API: ${env.MANECOMB_API_URL}`);
+console.log(`[apk] Socket: ${env.MANECOMB_SOCKET_URL}`);
 console.log(`[apk] Android SDK: ${sdkRoot}`);
 console.log(`[apk] JAVA_HOME: ${javaHome}`);
 console.log(`[apk] GRADLE_USER_HOME: ${gradleUserHome}`);
@@ -204,6 +220,11 @@ run(gradlew, ['assembleRelease', '--no-daemon', ...gradlePassthroughArgs], {
   env,
 });
 
+run(gradlew, ['bundleRelease', '--no-daemon', ...gradlePassthroughArgs], {
+  cwd: androidDir,
+  env,
+});
+
 // 5. Success check
 if (!fs.existsSync(releaseApkPath)) {
   console.error(`[apk] No se encontro el APK release en: ${releaseApkPath}`);
@@ -211,6 +232,14 @@ if (!fs.existsSync(releaseApkPath)) {
   process.exit(2);
 }
 
+if (!fs.existsSync(releaseAabPath)) {
+  console.error(`[apk] No se encontro el AAB release en: ${releaseAabPath}`);
+  process.exit(2);
+}
+
 if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
 fs.copyFileSync(releaseApkPath, outputApkPath);
-console.log(`\n[apk] OK APK standalone generado en: ${outputApkPath}`);
+fs.copyFileSync(releaseAabPath, outputAabPath);
+fs.copyFileSync(releaseApkPath, legacyOutputApkPath);
+console.log(`\n[apk] OK APK release generado en: ${outputApkPath}`);
+console.log(`[apk] OK AAB release generado en: ${outputAabPath}`);

@@ -10,8 +10,9 @@
     "android:debug": "cd android && gradlew.bat assembleDebug",
     "android:install": "node ./scripts/android-install-debug.js",
     "android:bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
-    "android:debug-bundled": "npm run android:bundle && cd android && gradlew.bat assembleDebug",
+    "android:debug-bundled": "node ./scripts/build-android-debug-bundled.js",
     "android:release-bundled": "npm run android:bundle && cd android && gradlew.bat assembleRelease",
+    "android:release": "node ./scripts/build-android-apk.js",
     "ios": "react-native run-ios",
     "build": "npm run build:apk:android",
     "lint": "eslint .",
@@ -22,6 +23,7 @@
     "test:e2e:mobile": "node ./scripts/run-detox-mobile.js test",
     "build:e2e:mobile": "node ./scripts/run-detox-mobile.js build",
     "build:apk:android": "node ./scripts/build-android-apk.js",
+    "build:android:release": "node ./scripts/build-android-apk.js",
     "device:doctor": "node ./scripts/device-doctor.js",
     "device:lan": "node ./scripts/set-lan-ip.js"
   },
