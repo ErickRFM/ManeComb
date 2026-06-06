@@ -149,6 +149,23 @@ export function SalesScreen() {
       .catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return;
+    }
+
+    const handleWindowScroll = () => {
+      setScrollY(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
+    };
+
+    handleWindowScroll();
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowScroll);
+    };
+  }, []);
+
   const cardWidth = isPhone ? Math.max(268, width - 42) : isDesktop ? 336 : 306;
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0];
@@ -183,6 +200,21 @@ export function SalesScreen() {
     } as never);
   };
 
+  const PageScroller = Platform.OS === 'web' ? View : ScrollView;
+  const pageScrollerProps =
+    Platform.OS === 'web'
+      ? {
+          style: styles.webPage,
+        }
+      : {
+          style: styles.scroll,
+          contentContainerStyle: styles.content,
+          showsVerticalScrollIndicator: false,
+          scrollEventThrottle: 16,
+          onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+            setScrollY(event.nativeEvent.contentOffset.y),
+        };
+
   const primaryAction = user
     ? {
         label: isCustomerAccount(user) ? 'Abrir portal' : 'Ir a consola',
@@ -215,19 +247,16 @@ export function SalesScreen() {
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <View style={styles.ambientWash} />
-      <View style={styles.backgroundOrbTop} />
-      <View style={styles.backgroundOrbMiddle} />
-      <View style={styles.backgroundOrbBottom} />
-      <View style={styles.cyanRail} />
-      <View style={styles.magentaRail} />
+      <View pointerEvents="none" style={styles.backgroundLayer}>
+        <View style={styles.ambientWash} />
+        <View style={styles.backgroundOrbTop} />
+        <View style={styles.backgroundOrbMiddle} />
+        <View style={styles.backgroundOrbBottom} />
+        <View style={styles.cyanRail} />
+        <View style={styles.magentaRail} />
+      </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={Platform.OS === 'web'}
-        scrollEventThrottle={16}
-        onScroll={(event) => setScrollY(event.nativeEvent.contentOffset.y)}>
+      <PageScroller {...(pageScrollerProps as any)}>
         <View style={styles.container}>
           <RevealView index={0} scrollY={scrollY} viewportHeight={height} style={styles.navbar} immediate>
             <BrandLogo
@@ -634,7 +663,7 @@ export function SalesScreen() {
             />
           </RevealView>
         </View>
-      </ScrollView>
+      </PageScroller>
     </View>
   );
 }
@@ -1177,13 +1206,20 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: neonPalette.background,
-    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ minHeight: '100vh', overflow: 'visible' } as any)
+      : { overflow: 'hidden' as const }),
   },
   scroll: {
     flex: 1,
   },
+  webPage: {
+    minHeight: '100vh' as any,
+    paddingBottom: 40,
+    width: '100%',
+  },
   content: {
-    paddingBottom: 56,
+    paddingBottom: 40,
   },
   container: {
     width: '100%',
@@ -1192,6 +1228,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     gap: 30,
+  },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
   },
   ambientWash: {
     position: 'absolute',

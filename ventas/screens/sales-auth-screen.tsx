@@ -189,13 +189,16 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
-      <View style={styles.backgroundBase} />
-      <View style={styles.backgroundGlowTop} />
-      <View style={styles.backgroundGlowBottom} />
+      <View pointerEvents="none" style={styles.backgroundLayer}>
+        <View style={styles.backgroundBase} />
+        <View style={styles.backgroundGlowTop} />
+        <View style={styles.backgroundGlowBottom} />
+      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}>
         <ScrollView
+          style={styles.scroll}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === 'web'}
@@ -435,11 +438,21 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#050816',
-    minHeight: '100vh' as any,
-    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ minHeight: '100vh', overflow: 'visible' } as any)
+      : { overflow: 'hidden' as const }),
   },
   flex: {
     flex: 1,
+    ...(Platform.OS === 'web' ? ({ minHeight: '100vh' } as any) : {}),
+  },
+  scroll: {
+    flex: 1,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as any) : {}),
+  },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
   },
   backgroundBase: {
     ...StyleSheet.absoluteFillObject,
