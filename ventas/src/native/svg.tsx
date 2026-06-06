@@ -5,6 +5,11 @@ type SvgXmlProps = {
 };
 
 export function SvgXml({ xml, width, height }: SvgXmlProps) {
+  const sizedXml = xml.replace(
+    '<svg ',
+    '<svg style="display:block;width:100%;height:100%;max-width:100%;" '
+  );
+
   return (
     <div
       aria-hidden="true"
@@ -12,9 +17,10 @@ export function SvgXml({ xml, width, height }: SvgXmlProps) {
         display: 'block',
         height,
         lineHeight: 0,
+        overflow: 'hidden',
         width,
       }}
-      dangerouslySetInnerHTML={{ __html: xml }}
+      dangerouslySetInnerHTML={{ __html: sizedXml }}
     />
   );
 }

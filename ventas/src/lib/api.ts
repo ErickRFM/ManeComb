@@ -4,12 +4,36 @@ const DEFAULT_API_URL = 'http://localhost:5000/api';
 const REQUEST_TIMEOUT_MS = 20000;
 
 function normalizeUrl(value: string | undefined, fallback: string) {
-  const resolved = (value || fallback).trim();
-  return resolved.replace(/\/+$/, '');
+  const rawValue = String(value || fallback || '').trim();
+  const withoutTrailingNoise = rawValue.replace(/\/+$/g, '').replace(/\.+$/g, '').replace(/\/+$/g, '');
+
+  if (!withoutTrailingNoise) {
+    return fallback.replace(/\/+$/g, '').replace(/\.+$/g, '').replace(/\/+$/g, '');
+  }
+
+  if (withoutTrailingNoise.startsWith('/')) {
+    return `/${withoutTrailingNoise
+      .replace(/^\/+/, '')
+      .replace(/\/{2,}/g, '/')
+      .replace(/\/+$/g, '')
+      .replace(/\/api\.+$/i, '/api')}`;
+  }
+
+  try {
+    const url = new URL(withoutTrailingNoise);
+    url.pathname = url.pathname
+      .replace(/\/{2,}/g, '/')
+      .replace(/\/+$/g, '')
+      .replace(/\/api\.+$/i, '/api');
+
+    return url.toString().replace(/\/+$/g, '').replace(/\.+$/g, '');
+  } catch {
+    return withoutTrailingNoise.replace(/\/{2,}/g, '/').replace(/\/+$/g, '').replace(/\.+$/g, '');
+  }
 }
 
 function getApiOrigin(apiUrl: string) {
-  return apiUrl.replace(/\/api\/?$/, '');
+  return normalizeUrl(apiUrl, DEFAULT_API_URL).replace(/\/api$/i, '');
 }
 
 function getApiErrorPayload(error: AxiosError) {
@@ -31,6 +55,13 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   config.headers = config.headers || {};
   config.headers['x-client-platform'] = 'ventas-web';
+
+  if (config.url && !/^[a-z][a-z\d+.-]*:\/\//i.test(config.url)) {
+    const [pathPart, ...queryParts] = String(config.url).split('?');
+    const normalizedPath = `/${pathPart.replace(/^\/+/, '').replace(/\/{2,}/g, '/')}`;
+    config.url = queryParts.length ? `${normalizedPath}?${queryParts.join('?')}` : normalizedPath;
+  }
+
   return config;
 });
 
@@ -56,7 +87,7 @@ export function getApiErrorMessage(error: unknown, fallbackMessage = 'No fue pos
   }
 
   if (!error.response) {
-    return `No se pudo conectar con el backend en ${API_URL}.`;
+    return `No se pudo conectar con el backend: ${API_URL}`;
   }
 
   if (error.response.status === 401) {

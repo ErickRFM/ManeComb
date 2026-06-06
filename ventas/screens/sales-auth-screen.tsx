@@ -98,15 +98,19 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
   const routeRequestsTrial = getFirstParam(params.trial) === '1';
   const isRegister = mode === 'register';
   const isShortViewport = height < 720;
+  const isCompactForm = isShortViewport || (isRegister && height < 860);
   const isNarrow = width < 390;
 
   const sizing = useMemo(
     () => ({
-      logoSize: isNarrow ? ('md' as const) : ('lg' as const),
-      formGap: isShortViewport ? 14 : 18,
+      logoSize: isNarrow || isCompactForm ? ('sm' as const) : ('md' as const),
+      formGap: isCompactForm ? 11 : 14,
+      formPadding: isNarrow ? 16 : isCompactForm ? 18 : 20,
       contentPadding: isNarrow ? 16 : 20,
+      panelMaxWidth: isRegister ? 460 : 410,
+      scrollJustify: isCompactForm ? ('flex-start' as const) : ('center' as const),
     }),
-    [isNarrow, isShortViewport]
+    [isCompactForm, isNarrow, isRegister]
   );
 
   if (user) {
@@ -199,14 +203,18 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
             styles.scrollContent,
             {
               paddingHorizontal: sizing.contentPadding,
-              paddingTop: Math.max(18, sizing.contentPadding),
-              paddingBottom: isShortViewport ? 18 : 30,
+              paddingTop: isCompactForm ? 14 : Math.max(22, sizing.contentPadding),
+              paddingBottom: isCompactForm ? 18 : 30,
+              justifyContent: sizing.scrollJustify,
+              ...(Platform.OS === 'web' ? ({ minHeight: '100vh' } as any) : {}),
             },
           ]}>
-          <View style={styles.panel}>
-            <View style={[styles.form, { gap: sizing.formGap }]}>
+          <View style={[styles.panel, { maxWidth: sizing.panelMaxWidth }]}>
+            <View style={[styles.form, { gap: sizing.formGap, padding: sizing.formPadding }]}>
               <View style={styles.brandRow}>
-                <BrandLogo size={sizing.logoSize} tone="light" plain />
+                <View style={styles.logoWrap}>
+                  <BrandLogo size={sizing.logoSize} tone="light" plain />
+                </View>
                 <View style={styles.portalBadge}>
                   <MaterialCommunityIcons name="shield-lock-outline" size={14} color="#FF4D7D" />
                   <Text style={styles.portalBadgeText}>Portal ManeComb</Text>
@@ -427,6 +435,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#050816',
+    minHeight: '100vh' as any,
     overflow: 'hidden',
   },
   flex: {
@@ -461,11 +470,14 @@ const styles = StyleSheet.create({
   },
   panel: {
     width: '100%',
-    maxWidth: 430,
   },
   brandRow: {
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
+  },
+  logoWrap: {
+    alignItems: 'center',
+    maxWidth: '100%',
   },
   portalBadge: {
     alignItems: 'center',
@@ -491,7 +503,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     overflow: 'hidden',
-    padding: 22,
+    padding: 20,
     ...(Platform.OS === 'web'
       ? ({
           backgroundImage:

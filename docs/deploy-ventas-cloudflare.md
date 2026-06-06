@@ -38,10 +38,10 @@ El backend ahora acepta una lista separada por comas en `CLIENT_ORIGIN`.
 Ejemplo para produccion:
 
 ```env
-CLIENT_ORIGIN=http://localhost:5173,https://manecomb1.pages.dev,https://manecomb.pages.dev,https://app.tudominio.com
+CLIENT_ORIGIN=http://localhost:5173,https://manecomb1.pages.dev,https://*.manecomb1.pages.dev,https://manecomb.pages.dev,https://app.tudominio.com
 ```
 
-Usa el dominio custom futuro agregandolo a esa lista. Socket.IO usa la misma configuracion.
+Usa el dominio custom futuro agregandolo a esa lista. El backend soporta patrones con `*` para previews de Cloudflare Pages y Socket.IO usa la misma configuracion.
 
 ## Validacion local
 

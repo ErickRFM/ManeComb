@@ -29,6 +29,31 @@ function parseOrigins(value) {
     .filter(Boolean);
 }
 
+function escapeRegex(value) {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+}
+
+function originMatchesPattern(origin, pattern) {
+  if (pattern === "*") {
+    return true;
+  }
+
+  if (!pattern.includes("*")) {
+    return origin === pattern;
+  }
+
+  const expression = `^${pattern.split("*").map(escapeRegex).join(".*")}$`;
+  return new RegExp(expression).test(origin);
+}
+
+function isClientOriginAllowed(origin) {
+  if (!origin || CLIENT_ORIGINS.includes("*")) {
+    return true;
+  }
+
+  return CLIENT_ORIGINS.some((allowedOrigin) => originMatchesPattern(origin, allowedOrigin));
+}
+
 const PORT = Number(process.env.PORT || 5000);
 const HOST = process.env.HOST || "0.0.0.0";
 const JWT_SECRET = process.env.JWT_SECRET || "combis-app-secret";
@@ -43,7 +68,9 @@ const MONGO_SERVER_SELECTION_TIMEOUT_MS = Number(
 const REQUIRE_MONGO = parseBoolean(process.env.REQUIRE_MONGO, true);
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 const CLIENT_ORIGINS = parseOrigins(CLIENT_ORIGIN);
-const CORS_ORIGIN = CLIENT_ORIGINS.includes("*") ? "*" : CLIENT_ORIGINS;
+const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
+  ? "*"
+  : (origin, callback) => callback(null, isClientOriginAllowed(origin));
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 const APP_URL = process.env.APP_URL || "http://localhost:8081";
 const PUBLIC_WEBHOOK_BASE_URL = process.env.PUBLIC_WEBHOOK_BASE_URL || "";
@@ -104,6 +131,7 @@ module.exports = {
   CLIENT_ORIGIN,
   CLIENT_ORIGINS,
   CORS_ORIGIN,
+  isClientOriginAllowed,
   GOOGLE_MAPS_API_KEY,
   PUBLIC_WEBHOOK_BASE_URL,
   DOCUMENT_STORAGE_DRIVER,
