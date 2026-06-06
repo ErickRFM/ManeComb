@@ -72,9 +72,10 @@ function getSnapshot(): LocationSnapshot {
 
 function toUrl(target: RouteTarget) {
   if (typeof target === 'string') {
-    return target;
+    return target === '/portal' ? '/portal/' : target;
   }
 
+  const pathname = target.pathname === '/portal' ? '/portal/' : target.pathname;
   const params = new URLSearchParams();
   Object.entries(target.params || {}).forEach(([key, value]) => {
     if (typeof value === 'undefined' || value === null || value === '') {
@@ -85,7 +86,7 @@ function toUrl(target: RouteTarget) {
   });
 
   const query = params.toString();
-  return query ? `${target.pathname}?${query}` : target.pathname;
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 function navigate(target: RouteTarget, replace = false) {

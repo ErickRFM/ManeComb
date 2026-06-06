@@ -3,6 +3,7 @@ import { Redirect, router, useLocalSearchParams, usePathname } from '@/src/navig
 import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -93,6 +94,7 @@ function isActive(pathname: string, href: string, currentSection?: string, itemS
 export function PortalLayout({ title, subtitle, actions, children }: PortalLayoutProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 980;
+  const isWeb = Platform.OS === 'web';
   const pathname = usePathname();
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const currentSection = getParam(params.section);
@@ -171,14 +173,72 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
     );
   };
 
+  const contentBody = (
+    <>
+      {!isWide ? (
+        <View style={styles.mobileTop}>
+          <Pressable
+            onPress={() => setMobileMenuOpen((current) => !current)}
+            style={styles.iconButton}>
+            <MaterialCommunityIcons
+              name={mobileMenuOpen ? 'close' : 'menu'}
+              size={22}
+              color={portalPalette.text}
+            />
+          </Pressable>
+          <Pressable onPress={() => router.push('/ventas')} style={styles.logoButton}>
+            <BrandLogo tone="light" size="sm" plain />
+          </Pressable>
+          <Pressable
+            onPress={() => void signOut()}
+            style={styles.iconButton}>
+            <MaterialCommunityIcons name="logout" size={20} color={portalPalette.danger} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {!isWide && mobileMenuOpen ? (
+        <View style={styles.mobileMenu}>
+          {navSections.map((section) => (
+            <View key={section.title} style={styles.mobileNavSection}>
+              <Text style={styles.navSectionTitle}>{section.title}</Text>
+              <View style={styles.mobileNavGrid}>{section.items.map((item) => renderNavItem(item, 'mobile'))}</View>
+            </View>
+          ))}
+          {showOperationalPanel ? <Pressable
+            onPress={() => goToItem(operationalPanelItem)}
+            style={[styles.mobileNavItem, styles.mobileOperationalItem]}>
+            <MaterialCommunityIcons name={operationalPanelItem.icon} size={18} color={portalPalette.info} />
+            <Text style={[styles.mobileNavText, { color: portalPalette.text }]}>
+              {operationalPanelItem.label}
+            </Text>
+          </Pressable> : null}
+        </View>
+      ) : null}
+
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>{title}</Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        </View>
+        {actions ? <View style={styles.actions}>{actions}</View> : null}
+      </View>
+
+      <ToastProvider message={error} tone="danger" onDismiss={clearError} />
+      {children}
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.portalBg} />
-      <View style={styles.bgGlowTop} />
-      <View style={styles.bgGlowBottom} />
-      <View style={[styles.shell, isWide ? styles.shellWide : styles.shellStack]}>
+      <View pointerEvents="none" style={styles.backgroundLayer}>
+        <View style={styles.portalBg} />
+        <View style={styles.bgGlowTop} />
+        <View style={styles.bgGlowBottom} />
+      </View>
+      <View style={[styles.shell, isWeb ? styles.shellWeb : undefined, isWide ? styles.shellWide : styles.shellStack]}>
         {isWide ? (
-          <View style={[styles.sidebar, portalGlass()]}>
+          <View style={[styles.sidebar, isWeb ? styles.sidebarWeb : undefined, portalGlass()]}>
             <Pressable onPress={() => router.push('/ventas')} style={styles.logoButton}>
               <BrandLogo tone="light" size="md" plain />
             </Pressable>
@@ -222,64 +282,22 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
           </View>
         ) : null}
 
-        <ScrollView
-          style={styles.contentScroll}
-          contentContainerStyle={[styles.content, !isWide ? styles.contentCompact : undefined]}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          {!isWide ? (
-            <View style={styles.mobileTop}>
-              <Pressable
-                onPress={() => setMobileMenuOpen((current) => !current)}
-                style={styles.iconButton}>
-                <MaterialCommunityIcons
-                  name={mobileMenuOpen ? 'close' : 'menu'}
-                  size={22}
-                  color={portalPalette.text}
-                />
-              </Pressable>
-              <Pressable onPress={() => router.push('/ventas')} style={styles.logoButton}>
-                <BrandLogo tone="light" size="sm" plain />
-              </Pressable>
-              <Pressable
-                onPress={() => void signOut()}
-                style={styles.iconButton}>
-                <MaterialCommunityIcons name="logout" size={20} color={portalPalette.danger} />
-              </Pressable>
+        {isWeb ? (
+          <View style={styles.contentScroll}>
+            <View style={[styles.content, styles.contentWeb, !isWide ? styles.contentCompact : undefined]}>
+              {contentBody}
             </View>
-          ) : null}
-
-          {!isWide && mobileMenuOpen ? (
-            <View style={styles.mobileMenu}>
-              {navSections.map((section) => (
-                <View key={section.title} style={styles.mobileNavSection}>
-                  <Text style={styles.navSectionTitle}>{section.title}</Text>
-                  <View style={styles.mobileNavGrid}>{section.items.map((item) => renderNavItem(item, 'mobile'))}</View>
-                </View>
-              ))}
-              {showOperationalPanel ? <Pressable
-                onPress={() => goToItem(operationalPanelItem)}
-                style={[styles.mobileNavItem, styles.mobileOperationalItem]}>
-                <MaterialCommunityIcons name={operationalPanelItem.icon} size={18} color={portalPalette.info} />
-                <Text style={[styles.mobileNavText, { color: portalPalette.text }]}>
-                  {operationalPanelItem.label}
-                </Text>
-              </Pressable> : null}
-            </View>
-          ) : null}
-
-          <View style={styles.header}>
-            <View style={styles.headerText}>
-              <Text style={styles.title}>{title}</Text>
-              {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-            </View>
-            {actions ? <View style={styles.actions}>{actions}</View> : null}
           </View>
-
-          <ToastProvider message={error} tone="danger" onDismiss={clearError} />
-          {children}
-        </ScrollView>
+        ) : (
+          <ScrollView
+            style={styles.contentScroll}
+            contentContainerStyle={[styles.content, !isWide ? styles.contentCompact : undefined]}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            {contentBody}
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -289,11 +307,17 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: portalPalette.background,
-    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ minHeight: '100vh', overflow: 'visible' } as any)
+      : { overflow: 'hidden' as const }),
   },
   portalBg: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: portalPalette.background,
+  },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
   },
   bgGlowTop: {
     position: 'absolute',
@@ -319,6 +343,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
+  shellWeb: {
+    minHeight: '100vh' as any,
+  },
   shellWide: {
     flexDirection: 'row',
   },
@@ -337,6 +364,12 @@ const styles = StyleSheet.create({
     padding: 16,
     width: 272,
     borderRadius: 16,
+  },
+  sidebarWeb: {
+    alignSelf: 'flex-start',
+    maxHeight: 'calc(100vh - 28px)' as any,
+    position: 'sticky' as any,
+    top: 14,
   },
   logoButton: {
     alignItems: 'center',
@@ -490,6 +523,7 @@ const styles = StyleSheet.create({
   contentScroll: {
     flex: 1,
     minWidth: 0,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as any) : {}),
   },
   content: {
     alignSelf: 'center',
@@ -497,8 +531,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     maxWidth: 1240,
     padding: 28,
-    paddingBottom: 40,
+    paddingBottom: 28,
     width: '100%',
+  },
+  contentWeb: {
+    flexGrow: 0,
   },
   contentCompact: {
     paddingBottom: AppTheme.spacing.xl,
