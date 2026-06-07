@@ -120,6 +120,8 @@ export type PortalSubscription = {
   activeUnits: number;
   availableUnits: number;
   totalUnits: number;
+  monthlyPrice?: number;
+  currency?: string;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
   cancelAt?: string | null;

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { SalesAuthScreen } from '@/screens/sales-auth-screen';
+import { PlanCheckoutScreen } from '@/screens/plan-checkout-screen';
 import { SalesScreen } from '@/screens/sales-screen';
 import { PortalBillingScreen } from '@/features/portal/screens/portal-billing-screen';
 import { PortalDashboardScreen } from '@/features/portal/screens/portal-dashboard-screen';
@@ -60,6 +61,8 @@ function Routes() {
       return <SalesAuthScreen mode="login" />;
     case '/ventas/registro':
       return <SalesAuthScreen mode="register" />;
+    case '/ventas/pago':
+      return <PlanCheckoutScreen />;
     case '/portal':
       return <PortalDashboardScreen />;
     case '/portal/usuarios':

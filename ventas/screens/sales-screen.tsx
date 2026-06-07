@@ -26,6 +26,7 @@ import {
 } from '@/src/constants/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
+import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 const accentByTone = {
@@ -112,10 +113,7 @@ function getPlanVisualTone(index: number) {
 }
 
 function buildPlanParams(plan: CommercialPlan, requestTrial = false) {
-  return {
-    planId: plan.id,
-    trial: requestTrial ? '1' : '0',
-  };
+  return buildCheckoutParams(plan.id, requestTrial);
 }
 
 export function SalesScreen() {
@@ -173,10 +171,11 @@ export function SalesScreen() {
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
     const params = buildPlanParams(plan, requestTrial);
+    saveCheckoutContext(plan.id, requestTrial);
 
     if (user && isCustomerAccount(user)) {
       router.push({
-        pathname: '/portal',
+        pathname: '/ventas/pago',
         params,
       } as never);
       return;
@@ -187,6 +186,7 @@ export function SalesScreen() {
   };
 
   const goToPlanLogin = (plan: CommercialPlan, requestTrial = false) => {
+    saveCheckoutContext(plan.id, requestTrial);
     router.push({
       pathname: '/ventas/login',
       params: buildPlanParams(plan, requestTrial),
@@ -194,6 +194,7 @@ export function SalesScreen() {
   };
 
   const goToPlanRegister = (plan: CommercialPlan, requestTrial = false) => {
+    saveCheckoutContext(plan.id, requestTrial);
     router.push({
       pathname: '/ventas/registro',
       params: buildPlanParams(plan, requestTrial),
@@ -446,8 +447,8 @@ export function SalesScreen() {
                   onPress={() => jumpToPlan(index)}
                   onBuy={() => goToPlanCheckout(plan)}
                   onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
-                  userLabel={user ? 'Ver portal' : 'Comprar'}
-                  trialLabel={user ? 'Probar en portal' : `Probar ${plan.trialDays || 7} días`}
+                  userLabel="Continuar compra"
+                  trialLabel={`Probar demo ${plan.trialDays || 7} días`}
                 />
               ))}
             </ScrollView>
@@ -520,17 +521,43 @@ export function SalesScreen() {
             <View pointerEvents="none" style={[styles.accessHubGlow, { backgroundColor: activePlanVisual.soft }]} />
             <View style={styles.accessCopy}>
               <Text style={[styles.accessEyebrow, { color: activePlanVisual.edge }]}>
-                PRODUCTO + ACCESO + DASHBOARD
+                PRODUCTO + ACCESO + PLAN
               </Text>
-              <Text style={styles.accessTitle}>Producto, cuenta y portal conectados.</Text>
+              <Text style={styles.accessTitle}>Activa tu plan y gestiona tu flotilla en un solo lugar.</Text>
               <Text style={styles.accessBody}>
-                Compra, registro y acceso al portal conservan el contexto del plan seleccionado.
+                Compra tu plan, registra tu empresa y comienza a administrar tus combis con herramientas profesionales.
               </Text>
 
-              <View style={styles.accessChips}>
-                {['Registro directo', 'Login con contexto', 'Dashboard unificado'].map((item) => (
-                  <View key={item} style={styles.accessChip}>
-                    <Text style={styles.accessChipText}>{item}</Text>
+              <View style={[styles.purchaseFlow, isPhone ? styles.purchaseFlowPhone : undefined]}>
+                {[
+                  {
+                    icon: 'cart-outline' as const,
+                    title: 'Comprar plan',
+                    body: 'Elige el plan ideal para tu operacion.',
+                  },
+                  {
+                    icon: 'account-outline' as const,
+                    title: 'Crear cuenta',
+                    body: 'Registra tu empresa o inicia sesion.',
+                  },
+                  {
+                    icon: 'bus-electric' as const,
+                    title: 'Activar combis',
+                    body: 'Agrega y administra tus unidades.',
+                  },
+                  {
+                    icon: 'view-dashboard-outline' as const,
+                    title: 'Acceder al dashboard',
+                    body: 'Monitorea en tiempo real todo tu negocio.',
+                  },
+                ].map((item, index) => (
+                  <View key={item.title} style={styles.purchaseFlowStep}>
+                    <View style={[styles.purchaseFlowIcon, { borderColor: `${activePlanVisual.edge}66` }]}>
+                      <MaterialCommunityIcons name={item.icon} size={22} color={activePlanVisual.edge} />
+                    </View>
+                    {!isPhone && index < 3 ? <View style={styles.purchaseFlowRail} /> : null}
+                    <Text style={styles.purchaseFlowTitle}>{item.title}</Text>
+                    <Text style={styles.purchaseFlowBody}>{item.body}</Text>
                   </View>
                 ))}
               </View>
@@ -550,13 +577,16 @@ export function SalesScreen() {
               ]}>
               <View style={styles.accessCardTop}>
                 <View style={[styles.accessCardSymbol, { backgroundColor: activePlanVisual.soft }]}>
-                  <MaterialCommunityIcons name="view-grid-plus-outline" size={20} color={activePlanVisual.edge} />
+                  <MaterialCommunityIcons name="bus-electric" size={34} color={activePlanVisual.edge} />
                 </View>
                 <View style={styles.accessCardCopy}>
-                  <Text style={styles.accessCardEyebrow}>Plan activo en pantalla</Text>
+                  <Text style={styles.accessCardEyebrow}>Plan seleccionado</Text>
                   <Text style={styles.accessCardTitle}>{activePlan?.name || 'Plan comercial'}</Text>
                   <Text style={styles.accessCardMeta}>
-                    {formatCurrency(activePlan?.price || 0)} al mes | {activePlan?.units || 0} unidades
+                    {formatCurrency(activePlan?.price || 0)} MXN / mes
+                  </Text>
+                  <Text style={styles.accessCardMeta}>
+                    Incluye {activePlan?.units || 0} unidades y acceso administrativo completo.
                   </Text>
                 </View>
               </View>
@@ -564,11 +594,11 @@ export function SalesScreen() {
               <View style={[styles.accessHighlights, isPhone ? styles.accessHighlightsPhone : undefined]}>
                 <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
                   <Text style={styles.accessHighlightLabel}>Acceso</Text>
-                  <Text style={styles.accessHighlightValue}>{user ? 'Portal listo' : 'Nuevo o existente'}</Text>
+                  <Text style={styles.accessHighlightValue}>Admin y choferes</Text>
                 </View>
                 <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
-                  <Text style={styles.accessHighlightLabel}>Entrada</Text>
-                  <Text style={styles.accessHighlightValue}>{user ? 'Dashboard cliente' : 'Login o registro'}</Text>
+                  <Text style={styles.accessHighlightLabel}>Registro</Text>
+                  <Text style={styles.accessHighlightValue}>Cuenta nueva o existente</Text>
                 </View>
                 <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
                   <Text style={styles.accessHighlightLabel}>Prueba</Text>
@@ -578,23 +608,37 @@ export function SalesScreen() {
                 </View>
               </View>
 
+              <View style={styles.accessBenefits}>
+                {[
+                  'Acceso inmediato',
+                  'Dashboard en tiempo real',
+                  `Activacion de hasta ${activePlan?.units || 0} unidades`,
+                  'Soporte operativo',
+                ].map((benefit) => (
+                  <View key={benefit} style={styles.accessBenefit}>
+                    <MaterialCommunityIcons name="check-circle-outline" size={16} color={activePlanVisual.edge} />
+                    <Text style={styles.accessBenefitText}>{benefit}</Text>
+                  </View>
+                ))}
+              </View>
+
               <View style={styles.accessButtonStack}>
                 {user ? (
                   <>
                     <AccessButton
-                      label="Abrir portal"
-                      icon="view-dashboard-outline"
+                      label="Continuar compra"
+                      icon="cart-outline"
                       onPress={() => goToPlanCheckout(activePlan)}
                     />
                     <AccessButton
-                      label="Comprar plan"
-                      icon="cart-outline"
+                      label="Ir al portal"
+                      icon="view-dashboard-outline"
                       variant="ghost"
-                      onPress={() => goToPlanCheckout(activePlan)}
+                      onPress={() => router.push(getAuthenticatedHome(user) as never)}
                     />
                     {activePlan?.trialEligible ? (
                       <AccessButton
-                        label={`Probar ${activePlan.trialDays || 7} días`}
+                        label={`Probar demo ${activePlan.trialDays || 7} días`}
                         icon="flask-outline"
                         variant="outline"
                         onPress={() => goToPlanCheckout(activePlan, true)}
@@ -604,9 +648,9 @@ export function SalesScreen() {
                 ) : (
                   <>
                     <AccessButton
-                      label="Crear cuenta"
-                      icon="account-plus-outline"
-                      onPress={() => goToPlanRegister(activePlan)}
+                      label="Continuar compra"
+                      icon="cart-outline"
+                      onPress={() => goToPlanCheckout(activePlan)}
                     />
                     <AccessButton
                       label="Iniciar sesión"
@@ -616,7 +660,7 @@ export function SalesScreen() {
                     />
                     {activePlan?.trialEligible ? (
                       <AccessButton
-                        label={`Probar ${activePlan.trialDays || 7} días`}
+                        label={`Probar demo ${activePlan.trialDays || 7} días`}
                         icon="credit-card-clock-outline"
                         variant="outline"
                         onPress={() => goToPlanRegister(activePlan, true)}
@@ -2002,6 +2046,52 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  purchaseFlow: {
+    flexDirection: 'row',
+    gap: 18,
+    marginTop: 10,
+    minWidth: 0,
+  },
+  purchaseFlowPhone: {
+    flexDirection: 'column',
+    gap: 12,
+  },
+  purchaseFlowStep: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+    position: 'relative',
+  },
+  purchaseFlowIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(168, 85, 247, 0.13)',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  purchaseFlowRail: {
+    backgroundColor: 'rgba(168, 85, 247, 0.32)',
+    height: 1,
+    left: 58,
+    position: 'absolute',
+    right: -10,
+    top: 23,
+  },
+  purchaseFlowTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  purchaseFlowBody: {
+    color: neonPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   accessCard: {
     flex: 1,
     minWidth: 300,
@@ -2098,6 +2188,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,
+  },
+  accessBenefits: {
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 12,
+  },
+  accessBenefit: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexBasis: 190,
+    flexGrow: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  accessBenefitText: {
+    color: neonPalette.text,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    minWidth: 0,
   },
   accessButtonStack: {
     gap: 8,

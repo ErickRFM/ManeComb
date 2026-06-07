@@ -2,8 +2,9 @@ const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
 const { authenticate } = require("../../middlewares/authenticate");
 const { requireAdmin } = require("../../middlewares/require-admin");
-const { requirePermission } = require("../../middlewares/access-control");
+const { getOrganizationId, requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
+const { verifyToken } = require("../../utils/jwt");
 const {
   confirmCommercialPayment,
   createCommercialCheckout
@@ -25,6 +26,71 @@ const router = Router();
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function routeError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function getOptionalAuthenticatedUser(req) {
+  const header = req.headers.authorization;
+
+  if (!header?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  try {
+    const payload = verifyToken(header.replace("Bearer ", "").trim());
+    return await req.app.locals.store.getUserById(payload.sub);
+  } catch {
+    return null;
+  }
+}
+
+function canConfirmVisualPayment(user, order) {
+  if (!user || !order) {
+    return false;
+  }
+
+  const userOrganizationId = getOrganizationId(user);
+  const orderOrganizationId = String(order.organizationId || order.organizationSlug || "").trim();
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  const orderEmail = String(order.ownerAccountEmail || order.email || "").trim().toLowerCase();
+
+  return Boolean(
+    String(order.ownerUserId || "").trim() === String(user.id || "").trim() ||
+      (userOrganizationId && userOrganizationId === orderOrganizationId) ||
+      (userEmail && userEmail === orderEmail)
+  );
+}
+
+function isVisualCheckoutSimulation(req) {
+  const paymentId = String(req.body.paymentId || "").trim();
+  return Boolean(req.body.visualSimulation || req.body.simulatePayment || paymentId.startsWith("visual-checkout-"));
+}
+
+async function buildVisualCheckoutConfirmation(req, order) {
+  const user = await getOptionalAuthenticatedUser(req);
+
+  if (!canConfirmVisualPayment(user, order)) {
+    throw routeError("Sesion requerida para confirmar este pago visual", user ? 403 : 401);
+  }
+
+  const paymentMethod = String(req.body.paymentMethod || order.paymentMethod || "card").trim();
+  const approvedAt = new Date().toISOString();
+
+  return {
+    paymentStatus: "paid",
+    activationStatus: "ready_for_activation",
+    approvedAt,
+    paymentProvider: paymentMethod === "spei" ? "visual_spei" : "visual_card",
+    paymentProviderReference: String(req.body.paymentId || `visual-checkout-${Date.now()}`).trim(),
+    paymentExternalReference: String(order.paymentExternalReference || order.id || order.referenceCode).trim(),
+    paymentInstructions: null,
+    nextStep: "Pago visual confirmado. La cuenta quedo activada para el portal."
+  };
 }
 
 function emitCommercialEvent(req, eventName, order, payload = {}) {
@@ -238,14 +304,31 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
 
 router.post("/confirm", async (req, res) => {
   try {
-    const confirmation = await confirmCommercialPayment({
-      externalReference: String(req.body.externalReference || req.body.referenceCode || "").trim(),
-      paymentId: String(req.body.paymentId || "").trim()
-    });
-    const externalReference = String(confirmation.paymentExternalReference || req.body.externalReference || "").trim();
-    const order = externalReference
-      ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
+    const requestedExternalReference = String(req.body.externalReference || req.body.referenceCode || "").trim();
+    let order = requestedExternalReference
+      ? await req.app.locals.store.findCommercialOrderByExternalReference(requestedExternalReference)
       : null;
+    let confirmation;
+
+    if (isVisualCheckoutSimulation(req)) {
+      if (!order) {
+        return res.status(404).json({
+          ok: false,
+          message: "Orden comercial no encontrada"
+        });
+      }
+
+      confirmation = await buildVisualCheckoutConfirmation(req, order);
+    } else {
+      confirmation = await confirmCommercialPayment({
+        externalReference: requestedExternalReference,
+        paymentId: String(req.body.paymentId || "").trim()
+      });
+      const externalReference = String(confirmation.paymentExternalReference || requestedExternalReference).trim();
+      order = externalReference
+        ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
+        : null;
+    }
 
     if (!order) {
       return res.status(404).json({
@@ -255,9 +338,10 @@ router.post("/confirm", async (req, res) => {
     }
 
     const updatedOrder = await req.app.locals.store.updateCommercialOrder(order.id, {
+      paymentProvider: confirmation.paymentProvider || order.paymentProvider,
       paymentStatus: confirmation.paymentStatus,
-      paymentProviderReference: confirmation.paymentProviderReference,
-      paymentExternalReference: confirmation.paymentExternalReference,
+      paymentProviderReference: confirmation.paymentProviderReference || order.paymentProviderReference,
+      paymentExternalReference: confirmation.paymentExternalReference || order.paymentExternalReference,
       paymentApprovedAt: confirmation.approvedAt,
       activationStatus: confirmation.activationStatus,
       activationStartedAt:
@@ -304,7 +388,7 @@ router.post("/confirm", async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status(error.statusCode || 400).json({
       ok: false,
       message: error.message || "No fue posible confirmar el pago"
     });

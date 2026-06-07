@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Link, Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -19,6 +19,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { useAppStore } from '@/src/store/use-app-store';
+import { buildCheckoutParams, readCheckoutContext, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 type SalesAuthScreenProps = {
@@ -35,7 +36,7 @@ function getFirstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function buildPortalRoute(planId: string | undefined, requestTrial: boolean) {
+function buildPaymentRoute(planId: string | undefined, requestTrial: boolean) {
   const params: Record<string, string> = {};
 
   if (planId) {
@@ -46,7 +47,7 @@ function buildPortalRoute(planId: string | undefined, requestTrial: boolean) {
     params.trial = '1';
   }
 
-  return Object.keys(params).length ? { pathname: '/portal', params } : '/portal';
+  return Object.keys(params).length ? { pathname: '/ventas/pago', params } : '/portal';
 }
 
 function normalizeIdentity(rawValue: string): AuthIdentity {
@@ -94,8 +95,13 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
   const [rememberSession, setRememberSession] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
 
-  const selectedPlanId = getFirstParam(params.planId);
-  const routeRequestsTrial = getFirstParam(params.trial) === '1';
+  const storedCheckout = readCheckoutContext();
+  const selectedPlanId = getFirstParam(params.planId) || storedCheckout?.planId;
+  const routeTrialParam = getFirstParam(params.trial);
+  const routeRequestsTrial =
+    typeof routeTrialParam === 'string'
+      ? routeTrialParam === '1'
+      : Boolean(storedCheckout?.requestTrial && storedCheckout.planId === selectedPlanId);
   const isRegister = mode === 'register';
   const isShortViewport = height < 720;
   const isCompactForm = isShortViewport || (isRegister && height < 860);
@@ -113,9 +119,15 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
     [isCompactForm, isNarrow, isRegister]
   );
 
+  useEffect(() => {
+    if (selectedPlanId) {
+      saveCheckoutContext(selectedPlanId, routeRequestsTrial);
+    }
+  }, [routeRequestsTrial, selectedPlanId]);
+
   if (user) {
     if (isCustomerAccount(user)) {
-      return <Redirect href={buildPortalRoute(selectedPlanId, routeRequestsTrial) as never} />;
+      return <Redirect href={buildPaymentRoute(selectedPlanId, routeRequestsTrial) as never} />;
     }
 
     return <Redirect href={getAuthenticatedHome(user) as never} />;
@@ -130,8 +142,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
     router.replace({
       pathname: nextMode === 'login' ? '/ventas/login' : '/ventas/registro',
       params: {
-        ...(selectedPlanId ? { planId: selectedPlanId } : {}),
-        ...(routeRequestsTrial ? { trial: '1' } : {}),
+        ...(selectedPlanId ? buildCheckoutParams(selectedPlanId, routeRequestsTrial) : {}),
       },
     } as never);
   };

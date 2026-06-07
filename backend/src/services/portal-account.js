@@ -74,6 +74,8 @@ function buildSubscription(order) {
       activeUnits: 0,
       availableUnits: 0,
       totalUnits: 0,
+      monthlyPrice: 0,
+      currency: "MXN",
       currentPeriodStart: null,
       currentPeriodEnd: null,
       cancelAt: null
@@ -93,6 +95,8 @@ function buildSubscription(order) {
     activeUnits,
     availableUnits: Math.max(0, totalUnits - activeUnits),
     totalUnits,
+    monthlyPrice: Number(order.totalPrice || order.basePlanPrice || 0),
+    currency: "MXN",
     currentPeriodStart: toIso(order.paymentApprovedAt || order.trialStartedAt || order.createdAt),
     currentPeriodEnd: toIso(order.trialEndsAt || order.currentPeriodEnd),
     cancelAt: toIso(order.cancelAt)

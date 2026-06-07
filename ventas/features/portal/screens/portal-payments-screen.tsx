@@ -30,30 +30,6 @@ type BillingHistoryItem = {
   status: string;
 };
 
-const mockRecentPayments: BillingHistoryItem[] = [
-  {
-    id: 'FAC-MC-1024',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 18).toISOString(),
-    total: 2499,
-    currency: 'MXN',
-    status: 'paid',
-  },
-  {
-    id: 'FAC-MC-1023',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 47).toISOString(),
-    total: 2499,
-    currency: 'MXN',
-    status: 'paid',
-  },
-  {
-    id: 'FAC-MC-1022',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 77).toISOString(),
-    total: 2499,
-    currency: 'MXN',
-    status: 'paid',
-  },
-];
-
 const cardBrandOptions = ['Visa', 'Mastercard', 'American Express', 'Carnet'] as const;
 
 function formatCurrency(value?: number | null, currency = 'MXN') {
@@ -462,14 +438,12 @@ export function PortalPaymentsScreen() {
             currency: invoice.currency,
             status: invoice.status,
           }))
-        : mockRecentPayments,
+        : [],
     [invoices]
   );
-  const nextChargeAmount = latestInvoice?.total || mockRecentPayments[0]?.total || 0;
-  const nextChargeCurrency = latestInvoice?.currency || mockRecentPayments[0]?.currency || 'MXN';
-  const nextChargeDate =
-    subscription?.currentPeriodEnd ||
-    new Date(Date.now() + 1000 * 60 * 60 * 24 * 12).toISOString();
+  const nextChargeAmount = subscription?.monthlyPrice || latestInvoice?.total || 0;
+  const nextChargeCurrency = subscription?.currency || latestInvoice?.currency || 'MXN';
+  const nextChargeDate = subscription?.currentPeriodEnd || null;
 
   const resetForm = () => {
     setBrand('');
@@ -590,7 +564,7 @@ export function PortalPaymentsScreen() {
           icon="receipt-text-check-outline"
           label={latestInvoice && isPaidInvoice(latestInvoice) ? 'pagado' : 'sin registro'}
           value={latestInvoice ? formatCurrency(latestInvoice.total, latestInvoice.currency) : formatCurrency(nextChargeAmount)}
-          detail={latestInvoice ? `Ultimo pago: ${formatDate(latestInvoice.issuedAt)}` : 'Referencia estimada'}
+          detail={latestInvoice ? `Ultimo pago: ${formatDate(latestInvoice.issuedAt)}` : 'Proximo cobro del plan'}
           tone={latestInvoice && isPaidInvoice(latestInvoice) ? 'positive' : 'neutral'}
         />
         <SummaryMetricCard
@@ -738,7 +712,7 @@ export function PortalPaymentsScreen() {
                   <Text style={styles.sideKicker}>Plan actual</Text>
                   <Text style={styles.nextPlan} numberOfLines={2}>{subscription?.planName || 'Plan comercial'}</Text>
                 </View>
-                <StatusBadge label={formatPortalStatus(subscription?.status || 'active')} tone={getPortalStatusTone(subscription?.status || 'active')} />
+                <StatusBadge label={formatPortalStatus(subscription?.status || 'inactive')} tone={getPortalStatusTone(subscription?.status || 'inactive')} />
               </View>
               <Text style={styles.nextAmount}>{formatCurrency(nextChargeAmount, nextChargeCurrency)}</Text>
               <Text style={styles.nextDate}>Programado para {formatDate(nextChargeDate)}</Text>
@@ -746,11 +720,18 @@ export function PortalPaymentsScreen() {
           </PortalSectionCard>
 
           <PortalSectionCard title="Historial reciente" subtitle="Ultimos movimientos.">
-            <View style={styles.historyList}>
-              {recentPayments.map((item) => (
-                <BillingHistoryRow key={item.id} item={item} />
-              ))}
-            </View>
+            {recentPayments.length ? (
+              <View style={styles.historyList}>
+                {recentPayments.map((item) => (
+                  <BillingHistoryRow key={item.id} item={item} />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyHistory}>
+                <MaterialCommunityIcons name="receipt-text-outline" size={24} color={portalPalette.muted} />
+                <Text style={styles.emptyHistoryText}>Sin movimientos reales todavia.</Text>
+              </View>
+            )}
           </PortalSectionCard>
 
           <PortalSectionCard title="Estado de facturacion" subtitle="Checklist operativo.">
@@ -758,8 +739,8 @@ export function PortalPaymentsScreen() {
               <BillingStatusRow
                 icon="clipboard-check-outline"
                 label="Suscripcion"
-                value={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'active').toLowerCase()) ? 'activa' : 'revisar'}
-                tone={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'active').toLowerCase()) ? 'positive' : 'warning'}
+                value={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'inactive').toLowerCase()) ? 'activa' : 'revisar'}
+                tone={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'inactive').toLowerCase()) ? 'positive' : 'warning'}
               />
               <BillingStatusRow
                 icon="file-document-check-outline"
@@ -1313,6 +1294,25 @@ const styles = StyleSheet.create({
   },
   historyList: {
     gap: 10,
+  },
+  emptyHistory: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 104,
+    padding: AppTheme.spacing.md,
+  },
+  emptyHistoryText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 19,
+    textAlign: 'center',
   },
   historyRow: {
     alignItems: 'flex-start',

@@ -150,6 +150,14 @@ export async function getCommercialPlansRequest() {
   return Array.isArray(plans) ? plans : [];
 }
 
+export async function createCommercialCheckoutRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/commercial/checkout', payload));
+}
+
+export async function confirmCommercialPaymentRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/commercial/confirm', payload));
+}
+
 export async function getUsersRequest() {
   return await unwrapData<any[]>(apiClient.get('/users'));
 }

@@ -160,6 +160,53 @@ async function testCriticalFlows() {
     assert.equal(checkoutResponse.payload.data.radioFeatureEnabled, true);
     assert.ok(Array.isArray(checkoutResponse.payload.data.downloads));
 
+    const visualCheckoutResponse = await requestJson(`${context.url}/commercial/checkout`, {
+      body: JSON.stringify({
+        companyName,
+        contactName: "Smoke Ops",
+        email,
+        phone: "+52 55 0000 2222",
+        planId: "value-4",
+        paymentMethod: "card",
+        requestTrial: false
+      }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+
+    assert.equal(visualCheckoutResponse.status, 201);
+    const visualConfirmResponse = await requestJson(`${context.url}/commercial/confirm`, {
+      body: JSON.stringify({
+        externalReference:
+          visualCheckoutResponse.payload.data.paymentExternalReference ||
+          visualCheckoutResponse.payload.data.id,
+        paymentId: `visual-checkout-${stamp}`,
+        paymentMethod: "card",
+        visualSimulation: true
+      }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+
+    assert.equal(visualConfirmResponse.status, 200);
+    assert.equal(visualConfirmResponse.payload.data.paymentStatus, "paid");
+    assert.equal(visualConfirmResponse.payload.data.activationStatus, "active");
+
+    const subscriptionResponse = await requestJson(`${context.url}/account/subscription`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    assert.equal(subscriptionResponse.status, 200);
+    assert.equal(subscriptionResponse.payload.data.planId, "value-4");
+    assert.equal(subscriptionResponse.payload.data.status, "active");
+    assert.equal(subscriptionResponse.payload.data.monthlyPrice, 209);
+
     const liveLocationsResponse = await requestJson(`${context.url}/locations/live`, {
       headers: {
         Authorization: `Bearer ${token}`
