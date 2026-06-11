@@ -106,6 +106,8 @@ const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
 const STORAGE_TIMEOUT_MS = 1200;
 const SOCKET_HEARTBEAT_MS = 45000;
 const API_HEALTHCHECK_MS = 30000;
+const PLAN_REQUIRED_MESSAGE =
+  'Necesitas un plan activo para acceder al panel operativo.';
 
 let socket: Socket | null = null;
 let socketSessionKey: string | null = null;
@@ -877,7 +879,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (res.some((result) => result.status === 'rejected' && isPlanRequiredError(result.reason))) {
         await clearOfflineCache().catch(() => undefined);
-        set({ ...getEmptyOperationalState(), isHydrated: true, isBootstrapping: false, error: null });
+        set({
+          ...getEmptyOperationalState(),
+          isHydrated: true,
+          isBootstrapping: false,
+          error: PLAN_REQUIRED_MESSAGE,
+        });
         return;
       }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, type PropsWithChildren } from 'react';
-import { Text, type TextProps } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, type TextProps } from 'react-native';
 import {
   StackActions,
   createNavigationContainerRef,
@@ -127,7 +127,12 @@ export function Redirect({ href }: { href: Href }) {
     navigation.dispatch(StackActions.replace(name, params));
   }, [href, navigation]);
 
-  return null;
+  return (
+    <View style={redirectStyles.container}>
+      <ActivityIndicator color="#E31E24" />
+      <Text style={redirectStyles.text}>Cargando...</Text>
+    </View>
+  );
 }
 
 type LinkProps = PropsWithChildren<
@@ -165,3 +170,19 @@ export const Stack = Object.assign(StackContainer, {
 export function Slot() {
   return null;
 }
+
+const redirectStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#090B10',
+    paddingHorizontal: 24,
+  },
+  text: {
+    color: '#F5F7FB',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});

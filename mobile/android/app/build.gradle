@@ -3,6 +3,20 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
+project.ext.vectoricons = [
+    iconFontNames: [
+        "MaterialCommunityIcons.ttf",
+        "MaterialIcons.ttf",
+        "Ionicons.ttf",
+        "Feather.ttf",
+        "FontAwesome.ttf",
+        "FontAwesome5_Brands.ttf",
+        "FontAwesome5_Regular.ttf",
+        "FontAwesome5_Solid.ttf"
+    ]
+]
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 def nodeExecutable = System.getenv('NODE_BINARY') ?: 'C:\\Program Files\\nodejs\\node.exe'
 def combisDetoxBundle = (findProperty('combis.detoxBundle') ?: 'false').toBoolean()

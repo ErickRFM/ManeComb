@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -35,6 +35,132 @@ import { PortalProfileScreen } from 'ventas/features/portal/screens/portal-profi
 import { PortalUsersScreen } from 'ventas/features/portal/screens/portal-users-screen';
 
 const Stack = createNativeStackNavigator();
+const BOOT_SYNC_TIMEOUT_MS = 16000;
+
+type AppStyles = ReturnType<typeof createStyles>;
+type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
+
+function RecoverableAppState({
+  continueLabel,
+  message,
+  onContinue,
+  onResetSession,
+  onRetry,
+  styles,
+  theme,
+  title,
+}: {
+  continueLabel?: string;
+  message: string;
+  onContinue?: () => void;
+  onResetSession: () => void;
+  onRetry: () => void;
+  styles: AppStyles;
+  theme: AppThemeValue;
+  title: string;
+}) {
+  return (
+    <View style={styles.recoveryScreen}>
+      <View
+        style={[
+          styles.recoveryMark,
+          {
+            backgroundColor: theme.colors.accentSoft,
+            borderColor: theme.colors.line,
+          },
+        ]}>
+        <Text style={[styles.recoveryMarkText, { color: theme.colors.accent }]}>!</Text>
+      </View>
+      <Text style={[styles.recoveryTitle, { color: theme.colors.text }]}>{title}</Text>
+      <Text style={[styles.recoveryMessage, { color: theme.colors.muted }]}>{message}</Text>
+      <View style={styles.recoveryButtonGroup}>
+        <Pressable
+          onPress={onRetry}
+          style={({ pressed }) => [
+            styles.recoveryPrimaryButton,
+            { backgroundColor: theme.colors.accent },
+            pressed ? styles.recoveryPressed : undefined,
+        ]}>
+          <Text style={styles.recoveryPrimaryText}>Reintentar</Text>
+        </Pressable>
+        {onContinue ? (
+          <Pressable
+            onPress={onContinue}
+            style={({ pressed }) => [
+              styles.recoverySecondaryButton,
+              { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+              pressed ? styles.recoveryPressed : undefined,
+            ]}>
+            <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
+              {continueLabel || 'Continuar'}
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={onResetSession}
+          style={({ pressed }) => [
+            styles.recoverySecondaryButton,
+            { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+            pressed ? styles.recoveryPressed : undefined,
+          ]}>
+          <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
+            Reiniciar sesion
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+class MobileErrorBoundary extends React.Component<
+  {
+    children: React.ReactNode;
+    styles: AppStyles;
+    theme: AppThemeValue;
+  },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[mobile:error-boundary]', error, info.componentStack);
+  }
+
+  handleRetry = () => {
+    this.setState({ error: null });
+  };
+
+  handleResetSession = () => {
+    useAppStore
+      .getState()
+      .signOut()
+      .finally(() => {
+        this.setState({ error: null });
+        router.replace('/login');
+      });
+  };
+
+  render() {
+    if (this.state.error) {
+      return (
+        <RecoverableAppState
+          title="La app encontro un problema"
+          message="El centro de control no pudo renderizarse. Puedes reintentar o iniciar sesion de nuevo."
+          onRetry={this.handleRetry}
+          onResetSession={this.handleResetSession}
+          styles={this.props.styles}
+          theme={this.props.theme}
+        />
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function InitialRoute() {
   const { isHydrated, user } = useAppStore(
@@ -52,7 +178,13 @@ function InitialRoute() {
     return <LoginRoute />;
   }
 
-  return <Redirect href={getAuthenticatedHome(user)} />;
+  const home = getAuthenticatedHome(user);
+
+  if (home === '/portal') {
+    return <PortalDashboardScreen />;
+  }
+
+  return <MapScreen />;
 }
 
 function OperationalRoute({ children }: { children: React.ReactNode }) {
@@ -162,6 +294,7 @@ function AppStack() {
 export default function App() {
   const { navigationTheme, theme } = useAppTheme();
   const splashHiddenRef = useRef(false);
+  const [bootTimedOut, setBootTimedOut] = useState(false);
   const { handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
     useShallow((state) => ({
       handlePushIntent: state.handlePushIntent,
@@ -178,6 +311,38 @@ export default function App() {
   const isReady = isHydrated && !isBootstrapping;
   const styles = useMemo(() => createStyles(theme), [theme]);
 
+  const retryBootstrap = useCallback(() => {
+    setBootTimedOut(false);
+    initialize().catch((error) => {
+      console.error('[mobile:bootstrap:retry]', error);
+      setBootTimedOut(true);
+    });
+  }, [initialize]);
+
+  const resetBootstrapSession = useCallback(() => {
+    setBootTimedOut(false);
+    useAppStore
+      .getState()
+      .signOut()
+      .finally(() => {
+        router.replace('/login');
+      });
+  }, []);
+
+  const continueWithoutLocation = useCallback(() => {
+    if (!user) {
+      return;
+    }
+
+    setBootTimedOut(false);
+    useAppStore.setState({
+      isHydrated: true,
+      isBootstrapping: false,
+      error: 'Ubicacion pendiente. Puedes continuar y reintentar GPS desde el mapa.',
+    });
+    router.replace(getAuthenticatedHome(user));
+  }, [user]);
+
   useEffect(() => {
     initialize().catch(() => undefined);
   }, [initialize]);
@@ -185,7 +350,21 @@ export default function App() {
   useEffect(() => {
     if (isReady) {
       hideSplash();
+      setBootTimedOut(false);
     }
+  }, [hideSplash, isReady]);
+
+  useEffect(() => {
+    if (isReady) {
+      return undefined;
+    }
+
+    const timeout = setTimeout(() => {
+      setBootTimedOut(true);
+      hideSplash();
+    }, BOOT_SYNC_TIMEOUT_MS);
+
+    return () => clearTimeout(timeout);
   }, [hideSplash, isReady]);
 
   useEffect(() => {
@@ -237,16 +416,31 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           <ThemeProvider value={navigationTheme}>
-            {!isReady ? (
-              <View style={styles.loader}>
-                <ActivityIndicator size="large" color={theme.colors.accent} />
-                <Text style={[styles.loaderText, { color: theme.colors.text }]}>
-                  Sincronizando centro de control...
-                </Text>
-              </View>
-            ) : (
-              <AppStack />
-            )}
+            <MobileErrorBoundary styles={styles} theme={theme}>
+              {!isReady ? (
+                bootTimedOut ? (
+                  <RecoverableAppState
+                    title="No pudimos sincronizar"
+                    message="La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo."
+                    continueLabel="Continuar sin ubicacion"
+                    onContinue={user ? continueWithoutLocation : undefined}
+                    onRetry={retryBootstrap}
+                    onResetSession={resetBootstrapSession}
+                    styles={styles}
+                    theme={theme}
+                  />
+                ) : (
+                  <View style={styles.loader}>
+                    <ActivityIndicator size="large" color={theme.colors.accent} />
+                    <Text style={[styles.loaderText, { color: theme.colors.text }]}>
+                      Sincronizando centro de control...
+                    </Text>
+                  </View>
+                )
+              ) : (
+                <AppStack />
+              )}
+            </MobileErrorBoundary>
             <StatusBar style={theme.statusBar} backgroundColor={theme.colors.background} />
           </ThemeProvider>
         </NavigationContainer>
@@ -272,6 +466,75 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       color: AppTheme.colors.text,
       fontFamily: Typography.body,
       fontSize: 15,
+    },
+    recoveryScreen: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 14,
+      paddingHorizontal: AppTheme.spacing.xl,
+      backgroundColor: theme.colors.background,
+    },
+    recoveryMark: {
+      width: 58,
+      height: 58,
+      borderRadius: 18,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    recoveryMarkText: {
+      fontFamily: Typography.display,
+      fontSize: 30,
+      fontWeight: '900',
+    },
+    recoveryTitle: {
+      fontFamily: Typography.display,
+      fontSize: 22,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    recoveryMessage: {
+      maxWidth: 420,
+      fontFamily: Typography.body,
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: 'center',
+    },
+    recoveryButtonGroup: {
+      width: '100%',
+      maxWidth: 320,
+      gap: 10,
+      marginTop: 8,
+    },
+    recoveryPrimaryButton: {
+      minHeight: 46,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+    },
+    recoveryPrimaryText: {
+      color: '#FFFFFF',
+      fontFamily: Typography.body,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    recoverySecondaryButton: {
+      minHeight: 46,
+      borderRadius: 14,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+    },
+    recoverySecondaryText: {
+      fontFamily: Typography.body,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    recoveryPressed: {
+      opacity: 0.86,
     },
   });
 }

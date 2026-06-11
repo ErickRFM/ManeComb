@@ -125,105 +125,125 @@ export function useUserLocation() {
       status: Location.PermissionStatus.UNDETERMINED,
     }));
 
-    const currentPosition = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.BestForNavigation,
-      mayShowUserSettingsDialog: true,
-    });
-    const initialPoint = buildLivePoint(currentPosition.coords);
-    lastAcceptedPointRef.current = initialPoint;
-
-    setState({
-      loading: false,
-      permission: 'granted',
-      backgroundPermission: toPermissionState(background.status),
-      coordinates: initialPoint,
-      lastUpdatedAt: currentPosition.timestamp
-        ? new Date(currentPosition.timestamp).toISOString()
-        : new Date().toISOString(),
-      servicesEnabled,
-    });
-
     stopTracking();
 
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation?.watchPosition) {
-      webWatcherIdRef.current = navigator.geolocation.watchPosition(
+    const startWatching = async () => {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation?.watchPosition) {
+        webWatcherIdRef.current = navigator.geolocation.watchPosition(
+          (position) => {
+            setState((current) => ({
+              ...current,
+              loading: false,
+              permission: 'granted',
+              backgroundPermission: toPermissionState(background.status),
+              coordinates: buildLivePoint({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                heading: position.coords.heading ?? null,
+                speed: position.coords.speed ?? null,
+                altitude: null,
+                altitudeAccuracy: null,
+              }),
+              lastUpdatedAt: position.timestamp
+                ? new Date(position.timestamp).toISOString()
+                : new Date().toISOString(),
+              servicesEnabled,
+            }));
+          },
+          () => undefined,
+          {
+            enableHighAccuracy: true,
+            maximumAge: 1500,
+            timeout: 12000,
+          }
+        );
+
+        return;
+      }
+
+      watcherRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Platform.OS === 'android' ? Location.Accuracy.High : Location.Accuracy.BestForNavigation,
+          distanceInterval: MIN_NATIVE_DISTANCE_METERS,
+          timeInterval: MIN_NATIVE_INTERVAL_MS,
+          mayShowUserSettingsDialog: true,
+        },
         (position) => {
+          const nextPoint = buildLivePoint(position.coords);
+          const lastPoint = lastAcceptedPointRef.current;
+
+          if (
+            typeof nextPoint.accuracy === 'number' &&
+            nextPoint.accuracy > MAX_ACCEPTED_ACCURACY_METERS &&
+            lastPoint
+          ) {
+            return;
+          }
+
+          if (lastPoint && distanceInMeters(lastPoint, nextPoint) < MIN_NATIVE_DISTANCE_METERS) {
+            return;
+          }
+
+          lastAcceptedPointRef.current = nextPoint;
           setState((current) => ({
             ...current,
             loading: false,
             permission: 'granted',
             backgroundPermission: toPermissionState(background.status),
-            coordinates: buildLivePoint({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              heading: position.coords.heading ?? null,
-              speed: position.coords.speed ?? null,
-              altitude: null,
-              altitudeAccuracy: null,
-            }),
+            coordinates: nextPoint,
             lastUpdatedAt: position.timestamp
               ? new Date(position.timestamp).toISOString()
               : new Date().toISOString(),
             servicesEnabled,
           }));
-        },
-        () => undefined,
-        {
-          enableHighAccuracy: true,
-          maximumAge: 1500,
-          timeout: 12000,
         }
       );
+    };
 
-      return;
+    const currentPosition = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.BestForNavigation,
+      mayShowUserSettingsDialog: true,
+    }).catch(() => null);
+
+    if (currentPosition) {
+      const initialPoint = buildLivePoint(currentPosition.coords);
+      lastAcceptedPointRef.current = initialPoint;
+
+      setState({
+        loading: false,
+        permission: 'granted',
+        backgroundPermission: toPermissionState(background.status),
+        coordinates: initialPoint,
+        lastUpdatedAt: currentPosition.timestamp
+          ? new Date(currentPosition.timestamp).toISOString()
+          : new Date().toISOString(),
+        servicesEnabled,
+      });
+    } else {
+      setState({
+        loading: false,
+        permission: 'granted',
+        backgroundPermission: toPermissionState(background.status),
+        coordinates: null,
+        lastUpdatedAt: null,
+        servicesEnabled: false,
+      });
     }
 
-    watcherRef.current = await Location.watchPositionAsync(
-      {
-        accuracy: Platform.OS === 'android' ? Location.Accuracy.High : Location.Accuracy.BestForNavigation,
-        distanceInterval: MIN_NATIVE_DISTANCE_METERS,
-        timeInterval: MIN_NATIVE_INTERVAL_MS,
-        mayShowUserSettingsDialog: true,
-      },
-      (position) => {
-        const nextPoint = buildLivePoint(position.coords);
-        const lastPoint = lastAcceptedPointRef.current;
-
-        if (
-          typeof nextPoint.accuracy === 'number' &&
-          nextPoint.accuracy > MAX_ACCEPTED_ACCURACY_METERS &&
-          lastPoint
-        ) {
-          return;
-        }
-
-        if (lastPoint && distanceInMeters(lastPoint, nextPoint) < MIN_NATIVE_DISTANCE_METERS) {
-          return;
-        }
-
-        lastAcceptedPointRef.current = nextPoint;
-        setState((current) => ({
-          ...current,
-          loading: false,
-          permission: 'granted',
-          backgroundPermission: toPermissionState(background.status),
-          coordinates: nextPoint,
-          lastUpdatedAt: position.timestamp
-            ? new Date(position.timestamp).toISOString()
-            : new Date().toISOString(),
-          servicesEnabled,
-        }));
-      }
-    );
+    await startWatching().catch(() => undefined);
   }, [stopTracking]);
 
   useEffect(() => {
-    requestLocation().catch(() => {
+    requestLocation().catch(async () => {
+      const foreground = await Location.getForegroundPermissionsAsync().catch(() => ({
+        status: Location.PermissionStatus.UNDETERMINED,
+      }));
+
       stopTracking();
       setState({
         loading: false,
-        permission: 'denied',
+        permission: toPermissionState(foreground.status),
         backgroundPermission: 'undetermined',
         coordinates: null,
         lastUpdatedAt: null,

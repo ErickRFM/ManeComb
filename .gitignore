@@ -33,6 +33,12 @@ backend/uploads/
 *.log
 codex-logs/
 
+# Local QA captures
+/manecomb-*.png
+/manecomb-*.xml
+/ventas-*.png
+/ventas-*.xml
+
 # Editor and OS files
 .idea/
 .DS_Store

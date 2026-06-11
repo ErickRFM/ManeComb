@@ -26,7 +26,7 @@ import {
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { useAppStore } from '@/src/store/use-app-store';
-import { getOperationalHome } from '@/src/utils/account-routing';
+import { getAuthenticatedHome } from '@/src/utils/account-routing';
 
 type CustomerAuthScreenProps = {
   mode: 'login' | 'register';
@@ -109,7 +109,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   );
 
   if (user) {
-    return <Redirect href={getOperationalHome(user) as never} />;
+    return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
   const goToMode = (nextMode: 'login' | 'register') => {

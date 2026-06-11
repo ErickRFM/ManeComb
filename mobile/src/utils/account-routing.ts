@@ -24,7 +24,11 @@ export function getAuthenticatedHome(
 }
 
 export function getOperationalHome(
-  _user: Pick<User, 'accountType'> | null | undefined
+  user: Pick<User, 'accountType'> | null | undefined
 ) {
+  if (isCustomerAccount(user)) {
+    return '/portal';
+  }
+
   return '/mapa';
 }

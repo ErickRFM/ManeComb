@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -67,16 +67,20 @@ export function MapScreen() {
 
   const {
     connectionMode,
+    error,
     isRefreshing,
     mapData,
     refreshAll,
+    signOut,
     user,
   } = useAppStore(
     useShallow((state) => ({
       connectionMode: state.connectionMode,
+      error: state.error,
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
       refreshAll: state.refreshAll,
+      signOut: state.signOut,
       user: state.user,
     }))
   );
@@ -191,7 +195,87 @@ export function MapScreen() {
     await Promise.all([refreshAll(), refresh()]);
   };
 
-  if (!mapData || !user) return null;
+  const handleResetSession = async () => {
+    await signOut();
+    router.replace('/login');
+  };
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  if (!mapData) {
+    const canOpenPortal = user.accountType === 'company_owner' ||
+      ['owner', 'admin', 'billing_manager', 'support', 'viewer'].includes(String(user.role || ''));
+
+    return (
+      <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+        <StatusBar style={theme.statusBar} />
+        <View style={styles.recoveryRoot}>
+          <View
+            style={[
+              styles.recoveryIcon,
+              {
+                backgroundColor: theme.colors.accentSoft,
+                borderColor: theme.colors.line,
+              },
+            ]}>
+            <MaterialCommunityIcons name="map-marker-off-outline" size={30} color={theme.colors.accent} />
+          </View>
+          <Text style={[styles.recoveryTitle, { color: theme.colors.text }]}>
+            Panel operativo no disponible
+          </Text>
+          <Text style={[styles.recoveryMessage, { color: theme.colors.muted }]}>
+            {error ||
+              'No pudimos cargar el centro de control. Revisa tu plan o intenta sincronizar de nuevo.'}
+          </Text>
+          <View style={styles.recoveryActions}>
+            {canOpenPortal ? (
+              <Pressable
+                onPress={() => router.replace('/portal/plan')}
+                style={({ pressed }) => [
+                  styles.recoveryPrimaryButton,
+                  { backgroundColor: theme.colors.accent },
+                  pressed ? styles.recoveryPressed : undefined,
+                ]}>
+                <Text style={styles.recoveryPrimaryText}>Ver plan</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => {
+                handleRefresh();
+              }}
+              disabled={isRefreshing}
+              style={({ pressed }) => [
+                styles.recoverySecondaryButton,
+                { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+                pressed && !isRefreshing ? styles.recoveryPressed : undefined,
+                isRefreshing ? styles.recoveryDisabled : undefined,
+              ]}>
+              {isRefreshing ? (
+                <MaterialCommunityIcons name="sync" size={18} color={theme.colors.accent} />
+              ) : null}
+              <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
+                {isRefreshing ? 'Sincronizando...' : 'Reintentar'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                handleResetSession();
+              }}
+              style={({ pressed }) => [
+                styles.recoveryGhostButton,
+                pressed ? styles.recoveryPressed : undefined,
+              ]}>
+              <Text style={[styles.recoveryGhostText, { color: theme.colors.muted }]}>
+                Reiniciar sesion
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -399,4 +483,83 @@ const styles = StyleSheet.create({
   vehicleMarkerInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF' },
   incidentMarker: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   userMarker: { width: 20, height: 20, borderRadius: 10, borderWidth: 3 },
+  recoveryRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 28,
+  },
+  recoveryIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recoveryTitle: {
+    fontFamily: Typography.display,
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  recoveryMessage: {
+    maxWidth: 420,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  recoveryActions: {
+    width: '100%',
+    maxWidth: 320,
+    gap: 10,
+    marginTop: 8,
+  },
+  recoveryPrimaryButton: {
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  recoveryPrimaryText: {
+    color: '#FFF',
+    fontFamily: Typography.body,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  recoverySecondaryButton: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  recoverySecondaryText: {
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  recoveryGhostButton: {
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  recoveryGhostText: {
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  recoveryPressed: {
+    opacity: 0.86,
+  },
+  recoveryDisabled: {
+    opacity: 0.64,
+  },
 });
