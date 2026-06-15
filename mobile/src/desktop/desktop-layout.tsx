@@ -46,7 +46,7 @@ export function DesktopLayout({ children }: { children: React.ReactNode }) {
     [incidents]
   );
 
-  if (!user) return <View style={{ flex: 1 }}>{children}</View>;
+  if (!user) return <View style={styles.emptyContent}>{children}</View>;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
@@ -166,6 +166,9 @@ export function DesktopLayout({ children }: { children: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row-reverse' },
+  emptyContent: {
+    flex: 1,
+  },
   sidebar: {
     width: DESKTOP_SIDEBAR_WIDTH,
     flexBasis: DESKTOP_SIDEBAR_WIDTH,

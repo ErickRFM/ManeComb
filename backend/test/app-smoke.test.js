@@ -252,6 +252,102 @@ async function testCriticalFlows() {
     assert.equal(generalConversationResponse.payload.ok, true);
     assert.equal(generalConversationResponse.payload.data.channelMode, "chat");
 
+    const radioConversationResponse = await requestJson(
+      `${context.url}/chat/conversations/general`,
+      {
+        body: JSON.stringify({
+          channelMode: "radio"
+        }),
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        method: "POST"
+      }
+    );
+
+    assert.equal(radioConversationResponse.status, 200);
+    assert.equal(radioConversationResponse.payload.ok, true);
+    assert.equal(radioConversationResponse.payload.data.channelMode, "radio");
+    const radioConversationId = radioConversationResponse.payload.data.id;
+
+    const blockedRadioMessagesResponse = await fetch(
+      `${context.url}/radio/messages?channelId=${encodeURIComponent(radioConversationId)}`
+    );
+
+    assert.equal(blockedRadioMessagesResponse.status, 401);
+
+    const radioAudioForm = new FormData();
+    radioAudioForm.append("channelId", radioConversationId);
+    radioAudioForm.append("durationSeconds", "2");
+    radioAudioForm.append("createdAt", new Date().toISOString());
+    radioAudioForm.append(
+      "file",
+      new Blob([Buffer.from("radio-smoke-audio")], { type: "audio/mp4" }),
+      "radio-smoke.m4a"
+    );
+
+    const radioUploadResponse = await fetch(`${context.url}/radio/messages`, {
+      body: radioAudioForm,
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+    const radioUploadPayload = await radioUploadResponse.json();
+
+    assert.equal(radioUploadResponse.status, 201);
+    assert.equal(radioUploadPayload.ok, true);
+    assert.equal(radioUploadPayload.data.kind, "audio");
+    assert.ok(radioUploadPayload.data.audioUrl);
+
+    const radioMessagesResponse = await requestJson(
+      `${context.url}/radio/messages?channelId=${encodeURIComponent(radioConversationId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    assert.equal(radioMessagesResponse.status, 200);
+    assert.equal(radioMessagesResponse.payload.ok, true);
+    assert.ok(
+      radioMessagesResponse.payload.data.some(
+        (message) => message.id === radioUploadPayload.data.id
+      )
+    );
+
+    const radioAudioResponse = await fetch(
+      `${context.url}/radio/messages/${encodeURIComponent(radioUploadPayload.data.id)}/audio`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    assert.equal(radioAudioResponse.status, 200);
+    assert.ok(String(radioAudioResponse.headers.get("content-type") || "").startsWith("audio/"));
+    assert.equal(radioAudioResponse.headers.get("accept-ranges"), "bytes");
+    assert.ok((await radioAudioResponse.arrayBuffer()).byteLength > 0);
+
+    const radioAudioRangeResponse = await fetch(
+      `${context.url}/radio/messages/${encodeURIComponent(radioUploadPayload.data.id)}/audio`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Range: "bytes=0-4"
+        }
+      }
+    );
+
+    assert.equal(radioAudioRangeResponse.status, 206);
+    assert.equal(radioAudioRangeResponse.headers.get("accept-ranges"), "bytes");
+    assert.ok(
+      String(radioAudioRangeResponse.headers.get("content-range") || "").startsWith("bytes 0-")
+    );
+    assert.ok((await radioAudioRangeResponse.arrayBuffer()).byteLength > 0);
+
     const directConversationResponse = await requestJson(
       `${context.url}/chat/conversations/direct`,
       {

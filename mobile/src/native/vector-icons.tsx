@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, type TextProps } from 'react-native';
+import { StyleSheet, Text, type TextProps } from 'react-native';
 
 let NativeMaterialCommunityIcons: any = null;
 
@@ -20,7 +20,7 @@ function FallbackIcon({ name, size = 20, color = '#FFFFFF', style, ...props }: I
     <Text
       {...props}
       accessibilityLabel={name}
-      style={[{ color, fontSize: Math.max(10, size * 0.8), fontWeight: '700' }, style]}>
+      style={[styles.fallbackIcon, { color, fontSize: Math.max(10, size * 0.8) }, style]}>
       {String(name || '?').slice(0, 1).toUpperCase()}
     </Text>
   );
@@ -33,3 +33,9 @@ export const MaterialCommunityIcons =
     font: {},
     loadFont: async () => undefined,
   });
+
+const styles = StyleSheet.create({
+  fallbackIcon: {
+    fontWeight: '700',
+  },
+});

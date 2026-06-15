@@ -196,7 +196,7 @@ export function BuyerProfileScreen() {
     let mounted = true;
     setPortalLoading(true);
 
-    void Promise.all([getCommercialPlansRequest(), getMyCommercialOrdersRequest()])
+    Promise.all([getCommercialPlansRequest(), getMyCommercialOrdersRequest()])
       .then(([plansResponse, ordersResponse]) => {
         if (!mounted) {
           return;
@@ -450,7 +450,7 @@ export function BuyerProfileScreen() {
                 onPress={() => router.push('/ventas')}
                 palette={palette}
               />
-              <PrimaryButton label="Cerrar sesión" onPress={() => void signOut()} />
+              <PrimaryButton label="Cerrar sesión" onPress={() => { signOut(); }} />
             </View>
           </View>
 
@@ -783,7 +783,7 @@ export function BuyerProfileScreen() {
               <ActionRow>
                 <PrimaryButton
                   label={isSubmitting ? 'Guardando...' : 'Guardar perfil'}
-                  onPress={() => void handleProfileSave()}
+                  onPress={() => { handleProfileSave(); }}
                   disabled={isSubmitting}
                 />
               </ActionRow>
@@ -846,7 +846,7 @@ export function BuyerProfileScreen() {
               <ActionRow>
                 <PrimaryButton
                   label={isSubmitting ? 'Actualizando...' : 'Actualizar contraseña'}
-                  onPress={() => void handleSecuritySave()}
+                  onPress={() => { handleSecuritySave(); }}
                   disabled={isSubmitting}
                 />
               </ActionRow>
@@ -890,7 +890,7 @@ export function BuyerProfileScreen() {
                       </Text>
                       <GhostButton
                         label="Descargar"
-                        onPress={() => void handleDownload(asset)}
+                        onPress={() => { handleDownload(asset); }}
                         palette={palette}
                       />
                     </View>
@@ -1124,7 +1124,7 @@ export function BuyerProfileScreen() {
                 <ActionRow>
                   <PrimaryButton
                     label={purchaseLoading ? 'Procesando...' : 'Comprar plan'}
-                    onPress={() => void handlePurchase()}
+                    onPress={() => { handlePurchase(); }}
                     disabled={purchaseLoading}
                   />
                 </ActionRow>

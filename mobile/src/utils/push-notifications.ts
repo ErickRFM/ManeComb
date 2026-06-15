@@ -22,13 +22,12 @@ export async function requestNativePushToken() {
   return null;
 }
 
-export async function showInAppNotification(payload: {
+export async function showInAppNotification(_payload: {
   title: string;
   body: string;
   data?: Record<string, unknown>;
   category?: string;
 }) {
-  void payload;
   await configureAppNotifications();
 }
 
@@ -93,9 +92,8 @@ export function getPushRouteIntent(rawData: Record<string, unknown> | null | und
 }
 
 export function addPushResponseListener(
-  callback: (intent: PushRouteIntent) => void | Promise<void>
+  _callback: (intent: PushRouteIntent) => void | Promise<void>
 ) {
-  void callback;
   return () => {
     // Native push provider is intentionally not wired until FCM/Notifee credentials exist.
   };

@@ -76,6 +76,8 @@ export function LegalScreen({ kind }: LegalScreenProps) {
   const { themeMode } = useAppTheme();
   const palette = getAuthPalette(themeMode);
   const content = contentByKind[kind];
+  const sectionCardBorderStyle =
+    palette.mode === 'light' ? styles.sectionCardLight : { borderColor: palette.border };
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background }]}>
@@ -101,8 +103,8 @@ export function LegalScreen({ kind }: LegalScreenProps) {
                   styles.sectionCard,
                   {
                     backgroundColor: palette.panelSoft,
-                    borderColor: palette.mode === 'light' ? '#E3DBD1' : palette.border,
                   },
+                  sectionCardBorderStyle,
                 ]}>
                 <Text style={[styles.sectionTitle, { color: palette.text }]}>{section.title}</Text>
                 <Text style={[styles.sectionBody, { color: palette.muted }]}>{section.body}</Text>
@@ -179,6 +181,9 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 18,
     gap: 8,
+  },
+  sectionCardLight: {
+    borderColor: '#E3DBD1',
   },
   sectionTitle: {
     fontFamily: Typography.body,

@@ -841,7 +841,7 @@ export function IncidentsScreen() {
               accessibilityLabel="Emitir alerta de panico"
               accessibilityRole="button"
               disabled={isSubmitting}
-              onPress={() => void handleQuickSos('security')}
+              onPress={() => { handleQuickSos('security'); }}
               style={[
                 screenStyles.sosBtn,
                 { backgroundColor: theme.colors.danger },
@@ -854,7 +854,7 @@ export function IncidentsScreen() {
               accessibilityLabel="Emitir alerta critica de unidad"
               accessibilityRole="button"
               disabled={isSubmitting}
-              onPress={() => void handleQuickSos('maintenance')}
+              onPress={() => { handleQuickSos('maintenance'); }}
               style={[
                 screenStyles.sosBtn,
                 { backgroundColor: theme.colors.warning },
@@ -1128,7 +1128,7 @@ export function IncidentsScreen() {
                             <Pressable
                               accessibilityLabel={`Marcar resuelta ${incident.title}`}
                               accessibilityRole="button"
-                              onPress={() => void updateIncidentStatus(incident.id, 'resolved')}
+                              onPress={() => { updateIncidentStatus(incident.id, 'resolved'); }}
                               style={screenStyles.resolveButton}>
                               <MaterialCommunityIcons
                                 name="check-circle-outline"

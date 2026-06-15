@@ -184,7 +184,7 @@ export function MapScreen() {
 
     lastLocationSyncRef.current = now;
     lastSyncedLocationRef.current = coordinates;
-    void updateVehicleLocationRequest({
+    updateVehicleLocationRequest({
       vehicleId: user.vehicleId,
       coordinates,
       speed: coordinates.speed,
@@ -305,19 +305,25 @@ export function MapScreen() {
             <Polyline key={route.id} coordinates={route.polyline} strokeColor={route.color} strokeWidth={3} />
           ))}
 
-          {mapData.vehicles.map((vehicle) => (
-            <Marker
-              key={vehicle.id}
-              coordinate={vehicle.location}
-              onPress={() => {
-                setSelectedVehicleId(vehicle.id);
-                setFollowMode(true);
-              }}>
-              <View style={[styles.vehicleMarker, { backgroundColor: vehicle.status === 'maintenance' ? theme.colors.danger : theme.colors.accent, borderColor: '#FFF' }]}>
-                 <View style={styles.vehicleMarkerInner} />
-              </View>
-            </Marker>
-          ))}
+          {mapData.vehicles.map((vehicle) => {
+            const vehicleMarkerStyle = {
+              backgroundColor: vehicle.status === 'maintenance' ? theme.colors.danger : theme.colors.accent,
+            };
+
+            return (
+              <Marker
+                key={vehicle.id}
+                coordinate={vehicle.location}
+                onPress={() => {
+                  setSelectedVehicleId(vehicle.id);
+                  setFollowMode(true);
+                }}>
+                <View style={[styles.vehicleMarker, vehicleMarkerStyle]}>
+                   <View style={styles.vehicleMarkerInner} />
+                </View>
+              </Marker>
+            );
+          })}
 
           {mapData.incidents.map((incident) => {
             const v = mapData.vehicles.find(veh => veh.id === incident.vehicleId);
@@ -333,7 +339,7 @@ export function MapScreen() {
 
           {coordinates && (
             <Marker coordinate={coordinates}>
-               <View style={[styles.userMarker, { backgroundColor: theme.colors.info, borderColor: '#FFF' }]} />
+               <View style={[styles.userMarker, { backgroundColor: theme.colors.info }]} />
             </Marker>
           )}
         </MapView>
@@ -407,12 +413,26 @@ export function MapScreen() {
              ) : null}
 
              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
-                {trackingVehicles.map(v => (
-                  <Pressable key={v.id} onPress={() => { setSelectedVehicleId(v.id); setFollowMode(true); }}
-                    style={[styles.trackChip, v.id === selectedVehicle?.id && { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent }]}>
-                    <Text style={[styles.trackChipTitle, { color: v.id === selectedVehicle?.id ? "#FFF" : theme.colors.text }]}>{v.code}</Text>
-                  </Pressable>
-                ))}
+                {trackingVehicles.map((v) => {
+                  const isSelected = v.id === selectedVehicle?.id;
+                  const selectedTrackChipStyle = {
+                    backgroundColor: theme.colors.accent,
+                    borderColor: theme.colors.accent,
+                  };
+                  const trackChipTitleStyle = isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text };
+
+                  return (
+                    <Pressable
+                      key={v.id}
+                      onPress={() => {
+                        setSelectedVehicleId(v.id);
+                        setFollowMode(true);
+                      }}
+                      style={[styles.trackChip, isSelected ? selectedTrackChipStyle : undefined]}>
+                      <Text style={[styles.trackChipTitle, trackChipTitleStyle]}>{v.code}</Text>
+                    </Pressable>
+                  );
+                })}
              </ScrollView>
           </View>
         </View>
@@ -479,10 +499,11 @@ const styles = StyleSheet.create({
   trackList: { gap: 10 },
   trackChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
   trackChipTitle: { fontSize: 14, fontWeight: '700', fontFamily: Typography.body },
-  vehicleMarker: { width: 22, height: 22, borderRadius: 11, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
+  trackChipTitleSelected: { color: '#FFF' },
+  vehicleMarker: { width: 22, height: 22, borderRadius: 11, borderWidth: 3, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   vehicleMarkerInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF' },
   incidentMarker: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
-  userMarker: { width: 20, height: 20, borderRadius: 10, borderWidth: 3 },
+  userMarker: { width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#FFF' },
   recoveryRoot: {
     flex: 1,
     alignItems: 'center',

@@ -13,6 +13,7 @@ import {
 import { createElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Modal,
   Platform,
@@ -42,6 +43,7 @@ import type {
 import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
 
 type DirectoryMode = 'all' | 'unread' | 'groups' | 'direct';
+type DirectoryTab = 'general' | 'drivers' | 'admin';
 type MobilePane = 'directory' | 'conversation';
 type RecordingState = 'idle' | 'recording' | 'uploading';
 type VoiceSearchState = 'idle' | 'recording' | 'processing';
@@ -60,8 +62,19 @@ type CallSession = {
   remoteStream: MediaStream | null;
   remoteSocketId: string | null;
 };
+type DirectoryListItem =
+  | { type: 'generalShortcut'; id: string }
+  | { type: 'conversation'; id: string; conversation: ConversationSummary }
+  | { type: 'contact'; id: string; contact: ChatDirectoryContact }
+  | { type: 'empty'; id: string };
 const MAX_VOICE_NOTE_SECONDS = 45;
 const MAX_VOICE_SEARCH_SECONDS = 12;
+const DIRECTORY_TABS: { key: DirectoryTab; label: string }[] = [
+  { key: 'general', label: 'General' },
+  { key: 'drivers', label: 'Conductores' },
+  { key: 'admin', label: 'Administracion' },
+];
+const ADMIN_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor', 'billing_manager', 'support']);
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -108,6 +121,54 @@ function getContactSearchText(contact: ChatDirectoryContact) {
   return `${contact.name} ${contact.email} ${contact.phone} ${contact.role}`.toLowerCase();
 }
 
+function getDirectoryTabForContact(contact?: ChatDirectoryContact | null): DirectoryTab {
+  if (!contact) {
+    return 'general';
+  }
+
+  const role = String(contact.role || '').toLowerCase();
+  const searchableText = `${contact.name} ${role} ${contact.vehicleId || ''}`.toLowerCase();
+
+  if (role === 'driver' || searchableText.includes('conductor') || searchableText.includes('chofer') || searchableText.includes('unidad')) {
+    return 'drivers';
+  }
+
+  if (
+    ADMIN_ROLES.has(role) ||
+    searchableText.includes('admin') ||
+    searchableText.includes('supervisor') ||
+    searchableText.includes('control')
+  ) {
+    return 'admin';
+  }
+
+  return 'general';
+}
+
+function getDirectoryTabForConversation(
+  conversation: ConversationSummary,
+  currentUserId?: string | null
+): DirectoryTab {
+  const contact = getConversationContact(conversation, currentUserId);
+  const contactTab = getDirectoryTabForContact(contact as ChatDirectoryContact | null);
+  const searchableText = `${conversation.title} ${conversation.description || ''} ${contact?.name || ''} ${contact?.role || ''}`.toLowerCase();
+
+  if (contactTab === 'drivers' || searchableText.includes('conductor') || searchableText.includes('chofer') || searchableText.includes('unidad')) {
+    return 'drivers';
+  }
+
+  if (
+    contactTab === 'admin' ||
+    searchableText.includes('admin') ||
+    searchableText.includes('supervisor') ||
+    searchableText.includes('control')
+  ) {
+    return 'admin';
+  }
+
+  return 'general';
+}
+
 export function ChatScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1080;
@@ -150,6 +211,7 @@ export function ChatScreen() {
   );
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
   const [directoryMode, setDirectoryMode] = useState<DirectoryMode>('all');
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTab>('general');
   const [mobilePane, setMobilePane] = useState<MobilePane>('directory');
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
@@ -466,7 +528,7 @@ export function ChatScreen() {
   );
 
   useEffect(() => {
-    void loadChatContacts();
+    loadChatContacts();
   }, [loadChatContacts]);
 
   useEffect(() => {
@@ -483,14 +545,14 @@ export function ChatScreen() {
 
       if (preferredConversation?.id) {
         setActiveConversationId(preferredConversation.id);
-        void loadConversation(preferredConversation.id);
+        loadConversation(preferredConversation.id);
       }
 
       return;
     }
 
     bootstrappedRef.current = true;
-    void openGeneralConversation('chat').then((conversation) => {
+    openGeneralConversation('chat').then((conversation) => {
       if (conversation?.id && isCompact) {
         setMobilePane('conversation');
       }
@@ -521,7 +583,7 @@ export function ChatScreen() {
       chatConversations[0];
 
     setActiveConversationId(fallbackConversation.id);
-    void loadConversation(fallbackConversation.id);
+    loadConversation(fallbackConversation.id);
   }, [activeConversationId, chatConversations, loadConversation, setActiveConversationId]);
 
   useEffect(() => {
@@ -541,8 +603,8 @@ export function ChatScreen() {
       if (searchTimerRef.current) {
         clearInterval(searchTimerRef.current);
       }
-      void nativeVoiceRecorder.stop().catch(() => undefined);
-      void nativeSearchRecorder.stop().catch(() => undefined);
+      nativeVoiceRecorder.stop().catch(() => undefined);
+      nativeSearchRecorder.stop().catch(() => undefined);
       webRecorderRef.current?.stop?.();
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
       searchWebRecorderRef.current?.stop?.();
@@ -641,15 +703,79 @@ export function ChatScreen() {
       return getContactSearchText(contact).includes(searchTerm);
     });
   }, [chatContacts, directoryMode, searchTerm]);
+  const directoryTabCounts = useMemo(() => {
+    const counts: Record<DirectoryTab, number> = {
+      general: 0,
+      drivers: 0,
+      admin: 0,
+    };
+
+    filteredConversations.forEach((conversation) => {
+      counts[getDirectoryTabForConversation(conversation, user?.id)] += 1;
+    });
+    filteredContacts.forEach((contact) => {
+      counts[getDirectoryTabForContact(contact)] += 1;
+    });
+
+    return counts;
+  }, [filteredConversations, filteredContacts, user?.id]);
+  const visibleConversations = useMemo(
+    () =>
+      filteredConversations.filter(
+        (conversation) => getDirectoryTabForConversation(conversation, user?.id) === directoryTab
+      ),
+    [directoryTab, filteredConversations, user?.id]
+  );
+  const visibleContacts = useMemo(() => {
+    const visibleConversationIds = new Set(visibleConversations.map((conversation) => conversation.id));
+
+    return filteredContacts.filter((contact) => {
+      if (getDirectoryTabForContact(contact) !== directoryTab) {
+        return false;
+      }
+
+      return !contact.directConversationId || !visibleConversationIds.has(contact.directConversationId);
+    });
+  }, [directoryTab, filteredContacts, visibleConversations]);
+  const visibleDirectoryCount = visibleConversations.length + visibleContacts.length;
+  const showGeneralShortcut =
+    directoryTab === 'general' && directoryMode !== 'direct' && directoryMode !== 'unread';
+  const visibleListCount = visibleDirectoryCount + (showGeneralShortcut ? 1 : 0);
+  const directoryItems = useMemo<DirectoryListItem[]>(() => {
+    const items: DirectoryListItem[] = [];
+
+    if (showGeneralShortcut) {
+      items.push({ type: 'generalShortcut', id: 'general-shortcut' });
+    }
+
+    visibleConversations.forEach((conversation) => {
+      items.push({ type: 'conversation', id: `conversation-${conversation.id}`, conversation });
+    });
+    visibleContacts.forEach((contact) => {
+      items.push({ type: 'contact', id: `contact-${contact.id}`, contact });
+    });
+
+    if (!items.length) {
+      items.push({ type: 'empty', id: 'empty-directory' });
+    }
+
+    return items;
+  }, [showGeneralShortcut, visibleContacts, visibleConversations]);
   const totalUnread = useMemo(
     () => chatConversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0),
     [chatConversations]
   );
   const directoryHelperText = searchTerm
-    ? `Mostrando ${filteredConversations.length} chats y ${filteredContacts.length} contactos relacionados con "${search.trim()}".`
+    ? `${visibleListCount} resultados para "${search.trim()}".`
     : directoryMode === 'unread'
-      ? 'Vista priorizada para responder pendientes antes y detectar actividad critica.'
-      : 'Vista priorizada por pendientes y actividad reciente para ubicar primero lo importante.';
+      ? `${visibleListCount} pendientes visibles.`
+      : `${visibleListCount} conversaciones visibles.`;
+  const activeDirectoryLabel =
+    DIRECTORY_TABS.find((tab) => tab.key === directoryTab)?.label || 'General';
+  const composerPlaceholder =
+    activeConversation?.kind === 'direct' && activeContact?.name
+      ? `Escribe a ${activeContact.name}`
+      : `Escribe en ${activeConversation?.title || 'el chat'}`;
   const supportsMicrophoneCapture =
     Platform.OS !== 'web' ||
     (typeof globalThis !== 'undefined' &&
@@ -688,11 +814,6 @@ export function ChatScreen() {
         ? 'warning'
         : 'neutral';
   const activeConversationCallMode = activeCallSession?.mode ?? null;
-  const conversationCallHint =
-    callNotice ||
-    (canStartRealtimeCall
-      ? 'Usa voz o video desde los iconos del encabezado para abrir la cabina sin perder el contexto.'
-      : 'Las llamadas y videollamadas en vivo se habilitan cuando entras a la version web del chat.');
 
   const startRecordingTicker = () => {
     recordStartedAtRef.current = Date.now();
@@ -721,7 +842,7 @@ export function ChatScreen() {
         }
 
         setRecorderMessage(`Limite de ${MAX_VOICE_NOTE_SECONDS}s alcanzado. Enviando audio...`);
-        void (Platform.OS === 'web' ? stopWebRecording() : stopNativeRecording());
+        (Platform.OS === 'web' ? stopWebRecording() : stopNativeRecording());
       }
     }, 400);
   };
@@ -764,7 +885,7 @@ export function ChatScreen() {
         setVoiceSearchMessage(
           `Limite de ${MAX_VOICE_SEARCH_SECONDS}s alcanzado. Procesando audio...`
         );
-        void (Platform.OS === 'web' ? stopWebVoiceSearch() : stopNativeVoiceSearch());
+        (Platform.OS === 'web' ? stopWebVoiceSearch() : stopNativeVoiceSearch());
       }
     }, 400);
   };
@@ -1492,66 +1613,63 @@ export function ChatScreen() {
         isMobileConversation ? null : (
         <View style={styles.header}>
           <Text style={styles.title}>Mensajeria operativa</Text>
-          <Text style={styles.subtitle}>
-            Coordina mensajes, archivos, llamadas y videollamadas sin salir de la misma consola.
-          </Text>
-          <View style={styles.headerPills}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.headerPills}>
             <StatusPill label={`${chatConversations.length} chats`} tone="info" />
             <StatusPill
               label={totalUnread ? `${totalUnread} pendientes` : 'Todo al dia'}
               tone={totalUnread ? 'warning' : 'positive'}
             />
             <StatusPill label="Cifrado protegido" tone="neutral" />
-          </View>
+          </ScrollView>
         </View>
         )
       }>
-      {isCompact && !isMobileConversation ? (
-        <View style={styles.mobileSwitch}>
-          <Pressable
-            onPress={() => setMobilePane('directory')}
-            style={[
-              styles.mobileSwitchButton,
-              mobilePane === 'directory' ? styles.mobileSwitchButtonActive : undefined,
-            ]}>
-            <MaterialCommunityIcons
-              name="view-list-outline"
-              size={18}
-              color={mobilePane === 'directory' ? '#FFFFFF' : theme.colors.text}
-            />
-            <Text
-              style={[
-                styles.mobileSwitchLabel,
-                mobilePane === 'directory' ? styles.mobileSwitchLabelActive : undefined,
-              ]}>
-              Canales
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMobilePane('conversation')}
-            style={[
-              styles.mobileSwitchButton,
-              mobilePane === 'conversation' ? styles.mobileSwitchButtonActive : undefined,
-            ]}>
-            <MaterialCommunityIcons
-              name="message-reply-text-outline"
-              size={18}
-              color={mobilePane === 'conversation' ? '#FFFFFF' : theme.colors.text}
-            />
-            <Text
-              style={[
-                styles.mobileSwitchLabel,
-                mobilePane === 'conversation' ? styles.mobileSwitchLabelActive : undefined,
-              ]}>
-              Conversacion
-            </Text>
-          </Pressable>
-        </View>
-        ) : null}
-
       <View style={styles.layout}>
         {showDirectoryPanel ? (
           <View style={styles.directoryPanel}>
+            <ScrollView
+              horizontal
+              style={styles.categoryTabsScroll}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryTabs}>
+              {DIRECTORY_TABS.map((tab) => {
+                const isActive = directoryTab === tab.key;
+
+                return (
+                  <Pressable
+                    key={tab.key}
+                    onPress={() => setDirectoryTab(tab.key)}
+                    style={[styles.categoryTab, isActive ? styles.categoryTabActive : undefined]}>
+                    <Text
+                      style={[
+                        styles.categoryTabText,
+                        isActive ? styles.categoryTabTextActive : undefined,
+                      ]}>
+                      {tab.label}
+                    </Text>
+                    {directoryTabCounts[tab.key] ? (
+                      <View
+                        style={[
+                          styles.categoryTabCount,
+                          isActive ? styles.categoryTabCountActive : undefined,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.categoryTabCountText,
+                            isActive ? styles.categoryTabCountTextActive : undefined,
+                          ]}>
+                          {directoryTabCounts[tab.key]}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
             <View style={styles.searchShell}>
               <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
               <TextInput
@@ -1571,7 +1689,7 @@ export function ChatScreen() {
                 </Pressable>
               ) : null}
               <Pressable
-                onPress={() => void handleVoiceSearchAction()}
+                onPress={() => { handleVoiceSearchAction(); }}
                 disabled={!canUseVoiceSearch}
                 style={[
                   styles.searchVoiceButton,
@@ -1610,13 +1728,13 @@ export function ChatScreen() {
                     : voiceSearchMessage}
                 </Text>
               </View>
-            ) : (
-              <Text style={styles.searchHintText}>
-                Usa el microfono para dictar una busqueda y filtrar canales o contactos al instante.
-              </Text>
-            )}
+            ) : null}
 
-            <View style={styles.modeRow}>
+            <ScrollView
+              horizontal
+              style={styles.modeRowScroll}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.modeRow}>
               {[
                 {
                   key: 'all',
@@ -1679,7 +1797,7 @@ export function ChatScreen() {
                   </View>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
 
             <View style={styles.filterSummaryRow}>
               <MaterialCommunityIcons
@@ -1690,44 +1808,56 @@ export function ChatScreen() {
               <Text style={styles.filterSummaryText}>{directoryHelperText}</Text>
             </View>
 
-            <ScrollView
+            <FlatList
               style={styles.directoryScroll}
               contentContainerStyle={styles.directoryContent}
-              showsVerticalScrollIndicator={false}>
-              <View style={styles.sectionBlock}>
+              data={directoryItems}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={false}
+              ListHeaderComponent={
                 <View style={styles.sectionRow}>
-                  <Text style={styles.sectionTitle}>Conversaciones activas</Text>
-                  <StatusPill label={`${filteredConversations.length}`} tone="info" />
+                  <Text style={styles.sectionTitle}>{activeDirectoryLabel}</Text>
+                  <StatusPill label={`${visibleListCount}`} tone="info" />
                 </View>
+              }
+              renderItem={({ item }) => {
+                if (item.type === 'generalShortcut') {
+                  return (
+                    <Pressable
+                      onPress={() => { handleOpenGeneral('chat'); }}
+                      style={styles.quickActionCard}>
+                      <View style={styles.groupAvatar}>
+                        <MaterialCommunityIcons
+                          name="bullhorn-outline"
+                          size={20}
+                          color={theme.colors.info}
+                        />
+                      </View>
+                      <View style={styles.quickActionCopy}>
+                        <Text style={styles.quickActionTitle}>General</Text>
+                        <Text style={styles.quickActionBody} numberOfLines={1}>
+                          Abrir grupo operativo
+                        </Text>
+                      </View>
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={20}
+                        color={theme.colors.muted}
+                      />
+                    </Pressable>
+                  );
+                }
 
-                {directoryMode !== 'direct' && directoryMode !== 'unread' ? (
-                  <Pressable
-                    onPress={() => void handleOpenGeneral('chat')}
-                    style={styles.quickActionCard}>
-                    <View style={styles.quickActionCopy}>
-                      <Text style={styles.quickActionTitle}>Abrir grupo general</Text>
-                      <Text style={styles.quickActionBody}>
-                        Coordinacion tipo WhatsApp para anuncios, seguimiento y respuesta rapida.
-                      </Text>
-                    </View>
-                    <MaterialCommunityIcons
-                      name="account-group-outline"
-                      size={22}
-                      color={theme.colors.info}
-                    />
-                  </Pressable>
-                ) : null}
-
-                {filteredConversations.length ? filteredConversations.map((conversation) => {
+                if (item.type === 'conversation') {
+                  const { conversation } = item;
                   const contact = getConversationContact(conversation, user?.id);
                   const isActive = conversation.id === activeConversation?.id;
                   const preview = getConversationPreview(conversation);
 
                   return (
                     <Pressable
-                      key={conversation.id}
                       onPress={() => {
-                        void handleSelectConversation(conversation.id);
+                        handleSelectConversation(conversation.id);
                       }}
                       style={[
                         styles.conversationTile,
@@ -1735,12 +1865,12 @@ export function ChatScreen() {
                       ]}>
                       <View style={styles.tileLead}>
                         {conversation.kind === 'direct' && contact ? (
-                          <UserAvatar user={contact} status={contact.status} showStatus size={48} />
+                          <UserAvatar user={contact} status={contact.status} showStatus size={42} />
                         ) : (
                           <View style={styles.groupAvatar}>
                             <MaterialCommunityIcons
                               name={getConversationIconName(conversation)}
-                              size={20}
+                              size={18}
                               color={theme.colors.info}
                             />
                           </View>
@@ -1766,48 +1896,19 @@ export function ChatScreen() {
                               </View>
                             ) : null}
                           </View>
-                          <View style={styles.tileFooter}>
-                            <Text style={styles.tileMeta} numberOfLines={1}>
-                              {getConversationLabel(conversation)}
-                              {contact ? ` | ${formatRole(contact.role)}` : ''}
-                            </Text>
-                            <View style={styles.tilePills}>
-                              {conversation.encrypted ? <StatusPill label="Protegido" tone="neutral" /> : null}
-                              <StatusPill label="Texto" tone="info" />
-                            </View>
-                          </View>
                         </View>
                       </View>
                     </Pressable>
                   );
-                }) : (
-                  <View style={styles.emptyStateCard}>
-                    <MaterialCommunityIcons
-                      name="message-badge-outline"
-                      size={20}
-                      color={theme.colors.muted}
-                    />
-                    <View style={styles.emptyStateCopy}>
-                      <Text style={styles.emptyStateTitle}>No hay chats para este filtro</Text>
-                      <Text style={styles.emptyStateBody}>
-                        Ajusta la busqueda o cambia el filtro para volver a ver conversaciones.
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
+                }
 
-              <View style={styles.sectionBlock}>
-                <View style={styles.sectionRow}>
-                  <Text style={styles.sectionTitle}>Directo rapido</Text>
-                  <StatusPill label={`${filteredContacts.length}`} tone="info" />
-                </View>
+                if (item.type === 'contact') {
+                  const { contact } = item;
 
-                {filteredContacts.length ? (
-                  filteredContacts.map((contact) => (
-                    <View key={contact.id} style={styles.contactRow}>
+                  return (
+                    <View style={styles.contactRow}>
                       <View style={styles.tileLead}>
-                        <UserAvatar user={contact} status={contact.status} showStatus size={44} />
+                        <UserAvatar user={contact} status={contact.status} showStatus size={42} />
                         <View style={styles.tileCopy}>
                           <Text style={styles.tileTitle} numberOfLines={1}>
                             {contact.name}
@@ -1818,36 +1919,36 @@ export function ChatScreen() {
                         </View>
                       </View>
 
-                      <View style={styles.contactActions}>
-                        <Pressable
-                          onPress={() => void handleOpenDirect(contact.id, 'chat')}
-                          style={styles.contactActionButton}>
-                          <MaterialCommunityIcons
-                            name="message-text-outline"
-                            size={18}
-                            color={theme.colors.text}
-                          />
-                        </Pressable>
-                      </View>
+                      <Pressable
+                        onPress={() => { handleOpenDirect(contact.id, 'chat'); }}
+                        style={styles.contactActionButton}>
+                        <MaterialCommunityIcons
+                          name="message-text-outline"
+                          size={18}
+                          color={theme.colors.text}
+                        />
+                      </Pressable>
                     </View>
-                  ))
-                ) : (
+                  );
+                }
+
+                return (
                   <View style={styles.emptyStateCard}>
                     <MaterialCommunityIcons
-                      name="account-search-outline"
+                      name="message-badge-outline"
                       size={20}
                       color={theme.colors.muted}
                     />
                     <View style={styles.emptyStateCopy}>
-                      <Text style={styles.emptyStateTitle}>Sin contactos listos</Text>
+                      <Text style={styles.emptyStateTitle}>Sin conversaciones</Text>
                       <Text style={styles.emptyStateBody}>
-                        Prueba con otro termino o cambia el filtro para abrir un directo rapido.
+                        Ajusta la busqueda o cambia el filtro.
                       </Text>
                     </View>
                   </View>
-                )}
-              </View>
-            </ScrollView>
+                );
+              }}
+            />
           </View>
         ) : null}
 
@@ -1890,16 +1991,17 @@ export function ChatScreen() {
 
                       <View style={styles.conversationCopy}>
                         <Text style={styles.conversationTitle}>{activeConversation.title}</Text>
-                        <Text style={styles.conversationSubtitle}>
-                          {activeConversation.description ||
-                            'Canal seguro para coordinacion, seguimiento y decisiones en tiempo real.'}
+                        <Text style={styles.conversationSubtitle} numberOfLines={1}>
+                          {activeConversation.kind === 'direct' && activeContact
+                            ? formatStatus(activeContact.status)
+                            : `${activeConversation.participants.length} participantes`}
                         </Text>
                       </View>
                     </View>
 
                     <View style={styles.conversationHeaderActions}>
                       <Pressable
-                        onPress={() => void handleStartCall('audio')}
+                        onPress={() => { handleStartCall('audio'); }}
                         disabled={!canStartRealtimeCall}
                         style={[
                           styles.conversationActionButton,
@@ -1916,7 +2018,7 @@ export function ChatScreen() {
                         />
                       </Pressable>
                       <Pressable
-                        onPress={() => void handleStartCall('video')}
+                        onPress={() => { handleStartCall('video'); }}
                         disabled={!canStartRealtimeCall}
                         style={[
                           styles.conversationActionButton,
@@ -1956,14 +2058,6 @@ export function ChatScreen() {
                       ) : null}
                     </View>
 
-                    <View style={styles.conversationHintRow}>
-                      <MaterialCommunityIcons
-                        name={activeCallSession ? 'radio-tower' : 'headset'}
-                        size={16}
-                        color={activeCallSession ? theme.colors.info : theme.colors.muted}
-                      />
-                      <Text style={styles.conversationHintText}>{conversationCallHint}</Text>
-                    </View>
                   </View>
                   ) : null}
                 </View>
@@ -2045,7 +2139,7 @@ export function ChatScreen() {
 
                       <Pressable
                         onPress={() =>
-                          void closeActiveCall({
+                          closeActiveCall({
                             emitHangup: true,
                             reason: 'Llamada finalizada.',
                           })
@@ -2074,13 +2168,13 @@ export function ChatScreen() {
                   </View>
                 ) : null}
 
-                <ScrollView
+                <FlatList
                   style={styles.messagesScroll}
                   contentContainerStyle={styles.messagesList}
-                  showsVerticalScrollIndicator={false}>
-
-                  {activeMessages.length ? (
-                    activeMessages.map((message) => {
+                  data={activeMessages}
+                  keyExtractor={(message) => message.id}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item: message }) => {
                       const isOwn = message.senderId === user?.id;
 
                       return (
@@ -2143,8 +2237,8 @@ export function ChatScreen() {
                           </View>
                         </View>
                       );
-                    })
-                  ) : (
+                  }}
+                  ListEmptyComponent={
                     <View style={styles.emptyState}>
                       <MaterialCommunityIcons
                         name="message-text-outline"
@@ -2158,8 +2252,8 @@ export function ChatScreen() {
                         Escribe el primer mensaje, adjunta un archivo o abre una llamada para empezar.
                       </Text>
                     </View>
-                  )}
-                </ScrollView>
+                  }
+                />
 
                 <View style={styles.composerShell}>
                   {recorderMessage ? (
@@ -2181,28 +2275,26 @@ export function ChatScreen() {
                     <Pressable
                       accessibilityLabel="Adjuntar imagen"
                       accessibilityRole="button"
-                      onPress={() => void handlePickMedia('image')}
+                      onPress={() => { handlePickMedia('image'); }}
                       style={styles.mediaButton}>
                       <MaterialCommunityIcons name="image-outline" size={22} color={theme.colors.muted} />
                     </Pressable>
 
-                    <View style={styles.composerInputShell}>
-                    <TextInput
-                      value={draft}
-                      onChangeText={setDraft}
-                      placeholder={
-                        `Escribe a ${activeContact?.name || activeConversation.title}`
-                      }
-                      placeholderTextColor={theme.colors.muted}
-                      style={styles.composerInput}
-                      multiline
-                    />
-                  </View>
+                  <View style={styles.composerInputShell}>
+                      <TextInput
+                        value={draft}
+                        onChangeText={setDraft}
+                        placeholder={composerPlaceholder}
+                        placeholderTextColor={theme.colors.muted}
+                        style={styles.composerInput}
+                        multiline
+                      />
+                    </View>
 
                       <Pressable
                         accessibilityLabel="Adjuntar video"
                         accessibilityRole="button"
-                        onPress={() => void handlePickMedia('video')}
+                        onPress={() => { handlePickMedia('video'); }}
                         style={styles.mediaButton}>
                         <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.muted} />
                       </Pressable>
@@ -2214,14 +2306,14 @@ export function ChatScreen() {
                         compact
                         loading={isSubmitting && recordingState !== 'uploading'}
                         disabled={!canSendText}
-                        onPress={() => void handleSendText()}
+                        onPress={() => { handleSendText(); }}
                         style={styles.sendButton}
                       />
                     ) : (
                       <Pressable
                         accessibilityLabel={recordingState === 'recording' ? 'Detener audio' : 'Grabar audio'}
                         accessibilityRole="button"
-                        onPress={() => void handleVoiceAction()}
+                        onPress={() => { handleVoiceAction(); }}
                         disabled={!canRecord || isSubmitting}
                         style={[
                           styles.voiceButton,
@@ -2315,7 +2407,7 @@ function VoiceMessageBubble({
   };
 
   return (
-    <Pressable onPress={() => void handlePlayback()} style={styles.voiceMessageCard}>
+    <Pressable onPress={() => { handlePlayback(); }} style={styles.voiceMessageCard}>
       <View style={[styles.voicePlayButton, isOwn ? styles.voicePlayButtonOwn : undefined]}>
         {!playerStatus?.isLoaded || playerStatus?.isBuffering ? (
           <ActivityIndicator color={isOwn ? theme.colors.accent : '#FFFFFF'} />
@@ -2373,8 +2465,8 @@ function VideoMessageBubble({ message, token }: { message: ChatMessage; token: s
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
   const resolvedUrl = resolveAssetUrl(message.audioUrl);
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
-  const player = useVideoPlayer(resolvedUrl ? { uri: resolvedUrl, headers } : null, (player) => {
-    player.loop = false;
+  const player = useVideoPlayer(resolvedUrl ? { uri: resolvedUrl, headers } : null, (videoPlayer) => {
+    videoPlayer.loop = false;
   });
 
   if (!resolvedUrl) return null;
@@ -2478,55 +2570,76 @@ function createStyles(
       paddingBottom: 0,
     },
     header: {
-      gap: 10,
+      gap: 6,
       paddingTop: 4,
       minWidth: 0,
     },
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 28 : 34,
-      lineHeight: isPhone ? 34 : 40,
-    },
-    subtitle: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 22,
-      maxWidth: 780,
+      fontSize: isPhone ? 26 : 32,
+      lineHeight: isPhone ? 31 : 38,
     },
     headerPills: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
+      flexWrap: 'nowrap',
       gap: 8,
+      paddingRight: 4,
     },
-    mobileSwitch: {
+    categoryTabs: {
       flexDirection: 'row',
       gap: 8,
+      paddingRight: 4,
     },
-    mobileSwitchButton: {
-      flex: 1,
-      minHeight: 48,
-      borderRadius: 18,
+    categoryTabsScroll: {
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 40,
+    },
+    categoryTab: {
+      minHeight: 38,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surface,
+      backgroundColor: theme.colors.surfaceAlt,
+      paddingHorizontal: 13,
+      paddingVertical: 7,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
       gap: 8,
     },
-    mobileSwitchButtonActive: {
+    categoryTabActive: {
       backgroundColor: theme.colors.accent,
       borderColor: theme.colors.accent,
     },
-    mobileSwitchLabel: {
+    categoryTabText: {
       color: theme.colors.text,
       fontFamily: Typography.body,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '900',
     },
-    mobileSwitchLabelActive: {
+    categoryTabTextActive: {
+      color: '#FFFFFF',
+    },
+    categoryTabCount: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: 999,
+      paddingHorizontal: 7,
+      backgroundColor: theme.mode === 'light' ? '#E8ECF3' : 'rgba(159, 176, 202, 0.18)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    categoryTabCountActive: {
+      backgroundColor: 'rgba(255,255,255,0.22)',
+    },
+    categoryTabCountText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 10,
+      fontWeight: '900',
+    },
+    categoryTabCountTextActive: {
       color: '#FFFFFF',
     },
     layout: {
@@ -2545,8 +2658,8 @@ function createStyles(
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      padding: isPhone ? 14 : 16,
-      gap: 16,
+      padding: isPhone ? 10 : 12,
+      gap: 10,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 18px 36px rgba(4, 16, 27, 0.12)',
@@ -2568,7 +2681,7 @@ function createStyles(
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
       padding: isPhone ? 14 : 16,
-      gap: 12,
+      gap: 8,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 18px 36px rgba(4, 16, 27, 0.12)',
@@ -2593,35 +2706,36 @@ function createStyles(
       elevation: 0,
     },
     searchShell: {
-      minHeight: 56,
-      borderRadius: 20,
+      minHeight: 44,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
-      paddingLeft: 14,
-      paddingRight: 8,
+      gap: 8,
+      paddingLeft: 12,
+      paddingRight: 6,
     },
     searchInput: {
       flex: 1,
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 15,
+      fontSize: 14,
+      paddingVertical: 0,
     },
     searchClearButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 12,
+      width: 30,
+      height: 30,
+      borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.mode === 'light' ? '#EEF2F7' : 'rgba(159, 176, 202, 0.12)',
     },
     searchVoiceButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 14,
+      width: 36,
+      height: 36,
+      borderRadius: 12,
       backgroundColor: theme.colors.info,
       borderWidth: 1,
       borderColor: theme.colors.info,
@@ -2642,38 +2756,36 @@ function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      marginTop: -4,
+      marginTop: -2,
     },
     searchMetaText: {
       flex: 1,
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 18,
-    },
-    searchHintText: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 18,
-      marginTop: -4,
+      fontSize: 11,
+      lineHeight: 16,
     },
     modeRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
+      gap: 8,
+      paddingRight: 4,
+    },
+    modeRowScroll: {
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 36,
     },
     modeChip: {
-      minHeight: 44,
+      minHeight: 34,
       borderRadius: 999,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
+      gap: 8,
     },
     modeChipActive: {
       backgroundColor: theme.colors.accent,
@@ -2687,16 +2799,16 @@ function createStyles(
     modeChipText: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '800',
     },
     modeChipTextActive: {
       color: '#FFFFFF',
     },
     modeChipCount: {
-      minWidth: 24,
-      height: 24,
-      paddingHorizontal: 8,
+      minWidth: 22,
+      height: 22,
+      paddingHorizontal: 7,
       borderRadius: 999,
       backgroundColor: theme.mode === 'light' ? '#E8ECF3' : 'rgba(159, 176, 202, 0.18)',
       alignItems: 'center',
@@ -2708,7 +2820,7 @@ function createStyles(
     modeChipCountText: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '800',
     },
     modeChipCountTextActive: {
@@ -2724,19 +2836,19 @@ function createStyles(
       flex: 1,
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 18,
+      fontSize: 11,
+      lineHeight: 16,
     },
     directoryScroll: {
       flex: 1,
       minHeight: 0,
     },
     directoryContent: {
-      gap: 14,
-      paddingBottom: 8,
+      gap: 8,
+      paddingBottom: 4,
     },
     sectionBlock: {
-      gap: 12,
+      gap: 8,
     },
     sectionRow: {
       flexDirection: 'row',
@@ -2747,36 +2859,36 @@ function createStyles(
     sectionTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 20,
-      lineHeight: 26,
+      fontSize: 16,
+      lineHeight: 22,
     },
     quickActionCard: {
-      borderRadius: 22,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      padding: 18,
+      padding: 9,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 14,
+      gap: 10,
     },
     quickActionCopy: {
       flex: 1,
       minWidth: 0,
-      gap: 4,
+      gap: 2,
     },
     quickActionTitle: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '800',
     },
     quickActionBody: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 13,
-      lineHeight: 20,
+      fontSize: 12,
+      lineHeight: 16,
     },
     conversationTile: {
       borderRadius: 0,
@@ -2785,7 +2897,7 @@ function createStyles(
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
       paddingHorizontal: 2,
-      paddingVertical: 12,
+      paddingVertical: 9,
     },
     conversationTileActive: {
       borderBottomColor: theme.colors.accent,
@@ -2800,27 +2912,27 @@ function createStyles(
     tileLead: {
       flex: 1,
       flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 12,
+      alignItems: 'center',
+      gap: 10,
       minWidth: 0,
     },
     tileCopy: {
       flex: 1,
       minWidth: 0,
-      gap: 5,
+      gap: 3,
     },
     tileTitle: {
       flex: 1,
       minWidth: 0,
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
     },
     tileTime: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '700',
     },
     tileMeta: {
@@ -2828,7 +2940,7 @@ function createStyles(
       color: theme.colors.muted,
       fontFamily: Typography.body,
       fontSize: 12,
-      lineHeight: 18,
+      lineHeight: 16,
     },
     tilePreviewRow: {
       flexDirection: 'row',
@@ -2840,31 +2952,13 @@ function createStyles(
       minWidth: 0,
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 21,
-    },
-    tileFooter: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      gap: 10,
-      flexWrap: 'wrap',
-    },
-    tileFooterText: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '700',
-    },
-    tilePills: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
+      fontSize: 13,
+      lineHeight: 18,
     },
     groupAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -2872,9 +2966,9 @@ function createStyles(
       justifyContent: 'center',
     },
     unreadBubble: {
-      minWidth: 26,
-      height: 26,
-      paddingHorizontal: 8,
+      minWidth: 22,
+      height: 22,
+      paddingHorizontal: 7,
       borderRadius: 999,
       backgroundColor: theme.colors.accent,
       alignItems: 'center',
@@ -2883,7 +2977,7 @@ function createStyles(
     unreadBubbleText: {
       color: '#FFFFFF',
       fontFamily: Typography.body,
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '800',
     },
     contactRow: {
@@ -2893,20 +2987,16 @@ function createStyles(
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
       paddingHorizontal: 2,
-      paddingVertical: 12,
+      paddingVertical: 9,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 12,
-    },
-    contactActions: {
-      flexDirection: 'row',
-      gap: 8,
+      gap: 10,
     },
     contactActionButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 14,
+      width: 36,
+      height: 36,
+      borderRadius: 12,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -2914,14 +3004,14 @@ function createStyles(
       justifyContent: 'center',
     },
     emptyStateCard: {
-      borderRadius: 20,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      padding: 16,
+      padding: 12,
       flexDirection: 'row',
       alignItems: 'flex-start',
-      gap: 12,
+      gap: 10,
     },
     emptyStateCopy: {
       flex: 1,
@@ -2958,18 +3048,18 @@ function createStyles(
       fontWeight: '800',
     },
     headerBackButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: -8,
+      marginLeft: -6,
     },
     conversationHeader: {
-      gap: isPhone ? 6 : 12,
+      gap: isPhone ? 5 : 8,
       paddingHorizontal: isPhone ? 8 : 0,
-      paddingTop: isPhone ? 4 : 0,
-      paddingBottom: isPhone ? 8 : 12,
+      paddingTop: isPhone ? 2 : 0,
+      paddingBottom: isPhone ? 7 : 9,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -2978,19 +3068,19 @@ function createStyles(
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      gap: isPhone ? 8 : 14,
+      gap: isPhone ? 6 : 10,
     },
     conversationHeaderMain: {
       flex: 1,
       minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
+      gap: 10,
     },
     groupAvatarLarge: {
-      width: isPhone ? 42 : 58,
-      height: isPhone ? 42 : 58,
-      borderRadius: isPhone ? 21 : 20,
+      width: isPhone ? 40 : 48,
+      height: isPhone ? 40 : 48,
+      borderRadius: isPhone ? 20 : 18,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -3000,30 +3090,30 @@ function createStyles(
     conversationCopy: {
       flex: 1,
       minWidth: 0,
-      gap: 4,
+      gap: 2,
     },
     conversationTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 17 : 26,
-      lineHeight: isPhone ? 22 : 32,
+      fontSize: isPhone ? 17 : 22,
+      lineHeight: isPhone ? 21 : 28,
     },
     conversationSubtitle: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: isPhone ? 12 : 14,
-      lineHeight: isPhone ? 16 : 22,
+      fontSize: isPhone ? 12 : 13,
+      lineHeight: isPhone ? 15 : 18,
       maxWidth: 780,
     },
     conversationHeaderActions: {
       flexDirection: 'row',
-      gap: isPhone ? 6 : 10,
+      gap: isPhone ? 5 : 8,
       alignSelf: 'center',
     },
     conversationActionButton: {
-      width: isPhone ? 40 : 52,
-      height: isPhone ? 40 : 52,
-      borderRadius: isPhone ? 20 : 18,
+      width: isPhone ? 38 : 44,
+      height: isPhone ? 38 : 44,
+      borderRadius: isPhone ? 19 : 16,
       borderWidth: 1,
       alignItems: 'center',
       justifyContent: 'center',
@@ -3048,24 +3138,12 @@ function createStyles(
       opacity: 0.45,
     },
     conversationHeaderFooter: {
-      gap: 10,
+      gap: 6,
     },
     headerMetaPills: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 8,
-    },
-    conversationHintRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    conversationHintText: {
-      flex: 1,
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 18,
+      gap: 6,
     },
     callHub: {
       borderRadius: 24,
@@ -3277,34 +3355,35 @@ function createStyles(
       backgroundColor: theme.mode === 'light' ? '#F7F4EE' : '#0B1118',
     },
     messagesList: {
-      gap: 10,
+      flexGrow: 1,
+      gap: 7,
       paddingHorizontal: isPhone ? 10 : 0,
-      paddingTop: 12,
-      paddingBottom: 14,
+      paddingTop: 8,
+      paddingBottom: 10,
     },
     messageRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      gap: 10,
+      gap: 8,
     },
     messageRowOwn: {
       justifyContent: 'flex-end',
     },
     messageBubble: {
-      maxWidth: isPhone ? '86%' : '78%',
+      maxWidth: isPhone ? '88%' : '78%',
       minWidth: 0,
-      borderRadius: 18,
+      borderRadius: 15,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 13,
-      paddingVertical: 9,
-      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      gap: 4,
     },
     messageBubbleOwn: {
       backgroundColor: theme.colors.accent,
-      borderBottomRightRadius: 6,
+      borderBottomRightRadius: 5,
     },
     messageBubbleOther: {
-      borderBottomLeftRadius: 6,
+      borderBottomLeftRadius: 5,
     },
     messageBubbleAudio: {
       minWidth: isPhone ? 0 : 260,
@@ -3353,13 +3432,13 @@ function createStyles(
     messageHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      gap: 12,
+      gap: 8,
       minWidth: 0,
     },
     messageSender: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '800',
       flexShrink: 1,
     },
@@ -3369,7 +3448,7 @@ function createStyles(
     messageMeta: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '700',
       flexShrink: 0,
     },
@@ -3379,8 +3458,8 @@ function createStyles(
     messageText: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 20,
       flexShrink: 1,
     },
     messageTextOwn: {
@@ -3389,11 +3468,11 @@ function createStyles(
     voiceMessageCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 9,
     },
     voicePlayButton: {
-      width: 42,
-      height: 42,
+      width: 36,
+      height: 36,
       borderRadius: 999,
       backgroundColor: theme.colors.accent,
       alignItems: 'center',
@@ -3409,7 +3488,7 @@ function createStyles(
     voiceTitle: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '700',
     },
     voiceTitleOwn: {
@@ -3425,16 +3504,16 @@ function createStyles(
     },
     composerShell: {
       flexShrink: 0,
-      gap: 8,
+      gap: 6,
       paddingHorizontal: isPhone ? 8 : 0,
-      paddingTop: 8,
-      paddingBottom: isPhone ? 8 : 0,
+      paddingTop: 6,
+      paddingBottom: isPhone ? 6 : 0,
       borderTopWidth: 1,
       borderTopColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
     },
     composerBar: {
-      minHeight: 52,
+      minHeight: 46,
       flexDirection: 'row',
       alignItems: 'flex-end',
       gap: 8,
@@ -3442,21 +3521,21 @@ function createStyles(
     composerInputShell: {
       flex: 1,
       minWidth: 0,
-      minHeight: 44,
-      maxHeight: 104,
-      borderRadius: 22,
+      minHeight: 40,
+      maxHeight: 92,
+      borderRadius: 20,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 14,
-      paddingVertical: 7,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
     },
     composerInput: {
-      minHeight: 30,
+      minHeight: 28,
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 20,
       textAlignVertical: 'top',
     },
     composerActions: {
@@ -3470,9 +3549,9 @@ function createStyles(
       gap: 4,
     },
     mediaButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
       borderWidth: 1,
       borderColor: theme.colors.line,
       alignItems: 'center',
@@ -3480,9 +3559,9 @@ function createStyles(
       backgroundColor: theme.colors.surfaceAlt,
     },
     voiceButton: {
-      minWidth: isPhone ? 42 : 118,
-      minHeight: 42,
-      borderRadius: 21,
+      minWidth: isPhone ? 38 : 104,
+      minHeight: 38,
+      borderRadius: 19,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
@@ -3493,8 +3572,8 @@ function createStyles(
       gap: 8,
     },
     sendButton: {
-      minHeight: 42,
-      borderRadius: 21,
+      minHeight: 38,
+      borderRadius: 19,
       minWidth: isPhone ? 82 : 90,
     },
     voiceButtonRecording: {

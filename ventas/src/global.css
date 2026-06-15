@@ -10,6 +10,7 @@ html,
 body {
   min-height: 100%;
   margin: 0;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -32,4 +33,78 @@ body {
 
 a {
   color: inherit;
+}
+
+*:focus-visible {
+  outline: 2px solid #00C2FF;
+  outline-offset: 3px;
+}
+
+@keyframes manecombGradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes manecombRouteFlow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 260px 0;
+  }
+}
+
+@keyframes manecombParticleDrift {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate3d(0, 0, 0) scale(0.9);
+  }
+  50% {
+    opacity: 0.82;
+    transform: translate3d(18px, -26px, 0) scale(1.16);
+  }
+}
+
+@keyframes manecombOrbDrift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(28px, -22px, 0) scale(1.06);
+  }
+}
+
+@keyframes manecombFloat {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -8px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

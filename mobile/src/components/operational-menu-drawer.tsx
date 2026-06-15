@@ -204,6 +204,9 @@ export function OperationalMenuDrawer({
           {sections.map((section) => {
             const isActive = section.key === derivedKey;
             const badgeLabel = getBadgeLabel(section.key);
+            const itemBadgeBackgroundStyle = isActive
+              ? styles.itemBadgeActive
+              : { backgroundColor: theme.colors.infoSoft };
 
             return (
               <Pressable
@@ -242,9 +245,7 @@ export function OperationalMenuDrawer({
                   <View
                     style={[
                       styles.itemBadge,
-                      {
-                        backgroundColor: isActive ? 'rgba(227, 30, 36, 0.12)' : theme.colors.infoSoft,
-                      },
+                      itemBadgeBackgroundStyle,
                     ]}>
                     <Text
                       style={[
@@ -263,7 +264,7 @@ export function OperationalMenuDrawer({
         <Pressable
           onPress={() => {
             onClose();
-            void signOut();
+            signOut();
           }}
           style={[
             styles.signOutButton,
@@ -359,6 +360,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,
+  },
+  itemBadgeActive: {
+    backgroundColor: 'rgba(227, 30, 36, 0.12)',
   },
   itemBadgeText: {
     fontFamily: Typography.body,

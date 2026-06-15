@@ -143,6 +143,7 @@ function DashboardButton({
   variant?: 'solid' | 'ghost';
 }) {
   const solid = variant === 'solid';
+  const labelColorStyle = solid ? styles.dashboardButtonLabelSolid : { color: theme.colors.text };
 
   return (
     <Pressable
@@ -164,7 +165,7 @@ function DashboardButton({
         numberOfLines={1}
         style={[
           styles.dashboardButtonLabel,
-          { color: solid ? '#FFFFFF' : theme.colors.text },
+          labelColorStyle,
         ]}>
         {label}
       </Text>
@@ -1227,6 +1228,9 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 18,
     minWidth: 0,
+  },
+  dashboardButtonLabelSolid: {
+    color: '#FFFFFF',
   },
   pressed: {
     opacity: 0.92,

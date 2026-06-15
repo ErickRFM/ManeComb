@@ -33,13 +33,8 @@ export function BrandLogo({ size = 'md', subtitle, align = 'left', tone = 'light
       <View
         style={[
           plain ? styles.plainMark : styles.markShell,
-          {
-            backgroundColor: plain
-              ? 'transparent'
-              : theme.mode === 'light'
-                ? 'rgba(227, 30, 36, 0.06)'
-                : 'rgba(255, 255, 255, 0.03)',
-          },
+          !plain && theme.mode === 'light' ? styles.markShellLight : undefined,
+          !plain && theme.mode !== 'light' ? styles.markShellDark : undefined,
         ]}>
         <SvgXml xml={tone === 'dark' ? darkLogoXml : lightLogoXml} width={width} height={(width * 90) / 796} />
       </View>
@@ -71,6 +66,12 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.md,
     paddingHorizontal: AppTheme.spacing.sm,
     paddingVertical: AppTheme.spacing.xs,
+  },
+  markShellLight: {
+    backgroundColor: 'rgba(227, 30, 36, 0.06)',
+  },
+  markShellDark: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
   plainMark: {
     paddingHorizontal: 0,

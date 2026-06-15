@@ -23,6 +23,7 @@ const navigationRoutes = require("./modules/navigation/routes");
 const notificationRoutes = require("./modules/notifications/routes");
 const opsRoutes = require("./modules/ops/routes");
 const portalRoutes = require("./modules/portal/routes");
+const radioRoutes = require("./modules/radio/routes");
 const rtcRoutes = require("./modules/rtc/routes");
 const userRoutes = require("./modules/users/routes");
 const vehicleRoutes = require("./modules/vehicles/routes");
@@ -74,7 +75,7 @@ function createApp({ store, getDbState }) {
       const shouldRecord =
         res.statusCode >= 400 ||
         durationMs >= 900 ||
-        ["commercial", "chat", "rtc", "incidents", "notifications", "ops"].includes(scope);
+        ["commercial", "chat", "radio", "rtc", "incidents", "notifications", "ops"].includes(scope);
 
       if (!shouldRecord || !app.locals.store?.recordAppEvent) {
         return;
@@ -161,6 +162,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/ops", opsRoutes);
   app.use("/api/portal", portalRoutes);
+  app.use("/api/radio", radioRoutes);
   app.use("/api/rtc", rtcRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/vehicles", vehicleRoutes);

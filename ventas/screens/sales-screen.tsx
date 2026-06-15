@@ -19,81 +19,209 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { getCommercialPlansRequest } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
-import {
-  COMMERCIAL_FAQS,
-  COMMERCIAL_FEATURES,
-  FALLBACK_COMMERCIAL_PLANS,
-} from '@/src/constants/commercial';
+import { COMMERCIAL_FAQS, FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
 import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
 const accentByTone = {
-  info: '#FF245C',
-  success: '#FF245C',
-  warning: '#FF6B4A',
-  danger: '#FF3B7A',
+  info: '#00C2FF',
+  success: '#FF2D7A',
+  warning: '#FF8A3D',
+  danger: '#FF2D7A',
 } as const;
 
 const neonPalette = {
-  background: '#060A14',
-  backgroundAlt: '#0B1020',
-  panel: 'rgba(15, 23, 42, 0.82)',
-  panelStrong: 'rgba(22, 29, 52, 0.92)',
-  panelSoft: 'rgba(255, 255, 255, 0.06)',
-  line: 'rgba(255, 255, 255, 0.12)',
-  lineStrong: 'rgba(255, 255, 255, 0.22)',
-  text: '#F8FAFC',
-  muted: '#9CAEC7',
-  mutedSoft: '#64748B',
-  accent: '#FF245C',
-  accentSoft: 'rgba(255, 36, 92, 0.14)',
-  accentGlow: 'rgba(255, 36, 92, 0.48)',
-  violet: '#A855F7',
-  cyan: '#23D5FF',
-  lime: '#52F2A7',
-  amber: '#FFD166',
-};
+  background: '#050816',
+  backgroundAlt: '#070B1D',
+  panel: 'rgba(9, 15, 34, 0.78)',
+  panelStrong: 'rgba(10, 17, 39, 0.92)',
+  panelSoft: 'rgba(255, 255, 255, 0.055)',
+  line: 'rgba(245, 247, 255, 0.12)',
+  lineStrong: 'rgba(245, 247, 255, 0.22)',
+  text: '#F5F7FF',
+  muted: '#8A93B2',
+  mutedStrong: '#B7BED8',
+  accent: '#FF2D7A',
+  accentSoft: 'rgba(255, 45, 122, 0.13)',
+  accentGlow: 'rgba(255, 45, 122, 0.5)',
+  violet: '#7A3CFF',
+  violetSoft: 'rgba(122, 60, 255, 0.16)',
+  cyan: '#00C2FF',
+  cyanSoft: 'rgba(0, 194, 255, 0.14)',
+  mint: '#2FFFD5',
+  mintSoft: 'rgba(47, 255, 213, 0.12)',
+  amber: '#FF8A3D',
+} as const;
 
 const planVisualTones = [
   {
-    edge: '#23D5FF',
-    secondary: '#52F2A7',
-    violet: '#A855F7',
-    soft: 'rgba(35, 213, 255, 0.16)',
-    secondarySoft: 'rgba(82, 242, 167, 0.12)',
-    violetSoft: 'rgba(168, 85, 247, 0.14)',
-    cursor: 'rgba(35, 213, 255, 0.34)',
+    edge: '#00C2FF',
+    secondary: '#2FFFD5',
+    violet: '#7A3CFF',
+    soft: 'rgba(0, 194, 255, 0.16)',
+    secondarySoft: 'rgba(47, 255, 213, 0.11)',
+    violetSoft: 'rgba(122, 60, 255, 0.13)',
+    cursor: 'rgba(0, 194, 255, 0.34)',
   },
   {
-    edge: '#A855F7',
-    secondary: '#23D5FF',
-    violet: '#FF245C',
-    soft: 'rgba(168, 85, 247, 0.16)',
-    secondarySoft: 'rgba(35, 213, 255, 0.12)',
-    violetSoft: 'rgba(255, 36, 92, 0.13)',
-    cursor: 'rgba(168, 85, 247, 0.34)',
+    edge: '#FF2D7A',
+    secondary: '#00C2FF',
+    violet: '#7A3CFF',
+    soft: 'rgba(255, 45, 122, 0.15)',
+    secondarySoft: 'rgba(0, 194, 255, 0.11)',
+    violetSoft: 'rgba(122, 60, 255, 0.13)',
+    cursor: 'rgba(255, 45, 122, 0.34)',
   },
   {
-    edge: '#52F2A7',
-    secondary: '#23D5FF',
-    violet: '#A855F7',
-    soft: 'rgba(82, 242, 167, 0.15)',
-    secondarySoft: 'rgba(35, 213, 255, 0.11)',
-    violetSoft: 'rgba(168, 85, 247, 0.13)',
-    cursor: 'rgba(82, 242, 167, 0.3)',
+    edge: '#FF8A3D',
+    secondary: '#FF2D7A',
+    violet: '#7A3CFF',
+    soft: 'rgba(255, 138, 61, 0.14)',
+    secondarySoft: 'rgba(255, 45, 122, 0.11)',
+    violetSoft: 'rgba(122, 60, 255, 0.12)',
+    cursor: 'rgba(255, 138, 61, 0.32)',
   },
   {
-    edge: '#7C3AED',
-    secondary: '#23D5FF',
-    violet: '#52F2A7',
-    soft: 'rgba(124, 58, 237, 0.17)',
-    secondarySoft: 'rgba(35, 213, 255, 0.11)',
-    violetSoft: 'rgba(82, 242, 167, 0.11)',
-    cursor: 'rgba(124, 58, 237, 0.32)',
+    edge: '#FF2D7A',
+    secondary: '#2FFFD5',
+    violet: '#7A3CFF',
+    soft: 'rgba(255, 45, 122, 0.15)',
+    secondarySoft: 'rgba(47, 255, 213, 0.1)',
+    violetSoft: 'rgba(122, 60, 255, 0.13)',
+    cursor: 'rgba(255, 45, 122, 0.34)',
+  },
+  {
+    edge: '#7A3CFF',
+    secondary: '#00C2FF',
+    violet: '#FF2D7A',
+    soft: 'rgba(122, 60, 255, 0.16)',
+    secondarySoft: 'rgba(0, 194, 255, 0.1)',
+    violetSoft: 'rgba(255, 45, 122, 0.11)',
+    cursor: 'rgba(122, 60, 255, 0.32)',
   },
 ] as const;
+
+const navItems = [
+  { label: 'Inicio', target: 'inicio' },
+  { label: 'Funcionalidades', target: 'funcionalidades' },
+  { label: 'Planes', target: 'planes' },
+  { label: 'Casos de éxito', target: 'confianza' },
+  { label: 'FAQ', target: 'faq' },
+] as const;
+
+const benefits: Array<{
+  title: string;
+  body: string;
+  icon: IconName;
+  color: string;
+}> = [
+  {
+    title: 'Monitoreo en tiempo real',
+    body: 'Ubica cada unidad en mapa vivo, con estado de ruta, velocidad y actividad operativa.',
+    icon: 'map-marker-path',
+    color: neonPalette.cyan,
+  },
+  {
+    title: 'Comunicación instantánea',
+    body: 'Coordina conductores, supervisores y despacho desde una misma plataforma.',
+    icon: 'message-processing-outline',
+    color: neonPalette.mint,
+  },
+  {
+    title: 'Alertas y notificaciones',
+    body: 'Recibe avisos críticos sobre eventos, vencimientos, incidencias y operación diaria.',
+    icon: 'bell-ring-outline',
+    color: neonPalette.accent,
+  },
+  {
+    title: 'Gestión documental',
+    body: 'Centraliza licencias, seguros, verificaciones y documentos de cada unidad.',
+    icon: 'file-document-check-outline',
+    color: neonPalette.mint,
+  },
+  {
+    title: 'Historial de viajes',
+    body: 'Consulta rutas, paradas y recorridos anteriores para auditar la operación.',
+    icon: 'history',
+    color: neonPalette.violet,
+  },
+  {
+    title: 'Analítica operativa',
+    body: 'Detecta patrones, mide disponibilidad y toma mejores decisiones de flotilla.',
+    icon: 'chart-line-variant',
+    color: neonPalette.accent,
+  },
+];
+
+const processSteps: Array<{
+  title: string;
+  body: string;
+  icon: IconName;
+}> = [
+  {
+    title: 'Selecciona tu plan.',
+    body: 'Elige el paquete que coincide con el tamaño de tu flotilla.',
+    icon: 'credit-card-outline',
+  },
+  {
+    title: 'Crea tu cuenta.',
+    body: 'Registra tu empresa y deja listo el acceso administrativo.',
+    icon: 'account-plus-outline',
+  },
+  {
+    title: 'Activa tus unidades.',
+    body: 'Agrega combis, conductores y permisos desde el portal.',
+    icon: 'bus-multiple',
+  },
+  {
+    title: 'Accede a tu panel.',
+    body: 'Monitorea GPS, alertas, documentos y comunicación.',
+    icon: 'monitor-dashboard',
+  },
+];
+
+const trustMetrics: Array<{
+  value: string;
+  label: string;
+  icon: IconName;
+  color: string;
+}> = [
+  {
+    value: '99.8%',
+    label: 'Disponibilidad',
+    icon: 'shield-check-outline',
+    color: neonPalette.cyan,
+  },
+  {
+    value: '< 5 min',
+    label: 'Implementación',
+    icon: 'timer-outline',
+    color: neonPalette.violet,
+  },
+  {
+    value: '24/7',
+    label: 'Soporte',
+    icon: 'headset',
+    color: neonPalette.accent,
+  },
+  {
+    value: 'Datos',
+    label: 'Seguridad',
+    icon: 'lock-check-outline',
+    color: neonPalette.mint,
+  },
+];
+
+const footerColumns = [
+  { title: 'Producto', links: ['Funciones', 'Planes', 'Demo'] },
+  { title: 'Empresa', links: ['Nosotros', 'Casos de éxito', 'Contacto'] },
+  { title: 'Soporte', links: ['Centro de ayuda', 'Documentación', 'Estado del sistema'] },
+  { title: 'Legal', links: ['Privacidad', 'Términos', 'Cookies'] },
+];
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-MX', {
@@ -104,7 +232,7 @@ function formatCurrency(value: number) {
 }
 
 function getPlanAccent(plan: CommercialPlan, index: number) {
-  const fallback = [neonPalette.accent, '#FF6B4A', '#FF3B7A', '#FF245C'];
+  const fallback = [neonPalette.cyan, neonPalette.accent, neonPalette.amber, neonPalette.violet];
   return accentByTone[plan.accent] || fallback[index % fallback.length];
 }
 
@@ -114,6 +242,10 @@ function getPlanVisualTone(index: number) {
 
 function buildPlanParams(plan: CommercialPlan, requestTrial = false) {
   return buildCheckoutParams(plan.id, requestTrial);
+}
+
+function webStyle(style: Record<string, unknown>) {
+  return Platform.OS === 'web' ? (style as any) : undefined;
 }
 
 export function SalesScreen() {
@@ -131,6 +263,7 @@ export function SalesScreen() {
   const [activePlanIndex, setActivePlanIndex] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const [scrollY, setScrollY] = useState(0);
+  const [cursor, setCursor] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     void getCommercialPlansRequest()
@@ -156,18 +289,26 @@ export function SalesScreen() {
       setScrollY(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
     };
 
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextX = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2;
+      const nextY = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2;
+      setCursor({ x: nextX, y: nextY });
+    };
+
     handleWindowScroll();
     window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
 
     return () => {
       window.removeEventListener('scroll', handleWindowScroll);
+      window.removeEventListener('pointermove', handlePointerMove);
     };
   }, []);
 
   const cardWidth = isPhone ? Math.max(268, width - 42) : isDesktop ? 336 : 306;
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0];
-  const activePlanVisual = getPlanVisualTone(activePlanIndex);
+  const headerCompact = scrollY > 36;
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
     const params = buildPlanParams(plan, requestTrial);
@@ -185,22 +326,6 @@ export function SalesScreen() {
     router.push({ pathname: target, params } as never);
   };
 
-  const goToPlanLogin = (plan: CommercialPlan, requestTrial = false) => {
-    saveCheckoutContext(plan.id, requestTrial);
-    router.push({
-      pathname: '/ventas/login',
-      params: buildPlanParams(plan, requestTrial),
-    } as never);
-  };
-
-  const goToPlanRegister = (plan: CommercialPlan, requestTrial = false) => {
-    saveCheckoutContext(plan.id, requestTrial);
-    router.push({
-      pathname: '/ventas/registro',
-      params: buildPlanParams(plan, requestTrial),
-    } as never);
-  };
-
   const PageScroller = Platform.OS === 'web' ? View : ScrollView;
   const pageScrollerProps =
     Platform.OS === 'web'
@@ -216,17 +341,17 @@ export function SalesScreen() {
             setScrollY(event.nativeEvent.contentOffset.y),
         };
 
-  const primaryAction = user
-    ? {
-        label: isCustomerAccount(user) ? 'Abrir portal' : 'Ir a consola',
-        icon: isCustomerAccount(user) ? 'account-circle-outline' : 'view-dashboard-outline',
-        onPress: () => router.push(getAuthenticatedHome(user) as never),
-      }
-    : {
-        label: 'Crear cuenta',
-        icon: 'account-plus-outline',
-        onPress: () => router.push('/ventas/registro' as never),
-      };
+  const scrollToSection = (target: string) => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const section = document.getElementById(target);
+      section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (target === 'planes') {
+      carouselRef.current?.scrollTo({ x: activePlanIndex * cardStep, animated: true });
+    }
+  };
 
   const jumpToPlan = (nextIndex: number) => {
     const boundedIndex = Math.max(0, Math.min(plans.length - 1, nextIndex));
@@ -245,41 +370,67 @@ export function SalesScreen() {
     setActivePlanIndex(nextIndex);
   };
 
+  const loginLabel = user ? 'Abrir portal' : 'Iniciar sesión';
+  const loginAction = () => router.push((user ? getAuthenticatedHome(user) : '/ventas/login') as never);
+
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <View pointerEvents="none" style={styles.backgroundLayer}>
-        <View style={styles.ambientWash} />
-        <View style={styles.backgroundOrbTop} />
-        <View style={styles.backgroundOrbMiddle} />
-        <View style={styles.backgroundOrbBottom} />
-        <View style={styles.cyanRail} />
-        <View style={styles.magentaRail} />
-      </View>
+      <ImmersiveBackground cursor={cursor} isPhone={isPhone} />
+
+      <SiteHeader
+        compact={headerCompact}
+        isPhone={isPhone}
+        loginLabel={loginLabel}
+        onBuy={() => goToPlanCheckout(activePlan)}
+        onLogin={loginAction}
+        onNavigate={scrollToSection}
+      />
 
       <PageScroller {...(pageScrollerProps as any)}>
-        <View style={styles.container}>
-          <RevealView index={0} scrollY={scrollY} viewportHeight={height} style={styles.navbar} immediate>
-            <BrandLogo
-              size={isTablet ? 'md' : 'sm'}
-              subtitle={isTablet ? 'Ventas y portal cliente.' : undefined}
-              align="left"
-            />
+        <View style={[styles.container, isPhone ? styles.containerPhone : undefined]}>
+          <RevealView index={0} scrollY={scrollY} viewportHeight={height} immediate>
+            <View
+              nativeID="inicio"
+              style={[
+                styles.heroSection,
+                isDesktop ? styles.heroDesktop : undefined,
+                isPhone ? styles.heroPhone : undefined,
+                webStyle({
+                  backgroundImage:
+                    'linear-gradient(135deg, rgba(5, 8, 22, 0.54), rgba(10, 18, 45, 0.72)), radial-gradient(circle at 18% 20%, rgba(255, 45, 122, 0.18), transparent 28%), radial-gradient(circle at 78% 18%, rgba(0, 194, 255, 0.17), transparent 34%)',
+                  boxShadow:
+                    '0 0 0 1px rgba(245, 247, 255, 0.08), 0 36px 120px rgba(0, 0, 0, 0.46)',
+                  scrollMarginTop: 120,
+                }),
+              ]}>
+              <View style={[styles.heroCopy, isPhone ? styles.heroCopyPhone : undefined]}>
+                <View style={styles.heroKicker}>
+                  <MaterialCommunityIcons name="crosshairs-gps" size={14} color={neonPalette.accent} />
+                  <Text style={styles.heroKickerText}>OPERACIÓN Y POSTVENTA</Text>
+                </View>
+                <Text style={[styles.heroTitle, isPhone ? styles.heroTitlePhone : undefined]}>
+                  Controla toda tu flotilla desde una sola plataforma.
+                </Text>
+                <Text style={[styles.heroSubtitle, isPhone ? styles.heroSubtitlePhone : undefined]}>
+                  GPS en tiempo real, comunicación operativa, alertas y gestión documental para empresas de transporte.
+                </Text>
+                <View style={styles.heroActions}>
+                  <ActionButton
+                    label="Ver demo"
+                    icon="play-circle-outline"
+                    onPress={() => scrollToSection('funcionalidades')}
+                  />
+                  <ActionButton
+                    label="Explorar planes"
+                    icon="arrow-down"
+                    variant="ghost"
+                    onPress={() => scrollToSection('planes')}
+                  />
+                </View>
+              </View>
 
-            <View style={styles.navActions}>
-              {!user ? (
-                <IconButton
-                  label="Entrar"
-                  icon="login"
-                  variant="ghost"
-                  onPress={() => router.push('/ventas/login' as never)}
-                />
-              ) : null}
-              <IconButton
-                label={primaryAction.label}
-                icon={primaryAction.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-                onPress={primaryAction.onPress}
-              />
+              <DashboardMockup cursor={cursor} isPhone={isPhone} />
             </View>
           </RevealView>
 
@@ -287,458 +438,654 @@ export function SalesScreen() {
             index={1}
             scrollY={scrollY}
             viewportHeight={height}
-            style={[
-              styles.heroStage,
-              isDesktop ? styles.heroStageDesktop : undefined,
-              isPhone ? styles.heroStagePhone : undefined,
-            ]}
-            immediate>
-            <NeonGrid />
-            <View style={[styles.heroCenter, isPhone ? styles.heroCenterPhone : undefined]}>
-              <View style={styles.heroKicker}>
-                <MaterialCommunityIcons name="star-four-points" size={14} color={neonPalette.accent} />
-                <Text style={styles.heroKickerText}>SOFTWARE COMERCIAL PARA FLOTILLAS</Text>
-              </View>
-              <Text style={[styles.heroTitle, isPhone ? styles.heroTitlePhone : undefined]}>ManeComb</Text>
-              <Text style={[styles.heroSubtitle, isPhone ? styles.heroSubtitlePhone : undefined]}>
-                Planes, activación, facturas y descargas en un mismo flujo.
-              </Text>
-              <View style={styles.heroActions}>
-                <IconButton
-                  label={primaryAction.label}
-                  icon={primaryAction.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-                  onPress={primaryAction.onPress}
-                />
-                {!user ? (
-                  <IconButton
-                    label="Ya tengo cuenta"
-                    icon="shield-account-outline"
-                    variant="ghost"
-                    onPress={() => router.push('/ventas/login' as never)}
-                  />
-                ) : null}
-              </View>
-            </View>
-
-            {!isPhone ? (
-              <View style={styles.heroScene}>
-                <View style={[styles.sceneTile, styles.sceneTileLeft]}>
-                  <MaterialCommunityIcons name="bus-multiple" size={28} color={neonPalette.cyan} />
-                  <Text style={styles.sceneTileText}>GPS</Text>
-                </View>
-                <View style={[styles.sceneTile, styles.sceneTileRight]}>
-                  <MaterialCommunityIcons name="file-document-check-outline" size={28} color={neonPalette.lime} />
-                  <Text style={styles.sceneTileText}>Factura</Text>
-                </View>
-                <View style={styles.sceneCore}>
-                  <View style={styles.sceneCoreRing}>
-                    <MaterialCommunityIcons name="routes" size={36} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.sceneCoreText}>Portal cliente</Text>
-                </View>
-                <View style={[styles.sceneTile, styles.sceneTileBottom]}>
-                  <MaterialCommunityIcons name="download-lock-outline" size={28} color={neonPalette.accent} />
-                  <Text style={styles.sceneTileText}>Descarga</Text>
-                </View>
-              </View>
-            ) : null}
-          </RevealView>
-
-          <RevealView
-            index={2}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[styles.logoStrip, isPhone ? styles.logoStripPhone : undefined]}>
-            {['Mapa en vivo', 'Radio PTT', 'Historial', 'Facturas', 'Descargas'].map((item) => (
-              <View key={item} style={styles.logoPill}>
-                <Text style={styles.logoPillText}>{item}</Text>
-              </View>
-            ))}
-          </RevealView>
-
-          <RevealView
-            index={3}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[styles.twoColumnSection, isDesktop ? styles.twoColumnDesktop : undefined]}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionEyebrow}>OPERACIÓN Y POSTVENTA</Text>
-              <Text style={styles.sectionTitle}>Ventas y postventa.</Text>
-            </View>
-            <Text style={styles.sectionIntro}>
-              El recorrido queda directo: elegir plan, crear cuenta, comprar y abrir portal.
-            </Text>
-          </RevealView>
-
-          <RevealView
-            index={4}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[styles.featureGrid, isPhone ? styles.featureGridPhone : undefined]}>
-            {COMMERCIAL_FEATURES.slice(0, 3).map((feature, index) => {
-              const color = [neonPalette.cyan, neonPalette.lime, neonPalette.accent][index];
-
-              return (
-                <Animated.View
-                  key={feature.title}
-                  style={[
-                    styles.featureCard,
-                    isPhone ? styles.featureCardPhone : undefined,
-                    { borderColor: `${color}55` },
-                    Platform.OS === 'web'
-                      ? ({
-                          transitionDuration: `${320 + index * 70}ms`,
-                          transitionProperty: 'transform, box-shadow, border-color',
-                          backdropFilter: 'blur(14px)',
-                        } as any)
-                      : null,
-                  ]}>
-                  <View style={[styles.featureIcon, { backgroundColor: `${color}16` }]}>
-                    <MaterialCommunityIcons
-                      name={feature.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-                      size={24}
-                      color={color}
-                    />
-                  </View>
-                  <Text style={styles.featureTitle}>{feature.title}</Text>
-                  <Text style={styles.featureBody}>{feature.body}</Text>
-                </Animated.View>
-              );
-            })}
-          </RevealView>
-
-          <RevealView index={5} scrollY={scrollY} viewportHeight={height} style={styles.plansHeader}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionEyebrow}>PLANES</Text>
-              <Text style={styles.sectionTitle}>Planes disponibles.</Text>
-            </View>
-            <View style={styles.carouselControls}>
-              <RoundIconButton
-                icon="chevron-left"
-                onPress={() => jumpToPlan(activePlanIndex - 1)}
-                disabled={activePlanIndex === 0}
-              />
-              <RoundIconButton
-                icon="chevron-right"
-                onPress={() => jumpToPlan(activePlanIndex + 1)}
-                disabled={activePlanIndex === plans.length - 1}
-              />
-            </View>
-          </RevealView>
-
-          <RevealView index={6} scrollY={scrollY} viewportHeight={height}>
-            <ScrollView
-              ref={carouselRef}
-              horizontal
-              style={styles.planCarouselViewport}
-              snapToInterval={cardStep}
-              decelerationRate="fast"
-              contentContainerStyle={styles.planCarousel}
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={handlePlansScrollEnd}>
-              {plans.map((plan, index) => (
-                <PlanCard
-                  key={plan.id}
-                  index={index}
-                  plan={plan}
-                  width={cardWidth}
-                  active={activePlanIndex === index}
-                  accent={getPlanAccent(plan, index)}
-                  onPress={() => jumpToPlan(index)}
-                  onBuy={() => goToPlanCheckout(plan)}
-                  onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
-                  userLabel="Continuar compra"
-                  trialLabel={`Probar demo ${plan.trialDays || 7} días`}
-                />
-              ))}
-            </ScrollView>
-          </RevealView>
-
-          <RevealView index={7} scrollY={scrollY} viewportHeight={height} style={styles.planDots}>
-            {plans.map((plan, index) => (
-              <Pressable
-                key={plan.id}
-                onPress={() => jumpToPlan(index)}
-                style={[
-                  styles.planDot,
-                  activePlanIndex === index ? styles.planDotActive : undefined,
-                  activePlanIndex === index
-                    ? { backgroundColor: getPlanAccent(plan, index) }
-                    : undefined,
-                ]}
-              />
-            ))}
-          </RevealView>
-
-          <RevealView
-            index={8}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[
-              styles.selectedPlanBand,
-              isPhone ? styles.selectedPlanBandPhone : undefined,
-              {
-                borderColor: `${activePlanVisual.edge}88`,
-              },
-              Platform.OS === 'web' ? null : { shadowColor: activePlanVisual.edge },
-              Platform.OS === 'web'
-                ? ({
-                    backgroundImage: `linear-gradient(120deg, rgba(10, 18, 36, 0.9), ${activePlanVisual.soft}, ${activePlanVisual.violetSoft})`,
-                    backdropFilter: 'blur(16px)',
-                    boxShadow: `0 0 0 1px ${activePlanVisual.edge}26, 0 0 28px ${activePlanVisual.edge}35, 0 20px 54px rgba(0, 0, 0, 0.3)`,
-                  } as any)
-                : { backgroundColor: activePlanVisual.soft },
-            ]}>
-            <View>
-              <Text style={[styles.bandEyebrow, { color: activePlanVisual.edge }]}>SELECCIÓN ACTUAL</Text>
-              <Text style={styles.bandTitle}>{activePlan?.name || 'Plan comercial'}</Text>
-            </View>
-            <View style={[styles.bandMeta, isPhone ? styles.bandMetaPhone : undefined]}>
-              <Text style={styles.bandPrice}>{formatCurrency(activePlan?.price || 0)}</Text>
-              <Text style={styles.bandCopy}>
-                {activePlan?.trialEligible ? `Prueba de ${activePlan.trialDays || 7} días` : 'Listo para activar'}
-              </Text>
-            </View>
-          </RevealView>
-
-          <RevealView
-            index={9}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[
-              styles.accessHub,
-              isDesktop ? styles.accessHubDesktop : undefined,
-              isPhone ? styles.accessHubPhone : undefined,
-              { borderColor: `${activePlanVisual.edge}66` },
-              Platform.OS === 'web'
-                ? ({
-                    backgroundImage: `linear-gradient(135deg, rgba(8, 15, 28, 0.9), ${activePlanVisual.violetSoft}, rgba(12, 20, 42, 0.82))`,
-                    boxShadow: `0 0 0 1px ${activePlanVisual.edge}22, 0 0 30px ${activePlanVisual.edge}22, 0 24px 70px rgba(0, 0, 0, 0.34)`,
-                    backdropFilter: 'blur(18px)',
-                  } as any)
-                : null,
-            ]}>
-            <View pointerEvents="none" style={[styles.accessHubGlow, { backgroundColor: activePlanVisual.soft }]} />
-            <View style={styles.accessCopy}>
-              <Text style={[styles.accessEyebrow, { color: activePlanVisual.edge }]}>
-                PRODUCTO + ACCESO + PLAN
-              </Text>
-              <Text style={styles.accessTitle}>Activa tu plan y gestiona tu flotilla en un solo lugar.</Text>
-              <Text style={styles.accessBody}>
-                Compra tu plan, registra tu empresa y comienza a administrar tus combis con herramientas profesionales.
-              </Text>
-
-              <View style={[styles.purchaseFlow, isPhone ? styles.purchaseFlowPhone : undefined]}>
-                {[
-                  {
-                    icon: 'cart-outline' as const,
-                    title: 'Comprar plan',
-                    body: 'Elige el plan ideal para tu operacion.',
-                  },
-                  {
-                    icon: 'account-outline' as const,
-                    title: 'Crear cuenta',
-                    body: 'Registra tu empresa o inicia sesion.',
-                  },
-                  {
-                    icon: 'bus-electric' as const,
-                    title: 'Activar combis',
-                    body: 'Agrega y administra tus unidades.',
-                  },
-                  {
-                    icon: 'view-dashboard-outline' as const,
-                    title: 'Acceder al dashboard',
-                    body: 'Monitorea en tiempo real todo tu negocio.',
-                  },
-                ].map((item, index) => (
-                  <View key={item.title} style={styles.purchaseFlowStep}>
-                    <View style={[styles.purchaseFlowIcon, { borderColor: `${activePlanVisual.edge}66` }]}>
-                      <MaterialCommunityIcons name={item.icon} size={22} color={activePlanVisual.edge} />
-                    </View>
-                    {!isPhone && index < 3 ? <View style={styles.purchaseFlowRail} /> : null}
-                    <Text style={styles.purchaseFlowTitle}>{item.title}</Text>
-                    <Text style={styles.purchaseFlowBody}>{item.body}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View
-              style={[
-                styles.accessCard,
-                isPhone ? styles.accessCardPhone : undefined,
-                { borderColor: `${activePlanVisual.edge}44` },
-                Platform.OS === 'web'
-                  ? ({
-                      backgroundImage: `linear-gradient(140deg, rgba(20, 30, 57, 0.82), ${activePlanVisual.soft})`,
-                      backdropFilter: 'blur(14px)',
-                    } as any)
-                  : null,
-              ]}>
-              <View style={styles.accessCardTop}>
-                <View style={[styles.accessCardSymbol, { backgroundColor: activePlanVisual.soft }]}>
-                  <MaterialCommunityIcons name="bus-electric" size={34} color={activePlanVisual.edge} />
-                </View>
-                <View style={styles.accessCardCopy}>
-                  <Text style={styles.accessCardEyebrow}>Plan seleccionado</Text>
-                  <Text style={styles.accessCardTitle}>{activePlan?.name || 'Plan comercial'}</Text>
-                  <Text style={styles.accessCardMeta}>
-                    {formatCurrency(activePlan?.price || 0)} MXN / mes
-                  </Text>
-                  <Text style={styles.accessCardMeta}>
-                    Incluye {activePlan?.units || 0} unidades y acceso administrativo completo.
-                  </Text>
-                </View>
-              </View>
-
-              <View style={[styles.accessHighlights, isPhone ? styles.accessHighlightsPhone : undefined]}>
-                <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
-                  <Text style={styles.accessHighlightLabel}>Acceso</Text>
-                  <Text style={styles.accessHighlightValue}>Admin y choferes</Text>
-                </View>
-                <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
-                  <Text style={styles.accessHighlightLabel}>Registro</Text>
-                  <Text style={styles.accessHighlightValue}>Cuenta nueva o existente</Text>
-                </View>
-                <View style={[styles.accessHighlight, isPhone ? styles.accessHighlightPhone : undefined]}>
-                  <Text style={styles.accessHighlightLabel}>Prueba</Text>
-                  <Text style={styles.accessHighlightValue}>
-                    {activePlan?.trialEligible ? `${activePlan.trialDays || 7} días` : 'Compra directa'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.accessBenefits}>
-                {[
-                  'Acceso inmediato',
-                  'Dashboard en tiempo real',
-                  `Activacion de hasta ${activePlan?.units || 0} unidades`,
-                  'Soporte operativo',
-                ].map((benefit) => (
-                  <View key={benefit} style={styles.accessBenefit}>
-                    <MaterialCommunityIcons name="check-circle-outline" size={16} color={activePlanVisual.edge} />
-                    <Text style={styles.accessBenefitText}>{benefit}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.accessButtonStack}>
-                {user ? (
-                  <>
-                    <AccessButton
-                      label="Continuar compra"
-                      icon="cart-outline"
-                      onPress={() => goToPlanCheckout(activePlan)}
-                    />
-                    <AccessButton
-                      label="Ir al portal"
-                      icon="view-dashboard-outline"
-                      variant="ghost"
-                      onPress={() => router.push(getAuthenticatedHome(user) as never)}
-                    />
-                    {activePlan?.trialEligible ? (
-                      <AccessButton
-                        label={`Probar demo ${activePlan.trialDays || 7} días`}
-                        icon="flask-outline"
-                        variant="outline"
-                        onPress={() => goToPlanCheckout(activePlan, true)}
-                      />
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <AccessButton
-                      label="Continuar compra"
-                      icon="cart-outline"
-                      onPress={() => goToPlanCheckout(activePlan)}
-                    />
-                    <AccessButton
-                      label="Iniciar sesión"
-                      icon="login"
-                      variant="ghost"
-                      onPress={() => goToPlanLogin(activePlan)}
-                    />
-                    {activePlan?.trialEligible ? (
-                      <AccessButton
-                        label={`Probar demo ${activePlan.trialDays || 7} días`}
-                        icon="credit-card-clock-outline"
-                        variant="outline"
-                        onPress={() => goToPlanRegister(activePlan, true)}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </View>
-            </View>
-          </RevealView>
-
-          <RevealView
-            index={10}
-            scrollY={scrollY}
-            viewportHeight={height}
-            style={[styles.faqSection, isDesktop ? styles.faqDesktop : undefined]}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionEyebrow}>FAQ</Text>
-              <Text style={styles.sectionTitle}>Preguntas antes de comprar.</Text>
-            </View>
-            <View style={styles.faqList}>
-              {COMMERCIAL_FAQS.map((faq, index) => (
-                <FaqItem
-                  key={faq.question}
-                  answer={faq.answer}
-                  open={openFaqIndex === index}
-                  question={faq.question}
-                  onPress={() => setOpenFaqIndex(openFaqIndex === index ? -1 : index)}
-                />
-              ))}
-            </View>
-          </RevealView>
-
-          <RevealView index={11} scrollY={scrollY} viewportHeight={height} style={styles.finalCta}>
-            <NeonGrid subtle />
-            <Text style={styles.finalCtaTitle}>Compra y abre el portal.</Text>
-            <Text style={styles.finalCtaBody}>
-              Historial, factura y descargas quedan ligados a la cuenta.
-            </Text>
-            <IconButton
-              label={primaryAction.label}
-              icon={primaryAction.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-              onPress={primaryAction.onPress}
+            style={styles.section}
+          >
+            <SectionHeading
+              nativeID="funcionalidades"
+              eyebrow="TODO LO QUE NECESITAS, EN UN SOLO LUGAR"
+              title="Funciones que impulsan tu operación"
+              intro="Una capa operativa para ver, coordinar, documentar y decidir con datos de tu flotilla."
+              centered
             />
+            <View style={[styles.benefitGrid, isPhone ? styles.benefitGridPhone : undefined]}>
+              {benefits.map((benefit, index) => (
+                <BenefitCard key={benefit.title} benefit={benefit} index={index} isPhone={isPhone} />
+              ))}
+            </View>
+          </RevealView>
+
+          <RevealView index={2} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+            <View nativeID="planes" style={styles.anchorOffset}>
+              <View style={styles.plansHeader}>
+                <View style={styles.sectionCopy}>
+                  <Text style={styles.sectionEyebrow}>PLANES</Text>
+                  <Text style={styles.sectionTitle}>Planes disponibles.</Text>
+                </View>
+                <View style={styles.carouselControls}>
+                  <RoundIconButton
+                    icon="chevron-left"
+                    onPress={() => jumpToPlan(activePlanIndex - 1)}
+                    disabled={activePlanIndex === 0}
+                  />
+                  <RoundIconButton
+                    icon="chevron-right"
+                    onPress={() => jumpToPlan(activePlanIndex + 1)}
+                    disabled={activePlanIndex === plans.length - 1}
+                  />
+                </View>
+              </View>
+
+              <ScrollView
+                ref={carouselRef}
+                horizontal
+                style={styles.planCarouselViewport}
+                snapToInterval={cardStep}
+                decelerationRate="fast"
+                contentContainerStyle={styles.planCarousel}
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={handlePlansScrollEnd}>
+                {plans.map((plan, index) => (
+                  <PlanCard
+                    key={plan.id}
+                    index={index}
+                    plan={plan}
+                    width={cardWidth}
+                    active={activePlanIndex === index}
+                    accent={getPlanAccent(plan, index)}
+                    onPress={() => jumpToPlan(index)}
+                    onBuy={() => goToPlanCheckout(plan)}
+                    onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
+                    userLabel="Continuar compra"
+                    trialLabel={`Probar demo ${plan.trialDays || 7} días`}
+                  />
+                ))}
+              </ScrollView>
+
+              <View style={styles.planDots}>
+                {plans.map((plan, index) => (
+                  <Pressable
+                    key={plan.id}
+                    accessibilityLabel={`Ver plan ${plan.name}`}
+                    accessibilityRole="button"
+                    onPress={() => jumpToPlan(index)}
+                    style={[
+                      styles.planDot,
+                      activePlanIndex === index ? styles.planDotActive : undefined,
+                      activePlanIndex === index
+                        ? { backgroundColor: getPlanAccent(plan, index) }
+                        : undefined,
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+          </RevealView>
+
+          <RevealView index={3} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+            <SectionHeading
+              eyebrow="¿CÓMO FUNCIONA?"
+              title="Activa tu plan en 4 pasos simples"
+              intro="Del plan al panel operativo sin fricción: compra, configura y empieza a monitorear."
+              centered
+            />
+            <View style={[styles.processRail, isPhone ? styles.processRailPhone : undefined]}>
+              {processSteps.map((step, index) => (
+                <ProcessStep
+                  key={step.title}
+                  index={index}
+                  step={step}
+                  isLast={index === processSteps.length - 1}
+                  isPhone={isPhone}
+                />
+              ))}
+            </View>
+          </RevealView>
+
+          <RevealView index={4} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+            <View
+              nativeID="confianza"
+              style={[
+                styles.trustSection,
+                webStyle({
+                  backgroundImage:
+                    'linear-gradient(135deg, rgba(9, 15, 34, 0.8), rgba(10, 17, 39, 0.92)), radial-gradient(circle at 15% 20%, rgba(0, 194, 255, 0.14), transparent 34%), radial-gradient(circle at 85% 55%, rgba(255, 45, 122, 0.12), transparent 35%)',
+                  boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 24px 80px rgba(0,0,0,0.34)',
+                  backdropFilter: 'blur(18px)',
+                  scrollMarginTop: 120,
+                }),
+              ]}>
+              <SectionHeading
+                eyebrow="CONFIANZA QUE SE DEMUESTRA"
+                title="Operación estable para empresas que no pueden detenerse"
+                intro="La plataforma está diseñada para control operativo continuo, seguridad de datos y acompañamiento humano."
+                centered
+              />
+              <View style={[styles.metricGrid, isPhone ? styles.metricGridPhone : undefined]}>
+                {trustMetrics.map((metric) => (
+                  <View key={metric.label} style={styles.metricCard}>
+                    <View style={[styles.metricIcon, { borderColor: `${metric.color}55`, backgroundColor: `${metric.color}14` }]}>
+                      <MaterialCommunityIcons name={metric.icon} size={25} color={metric.color} />
+                    </View>
+                    <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
+                    <Text style={styles.metricLabel}>{metric.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </RevealView>
+
+          <RevealView index={5} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+            <View
+              nativeID="faq"
+              style={[
+                styles.faqShell,
+                isDesktop ? styles.faqShellDesktop : undefined,
+                webStyle({
+                  backgroundImage:
+                    'linear-gradient(135deg, rgba(8, 13, 30, 0.86), rgba(10, 17, 39, 0.8)), radial-gradient(circle at 10% 45%, rgba(122, 60, 255, 0.16), transparent 31%)',
+                  boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 22px 70px rgba(0, 0, 0, 0.34)',
+                  backdropFilter: 'blur(18px)',
+                  scrollMarginTop: 120,
+                }),
+              ]}>
+              <View style={styles.supportVisual} pointerEvents="none">
+                <View style={styles.supportCard}>
+                  <MaterialCommunityIcons name="headset" size={64} color={neonPalette.cyan} />
+                  <View style={styles.supportBubble}>
+                    <MaterialCommunityIcons name="help" size={22} color="#FFFFFF" />
+                  </View>
+                </View>
+              </View>
+              <View style={styles.faqContent}>
+                <SectionHeading
+                  eyebrow="PREGUNTAS FRECUENTES"
+                  title="Resolvemos tus dudas"
+                  intro="Información clara antes de activar tu plan."
+                />
+                <View style={styles.faqList}>
+                  {COMMERCIAL_FAQS.map((faq, index) => (
+                    <FaqItem
+                      key={faq.question}
+                      answer={faq.answer}
+                      open={openFaqIndex === index}
+                      question={faq.question}
+                      onPress={() => setOpenFaqIndex(openFaqIndex === index ? -1 : index)}
+                    />
+                  ))}
+                </View>
+              </View>
+            </View>
           </RevealView>
         </View>
+
+        <SiteFooter onNavigate={scrollToSection} />
       </PageScroller>
     </View>
   );
 }
 
-function NeonGrid({ subtle = false }: { subtle?: boolean }) {
+function SiteHeader({
+  compact,
+  isPhone,
+  loginLabel,
+  onBuy,
+  onLogin,
+  onNavigate,
+}: {
+  compact: boolean;
+  isPhone: boolean;
+  loginLabel: string;
+  onBuy: () => void;
+  onLogin: () => void;
+  onNavigate: (target: string) => void;
+}) {
+  const navButtons = navItems.map((item) => (
+    <Pressable
+      key={item.target}
+      accessibilityRole="link"
+      onPress={() => onNavigate(item.target)}
+      style={(state) => {
+        const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
+        return [
+          styles.navItem,
+          isPhone ? styles.navItemPhone : undefined,
+          hovered ? styles.navItemHover : undefined,
+          webStyle({
+            cursor: 'pointer',
+            transitionDuration: '240ms',
+            transitionProperty: 'color, background-color, border-color, transform',
+          }),
+        ];
+      }}>
+      <Text style={[styles.navItemText, isPhone ? styles.navItemTextPhone : undefined]}>{item.label}</Text>
+    </Pressable>
+  ));
+
   return (
-    <View pointerEvents="none" style={[styles.gridLayer, subtle ? styles.gridLayerSubtle : undefined]}>
-      {Array.from({ length: 7 }).map((_, index) => (
-        <View
-          key={`h-${index}`}
+    <View
+      style={[
+        styles.headerShell,
+        compact ? styles.headerShellCompact : undefined,
+        isPhone ? styles.headerShellPhone : undefined,
+        webStyle({
+          backdropFilter: 'blur(22px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(22px) saturate(160%)',
+          boxShadow: compact
+            ? '0 14px 42px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(245, 247, 255, 0.08)'
+            : '0 1px 0 rgba(245, 247, 255, 0.08)',
+        }),
+      ]}>
+      <View style={[styles.headerInner, isPhone ? styles.headerInnerPhone : undefined]}>
+        <View style={styles.headerTopRow}>
+          <BrandLogo size={isPhone ? 'sm' : 'md'} align="left" plain />
+          {isPhone ? (
+            <View style={styles.headerActions}>
+              <ActionButton label="Entrar" icon="login" variant="ghost" compact onPress={onLogin} />
+              <ActionButton label="Comprar" icon="arrow-right" compact onPress={onBuy} />
+            </View>
+          ) : null}
+        </View>
+
+        {isPhone ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.headerNavScroll}
+            contentContainerStyle={styles.headerNavPhoneContent}>
+            {navButtons}
+          </ScrollView>
+        ) : (
+          <View style={styles.headerNav}>{navButtons}</View>
+        )}
+
+        {!isPhone ? (
+          <View style={styles.headerActions}>
+            <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
+            <ActionButton label="Comprar ahora" icon="arrow-right" compact onPress={onBuy} />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ImmersiveBackground({
+  cursor,
+  isPhone,
+}: {
+  cursor: { x: number; y: number };
+  isPhone: boolean;
+}) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 9000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 9000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [pulse]);
+
+  const orbScale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.07],
+  });
+
+  const parallax = Platform.OS === 'web' && !isPhone
+    ? [{ translateX: cursor.x * 14 }, { translateY: cursor.y * 12 }]
+    : [];
+
+  return (
+    <View pointerEvents="none" style={styles.backgroundLayer}>
+      <View
+        style={[
+          styles.animatedWash,
+          webStyle({
+            backgroundImage:
+              'linear-gradient(125deg, rgba(5, 8, 22, 1), rgba(7, 11, 29, 0.96), rgba(21, 8, 42, 0.86), rgba(5, 8, 22, 1))',
+            backgroundSize: '180% 180%',
+            animation: 'manecombGradientShift 24s ease-in-out infinite',
+          }),
+        ]}
+      />
+      <Animated.View style={[styles.parallaxField, { transform: parallax }]}>
+        <Animated.View
           style={[
-            styles.gridLineHorizontal,
-            {
-              top: `${12 + index * 13}%`,
-              opacity: subtle ? 0.08 : 0.12,
-            },
+            styles.backgroundOrb,
+            styles.backgroundOrbBlue,
+            { transform: [{ scale: orbScale }] },
+            webStyle({ filter: 'blur(28px)', animation: 'manecombOrbDrift 26s ease-in-out infinite' }),
           ]}
         />
-      ))}
-      {Array.from({ length: 8 }).map((_, index) => (
-        <View
-          key={`v-${index}`}
+        <Animated.View
           style={[
-            styles.gridLineVertical,
-            {
-              left: `${8 + index * 12}%`,
-              opacity: subtle ? 0.08 : 0.12,
-            },
+            styles.backgroundOrb,
+            styles.backgroundOrbPink,
+            { transform: [{ scale: orbScale }] },
+            webStyle({ filter: 'blur(32px)', animation: 'manecombOrbDrift 31s ease-in-out -7s infinite' }),
           ]}
         />
-      ))}
+        <Animated.View
+          style={[
+            styles.backgroundOrb,
+            styles.backgroundOrbViolet,
+            { transform: [{ scale: orbScale }] },
+            webStyle({ filter: 'blur(30px)', animation: 'manecombOrbDrift 29s ease-in-out -12s infinite' }),
+          ]}
+        />
+      </Animated.View>
+      <View style={styles.routeField}>
+        {Array.from({ length: isPhone ? 5 : 9 }).map((_, index) => (
+          <View
+            key={`route-${index}`}
+            style={[
+              styles.routeLine,
+              {
+                top: `${8 + index * 11}%`,
+                opacity: index % 3 === 0 ? 0.34 : 0.2,
+                transform: [{ rotate: `${index % 2 === 0 ? -9 : 8}deg` }],
+              },
+              webStyle({
+                backgroundImage:
+                  'linear-gradient(90deg, transparent 0%, rgba(0, 194, 255, 0.08) 18%, rgba(255, 45, 122, 0.65) 46%, rgba(47, 255, 213, 0.48) 57%, transparent 82%)',
+                backgroundSize: '260px 100%',
+                animation: `manecombRouteFlow ${28 + index * 3}s linear ${index * -2}s infinite`,
+              }),
+            ]}
+          />
+        ))}
+      </View>
+      <View style={styles.particleField}>
+        {Array.from({ length: isPhone ? 14 : 28 }).map((_, index) => {
+          const color = index % 4 === 0 ? neonPalette.accent : index % 3 === 0 ? neonPalette.mint : neonPalette.cyan;
+          return (
+            <View
+              key={`particle-${index}`}
+              style={[
+                styles.particle,
+                {
+                  left: `${(index * 37) % 100}%`,
+                  top: `${(index * 19 + 8) % 100}%`,
+                  backgroundColor: color,
+                },
+                webStyle({
+                  boxShadow: `0 0 18px ${color}`,
+                  animation: `manecombParticleDrift ${18 + (index % 7) * 3}s ease-in-out ${index * -0.9}s infinite`,
+                }),
+              ]}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function DashboardMockup({ cursor, isPhone }: { cursor: { x: number; y: number }; isPhone: boolean }) {
+  const mockupTransform = Platform.OS === 'web' && !isPhone
+    ? [
+        { perspective: 950 },
+        { rotateY: `${-10 + cursor.x * 2.4}deg` },
+        { rotateX: `${7 - cursor.y * 2}deg` },
+      ]
+    : [];
+
+  return (
+    <View style={[styles.heroVisual, isPhone ? styles.heroVisualPhone : undefined]}>
+      <View
+        style={[
+          styles.dashboardFrame,
+          isPhone ? styles.dashboardFramePhone : undefined,
+          { transform: mockupTransform as any },
+          webStyle({
+            boxShadow:
+              '0 0 0 1px rgba(0, 194, 255, 0.34), 0 0 44px rgba(0, 194, 255, 0.2), 0 42px 90px rgba(0,0,0,0.44)',
+            transformStyle: 'preserve-3d',
+          }),
+        ]}>
+        <View style={styles.dashboardSidebar}>
+          {isPhone ? <Text style={styles.dashboardMiniBrand}>MC</Text> : <BrandLogo size="sm" plain />}
+          {['Resumen', 'Mapa', 'Unidades', 'Alertas', 'Documentos'].map((item, index) => (
+            <View key={item} style={[styles.dashboardNavRow, index === 1 ? styles.dashboardNavRowActive : undefined]}>
+              <View style={[styles.dashboardNavDot, index === 1 ? styles.dashboardNavDotActive : undefined]} />
+              <Text style={styles.dashboardNavText}>{item}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.dashboardMain}>
+          <View style={styles.dashboardTopbar}>
+            <Text style={styles.dashboardTitle} numberOfLines={2}>
+              {isPhone ? 'Mapa en vivo' : 'Mapa en tiempo real'}
+            </Text>
+            <View style={styles.dashboardStatus}>
+              <View style={styles.liveDot} />
+              <Text style={styles.dashboardStatusText}>En vivo</Text>
+            </View>
+          </View>
+          <View style={styles.mapPanel}>
+            <View style={styles.mapGrid} />
+            <View style={[styles.mapRoute, styles.mapRouteCyan]} />
+            <View style={[styles.mapRoute, styles.mapRoutePink]} />
+            <View style={[styles.mapRoute, styles.mapRouteViolet]} />
+            {[
+              { left: '18%', top: '30%', color: neonPalette.cyan },
+              { left: '46%', top: '47%', color: neonPalette.accent },
+              { left: '70%', top: '28%', color: neonPalette.mint },
+              { left: '78%', top: '64%', color: neonPalette.violet },
+            ].map((pin, index) => (
+              <View
+                key={`pin-${index}`}
+                style={[
+                  styles.vehiclePin,
+                  {
+                    left: pin.left as any,
+                    top: pin.top as any,
+                    borderColor: `${pin.color}77`,
+                    backgroundColor: `${pin.color}24`,
+                  },
+                  webStyle({ boxShadow: `0 0 18px ${pin.color}70` }),
+                ]}>
+                <MaterialCommunityIcons name="bus" size={16} color={pin.color} />
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <FloatingIndicator
+        icon="bus-multiple"
+        label="Unidades activas"
+        value="24"
+        color={neonPalette.cyan}
+        style={isPhone ? styles.floatingIndicatorPhoneA : styles.floatingIndicatorA}
+      />
+      <FloatingIndicator
+        icon="bell-check-outline"
+        label="Alertas resueltas"
+        value="3"
+        color={neonPalette.accent}
+        style={isPhone ? styles.floatingIndicatorPhoneB : styles.floatingIndicatorB}
+      />
+      <FloatingIndicator
+        icon="pulse"
+        label="Disponibilidad"
+        value="99.8%"
+        color={neonPalette.mint}
+        style={isPhone ? styles.floatingIndicatorPhoneC : styles.floatingIndicatorC}
+      />
+    </View>
+  );
+}
+
+function FloatingIndicator({
+  color,
+  icon,
+  label,
+  style,
+  value,
+}: {
+  color: string;
+  icon: IconName;
+  label: string;
+  style: any;
+  value: string;
+}) {
+  return (
+    <View
+      style={[
+        styles.floatingIndicator,
+        style,
+        { borderColor: `${color}58` },
+        webStyle({
+          backgroundImage: `linear-gradient(135deg, rgba(7, 12, 30, 0.82), ${color}12)`,
+          boxShadow: `0 0 0 1px ${color}20, 0 0 28px ${color}24, 0 14px 34px rgba(0,0,0,0.28)`,
+          backdropFilter: 'blur(14px)',
+          animation: 'manecombFloat 7s ease-in-out infinite',
+        }),
+      ]}>
+      <View style={[styles.floatingIcon, { backgroundColor: `${color}15` }]}>
+        <MaterialCommunityIcons name={icon} size={20} color={color} />
+      </View>
+      <View style={styles.floatingTextBlock}>
+        <Text style={[styles.floatingValue, { color }]}>{value}</Text>
+        <Text style={styles.floatingLabel}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SectionHeading({
+  centered,
+  eyebrow,
+  intro,
+  nativeID,
+  title,
+}: {
+  centered?: boolean;
+  eyebrow: string;
+  intro?: string;
+  nativeID?: string;
+  title: string;
+}) {
+  return (
+    <View
+      nativeID={nativeID}
+      style={[
+        styles.sectionHeading,
+        centered ? styles.sectionHeadingCentered : undefined,
+        webStyle({ scrollMarginTop: 120 }),
+      ]}>
+      <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
+      <Text style={[styles.sectionTitle, centered ? styles.sectionTitleCentered : undefined]}>{title}</Text>
+      {intro ? (
+        <Text style={[styles.sectionIntro, centered ? styles.sectionIntroCentered : undefined]}>{intro}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function BenefitCard({
+  benefit,
+  index,
+  isPhone,
+}: {
+  benefit: (typeof benefits)[number];
+  index: number;
+  isPhone: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      style={(state) => {
+        const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
+        const pressed = state.pressed;
+
+        return [
+          styles.benefitCard,
+          isPhone ? styles.benefitCardPhone : undefined,
+          { borderColor: hovered ? `${benefit.color}AA` : `${benefit.color}42` },
+          hovered ? styles.benefitCardHover : undefined,
+          pressed ? styles.buttonPressed : undefined,
+          webStyle({
+            backgroundImage: hovered
+              ? `linear-gradient(145deg, rgba(11, 18, 42, 0.95), ${benefit.color}13)`
+              : 'linear-gradient(145deg, rgba(10, 17, 39, 0.74), rgba(8, 13, 30, 0.82))',
+            boxShadow: hovered
+              ? `0 0 0 1px ${benefit.color}44, 0 0 28px ${benefit.color}24, 0 18px 44px rgba(0, 0, 0, 0.28)`
+              : `0 0 0 1px ${benefit.color}16, 0 14px 36px rgba(0, 0, 0, 0.16)`,
+            transitionDelay: `${index * 24}ms`,
+            transitionDuration: '300ms',
+            transitionProperty: 'transform, box-shadow, border-color, background-image',
+            backdropFilter: 'blur(14px)',
+            cursor: 'default',
+          }),
+        ];
+      }}>
+      <View
+        style={[
+          styles.benefitIcon,
+          { backgroundColor: `${benefit.color}14`, borderColor: `${benefit.color}44` },
+          webStyle({ boxShadow: `0 0 22px ${benefit.color}26` }),
+        ]}>
+        <MaterialCommunityIcons name={benefit.icon} size={27} color={benefit.color} />
+      </View>
+      <Text style={styles.benefitTitle}>{benefit.title}</Text>
+      <Text style={styles.benefitBody}>{benefit.body}</Text>
+    </Pressable>
+  );
+}
+
+function ProcessStep({
+  index,
+  isLast,
+  isPhone,
+  step,
+}: {
+  index: number;
+  isLast: boolean;
+  isPhone: boolean;
+  step: (typeof processSteps)[number];
+}) {
+  const color = [neonPalette.cyan, neonPalette.accent, neonPalette.violet, neonPalette.mint][index];
+
+  return (
+    <View style={[styles.processStep, isPhone ? styles.processStepPhone : undefined]}>
+      <View style={styles.processNodeWrap}>
+        <View
+          style={[
+            styles.processNode,
+            { borderColor: `${color}88`, backgroundColor: `${color}12` },
+            webStyle({ boxShadow: `0 0 32px ${color}22` }),
+          ]}>
+          <Text style={[styles.processNumber, { color }]}>{index + 1}</Text>
+          <MaterialCommunityIcons name={step.icon} size={30} color={color} />
+        </View>
+        {!isLast ? (
+          <View
+            style={[
+              styles.processConnector,
+              isPhone ? styles.processConnectorPhone : undefined,
+              webStyle({
+                backgroundImage: `linear-gradient(90deg, ${color}00, ${color}, ${neonPalette.accent})`,
+                boxShadow: `0 0 18px ${color}66`,
+              }),
+            ]}
+          />
+        ) : null}
+      </View>
+      <Text style={styles.processTitle}>{step.title}</Text>
+      <Text style={styles.processBody}>{step.body}</Text>
     </View>
   );
 }
@@ -876,8 +1223,8 @@ function PlanCard({
                     : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
                   boxShadow:
                     active || hovered
-                      ? `0 0 0 1px ${visual.edge}88, 0 0 24px ${visual.edge}3A, 0 22px 62px rgba(0, 0, 0, 0.38)`
-                      : `0 0 0 1px ${visual.edge}22, 0 16px 42px rgba(0, 0, 0, 0.24)`,
+                      ? `0 0 0 1px ${visual.edge}88, 0 0 30px ${visual.edge}42, 0 26px 70px rgba(0, 0, 0, 0.42)`
+                      : `0 0 0 1px ${visual.edge}22, 0 18px 46px rgba(0, 0, 0, 0.26)`,
                   transitionDelay: `${index * 35}ms`,
                   transitionDuration: '340ms',
                   transitionProperty: 'transform, box-shadow, border-color, background-image, opacity',
@@ -937,6 +1284,7 @@ function PlanCard({
       </View>
       <View style={styles.planActions}>
         <Pressable
+          accessibilityRole="button"
           onPress={onBuy}
           style={(state) => {
             const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
@@ -951,8 +1299,8 @@ function PlanCard({
                 ...(Platform.OS === 'web'
                   ? ({
                       boxShadow: hovered
-                        ? `0 0 22px ${neonPalette.accentGlow}, 0 16px 36px rgba(255, 36, 92, 0.28)`
-                        : `0 0 16px ${neonPalette.accentGlow}, 0 12px 30px rgba(255, 36, 92, 0.2)`,
+                        ? `0 0 24px ${neonPalette.accentGlow}, 0 18px 40px rgba(255, 45, 122, 0.3)`
+                        : `0 0 16px ${neonPalette.accentGlow}, 0 12px 30px rgba(255, 45, 122, 0.2)`,
                       transitionDuration: '260ms',
                       transitionProperty: 'transform, box-shadow',
                       cursor: 'pointer',
@@ -967,6 +1315,7 @@ function PlanCard({
         </Pressable>
         {onTrial ? (
           <Pressable
+            accessibilityRole="button"
             onPress={onTrial}
             style={(state) => {
               const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
@@ -976,7 +1325,7 @@ function PlanCard({
                 styles.planTrialButton,
                 {
                   borderColor: hovered ? neonPalette.accent : `${neonPalette.accent}88`,
-                  backgroundColor: hovered ? 'rgba(255, 36, 92, 0.2)' : neonPalette.accentSoft,
+                  backgroundColor: hovered ? 'rgba(255, 45, 122, 0.2)' : neonPalette.accentSoft,
                   transform: [{ scale: hovered ? 1.018 : 1 }],
                   ...(Platform.OS === 'web'
                     ? ({
@@ -999,14 +1348,16 @@ function PlanCard({
   );
 }
 
-function IconButton({
-  label,
+function ActionButton({
+  compact,
   icon,
+  label,
   onPress,
   variant = 'solid',
 }: {
+  compact?: boolean;
+  icon: IconName;
   label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
   onPress: () => void;
   variant?: 'solid' | 'ghost';
 }) {
@@ -1014,34 +1365,34 @@ function IconButton({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       style={(state) => {
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
         const pressed = state.pressed;
 
         return [
-          styles.iconButton,
-          solid ? styles.iconButtonSolid : styles.iconButtonGhost,
+          styles.actionButton,
+          compact ? styles.actionButtonCompact : undefined,
+          solid ? styles.actionButtonSolid : styles.actionButtonGhost,
           hovered ? styles.hoverLift : undefined,
-          Platform.OS === 'web'
-            ? ({
-                cursor: 'pointer',
-                transitionDuration: '240ms',
-                transitionProperty: 'transform, box-shadow, background-color, border-color',
-                boxShadow: solid && hovered ? `0 0 24px ${neonPalette.accentGlow}` : undefined,
-              } as any)
-            : null,
+          webStyle({
+            cursor: 'pointer',
+            transitionDuration: '260ms',
+            transitionProperty: 'transform, box-shadow, background-color, border-color',
+            boxShadow: solid && hovered ? `0 0 26px ${neonPalette.accentGlow}` : undefined,
+          }),
           pressed ? styles.buttonPressed : undefined,
         ];
       }}>
-      <MaterialCommunityIcons
-        name={icon}
-        size={18}
-        color={solid ? '#FFFFFF' : neonPalette.text}
-      />
-      <Text style={[styles.iconButtonText, solid ? styles.iconButtonTextSolid : undefined]} numberOfLines={1}>
+      <Text style={[styles.actionButtonText, solid ? styles.actionButtonTextSolid : undefined]} numberOfLines={1}>
         {label}
       </Text>
+      <MaterialCommunityIcons
+        name={icon}
+        size={compact ? 15 : 18}
+        color={solid ? '#FFFFFF' : neonPalette.text}
+      />
     </Pressable>
   );
 }
@@ -1051,12 +1402,13 @@ function RoundIconButton({
   onPress,
   disabled,
 }: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: IconName;
   onPress: () => void;
   disabled?: boolean;
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       disabled={disabled}
       style={(state) => {
@@ -1067,83 +1419,20 @@ function RoundIconButton({
           styles.roundButton,
           hovered && !disabled ? styles.hoverLift : undefined,
           disabled ? styles.roundButtonDisabled : undefined,
-          Platform.OS === 'web'
-            ? ({
-                cursor: disabled ? 'default' : 'pointer',
-                transitionDuration: '240ms',
-                transitionProperty: 'transform, box-shadow, border-color',
-                boxShadow: hovered && !disabled ? `0 0 18px ${neonPalette.cyan}33` : undefined,
-              } as any)
-            : null,
+          webStyle({
+            cursor: disabled ? 'default' : 'pointer',
+            transitionDuration: '240ms',
+            transitionProperty: 'transform, box-shadow, border-color, background-color',
+            boxShadow: hovered && !disabled ? `0 0 18px ${neonPalette.cyan}33` : undefined,
+          }),
           pressed && !disabled ? styles.buttonPressed : undefined,
         ];
       }}>
       <MaterialCommunityIcons
         name={icon}
         size={24}
-        color={disabled ? neonPalette.mutedSoft : neonPalette.text}
+        color={disabled ? 'rgba(138, 147, 178, 0.55)' : neonPalette.text}
       />
-    </Pressable>
-  );
-}
-
-function AccessButton({
-  icon,
-  label,
-  onPress,
-  variant = 'solid',
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  onPress: () => void;
-  variant?: 'solid' | 'ghost' | 'outline';
-}) {
-  const solid = variant === 'solid';
-  const ghost = variant === 'ghost';
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={(state) => {
-        const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
-        const pressed = state.pressed;
-
-        return [
-          styles.accessButton,
-          solid ? styles.accessButtonSolid : ghost ? styles.accessButtonGhost : styles.accessButtonOutline,
-          hovered ? styles.hoverLift : undefined,
-          Platform.OS === 'web'
-            ? ({
-                cursor: 'pointer',
-                transitionDuration: '260ms',
-                transitionProperty: 'transform, box-shadow, border-color, background-color',
-                boxShadow: hovered
-                  ? solid
-                    ? `0 0 22px ${neonPalette.accentGlow}`
-                    : `0 0 16px ${neonPalette.accent}35`
-                  : undefined,
-              } as any)
-            : null,
-          pressed ? styles.buttonPressed : undefined,
-        ];
-      }}>
-      <MaterialCommunityIcons
-        name={icon}
-        size={18}
-        color={solid ? '#FFFFFF' : ghost ? neonPalette.text : neonPalette.accent}
-      />
-      <Text
-        numberOfLines={2}
-        style={[
-          styles.accessButtonLabel,
-          solid
-            ? styles.accessButtonLabelSolid
-            : ghost
-              ? styles.accessButtonLabelGhost
-              : styles.accessButtonLabelOutline,
-        ]}>
-        {label}
-      </Text>
     </Pressable>
   );
 }
@@ -1173,7 +1462,7 @@ function FaqItem({
   const answerStyle = {
     maxHeight: progress.interpolate({
       inputRange: [0, 1],
-      outputRange: [0, 120],
+      outputRange: [0, 130],
     }),
     opacity: progress,
     transform: [
@@ -1199,6 +1488,7 @@ function FaqItem({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       style={(state) => {
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
@@ -1208,24 +1498,22 @@ function FaqItem({
           styles.faqItem,
           open ? styles.faqItemOpen : undefined,
           hovered ? styles.faqItemHover : undefined,
-          Platform.OS === 'web'
-            ? ({
-                cursor: 'pointer',
-                transitionDuration: '240ms',
-                transitionProperty: 'transform, box-shadow, border-color, background-color, background-image',
-                backdropFilter: 'blur(14px)',
-                backgroundImage: open
-                  ? 'linear-gradient(120deg, rgba(82, 242, 167, 0.095), rgba(35, 213, 255, 0.055), rgba(168, 85, 247, 0.045))'
-                  : hovered
-                    ? 'linear-gradient(120deg, rgba(255, 255, 255, 0.07), rgba(35, 213, 255, 0.045))'
-                    : undefined,
-                boxShadow: open
-                  ? `0 0 0 1px ${neonPalette.lime}22, 0 0 22px rgba(82, 242, 167, 0.16), 0 16px 42px rgba(0, 0, 0, 0.2)`
-                  : hovered
-                    ? `0 0 18px rgba(82, 242, 167, 0.14), 0 12px 34px rgba(0, 0, 0, 0.18)`
-                    : undefined,
-              } as any)
-            : null,
+          webStyle({
+            cursor: 'pointer',
+            transitionDuration: '260ms',
+            transitionProperty: 'transform, box-shadow, border-color, background-color, background-image',
+            backdropFilter: 'blur(14px)',
+            backgroundImage: open
+              ? 'linear-gradient(120deg, rgba(0, 194, 255, 0.1), rgba(122, 60, 255, 0.07), rgba(255, 45, 122, 0.05))'
+              : hovered
+                ? 'linear-gradient(120deg, rgba(245, 247, 255, 0.07), rgba(0, 194, 255, 0.045))'
+                : undefined,
+            boxShadow: open
+              ? `0 0 0 1px ${neonPalette.cyan}22, 0 0 22px rgba(0, 194, 255, 0.16), 0 16px 42px rgba(0, 0, 0, 0.2)`
+              : hovered
+                ? `0 0 18px rgba(0, 194, 255, 0.14), 0 12px 34px rgba(0, 0, 0, 0.18)`
+                : undefined,
+          }),
           pressed ? styles.buttonPressed : undefined,
         ];
       }}>
@@ -1235,7 +1523,7 @@ function FaqItem({
           <MaterialCommunityIcons
             name={open ? 'minus' : 'plus'}
             size={18}
-            color={open ? neonPalette.lime : neonPalette.muted}
+            color={open ? neonPalette.cyan : neonPalette.muted}
           />
         </Animated.View>
       </View>
@@ -1243,6 +1531,98 @@ function FaqItem({
         <Text style={styles.faqAnswer}>{answer}</Text>
       </Animated.View>
     </Pressable>
+  );
+}
+
+function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
+  const handleFooterLink = (label: string) => {
+    if (label === 'Planes') {
+      onNavigate('planes');
+      return;
+    }
+    if (label === 'Funciones' || label === 'Demo') {
+      onNavigate('funcionalidades');
+      return;
+    }
+    if (label === 'Casos de éxito') {
+      onNavigate('confianza');
+      return;
+    }
+    if (label === 'Privacidad') {
+      router.push('/privacidad' as never);
+      return;
+    }
+    if (label === 'Términos') {
+      router.push('/terminos' as never);
+      return;
+    }
+  };
+
+  return (
+    <View style={styles.footer}>
+      <View style={styles.footerInner}>
+        <View style={styles.footerBrand}>
+          <BrandLogo size="sm" plain />
+          <Text style={styles.footerDescription}>
+            Plataforma integral para el control y operación de flotillas de transporte tipo combi.
+          </Text>
+          <View style={styles.socialRow}>
+            {[
+              { icon: 'facebook' as IconName, label: 'Facebook' },
+              { icon: 'instagram' as IconName, label: 'Instagram' },
+              { icon: 'linkedin' as IconName, label: 'LinkedIn' },
+              { icon: 'youtube' as IconName, label: 'YouTube' },
+            ].map((social) => (
+              <Pressable
+                key={social.label}
+                accessibilityLabel={social.label}
+                accessibilityRole="link"
+                style={styles.socialButton}>
+                <MaterialCommunityIcons name={social.icon} size={17} color={neonPalette.text} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.footerColumns}>
+          {footerColumns.map((column) => (
+            <View key={column.title} style={styles.footerColumn}>
+              <Text style={styles.footerColumnTitle}>{column.title}</Text>
+              {column.links.map((link) => (
+                <Pressable
+                  key={link}
+                  accessibilityRole="link"
+                  onPress={() => handleFooterLink(link)}
+                  style={styles.footerLinkButton}>
+                  <Text style={styles.footerLink}>{link}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.contactCard}>
+          <Text style={styles.contactTitle}>¿Hablamos?</Text>
+          <ContactRow icon="email-outline" text="ventas@manecomb.com" />
+          <ContactRow icon="phone-outline" text="(81) 1234 5678" />
+          <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
+        </View>
+      </View>
+
+      <View style={styles.footerBottom}>
+        <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
+        <Text style={styles.footerBottomText}>Hecho con control operativo para el transporte.</Text>
+      </View>
+    </View>
+  );
+}
+
+function ContactRow({ icon, text }: { icon: IconName; text: string }) {
+  return (
+    <View style={styles.contactRow}>
+      <MaterialCommunityIcons name={icon} size={15} color={neonPalette.accent} />
+      <Text style={styles.contactText}>{text}</Text>
+    </View>
   );
 }
 
@@ -1259,166 +1639,217 @@ const styles = StyleSheet.create({
   },
   webPage: {
     minHeight: '100vh' as any,
-    paddingBottom: 40,
     width: '100%',
   },
   content: {
-    paddingBottom: 40,
+    paddingBottom: 36,
+    paddingTop: 96,
   },
   container: {
     width: '100%',
-    maxWidth: 1200,
+    maxWidth: 1240,
     alignSelf: 'center',
+    paddingHorizontal: 22,
+    paddingTop: 112,
+    paddingBottom: 36,
+    gap: 78,
+  },
+  containerPhone: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 30,
+    paddingTop: 132,
+    gap: 58,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
-  ambientWash: {
-    position: 'absolute',
-    top: -140,
-    left: 0,
-    right: 0,
-    bottom: -140,
-    backgroundColor: 'rgba(14, 10, 38, 0.68)',
+  animatedWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: neonPalette.background,
   },
-  backgroundOrbTop: {
+  parallaxField: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundOrb: {
     position: 'absolute',
-    top: -180,
-    right: -180,
+    borderRadius: 999,
+    opacity: 0.75,
+  },
+  backgroundOrbBlue: {
+    top: 96,
+    left: -160,
+    width: 460,
+    height: 460,
+    backgroundColor: 'rgba(0, 194, 255, 0.16)',
+  },
+  backgroundOrbPink: {
+    top: -140,
+    right: -140,
     width: 520,
     height: 520,
-    borderRadius: 260,
-    backgroundColor: 'rgba(255, 36, 92, 0.12)',
+    backgroundColor: 'rgba(255, 45, 122, 0.18)',
   },
-  backgroundOrbMiddle: {
-    position: 'absolute',
-    top: 230,
-    left: -240,
-    width: 640,
-    height: 640,
-    borderRadius: 320,
-    backgroundColor: 'rgba(35, 213, 255, 0.08)',
+  backgroundOrbViolet: {
+    right: -220,
+    bottom: 220,
+    width: 600,
+    height: 600,
+    backgroundColor: 'rgba(122, 60, 255, 0.14)',
   },
-  backgroundOrbBottom: {
-    position: 'absolute',
-    right: -260,
-    bottom: -260,
-    width: 680,
-    height: 680,
-    borderRadius: 340,
-    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+  routeField: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.74,
   },
-  cyanRail: {
+  routeLine: {
     position: 'absolute',
-    top: 160,
-    left: -120,
-    right: -120,
+    left: -160,
+    right: -160,
     height: 1,
-    backgroundColor: 'rgba(35, 213, 255, 0.16)',
-    transform: [{ rotate: '-8deg' }],
+    backgroundColor: 'rgba(0, 194, 255, 0.12)',
   },
-  magentaRail: {
+  particleField: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  particle: {
     position: 'absolute',
-    top: 420,
-    left: -120,
-    right: -120,
-    height: 1,
-    backgroundColor: 'rgba(255, 36, 92, 0.14)',
-    transform: [{ rotate: '6deg' }],
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    opacity: 0.68,
   },
-  navbar: {
-    minHeight: 48,
+  headerShell: {
+    position: Platform.OS === 'web' ? ('fixed' as any) : 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    minHeight: 76,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(245, 247, 255, 0.09)',
+    backgroundColor: 'rgba(5, 8, 22, 0.66)',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  headerShellCompact: {
+    minHeight: 60,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(5, 8, 22, 0.78)',
+  },
+  headerShellPhone: {
+    minHeight: 116,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  headerInner: {
+    width: '100%',
+    maxWidth: 1240,
+    alignSelf: 'center',
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 18,
+  },
+  headerInnerPhone: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
-    flexWrap: 'wrap',
   },
-  navActions: {
+  headerNav: {
+    flex: 1,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'center',
     alignItems: 'center',
+    gap: 6,
   },
-  iconButton: {
-    minHeight: 42,
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    minWidth: 0,
-    flexDirection: 'row',
+  headerNavScroll: {
+    width: '100%',
+    flexGrow: 0,
+  },
+  headerNavPhoneContent: {
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'space-between',
+    minWidth: '100%' as any,
+    paddingRight: 0,
+  },
+  navItem: {
+    minHeight: 38,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-  },
-  iconButtonSolid: {
-    backgroundColor: neonPalette.accent,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: neonPalette.accent,
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: neonPalette.accent,
-          shadowOpacity: 0.34,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 6 },
-          elevation: 4,
-        }),
+    borderColor: 'transparent',
   },
-  iconButtonGhost: {
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-    borderWidth: 1,
-    borderColor: neonPalette.line,
+  navItemPhone: {
+    minHeight: 32,
+    paddingHorizontal: 7,
   },
-  iconButtonText: {
+  navItemHover: {
+    backgroundColor: 'rgba(0, 194, 255, 0.08)',
+    borderColor: 'rgba(0, 194, 255, 0.22)',
+    transform: [{ translateY: -1 }],
+  },
+  navItemText: {
     color: neonPalette.text,
-    flexShrink: 1,
     fontFamily: Typography.body,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    minWidth: 0,
   },
-  iconButtonTextSolid: {
-    color: '#FFFFFF',
+  navItemTextPhone: {
+    fontSize: 10.5,
   },
-  heroStage: {
-    minHeight: 500,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  heroSection: {
+    minHeight: 650,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: neonPalette.line,
+    borderColor: 'rgba(245, 247, 255, 0.09)',
     overflow: 'hidden',
-    backgroundColor: 'rgba(7, 12, 25, 0.76)',
-    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+    gap: 26,
+  },
+  heroDesktop: {
+    minHeight: 650,
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 30,
+    justifyContent: 'space-between',
+    paddingHorizontal: 34,
+    paddingVertical: 34,
   },
-  heroStageDesktop: {
-    minHeight: 540,
+  heroPhone: {
+    minHeight: 720,
+    paddingHorizontal: 14,
+    paddingTop: 28,
   },
-  heroStagePhone: {
-    minHeight: 360,
-    paddingHorizontal: 12,
-    paddingVertical: 24,
-  },
-  heroCenter: {
-    width: '100%',
-    maxWidth: 680,
-    alignItems: 'center',
-    gap: 13,
+  heroCopy: {
+    flex: 0.92,
+    maxWidth: 580,
+    gap: 20,
     zIndex: 2,
   },
-  heroCenterPhone: {
-    gap: 11,
+  heroCopyPhone: {
+    maxWidth: '100%' as any,
+    gap: 16,
   },
   heroKicker: {
+    alignSelf: 'flex-start',
     minHeight: 30,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255, 36, 92, 0.42)',
+    borderColor: 'rgba(255, 45, 122, 0.42)',
     backgroundColor: neonPalette.accentSoft,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1435,171 +1866,301 @@ const styles = StyleSheet.create({
   heroTitle: {
     color: neonPalette.text,
     fontFamily: Typography.display,
-    fontSize: 54,
-    lineHeight: 60,
+    fontSize: 58,
+    lineHeight: 64,
     fontWeight: '900',
-    textAlign: 'center',
+    maxWidth: 620,
   },
   heroTitlePhone: {
-    fontSize: 38,
+    fontSize: 36,
     lineHeight: 42,
   },
   heroSubtitle: {
-    color: neonPalette.muted,
+    color: neonPalette.mutedStrong,
     fontFamily: Typography.body,
-    fontSize: 15,
-    lineHeight: 23,
-    textAlign: 'center',
-    maxWidth: 620,
+    fontSize: 17,
+    lineHeight: 27,
+    maxWidth: 560,
   },
   heroSubtitlePhone: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 14.5,
+    lineHeight: 22,
   },
   heroActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
+    gap: 12,
+    marginTop: 8,
   },
-  heroScene: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 28,
-    height: 190,
-    zIndex: 1,
-  },
-  sceneCore: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: 36,
-    width: 152,
-    height: 102,
+  actionButton: {
+    minHeight: 50,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(168, 85, 247, 0.48)',
-    backgroundColor: 'rgba(168, 85, 247, 0.18)',
+    paddingHorizontal: 18,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 9,
+    minWidth: 0,
+  },
+  actionButtonCompact: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  actionButtonSolid: {
+    backgroundColor: neonPalette.accent,
+    borderColor: neonPalette.accent,
     ...(Platform.OS === 'web'
       ? {}
       : {
-          shadowColor: neonPalette.violet,
-          shadowOpacity: 0.26,
+          shadowColor: neonPalette.accent,
+          shadowOpacity: 0.36,
           shadowRadius: 18,
           shadowOffset: { width: 0, height: 8 },
           elevation: 5,
         }),
-    transform: [{ rotate: '-8deg' }],
   },
-  sceneCoreRing: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(168, 85, 247, 0.34)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  actionButtonGhost: {
+    backgroundColor: 'rgba(245, 247, 255, 0.055)',
+    borderColor: 'rgba(245, 247, 255, 0.16)',
   },
-  sceneCoreText: {
+  actionButtonText: {
     color: neonPalette.text,
+    flexShrink: 1,
     fontFamily: Typography.body,
-    fontSize: 12,
+    fontSize: 13.5,
     fontWeight: '900',
-    textTransform: 'uppercase',
+    minWidth: 0,
   },
-  sceneTile: {
-    position: 'absolute',
-    width: 120,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: neonPalette.line,
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
-    alignItems: 'center',
+  actionButtonTextSolid: {
+    color: '#FFFFFF',
+  },
+  heroVisual: {
+    flex: 1.1,
+    minHeight: 470,
     justifyContent: 'center',
-    gap: 6,
+    alignItems: 'center',
+    position: 'relative',
   },
-  sceneTileLeft: {
-    left: '16%',
-    bottom: 86,
-    transform: [{ rotate: '-12deg' }],
+  heroVisualPhone: {
+    minHeight: 360,
+    width: '100%',
   },
-  sceneTileRight: {
-    right: '16%',
-    bottom: 96,
-    transform: [{ rotate: '10deg' }],
+  dashboardFrame: {
+    width: '94%',
+    maxWidth: 620,
+    aspectRatio: 1.48,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 194, 255, 0.32)',
+    backgroundColor: 'rgba(7, 13, 30, 0.9)',
+    flexDirection: 'row',
+    overflow: 'hidden',
   },
-  sceneTileBottom: {
-    alignSelf: 'center',
-    bottom: 0,
-    transform: [{ rotate: '7deg' }],
+  dashboardFramePhone: {
+    width: '100%',
+    aspectRatio: 1.24,
   },
-  sceneTileText: {
+  dashboardSidebar: {
+    width: '27%',
+    minWidth: 88,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(245, 247, 255, 0.08)',
+    backgroundColor: 'rgba(5, 8, 22, 0.76)',
+    padding: 12,
+    gap: 11,
+  },
+  dashboardMiniBrand: {
     color: neonPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 11,
+    fontFamily: Typography.display,
+    fontSize: 13,
     fontWeight: '900',
     letterSpacing: 1,
   },
-  gridLayer: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 1,
-  },
-  gridLayerSubtle: {
-    opacity: 0.8,
-  },
-  gridLineHorizontal: {
-    position: 'absolute',
-    left: -80,
-    right: -80,
-    height: 1,
-    backgroundColor: '#FFFFFF',
-    transform: [{ rotate: '12deg' }],
-  },
-  gridLineVertical: {
-    position: 'absolute',
-    top: -80,
-    bottom: -80,
-    width: 1,
-    backgroundColor: '#FFFFFF',
-    transform: [{ rotate: '12deg' }],
-  },
-  logoStrip: {
-    minHeight: 40,
+  dashboardNavRow: {
+    minHeight: 24,
+    borderRadius: 8,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'center',
     alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 8,
   },
-  logoStripPhone: {
-    justifyContent: 'flex-start',
+  dashboardNavRowActive: {
+    backgroundColor: 'rgba(0, 194, 255, 0.1)',
   },
-  logoPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: neonPalette.line,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+  dashboardNavDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(138, 147, 178, 0.5)',
   },
-  logoPillText: {
-    color: neonPalette.muted,
+  dashboardNavDotActive: {
+    backgroundColor: neonPalette.cyan,
+  },
+  dashboardNavText: {
+    color: neonPalette.mutedStrong,
+    flex: 1,
     fontFamily: Typography.body,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
   },
-  twoColumnSection: {
-    gap: 10,
+  dashboardMain: {
+    flex: 1,
+    padding: 14,
+    gap: 12,
   },
-  twoColumnDesktop: {
+  dashboardTopbar: {
+    minHeight: 28,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    gap: 8,
+  },
+  dashboardTitle: {
+    color: neonPalette.text,
+    flex: 1,
+    fontFamily: Typography.display,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  dashboardStatus: {
+    minHeight: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(47, 255, 213, 0.1)',
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: neonPalette.mint,
+  },
+  dashboardStatusText: {
+    color: neonPalette.mint,
+    fontFamily: Typography.body,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  mapPanel: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 194, 255, 0.18)',
+    backgroundColor: 'rgba(8, 14, 33, 0.92)',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  mapGrid: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.22,
+    backgroundColor: 'rgba(0, 194, 255, 0.04)',
+  },
+  mapRoute: {
+    position: 'absolute',
+    left: '10%' as any,
+    right: '12%' as any,
+    height: 3,
+    borderRadius: 999,
+  },
+  mapRouteCyan: {
+    top: '34%' as any,
+    backgroundColor: 'rgba(0, 194, 255, 0.58)',
+    transform: [{ rotate: '-9deg' }],
+  },
+  mapRoutePink: {
+    top: '52%' as any,
+    backgroundColor: 'rgba(255, 45, 122, 0.62)',
+    transform: [{ rotate: '13deg' }],
+  },
+  mapRouteViolet: {
+    top: '70%' as any,
+    backgroundColor: 'rgba(122, 60, 255, 0.55)',
+    transform: [{ rotate: '-4deg' }],
+  },
+  vehiclePin: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingIndicator: {
+    position: 'absolute',
+    minWidth: 174,
+    minHeight: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(7, 12, 30, 0.82)',
+  },
+  floatingIndicatorA: {
+    left: -6,
+    bottom: 44,
+  },
+  floatingIndicatorB: {
+    right: 16,
+    top: 58,
+  },
+  floatingIndicatorC: {
+    right: -10,
+    bottom: 96,
+  },
+  floatingIndicatorPhoneA: {
+    left: 0,
+    bottom: 4,
+    minWidth: 148,
+  },
+  floatingIndicatorPhoneB: {
+    right: 0,
+    top: -18,
+    minWidth: 148,
+  },
+  floatingIndicatorPhoneC: {
+    right: 0,
+    bottom: 88,
+    minWidth: 148,
+  },
+  floatingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  floatingValue: {
+    fontFamily: Typography.display,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  floatingLabel: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  section: {
+    gap: 28,
+  },
+  sectionHeading: {
+    gap: 8,
+    maxWidth: 680,
+  },
+  sectionHeadingCentered: {
+    alignSelf: 'center',
+    alignItems: 'center',
   },
   sectionCopy: {
     gap: 6,
@@ -1608,72 +2169,79 @@ const styles = StyleSheet.create({
   sectionEyebrow: {
     color: neonPalette.accent,
     fontFamily: Typography.body,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '900',
     letterSpacing: 1,
   },
   sectionTitle: {
     color: neonPalette.text,
     fontFamily: Typography.display,
-    fontSize: 26,
-    lineHeight: 32,
-    fontWeight: '800',
-    maxWidth: 560,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+    maxWidth: 680,
+  },
+  sectionTitleCentered: {
+    textAlign: 'center',
   },
   sectionIntro: {
     color: neonPalette.muted,
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 20,
-    maxWidth: 440,
+    fontSize: 14.5,
+    lineHeight: 23,
+    maxWidth: 560,
   },
-  featureGrid: {
+  sectionIntroCentered: {
+    textAlign: 'center',
+  },
+  benefitGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
+    gap: 18,
   },
-  featureGridPhone: {
+  benefitGridPhone: {
     flexDirection: 'column',
   },
-  featureCard: {
-    flex: 1,
-    minWidth: 220,
-    borderRadius: 14,
+  benefitCard: {
+    flexGrow: 1,
+    flexBasis: 340,
+    minHeight: 210,
+    borderRadius: 8,
     borderWidth: 1,
-    padding: 18,
-    gap: 12,
-    backgroundColor: 'rgba(15, 23, 42, 0.66)',
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: '#000000',
-          shadowOpacity: 0.16,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 10 },
-        }),
+    padding: 20,
+    gap: 14,
+    backgroundColor: 'rgba(9, 15, 34, 0.78)',
   },
-  featureCardPhone: {
-    minWidth: 0,
+  benefitCardPhone: {
+    flexBasis: 'auto' as any,
     width: '100%',
   },
-  featureIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+  benefitCardHover: {
+    transform: [{ translateY: -5 }],
+  },
+  benefitIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featureTitle: {
+  benefitTitle: {
     color: neonPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 16.5,
+    fontFamily: Typography.display,
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: '900',
   },
-  featureBody: {
+  benefitBody: {
     color: neonPalette.muted,
     fontFamily: Typography.body,
     fontSize: 13.5,
     lineHeight: 21,
+  },
+  anchorOffset: {
+    gap: 22,
   },
   plansHeader: {
     flexDirection: 'row',
@@ -1687,12 +2255,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   roundButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: 'rgba(245, 247, 255, 0.065)',
     borderWidth: 1,
     borderColor: neonPalette.line,
   },
@@ -1728,54 +2296,11 @@ const styles = StyleSheet.create({
           elevation: 8,
         }),
   },
-  planCardActive: {
-    transform: [{ translateY: -4 }],
-  },
   planSelectedHalo: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 16,
     borderWidth: 1,
     opacity: 0.8,
-  },
-  planCursorGlow: {
-    position: 'absolute',
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-  },
-  planGradientOrb: {
-    position: 'absolute',
-    borderRadius: 999,
-  },
-  planGradientOrbCyan: {
-    left: -58,
-    bottom: -76,
-    width: 190,
-    height: 190,
-    backgroundColor: 'rgba(35, 213, 255, 0.08)',
-  },
-  planGradientOrbViolet: {
-    right: -52,
-    top: -62,
-    width: 180,
-    height: 180,
-    backgroundColor: 'rgba(168, 85, 247, 0.13)',
-  },
-  planGradientOrbLime: {
-    right: 18,
-    bottom: 76,
-    width: 132,
-    height: 132,
-    backgroundColor: 'rgba(82, 242, 167, 0.1)',
-    opacity: 0.7,
-  },
-  planGlow: {
-    position: 'absolute',
-    top: -46,
-    right: -22,
-    width: 170,
-    height: 170,
-    borderRadius: 85,
   },
   planTop: {
     flexDirection: 'row',
@@ -1912,7 +2437,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
-    marginTop: -24,
+    marginTop: -28,
   },
   planDot: {
     width: 8,
@@ -1921,376 +2446,193 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   planDotActive: {
-    width: 20,
+    width: 22,
   },
-  selectedPlanBand: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 36, 92, 0.42)',
-    backgroundColor: 'rgba(255, 36, 92, 0.12)',
-    padding: 18,
+  processRail: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    flexWrap: 'wrap',
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: neonPalette.accent,
-          shadowOpacity: 0.16,
-          shadowRadius: 20,
-          shadowOffset: { width: 0, height: 12 },
-        }),
-  },
-  selectedPlanBandPhone: {
-    gap: 10,
-  },
-  bandEyebrow: {
-    color: neonPalette.accent,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  bandTitle: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 21,
-    lineHeight: 26,
-    fontWeight: '900',
-  },
-  bandMeta: {
-    alignItems: 'flex-end',
-    gap: 2,
-  },
-  bandMetaPhone: {
     alignItems: 'flex-start',
-  },
-  bandPrice: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 22,
-    lineHeight: 27,
-    fontWeight: '900',
-  },
-  bandCopy: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  accessHub: {
-    borderRadius: 16,
-    borderWidth: 1,
-    backgroundColor: 'rgba(8, 15, 28, 0.82)',
-    padding: 20,
+    justifyContent: 'space-between',
     gap: 18,
-    overflow: 'hidden',
+    paddingHorizontal: 20,
   },
-  accessHubGlow: {
-    position: 'absolute',
-    top: -120,
-    right: -80,
-    width: 360,
-    height: 360,
-    borderRadius: 180,
-  },
-  accessHubPhone: {
-    padding: 16,
-  },
-  accessHubDesktop: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  accessCopy: {
-    flex: 1,
-    gap: 12,
-  },
-  accessEyebrow: {
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-  },
-  accessTitle: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 27,
-    lineHeight: 33,
-    fontWeight: '900',
-    maxWidth: 560,
-  },
-  accessBody: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 13.5,
-    lineHeight: 22,
-    maxWidth: 560,
-  },
-  accessChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  accessChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: neonPalette.line,
-    backgroundColor: 'rgba(255, 255, 255, 0.075)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  accessChipText: {
-    color: neonPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  purchaseFlow: {
-    flexDirection: 'row',
-    gap: 18,
-    marginTop: 10,
-    minWidth: 0,
-  },
-  purchaseFlowPhone: {
+  processRailPhone: {
     flexDirection: 'column',
-    gap: 12,
+    paddingHorizontal: 0,
+    gap: 22,
   },
-  purchaseFlowStep: {
+  processStep: {
     flex: 1,
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
     minWidth: 0,
     position: 'relative',
   },
-  purchaseFlowIcon: {
+  processStepPhone: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  processNodeWrap: {
     alignItems: 'center',
-    backgroundColor: 'rgba(168, 85, 247, 0.13)',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  processNode: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(9, 15, 34, 0.8)',
+  },
+  processNumber: {
+    fontFamily: Typography.display,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  processConnector: {
+    position: 'absolute',
+    left: 118,
+    top: 59,
+    width: 150,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: neonPalette.cyan,
+  },
+  processConnectorPhone: {
+    left: 59,
+    top: 118,
+    width: 2,
+    height: 48,
+  },
+  processTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  processBody: {
+    color: neonPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12.5,
+    lineHeight: 19,
+    textAlign: 'center',
+    maxWidth: 190,
+  },
+  trustSection: {
     borderRadius: 8,
     borderWidth: 1,
-    height: 46,
+    borderColor: 'rgba(245, 247, 255, 0.1)',
+    backgroundColor: 'rgba(9, 15, 34, 0.8)',
+    padding: 24,
+    gap: 26,
+    overflow: 'hidden',
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    gap: 18,
+  },
+  metricGridPhone: {
+    flexDirection: 'column',
+  },
+  metricCard: {
+    flex: 1,
+    minHeight: 122,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 247, 255, 0.1)',
+    backgroundColor: 'rgba(245, 247, 255, 0.045)',
+    padding: 18,
+    gap: 7,
+  },
+  metricIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    width: 46,
+    marginBottom: 4,
   },
-  purchaseFlowRail: {
-    backgroundColor: 'rgba(168, 85, 247, 0.32)',
-    height: 1,
-    left: 58,
-    position: 'absolute',
-    right: -10,
-    top: 23,
+  metricValue: {
+    fontFamily: Typography.display,
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '900',
   },
-  purchaseFlowTitle: {
+  metricLabel: {
     color: neonPalette.text,
     fontFamily: Typography.body,
     fontSize: 13,
-    fontWeight: '900',
-    lineHeight: 18,
+    fontWeight: '800',
   },
-  purchaseFlowBody: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  accessCard: {
-    flex: 1,
-    minWidth: 300,
-    borderRadius: 14,
+  faqShell: {
+    borderRadius: 8,
     borderWidth: 1,
-    backgroundColor: 'rgba(20, 30, 57, 0.8)',
-    padding: 18,
-    gap: 14,
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: '#000000',
-          shadowOpacity: 0.18,
-          shadowRadius: 20,
-          shadowOffset: { width: 0, height: 12 },
-        }),
+    borderColor: 'rgba(245, 247, 255, 0.1)',
+    backgroundColor: 'rgba(9, 15, 34, 0.82)',
+    padding: 22,
+    gap: 24,
+    overflow: 'hidden',
   },
-  accessCardPhone: {
-    minWidth: 0,
-    width: '100%',
-  },
-  accessCardTop: {
+  faqShellDesktop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
-  accessCardSymbol: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+  supportVisual: {
+    flex: 0.78,
+    minHeight: 320,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: neonPalette.accentSoft,
+  },
+  supportCard: {
+    width: 250,
+    height: 250,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  accessCardCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  accessCardEyebrow: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  accessCardTitle: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 21,
-    lineHeight: 25,
-    fontWeight: '900',
-  },
-  accessCardMeta: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  accessHighlights: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  accessHighlightsPhone: {
-    flexDirection: 'column',
-  },
-  accessHighlight: {
-    flex: 1,
-    minWidth: 92,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: neonPalette.line,
-    backgroundColor: 'rgba(255,255,255,0.055)',
-    padding: 12,
-    gap: 4,
-  },
-  accessHighlightPhone: {
-    minWidth: 0,
-  },
-  accessHighlightLabel: {
-    color: neonPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  accessHighlightValue: {
-    color: neonPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 17,
-  },
-  accessBenefits: {
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    padding: 12,
-  },
-  accessBenefit: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexBasis: 190,
-    flexGrow: 1,
-    gap: 8,
-    minWidth: 0,
-  },
-  accessBenefitText: {
-    color: neonPalette.text,
-    flex: 1,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 17,
-    minWidth: 0,
-  },
-  accessButtonStack: {
-    gap: 8,
-  },
-  accessButton: {
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
+    borderColor: 'rgba(122, 60, 255, 0.42)',
+    backgroundColor: 'rgba(122, 60, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
   },
-  accessButtonSolid: {
+  supportBubble: {
+    position: 'absolute',
+    right: 48,
+    top: 54,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: neonPalette.accent,
-    borderColor: neonPalette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  accessButtonGhost: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: neonPalette.line,
-  },
-  accessButtonOutline: {
-    backgroundColor: neonPalette.accentSoft,
-    borderColor: 'rgba(255, 36, 92, 0.48)',
-  },
-  accessButtonLabel: {
-    flexShrink: 1,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-    minWidth: 0,
-    textAlign: 'center',
-  },
-  accessButtonLabelSolid: {
-    color: '#FFFFFF',
-  },
-  accessButtonLabelGhost: {
-    color: neonPalette.text,
-  },
-  accessButtonLabelOutline: {
-    color: neonPalette.accent,
-  },
-  faqSection: {
+  faqContent: {
+    flex: 1.2,
     gap: 20,
   },
-  faqDesktop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
   faqList: {
-    flex: 1.2,
-    gap: 12,
+    gap: 10,
   },
   faqItem: {
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: neonPalette.line,
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+    backgroundColor: 'rgba(245, 247, 255, 0.045)',
     padding: 16,
     gap: 10,
     overflow: 'hidden',
   },
   faqItemOpen: {
-    borderColor: 'rgba(82, 242, 167, 0.34)',
-    backgroundColor: 'rgba(82, 242, 167, 0.07)',
+    borderColor: 'rgba(0, 194, 255, 0.45)',
+    backgroundColor: 'rgba(0, 194, 255, 0.07)',
   },
   faqItemHover: {
-    borderColor: 'rgba(82, 242, 167, 0.3)',
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: neonPalette.lime,
-          shadowOpacity: 0.18,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 10 },
-        }),
+    borderColor: 'rgba(0, 194, 255, 0.36)',
     transform: [{ translateY: -2 }],
   },
   faqQuestionRow: {
@@ -2311,48 +2653,125 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   faqAnswer: {
-    color: 'rgba(207, 218, 235, 0.78)',
+    color: 'rgba(207, 218, 235, 0.82)',
     fontFamily: Typography.body,
     fontSize: 13.5,
     lineHeight: 21,
     paddingTop: 2,
   },
-  finalCta: {
-    minHeight: 190,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 36, 92, 0.38)',
-    backgroundColor: 'rgba(70, 12, 27, 0.58)',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    padding: 20,
-    ...(Platform.OS === 'web'
-      ? {}
-      : {
-          shadowColor: neonPalette.accent,
-          shadowOpacity: 0.16,
-          shadowRadius: 24,
-          shadowOffset: { width: 0, height: 14 },
-        }),
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 45, 122, 0.34)',
+    backgroundColor: 'rgba(5, 8, 22, 0.96)',
+    paddingHorizontal: 22,
+    paddingTop: 34,
+    paddingBottom: 18,
   },
-  finalCtaTitle: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: '900',
-    textAlign: 'center',
-    maxWidth: 680,
+  footerInner: {
+    width: '100%',
+    maxWidth: 1240,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 28,
+    justifyContent: 'space-between',
   },
-  finalCtaBody: {
+  footerBrand: {
+    width: 260,
+    gap: 14,
+  },
+  footerDescription: {
     color: neonPalette.muted,
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: 'center',
-    maxWidth: 560,
+    fontSize: 12.5,
+    lineHeight: 19,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  socialButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: neonPalette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(245, 247, 255, 0.045)',
+  },
+  footerColumns: {
+    flex: 1,
+    minWidth: 360,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 26,
+    justifyContent: 'space-between',
+  },
+  footerColumn: {
+    minWidth: 120,
+    gap: 9,
+  },
+  footerColumnTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  footerLinkButton: {
+    minHeight: 24,
+    justifyContent: 'center',
+  },
+  footerLink: {
+    color: neonPalette.mutedStrong,
+    fontFamily: Typography.body,
+    fontSize: 12,
+  },
+  contactCard: {
+    minWidth: 230,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: neonPalette.line,
+    backgroundColor: 'rgba(245, 247, 255, 0.045)',
+    padding: 18,
+    gap: 10,
+  },
+  contactTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 17,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contactText: {
+    color: neonPalette.mutedStrong,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+  },
+  footerBottom: {
+    width: '100%',
+    maxWidth: 1240,
+    alignSelf: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(245, 247, 255, 0.08)',
+    marginTop: 28,
+    paddingTop: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  footerBottomText: {
+    color: 'rgba(138, 147, 178, 0.78)',
+    fontFamily: Typography.body,
+    fontSize: 11,
   },
   buttonPressed: {
     opacity: 0.88,

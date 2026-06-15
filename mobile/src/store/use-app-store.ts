@@ -183,7 +183,7 @@ type AppState = {
     channelMode?: ConversationChannelMode
   ) => Promise<ConversationSummary | null>;
   sendMessage: (conversationId: string, text: string) => Promise<void>;
-  sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<void>;
+  sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendMediaMessage: (conversationId: string, formData: FormData) => Promise<void>;
   createIncident: (draft: IncidentDraft) => Promise<boolean>;
   updateIncidentStatus: (incidentId: string, status: IncidentStatus) => Promise<void>;
@@ -521,7 +521,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
   socket.io.on('reconnect', () => {
     set({ socketStatus: 'connected', networkStatus: 'online' });
-    void get().flushPendingSync();
+    get().flushPendingSync();
   });
 
   socket.on('disconnect', (reason) => {
@@ -534,14 +534,21 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     mobileLog('socket', 'connect_error', error.message);
   });
 
-  socket.on('chat:message', async (m: ChatMessage) => {
+  const handleIncomingConversationMessage = async (
+    payload: ChatMessage | { message?: ChatMessage; conversationId?: string }
+  ) => {
+    const m = 'message' in payload && payload.message ? payload.message : payload as ChatMessage;
+
     if (!m.conversationId) return;
     const hydrated = await hydrateConversationMessage(m, get().conversations.find(c => c.id === m.conversationId) || null, get().user);
     set(s => ({
       messagesByConversation: upsertConversationMessage(s.messagesByConversation, hydrated.conversationId!, hydrated),
       conversations: sortConversations(s.conversations.map(c => c.id === hydrated.conversationId ? { ...c, lastMessage: hydrated, unreadCount: hydrated.senderId === s.user?.id ? c.unreadCount : c.unreadCount + 1 } : c))
     }));
-  });
+  };
+
+  socket.on('chat:message', handleIncomingConversationMessage);
+  socket.on('radio:message:new', handleIncomingConversationMessage);
 
   socket.on('location:updated', (v: Vehicle) => {
     set(s => ({
@@ -566,10 +573,10 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
       if (eventName === 'users:invited' || eventName === 'user:first-login') {
-        void get().loadUsers();
+        get().loadUsers();
       }
       if (eventName === 'payment:confirmed' || eventName === 'plan:active' || eventName === 'subscription:updated') {
-        void get().refreshAll();
+        get().refreshAll();
       }
     });
   });
@@ -645,7 +652,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
 
       if (reachable && get().user) {
         connectSocket(set, get);
-        void get().flushPendingSync();
+        get().flushPendingSync();
       }
     });
   }
@@ -653,7 +660,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!appStateSubscription) {
     appStateSubscription = NativeAppState.addEventListener('change', (state) => {
       if (state === 'active' && get().user) {
-        void getMobileNetworkSnapshot()
+        getMobileNetworkSnapshot()
           .then((snapshot) => {
             set({
               networkSnapshot: snapshot,
@@ -661,7 +668,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
             });
           })
           .catch(() => undefined);
-        void get().flushPendingSync();
+        get().flushPendingSync();
         connectSocket(set, get);
       }
     });
@@ -673,7 +680,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
         return;
       }
 
-      void healthRequest()
+      healthRequest()
         .then(() => set({ networkStatus: 'online' }))
         .catch((error) => {
           if (isProbablyNetworkError(error)) {
@@ -822,9 +829,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       set({ connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: s.dashboard, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
-      void registerCurrentPushToken();
-      void persistOfflineSnapshot(get);
-      void get().refreshAll();
+      registerCurrentPushToken();
+      persistOfflineSnapshot(get);
+      get().refreshAll();
     } catch (error) {
       logStoreError('initialize', error);
       await clearSessionState(set, 'Sesion expirada.');
@@ -840,8 +847,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (r) await persistSession(res.token, 'online', res.refreshToken);
       set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
       await get().refreshAll();
-      void registerCurrentPushToken();
-      void persistOfflineSnapshot(get);
+      registerCurrentPushToken();
+      persistOfflineSnapshot(get);
       connectSocket(set, get);
       return { ok: true };
     } catch (err) { const msg = getReadableErrorMessage(err, 'Error al iniciar sesion.', get().networkSnapshot); logStoreError('signIn', err); set({ error: msg }); return { ok: false, message: msg }; }
@@ -916,7 +923,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       set({ ...data, isRefreshing: false, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
-      void persistOfflineSnapshot(get);
+      persistOfflineSnapshot(get);
       connectSocket(set, get);
     } catch (error) {
       logStoreError('refreshAll', error);
@@ -987,8 +994,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (r) await persistSession(res.token, 'online', res.refreshToken);
       set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
       await get().refreshAll(); connectSocket(set, get);
-      void registerCurrentPushToken();
-      void persistOfflineSnapshot(get);
+      registerCurrentPushToken();
+      persistOfflineSnapshot(get);
       return { ok: true };
     } catch (err) { const msg = getReadableErrorMessage(err, 'Error al registrar.', get().networkSnapshot); logStoreError('register', err); set({ error: msg }); return { ok: false, message: msg }; }
     finally { set({ isSubmitting: false }); }
@@ -1003,8 +1010,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
       await get().refreshAll();
       connectSocket(set, get);
-      void registerCurrentPushToken();
-      void persistOfflineSnapshot(get);
+      registerCurrentPushToken();
+      persistOfflineSnapshot(get);
       return { ok: true };
     } catch (err) {
       const msg = getReadableErrorMessage(err, 'No se pudo activar la cuenta. Intenta nuevamente.', get().networkSnapshot);
@@ -1046,7 +1053,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   createUser: async (p) => { try { const u = await createUserRequest(p); set(s => ({ users: [u, ...s.users] })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible crear el usuario.'); logStoreError('createUser', error); return { ok: false, message }; } },
   updateUser: async (id, p) => { try { const u = await updateUserRequest(id, p); set(s => ({ users: s.users.map(eu => eu.id === id ? u : eu) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible actualizar el usuario.'); logStoreError('updateUser', error); return { ok: false, message }; } },
   deleteUser: async (id) => { try { await deleteUserRequest(id); set(s => ({ users: s.users.filter(eu => eu.id !== id) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible eliminar el usuario.'); logStoreError('deleteUser', error); return { ok: false, message }; } },
-  uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); void persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
+  uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {
     set({ activeConversationId: id });
     try {
@@ -1089,7 +1096,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const m = await sendVoiceMessageRequest(cid, f);
       const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, get().user);
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
-    } catch (error) { logStoreError('sendVoiceMessage', error); }
+      return { ok: true, messageRecord: h };
+    } catch (error) {
+      const message = getReadableErrorMessage(error, 'No fue posible enviar la nota de voz.');
+      logStoreError('sendVoiceMessage', error);
+      return { ok: false, message };
+    }
   },
   sendMediaMessage: async (cid, f) => {
     try {

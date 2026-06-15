@@ -4,11 +4,11 @@ const { authenticate } = require("../../middlewares/authenticate");
 const { getOrganizationId } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { transcribeAudioBuffer } = require("../../services/audio-transcription");
-const { getChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
+const { streamChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
 
 const router = Router();
-const MAX_VOICE_NOTE_SECONDS = 45;
+const MAX_VOICE_NOTE_SECONDS = 60;
 
 const audioUpload = multer({
   storage: multer.memoryStorage(),
@@ -47,10 +47,23 @@ const mediaUpload = multer({
 
 router.use(authenticate, requireOperationalAccess);
 
-function emitConversationUpdate(req, conversationId, message) {
+function emitConversationUpdate(req, conversationOrId, message) {
+  const conversationId =
+    typeof conversationOrId === "string" ? conversationOrId : conversationOrId?.id;
+
   req.app.locals.io
     ?.to(`conversation:${conversationId}`)
     .emit("chat:message", message);
+
+  if (conversationOrId?.channelMode === "radio") {
+    req.app.locals.io
+      ?.to(`conversation:${conversationId}`)
+      .emit("radio:message:new", {
+        conversationId,
+        message
+      });
+  }
+
   const organizationId = getOrganizationId(req.user);
 
   if (organizationId) {
@@ -157,7 +170,7 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
       : text.trim()
   );
 
-  emitConversationUpdate(req, req.params.conversationId, message);
+  emitConversationUpdate(req, conversation, message);
 
   const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
   const isDirectChat = conversation.kind === "direct" && conversation.channelMode !== "radio";
@@ -274,7 +287,7 @@ router.post(
         durationSeconds
       });
 
-      emitConversationUpdate(req, req.params.conversationId, message);
+      emitConversationUpdate(req, conversation, message);
 
       const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
 
@@ -354,7 +367,7 @@ router.post(
         mimeType
       });
 
-      emitConversationUpdate(req, req.params.conversationId, message);
+      emitConversationUpdate(req, conversation, message);
 
       const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
 
@@ -405,38 +418,16 @@ router.get("/media/:storageKey", authenticate, async (req, res) => {
     });
   }
 
-  const asset = await getChatMediaAsset(req.params.storageKey);
+  const streamed = await streamChatMediaAsset(req, res, req.params.storageKey, {
+    fileName: "voice-note"
+  });
 
-  if (!asset) {
+  if (!streamed) {
     return res.status(404).json({
       ok: false,
       message: "Audio no encontrado"
     });
   }
-
-  if (asset.redirectUrl) {
-    return res.redirect(asset.redirectUrl);
-  }
-
-  res.setHeader("Content-Type", asset.mimeType || "audio/mp4");
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename="${encodeURIComponent(asset.originalFileName || "voice-note")}"`
-  );
-
-  asset.stream.on("error", () => {
-    if (!res.headersSent) {
-      res.status(500).json({
-        ok: false,
-        message: "No fue posible reproducir el audio"
-      });
-      return;
-    }
-
-    res.end();
-  });
-
-  asset.stream.pipe(res);
 });
 
 module.exports = router;

@@ -231,6 +231,9 @@ function createStyles(theme: any, isCompact: boolean, isPhone: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    logCopy: {
+      flex: 1,
+    },
     logTitle: {
       fontSize: 17,
       fontWeight: '900',
@@ -437,6 +440,22 @@ export function ChecklistScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.unitList}>
               {activeVehicles.map((vehicle) => {
                 const isActive = logs.some((log) => log.vehicleId === vehicle.id && log.status === 'active');
+                const unitButtonStyle = {
+                  backgroundColor: isActive ? theme.colors.accent : theme.colors.surface,
+                  borderColor: isActive ? theme.colors.accent : theme.colors.line,
+                };
+                const unitIconStyle = {
+                  backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : theme.colors.panel,
+                };
+                const unitCodeStyle = {
+                  color: isActive ? '#FFF' : theme.colors.text,
+                };
+                const actionBadgeStyle = {
+                  backgroundColor: isActive ? '#FFF' : theme.colors.accent,
+                };
+                const actionBadgeTextStyle = {
+                  color: isActive ? theme.colors.accent : '#FFF',
+                };
 
                 return (
                   <Pressable
@@ -444,32 +463,27 @@ export function ChecklistScreen() {
                     onPress={() => handleToggleStatus(vehicle)}
                     style={[
                       styles.unitBtn,
-                      {
-                        backgroundColor: isActive ? theme.colors.accent : theme.colors.surface,
-                        borderColor: isActive ? theme.colors.accent : theme.colors.line,
-                      },
+                      unitButtonStyle,
                     ]}>
                     <View
                       style={[
                         styles.unitIcon,
-                        {
-                          backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : theme.colors.panel,
-                        },
+                        unitIconStyle,
                       ]}>
                       <MaterialCommunityIcons name="bus" size={24} color={isActive ? '#FFF' : theme.colors.text} />
                     </View>
-                    <Text style={[styles.unitCode, { color: isActive ? '#FFF' : theme.colors.text }]}>
+                    <Text style={[styles.unitCode, unitCodeStyle]}>
                       {vehicle.code}
                     </Text>
                     <View
                       style={[
                         styles.actionBadge,
-                        { backgroundColor: isActive ? '#FFF' : theme.colors.accent },
+                        actionBadgeStyle,
                       ]}>
                       <Text
                         style={[
                           styles.actionBadgeText,
-                          { color: isActive ? theme.colors.accent : '#FFF' },
+                          actionBadgeTextStyle,
                         ]}>
                         {isActive ? 'Llegada' : 'Salida'}
                       </Text>
@@ -507,7 +521,7 @@ export function ChecklistScreen() {
                           color={item.status === 'active' ? theme.colors.info : theme.colors.success}
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
+                      <View style={styles.logCopy}>
                         <Text style={[styles.logTitle, { color: theme.colors.text }]}>{item.vehicleCode}</Text>
                         <Text style={[styles.logDriver, { color: theme.colors.muted }]} numberOfLines={1}>
                           {item.driverName}

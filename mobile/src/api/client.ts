@@ -492,6 +492,18 @@ export function setAuthToken(token: string | null) {
   delete apiClient.defaults.headers.common.Authorization;
 }
 
+export function getAuthHeaderSnapshot(fallbackToken?: string | null) {
+  const authorization = apiClient.defaults.headers.common.Authorization;
+  const value =
+    typeof authorization === 'string'
+      ? authorization
+      : fallbackToken
+        ? `Bearer ${fallbackToken}`
+        : '';
+
+  return value ? { Authorization: value } : undefined;
+}
+
 export async function loginRequest(email: string, password: string) {
   const response = await apiClient.post<LoginResult>('/auth/login', {
     email,

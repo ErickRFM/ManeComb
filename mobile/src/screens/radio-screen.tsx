@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
+  getAudioPlaybackErrorMessage,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
@@ -11,6 +12,10 @@ import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -31,7 +36,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
-import { resolveAssetUrl } from '@/src/api/client';
+import { getAuthHeaderSnapshot, resolveAssetUrl } from '@/src/api/client';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
@@ -40,10 +45,15 @@ import { useAppStore } from '@/src/store/use-app-store';
 import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
 import { formatRelativeTime, formatRole } from '@/src/utils/format';
 
-type RecordingState = 'idle' | 'recording' | 'uploading';
+type RecordingState = 'idle' | 'recording' | 'uploading' | 'sent' | 'error';
 type AudioPermissionState = 'unknown' | 'granted' | 'denied';
+type AudioFilter = 'all' | 'current' | 'mine';
+type RadioPageIndex = 0 | 1 | 2;
 
-const MAX_RADIO_NOTE_SECONDS = 40;
+const MIN_RADIO_NOTE_SECONDS = 1;
+const MAX_RADIO_NOTE_SECONDS = 60;
+const INITIAL_RADIO_PAGE_INDEX: RadioPageIndex = 1;
+const RADIO_PAGES = ['Canales', 'Radio', 'Audios'] as const;
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -179,9 +189,17 @@ export function RadioScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [audioPermissionState, setAudioPermissionState] = useState<AudioPermissionState>('unknown');
   const [hoveredRadioItemId, setHoveredRadioItemId] = useState<string | null>(null);
+  const [activePageIndex, setActivePageIndex] = useState<RadioPageIndex>(INITIAL_RADIO_PAGE_INDEX);
+  const [pagerWidth, setPagerWidth] = useState(0);
+  const [audioFilter, setAudioFilter] = useState<AudioFilter>('all');
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
 
+  const pagerRef = useRef<ScrollView>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStartedAtRef = useRef<number | null>(null);
+  const pressToTalkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressToTalkActiveRef = useRef(false);
+  const pressToTalkTriggeredRef = useRef(false);
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
@@ -216,19 +234,72 @@ export function RadioScreen() {
     radioChannels.find((conversation) => conversation.id === activeChannelId) ||
     radioChannels[0] ||
     null;
-  const activeMessages = useMemo(
-    () => (activeChannel ? messagesByConversation[activeChannel.id] || [] : []),
-    [activeChannel, messagesByConversation]
-  );
-  const recentVoiceNotes = useMemo(
+  const loadedVoiceNotes = useMemo(
     () =>
-      activeMessages
-        .filter((message) => message.kind === 'audio')
-        .slice()
-        .reverse()
-        .slice(0, 8),
-    [activeMessages]
+      radioChannels
+        .flatMap((channel) =>
+          (messagesByConversation[channel.id] || [])
+            .filter((message) => message.kind === 'audio')
+            .map((message) => ({
+              id: `${channel.id}-${message.id}`,
+              channelId: channel.id,
+              channelTitle: channel.title,
+              message,
+            }))
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.message.createdAt).getTime() -
+            new Date(left.message.createdAt).getTime()
+        ),
+    [messagesByConversation, radioChannels]
   );
+  const hasCurrentChannelAudio = useMemo(
+    () => Boolean(activeChannel && loadedVoiceNotes.some((item) => item.channelId === activeChannel.id)),
+    [activeChannel, loadedVoiceNotes]
+  );
+  const hasOwnAudio = useMemo(
+    () => Boolean(user?.id && loadedVoiceNotes.some((item) => item.message.sender?.id === user.id)),
+    [loadedVoiceNotes, user?.id]
+  );
+  const availableAudioFilters = useMemo(() => {
+    if (!loadedVoiceNotes.length) {
+      return [];
+    }
+
+    const filters: { key: AudioFilter; label: string }[] = [{ key: 'all', label: 'Todos' }];
+
+    if (hasCurrentChannelAudio) {
+      filters.push({ key: 'current', label: 'Canal actual' });
+    }
+
+    if (hasOwnAudio) {
+      filters.push({ key: 'mine', label: 'Mis audios' });
+    }
+
+    return filters;
+  }, [hasCurrentChannelAudio, hasOwnAudio, loadedVoiceNotes.length]);
+  const filteredVoiceNotes = useMemo(() => {
+    if (audioFilter === 'current' && activeChannel) {
+      return loadedVoiceNotes.filter((item) => item.channelId === activeChannel.id);
+    }
+
+    if (audioFilter === 'mine' && user?.id) {
+      return loadedVoiceNotes.filter((item) => item.message.sender?.id === user.id);
+    }
+
+    return loadedVoiceNotes;
+  }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
+
+  useEffect(() => {
+    if (audioFilter === 'current' && !hasCurrentChannelAudio) {
+      setAudioFilter('all');
+    }
+
+    if (audioFilter === 'mine' && !hasOwnAudio) {
+      setAudioFilter('all');
+    }
+  }, [audioFilter, hasCurrentChannelAudio, hasOwnAudio]);
   const searchTerm = search.trim().toLowerCase();
   const filteredChannels = useMemo(
     () =>
@@ -296,7 +367,7 @@ export function RadioScreen() {
   }, [recordingState]);
 
   useEffect(() => {
-    void loadChatContacts();
+    loadChatContacts();
 
     if (Platform.OS === 'web') {
       const mediaDevices = navigator.mediaDevices;
@@ -322,9 +393,9 @@ export function RadioScreen() {
           setRecorderMessage('Mic bloqueado');
         }
       };
-      const handleDeviceChange = () => void loadDevices();
+      const handleDeviceChange = () => { loadDevices(); };
 
-      void loadDevices();
+      loadDevices();
       mediaDevices.addEventListener?.('devicechange', handleDeviceChange);
 
       return () => {
@@ -370,12 +441,12 @@ export function RadioScreen() {
 
       bootstrappedRef.current = true;
       setActiveChannelId(preferredChannelId);
-      void loadConversation(preferredChannelId);
+      loadConversation(preferredChannelId);
       return;
     }
 
     bootstrappedRef.current = true;
-    void openGeneralConversation('radio').then((conversation) => {
+    openGeneralConversation('radio').then((conversation) => {
       if (conversation?.id) {
         setActiveChannelId(conversation.id);
       }
@@ -410,7 +481,7 @@ export function RadioScreen() {
     }
 
     setActiveChannelId(radioChannels[0].id);
-    void loadConversation(radioChannels[0].id);
+    loadConversation(radioChannels[0].id);
   }, [activeChannelId, loadConversation, radioChannels]);
 
   useEffect(() => {
@@ -418,9 +489,12 @@ export function RadioScreen() {
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
       }
+      if (pressToTalkTimerRef.current) {
+        clearTimeout(pressToTalkTimerRef.current);
+      }
 
       stopWebMetering();
-      void nativeRecorder.stop().catch(() => undefined);
+      nativeRecorder.stop().catch(() => undefined);
       webRecorderRef.current?.stop?.();
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
     };
@@ -439,14 +513,14 @@ export function RadioScreen() {
         return;
       }
 
-      const elapsedSeconds = Math.max(
-        1,
+    const elapsedSeconds = Math.max(
+        MIN_RADIO_NOTE_SECONDS,
         Math.round((Date.now() - recordStartedAtRef.current) / 1000)
       );
       setRecordingSeconds(elapsedSeconds);
 
       if (elapsedSeconds >= MAX_RADIO_NOTE_SECONDS) {
-        void handleTapToTalk();
+        handleTapToTalk();
       }
     }, 400);
   };
@@ -460,6 +534,14 @@ export function RadioScreen() {
     recordStartedAtRef.current = null;
     setRecordingSeconds(0);
     volumeValue.value = 0;
+  };
+
+  const scheduleIdleAfterStatus = (delayMs = 1400) => {
+    setTimeout(() => {
+      if (recordingStateRef.current === 'sent' || recordingStateRef.current === 'error') {
+        setRecordingMode('idle');
+      }
+    }, delayMs);
   };
 
   const startWebMetering = (stream: MediaStream) => {
@@ -487,7 +569,7 @@ export function RadioScreen() {
         } catch {
           // Source may already be disconnected by the browser.
         }
-        void audioContext.close().catch(() => undefined);
+        audioContext.close().catch(() => undefined);
       };
 
       const updateVolume = () => {
@@ -544,6 +626,62 @@ export function RadioScreen() {
     }
   };
 
+  const goToPage = useCallback(
+    (pageIndex: RadioPageIndex) => {
+      setActivePageIndex(pageIndex);
+
+      if (pagerWidth) {
+        pagerRef.current?.scrollTo({ x: pagerWidth * pageIndex, animated: true });
+      }
+    },
+    [pagerWidth]
+  );
+
+  const handlePagerLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextWidth = Math.round(event.nativeEvent.layout.width);
+
+      if (!nextWidth || nextWidth === pagerWidth) {
+        return;
+      }
+
+      setPagerWidth(nextWidth);
+      requestAnimationFrame(() => {
+        pagerRef.current?.scrollTo({
+          x: nextWidth * activePageIndex,
+          animated: false,
+        });
+      });
+    },
+    [activePageIndex, pagerWidth]
+  );
+
+  const handlePagerMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!pagerWidth) {
+        return;
+      }
+
+      const nextIndex = Math.max(
+        0,
+        Math.min(2, Math.round(event.nativeEvent.contentOffset.x / pagerWidth))
+      ) as RadioPageIndex;
+
+      setActivePageIndex(nextIndex);
+    },
+    [pagerWidth]
+  );
+
+  const handleVoicePlaybackChange = useCallback((messageId: string, isPlaying: boolean) => {
+    setPlayingMessageId((current) => {
+      if (isPlaying) {
+        return messageId;
+      }
+
+      return current === messageId ? null : current;
+    });
+  }, []);
+
   const startNativeRecording = async () => {
     if (!activeChannel) {
       return;
@@ -552,7 +690,10 @@ export function RadioScreen() {
     const permission = await requestRecordingPermissionsAsync();
 
     if (!permission.granted) {
+      setAudioPermissionState('denied');
       setRecorderMessage('Mic bloqueado');
+      setRecordingMode('error');
+      scheduleIdleAfterStatus();
       return;
     }
 
@@ -573,6 +714,7 @@ export function RadioScreen() {
     startRecordingTicker();
     syncRecordingAnimation(true);
     setRecorderMessage('Grabando');
+    setAudioPermissionState('granted');
     setRecordingMode('recording');
   };
 
@@ -598,24 +740,42 @@ export function RadioScreen() {
 
     if (!uri) {
       setRecorderMessage('Audio no disponible');
-      setRecordingMode('idle');
+      setRecordingMode('error');
+      scheduleIdleAfterStatus();
       return;
     }
 
+    const rawDurationSeconds = Math.round(Number(status.durationMillis || 0) / 1000);
+
+    if (rawDurationSeconds < MIN_RADIO_NOTE_SECONDS) {
+      setRecorderMessage('Manten presionado al menos 1 segundo');
+      setRecordingMode('error');
+      scheduleIdleAfterStatus();
+      return;
+    }
+
+    const durationSeconds = Math.min(MAX_RADIO_NOTE_SECONDS, rawDurationSeconds);
+
     const formData = new FormData();
-    formData.append(
-      'durationSeconds',
-      String(Math.max(1, Math.round(Number(status.durationMillis || 0) / 1000)))
-    );
+    formData.append('channelId', activeChannel.id);
+    formData.append('durationSeconds', String(durationSeconds));
+    formData.append('createdAt', new Date().toISOString());
+    if (user?.id) {
+      formData.append('userId', user.id);
+    }
     formData.append('file', {
       uri,
       name: `radio-note-${Date.now()}.m4a`,
       type: 'audio/mp4',
     } as any);
 
-    await sendVoiceMessage(activeChannel.id, formData);
+    const result = await sendVoiceMessage(activeChannel.id, formData);
+    if (!result.ok) {
+      throw new Error(result.message || 'No fue posible enviar la transmision.');
+    }
     setRecorderMessage('Enviado');
-    setRecordingMode('idle');
+    setRecordingMode('sent');
+    scheduleIdleAfterStatus();
   };
 
   const startWebRecording = async () => {
@@ -673,21 +833,36 @@ export function RadioScreen() {
     setRecordingMode('uploading');
     const recorder = webRecorderRef.current;
     const mimeType = recorder.mimeType || 'audio/webm';
-    const durationSeconds = Math.max(
-      1,
-      Math.round((Date.now() - Number(recordStartedAtRef.current || Date.now())) / 1000)
+    const rawDurationSeconds = Math.round(
+      (Date.now() - Number(recordStartedAtRef.current || Date.now())) / 1000
     );
+
+    const isTooShort = rawDurationSeconds < MIN_RADIO_NOTE_SECONDS;
+    const durationSeconds = Math.min(MAX_RADIO_NOTE_SECONDS, rawDurationSeconds);
 
     try {
       await new Promise<void>((resolve, reject) => {
       recorder.onstop = async () => {
         try {
+          if (isTooShort) {
+            resolve();
+            return;
+          }
+
           const blob = new Blob(webChunksRef.current, { type: mimeType });
           const file = new File([blob], `radio-note-${Date.now()}.webm`, { type: mimeType });
           const formData = new FormData();
+          formData.append('channelId', activeChannel.id);
           formData.append('durationSeconds', String(durationSeconds));
+          formData.append('createdAt', new Date().toISOString());
+          if (user?.id) {
+            formData.append('userId', user.id);
+          }
           formData.append('file', file);
-          await sendVoiceMessage(activeChannel.id, formData);
+          const result = await sendVoiceMessage(activeChannel.id, formData);
+          if (!result.ok) {
+            throw new Error(result.message || 'No fue posible enviar la transmision.');
+          }
           resolve();
         } catch (error) {
           reject(error);
@@ -697,7 +872,16 @@ export function RadioScreen() {
       recorder.stop();
       });
 
+      if (isTooShort) {
+        setRecorderMessage('Manten presionado al menos 1 segundo');
+        setRecordingMode('error');
+        scheduleIdleAfterStatus();
+        return;
+      }
+
       setRecorderMessage('Enviado');
+      setRecordingMode('sent');
+      scheduleIdleAfterStatus();
     } finally {
       webRecorderRef.current = null;
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
@@ -706,7 +890,9 @@ export function RadioScreen() {
       stopWebMetering();
       stopRecordingTicker();
       syncRecordingAnimation(false);
-      setRecordingMode('idle');
+      if (recordingStateRef.current === 'uploading') {
+        setRecordingMode('idle');
+      }
     }
   };
 
@@ -764,11 +950,56 @@ export function RadioScreen() {
         typeof DOMException !== 'undefined' &&
         error instanceof DOMException &&
         error.name === 'NotAllowedError';
-      setRecorderMessage(isPermissionError ? 'Mic bloqueado' : 'Audio no disponible');
+      const message = error instanceof Error ? error.message : 'Audio no disponible';
+      setRecorderMessage(isPermissionError ? 'Mic bloqueado' : message);
       if (isPermissionError) {
         setAudioPermissionState('denied');
       }
+      setRecordingMode('error');
+      scheduleIdleAfterStatus(2200);
     }
+  };
+
+  const handlePttPressIn = () => {
+    if (Platform.OS === 'web' || recordingStateRef.current !== 'idle') {
+      return;
+    }
+
+    if (pressToTalkTimerRef.current) {
+      clearTimeout(pressToTalkTimerRef.current);
+    }
+
+    pressToTalkTimerRef.current = setTimeout(() => {
+      pressToTalkTriggeredRef.current = true;
+      pressToTalkActiveRef.current = true;
+      handleTapToTalk();
+    }, 180);
+  };
+
+  const handlePttPressOut = () => {
+    if (pressToTalkTimerRef.current) {
+      clearTimeout(pressToTalkTimerRef.current);
+      pressToTalkTimerRef.current = null;
+    }
+
+    if (!pressToTalkActiveRef.current) {
+      return;
+    }
+
+    pressToTalkActiveRef.current = false;
+
+    if (recordingStateRef.current === 'recording') {
+      handleTapToTalk();
+    }
+  };
+
+  const handlePttPress = () => {
+    if (pressToTalkTriggeredRef.current) {
+      pressToTalkTriggeredRef.current = false;
+      return;
+    }
+
+    handleTapToTalk();
   };
 
   if (!user) {
@@ -783,7 +1014,35 @@ export function RadioScreen() {
       : audioPermissionState === 'granted'
         ? theme.colors.success
         : theme.colors.muted;
-  const liveStatus = recordingState === 'recording' ? 'Grabando' : recordingState === 'uploading' ? 'Enviando' : 'En espera';
+  const radioVisualState =
+    recordingState === 'recording' || recordingState === 'uploading'
+      ? 'transmitting'
+      : playingMessageId
+        ? 'receiving'
+        : 'idle';
+  const liveStatus =
+    recordingState === 'uploading'
+      ? 'ENVIANDO'
+      : recordingState === 'sent'
+        ? 'ENVIADO'
+        : recordingState === 'error'
+          ? 'ERROR'
+          : radioVisualState === 'transmitting'
+      ? 'TRANSMITIENDO'
+      : radioVisualState === 'receiving'
+        ? 'RECIBIENDO AUDIO'
+        : 'EN ESPERA';
+  const liveStatusTone =
+    recordingState === 'uploading' || recordingState === 'sent'
+      ? 'info'
+      : recordingState === 'error'
+        ? 'warning'
+        : radioVisualState === 'transmitting'
+      ? 'danger'
+      : radioVisualState === 'receiving'
+        ? 'info'
+        : 'positive';
+  const pageWidth = pagerWidth || width;
   const audioSettingsPanel =
     showSettings && Platform.OS === 'web' ? (
       <View style={styles.settingsPanel}>
@@ -793,7 +1052,7 @@ export function RadioScreen() {
             <MaterialCommunityIcons name="headphones" size={18} color={theme.colors.text} />
           </View>
           <Pressable
-            onPress={() => void requestAudioDeviceAccess()}
+            onPress={() => { requestAudioDeviceAccess(); }}
             style={styles.refreshButton}>
             <MaterialCommunityIcons name="refresh" size={16} color={theme.colors.accent} />
           </Pressable>
@@ -855,7 +1114,7 @@ export function RadioScreen() {
 
   return (
     <AppShell
-      scroll={true}
+      scroll={false}
       sectionKey="radio"
       contentContainerStyle={styles.container}
       header={
@@ -866,7 +1125,7 @@ export function RadioScreen() {
               <StatusPill label={`${radioChannels.length} canales`} tone="info" />
               <StatusPill
                 label={liveStatus}
-                tone={recordingState === 'recording' ? 'danger' : 'positive'}
+                tone={liveStatusTone}
               />
             </View>
           </View>
@@ -914,7 +1173,19 @@ export function RadioScreen() {
           )}
         </View>
       }>
-      <View style={styles.layout}>
+      <View style={styles.pagerShell} onLayout={handlePagerLayout}>
+        <ScrollView
+          ref={pagerRef}
+          horizontal
+          pagingEnabled
+          bounces={false}
+          decelerationRate="fast"
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={handlePagerMomentumEnd}
+          contentOffset={{ x: pageWidth * INITIAL_RADIO_PAGE_INDEX, y: 0 }}
+          style={styles.pager}>
+          <View style={[styles.page, { width: pageWidth }]}>
         <View style={styles.directoryPanel}>
           <View style={styles.searchShell}>
             <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
@@ -927,7 +1198,7 @@ export function RadioScreen() {
             />
           </View>
 
-          <Pressable onPress={() => void handleOpenGeneralRadio()} style={styles.quickActionCard}>
+          <Pressable onPress={() => { handleOpenGeneralRadio(); }} style={styles.quickActionCard}>
             <View style={styles.quickActionLead}>
               <MaterialCommunityIcons name="radio-tower" size={20} color="#FFFFFF" />
               <Text style={styles.quickActionTitle}>Abrir radio general</Text>
@@ -936,10 +1207,9 @@ export function RadioScreen() {
           </Pressable>
 
           <ScrollView
-            style={isDesktop ? styles.directoryScroll : undefined}
+            style={styles.directoryScroll}
             contentContainerStyle={styles.directoryContent}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={isDesktop}>
+            showsVerticalScrollIndicator={false}>
             <View style={styles.sectionBlock}>
               <View style={styles.sectionRow}>
                 <Text style={styles.sectionTitle}>Canales</Text>
@@ -949,13 +1219,15 @@ export function RadioScreen() {
               {filteredChannels.map((channel) => {
                 const contact = getConversationContact(channel, user.id);
                 const isActive = channel.id === activeChannel?.id;
+                const connectedCount = channel.participants.length;
+                const channelStatus = channel.unreadCount ? 'Nuevo audio' : 'En espera';
 
                 return (
                   <Pressable
                     key={channel.id}
                     onHoverIn={Platform.OS === 'web' ? () => setHoveredRadioItemId(channel.id) : undefined}
                     onHoverOut={Platform.OS === 'web' ? () => setHoveredRadioItemId(null) : undefined}
-                    onPress={() => void handleSelectChannel(channel.id)}
+                    onPress={() => { handleSelectChannel(channel.id); }}
                     style={[
                       styles.channelCard,
                       isActive ? styles.channelCardActive : undefined,
@@ -970,8 +1242,12 @@ export function RadioScreen() {
                         />
                       </View>
                       <View style={styles.channelCopy}>
-                        <Text style={styles.channelTitle}>{channel.title}</Text>
-                        {contact ? <Text style={styles.channelMeta}>{formatRole(contact.role)}</Text> : null}
+                        <Text style={styles.channelTitle} numberOfLines={1}>{channel.title}</Text>
+                        <Text style={styles.channelMeta} numberOfLines={1}>
+                          {contact ? formatRole(contact.role) : 'Canal'}
+                          {` - ${channelStatus}`}
+                          {connectedCount ? ` - ${connectedCount} usuarios` : ''}
+                        </Text>
                       </View>
                       <View style={styles.channelStatusDot} />
                       {channel.unreadCount ? (
@@ -988,6 +1264,7 @@ export function RadioScreen() {
               })}
             </View>
 
+            {filteredContacts.length ? (
             <View style={styles.sectionBlock}>
               <View style={styles.sectionRow}>
                 <Text style={styles.sectionTitle}>Directo rápido</Text>
@@ -999,7 +1276,7 @@ export function RadioScreen() {
                   key={contact.id}
                   onHoverIn={Platform.OS === 'web' ? () => setHoveredRadioItemId(`contact-${contact.id}`) : undefined}
                   onHoverOut={Platform.OS === 'web' ? () => setHoveredRadioItemId(null) : undefined}
-                  onPress={() => void handleOpenDirectRadio(contact.id)}
+                  onPress={() => { handleOpenDirectRadio(contact.id); }}
                   style={[
                     styles.contactRow,
                     hoveredRadioItemId === `contact-${contact.id}` ? styles.listCardHover : undefined,
@@ -1016,10 +1293,13 @@ export function RadioScreen() {
                 </Pressable>
               ))}
             </View>
+            ) : null}
           </ScrollView>
         </View>
 
-        <View style={styles.stagePanel}>
+          </View>
+
+          <View style={[styles.page, styles.radioPage, { width: pageWidth }]}>
           <View style={styles.heroCard}>
             <View style={styles.heroTopRow}>
               <View style={styles.heroCopy}>
@@ -1031,7 +1311,7 @@ export function RadioScreen() {
               <View style={styles.heroPills}>
                 <StatusPill
                   label={liveStatus}
-                  tone={recordingState === 'recording' ? 'danger' : 'info'}
+                  tone={liveStatusTone}
                 />
                 <StatusPill
                   label={activeChannel?.encrypted ? 'Cifrado activo' : 'Operación segura'}
@@ -1070,7 +1350,9 @@ export function RadioScreen() {
               <Animated.View style={[styles.pttHalo, haloAnimatedStyle]} />
               <Animated.View style={[styles.pttOuter, pttAnimatedStyle]}>
                 <Pressable
-                  onPress={() => void handleTapToTalk()}
+                  onPress={() => { handlePttPress(); }}
+                  onPressIn={handlePttPressIn}
+                  onPressOut={handlePttPressOut}
                   disabled={!supportsTapToTalk || isBusy || !activeChannel}
                   style={[
                     styles.pttButton,
@@ -1087,7 +1369,15 @@ export function RadioScreen() {
                     <MaterialCommunityIcons name="microphone" size={58} color="#FFFFFF" />
                   )}
                   <Text style={styles.pttButtonTitle}>
-                    {recordingState === 'recording' ? formatDuration(recordingSeconds) : 'Tap to Talk'}
+                    {recordingState === 'recording'
+                      ? formatDuration(recordingSeconds)
+                      : recordingState === 'uploading'
+                        ? 'Enviando'
+                        : recordingState === 'sent'
+                          ? 'Enviado'
+                          : recordingState === 'error'
+                            ? 'Error'
+                            : 'Tap to Talk'}
                   </Text>
                 </Pressable>
               </Animated.View>
@@ -1108,54 +1398,100 @@ export function RadioScreen() {
             <View style={styles.metricsRow}>
               <View style={styles.metricCard}>
                 <MaterialCommunityIcons
-                  name={recordingState === 'recording' ? 'record-circle' : 'circle'}
+                  name={radioVisualState === 'transmitting' ? 'record-circle' : 'circle'}
                   size={18}
-                  color={recordingState === 'recording' ? theme.colors.danger : theme.colors.success}
+                  color={radioVisualState === 'transmitting' ? theme.colors.danger : theme.colors.success}
                 />
-                <Text style={styles.metricValue}>
-                  {recordingState === 'recording' ? 'Al aire' : 'En espera'}
-                </Text>
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Estado</Text>
+                  <Text style={styles.metricValue}>{liveStatus}</Text>
+                </View>
               </View>
               <View style={styles.metricCard}>
                 <MaterialCommunityIcons name="timer-outline" size={18} color={theme.colors.muted} />
-                <Text style={styles.metricValue}>
-                  {recordingState === 'recording'
-                    ? formatDuration(recordingSeconds)
-                    : formatDuration(MAX_RADIO_NOTE_SECONDS)}
-                </Text>
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Duracion</Text>
+                  <Text style={styles.metricValue}>
+                    {recordingState === 'recording'
+                      ? formatDuration(recordingSeconds)
+                      : `max ${formatDuration(MAX_RADIO_NOTE_SECONDS)}`}
+                  </Text>
+                </View>
               </View>
               <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="access-point" size={18} color={theme.colors.muted} />
-                <Text style={styles.metricValue}>
-                  {supportsTapToTalk ? `${MAX_RADIO_NOTE_SECONDS}s` : 'No disponible'}
-                </Text>
+                <MaterialCommunityIcons name="microphone-outline" size={18} color={permissionTone} />
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Dispositivo</Text>
+                  <Text style={styles.metricValue} numberOfLines={1}>{activeInputName}</Text>
+                </View>
+              </View>
+              <View style={styles.metricCard}>
+                <MaterialCommunityIcons name="radio-tower" size={18} color={theme.colors.muted} />
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Ultima transmision</Text>
+                  <Text style={styles.metricValue} numberOfLines={1}>
+                    {loadedVoiceNotes[0]
+                      ? formatRelativeTime(loadedVoiceNotes[0].message.createdAt)
+                      : 'Sin actividad'}
+                  </Text>
+                </View>
               </View>
             </View>
 
             {recorderMessage ? <Text style={styles.heroNote}>{recorderMessage}</Text> : null}
           </View>
 
+          </View>
+
+          <View style={[styles.page, { width: pageWidth }]}>
           <View style={styles.historyPanel}>
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Actividad reciente</Text>
-              <StatusPill label={`${recentVoiceNotes.length}`} tone="info" />
+            <View style={styles.audioPageHeader}>
+              <View style={styles.sectionRow}>
+                <Text style={styles.sectionTitle}>Actividad / Audios</Text>
+                <StatusPill label={`${filteredVoiceNotes.length}`} tone="info" />
+              </View>
+
+              {availableAudioFilters.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterRow}>
+                  {availableAudioFilters.map((filter) => (
+                    <Pressable
+                      key={filter.key}
+                      onPress={() => setAudioFilter(filter.key)}
+                      style={[
+                        styles.filterChip,
+                        audioFilter === filter.key ? styles.filterChipActive : undefined,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          audioFilter === filter.key ? styles.filterChipTextActive : undefined,
+                        ]}>
+                        {filter.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
             </View>
 
-            <ScrollView
-              style={isDesktop ? styles.historyScroll : undefined}
+            <FlatList
+              data={filteredVoiceNotes}
+              keyExtractor={(item) => item.id}
               contentContainerStyle={styles.historyContent}
               showsVerticalScrollIndicator={false}
-              scrollEnabled={isDesktop}>
-              {recentVoiceNotes.length ? (
-                recentVoiceNotes.map((message) => (
-                  <VoiceTransmissionCard
-                    key={message.id}
-                    message={message}
-                    token={token}
-                    theme={theme}
-                  />
-                ))
-              ) : (
+              renderItem={({ item }) => (
+                <VoiceTransmissionCard
+                  message={item.message}
+                  channelTitle={item.channelTitle}
+                  token={token}
+                  theme={theme}
+                  onPlaybackChange={handleVoicePlaybackChange}
+                />
+              )}
+              ListEmptyComponent={
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconShell}>
                     <MaterialCommunityIcons name="radio-handheld" size={28} color={theme.colors.muted} />
@@ -1166,11 +1502,30 @@ export function RadioScreen() {
                     ))}
                   </View>
                   <Text style={styles.emptyTitle}>En espera</Text>
+                  <Text style={styles.emptyText}>Las transmisiones apareceran cuando haya audios cargados.</Text>
                 </View>
-              )}
-            </ScrollView>
+              }
+            />
           </View>
-        </View>
+          </View>
+        </ScrollView>
+      </View>
+
+      <View style={styles.pageIndicators}>
+        {RADIO_PAGES.map((label, index) => (
+          <Pressable
+            key={label}
+            accessibilityLabel={`Ir a ${label}`}
+            onPress={() => goToPage(index as RadioPageIndex)}
+            style={styles.pageIndicatorHit}>
+            <View
+              style={[
+                styles.pageIndicator,
+                activePageIndex === index ? styles.pageIndicatorActive : undefined,
+              ]}
+            />
+          </Pressable>
+        ))}
       </View>
     </AppShell>
   );
@@ -1208,11 +1563,15 @@ function WaveBar({
 }
 
 function VoiceTransmissionCard({
+  channelTitle,
   message,
+  onPlaybackChange,
   token,
   theme,
 }: {
+  channelTitle?: string;
   message: ChatMessage;
+  onPlaybackChange?: (messageId: string, isPlaying: boolean) => void;
   token: string | null;
   theme: ReturnType<typeof useAppTheme>['theme'];
   outputDeviceId?: string;
@@ -1222,20 +1581,55 @@ function VoiceTransmissionCard({
     resolvedUrl
       ? {
           uri: resolvedUrl,
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          getHeaders: () => getAuthHeaderSnapshot(token),
         }
       : null
   );
   const playerStatus = useAudioPlayerStatus(player);
   const isPlaying = Boolean(playerStatus.playing);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
-  const handleTogglePlayback = () => {
-    if (isPlaying) {
-      (player as any).pause?.();
+  useEffect(() => {
+    onPlaybackChange?.(message.id, isPlaying);
+
+    return () => {
+      onPlaybackChange?.(message.id, false);
+    };
+  }, [isPlaying, message.id, onPlaybackChange]);
+
+  const handleTogglePlayback = async () => {
+    console.info('[radio] playback request', {
+      messageId: message.id,
+      audioUrl: message.audioUrl,
+      resolvedUrl,
+      durationSeconds: message.durationSeconds || 0,
+    });
+
+    if (!resolvedUrl) {
+      setPlaybackError('URL de audio invalida.');
       return;
     }
 
-    player.play();
+    try {
+      setPlaybackError(null);
+
+      if (isPlaying) {
+        await player.pause();
+        return;
+      }
+
+      await player.play();
+    } catch (error) {
+      const playbackMessage = getAudioPlaybackErrorMessage(error);
+      console.warn('[radio] playback failed', {
+        messageId: message.id,
+        audioUrl: message.audioUrl,
+        resolvedUrl,
+        error,
+        playbackMessage,
+      });
+      setPlaybackError(playbackMessage);
+    }
   };
 
   return (
@@ -1259,6 +1653,7 @@ function VoiceTransmissionCard({
               {message.sender?.name || 'Operación'}
             </Text>
             <Text style={[styles.voiceCardTime, { color: theme.colors.muted }]}>
+              {channelTitle ? `${channelTitle} - ` : ''}
               {formatRelativeTime(message.createdAt)}
             </Text>
           </View>
@@ -1286,20 +1681,30 @@ function VoiceTransmissionCard({
       </View>
 
       <View style={styles.voiceWaveRow}>
-        {Array.from({ length: 18 }).map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.voiceWaveBar,
-              {
-                height: 7 + ((index * 5) % 18),
-                backgroundColor: isPlaying ? theme.colors.accent : theme.colors.line,
-                opacity: isPlaying ? 0.75 : 0.34,
-              },
-            ]}
-          />
-        ))}
+        {Array.from({ length: 18 }).map((_, index) => {
+          const voiceWaveBarStyle = {
+            height: 7 + ((index * 5) % 18),
+            backgroundColor: isPlaying ? theme.colors.accent : theme.colors.line,
+          };
+
+          return (
+            <View
+              key={index}
+              style={[
+                styles.voiceWaveBar,
+                voiceWaveBarStyle,
+                isPlaying ? styles.voiceWaveBarPlaying : styles.voiceWaveBarIdle,
+              ]}
+            />
+          );
+        })}
       </View>
+
+      {playbackError ? (
+        <Text style={[styles.voiceErrorText, { color: theme.colors.warning }]}>
+          {playbackError}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -1371,6 +1776,17 @@ const styles = StyleSheet.create({
     width: 4,
     borderRadius: 999,
   },
+  voiceWaveBarPlaying: {
+    opacity: 0.75,
+  },
+  voiceWaveBarIdle: {
+    opacity: 0.34,
+  },
+  voiceErrorText: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
 
 function createStyles(
@@ -1381,9 +1797,52 @@ function createStyles(
 ) {
   return StyleSheet.create({
     container: {
-      flex: isDesktop ? 1 : undefined,
-      gap: AppTheme.spacing.md,
+      flex: 1,
+      minHeight: 0,
+      gap: 10,
       backgroundColor: theme.colors.background,
+    },
+    pagerShell: {
+      flex: 1,
+      minHeight: 0,
+      width: '100%',
+    },
+    pager: {
+      flex: 1,
+    },
+    page: {
+      flex: 1,
+      minHeight: 0,
+      paddingRight: isPhone ? 0 : 2,
+    },
+    radioPage: {
+      justifyContent: 'space-between',
+    },
+    pageIndicators: {
+      minHeight: 22,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingTop: 4,
+    },
+    pageIndicatorHit: {
+      minWidth: 22,
+      minHeight: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pageIndicator: {
+      width: 7,
+      height: 7,
+      borderRadius: 999,
+      backgroundColor: theme.colors.line,
+      opacity: 0.72,
+    },
+    pageIndicatorActive: {
+      width: 22,
+      backgroundColor: theme.colors.accent,
+      opacity: 1,
     },
     header: {
       flexDirection: 'row',
@@ -1538,7 +1997,8 @@ function createStyles(
       minHeight: isDesktop ? 760 : undefined,
     },
     directoryPanel: {
-      width: isWideRadioLayout ? 360 : '100%',
+      flex: 1,
+      width: '100%',
       minWidth: 0,
       borderRadius: 26,
       borderWidth: 1,
@@ -1557,7 +2017,7 @@ function createStyles(
             shadowOffset: { width: 0, height: 8 },
             elevation: 4,
           }),
-      maxHeight: isWideRadioLayout ? undefined : 560,
+      maxHeight: undefined,
     },
     searchShell: {
       minHeight: 52,
@@ -1763,15 +2223,15 @@ function createStyles(
       gap: AppTheme.spacing.md,
     },
     heroCard: {
-      flex: isWideRadioLayout ? 1.35 : undefined,
+      flex: 1,
       minWidth: 0,
       borderRadius: 28,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
       justifyContent: 'space-between',
-      padding: isPhone ? 16 : 20,
-      gap: 16,
+      padding: isPhone ? 14 : 18,
+      gap: isPhone ? 10 : 12,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 16px 34px rgba(4, 16, 27, 0.12)',
@@ -1832,20 +2292,21 @@ function createStyles(
       gap: 8,
     },
     pttCenter: {
+      flexGrow: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: isPhone ? 286 : isDesktop ? 250 : 300,
+      minHeight: isPhone ? 238 : 270,
     },
     pttHalo: {
       position: 'absolute',
-      width: isPhone ? 228 : isDesktop ? 224 : 270,
-      height: isPhone ? 228 : isDesktop ? 224 : 270,
+      width: isPhone ? 210 : 250,
+      height: isPhone ? 210 : 250,
       borderRadius: 999,
       backgroundColor: theme.colors.accentSoft,
     },
     pttOuter: {
-      width: isPhone ? 232 : isDesktop ? 206 : 242,
-      height: isPhone ? 232 : isDesktop ? 206 : 242,
+      width: isPhone ? 214 : 236,
+      height: isPhone ? 214 : 236,
       borderRadius: 999,
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -1903,26 +2364,39 @@ function createStyles(
     metricsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 10,
+      gap: 8,
     },
     metricCard: {
       flexGrow: 1,
-      minWidth: isPhone ? 96 : 140,
-      borderRadius: 18,
+      flexBasis: isPhone ? '47%' : '23%',
+      minWidth: isPhone ? 132 : 148,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
+    metricCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    metricLabel: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      lineHeight: 14,
+      fontWeight: '700',
+    },
     metricValue: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 18,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 18,
     },
     heroNote: {
       color: theme.colors.muted,
@@ -1931,9 +2405,9 @@ function createStyles(
       lineHeight: 20,
     },
     historyPanel: {
-      flex: isWideRadioLayout ? 0.78 : undefined,
-      minHeight: isDesktop ? undefined : isPhone ? 320 : 400,
-      minWidth: isWideRadioLayout ? 330 : undefined,
+      flex: 1,
+      minHeight: 0,
+      minWidth: 0,
       borderRadius: isDesktop ? 28 : 30,
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -1958,7 +2432,37 @@ function createStyles(
     },
     historyContent: {
       gap: 10,
-      paddingBottom: 8,
+      paddingBottom: 16,
+    },
+    audioPageHeader: {
+      gap: 10,
+    },
+    filterRow: {
+      gap: 8,
+      paddingRight: 4,
+    },
+    filterChip: {
+      minHeight: 34,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+    },
+    filterChipActive: {
+      borderColor: theme.colors.accent,
+      backgroundColor: theme.colors.accentSoft,
+    },
+    filterChipText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    filterChipTextActive: {
+      color: theme.colors.accent,
     },
     emptyState: {
       alignItems: 'center',

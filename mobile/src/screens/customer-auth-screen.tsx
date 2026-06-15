@@ -242,6 +242,11 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
       setIsTestingConnection(false);
     }
   };
+  const scrollContentDynamicStyle = {
+    paddingHorizontal: sizing.contentPadding,
+    paddingTop: Math.max(18, sizing.contentPadding),
+    paddingBottom: isShortViewport ? 18 : 30,
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -255,11 +260,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
           showsVerticalScrollIndicator={Platform.OS === 'web'}
           contentContainerStyle={[
             styles.scrollContent,
-            {
-              paddingHorizontal: sizing.contentPadding,
-              paddingTop: Math.max(18, sizing.contentPadding),
-              paddingBottom: isShortViewport ? 18 : 30,
-            },
+            scrollContentDynamicStyle,
           ]}>
           <View style={styles.panel}>
             <View style={styles.brandRow}>
@@ -406,7 +407,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               ) : null}
 
               <Pressable
-                onPress={() => void handleSubmit()}
+                onPress={() => { handleSubmit(); }}
                 disabled={isSubmitting || isValidatingDriverKey}
                 style={({ pressed }) => [
                   styles.primaryButton,
@@ -423,7 +424,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               </Pressable>
 
               <Pressable
-                onPress={() => void handleTestConnection()}
+                onPress={() => { handleTestConnection(); }}
                 disabled={isSubmitting || isValidatingDriverKey || isTestingConnection}
                 style={({ pressed }) => [
                   styles.secondaryButton,

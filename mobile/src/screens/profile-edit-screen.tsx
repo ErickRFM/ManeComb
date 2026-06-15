@@ -286,7 +286,7 @@ export function ProfileEditScreen() {
               }}
               size={104}
             />
-            <PrimaryButton label="Cambiar foto" variant="ghost" onPress={() => void handlePhotoUpload()} />
+            <PrimaryButton label="Cambiar foto" variant="ghost" onPress={() => { handlePhotoUpload(); }} />
           </View>
 
           <View style={styles.identityBlock}>
@@ -306,7 +306,7 @@ export function ProfileEditScreen() {
           style={styles.formGrid}
           onLayout={(e) => {
             // @ts-ignore
-            sectionsRef.current['access'] = e.target;
+            sectionsRef.current.access = e.target;
           }}>
           <Text style={styles.sectionHeading}>Acceso base</Text>
           <Field
@@ -362,7 +362,7 @@ export function ProfileEditScreen() {
           style={styles.formGrid}
           onLayout={(e) => {
             // @ts-ignore
-            sectionsRef.current['billing'] = e.target;
+            sectionsRef.current.billing = e.target;
           }}>
           <Text style={styles.sectionHeading}>Empresa y facturacion</Text>
           <Field
@@ -404,7 +404,7 @@ export function ProfileEditScreen() {
           style={styles.formGrid}
           onLayout={(e) => {
             // @ts-ignore
-            sectionsRef.current['payment'] = e.target;
+            sectionsRef.current.payment = e.target;
           }}>
           <Text style={styles.sectionHeading}>Metodo de pago</Text>
           <Text style={styles.sectionCaption}>
@@ -507,7 +507,7 @@ export function ProfileEditScreen() {
         <View style={styles.actionRow}>
           <PrimaryButton
             label={isSubmitting ? 'Guardando...' : 'Guardar cambios'}
-            onPress={() => void handleProfileSave()}
+            onPress={() => { handleProfileSave(); }}
             disabled={isSubmitting}
           />
         </View>

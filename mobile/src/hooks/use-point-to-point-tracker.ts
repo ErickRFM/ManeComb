@@ -350,7 +350,7 @@ export function usePointToPointTracker({
     setIsLoadingTripLogs(true);
     setHistoryMessage(null);
 
-    void getNavigationTripLogsRequest({
+    getNavigationTripLogsRequest({
       vehicleId: selectedVehicle.id,
       date: historyDate,
       limit: 12,
@@ -436,7 +436,7 @@ export function usePointToPointTracker({
       persistTripRef.current = true;
       setIsSavingTripLog(true);
 
-      void createNavigationTripLogRequest({
+      createNavigationTripLogRequest({
         vehicleId: selectedVehicle.id,
         vehicleCode: selectedVehicle.code,
         serviceDate: getServiceDateValue(finishedAt),

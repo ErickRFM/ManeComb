@@ -508,7 +508,7 @@ export function ProfileScreen() {
           <AppCard style={styles.sessionCard}>
             <Text style={styles.cardTitle}>Sesion</Text>
             <Text style={styles.cardSubtitle}>Cierra el acceso actual.</Text>
-            <Pressable onPress={() => void signOut()} style={styles.logoutBtn}>
+            <Pressable onPress={() => { signOut(); }} style={styles.logoutBtn}>
               <MaterialCommunityIcons name="logout" size={18} color={theme.colors.accent} />
               <Text style={styles.logoutText}>Cerrar sesion</Text>
             </Pressable>

@@ -251,7 +251,7 @@ export function UsersScreen() {
       );
 
       if (shouldDelete) {
-        void performDelete(targetUser);
+        performDelete(targetUser);
       }
 
       return;
@@ -266,7 +266,7 @@ export function UsersScreen() {
           text: 'Eliminar',
           style: 'destructive',
           onPress: () => {
-            void performDelete(targetUser);
+            performDelete(targetUser);
           },
         },
       ]
@@ -318,7 +318,7 @@ export function UsersScreen() {
             icon="refresh"
             compact
             variant="ghost"
-            onPress={() => void refreshUsers()}
+            onPress={() => { refreshUsers(); }}
             disabled={isRefreshing}
           />
         </View>
@@ -442,7 +442,7 @@ export function UsersScreen() {
           <PrimaryButton
             label={isSubmitting ? 'Guardando...' : editingUserId ? 'Actualizar usuario' : 'Crear usuario'}
             icon={editingUserId ? 'content-save-outline' : 'account-plus-outline'}
-            onPress={() => void handleSubmit()}
+            onPress={() => { handleSubmit(); }}
             disabled={isSubmitting}
           />
         </AppCard>

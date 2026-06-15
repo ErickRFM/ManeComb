@@ -463,7 +463,7 @@ export function MapScreen() {
 
     lastLocationSyncRef.current = now;
     lastSyncedLocationRef.current = coordinates;
-    void updateVehicleLocationRequest({
+    updateVehicleLocationRequest({
       vehicleId: user.vehicleId,
       coordinates,
       speed: coordinates.speed,
@@ -590,26 +590,33 @@ export function MapScreen() {
             ) : null}
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
-              {trackingVehicles.map((vehicle) => (
-                <Pressable
-                  key={vehicle.id}
-                  onPress={() => {
-                    setSelectedVehicleId(vehicle.id);
-                    setFollowMode(true);
-                  }}
-                  style={[
-                    styles.trackChip,
-                    { borderColor: theme.colors.line },
-                    vehicle.id === selectedVehicle?.id && {
-                      backgroundColor: theme.colors.accent,
-                      borderColor: theme.colors.accent,
-                    },
-                  ]}>
-                  <Text style={[styles.trackChipTitle, { color: vehicle.id === selectedVehicle?.id ? '#FFF' : theme.colors.text }]}>
-                    {vehicle.code}
-                  </Text>
-                </Pressable>
-              ))}
+              {trackingVehicles.map((vehicle) => {
+                const isSelected = vehicle.id === selectedVehicle?.id;
+                const trackChipBorderStyle = { borderColor: theme.colors.line };
+                const selectedTrackChipStyle = {
+                  backgroundColor: theme.colors.accent,
+                  borderColor: theme.colors.accent,
+                };
+                const trackChipTitleStyle = isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text };
+
+                return (
+                  <Pressable
+                    key={vehicle.id}
+                    onPress={() => {
+                      setSelectedVehicleId(vehicle.id);
+                      setFollowMode(true);
+                    }}
+                    style={[
+                      styles.trackChip,
+                      trackChipBorderStyle,
+                      isSelected ? selectedTrackChipStyle : undefined,
+                    ]}>
+                    <Text style={[styles.trackChipTitle, trackChipTitleStyle]}>
+                      {vehicle.code}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -707,4 +714,5 @@ const styles = StyleSheet.create({
   trackList: { gap: 10 },
   trackChip: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 10 },
   trackChipTitle: { fontFamily: Typography.body, fontSize: 14, fontWeight: '700' },
+  trackChipTitleSelected: { color: '#FFF' },
 });

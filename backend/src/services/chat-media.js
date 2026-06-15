@@ -267,7 +267,17 @@ function getMongoObjectId(storageKey) {
   }
 }
 
-async function getMongoAsset(storageKey) {
+function normalizeRangeOptions(options = {}) {
+  const start = Number(options.start);
+  const end = Number(options.end);
+
+  return {
+    start: Number.isFinite(start) && start >= 0 ? Math.floor(start) : null,
+    end: Number.isFinite(end) && end >= 0 ? Math.floor(end) : null
+  };
+}
+
+async function getMongoAsset(storageKey, options = {}) {
   const objectId = getMongoObjectId(storageKey);
   const db = mongoose.connection?.db;
 
@@ -283,14 +293,26 @@ async function getMongoAsset(storageKey) {
     return null;
   }
 
+  const range = normalizeRangeOptions(options);
+  const streamOptions = {};
+
+  if (range.start !== null) {
+    streamOptions.start = range.start;
+  }
+
+  if (range.end !== null) {
+    streamOptions.end = range.end + 1;
+  }
+
   return {
-    stream: ensureGridFsBucket().openDownloadStream(objectId),
+    stream: ensureGridFsBucket().openDownloadStream(objectId, streamOptions),
     mimeType: fileEntry.contentType || "audio/mp4",
-    originalFileName: fileEntry.filename || "voice-note"
+    originalFileName: fileEntry.filename || "voice-note",
+    size: Number(fileEntry.length || 0)
   };
 }
 
-async function getLocalAsset(storageKey) {
+async function getLocalAsset(storageKey, options = {}) {
   const fileName = String(storageKey || "").replace(LOCAL_PREFIX, "").trim();
   const absolutePath = path.resolve(uploadDirectory, fileName);
   const safeRoot = `${uploadDirectory}${path.sep}`;
@@ -303,14 +325,27 @@ async function getLocalAsset(storageKey) {
     return null;
   }
 
+  const stat = await fs.promises.stat(absolutePath);
+  const range = normalizeRangeOptions(options);
+  const streamOptions = {};
+
+  if (range.start !== null) {
+    streamOptions.start = range.start;
+  }
+
+  if (range.end !== null) {
+    streamOptions.end = range.end;
+  }
+
   return {
-    stream: fs.createReadStream(absolutePath),
+    stream: fs.createReadStream(absolutePath, streamOptions),
     mimeType: getMediaMimeTypeFromName(fileName),
-    originalFileName: fileName
+    originalFileName: fileName,
+    size: stat.size
   };
 }
 
-async function getChatMediaAsset(storageKey) {
+async function getChatMediaAsset(storageKey, options = {}) {
   const safeStorageKey = String(storageKey || "").trim();
 
   if (!safeStorageKey) {
@@ -318,11 +353,11 @@ async function getChatMediaAsset(storageKey) {
   }
 
   if (safeStorageKey.startsWith(MONGO_PREFIX)) {
-    return await getMongoAsset(safeStorageKey);
+    return await getMongoAsset(safeStorageKey, options);
   }
 
   if (safeStorageKey.startsWith(LOCAL_PREFIX)) {
-    return await getLocalAsset(safeStorageKey);
+    return await getLocalAsset(safeStorageKey, options);
   }
 
   if (safeStorageKey.startsWith(CLOUDINARY_PREFIX)) {
@@ -339,8 +374,105 @@ async function getChatMediaAsset(storageKey) {
   return null;
 }
 
+function parseMediaRange(rangeHeader, size) {
+  if (!rangeHeader || !size) {
+    return null;
+  }
+
+  const match = String(rangeHeader).match(/^bytes=(\d*)-(\d*)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  let start = match[1] ? Number(match[1]) : 0;
+  let end = match[2] ? Number(match[2]) : size - 1;
+
+  if (!match[1] && match[2]) {
+    const suffixLength = Number(match[2]);
+    start = Math.max(size - suffixLength, 0);
+    end = size - 1;
+  }
+
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end < start ||
+    start >= size
+  ) {
+    return null;
+  }
+
+  return {
+    start: Math.floor(start),
+    end: Math.min(Math.floor(end), size - 1)
+  };
+}
+
+async function streamChatMediaAsset(req, res, storageKey, options = {}) {
+  const baseAsset = await getChatMediaAsset(storageKey);
+
+  if (!baseAsset) {
+    return false;
+  }
+
+  if (baseAsset.redirectUrl) {
+    res.redirect(baseAsset.redirectUrl);
+    return true;
+  }
+
+  const size = Number(baseAsset.size || 0);
+  const range = parseMediaRange(req.headers.range, size);
+  const asset =
+    range && size
+      ? await getChatMediaAsset(storageKey, {
+          start: range.start,
+          end: range.end
+        })
+      : baseAsset;
+
+  if (!asset) {
+    return false;
+  }
+
+  const mimeType = asset.mimeType || options.mimeType || "audio/mp4";
+  const fileName = asset.originalFileName || options.fileName || "voice-note";
+
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="${encodeURIComponent(fileName)}"`
+  );
+
+  if (range && size) {
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
+    res.setHeader("Content-Length", String(range.end - range.start + 1));
+  } else if (size) {
+    res.setHeader("Content-Length", String(size));
+  }
+
+  asset.stream.on("error", () => {
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        message: "No fue posible reproducir el audio"
+      });
+      return;
+    }
+
+    res.end();
+  });
+
+  asset.stream.pipe(res);
+  return true;
+}
+
 module.exports = {
   getChatMediaAsset,
+  streamChatMediaAsset,
   uploadChatAudioAsset,
   uploadChatMediaAsset
 };
