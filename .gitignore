@@ -33,11 +33,14 @@ backend/uploads/
 *.log
 codex-logs/
 
-# Local QA captures
+# Local QA captures and smoke logs
 /manecomb-*.png
 /manecomb-*.xml
+/oneplus-*.png
 /ventas-*.png
 /ventas-*.xml
+/.backend-smoke*.log
+/.gradle/
 
 # Editor and OS files
 .idea/

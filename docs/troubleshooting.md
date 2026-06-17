@@ -196,4 +196,4 @@ Archivos locales que no deben subirse:
 - `build`
 - `dist`
 
-Si se detecta una carpeta legacy como `apps/mobile-rn-cli`, listar primero y no borrar sin confirmacion.
+La app movil activa vive en `mobile/`. No mantener copias RN CLI duplicadas fuera de ese directorio.

@@ -136,7 +136,11 @@ const AUDIO_TRANSCRIPTION_LANGUAGE = process.env.AUDIO_TRANSCRIPTION_LANGUAGE ||
 const REDIS_URL = process.env.REDIS_URL || "";
 const ENABLE_REDIS = parseBoolean(process.env.ENABLE_REDIS, false);
 const ENABLE_QUEUES = parseBoolean(process.env.ENABLE_QUEUES, false);
-const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, false);
+const IS_RENDER_RUNTIME = parseBoolean(
+  process.env.RENDER,
+  Boolean(process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL)
+);
+const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, IS_RENDER_RUNTIME);
 
 module.exports = {
   APP_URL,
@@ -191,5 +195,6 @@ module.exports = {
   REDIS_URL,
   ENABLE_REDIS,
   ENABLE_QUEUES,
+  IS_RENDER_RUNTIME,
   TRUST_PROXY
 };

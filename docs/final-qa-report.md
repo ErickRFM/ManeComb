@@ -37,9 +37,8 @@ No se reinstalo Expo, no se cambio branding, no se tocaron endpoints de negocio 
    - Capturas `manecomb-*.png`, `ventas-*.png` y XML de UI en raiz.
    - No se eliminaron; se agregaron reglas `.gitignore`.
 
-8. Carpeta candidata a legado:
-   - `apps/mobile-rn-cli/` existe y contiene una app RN CLI anterior.
-   - No se elimino porque puede servir como respaldo historico y el pedido exige listar antes de borrar.
+8. Carpeta legacy eliminada:
+   - `apps/mobile-rn-cli/` era una app RN CLI duplicada; se retiro del repo para evitar confusion con `mobile/`.
 
 ## Problemas corregidos
 
@@ -234,7 +233,6 @@ curl.exe -s -D - -o NUL https://manecomb1.pages.dev/portal/plan
 - Desbloquear el celular y repetir login fisico completo con permiso de ubicacion desde instalacion limpia.
 - Revisar visualmente que los iconos ya no aparezcan como cuadros en mapa/navegacion despues de login fisico.
 - Evaluar code-splitting en ventas si el chunk grande afecta performance real.
-- Decidir si `apps/mobile-rn-cli/` se conserva como historico o se archiva/elimina en una tarea separada.
 - Reducir warnings de lint mobile en una limpieza posterior.
 
 ## Riesgos restantes
