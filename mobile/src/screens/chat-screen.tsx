@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -29,7 +30,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { resolveAssetUrl, transcribeVoiceSearchRequest, SOCKET_URL } from '@/src/api/client';
 import { AppShell } from '@/src/components/app-shell';
-import { PrimaryButton } from '@/src/components/primary-button';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -42,13 +42,13 @@ import type {
 } from '@/src/types/app';
 import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
 
-type DirectoryMode = 'all' | 'unread' | 'groups' | 'direct';
-type DirectoryTab = 'general' | 'drivers' | 'admin';
+type DirectoryMode = 'all' | 'priority' | 'unread';
 type MobilePane = 'directory' | 'conversation';
 type RecordingState = 'idle' | 'recording' | 'uploading';
 type VoiceSearchState = 'idle' | 'recording' | 'processing';
 type CallMode = 'audio' | 'video';
 type CallPhase = 'waiting' | 'connecting' | 'connected';
+type MessageDeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
 type RtcParticipant = {
   socketId: string;
   userId: string;
@@ -67,14 +67,11 @@ type DirectoryListItem =
   | { type: 'conversation'; id: string; conversation: ConversationSummary }
   | { type: 'contact'; id: string; contact: ChatDirectoryContact }
   | { type: 'empty'; id: string };
+type MessageListItem =
+  | { type: 'date'; id: string; label: string }
+  | { type: 'message'; id: string; message: ChatMessage };
 const MAX_VOICE_NOTE_SECONDS = 45;
 const MAX_VOICE_SEARCH_SECONDS = 12;
-const DIRECTORY_TABS: { key: DirectoryTab; label: string }[] = [
-  { key: 'general', label: 'General' },
-  { key: 'drivers', label: 'Conductores' },
-  { key: 'admin', label: 'Administracion' },
-];
-const ADMIN_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor', 'billing_manager', 'support']);
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -91,11 +88,23 @@ function getConversationContact(conversation: ConversationSummary, currentUserId
 }
 
 function getConversationIconName(conversation: ConversationSummary) {
-  return conversation.kind === 'group' ? 'account-group-outline' : 'message-text-outline';
+  return conversation.kind === 'group' ? 'bullhorn-outline' : 'message-text-outline';
 }
 
-function getConversationLabel(conversation: ConversationSummary) {
-  return conversation.kind === 'group' ? 'Grupo operativo' : 'Chat directo';
+function getConversationDisplayTitle(conversation: ConversationSummary) {
+  if (conversation.kind === 'group' && /general/i.test(conversation.title)) {
+    return 'General Operativo';
+  }
+
+  return conversation.title;
+}
+
+function getConversationPresenceLabel(conversation: ConversationSummary, activeContact?: { status?: string } | null) {
+  if (conversation.kind === 'direct' && activeContact?.status) {
+    return formatStatus(activeContact.status);
+  }
+
+  return 'En linea';
 }
 
 function getConversationPreview(conversation: ConversationSummary) {
@@ -121,52 +130,101 @@ function getContactSearchText(contact: ChatDirectoryContact) {
   return `${contact.name} ${contact.email} ${contact.phone} ${contact.role}`.toLowerCase();
 }
 
-function getDirectoryTabForContact(contact?: ChatDirectoryContact | null): DirectoryTab {
-  if (!contact) {
-    return 'general';
-  }
+function isPriorityConversation(conversation: ConversationSummary) {
+  const text = `${conversation.title} ${conversation.description || ''} ${getConversationPreview(conversation)}`.toLowerCase();
 
-  const role = String(contact.role || '').toLowerCase();
-  const searchableText = `${contact.name} ${role} ${contact.vehicleId || ''}`.toLowerCase();
-
-  if (role === 'driver' || searchableText.includes('conductor') || searchableText.includes('chofer') || searchableText.includes('unidad')) {
-    return 'drivers';
-  }
-
-  if (
-    ADMIN_ROLES.has(role) ||
-    searchableText.includes('admin') ||
-    searchableText.includes('supervisor') ||
-    searchableText.includes('control')
-  ) {
-    return 'admin';
-  }
-
-  return 'general';
+  return (
+    conversation.unreadCount > 0 ||
+    text.includes('sos') ||
+    text.includes('urgente') ||
+    text.includes('retraso') ||
+    text.includes('incidente') ||
+    text.includes('alerta')
+  );
 }
 
-function getDirectoryTabForConversation(
-  conversation: ConversationSummary,
-  currentUserId?: string | null
-): DirectoryTab {
-  const contact = getConversationContact(conversation, currentUserId);
-  const contactTab = getDirectoryTabForContact(contact as ChatDirectoryContact | null);
-  const searchableText = `${conversation.title} ${conversation.description || ''} ${contact?.name || ''} ${contact?.role || ''}`.toLowerCase();
+function getMessageDayKey(createdAt: string) {
+  const date = new Date(createdAt);
 
-  if (contactTab === 'drivers' || searchableText.includes('conductor') || searchableText.includes('chofer') || searchableText.includes('unidad')) {
-    return 'drivers';
+  if (!Number.isFinite(date.getTime())) {
+    return 'sin-fecha';
   }
 
-  if (
-    contactTab === 'admin' ||
-    searchableText.includes('admin') ||
-    searchableText.includes('supervisor') ||
-    searchableText.includes('control')
-  ) {
-    return 'admin';
+  return date.toISOString().slice(0, 10);
+}
+
+function formatMessageDateLabel(createdAt: string) {
+  const date = new Date(createdAt);
+
+  if (!Number.isFinite(date.getTime())) {
+    return 'Sin fecha';
   }
 
-  return 'general';
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const key = getMessageDayKey(createdAt);
+
+  if (key === getMessageDayKey(today.toISOString())) {
+    return 'Hoy';
+  }
+
+  if (key === getMessageDayKey(yesterday.toISOString())) {
+    return 'Ayer';
+  }
+
+  return date.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
+function buildMessageList(messages: ChatMessage[]): MessageListItem[] {
+  const items: MessageListItem[] = [];
+  let lastDayKey: string | null = null;
+
+  messages.forEach((message) => {
+    const dayKey = getMessageDayKey(message.createdAt);
+
+    if (dayKey !== lastDayKey) {
+      items.push({
+        type: 'date',
+        id: `date-${dayKey}`,
+        label: formatMessageDateLabel(message.createdAt),
+      });
+      lastDayKey = dayKey;
+    }
+
+    items.push({
+      type: 'message',
+      id: message.id,
+      message,
+    });
+  });
+
+  return items;
+}
+
+function getMessageDeliveryStatus(message: ChatMessage, isOwn: boolean): MessageDeliveryStatus | null {
+  if (!isOwn) {
+    return null;
+  }
+
+  const status = (message as ChatMessage & {
+    status?: MessageDeliveryStatus;
+    deliveryStatus?: MessageDeliveryStatus;
+    sendStatus?: MessageDeliveryStatus;
+  }).status || (message as ChatMessage & {
+    deliveryStatus?: MessageDeliveryStatus;
+  }).deliveryStatus || (message as ChatMessage & {
+    sendStatus?: MessageDeliveryStatus;
+  }).sendStatus;
+
+  if (status === 'sent' || status === 'delivered' || status === 'read' || status === 'failed') {
+    return status;
+  }
+
+  return 'sent';
 }
 
 export function ChatScreen() {
@@ -211,10 +269,12 @@ export function ChatScreen() {
   );
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
   const [directoryMode, setDirectoryMode] = useState<DirectoryMode>('all');
-  const [directoryTab, setDirectoryTab] = useState<DirectoryTab>('general');
   const [mobilePane, setMobilePane] = useState<MobilePane>('directory');
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
@@ -618,29 +678,29 @@ export function ChatScreen() {
     chatConversations.find((conversation) => conversation.id === activeConversationId) ||
     chatConversations[0] ||
     null;
-  const activeMessages = activeConversation ? messagesByConversation[activeConversation.id] || [] : [];
+  const activeConversationKey = activeConversation?.id || null;
+  const activeMessages = useMemo(
+    () => (activeConversationKey ? messagesByConversation[activeConversationKey] || [] : []),
+    [activeConversationKey, messagesByConversation]
+  );
   const activeContact = activeConversation ? getConversationContact(activeConversation, user?.id) : null;
   const searchTerm = search.trim().toLowerCase();
+  const activeMessageItems = useMemo(() => buildMessageList(activeMessages), [activeMessages]);
   const conversationFilterCounts = useMemo(
     () => ({
       all: chatConversations.length,
+      priority: chatConversations.filter(isPriorityConversation).length,
       unread: chatConversations.filter((conversation) => conversation.unreadCount > 0).length,
-      groups: chatConversations.filter((conversation) => conversation.kind === 'group').length,
-      direct: chatConversations.filter((conversation) => conversation.kind === 'direct').length,
     }),
     [chatConversations]
   );
   const filteredConversations = useMemo(() => {
     const visibleConversations = chatConversations.filter((conversation) => {
+      if (directoryMode === 'priority' && !isPriorityConversation(conversation)) {
+        return false;
+      }
+
       if (directoryMode === 'unread' && conversation.unreadCount === 0) {
-        return false;
-      }
-
-      if (directoryMode === 'groups' && conversation.kind !== 'group') {
-        return false;
-      }
-
-      if (directoryMode === 'direct' && conversation.kind !== 'direct') {
         return false;
       }
 
@@ -691,55 +751,26 @@ export function ChatScreen() {
     });
   }, [activeConversationId, chatConversations, directoryMode, messagesByConversation, searchTerm, user?.id]);
   const filteredContacts = useMemo(() => {
-    if (directoryMode === 'groups' || directoryMode === 'unread') {
+    if (!searchTerm || directoryMode !== 'all') {
       return [];
     }
 
-    return chatContacts.filter((contact) => {
-      if (!searchTerm) {
-        return true;
-      }
-
-      return getContactSearchText(contact).includes(searchTerm);
-    });
+    return chatContacts.filter((contact) => getContactSearchText(contact).includes(searchTerm));
   }, [chatContacts, directoryMode, searchTerm]);
-  const directoryTabCounts = useMemo(() => {
-    const counts: Record<DirectoryTab, number> = {
-      general: 0,
-      drivers: 0,
-      admin: 0,
-    };
-
-    filteredConversations.forEach((conversation) => {
-      counts[getDirectoryTabForConversation(conversation, user?.id)] += 1;
-    });
-    filteredContacts.forEach((contact) => {
-      counts[getDirectoryTabForContact(contact)] += 1;
-    });
-
-    return counts;
-  }, [filteredConversations, filteredContacts, user?.id]);
-  const visibleConversations = useMemo(
-    () =>
-      filteredConversations.filter(
-        (conversation) => getDirectoryTabForConversation(conversation, user?.id) === directoryTab
-      ),
-    [directoryTab, filteredConversations, user?.id]
-  );
+  const visibleConversations = filteredConversations;
   const visibleContacts = useMemo(() => {
     const visibleConversationIds = new Set(visibleConversations.map((conversation) => conversation.id));
 
-    return filteredContacts.filter((contact) => {
-      if (getDirectoryTabForContact(contact) !== directoryTab) {
-        return false;
-      }
-
-      return !contact.directConversationId || !visibleConversationIds.has(contact.directConversationId);
-    });
-  }, [directoryTab, filteredContacts, visibleConversations]);
+    return filteredContacts.filter(
+      (contact) => !contact.directConversationId || !visibleConversationIds.has(contact.directConversationId)
+    );
+  }, [filteredContacts, visibleConversations]);
   const visibleDirectoryCount = visibleConversations.length + visibleContacts.length;
+  const hasGeneralConversation = filteredConversations.some(
+    (conversation) => conversation.kind === 'group' && /general/i.test(conversation.title)
+  );
   const showGeneralShortcut =
-    directoryTab === 'general' && directoryMode !== 'direct' && directoryMode !== 'unread';
+    !searchTerm && directoryMode !== 'unread' && !hasGeneralConversation;
   const visibleListCount = visibleDirectoryCount + (showGeneralShortcut ? 1 : 0);
   const directoryItems = useMemo<DirectoryListItem[]>(() => {
     const items: DirectoryListItem[] = [];
@@ -761,21 +792,14 @@ export function ChatScreen() {
 
     return items;
   }, [showGeneralShortcut, visibleContacts, visibleConversations]);
-  const totalUnread = useMemo(
-    () => chatConversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0),
-    [chatConversations]
-  );
   const directoryHelperText = searchTerm
     ? `${visibleListCount} resultados para "${search.trim()}".`
+    : directoryMode === 'priority'
+      ? `${visibleListCount} conversaciones prioritarias.`
     : directoryMode === 'unread'
-      ? `${visibleListCount} pendientes visibles.`
-      : `${visibleListCount} conversaciones visibles.`;
-  const activeDirectoryLabel =
-    DIRECTORY_TABS.find((tab) => tab.key === directoryTab)?.label || 'General';
-  const composerPlaceholder =
-    activeConversation?.kind === 'direct' && activeContact?.name
-      ? `Escribe a ${activeContact.name}`
-      : `Escribe en ${activeConversation?.title || 'el chat'}`;
+      ? `${visibleListCount} conversaciones no leidas.`
+      : `${visibleListCount} conversaciones.`;
+  const composerPlaceholder = 'Escribe un mensaje...';
   const supportsMicrophoneCapture =
     Platform.OS !== 'web' ||
     (typeof globalThis !== 'undefined' &&
@@ -954,17 +978,39 @@ export function ChatScreen() {
     setDraft('');
   };
 
-  const handlePickMedia = async (type: 'image' | 'video') => {
+  const handleAttachmentUnavailable = (label: string) => {
+    setAttachmentNotice(`${label} en preparacion. Se conectara cuando exista soporte de backend/picker.`);
+  };
+
+  const handlePickMedia = async (type: 'image' | 'video', source: 'library' | 'camera' = 'library') => {
     if (!activeConversation) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: [type === 'image' ? 'images' : 'videos'],
-      allowsEditing: true,
-      quality: 0.8,
-    });
+    setAttachmentMenuOpen(false);
+    setAttachmentNotice(type === 'image' ? 'Preparando imagen...' : 'Preparando video...');
 
-    if (!result.canceled) {
+    try {
+      const pickerOptions = {
+        mediaTypes: [type === 'image' ? 'images' as const : 'videos' as const],
+        allowsEditing: true,
+        quality: 0.8,
+      };
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync(pickerOptions)
+          : await ImagePicker.launchImageLibraryAsync(pickerOptions);
+
+      if (result.canceled) {
+        setAttachmentNotice(null);
+        return;
+      }
+
       const asset = result.assets[0];
+
+      if (!asset?.uri) {
+        setAttachmentNotice('No se pudo leer el archivo seleccionado.');
+        return;
+      }
+
       const formData = new FormData();
       formData.append('caption', draft.trim());
 
@@ -980,8 +1026,17 @@ export function ChatScreen() {
         } as any);
       }
 
-      await sendMediaMessage(activeConversation.id, formData);
-      setDraft('');
+      const resultMessage = await sendMediaMessage(activeConversation.id, formData);
+
+      if (resultMessage.ok) {
+        setDraft('');
+        setAttachmentNotice(type === 'image' ? 'Imagen enviada.' : 'Video enviado.');
+        return;
+      }
+
+      setAttachmentNotice(resultMessage.message || 'Archivo listo, pero no se pudo enviar.');
+    } catch (error) {
+      setAttachmentNotice(error instanceof Error ? error.message : 'No fue posible preparar el archivo.');
     }
   };
 
@@ -1613,69 +1668,18 @@ export function ChatScreen() {
         isMobileConversation ? null : (
         <View style={styles.header}>
           <Text style={styles.title}>Mensajeria operativa</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.headerPills}>
-            <StatusPill label={`${chatConversations.length} chats`} tone="info" />
-            <StatusPill
-              label={totalUnread ? `${totalUnread} pendientes` : 'Todo al dia'}
-              tone={totalUnread ? 'warning' : 'positive'}
-            />
-            <StatusPill label="Cifrado protegido" tone="neutral" />
-          </ScrollView>
         </View>
         )
       }>
       <View style={styles.layout}>
         {showDirectoryPanel ? (
           <View style={styles.directoryPanel}>
-            <ScrollView
-              horizontal
-              style={styles.categoryTabsScroll}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoryTabs}>
-              {DIRECTORY_TABS.map((tab) => {
-                const isActive = directoryTab === tab.key;
-
-                return (
-                  <Pressable
-                    key={tab.key}
-                    onPress={() => setDirectoryTab(tab.key)}
-                    style={[styles.categoryTab, isActive ? styles.categoryTabActive : undefined]}>
-                    <Text
-                      style={[
-                        styles.categoryTabText,
-                        isActive ? styles.categoryTabTextActive : undefined,
-                      ]}>
-                      {tab.label}
-                    </Text>
-                    {directoryTabCounts[tab.key] ? (
-                      <View
-                        style={[
-                          styles.categoryTabCount,
-                          isActive ? styles.categoryTabCountActive : undefined,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.categoryTabCountText,
-                            isActive ? styles.categoryTabCountTextActive : undefined,
-                          ]}>
-                          {directoryTabCounts[tab.key]}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
             <View style={styles.searchShell}>
               <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
               <TextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Buscar canal, contacto o rol"
+                placeholder="Buscar conversacion o unidad..."
                 placeholderTextColor={theme.colors.muted}
                 style={styles.searchInput}
                 testID="chat-search-input"
@@ -1739,26 +1743,20 @@ export function ChatScreen() {
                 {
                   key: 'all',
                   label: 'Todo',
-                  icon: 'view-dashboard-outline',
+                  icon: 'chat-outline',
                   count: conversationFilterCounts.all,
                 },
                 {
+                  key: 'priority',
+                  label: 'Prioridad',
+                  icon: 'alert-circle-outline',
+                  count: conversationFilterCounts.priority,
+                },
+                {
                   key: 'unread',
-                  label: 'Pendientes',
+                  label: 'No leidos',
                   icon: 'bell-outline',
                   count: conversationFilterCounts.unread,
-                },
-                {
-                  key: 'groups',
-                  label: 'Grupal',
-                  icon: 'account-group-outline',
-                  count: conversationFilterCounts.groups,
-                },
-                {
-                  key: 'direct',
-                  label: 'Directo',
-                  icon: 'account-outline',
-                  count: conversationFilterCounts.direct,
                 },
               ].map(({ key, label, icon, count }) => (
                 <Pressable
@@ -1799,15 +1797,6 @@ export function ChatScreen() {
               ))}
             </ScrollView>
 
-            <View style={styles.filterSummaryRow}>
-              <MaterialCommunityIcons
-                name={searchTerm ? 'tune-variant' : 'clock-outline'}
-                size={16}
-                color={theme.colors.muted}
-              />
-              <Text style={styles.filterSummaryText}>{directoryHelperText}</Text>
-            </View>
-
             <FlatList
               style={styles.directoryScroll}
               contentContainerStyle={styles.directoryContent}
@@ -1816,8 +1805,8 @@ export function ChatScreen() {
               showsVerticalScrollIndicator={false}
               ListHeaderComponent={
                 <View style={styles.sectionRow}>
-                  <Text style={styles.sectionTitle}>{activeDirectoryLabel}</Text>
-                  <StatusPill label={`${visibleListCount}`} tone="info" />
+                  <Text style={styles.sectionTitle}>Conversaciones</Text>
+                  <Text style={styles.sectionHint}>{directoryHelperText}</Text>
                 </View>
               }
               renderItem={({ item }) => {
@@ -1834,7 +1823,7 @@ export function ChatScreen() {
                         />
                       </View>
                       <View style={styles.quickActionCopy}>
-                        <Text style={styles.quickActionTitle}>General</Text>
+                        <Text style={styles.quickActionTitle}>General Operativo</Text>
                         <Text style={styles.quickActionBody} numberOfLines={1}>
                           Abrir grupo operativo
                         </Text>
@@ -1878,7 +1867,7 @@ export function ChatScreen() {
                         <View style={styles.tileCopy}>
                           <View style={styles.tileTitleRow}>
                             <Text style={styles.tileTitle} numberOfLines={1}>
-                              {conversation.title}
+                              {getConversationDisplayTitle(conversation)}
                             </Text>
                             <Text style={styles.tileTime} numberOfLines={1}>
                               {conversation.lastMessage?.createdAt
@@ -1890,6 +1879,9 @@ export function ChatScreen() {
                             <Text style={styles.tilePreview} numberOfLines={1}>
                               {preview}
                             </Text>
+                            {conversation.kind === 'group' ? (
+                              <View style={styles.tileStatusDot} />
+                            ) : null}
                             {conversation.unreadCount ? (
                               <View style={styles.unreadBubble}>
                                 <Text style={styles.unreadBubbleText}>{conversation.unreadCount}</Text>
@@ -1953,7 +1945,9 @@ export function ChatScreen() {
         ) : null}
 
         {showConversationPanel ? (
-          <View
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={isPhone ? 8 : 0}
             style={[
               styles.conversationPanel,
               isMobileConversation ? styles.conversationPanelMobile : undefined,
@@ -1977,89 +1971,65 @@ export function ChatScreen() {
                           user={activeContact}
                           status={activeContact.status}
                           showStatus
-                          size={isPhone ? 42 : 56}
+                          size={isPhone ? 36 : 40}
                         />
                       ) : (
-                        <View style={styles.groupAvatarLarge}>
-                          <MaterialCommunityIcons
-                            name={getConversationIconName(activeConversation)}
-                            size={28}
-                            color={theme.colors.info}
-                          />
-                        </View>
+                        <View style={styles.conversationStatusDot} />
                       )}
 
                       <View style={styles.conversationCopy}>
-                        <Text style={styles.conversationTitle}>{activeConversation.title}</Text>
+                        <Text style={styles.conversationTitle} numberOfLines={1}>
+                          {getConversationDisplayTitle(activeConversation)}
+                        </Text>
                         <Text style={styles.conversationSubtitle} numberOfLines={1}>
-                          {activeConversation.kind === 'direct' && activeContact
-                            ? formatStatus(activeContact.status)
-                            : `${activeConversation.participants.length} participantes`}
+                          {getConversationPresenceLabel(activeConversation, activeContact)}
                         </Text>
                       </View>
                     </View>
 
                     <View style={styles.conversationHeaderActions}>
-                      <Pressable
-                        onPress={() => { handleStartCall('audio'); }}
-                        disabled={!canStartRealtimeCall}
-                        style={[
-                          styles.conversationActionButton,
-                          styles.conversationActionButtonAudio,
-                          activeConversationCallMode === 'audio'
-                            ? styles.conversationActionButtonAudioActive
-                            : undefined,
-                          !canStartRealtimeCall ? styles.conversationActionButtonDisabled : undefined,
-                        ]}>
-                        <MaterialCommunityIcons
-                          name={activeConversationCallMode === 'audio' ? 'phone' : 'phone-outline'}
-                          size={20}
-                          color={!canStartRealtimeCall ? theme.colors.muted : '#FFFFFF'}
-                        />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => { handleStartCall('video'); }}
-                        disabled={!canStartRealtimeCall}
-                        style={[
-                          styles.conversationActionButton,
-                          styles.conversationActionButtonVideo,
-                          activeConversationCallMode === 'video'
-                            ? styles.conversationActionButtonVideoActive
-                            : undefined,
-                          !canStartRealtimeCall ? styles.conversationActionButtonDisabled : undefined,
-                        ]}>
-                        <MaterialCommunityIcons
-                          name={activeConversationCallMode === 'video' ? 'video' : 'video-outline'}
-                          size={20}
-                          color={!canStartRealtimeCall ? theme.colors.muted : '#FFFFFF'}
-                        />
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  {!isMobileConversation ? (
-                    <View style={styles.conversationHeaderFooter}>
-                    <View style={styles.headerMetaPills}>
-                      <StatusPill label={getConversationLabel(activeConversation)} tone="info" />
-                      <StatusPill
-                        label={activeConversation.encrypted ? 'Cifrado activo' : 'Canal abierto'}
-                        tone={activeConversation.encrypted ? 'positive' : 'neutral'}
-                      />
-                      <StatusPill
-                        label={
-                          activeCallSession
-                            ? `${Math.max(callParticipants.length, 1)} en cabina`
-                            : 'Cabina lista'
-                        }
-                        tone={activeCallSession ? callTone : 'neutral'}
-                      />
-                      {activeCallSession ? (
-                        <StatusPill label={formatDuration(callElapsedSeconds)} tone="neutral" />
+                      {canStartRealtimeCall ? (
+                        <>
+                          <Pressable
+                            onPress={() => { handleStartCall('audio'); }}
+                            style={[
+                              styles.conversationActionButton,
+                              activeConversationCallMode === 'audio'
+                                ? styles.conversationActionButtonActive
+                                : undefined,
+                            ]}
+                            accessibilityLabel="Iniciar llamada de voz">
+                            <MaterialCommunityIcons
+                              name={activeConversationCallMode === 'audio' ? 'phone' : 'phone-outline'}
+                              size={20}
+                              color={theme.colors.text}
+                            />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => { handleStartCall('video'); }}
+                            style={[
+                              styles.conversationActionButton,
+                              activeConversationCallMode === 'video'
+                                ? styles.conversationActionButtonActive
+                                : undefined,
+                            ]}
+                            accessibilityLabel="Iniciar videollamada">
+                            <MaterialCommunityIcons
+                              name={activeConversationCallMode === 'video' ? 'video' : 'video-outline'}
+                              size={20}
+                              color={theme.colors.text}
+                            />
+                          </Pressable>
+                        </>
                       ) : null}
+                      <Pressable
+                        onPress={() => setOptionsMenuOpen(true)}
+                        style={styles.conversationActionButton}
+                        accessibilityLabel="Mas opciones">
+                        <MaterialCommunityIcons name="dots-vertical" size={21} color={theme.colors.text} />
+                      </Pressable>
                     </View>
-
                   </View>
-                  ) : null}
                 </View>
 
                 {activeCallSession ? (
@@ -2171,11 +2141,21 @@ export function ChatScreen() {
                 <FlatList
                   style={styles.messagesScroll}
                   contentContainerStyle={styles.messagesList}
-                  data={activeMessages}
-                  keyExtractor={(message) => message.id}
+                  data={activeMessageItems}
+                  keyExtractor={(item) => item.id}
                   showsVerticalScrollIndicator={false}
-                  renderItem={({ item: message }) => {
+                  renderItem={({ item }) => {
+                      if (item.type === 'date') {
+                        return (
+                          <View style={styles.dateSeparator}>
+                            <Text style={styles.dateSeparatorText}>{item.label}</Text>
+                          </View>
+                        );
+                      }
+
+                      const { message } = item;
                       const isOwn = message.senderId === user?.id;
+                      const deliveryStatus = getMessageDeliveryStatus(message, isOwn);
 
                       return (
                         <View
@@ -2234,6 +2214,10 @@ export function ChatScreen() {
                                 {message.text}
                               </Text>
                             )}
+
+                            {deliveryStatus ? (
+                              <MessageDeliveryMeta status={deliveryStatus} isOwn={isOwn} />
+                            ) : null}
                           </View>
                         </View>
                       );
@@ -2271,16 +2255,27 @@ export function ChatScreen() {
                     </View>
                   ) : null}
 
+                  {attachmentNotice ? (
+                    <View style={styles.recorderHint}>
+                      <MaterialCommunityIcons
+                        name="paperclip"
+                        size={16}
+                        color={theme.colors.info}
+                      />
+                      <Text style={styles.recorderHintText}>{attachmentNotice}</Text>
+                    </View>
+                  ) : null}
+
                   <View style={styles.composerBar}>
                     <Pressable
-                      accessibilityLabel="Adjuntar imagen"
+                      accessibilityLabel="Abrir adjuntos"
                       accessibilityRole="button"
-                      onPress={() => { handlePickMedia('image'); }}
-                      style={styles.mediaButton}>
-                      <MaterialCommunityIcons name="image-outline" size={22} color={theme.colors.muted} />
+                      onPress={() => { setAttachmentMenuOpen(true); }}
+                      style={styles.attachButton}>
+                      <MaterialCommunityIcons name="plus" size={24} color={theme.colors.text} />
                     </Pressable>
 
-                  <View style={styles.composerInputShell}>
+                    <View style={styles.composerInputShell}>
                       <TextInput
                         value={draft}
                         onChangeText={setDraft}
@@ -2291,24 +2286,19 @@ export function ChatScreen() {
                       />
                     </View>
 
-                      <Pressable
-                        accessibilityLabel="Adjuntar video"
-                        accessibilityRole="button"
-                        onPress={() => { handlePickMedia('video'); }}
-                        style={styles.mediaButton}>
-                        <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.muted} />
-                      </Pressable>
-
                     {draft.trim().length ? (
-                      <PrimaryButton
-                        label={isSubmitting ? '...' : 'Enviar'}
-                        icon="send"
-                        compact
-                        loading={isSubmitting && recordingState !== 'uploading'}
-                        disabled={!canSendText}
+                      <Pressable
+                        accessibilityLabel="Enviar mensaje"
+                        accessibilityRole="button"
                         onPress={() => { handleSendText(); }}
-                        style={styles.sendButton}
-                      />
+                        disabled={!canSendText}
+                        style={[styles.sendIconButton, !canSendText ? styles.voiceButtonDisabled : undefined]}>
+                        {isSubmitting && recordingState !== 'uploading' ? (
+                          <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                          <MaterialCommunityIcons name="send" size={20} color="#FFFFFF" />
+                        )}
+                      </Pressable>
                     ) : (
                       <Pressable
                         accessibilityLabel={recordingState === 'recording' ? 'Detener audio' : 'Grabar audio'}
@@ -2333,11 +2323,6 @@ export function ChatScreen() {
                             color="#FFFFFF"
                           />
                         )}
-                        <Text style={styles.voiceButtonText}>
-                          {recordingState === 'recording'
-                            ? 'Detener'
-                            : 'Audio'}
-                        </Text>
                       </Pressable>
                     )}
                   </View>
@@ -2352,10 +2337,150 @@ export function ChatScreen() {
                 </Text>
               </View>
             )}
-          </View>
+          </KeyboardAvoidingView>
         ) : null}
       </View>
+
+      <Modal
+        visible={attachmentMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAttachmentMenuOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setAttachmentMenuOpen(false)}>
+          <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetGrid}>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { handlePickMedia('image', 'camera'); }}>
+                <View style={[styles.sheetActionIcon, styles.sheetActionIconInfo]}>
+                  <MaterialCommunityIcons name="camera-outline" size={24} color={theme.colors.info} />
+                </View>
+                <Text style={styles.sheetActionText}>Camara</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { handlePickMedia('image', 'library'); }}>
+                <View style={[styles.sheetActionIcon, styles.sheetActionIconInfo]}>
+                  <MaterialCommunityIcons name="image-outline" size={24} color={theme.colors.info} />
+                </View>
+                <Text style={styles.sheetActionText}>Galeria</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { handleAttachmentUnavailable('Documento'); setAttachmentMenuOpen(false); }}>
+                <View style={styles.sheetActionIcon}>
+                  <MaterialCommunityIcons name="file-document-outline" size={24} color={theme.colors.muted} />
+                </View>
+                <Text style={styles.sheetActionText}>Documento</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { handleAttachmentUnavailable('Ubicacion'); setAttachmentMenuOpen(false); }}>
+                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
+                  <MaterialCommunityIcons name="map-marker-outline" size={24} color={theme.colors.accent} />
+                </View>
+                <Text style={styles.sheetActionText}>Ubicacion</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { setAttachmentMenuOpen(false); handleVoiceAction(); }}>
+                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
+                  <MaterialCommunityIcons name="microphone-outline" size={24} color={theme.colors.accent} />
+                </View>
+                <Text style={styles.sheetActionText}>Audio</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={() => { handlePickMedia('video', 'library'); }}>
+                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
+                  <MaterialCommunityIcons name="video-outline" size={24} color={theme.colors.accent} />
+                </View>
+                <Text style={styles.sheetActionText}>Video</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={optionsMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOptionsMenuOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setOptionsMenuOpen(false)}>
+          <Pressable style={styles.optionsSheet} onPress={(event) => event.stopPropagation()}>
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                setOptionsMenuOpen(false);
+                handleStartCall('audio');
+              }}>
+              <MaterialCommunityIcons name="phone-outline" size={22} color={theme.colors.text} />
+              <Text style={styles.optionRowText}>Llamada de voz</Text>
+            </Pressable>
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                setOptionsMenuOpen(false);
+                handleStartCall('video');
+              }}>
+              <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.text} />
+              <Text style={styles.optionRowText}>Videollamada</Text>
+            </Pressable>
+            <Pressable
+              style={styles.optionRow}
+              onPress={() => {
+                setOptionsMenuOpen(false);
+                setCallNotice('Funcion en preparacion.');
+              }}>
+              <MaterialCommunityIcons name="account-group-outline" size={22} color={theme.colors.text} />
+              <Text style={styles.optionRowText}>Crear reunion</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </AppShell>
+  );
+}
+
+function MessageDeliveryMeta({
+  status,
+  isOwn,
+}: {
+  status: MessageDeliveryStatus;
+  isOwn: boolean;
+}) {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme, false, false), [theme]);
+  const config = {
+    sent: {
+      icon: 'check',
+      label: 'Enviado',
+      color: isOwn ? 'rgba(255,255,255,0.76)' : theme.colors.muted,
+    },
+    delivered: {
+      icon: 'check-all',
+      label: 'Entregado',
+      color: isOwn ? 'rgba(255,255,255,0.76)' : theme.colors.muted,
+    },
+    read: {
+      icon: 'check-all',
+      label: 'Leido',
+      color: theme.colors.info,
+    },
+    failed: {
+      icon: 'alert-circle-outline',
+      label: 'No enviado',
+      color: theme.colors.danger,
+    },
+  }[status];
+
+  return (
+    <View style={styles.deliveryMeta}>
+      <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
+      <Text style={[styles.deliveryMetaText, { color: config.color }]}>{config.label}</Text>
+    </View>
   );
 }
 
@@ -2862,6 +2987,14 @@ function createStyles(
       fontSize: 16,
       lineHeight: 22,
     },
+    sectionHint: {
+      flexShrink: 1,
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      lineHeight: 16,
+      textAlign: 'right',
+    },
     quickActionCard: {
       borderRadius: 16,
       borderWidth: 1,
@@ -2965,6 +3098,12 @@ function createStyles(
       alignItems: 'center',
       justifyContent: 'center',
     },
+    tileStatusDot: {
+      width: 9,
+      height: 9,
+      borderRadius: 999,
+      backgroundColor: theme.colors.success,
+    },
     unreadBubble: {
       minWidth: 22,
       height: 22,
@@ -3055,11 +3194,18 @@ function createStyles(
       justifyContent: 'center',
       marginLeft: -6,
     },
+    conversationStatusDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: theme.colors.success,
+      marginHorizontal: 3,
+    },
     conversationHeader: {
-      gap: isPhone ? 5 : 8,
+      gap: 4,
       paddingHorizontal: isPhone ? 8 : 0,
       paddingTop: isPhone ? 2 : 0,
-      paddingBottom: isPhone ? 7 : 9,
+      paddingBottom: isPhone ? 7 : 8,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -3115,8 +3261,14 @@ function createStyles(
       height: isPhone ? 38 : 44,
       borderRadius: isPhone ? 19 : 16,
       borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    conversationActionButtonActive: {
+      borderColor: theme.colors.info,
+      backgroundColor: theme.colors.infoSoft,
     },
     conversationActionButtonAudio: {
       backgroundColor: theme.colors.accentSoft,
@@ -3361,6 +3513,20 @@ function createStyles(
       paddingTop: 8,
       paddingBottom: 10,
     },
+    dateSeparator: {
+      alignSelf: 'center',
+      borderRadius: 999,
+      backgroundColor: theme.colors.surfaceAlt,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      marginVertical: 2,
+    },
+    dateSeparatorText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '700',
+    },
     messageRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -3465,6 +3631,18 @@ function createStyles(
     messageTextOwn: {
       color: '#FFFFFF',
     },
+    deliveryMeta: {
+      alignSelf: 'flex-end',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      marginTop: -1,
+    },
+    deliveryMetaText: {
+      fontFamily: Typography.body,
+      fontSize: 10,
+      fontWeight: '700',
+    },
     voiceMessageCard: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -3513,17 +3691,17 @@ function createStyles(
       backgroundColor: theme.colors.surface,
     },
     composerBar: {
-      minHeight: 46,
+      minHeight: 48,
       flexDirection: 'row',
-      alignItems: 'flex-end',
+      alignItems: 'center',
       gap: 8,
     },
     composerInputShell: {
       flex: 1,
       minWidth: 0,
-      minHeight: 40,
+      minHeight: 44,
       maxHeight: 92,
-      borderRadius: 20,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -3538,20 +3716,10 @@ function createStyles(
       lineHeight: 20,
       textAlignVertical: 'top',
     },
-    composerActions: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-      alignItems: 'center',
-    },
-    mediaActions: {
-      flexDirection: 'row',
-      gap: 4,
-    },
-    mediaButton: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+    attachButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.colors.line,
       alignItems: 'center',
@@ -3559,22 +3727,24 @@ function createStyles(
       backgroundColor: theme.colors.surfaceAlt,
     },
     voiceButton: {
-      minWidth: isPhone ? 38 : 104,
-      minHeight: 38,
-      borderRadius: 19,
+      width: 44,
+      height: 44,
+      borderRadius: 16,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
-      paddingHorizontal: isPhone ? 0 : 12,
-      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
     },
-    sendButton: {
-      minHeight: 38,
-      borderRadius: 19,
-      minWidth: isPhone ? 82 : 90,
+    sendIconButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 16,
+      backgroundColor: theme.colors.accent,
+      borderWidth: 1,
+      borderColor: theme.colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     voiceButtonRecording: {
       backgroundColor: theme.colors.danger,
@@ -3585,13 +3755,6 @@ function createStyles(
     },
     voiceButtonDisabled: {
       opacity: 0.45,
-    },
-    voiceButtonText: {
-      color: '#FFFFFF',
-      display: isPhone ? 'none' : 'flex',
-      fontFamily: Typography.body,
-      fontSize: 14,
-      fontWeight: '800',
     },
     recorderHint: {
       flexDirection: 'row',
@@ -3604,6 +3767,113 @@ function createStyles(
       fontFamily: Typography.body,
       fontSize: 12,
       lineHeight: 18,
+    },
+    sheetBackdrop: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(7, 11, 19, 0.28)',
+      paddingHorizontal: isPhone ? 12 : 24,
+      paddingBottom: isPhone ? 10 : 24,
+    },
+    bottomSheet: {
+      width: '100%',
+      maxWidth: 520,
+      alignSelf: 'center',
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 18,
+      ...(Platform.OS === 'web'
+        ? {
+            boxShadow: '0px 18px 38px rgba(4, 16, 27, 0.18)',
+          }
+        : {
+            shadowColor: theme.colors.shadow,
+            shadowOpacity: 0.16,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 8,
+          }),
+    },
+    sheetHandle: {
+      width: 36,
+      height: 4,
+      borderRadius: 999,
+      backgroundColor: theme.colors.line,
+      alignSelf: 'center',
+      marginBottom: 14,
+    },
+    sheetGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      rowGap: 14,
+    },
+    sheetAction: {
+      width: '33.333%',
+      minHeight: 82,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    sheetActionIcon: {
+      width: 50,
+      height: 50,
+      borderRadius: 18,
+      backgroundColor: theme.colors.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sheetActionIconInfo: {
+      backgroundColor: theme.colors.infoSoft,
+    },
+    sheetActionIconDanger: {
+      backgroundColor: theme.colors.dangerSoft,
+    },
+    sheetActionText: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    optionsSheet: {
+      width: '100%',
+      maxWidth: 420,
+      alignSelf: 'center',
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surface,
+      paddingVertical: 8,
+      ...(Platform.OS === 'web'
+        ? {
+            boxShadow: '0px 18px 38px rgba(4, 16, 27, 0.18)',
+          }
+        : {
+            shadowColor: theme.colors.shadow,
+            shadowOpacity: 0.16,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 8,
+          }),
+    },
+    optionRow: {
+      minHeight: 58,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      paddingHorizontal: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.line,
+    },
+    optionRowText: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 15,
+      fontWeight: '800',
     },
     emptyState: {
       flex: 1,

@@ -1,4 +1,10 @@
-import { launchImageLibrary, type Asset, type ImageLibraryOptions } from 'react-native-image-picker';
+import {
+  launchCamera,
+  launchImageLibrary,
+  type Asset,
+  type CameraOptions,
+  type ImageLibraryOptions,
+} from 'react-native-image-picker';
 
 type PickerMediaType = 'images' | 'videos';
 
@@ -52,6 +58,30 @@ export async function launchImageLibraryAsync(options: ImagePickerOptions = {}) 
     includeBase64: Boolean(options.base64),
     quality: options.quality as ImageLibraryOptions['quality'],
     selectionLimit: 1,
+  });
+
+  if (response.didCancel) {
+    return {
+      canceled: true,
+      assets: [],
+    };
+  }
+
+  if (response.errorCode) {
+    throw new Error(response.errorMessage || response.errorCode);
+  }
+
+  return {
+    canceled: false,
+    assets: (response.assets || []).map(toPickerAsset).filter(Boolean) as PickerAsset[],
+  };
+}
+
+export async function launchCameraAsync(options: ImagePickerOptions = {}) {
+  const response = await launchCamera({
+    mediaType: toMediaType(options.mediaTypes) as CameraOptions['mediaType'],
+    includeBase64: Boolean(options.base64),
+    quality: options.quality as CameraOptions['quality'],
   });
 
   if (response.didCancel) {

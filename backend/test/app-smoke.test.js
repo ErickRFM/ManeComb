@@ -94,6 +94,7 @@ async function testCriticalFlows() {
   const password = "Ruta123!";
   const companyName = `Smoke Fleet ${stamp}`;
   let createdUserId = null;
+  let createdPendingUserId = null;
   let createdTeamUserId = null;
 
   try {
@@ -114,6 +115,10 @@ async function testCriticalFlows() {
     createdUserId = registerResponse.payload.user.id;
     assert.equal(registerResponse.payload.user.accountType, "company_owner");
     assert.equal(registerResponse.payload.dashboard, null);
+    assert.equal(registerResponse.payload.authContext.destination, "PlanRequired");
+    assert.equal(registerResponse.payload.canAccessMobile, false);
+    assert.equal(registerResponse.payload.mobileBlockReason, "no_plan");
+    assert.equal(registerResponse.payload.postLoginRoute, "/portal/plan");
     const token = registerResponse.payload.token;
 
     const loginResponse = await requestJson(`${context.url}/auth/login`, {
@@ -126,6 +131,10 @@ async function testCriticalFlows() {
 
     assert.equal(loginResponse.status, 200);
     assert.equal(loginResponse.payload.ok, true);
+    assert.equal(loginResponse.payload.authContext.destination, "PlanRequired");
+    assert.equal(loginResponse.payload.canAccessMobile, false);
+    assert.equal(loginResponse.payload.mobileBlockReason, "no_plan");
+    assert.equal(loginResponse.payload.postLoginRoute, "/portal/plan");
 
     const blockedLocationsResponse = await requestJson(`${context.url}/locations/live`, {
       headers: {
@@ -195,6 +204,52 @@ async function testCriticalFlows() {
     assert.equal(visualConfirmResponse.status, 200);
     assert.equal(visualConfirmResponse.payload.data.paymentStatus, "paid");
     assert.equal(visualConfirmResponse.payload.data.activationStatus, "active");
+
+    const activeSessionResponse = await requestJson(`${context.url}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    assert.equal(activeSessionResponse.status, 200);
+    assert.equal(activeSessionResponse.payload.authContext.destination, "HomeOperativo");
+    assert.equal(activeSessionResponse.payload.canAccessMobile, true);
+    assert.equal(activeSessionResponse.payload.mobileBlockReason, null);
+    assert.equal(activeSessionResponse.payload.postLoginRoute, "/mapa");
+    assert.equal(activeSessionResponse.payload.subscription.isActive, true);
+    assert.equal(activeSessionResponse.payload.subscription.status, "active");
+    assert.equal(activeSessionResponse.payload.tenant.status, "active");
+    assert.ok(activeSessionResponse.payload.tenant.id);
+
+    const pendingUserResponse = await requestJson(`${context.url}/users`, {
+      body: JSON.stringify({
+        name: "Smoke Admin Pending",
+        email: `smoke-admin-pending-${stamp}@combis.app`,
+        password,
+        phone: "+52 55 0000 4444",
+        role: "admin",
+        userStatus: "pending"
+      }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+
+    assert.equal(pendingUserResponse.status, 201);
+    createdPendingUserId = pendingUserResponse.payload.data.id;
+
+    const activeWithPendingUsersResponse = await requestJson(`${context.url}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    assert.equal(activeWithPendingUsersResponse.status, 200);
+    assert.equal(activeWithPendingUsersResponse.payload.subscription.status, "active");
+    assert.equal(activeWithPendingUsersResponse.payload.tenant.status, "active");
+    assert.equal(activeWithPendingUsersResponse.payload.canAccessMobile, true);
+    assert.equal(activeWithPendingUsersResponse.payload.mobileBlockReason, null);
 
     const subscriptionResponse = await requestJson(`${context.url}/account/subscription`, {
       headers: {
@@ -449,6 +504,10 @@ async function testCriticalFlows() {
       "ok - flujo humo login/mapa/chat/checkout/incidentes/logout responde correctamente con el store disponible"
     );
   } finally {
+    if (createdPendingUserId) {
+      await Promise.resolve(context.store.deleteUser(createdPendingUserId)).catch(() => undefined);
+    }
+
     if (createdTeamUserId) {
       await Promise.resolve(context.store.deleteUser(createdTeamUserId)).catch(() => undefined);
     }

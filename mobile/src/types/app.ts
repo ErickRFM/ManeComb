@@ -141,11 +141,16 @@ export type PortalSubscription = {
   planId: string | null;
   planName: string;
   status: string;
+  isActive?: boolean;
   activeUnits: number;
   availableUnits: number;
   totalUnits: number;
+  unitsLimit?: number;
+  monthlyPrice?: number;
+  currency?: string;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
+  expiresAt?: string | null;
   cancelAt?: string | null;
 };
 
@@ -244,6 +249,46 @@ export type PortalOnboarding = {
   status: 'completed' | 'pending' | string;
   steps: PortalOnboardingStep[];
 };
+
+export type AuthTenantContext = {
+  id: string;
+  organizationId?: string;
+  companyId?: string;
+  name?: string;
+  status?: string;
+  isOperational?: boolean;
+};
+
+export type PostLoginDestination =
+  | 'Login'
+  | 'HomeConductor'
+  | 'PlanRequired'
+  | 'PaymentPending'
+  | 'PlanBlocked'
+  | 'SyncError'
+  | 'OperationalOnboarding'
+  | 'HomeOperativo';
+
+export type AuthRoutingContext = {
+  canAccessMobile?: boolean;
+  canUseOperations?: boolean;
+  destination: PostLoginDestination;
+  mobileBlockReason?: MobileBlockReason | null;
+  onboarding?: PortalOnboarding | null;
+  postLoginRoute?: string;
+  reason?: string;
+  route: string;
+  source?: string | null;
+  subscription?: PortalSubscription | null;
+  tenant?: AuthTenantContext | null;
+};
+
+export type MobileBlockReason =
+  | 'inactive_plan'
+  | 'missing_tenant'
+  | 'no_plan'
+  | 'payment_pending'
+  | 'sync_error';
 
 export type PortalOverview = {
   organization: {
@@ -793,6 +838,13 @@ export type LoginResult = {
   refreshTokenExpiresAt?: string | null;
   session?: PortalSession;
   user: User;
+  authContext?: AuthRoutingContext | null;
+  canAccessMobile?: boolean;
+  mobileBlockReason?: MobileBlockReason | null;
+  onboarding?: PortalOnboarding | null;
+  postLoginRoute?: string;
+  subscription?: PortalSubscription | null;
+  tenant?: AuthTenantContext | null;
   dashboard: DashboardData | null;
 };
 
@@ -803,6 +855,13 @@ export type SessionResult = {
     vehicle: Vehicle | null;
     documents: DocumentItem[];
   };
+  authContext?: AuthRoutingContext | null;
+  canAccessMobile?: boolean;
+  mobileBlockReason?: MobileBlockReason | null;
+  onboarding?: PortalOnboarding | null;
+  postLoginRoute?: string;
+  subscription?: PortalSubscription | null;
+  tenant?: AuthTenantContext | null;
   dashboard: DashboardData | null;
 };
 

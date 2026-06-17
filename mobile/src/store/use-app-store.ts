@@ -74,6 +74,8 @@ import type {
   Incident,
   IncidentDraft,
   IncidentStatus,
+  AuthRoutingContext,
+  LoginResult,
   LiveLocationsData,
   NotificationItem,
   OperationalObservabilitySnapshot,
@@ -142,6 +144,7 @@ type AppState = {
   isBootstrapping: boolean;
   isRefreshing: boolean;
   isSubmitting: boolean;
+  authContext: AuthRoutingContext | null;
   user: User | null;
   dashboard: DashboardData | null;
   mapData: LiveLocationsData | null;
@@ -184,7 +187,7 @@ type AppState = {
   ) => Promise<ConversationSummary | null>;
   sendMessage: (conversationId: string, text: string) => Promise<void>;
   sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
-  sendMediaMessage: (conversationId: string, formData: FormData) => Promise<void>;
+  sendMediaMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   createIncident: (draft: IncidentDraft) => Promise<boolean>;
   updateIncidentStatus: (incidentId: string, status: IncidentStatus) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
@@ -233,6 +236,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     ...getEmptyOperationalState(),
     token: null,
     refreshToken: null,
+    authContext: null,
     user: null,
     error,
   });
@@ -362,6 +366,7 @@ function isProbablyNetworkError(error: unknown) {
 
 function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedAt'> {
   return {
+    authContext: state.authContext,
     user: state.user,
     dashboard: state.dashboard,
     mapData: state.mapData,
@@ -382,6 +387,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
   }
 
   return {
+    authContext: snapshot.authContext || null,
     user: snapshot.user,
     dashboard: snapshot.dashboard,
     mapData: snapshot.mapData,
@@ -394,6 +400,132 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     observability: snapshot.observability || null,
     users: snapshot.users || [],
     lastCacheAt: snapshot.savedAt,
+  };
+}
+
+function getAuthContextFromPayload(
+  payload: Partial<LoginResult & SessionResult> | null | undefined
+): AuthRoutingContext | null {
+  if (!payload) {
+    return null;
+  }
+
+  if (payload.authContext) {
+    const canAccessMobile = payload.canAccessMobile ?? payload.authContext.canAccessMobile;
+    const mobileBlockReason: AuthRoutingContext['mobileBlockReason'] =
+      payload.mobileBlockReason ??
+      payload.authContext.mobileBlockReason ??
+      (canAccessMobile === false ? 'sync_error' : null);
+
+    return {
+      ...payload.authContext,
+      canAccessMobile,
+      canUseOperations: canAccessMobile === true ? true : payload.authContext.canUseOperations,
+      destination: canAccessMobile === true
+        ? 'HomeOperativo'
+        : canAccessMobile === false
+          ? 'PlanBlocked'
+          : 'SyncError',
+      mobileBlockReason,
+      route: canAccessMobile === true
+        ? '/mapa'
+        : canAccessMobile === false
+          ? '/plan-blocked'
+          : '/sync-error',
+    };
+  }
+
+  if (
+    typeof payload.canAccessMobile === 'boolean' ||
+    payload.subscription ||
+    payload.tenant ||
+    payload.onboarding ||
+    payload.postLoginRoute
+  ) {
+    const canAccessMobile = payload.canAccessMobile === true;
+    const mobileBlockReason: AuthRoutingContext['mobileBlockReason'] =
+      payload.mobileBlockReason ?? (canAccessMobile ? null : 'sync_error');
+
+    return {
+      canAccessMobile,
+      canUseOperations: canAccessMobile,
+      destination: canAccessMobile ? 'HomeOperativo' : 'PlanBlocked',
+      mobileBlockReason,
+      onboarding: payload.onboarding || null,
+      route: canAccessMobile ? '/mapa' : '/plan-blocked',
+      subscription: payload.subscription || null,
+      tenant: payload.tenant || null,
+    };
+  }
+
+  return null;
+}
+
+function shouldRefreshOperationalData(
+  authContext: AuthRoutingContext | null | undefined,
+  user: User | null | undefined
+) {
+  if (!user) {
+    return false;
+  }
+
+  if (authContext) {
+    return authContext.canAccessMobile === true;
+  }
+
+  return false;
+}
+
+async function refreshAuthSession(set: StoreSet) {
+  const session = await getSessionRequest();
+  const authContext = getAuthContextFromPayload(session);
+
+  set({
+    authContext,
+    dashboard: session.dashboard,
+    documents: session.profile.documents,
+    user: session.profile.user,
+  });
+
+  return {
+    authContext,
+    session,
+  };
+}
+
+async function replaceSessionFromBackend(
+  set: StoreSet,
+  token: string,
+  refreshToken: string | null | undefined,
+  rememberSession: boolean
+) {
+  await clearTenantCache();
+  setAuthToken(token);
+
+  if (rememberSession) {
+    await persistSession(token, 'online', refreshToken);
+  } else {
+    await persistSession(null, null);
+  }
+
+  const session = await getSessionRequest();
+  const authContext = getAuthContextFromPayload(session);
+
+  set({
+    ...getEmptyOperationalState(),
+    authContext,
+    dashboard: session.dashboard,
+    documents: session.profile.documents,
+    networkStatus: 'online',
+    refreshToken: refreshToken || null,
+    token,
+    user: session.profile.user,
+    error: null,
+  });
+
+  return {
+    authContext,
+    session,
   };
 }
 
@@ -576,7 +708,9 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         get().loadUsers();
       }
       if (eventName === 'payment:confirmed' || eventName === 'plan:active' || eventName === 'subscription:updated') {
-        get().refreshAll();
+        refreshAuthSession(set)
+          .then(() => get().refreshAll())
+          .catch((error) => logStoreError(`socket:${eventName}:session`, error));
       }
     });
   });
@@ -621,9 +755,11 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       getRefreshToken: async () => get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
       onTokenRefresh: async (result) => {
         const nextRefreshToken = result.refreshToken || get().refreshToken;
+        const authContext = getAuthContextFromPayload(result);
         setAuthToken(result.token);
         await persistSession(result.token, get().connectionMode, nextRefreshToken);
         set({
+          authContext: authContext || get().authContext,
           token: result.token,
           refreshToken: nextRefreshToken || null,
           user: result.user || get().user,
@@ -746,7 +882,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
-  user: null, dashboard: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [],
+  authContext: null, user: null, dashboard: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [],
   activeConversationId: null, focusedIncidentId: null, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },
@@ -778,6 +914,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           connectionMode,
           token: null,
           refreshToken: null,
+          authContext: null,
           user: null,
           isHydrated: true,
           isBootstrapping: false,
@@ -828,10 +965,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         set(getEmptyOperationalState());
       }
 
-      set({ connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: s.dashboard, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
+      const authContext = getAuthContextFromPayload(s);
+      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: s.dashboard, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
-      get().refreshAll();
+      if (shouldRefreshOperationalData(authContext, s.profile.user)) {
+        get().refreshAll();
+      }
     } catch (error) {
       logStoreError('initialize', error);
       await clearSessionState(set, 'Sesion expirada.');
@@ -842,11 +982,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isSubmitting: true, error: null });
     try {
       const res = await loginRequest(e, p);
-      await clearTenantCache();
-      setAuthToken(res.token);
-      if (r) await persistSession(res.token, 'online', res.refreshToken);
-      set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
-      await get().refreshAll();
+      const { authContext, session } = await replaceSessionFromBackend(
+        set,
+        res.token,
+        res.refreshToken,
+        r
+      );
+      if (shouldRefreshOperationalData(authContext, session.profile.user)) {
+        await get().refreshAll();
+      }
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -864,8 +1008,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
-    const { token, user } = get();
+    const { authContext, token, user } = get();
     if (!token || !user) return;
+    if (!shouldRefreshOperationalData(authContext, user)) {
+      set({ isRefreshing: false });
+      return;
+    }
     set({ isRefreshing: true });
     try {
       const curr = get();
@@ -989,11 +1137,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isSubmitting: true, error: null });
     try {
       const res = await registerRequest(p);
-      await clearTenantCache();
-      setAuthToken(res.token);
-      if (r) await persistSession(res.token, 'online', res.refreshToken);
-      set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
-      await get().refreshAll(); connectSocket(set, get);
+      const { authContext, session } = await replaceSessionFromBackend(
+        set,
+        res.token,
+        res.refreshToken,
+        r
+      );
+      if (shouldRefreshOperationalData(authContext, session.profile.user)) {
+        await get().refreshAll();
+      }
+      connectSocket(set, get);
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       return { ok: true };
@@ -1004,11 +1157,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isSubmitting: true, error: null });
     try {
       const res = await registerDriverActivationRequest(p);
-      await clearTenantCache();
-      setAuthToken(res.token);
-      if (r) await persistSession(res.token, 'online', res.refreshToken);
-      set({ ...getEmptyOperationalState(), token: res.token, refreshToken: res.refreshToken || null, user: res.user, dashboard: res.dashboard, networkStatus: 'online', error: null });
-      await get().refreshAll();
+      const { authContext, session } = await replaceSessionFromBackend(
+        set,
+        res.token,
+        res.refreshToken,
+        r
+      );
+      if (shouldRefreshOperationalData(authContext, session.profile.user)) {
+        await get().refreshAll();
+      }
       connectSocket(set, get);
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
@@ -1108,7 +1265,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const m = await sendMediaMessageRequest(cid, f);
       const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, get().user);
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
-    } catch (error) { logStoreError('sendMediaMessage', error); }
+      return { ok: true, messageRecord: h };
+    } catch (error) {
+      const message = getReadableErrorMessage(error, 'No fue posible enviar el archivo.');
+      logStoreError('sendMediaMessage', error);
+      return { ok: false, message };
+    }
   },
   updateIncidentStatus: async (id, st) => {
     try {

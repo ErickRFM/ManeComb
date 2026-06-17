@@ -8,13 +8,13 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { ModalScreen } from '@/src/screens/modal-screen';
 import { CustomerAuthScreen } from '@/src/screens/customer-auth-screen';
-import { BuyerProfileScreen } from '@/src/screens/buyer-profile-screen';
 import { ChecklistScreen } from '@/src/screens/checklist-screen';
 import { ChatScreen } from '@/src/screens/chat-screen';
 import { DashboardScreen } from '@/src/screens/dashboard-screen';
 import { IncidentsScreen } from '@/src/screens/incidents-screen';
 import { LegalScreen } from '@/src/screens/legal-screen';
 import { MapScreen } from '@/src/screens/map-screen';
+import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 import { ProfileEditScreen } from '@/src/screens/profile-edit-screen';
 import { ProfileScreen } from '@/src/screens/profile-screen';
 import { RadioScreen } from '@/src/screens/radio-screen';
@@ -22,17 +22,10 @@ import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
-import { getAuthenticatedHome, getOperationalHome, isCustomerAccount } from '@/src/utils/account-routing';
+import { getAuthenticatedHome, getOperationalHome } from '@/src/utils/account-routing';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 import { StatusBar } from '@/src/native/status-bar';
-import { SalesAuthScreen } from 'ventas/screens/sales-auth-screen';
-import { PortalBillingScreen } from 'ventas/features/portal/screens/portal-billing-screen';
-import { PortalDashboardScreen } from 'ventas/features/portal/screens/portal-dashboard-screen';
-import { PortalOnboardingScreen } from 'ventas/features/portal/screens/portal-onboarding-screen';
-import { PortalPaymentsScreen } from 'ventas/features/portal/screens/portal-payments-screen';
-import { PortalPlanScreen } from 'ventas/features/portal/screens/portal-plan-screen';
-import { PortalProfileScreen } from 'ventas/features/portal/screens/portal-profile-screen';
-import { PortalUsersScreen } from 'ventas/features/portal/screens/portal-users-screen';
 
 const Stack = createNativeStackNavigator();
 const BOOT_SYNC_TIMEOUT_MS = 16000;
@@ -163,8 +156,9 @@ class MobileErrorBoundary extends React.Component<
 }
 
 function InitialRoute() {
-  const { isHydrated, user } = useAppStore(
+  const { authContext, isHydrated, user } = useAppStore(
     useShallow((state) => ({
+      authContext: state.authContext,
       isHydrated: state.isHydrated,
       user: state.user,
     }))
@@ -178,40 +172,72 @@ function InitialRoute() {
     return <LoginRoute />;
   }
 
-  const home = getAuthenticatedHome(user);
+  const home = getAuthenticatedHome(user, authContext);
 
-  if (home === '/portal') {
-    return <PortalDashboardScreen />;
+  if (home === '/mapa') {
+    return <MapScreen />;
   }
 
-  return <MapScreen />;
+  return <Redirect href={home} />;
 }
 
 function OperationalRoute({ children }: { children: React.ReactNode }) {
-  const user = useAppStore((state) => state.user);
+  const { authContext, user } = useAppStore(
+    useShallow((state) => ({
+      authContext: state.authContext,
+      user: state.user,
+    }))
+  );
 
   if (!user) {
     return <Redirect href="/login" />;
+  }
+
+  const operationalHome = getOperationalHome(user, authContext);
+
+  if (operationalHome !== '/mapa') {
+    return <Redirect href={operationalHome} />;
   }
 
   return <>{children}</>;
 }
 
 function ApplicationRoute() {
-  const user = useAppStore((state) => state.user);
-  return <Redirect href={user ? getOperationalHome(user) : '/login'} />;
+  const { authContext, user } = useAppStore(
+    useShallow((state) => ({
+      authContext: state.authContext,
+      user: state.user,
+    }))
+  );
+  return <Redirect href={user ? getOperationalHome(user, authContext) : '/login'} />;
 }
 
 function CommercialRoute() {
-  return <Redirect href="/ventas" />;
+  useEffect(() => {
+    openSalesPortal().catch(() => undefined);
+  }, []);
+
+  return <MobileAccountGateScreen mode="blocked" />;
 }
 
 function NativeSalesRoute() {
+  useEffect(() => {
+    openSalesPortal().catch(() => undefined);
+  }, []);
+
   return <Redirect href="/login" />;
 }
 
-function PortalCommercialRoute() {
-  return <Redirect href="/portal" />;
+function PlanBlockedRoute() {
+  return <MobileAccountGateScreen mode="blocked" />;
+}
+
+function OperationalOnboardingRoute() {
+  return <MobileAccountGateScreen mode="onboarding" />;
+}
+
+function SyncErrorRoute() {
+  return <MobileAccountGateScreen mode="sync" />;
 }
 
 function TermsRoute() {
@@ -228,14 +254,6 @@ function LoginRoute() {
 
 function RegisterRoute() {
   return <CustomerAuthScreen mode="register" />;
-}
-
-function SalesLoginRoute() {
-  return <SalesAuthScreen mode="login" />;
-}
-
-function SalesRegisterRoute() {
-  return <SalesAuthScreen mode="register" />;
 }
 
 function withOperationalScreen(component: React.ReactNode) {
@@ -258,17 +276,20 @@ function AppStack() {
       <Stack.Screen name="/aplicacion" component={ApplicationRoute} />
       <Stack.Screen name="/comercial" component={CommercialRoute} />
       <Stack.Screen name="/ventas" component={NativeSalesRoute} />
-      <Stack.Screen name="/ventas/login" component={SalesLoginRoute} />
-      <Stack.Screen name="/ventas/registro" component={SalesRegisterRoute} />
-      <Stack.Screen name="/portal" component={PortalDashboardScreen} />
-      <Stack.Screen name="/portal/plan" component={PortalPlanScreen} />
-      <Stack.Screen name="/portal/usuarios" component={PortalUsersScreen} />
-      <Stack.Screen name="/portal/pagos" component={PortalPaymentsScreen} />
-      <Stack.Screen name="/portal/facturacion" component={PortalBillingScreen} />
-      <Stack.Screen name="/portal/perfil" component={PortalProfileScreen} />
-      <Stack.Screen name="/portal/onboarding" component={PortalOnboardingScreen} />
-      <Stack.Screen name="/portal/comercial" component={PortalCommercialRoute} />
-      <Stack.Screen name="/perfil-comprador" component={BuyerProfileScreen} />
+      <Stack.Screen name="/ventas/login" component={NativeSalesRoute} />
+      <Stack.Screen name="/ventas/registro" component={NativeSalesRoute} />
+      <Stack.Screen name="/plan-blocked" component={PlanBlockedRoute} />
+      <Stack.Screen name="/operational-onboarding" component={OperationalOnboardingRoute} />
+      <Stack.Screen name="/sync-error" component={SyncErrorRoute} />
+      <Stack.Screen name="/portal" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/plan" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/usuarios" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/pagos" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/facturacion" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/perfil" component={PlanBlockedRoute} />
+      <Stack.Screen name="/portal/onboarding" component={OperationalOnboardingRoute} />
+      <Stack.Screen name="/portal/comercial" component={PlanBlockedRoute} />
+      <Stack.Screen name="/perfil-comprador" component={PlanBlockedRoute} />
       <Stack.Screen name="/terminos" component={TermsRoute} />
       <Stack.Screen name="/privacidad" component={PrivacyRoute} />
       <Stack.Screen name="/dashboard">{() => withOperationalScreen(<DashboardScreen />)}</Stack.Screen>
@@ -295,8 +316,9 @@ export default function App() {
   const { navigationTheme, theme } = useAppTheme();
   const splashHiddenRef = useRef(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
-  const { handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
+  const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
     useShallow((state) => ({
+      authContext: state.authContext,
       handlePushIntent: state.handlePushIntent,
       initialize: state.initialize,
       isHydrated: state.isHydrated,
@@ -340,8 +362,8 @@ export default function App() {
       isBootstrapping: false,
       error: 'Ubicacion pendiente. Puedes continuar y reintentar GPS desde el mapa.',
     });
-    router.replace(getAuthenticatedHome(user));
-  }, [user]);
+    router.replace(getAuthenticatedHome(user, authContext));
+  }, [authContext, user]);
 
   useEffect(() => {
     initialize().catch(() => undefined);
@@ -396,14 +418,9 @@ export default function App() {
         return;
       }
 
-      if (isCustomerAccount(user)) {
-        router.push('/portal');
-        return;
-      }
-
-      router.push('/perfil');
+      router.push(getAuthenticatedHome(user, authContext) === '/mapa' ? '/perfil' : getAuthenticatedHome(user, authContext));
     });
-  }, [handlePushIntent, user]);
+  }, [authContext, handlePushIntent, user]);
 
   return (
     <GestureHandlerRootView

@@ -1,5 +1,11 @@
-import { SalesAuthScreen } from 'ventas/screens/sales-auth-screen';
+import { Redirect } from '@/src/navigation/router';
+import { useEffect } from 'react';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 
 export default function SalesLoginRoute() {
-  return <SalesAuthScreen mode="login" />;
+  useEffect(() => {
+    openSalesPortal('/login').catch(() => undefined);
+  }, []);
+
+  return <Redirect href="/login" />;
 }

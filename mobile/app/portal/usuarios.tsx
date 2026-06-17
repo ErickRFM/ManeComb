@@ -1,5 +1,5 @@
-import { PortalUsersScreen } from 'ventas/features/portal/screens/portal-users-screen';
+import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 
 export default function PortalUsersRoute() {
-  return <PortalUsersScreen />;
+  return <MobileAccountGateScreen mode="blocked" />;
 }

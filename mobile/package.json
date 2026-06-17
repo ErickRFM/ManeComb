@@ -17,7 +17,7 @@
     "build": "npm run build:apk:android",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node ./scripts/run-point-to-point-test.mjs",
+    "test": "node ./scripts/run-point-to-point-test.mjs && jest --runInBand src/utils/account-routing.test.ts",
     "test:e2e:web": "playwright test",
     "test:e2e:web:headed": "playwright test --headed",
     "test:e2e:mobile": "node ./scripts/run-detox-mobile.js test",

@@ -5,7 +5,8 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
 
 export default function IndexScreen() {
-  const { isHydrated, user } = useAppStore(useShallow((state) => ({
+  const { authContext, isHydrated, user } = useAppStore(useShallow((state) => ({
+    authContext: state.authContext,
     isHydrated: state.isHydrated,
     user: state.user,
   })));
@@ -16,5 +17,5 @@ export default function IndexScreen() {
 
   const fallbackRoute = Platform.OS === 'web' ? '/ventas' : '/login';
 
-  return <Redirect href={(user ? getAuthenticatedHome(user) : fallbackRoute) as never} />;
+  return <Redirect href={(user ? getAuthenticatedHome(user, authContext) : fallbackRoute) as never} />;
 }

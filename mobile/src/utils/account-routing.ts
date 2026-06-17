@@ -1,34 +1,116 @@
-import { Platform } from 'react-native';
-import type { User } from '@/src/types/app';
+import type {
+  AuthRoutingContext,
+  AuthTenantContext,
+  MobileBlockReason,
+  PortalOnboarding,
+  PortalSubscription,
+  PostLoginDestination,
+  User,
+} from '@/src/types/app';
 
-export function isCustomerAccount(user: Pick<User, 'accountType'> | null | undefined) {
-  return user?.accountType === 'company_owner';
+type RouteUser = Pick<User, 'id'> | null | undefined;
+
+export type PostLoginResolution = {
+  destination: PostLoginDestination;
+  reason: MobileBlockReason | 'active_mobile_access' | 'missing_user';
+  route: string;
+};
+
+export type MobileRouteBlockReason = MobileBlockReason;
+
+export type MobilePostLoginSession = {
+  authContext?: AuthRoutingContext | null;
+  canAccessMobile?: boolean | null;
+  error?: unknown;
+  mobileBlockReason?: MobileBlockReason | null;
+  onboarding?: Partial<PortalOnboarding> | null;
+  subscription?: Partial<PortalSubscription> | null;
+  tenant?: Partial<AuthTenantContext> | null;
+  user?: RouteUser;
+};
+
+function normalizeBlockReason(value: unknown): MobileBlockReason {
+  if (
+    value === 'inactive_plan' ||
+    value === 'missing_tenant' ||
+    value === 'no_plan' ||
+    value === 'payment_pending' ||
+    value === 'sync_error'
+  ) {
+    return value;
+  }
+
+  return 'sync_error';
+}
+
+export function resolveMobilePostLoginRoute(
+  session: MobilePostLoginSession | null | undefined
+): PostLoginResolution {
+  if (!session?.user) {
+    return {
+      destination: 'Login',
+      reason: 'missing_user',
+      route: '/login',
+    };
+  }
+
+  const canAccessMobile = session.authContext?.canAccessMobile ?? session.canAccessMobile;
+
+  if (canAccessMobile === true) {
+    return {
+      destination: 'HomeOperativo',
+      reason: 'active_mobile_access',
+      route: '/mapa',
+    };
+  }
+
+  if (canAccessMobile === false) {
+    return {
+      destination: 'PlanBlocked',
+      reason: normalizeBlockReason(
+        session.authContext?.mobileBlockReason ?? session.mobileBlockReason
+      ),
+      route: '/plan-blocked',
+    };
+  }
+
+  return {
+    destination: 'SyncError',
+    reason: 'sync_error',
+    route: '/sync-error',
+  };
+}
+
+export function resolvePostLoginRoute(
+  user: RouteUser,
+  subscription?: Partial<PortalSubscription> | null,
+  tenant?: Partial<AuthTenantContext> | null,
+  onboarding?: Partial<PortalOnboarding> | null,
+  options: { authContext?: AuthRoutingContext | null; canAccessMobile?: boolean | null } = {}
+): PostLoginResolution {
+  return resolveMobilePostLoginRoute({
+    authContext: options.authContext,
+    canAccessMobile: options.canAccessMobile,
+    onboarding,
+    subscription,
+    tenant,
+    user,
+  });
 }
 
 export function getAuthenticatedHome(
-  user: Pick<User, 'accountType' | 'role'> | null | undefined
+  user: RouteUser,
+  authContext?: AuthRoutingContext | null
 ) {
-  if (isCustomerAccount(user)) {
-    return '/portal';
-  }
-
-  if (Platform.OS === 'web' && ['billing_manager', 'support', 'viewer'].includes(String(user?.role || ''))) {
-    return '/portal';
-  }
-
-  if (Platform.OS === 'web' && user?.role === 'admin') {
-    return '/portal';
-  }
-
-  return '/mapa';
+  return resolveMobilePostLoginRoute({
+    authContext,
+    user,
+  }).route;
 }
 
 export function getOperationalHome(
-  user: Pick<User, 'accountType'> | null | undefined
+  user: RouteUser,
+  authContext?: AuthRoutingContext | null
 ) {
-  if (isCustomerAccount(user)) {
-    return '/portal';
-  }
-
-  return '/mapa';
+  return getAuthenticatedHome(user, authContext);
 }

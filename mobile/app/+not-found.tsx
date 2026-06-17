@@ -27,8 +27,8 @@ export default function NotFoundScreen() {
           al final, la corregimos automáticamente.
         </Text>
         <View style={styles.links}>
-          <Link href="/ventas" style={styles.link}>
-            Ir a ventas
+          <Link href="/plan-blocked" style={styles.link}>
+            Revisar cuenta
           </Link>
           <Link href="/login" style={styles.link}>
             Ir a login

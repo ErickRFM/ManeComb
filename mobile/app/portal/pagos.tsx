@@ -1,5 +1,5 @@
-import { PortalPaymentsScreen } from 'ventas/features/portal/screens/portal-payments-screen';
+import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 
 export default function PortalPaymentsRoute() {
-  return <PortalPaymentsScreen />;
+  return <MobileAccountGateScreen mode="blocked" />;
 }

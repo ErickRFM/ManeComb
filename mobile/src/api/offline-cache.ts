@@ -9,6 +9,7 @@ import type {
   LiveLocationsData,
   NotificationItem,
   OperationalObservabilitySnapshot,
+  AuthRoutingContext,
   User,
 } from '@/src/types/app';
 
@@ -18,6 +19,7 @@ const MAX_QUEUE_ITEMS = 80;
 
 export type OfflineCacheSnapshot = {
   savedAt: string;
+  authContext: AuthRoutingContext | null;
   user: User | null;
   dashboard: DashboardData | null;
   mapData: LiveLocationsData | null;

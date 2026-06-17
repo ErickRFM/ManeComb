@@ -8,7 +8,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { isCustomerAccount } from '@/src/utils/account-routing';
+import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
@@ -33,7 +33,8 @@ export default function RootLayout() {
   const router = useRouter();
   const { navigationTheme, theme } = useAppTheme();
   const splashHiddenRef = useRef(false);
-  const { handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(useShallow((state) => ({
+  const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(useShallow((state) => ({
+    authContext: state.authContext,
     handlePushIntent: state.handlePushIntent,
     initialize: state.initialize,
     isHydrated: state.isHydrated,
@@ -94,14 +95,10 @@ export default function RootLayout() {
         return;
       }
 
-      if (isCustomerAccount(user)) {
-        router.push('/portal' as never);
-        return;
-      }
-
-      router.push('/perfil');
+      const home = getAuthenticatedHome(user, authContext);
+      router.push((home === '/mapa' ? '/perfil' : home) as never);
     });
-  }, [handlePushIntent, router, user]);
+  }, [authContext, handlePushIntent, router, user]);
 
   return (
     <GestureHandlerRootView
@@ -127,6 +124,9 @@ export default function RootLayout() {
             <Stack.Screen name="login" />
             <Stack.Screen name="registro" />
             <Stack.Screen name="aplicacion" />
+            <Stack.Screen name="plan-blocked" />
+            <Stack.Screen name="operational-onboarding" />
+            <Stack.Screen name="sync-error" />
             <Stack.Screen name="comercial" />
             <Stack.Screen name="ventas" />
             <Stack.Screen name="portal" />

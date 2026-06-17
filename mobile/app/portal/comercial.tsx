@@ -1,5 +1,5 @@
-import { Redirect } from '@/src/navigation/router';
+import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 
 export default function PortalCommercialRoute() {
-  return <Redirect href="/portal" />;
+  return <MobileAccountGateScreen mode="blocked" />;
 }

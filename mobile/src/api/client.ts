@@ -519,7 +519,7 @@ export async function registerRequest(payload: RegisterPayload) {
 }
 
 export async function getSessionRequest() {
-  const response = await apiClient.get<SessionResult>('/auth/session');
+  const response = await apiClient.get<SessionResult>('/auth/me');
   return response.data;
 }
 

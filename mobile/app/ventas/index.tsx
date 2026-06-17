@@ -1,11 +1,11 @@
 import { Redirect } from '@/src/navigation/router';
-import { Platform } from 'react-native';
-import { SalesScreen } from 'ventas/screens/sales-screen';
+import { useEffect } from 'react';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 
 export default function VentasRoute() {
-  if (Platform.OS !== 'web') {
-    return <Redirect href="/login" />;
-  }
+  useEffect(() => {
+    openSalesPortal().catch(() => undefined);
+  }, []);
 
-  return <SalesScreen />;
+  return <Redirect href="/login" />;
 }

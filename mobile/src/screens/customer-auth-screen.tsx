@@ -65,9 +65,10 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 
 export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const { width, height } = useWindowDimensions();
-  const { activateDriverWithKey, isSubmitting, register, signIn, user } = useAppStore(
+  const { activateDriverWithKey, authContext, isSubmitting, register, signIn, user } = useAppStore(
     useShallow((state) => ({
       activateDriverWithKey: state.activateDriverWithKey,
+      authContext: state.authContext,
       isSubmitting: state.isSubmitting,
       register: state.register,
       signIn: state.signIn,
@@ -109,7 +110,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   );
 
   if (user) {
-    return <Redirect href={getAuthenticatedHome(user) as never} />;
+    return <Redirect href={getAuthenticatedHome(user, authContext) as never} />;
   }
 
   const goToMode = (nextMode: 'login' | 'register') => {

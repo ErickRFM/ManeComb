@@ -14,6 +14,10 @@ function getOrganizationId(user) {
 }
 
 function isPastDate(value) {
+  if (!value) {
+    return false;
+  }
+
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
@@ -71,13 +75,16 @@ function buildSubscription(order) {
       planId: null,
       planName: "Sin plan",
       status: "inactive",
+      isActive: false,
       activeUnits: 0,
       availableUnits: 0,
       totalUnits: 0,
+      unitsLimit: 0,
       monthlyPrice: 0,
       currency: "MXN",
       currentPeriodStart: null,
       currentPeriodEnd: null,
+      expiresAt: null,
       cancelAt: null
     };
   }
@@ -86,19 +93,26 @@ function buildSubscription(order) {
   const activeUnits = Array.isArray(order.starterFleet)
     ? order.starterFleet.filter((entry) => entry.status !== "pending").length
     : 0;
+  const status = getSubscriptionStatus(order);
+  const expiresAt = toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil);
+  const isActive =
+    ["active", "trial", "trial_active"].includes(status) && !isPastDate(expiresAt);
 
   return {
     id: order.id,
     planId: order.planId,
     planName: order.planName,
-    status: getSubscriptionStatus(order),
+    status,
+    isActive,
     activeUnits,
     availableUnits: Math.max(0, totalUnits - activeUnits),
     totalUnits,
+    unitsLimit: totalUnits,
     monthlyPrice: Number(order.totalPrice || order.basePlanPrice || 0),
     currency: "MXN",
     currentPeriodStart: toIso(order.paymentApprovedAt || order.trialStartedAt || order.createdAt),
     currentPeriodEnd: toIso(order.trialEndsAt || order.currentPeriodEnd),
+    expiresAt,
     cancelAt: toIso(order.cancelAt)
   };
 }

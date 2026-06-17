@@ -21,6 +21,8 @@ import { StatusPill } from '@/src/components/status-pill';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
+import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 
 const lightMapStyle: MapStyleElement[] = [
   { elementType: 'geometry', stylers: [{ color: '#f4f5f7' }] },
@@ -67,6 +69,7 @@ export function MapScreen() {
 
   const {
     connectionMode,
+    authContext,
     error,
     isRefreshing,
     mapData,
@@ -76,6 +79,7 @@ export function MapScreen() {
   } = useAppStore(
     useShallow((state) => ({
       connectionMode: state.connectionMode,
+      authContext: state.authContext,
       error: state.error,
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
@@ -205,8 +209,41 @@ export function MapScreen() {
   }
 
   if (!mapData) {
-    const canOpenPortal = user.accountType === 'company_owner' ||
-      ['owner', 'admin', 'billing_manager', 'support', 'viewer'].includes(String(user.role || ''));
+    const resolution = resolveMobilePostLoginRoute({
+      authContext,
+      error: error && !authContext ? error : undefined,
+      user,
+    });
+    const isBlocked = resolution.destination === 'PlanBlocked';
+    const isOnboarding = resolution.destination === 'OperationalOnboarding';
+    const isSyncError = !isBlocked && !isOnboarding;
+    const recoveryTitle = isBlocked && resolution.reason === 'payment_pending'
+      ? 'Pago pendiente'
+      : isBlocked && resolution.reason === 'no_plan'
+        ? 'Activa tu plan'
+        : isBlocked
+          ? 'Plan no activo'
+          : isOnboarding
+            ? 'Completa tu configuracion'
+            : 'No pudimos sincronizar tu cuenta';
+    const recoveryMessage = isBlocked && resolution.reason === 'payment_pending'
+      ? 'Tu plan esta en espera de confirmacion.'
+      : isBlocked && resolution.reason === 'no_plan'
+        ? 'Tu cuenta esta creada, pero aun no tienes un plan activo.'
+        : isBlocked
+          ? 'Renueva tu plan para volver a operar ManeComb.'
+          : isOnboarding
+            ? 'Tu plan esta activo. Configura tu empresa para comenzar.'
+            : error || 'Revisa tu conexion e intenta de nuevo.';
+    const primaryLabel = isBlocked && resolution.reason === 'payment_pending'
+      ? 'Revisar pago'
+      : isBlocked && resolution.reason === 'no_plan'
+        ? 'Comprar plan'
+        : isBlocked
+          ? 'Renovar plan'
+          : isOnboarding
+            ? 'Continuar configuracion'
+            : 'Reintentar';
 
     return (
       <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -222,25 +259,32 @@ export function MapScreen() {
             ]}>
             <MaterialCommunityIcons name="map-marker-off-outline" size={30} color={theme.colors.accent} />
           </View>
-          <Text style={[styles.recoveryTitle, { color: theme.colors.text }]}>
-            Panel operativo no disponible
-          </Text>
+          <Text style={[styles.recoveryTitle, { color: theme.colors.text }]}>{recoveryTitle}</Text>
           <Text style={[styles.recoveryMessage, { color: theme.colors.muted }]}>
-            {error ||
-              'No pudimos cargar el centro de control. Revisa tu plan o intenta sincronizar de nuevo.'}
+            {recoveryMessage}
           </Text>
           <View style={styles.recoveryActions}>
-            {canOpenPortal ? (
-              <Pressable
-                onPress={() => router.replace('/portal/plan')}
-                style={({ pressed }) => [
-                  styles.recoveryPrimaryButton,
-                  { backgroundColor: theme.colors.accent },
-                  pressed ? styles.recoveryPressed : undefined,
-                ]}>
-                <Text style={styles.recoveryPrimaryText}>Ver plan</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() => {
+                if (isBlocked) {
+                  openSalesPortal(resolution.reason === 'payment_pending' ? '/login' : '').catch(() => undefined);
+                  return;
+                }
+
+                if (isOnboarding) {
+                  router.replace('/perfil-editar');
+                  return;
+                }
+
+                handleRefresh();
+              }}
+              style={({ pressed }) => [
+                styles.recoveryPrimaryButton,
+                { backgroundColor: theme.colors.accent },
+                pressed ? styles.recoveryPressed : undefined,
+              ]}>
+              <Text style={styles.recoveryPrimaryText}>{primaryLabel}</Text>
+            </Pressable>
             <Pressable
               onPress={() => {
                 handleRefresh();
@@ -256,7 +300,7 @@ export function MapScreen() {
                 <MaterialCommunityIcons name="sync" size={18} color={theme.colors.accent} />
               ) : null}
               <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
-                {isRefreshing ? 'Sincronizando...' : 'Reintentar'}
+                {isRefreshing ? 'Sincronizando...' : isSyncError ? 'Sincronizar' : 'Reintentar'}
               </Text>
             </Pressable>
             <Pressable

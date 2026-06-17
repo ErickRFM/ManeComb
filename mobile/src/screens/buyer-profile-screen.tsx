@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
+import { Redirect, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -33,8 +33,9 @@ import type {
   CommercialPlan,
   ProfileMutationPayload,
 } from '@/src/types/app';
-import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
+import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 
 type PortalMessageTone = 'danger' | 'success' | 'info';
 
@@ -107,8 +108,9 @@ export function BuyerProfileScreen() {
   const isTablet = width >= 760;
   const { theme } = useAppTheme();
   const params = useLocalSearchParams<{ planId?: string | string[]; trial?: string | string[] }>();
-  const { isSubmitting, signOut, updateProfile, user } = useAppStore(
+  const { authContext, isSubmitting, signOut, updateProfile, user } = useAppStore(
     useShallow((state) => ({
+      authContext: state.authContext,
       isSubmitting: state.isSubmitting,
       signOut: state.signOut,
       updateProfile: state.updateProfile,
@@ -281,8 +283,10 @@ export function BuyerProfileScreen() {
     return <Redirect href="/login" />;
   }
 
-  if (!isCustomerAccount(user)) {
-    return <Redirect href={getAuthenticatedHome(user) as never} />;
+  const authenticatedHome = getAuthenticatedHome(user, authContext);
+
+  if (authenticatedHome === '/mapa') {
+    return <Redirect href={authenticatedHome as never} />;
   }
 
   const setMessage = (message: string | null, tone: PortalMessageTone = 'info') => {
@@ -447,7 +451,7 @@ export function BuyerProfileScreen() {
             <View style={styles.navActions}>
               <GhostButton
                 label="Ventas"
-                onPress={() => router.push('/ventas')}
+                onPress={() => openSalesPortal().catch(() => undefined)}
                 palette={palette}
               />
               <PrimaryButton label="Cerrar sesión" onPress={() => { signOut(); }} />

@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 const { canUseOperationalFeatures } = require("../../middlewares/operational-access");
+const { buildAuthContext } = require("../../services/auth-context");
 const { recordAuditLog } = require("../../services/audit");
 const {
   createSessionForRequest,
@@ -15,10 +16,25 @@ const router = Router();
 const authLimiter = enterpriseRateLimit({ scope: "auth", max: 20, windowMs: 60 * 1000 });
 const refreshLimiter = enterpriseRateLimit({ scope: "auth-refresh", max: 30, windowMs: 60 * 1000 });
 
+function buildAuthContextPayload(authContext) {
+  return {
+    authContext,
+    canAccessMobile: authContext.canAccessMobile,
+    mobileBlockReason: authContext.mobileBlockReason,
+    tenant: authContext.tenant,
+    subscription: authContext.subscription,
+    onboarding: authContext.onboarding,
+    postLoginRoute: authContext.route
+  };
+}
+
 async function buildLoginResponse(req, res, user, statusCode = 200, action = "auth.login") {
   const refresh = await createSessionForRequest(req, user);
   const session = buildAuthSession(user, refresh.session.id);
   const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, user);
+  const authContext = await buildAuthContext(req.app.locals.store, user, {
+    canUseOperations
+  });
 
   await recordAuditLog(req, {
     actorId: user.id,
@@ -37,6 +53,7 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
     refreshTokenExpiresAt: refresh.session.expiresAt,
     session: refresh.session,
     user,
+    ...buildAuthContextPayload(authContext),
     dashboard: canUseOperations
       ? await req.app.locals.store.getDashboardOverview(user)
       : null
@@ -139,6 +156,10 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
   }
 
   const session = buildAuthSession(user, rotated.session.id);
+  const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, user);
+  const authContext = await buildAuthContext(req.app.locals.store, user, {
+    canUseOperations
+  });
   await recordAuditLog(req, {
     actorId: user.id,
     organizationId: user.organizationId,
@@ -155,7 +176,8 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
     refreshToken: rotated.refreshToken,
     refreshTokenExpiresAt: rotated.session.expiresAt,
     session: rotated.session,
-    user
+    user,
+    ...buildAuthContextPayload(authContext)
   });
 });
 
@@ -203,17 +225,24 @@ router.post("/logout-all", authenticate, async (req, res) => {
   });
 });
 
-router.get("/session", authenticate, async (req, res) => {
+async function sendSessionResponse(req, res) {
   const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, req.user);
+  const authContext = await buildAuthContext(req.app.locals.store, req.user, {
+    canUseOperations
+  });
 
   return res.json({
     ok: true,
     profile: await req.app.locals.store.getUserProfile(req.user.id),
+    ...buildAuthContextPayload(authContext),
     dashboard: canUseOperations
       ? await req.app.locals.store.getDashboardOverview(req.user)
       : null
   });
-});
+}
+
+router.get("/session", authenticate, sendSessionResponse);
+router.get("/me", authenticate, sendSessionResponse);
 
 router.get("/e2ee-backup", authenticate, async (req, res) => {
   const backup = await req.app.locals.store.getUserE2eeBackup?.(

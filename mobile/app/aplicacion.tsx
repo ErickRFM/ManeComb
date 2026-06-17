@@ -4,8 +4,9 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { getOperationalHome } from '@/src/utils/account-routing';
 
 export default function ApplicationRoute() {
-  const { isHydrated, user } = useAppStore(
+  const { authContext, isHydrated, user } = useAppStore(
     useShallow((state) => ({
+      authContext: state.authContext,
       isHydrated: state.isHydrated,
       user: state.user,
     }))
@@ -15,5 +16,5 @@ export default function ApplicationRoute() {
     return null;
   }
 
-  return <Redirect href={(user ? getOperationalHome(user) : '/login') as never} />;
+  return <Redirect href={(user ? getOperationalHome(user, authContext) : '/login') as never} />;
 }
