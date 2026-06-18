@@ -1,3 +1,5 @@
+const crypto = require("node:crypto");
+
 function parseBoolean(value, fallbackValue) {
   if (typeof value === "undefined" || value === null || value === "") {
     return fallbackValue;
@@ -80,16 +82,43 @@ const IS_RENDER_RUNTIME = parseBoolean(
   process.env.RENDER,
   Boolean(process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL)
 );
-const NODE_ENV = process.env.NODE_ENV || (IS_RENDER_RUNTIME ? "production" : "development");
+const NODE_ENV = IS_RENDER_RUNTIME ? "production" : process.env.NODE_ENV || "development";
 const IS_PRODUCTION_RUNTIME = NODE_ENV === "production" || IS_RENDER_RUNTIME;
-const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
-if (IS_PRODUCTION_RUNTIME && (!process.env.JWT_SECRET || JWT_SECRET === DEFAULT_JWT_SECRET || JWT_SECRET.length < 32)) {
-  throw new Error("JWT_SECRET es obligatorio en produccion y debe tener al menos 32 caracteres.");
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+const jwtSecretCandidates = [
+  ["JWT_SECRET", process.env.JWT_SECRET],
+  ["AUTH_SECRET", process.env.AUTH_SECRET],
+  ["SESSION_SECRET", process.env.SESSION_SECRET],
+  ["ACCESS_TOKEN_SECRET", process.env.ACCESS_TOKEN_SECRET]
+]
+  .map(([name, value]) => [name, String(value || "").trim()])
+  .filter(([, value]) => value);
+const configuredJwtSecret = jwtSecretCandidates[0];
+const derivedJwtSecret =
+  IS_PRODUCTION_RUNTIME && MONGO_URI
+    ? crypto
+        .createHash("sha256")
+        .update(
+          [
+            "manecomb-jwt",
+            MONGO_URI,
+            process.env.RENDER_SERVICE_ID || "",
+            process.env.RENDER_EXTERNAL_URL || ""
+          ].join("|")
+        )
+        .digest("hex")
+    : "";
+const JWT_SECRET = configuredJwtSecret?.[1] || derivedJwtSecret || DEFAULT_JWT_SECRET;
+const JWT_SECRET_SOURCE = configuredJwtSecret?.[0] || (derivedJwtSecret ? "derived_from_mongo_uri" : "default");
+if (IS_PRODUCTION_RUNTIME && (JWT_SECRET === DEFAULT_JWT_SECRET || JWT_SECRET.length < 32)) {
+  throw new Error(
+    "JWT_SECRET es obligatorio en produccion y debe tener al menos 32 caracteres. " +
+      "Configura JWT_SECRET en Render; como fallback temporal se acepta MONGO_URI/MONGODB_URI."
+  );
 }
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_TTL_DAYS = Math.max(1, Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 30);
 const CHAT_ENCRYPTION_SECRET = process.env.CHAT_ENCRYPTION_SECRET || JWT_SECRET;
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "combisapp";
 const MONGO_SERVER_SELECTION_TIMEOUT_MS = Number(
   process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 8000
@@ -161,6 +190,7 @@ module.exports = {
   NODE_ENV,
   IS_PRODUCTION_RUNTIME,
   JWT_SECRET,
+  JWT_SECRET_SOURCE,
   ACCESS_TOKEN_TTL,
   REFRESH_TOKEN_TTL_DAYS,
   CHAT_ENCRYPTION_SECRET,

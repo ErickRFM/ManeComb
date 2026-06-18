@@ -4,6 +4,7 @@ const { spawnSync } = require("node:child_process");
 
 const backendRoot = path.resolve(__dirname, "..");
 const strongSecret = "env-test-secret-with-at-least-32-characters";
+const mongoUri = "mongodb://user:password@atlas.example/manecomb";
 
 function runEnvScript(script, overrides = {}, removals = []) {
   const env = {
@@ -29,7 +30,16 @@ function testProductionRequiresJwtSecret() {
       NODE_ENV: "production",
       RENDER: ""
     },
-    ["JWT_SECRET", "RENDER_SERVICE_ID", "RENDER_EXTERNAL_URL"]
+    [
+      "JWT_SECRET",
+      "AUTH_SECRET",
+      "SESSION_SECRET",
+      "ACCESS_TOKEN_SECRET",
+      "MONGO_URI",
+      "MONGODB_URI",
+      "RENDER_SERVICE_ID",
+      "RENDER_EXTERNAL_URL"
+    ]
   );
 
   assert.notEqual(result.status, 0);
@@ -44,7 +54,16 @@ function testRenderRequiresJwtSecret() {
       NODE_ENV: "",
       RENDER: "true"
     },
-    ["JWT_SECRET", "RENDER_SERVICE_ID", "RENDER_EXTERNAL_URL"]
+    [
+      "JWT_SECRET",
+      "AUTH_SECRET",
+      "SESSION_SECRET",
+      "ACCESS_TOKEN_SECRET",
+      "MONGO_URI",
+      "MONGODB_URI",
+      "RENDER_SERVICE_ID",
+      "RENDER_EXTERNAL_URL"
+    ]
   );
 
   assert.notEqual(result.status, 0);
@@ -61,6 +80,52 @@ function testProductionAcceptsStrongJwtSecret() {
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   console.log("ok - produccion acepta JWT_SECRET fuerte");
+}
+
+function testProductionAcceptsJwtSecretAliases() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.JWT_SECRET!=='env-test-auth-secret-with-at-least-32-characters') process.exit(2);",
+      "if(env.JWT_SECRET_SOURCE!=='AUTH_SECRET') process.exit(3);"
+    ].join(""),
+    {
+      AUTH_SECRET: "env-test-auth-secret-with-at-least-32-characters",
+      NODE_ENV: "production",
+      RENDER: ""
+    },
+    ["JWT_SECRET", "SESSION_SECRET", "ACCESS_TOKEN_SECRET"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - produccion acepta aliases fuertes de JWT_SECRET");
+}
+
+function testRenderAcceptsMongoDerivedJwtSecret() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.JWT_SECRET.length<32) process.exit(2);",
+      "if(env.JWT_SECRET_SOURCE!=='derived_from_mongo_uri') process.exit(3);"
+    ].join(""),
+    {
+      NODE_ENV: "",
+      RENDER: "true",
+      MONGODB_URI: mongoUri
+    },
+    [
+      "JWT_SECRET",
+      "AUTH_SECRET",
+      "SESSION_SECRET",
+      "ACCESS_TOKEN_SECRET",
+      "MONGO_URI",
+      "RENDER_SERVICE_ID",
+      "RENDER_EXTERNAL_URL"
+    ]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - Render acepta fallback temporal derivado de Mongo");
 }
 
 function testDeploymentEnvAliases() {
@@ -90,4 +155,6 @@ function testDeploymentEnvAliases() {
 testProductionRequiresJwtSecret();
 testRenderRequiresJwtSecret();
 testProductionAcceptsStrongJwtSecret();
+testProductionAcceptsJwtSecretAliases();
+testRenderAcceptsMongoDerivedJwtSecret();
 testDeploymentEnvAliases();

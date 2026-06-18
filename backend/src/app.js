@@ -10,6 +10,7 @@ const {
   CORS_ORIGIN,
   CLIENT_ORIGINS,
   IS_RENDER_RUNTIME,
+  JWT_SECRET_SOURCE,
   NODE_ENV,
   RUNTIME_COMMIT,
   TRUST_PROXY
@@ -149,6 +150,10 @@ function createApp({ store, getDbState }) {
       uptimeSeconds: Math.round(process.uptime()),
       render: IS_RENDER_RUNTIME,
       trustProxy: app.get("trust proxy") === 1,
+      auth: {
+        jwtSecretSource: JWT_SECRET_SOURCE,
+        ready: JWT_SECRET_SOURCE !== "default"
+      },
       mode: db.mode,
       database: db.connected ? "connected" : db.mode,
       storage: getStorageMode(),
