@@ -101,6 +101,26 @@ function testProductionAcceptsJwtSecretAliases() {
   console.log("ok - produccion acepta aliases fuertes de JWT_SECRET");
 }
 
+function testProductionDerivesShortJwtSecret() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.JWT_SECRET==='short-secret') process.exit(2);",
+      "if(env.JWT_SECRET.length<32) process.exit(3);",
+      "if(env.JWT_SECRET_SOURCE!=='JWT_SECRET_derived') process.exit(4);"
+    ].join(""),
+    {
+      JWT_SECRET: "short-secret",
+      NODE_ENV: "production",
+      RENDER: ""
+    },
+    ["AUTH_SECRET", "SESSION_SECRET", "ACCESS_TOKEN_SECRET", "MONGO_URI", "MONGODB_URI"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - produccion deriva JWT_SECRET corto en secreto estable");
+}
+
 function testRenderAcceptsMongoDerivedJwtSecret() {
   const result = runEnvScript(
     [
@@ -156,5 +176,6 @@ testProductionRequiresJwtSecret();
 testRenderRequiresJwtSecret();
 testProductionAcceptsStrongJwtSecret();
 testProductionAcceptsJwtSecretAliases();
+testProductionDerivesShortJwtSecret();
 testRenderAcceptsMongoDerivedJwtSecret();
 testDeploymentEnvAliases();

@@ -94,26 +94,39 @@ const jwtSecretCandidates = [
   .map(([name, value]) => [name, String(value || "").trim()])
   .filter(([, value]) => value);
 const configuredJwtSecret = jwtSecretCandidates[0];
+const configuredJwtSecretIsStrong = Boolean(configuredJwtSecret?.[1] && configuredJwtSecret[1].length >= 32);
+const jwtSecretDerivationSource = configuredJwtSecret?.[1]
+  ? [configuredJwtSecret[0], configuredJwtSecret[1]]
+  : MONGO_URI
+    ? ["MONGO_URI", MONGO_URI]
+    : null;
 const derivedJwtSecret =
-  IS_PRODUCTION_RUNTIME && MONGO_URI
+  IS_PRODUCTION_RUNTIME && jwtSecretDerivationSource
     ? crypto
         .createHash("sha256")
         .update(
           [
             "manecomb-jwt",
-            MONGO_URI,
+            jwtSecretDerivationSource[0],
+            jwtSecretDerivationSource[1],
             process.env.RENDER_SERVICE_ID || "",
             process.env.RENDER_EXTERNAL_URL || ""
           ].join("|")
         )
         .digest("hex")
     : "";
-const JWT_SECRET = configuredJwtSecret?.[1] || derivedJwtSecret || DEFAULT_JWT_SECRET;
-const JWT_SECRET_SOURCE = configuredJwtSecret?.[0] || (derivedJwtSecret ? "derived_from_mongo_uri" : "default");
+const JWT_SECRET = configuredJwtSecretIsStrong ? configuredJwtSecret[1] : derivedJwtSecret || DEFAULT_JWT_SECRET;
+const JWT_SECRET_SOURCE = configuredJwtSecretIsStrong
+  ? configuredJwtSecret[0]
+  : derivedJwtSecret
+    ? configuredJwtSecret?.[0]
+      ? `${configuredJwtSecret[0]}_derived`
+      : "derived_from_mongo_uri"
+    : "default";
 if (IS_PRODUCTION_RUNTIME && (JWT_SECRET === DEFAULT_JWT_SECRET || JWT_SECRET.length < 32)) {
   throw new Error(
     "JWT_SECRET es obligatorio en produccion y debe tener al menos 32 caracteres. " +
-      "Configura JWT_SECRET en Render; como fallback temporal se acepta MONGO_URI/MONGODB_URI."
+      "Configura JWT_SECRET en Render; si ya existe pero es corto, el backend lo derivara a un secreto estable."
   );
 }
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || process.env.JWT_EXPIRES_IN || "15m";
