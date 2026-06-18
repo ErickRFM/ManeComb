@@ -20,9 +20,11 @@ Configuracion:
 En Cloudflare Pages, configurar:
 
 ```env
-VITE_API_URL=https://api.tudominio.com/api
-VITE_SOCKET_URL=https://api.tudominio.com
+VITE_API_URL=https://manecomb.onrender.com/api
+VITE_SOCKET_URL=https://manecomb.onrender.com
 ```
+
+`VITE_API_URL` es obligatorio en builds de produccion. Si falta, `npm run build` debe fallar para evitar que Cloudflare intente llamar a `/api` sin proxy.
 
 Para desarrollo local, copiar `ventas/.env.example` a `ventas/.env` si necesitas cambiar los defaults:
 

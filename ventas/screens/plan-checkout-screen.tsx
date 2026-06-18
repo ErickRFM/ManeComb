@@ -19,6 +19,7 @@ import { Typography } from '@/constants/theme';
 import {
   confirmCommercialPaymentRequest,
   createCommercialCheckoutRequest,
+  getApiErrorMessage,
   getCommercialPlansRequest,
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -231,7 +232,7 @@ export function PlanCheckoutScreen() {
       setReceipt(activatedOrder);
       setStep('done');
     } catch (error) {
-      const readableMessage = error instanceof Error ? error.message : 'No fue posible completar la compra.';
+      const readableMessage = getApiErrorMessage(error, 'No fue posible completar la compra.');
       setMessage(readableMessage);
       setStep('payment');
     } finally {

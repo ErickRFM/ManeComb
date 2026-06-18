@@ -5,7 +5,15 @@ const express = require("express");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
-const { CORS_ORIGIN, CLIENT_ORIGINS, TRUST_PROXY } = require("./config/env");
+const packageJson = require("../package.json");
+const {
+  CORS_ORIGIN,
+  CLIENT_ORIGINS,
+  IS_RENDER_RUNTIME,
+  NODE_ENV,
+  RUNTIME_COMMIT,
+  TRUST_PROXY
+} = require("./config/env");
 const accountRoutes = require("./modules/account/routes");
 const {
   adminActivationKeyRoutes,
@@ -130,10 +138,17 @@ function createApp({ store, getDbState }) {
   function handleHealth(req, res) {
     const db = getDbState();
     const readiness = getRuntimeReadiness(db);
+    const commit = String(RUNTIME_COMMIT || "").trim();
 
     return res.json({
       ok: true,
       status: readiness.status,
+      environment: NODE_ENV,
+      version: packageJson.version,
+      commit: commit ? commit.slice(0, 12) : null,
+      uptimeSeconds: Math.round(process.uptime()),
+      render: IS_RENDER_RUNTIME,
+      trustProxy: app.get("trust proxy") === 1,
       mode: db.mode,
       database: db.connected ? "connected" : db.mode,
       storage: getStorageMode(),

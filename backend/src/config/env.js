@@ -73,13 +73,23 @@ function isClientOriginAllowed(origin) {
   return CLIENT_ORIGINS.some((allowedOrigin) => originMatchesPattern(origin, allowedOrigin));
 }
 
+const DEFAULT_JWT_SECRET = "combis-app-secret";
 const PORT = Number(process.env.PORT || 5000);
 const HOST = process.env.HOST || "0.0.0.0";
-const JWT_SECRET = process.env.JWT_SECRET || "combis-app-secret";
-const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || "15m";
+const IS_RENDER_RUNTIME = parseBoolean(
+  process.env.RENDER,
+  Boolean(process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL)
+);
+const NODE_ENV = process.env.NODE_ENV || (IS_RENDER_RUNTIME ? "production" : "development");
+const IS_PRODUCTION_RUNTIME = NODE_ENV === "production" || IS_RENDER_RUNTIME;
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+if (IS_PRODUCTION_RUNTIME && (!process.env.JWT_SECRET || JWT_SECRET === DEFAULT_JWT_SECRET || JWT_SECRET.length < 32)) {
+  throw new Error("JWT_SECRET es obligatorio en produccion y debe tener al menos 32 caracteres.");
+}
+const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_TTL_DAYS = Math.max(1, Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 30);
 const CHAT_ENCRYPTION_SECRET = process.env.CHAT_ENCRYPTION_SECRET || JWT_SECRET;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "combisapp";
 const MONGO_SERVER_SELECTION_TIMEOUT_MS = Number(
   process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 8000
@@ -94,7 +104,7 @@ const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
   ? "*"
   : (origin, callback) => callback(null, isClientOriginAllowed(origin));
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
-const APP_URL = process.env.APP_URL || "http://localhost:8081";
+const APP_URL = process.env.APP_URL || process.env.CLIENT_URL || "http://localhost:8081";
 const PUBLIC_WEBHOOK_BASE_URL = process.env.PUBLIC_WEBHOOK_BASE_URL || "";
 const DOCUMENT_STORAGE_DRIVER = process.env.DOCUMENT_STORAGE_DRIVER || "mongo";
 const COMMERCIAL_BRAND_NAME = process.env.COMMERCIAL_BRAND_NAME || "ManeComb";
@@ -108,7 +118,8 @@ const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "";
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || "mercado_pago";
-const MERCADO_PAGO_ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
+const MERCADO_PAGO_ACCESS_TOKEN =
+  process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
@@ -136,16 +147,19 @@ const AUDIO_TRANSCRIPTION_LANGUAGE = process.env.AUDIO_TRANSCRIPTION_LANGUAGE ||
 const REDIS_URL = process.env.REDIS_URL || "";
 const ENABLE_REDIS = parseBoolean(process.env.ENABLE_REDIS, false);
 const ENABLE_QUEUES = parseBoolean(process.env.ENABLE_QUEUES, false);
-const IS_RENDER_RUNTIME = parseBoolean(
-  process.env.RENDER,
-  Boolean(process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL)
-);
 const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, IS_RENDER_RUNTIME);
+const RUNTIME_COMMIT =
+  process.env.RENDER_GIT_COMMIT ||
+  process.env.GIT_COMMIT ||
+  process.env.COMMIT_SHA ||
+  "";
 
 module.exports = {
   APP_URL,
   HOST,
   PORT,
+  NODE_ENV,
+  IS_PRODUCTION_RUNTIME,
   JWT_SECRET,
   ACCESS_TOKEN_TTL,
   REFRESH_TOKEN_TTL_DAYS,
@@ -196,5 +210,6 @@ module.exports = {
   ENABLE_REDIS,
   ENABLE_QUEUES,
   IS_RENDER_RUNTIME,
+  RUNTIME_COMMIT,
   TRUST_PROXY
 };

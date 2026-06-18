@@ -11,6 +11,7 @@ import {
   getAccountPaymentMethodsRequest,
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
+  getApiErrorMessage,
   getPortalOnboardingRequest,
   getPortalOverviewRequest,
   revokeAccountSessionRequest,
@@ -99,13 +100,14 @@ async function getOptionalData<T>(request: () => Promise<T>, fallback: T) {
 
 function getMessage(error: unknown, fallback: string) {
   if (isAxiosError(error)) {
-    const apiMessage = error.response?.data?.message;
-    if (typeof apiMessage === 'string' && apiMessage.trim()) {
-      return apiMessage;
-    }
+    return getApiErrorMessage(error, fallback);
   }
 
   return error instanceof Error ? error.message : fallback;
+}
+
+function needsFullCommercialReload(eventName: string) {
+  return ['payment:confirmed', 'plan:active', 'subscription:updated'].includes(eventName);
 }
 
 export const usePortalStore = create<PortalStore>((set, get) => ({
@@ -387,6 +389,11 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
             activationSummary: activationPayload.summary,
           });
         }
+      }
+
+      if (needsFullCommercialReload(eventName)) {
+        void get().loadAll();
+        return;
       }
 
       void get().loadOverview();

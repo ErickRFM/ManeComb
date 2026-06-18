@@ -6,6 +6,16 @@ require("dotenv").config({
   path: path.resolve(__dirname, "../.env")
 });
 
+Object.assign(process.env, {
+  MERCADO_PAGO_ACCESS_TOKEN: "",
+  MERCADOPAGO_ACCESS_TOKEN: "",
+  MONGO_SERVER_SELECTION_TIMEOUT_MS: "1000",
+  MONGODB_URI: "",
+  MONGO_URI: "",
+  PAYMENT_PROVIDER: "manual",
+  REQUIRE_MONGO: "false"
+});
+
 const createApp = require("../src/app");
 const { connectDB, getDbState } = require("../src/config/db");
 const { createEmbeddedStore } = require("../src/data/store");

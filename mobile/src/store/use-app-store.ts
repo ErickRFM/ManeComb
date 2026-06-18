@@ -420,7 +420,7 @@ function getAuthContextFromPayload(
     return {
       ...payload.authContext,
       canAccessMobile,
-      canUseOperations: canAccessMobile === true ? true : payload.authContext.canUseOperations,
+      canUseOperations: canAccessMobile === true,
       destination: canAccessMobile === true
         ? 'HomeOperativo'
         : canAccessMobile === false
@@ -759,7 +759,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
         setAuthToken(result.token);
         await persistSession(result.token, get().connectionMode, nextRefreshToken);
         set({
-          authContext: authContext || get().authContext,
+          authContext,
           token: result.token,
           refreshToken: nextRefreshToken || null,
           user: result.user || get().user,
@@ -905,7 +905,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         networkSnapshot,
         networkStatus: isNetworkReachable(networkSnapshot) ? 'online' : 'offline',
         pendingSyncCount: queue.length,
-        ...stateFromCache(cached),
       });
       if (!t) {
         await clearTenantCache();
@@ -931,15 +930,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch (error) {
         if (isProbablyNetworkError(error) && cached?.user) {
           set({
+            ...getEmptyOperationalState(),
             connectionMode,
             token: sessionToken,
             refreshToken: nextRefreshToken,
             themeMode: th === 'dark' ? 'dark' : 'light',
-            ...stateFromCache(cached),
+            user: cached.user,
+            authContext: null,
+            lastCacheAt: cached.savedAt,
             isHydrated: true,
             isBootstrapping: false,
-            networkStatus: 'offline',
-            error: 'Sin conexion. Mostrando datos guardados.',
+            networkStatus: 'recovering',
+            error: 'No pudimos sincronizar tu cuenta. Reintenta cuando el servidor responda.',
           });
           return;
         }
@@ -1034,8 +1036,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (res.some((result) => result.status === 'rejected' && isPlanRequiredError(result.reason))) {
         await clearOfflineCache().catch(() => undefined);
+        let nextAuthContext: AuthRoutingContext | null = null;
+
+        try {
+          nextAuthContext = (await refreshAuthSession(set)).authContext;
+        } catch (error) {
+          logStoreError('refreshAll:planRequiredSession', error);
+        }
+
         set({
           ...getEmptyOperationalState(),
+          authContext: nextAuthContext,
           isHydrated: true,
           isBootstrapping: false,
           error: PLAN_REQUIRED_MESSAGE,

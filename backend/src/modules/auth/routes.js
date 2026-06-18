@@ -1,7 +1,6 @@
 const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
-const { canUseOperationalFeatures } = require("../../middlewares/operational-access");
 const { buildAuthContext } = require("../../services/auth-context");
 const { recordAuditLog } = require("../../services/audit");
 const {
@@ -31,10 +30,7 @@ function buildAuthContextPayload(authContext) {
 async function buildLoginResponse(req, res, user, statusCode = 200, action = "auth.login") {
   const refresh = await createSessionForRequest(req, user);
   const session = buildAuthSession(user, refresh.session.id);
-  const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, user);
-  const authContext = await buildAuthContext(req.app.locals.store, user, {
-    canUseOperations
-  });
+  const authContext = await buildAuthContext(req.app.locals.store, user);
 
   await recordAuditLog(req, {
     actorId: user.id,
@@ -54,7 +50,7 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
     session: refresh.session,
     user,
     ...buildAuthContextPayload(authContext),
-    dashboard: canUseOperations
+    dashboard: authContext.canUseOperations
       ? await req.app.locals.store.getDashboardOverview(user)
       : null
   });
@@ -156,10 +152,7 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
   }
 
   const session = buildAuthSession(user, rotated.session.id);
-  const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, user);
-  const authContext = await buildAuthContext(req.app.locals.store, user, {
-    canUseOperations
-  });
+  const authContext = await buildAuthContext(req.app.locals.store, user);
   await recordAuditLog(req, {
     actorId: user.id,
     organizationId: user.organizationId,
@@ -226,16 +219,13 @@ router.post("/logout-all", authenticate, async (req, res) => {
 });
 
 async function sendSessionResponse(req, res) {
-  const canUseOperations = await canUseOperationalFeatures(req.app.locals.store, req.user);
-  const authContext = await buildAuthContext(req.app.locals.store, req.user, {
-    canUseOperations
-  });
+  const authContext = await buildAuthContext(req.app.locals.store, req.user);
 
   return res.json({
     ok: true,
     profile: await req.app.locals.store.getUserProfile(req.user.id),
     ...buildAuthContextPayload(authContext),
-    dashboard: canUseOperations
+    dashboard: authContext.canUseOperations
       ? await req.app.locals.store.getDashboardOverview(req.user)
       : null
   });

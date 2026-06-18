@@ -15,14 +15,15 @@ Variables relevantes:
 
 ```env
 NODE_ENV=production
-MONGODB_URI=<mongodb-atlas-uri>
-JWT_SECRET=<secret>
-JWT_REFRESH_SECRET=<secret>
+MONGO_URI=<mongodb-atlas-uri>
+# Tambien se acepta MONGODB_URI si Render/Atlas ya usa ese nombre.
+JWT_SECRET=<secret-de-32-caracteres-o-mas>
 CLIENT_ORIGIN=https://manecomb1.pages.dev,https://*.manecomb1.pages.dev,http://localhost:5173,http://127.0.0.1:5173
 APP_URL=https://manecomb1.pages.dev
 ```
 
 `CLIENT_ORIGIN` acepta lista separada por comas y patrones `*` para previews de Cloudflare Pages.
+En Render, `TRUST_PROXY` se activa automaticamente cuando `RENDER=true`, `RENDER_SERVICE_ID` o `RENDER_EXTERNAL_URL` estan presentes. Si `JWT_SECRET` falta o es debil, el backend debe fallar al arrancar con un mensaje claro.
 No publicar `.env`, secrets, keystores ni credenciales.
 
 Comandos de validacion:
@@ -43,13 +44,14 @@ Resultados esperados:
 
 ## MongoDB Atlas
 
-El backend intenta usar Atlas si `MONGODB_URI` esta presente. En pruebas locales sin acceso a Atlas, el backend mantiene almacenamiento interno y las pruebas pasan.
+El backend intenta usar Atlas si `MONGO_URI` o `MONGODB_URI` esta presente. En pruebas locales sin acceso a Atlas, el backend mantiene almacenamiento interno y las pruebas pasan.
 
 Validar en Render:
 
-- `MONGODB_URI` configurado.
+- `MONGO_URI` o `MONGODB_URI` configurado.
+- `JWT_SECRET` configurado con al menos 32 caracteres.
 - IP allowlist / network access correcto.
-- Logs sin errores recurrentes de conexion.
+- Logs sin errores recurrentes de conexion ni `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`.
 - Health responde.
 
 ## Ventas Cloudflare Pages

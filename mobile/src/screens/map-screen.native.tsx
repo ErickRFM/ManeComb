@@ -22,6 +22,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
+import { getLocationStatus } from '@/src/utils/location-status';
 import { openSalesPortal } from '@/src/utils/sales-portal';
 
 const lightMapStyle: MapStyleElement[] = [
@@ -63,7 +64,14 @@ export function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ vehicleId?: string; follow?: string }>();
-  const { coordinates, refresh, permission } = useUserLocation();
+  const {
+    coordinates,
+    issue: locationIssue,
+    loading: locationLoading,
+    permission,
+    refresh,
+    servicesEnabled,
+  } = useUserLocation();
   const lastLocationSyncRef = useRef(0);
   const lastSyncedLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
@@ -94,6 +102,26 @@ export function MapScreen() {
   const [followMode, setFollowMode] = useState(true);
   const [trafficEnabled, setTrafficEnabled] = useState(true);
   const [activeAlertIndex, setActiveAlertIndex] = useState(0);
+
+  const locationStatus = useMemo(
+    () =>
+      getLocationStatus({
+        coordinatesReady: Boolean(coordinates),
+        issue: locationIssue,
+        loading: locationLoading,
+        permission,
+        servicesEnabled,
+      }),
+    [coordinates, locationIssue, locationLoading, permission, servicesEnabled]
+  );
+  const locationStatusColor =
+    locationStatus.tone === 'ok'
+      ? theme.colors.success
+      : locationStatus.tone === 'error'
+        ? theme.colors.danger
+        : locationStatus.tone === 'warning'
+          ? theme.colors.warning
+          : theme.colors.muted;
 
   useEffect(() => {
     if (params.vehicleId) {
@@ -398,7 +426,7 @@ export function MapScreen() {
               <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
                 <HUDItem value={`${mapData.vehicles.filter(v => v.status === 'on-route').length}`} icon="bus" color={theme.colors.info} />
                 <HUDItem value={`${mapData.incidents.length}`} icon="alert" color={theme.colors.danger} />
-                <HUDItem value={permission === 'granted' ? 'OK' : 'OFF'} icon="crosshairs-gps" color={theme.colors.success} />
+                <HUDItem value={locationStatus.hudLabel} icon="crosshairs-gps" color={locationStatusColor} />
                 <HUDItem value={trafficEnabled ? 'ON' : 'OFF'} icon="traffic-light" color={trafficEnabled ? theme.colors.warning : theme.colors.muted} />
               </View>
 
@@ -422,15 +450,36 @@ export function MapScreen() {
           <Pressable onPress={focusNextAlert} style={[styles.fab, { backgroundColor: visibleIncidents.length ? theme.colors.danger : theme.colors.headerGlass, borderColor: theme.colors.line }]}>
             <MaterialCommunityIcons name="alert-decagram" size={22} color={visibleIncidents.length ? "#FFF" : theme.colors.text} />
           </Pressable>
-          {permission !== 'granted' && (
+          {locationStatus.canRetry && (
             <Pressable onPress={refresh} style={[styles.fab, { backgroundColor: theme.colors.warning, borderColor: theme.colors.line }]}>
-              <MaterialCommunityIcons name="location-exit" size={22} color="#FFF" />
+              <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#FFF" />
             </Pressable>
           )}
         </View>
 
         {/* Bottom HUD */}
         <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 10 }]}>
+          {locationStatus.canRetry && locationStatus.title ? (
+            <View style={[styles.locationNotice, { backgroundColor: theme.colors.surface, borderColor: locationStatusColor }]}>
+              <MaterialCommunityIcons name="crosshairs-gps" size={20} color={locationStatusColor} />
+              <View style={styles.locationNoticeCopy}>
+                <Text style={[styles.locationNoticeTitle, { color: theme.colors.text }]}>
+                  {locationStatus.title}
+                </Text>
+                {locationStatus.message ? (
+                  <Text style={[styles.locationNoticeText, { color: theme.colors.muted }]}>
+                    {locationStatus.message}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                onPress={refresh}
+                style={[styles.locationRetry, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line }]}
+                accessibilityLabel="Reintentar ubicacion">
+                <MaterialCommunityIcons name="refresh" size={18} color={theme.colors.text} />
+              </Pressable>
+            </View>
+          ) : null}
           <View style={[styles.followCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
              <View style={styles.followHeader}>
                 <View>
@@ -508,7 +557,23 @@ const styles = StyleSheet.create({
   hudValue: { flexShrink: 1, fontSize: 15, fontWeight: '800', fontFamily: Typography.mono, minWidth: 0 },
   sideActions: { position: 'absolute', right: 16, gap: 12, zIndex: 10 },
   fab: { width: 48, height: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, zIndex: 10 },
+  bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 10, paddingHorizontal: 16, zIndex: 10 },
+  locationNotice: {
+    alignSelf: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: 440,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: '100%',
+  },
+  locationNoticeCopy: { flex: 1, gap: 2, minWidth: 0 },
+  locationNoticeTitle: { flexShrink: 1, fontSize: 13, fontWeight: '900', fontFamily: Typography.body, minWidth: 0 },
+  locationNoticeText: { flexShrink: 1, fontSize: 11, lineHeight: 15, fontFamily: Typography.body, minWidth: 0 },
+  locationRetry: { width: 38, height: 38, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   followCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 12, elevation: 8, shadowOpacity: 0.15, shadowRadius: 10 },
   followHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', minWidth: 0 },
   followTitle: { flexShrink: 1, fontSize: 22, fontWeight: '800', fontFamily: Typography.display, minWidth: 0 },

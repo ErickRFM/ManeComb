@@ -9,6 +9,7 @@ export {
   getAccountPaymentMethodsRequest,
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
+  getApiErrorMessage,
   getPortalOnboardingRequest,
   getPortalOverviewRequest,
   revokeAccountSessionRequest,

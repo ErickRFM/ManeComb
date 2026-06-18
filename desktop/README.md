@@ -1,15 +1,14 @@
 # Desktop
 
-La experiencia desktop se monta sobre el mismo proyecto Expo y comparte store, servicios, tipos y pantallas con `mobile`.
+Este directorio queda como nota historica del experimento desktop.
 
-Codigo principal:
+Estado actual:
+
+- La app movil activa vive en `mobile/` y usa React Native CLI.
+- La web comercial activa vive en `ventas/` y usa Vite.
+- No existe un script `desktop` activo en los `package.json` actuales.
+- No revivir este flujo sin definir primero un alcance nuevo y validarlo contra RN CLI.
+
+Codigo relacionado que aun puede existir por compatibilidad historica:
 
 - `mobile/src/desktop`
-- `mobile/src/store`
-- `mobile/src/screens`
-
-Para abrir la version web/desktop:
-
-```bash
-npm run desktop
-```

@@ -1,71 +1,40 @@
-const {
-  canAccessAllTenants,
-  getOrganizationId
-} = require("./access-control");
+const { buildAuthContext } = require("../services/auth-context");
 
-function getOrderOrganizationId(order) {
-  return String(order?.organizationId || order?.organizationSlug || "").trim();
+function getBlockLogPayload(user, authContext) {
+  return {
+    userId: user?.id || null,
+    tenantId: authContext?.tenant?.id || null,
+    role: user?.role || null,
+    reason: authContext?.mobileBlockReason || "sync_error",
+    planStatus: authContext?.subscription?.status || null,
+    tenantStatus: authContext?.tenant?.status || null
+  };
 }
 
-function isPastDate(value) {
-  if (!value) {
-    return false;
-  }
-
-  const date = new Date(value);
-  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
-}
-
-function isActiveOperationalOrder(order) {
-  if (!order) {
-    return false;
-  }
-
-  const activationStatus = String(order.activationStatus || "").trim();
-  const paymentStatus = String(order.paymentStatus || "").trim();
-  const paidUntil = order.paidUntil || order.currentPeriodEnd || order.trialEndsAt;
-
-  return (
-    activationStatus === "active" &&
-    ["paid", "trial_active"].includes(paymentStatus) &&
-    !["cancelled", "expired"].includes(String(order.status || "").trim()) &&
-    !isPastDate(paidUntil)
-  );
+async function buildOperationalAuthContext(store, user) {
+  return buildAuthContext(store, user);
 }
 
 async function canUseOperationalFeatures(store, user) {
-  if (!user || String(user.userStatus || "active").trim() !== "active") {
-    return false;
-  }
-
-  if (canAccessAllTenants(user)) {
-    return true;
-  }
-
-  const organizationId = getOrganizationId(user);
-
-  if (!organizationId || !store?.listCommercialOrdersForUser) {
-    return false;
-  }
-
-  const orders = await store.listCommercialOrdersForUser(user);
-
-  return orders.some(
-    (order) =>
-      getOrderOrganizationId(order) === organizationId &&
-      isActiveOperationalOrder(order)
-  );
+  const authContext = await buildOperationalAuthContext(store, user);
+  return authContext.canUseOperations === true;
 }
 
 async function requireOperationalAccess(req, res, next) {
   try {
-    if (await canUseOperationalFeatures(req.app.locals.store, req.user)) {
+    const authContext = await buildOperationalAuthContext(req.app.locals.store, req.user);
+    req.authContext = authContext;
+
+    if (authContext.canUseOperations === true) {
       return next();
     }
+
+    console.warn("[access] operational access blocked", getBlockLogPayload(req.user, authContext));
 
     return res.status(403).json({
       ok: false,
       code: "PLAN_REQUIRED",
+      reason: authContext.mobileBlockReason || "sync_error",
       message: "Necesitas un plan activo para acceder al panel operativo"
     });
   } catch (error) {
@@ -74,8 +43,8 @@ async function requireOperationalAccess(req, res, next) {
 }
 
 module.exports = {
+  buildOperationalAuthContext,
   canUseOperationalFeatures,
-  getOrderOrganizationId,
-  isActiveOperationalOrder,
+  getBlockLogPayload,
   requireOperationalAccess
 };

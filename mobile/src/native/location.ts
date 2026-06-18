@@ -32,12 +32,96 @@ type LocationOptions = {
   mayShowUserSettingsDialog?: boolean;
 };
 
+export type LocationErrorCode =
+  | 'permission_denied'
+  | 'services_disabled'
+  | 'timeout'
+  | 'unavailable'
+  | 'unknown';
+
 const ANDROID_PERMISSION_SETTLE_MS = 450;
 
 function wait(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function readErrorCode(error: unknown) {
+  const rawCode = (error as { code?: unknown } | null)?.code;
+  const numericCode = typeof rawCode === 'number' ? rawCode : Number(rawCode);
+  return Number.isFinite(numericCode) ? numericCode : null;
+}
+
+export function getLocationErrorCode(error: unknown): LocationErrorCode {
+  const explicitCode = (error as { locationCode?: LocationErrorCode } | null)?.locationCode;
+
+  if (explicitCode) {
+    return explicitCode;
+  }
+
+  const message = String((error as { message?: unknown } | null)?.message || '').toLowerCase();
+
+  if (message.includes('permission')) {
+    return 'permission_denied';
+  }
+
+  if (
+    message.includes('disabled') ||
+    message.includes('settings') ||
+    message.includes('provider') ||
+    message.includes('gps')
+  ) {
+    return 'services_disabled';
+  }
+
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return 'timeout';
+  }
+
+  const code = readErrorCode(error);
+
+  if (code === 1) {
+    return 'permission_denied';
+  }
+
+  if (code === 3) {
+    return 'timeout';
+  }
+
+  if (code === 5) {
+    return 'services_disabled';
+  }
+
+  if (code === 2 || code === 4) {
+    return 'unavailable';
+  }
+
+  return 'unknown';
+}
+
+function createLocationError(code: LocationErrorCode, message: string, cause?: unknown) {
+  const error = new Error(message) as Error & {
+    cause?: unknown;
+    locationCode?: LocationErrorCode;
+  };
+
+  error.locationCode = code;
+
+  if (cause) {
+    error.cause = cause;
+  }
+
+  return error;
+}
+
+function normalizeLocationError(error: unknown) {
+  const code = getLocationErrorCode(error);
+  const message =
+    String((error as { message?: unknown } | null)?.message || '').trim() ||
+    'Location request failed.';
+
+  return createLocationError(code, message, error);
 }
 
 async function getAndroidPermissionStatus(permission: Permission) {
@@ -135,24 +219,29 @@ export async function getCurrentPositionAsync(_options?: LocationOptions) {
     }
 
     if (permission !== PermissionStatus.GRANTED) {
-      throw new Error('Location foreground permission is not granted.');
+      throw createLocationError('permission_denied', 'Location foreground permission is not granted.');
     }
   }
 
   return new Promise<GeoPosition>((resolve, reject) => {
-    Geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 5000,
-      forceRequestLocation: true,
-      showLocationDialog: true,
-    });
+    Geolocation.getCurrentPosition(
+      resolve,
+      (error) => reject(normalizeLocationError(error)),
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 5000,
+        forceRequestLocation: true,
+        showLocationDialog: true,
+      }
+    );
   });
 }
 
 export async function watchPositionAsync(
   options: LocationOptions,
-  callback: (position: GeoPosition) => void
+  callback: (position: GeoPosition) => void,
+  onError?: (error: Error & { locationCode?: LocationErrorCode }) => void
 ): Promise<LocationSubscription> {
   if (
     Platform.OS === 'android' &&
@@ -170,7 +259,11 @@ export async function watchPositionAsync(
     fastestInterval: Math.max(1000, Math.floor((options.timeInterval || 5000) / 2)),
     showLocationDialog: options.mayShowUserSettingsDialog,
   };
-  const watchId = Geolocation.watchPosition(callback, () => undefined, watchOptions);
+  const watchId = Geolocation.watchPosition(
+    callback,
+    (error) => onError?.(normalizeLocationError(error)),
+    watchOptions
+  );
 
   return {
     remove: () => Geolocation.clearWatch(watchId),

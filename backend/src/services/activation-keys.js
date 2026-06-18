@@ -346,7 +346,7 @@ async function validateDriverActivationKey(store, keyValue) {
     valid: true,
     keyId: activationKey.id,
     companyId: activationKey.companyId,
-    companyName: context.order?.companyName || "Empresa MancComb",
+    companyName: context.order?.companyName || "Empresa ManeComb",
     planId: context.order?.planId || activationKey.planId,
     planName: context.order?.planName || "Plan activo",
     expiresAt: toIso(activationKey.expiresAt),
@@ -520,7 +520,7 @@ async function registerDriverWithActivationKey(store, payload = {}) {
     ),
     company: {
       id: context.companyId,
-      name: context.order?.companyName || "Empresa MancComb"
+      name: context.order?.companyName || "Empresa ManeComb"
     },
     plan: {
       id: context.order?.planId || activationKey.planId,

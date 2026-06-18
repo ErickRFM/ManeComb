@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 
 process.env.RENDER = "true";
+process.env.JWT_SECRET = "proxy-test-secret-with-at-least-32-characters";
 delete process.env.TRUST_PROXY;
 
 const createApp = require("../src/app");
@@ -31,8 +32,14 @@ async function testRenderProxyHeaders() {
         "X-Forwarded-For": "203.0.113.10"
       }
     });
+    const payload = await response.json();
 
     assert.equal(response.status, 200);
+    assert.equal(payload.environment, "production");
+    assert.equal(payload.render, true);
+    assert.equal(payload.trustProxy, true);
+    assert.equal(payload.version, "1.0.0");
+    assert.ok(typeof payload.uptimeSeconds === "number");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => {

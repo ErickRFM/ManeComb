@@ -1,0 +1,93 @@
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const backendRoot = path.resolve(__dirname, "..");
+const strongSecret = "env-test-secret-with-at-least-32-characters";
+
+function runEnvScript(script, overrides = {}, removals = []) {
+  const env = {
+    ...process.env,
+    ...overrides
+  };
+
+  removals.forEach((key) => {
+    delete env[key];
+  });
+
+  return spawnSync(process.execPath, ["-e", script], {
+    cwd: backendRoot,
+    encoding: "utf8",
+    env
+  });
+}
+
+function testProductionRequiresJwtSecret() {
+  const result = runEnvScript(
+    "require('./src/config/env')",
+    {
+      NODE_ENV: "production",
+      RENDER: ""
+    },
+    ["JWT_SECRET", "RENDER_SERVICE_ID", "RENDER_EXTERNAL_URL"]
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /JWT_SECRET/);
+  console.log("ok - produccion exige JWT_SECRET fuerte");
+}
+
+function testRenderRequiresJwtSecret() {
+  const result = runEnvScript(
+    "require('./src/config/env')",
+    {
+      NODE_ENV: "",
+      RENDER: "true"
+    },
+    ["JWT_SECRET", "RENDER_SERVICE_ID", "RENDER_EXTERNAL_URL"]
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /JWT_SECRET/);
+  console.log("ok - Render exige JWT_SECRET fuerte aunque NODE_ENV no venga definido");
+}
+
+function testProductionAcceptsStrongJwtSecret() {
+  const result = runEnvScript("require('./src/config/env')", {
+    JWT_SECRET: strongSecret,
+    NODE_ENV: "production",
+    RENDER: ""
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - produccion acepta JWT_SECRET fuerte");
+}
+
+function testDeploymentEnvAliases() {
+  const result = runEnvScript(
+    [
+      "process.env.MONGODB_URI='mongodb://atlas.example/manecomb';",
+      "process.env.JWT_EXPIRES_IN='20m';",
+      "process.env.CLIENT_URL='https://manecomb1.pages.dev';",
+      "process.env.MERCADOPAGO_ACCESS_TOKEN='mp-token';",
+      "const env=require('./src/config/env');",
+      "if(env.MONGO_URI!=='mongodb://atlas.example/manecomb') process.exit(2);",
+      "if(env.ACCESS_TOKEN_TTL!=='20m') process.exit(3);",
+      "if(env.APP_URL!=='https://manecomb1.pages.dev') process.exit(4);",
+      "if(env.MERCADO_PAGO_ACCESS_TOKEN!=='mp-token') process.exit(5);"
+    ].join(""),
+    {
+      NODE_ENV: "development",
+      RENDER: ""
+    },
+    ["MONGO_URI", "MONGODB_URI", "ACCESS_TOKEN_TTL", "JWT_EXPIRES_IN", "APP_URL", "CLIENT_URL", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADOPAGO_ACCESS_TOKEN"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - aliases de variables de deploy resuelven correctamente");
+}
+
+testProductionRequiresJwtSecret();
+testRenderRequiresJwtSecret();
+testProductionAcceptsStrongJwtSecret();
+testDeploymentEnvAliases();

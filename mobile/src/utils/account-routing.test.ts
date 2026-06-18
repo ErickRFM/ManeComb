@@ -140,4 +140,32 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.reason).toBe('sync_error');
     expect(result.route).toBe('/sync-error');
   });
+
+  it('bloquea si backend devuelve canAccessMobile false aunque haya plan y tenant activos en cache', () => {
+    const result = resolveMobilePostLoginRoute({
+      authContext: authContext({
+        canAccessMobile: false,
+        mobileBlockReason: 'inactive_plan',
+      }),
+      canAccessMobile: false,
+      subscription: activeSubscription,
+      tenant,
+      user: user(),
+    });
+
+    expect(result.destination).toBe('PlanBlocked');
+    expect(result.reason).toBe('inactive_plan');
+    expect(result.route).toBe('/plan-blocked');
+  });
+
+  it('manda a sync-error cuando hay usuario cacheado pero no respuesta vigente de backend', () => {
+    const result = resolveMobilePostLoginRoute({
+      authContext: null,
+      user: user(),
+    });
+
+    expect(result.destination).toBe('SyncError');
+    expect(result.reason).toBe('sync_error');
+    expect(result.route).toBe('/sync-error');
+  });
 });

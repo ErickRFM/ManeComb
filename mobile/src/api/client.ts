@@ -9,9 +9,6 @@ import {
   wait,
 } from '@/src/api/mobile-runtime';
 import type {
-  CommercialCheckoutPayload,
-  CommercialCheckoutResult,
-  CommercialPlan,
   DriverActivationRegisterPayload,
   DriverActivationValidation,
   DocumentReviewPayload,
@@ -32,13 +29,6 @@ import type {
   VehicleTripRecord,
   NotificationItem,
   OperationalObservabilitySnapshot,
-  PortalInvoice,
-  PortalActivationKeysResponse,
-  PortalOnboarding,
-  PortalOverview,
-  PortalPaymentMethod,
-  PortalSession,
-  PortalSubscription,
   ProfileMutationPayload,
   RegisterPayload,
   RtcIceConfig,
@@ -300,6 +290,12 @@ export function getApiErrorMessage(
     return 'Demasiados intentos. Espera un momento e intenta de nuevo.';
   }
 
+  if (status === 502 || status === 503 || status === 504) {
+    return isProductionBackendUrl(apiUrl)
+      ? `Despertando servidor, intentando de nuevo. Si continua, revisa Render. ${traceSuffix}`.trim()
+      : `El backend local no respondio (${status}). Verifica que Node siga encendido.${traceSuffix}`;
+  }
+
   if (status && status >= 500) {
     return `Error interno del servidor (${status}). Revisa la consola del backend.${traceSuffix}`;
   }
@@ -508,13 +504,19 @@ export async function loginRequest(email: string, password: string) {
   const response = await apiClient.post<LoginResult>('/auth/login', {
     email,
     password,
-  });
+  }, {
+    _allowRetry: true,
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
 
   return response.data;
 }
 
 export async function registerRequest(payload: RegisterPayload) {
-  const response = await apiClient.post<LoginResult>('/auth/register', payload);
+  const response = await apiClient.post<LoginResult>('/auth/register', payload, {
+    _allowRetry: true,
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
   return response.data;
 }
 
@@ -883,192 +885,19 @@ export async function createNavigationTripLogRequest(payload: {
   return response.data.data;
 }
 
-export async function getCommercialPlansRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: CommercialPlan[] }>('/commercial/plans');
-  return response.data.data;
-}
-
-export async function getMyCommercialOrdersRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: CommercialCheckoutResult[] }>(
-    '/commercial/me'
-  );
-  return response.data.data;
-}
-
-export async function createCommercialCheckoutRequest(payload: CommercialCheckoutPayload) {
-  const response = await apiClient.post<{ ok: boolean; data: CommercialCheckoutResult }>(
-    '/commercial/checkout',
-    payload
-  );
-
-  return response.data.data;
-}
-
-export async function confirmCommercialPaymentRequest(payload: {
-  paymentId?: string;
-  externalReference?: string;
-  referenceCode?: string;
-}) {
-  const response = await apiClient.post<{ ok: boolean; data: CommercialCheckoutResult }>(
-    '/commercial/confirm',
-    payload
-  );
-
-  return response.data.data;
-}
-
-export async function getCommercialOrdersRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: CommercialCheckoutResult[] }>(
-    '/commercial/orders'
-  );
-
-  return response.data.data;
-}
-
-export async function updateCommercialOrderRequest(
-  orderId: string,
-  payload: Partial<Pick<CommercialCheckoutResult, 'activationStatus' | 'activationNotes' | 'status'>>
-) {
-  const response = await apiClient.patch<{ ok: boolean; data: CommercialCheckoutResult }>(
-    `/commercial/orders/${orderId}`,
-    payload
-  );
-
-  return response.data.data;
-}
-
 export async function getUsersRequest() {
   const response = await apiClient.get<{ ok: boolean; data: User[] }>('/users');
   return response.data.data;
 }
 
-export async function getPortalOverviewRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalOverview }>('/portal/overview');
-  return response.data.data;
-}
-
-export async function getPortalOnboardingRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalOnboarding }>('/portal/onboarding');
-  return response.data.data;
-}
-
-export async function getAdminActivationKeysRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalActivationKeysResponse }>(
-    '/admin/activation-keys'
-  );
-  return response.data.data;
-}
-
-export async function generateAdminActivationKeyRequest() {
-  const response = await apiClient.post<{ ok: boolean; data: PortalActivationKeysResponse }>(
-    '/admin/activation-keys/generate'
-  );
-  return response.data.data;
-}
-
-export async function revokeAdminActivationKeyRequest(activationKeyId: string) {
-  const response = await apiClient.patch<{ ok: boolean; data: PortalActivationKeysResponse }>(
-    `/admin/activation-keys/${encodeURIComponent(activationKeyId)}/revoke`
-  );
-  return response.data.data;
-}
-
-export async function updatePortalOnboardingStepRequest(stepId: string, status: string) {
-  const response = await apiClient.patch<{ ok: boolean; data: PortalOnboarding }>(
-    `/portal/onboarding/${encodeURIComponent(stepId)}`,
-    { status }
-  );
-  return response.data.data;
-}
-
-export async function getAccountSubscriptionRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalSubscription }>(
-    '/account/subscription'
-  );
-  return response.data.data;
-}
-
-export async function changeAccountPlanRequest(planId: string, selectedAddOns: string[] = []) {
-  const response = await apiClient.patch<{ ok: boolean; data: PortalSubscription }>(
-    '/account/subscription/plan',
-    {
-      planId,
-      selectedAddOns,
-    }
-  );
-  return response.data.data;
-}
-
-export async function cancelAccountSubscriptionRequest(reason?: string) {
-  const response = await apiClient.post<{ ok: boolean; data: PortalSubscription }>(
-    '/account/subscription/cancel',
-    {
-      reason,
-    }
-  );
-  return response.data.data;
-}
-
-export async function getAccountInvoicesRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalInvoice[] }>('/account/invoices');
-  return response.data.data;
-}
-
-export async function getAccountPaymentMethodsRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalPaymentMethod[] }>(
-    '/account/payment-methods'
-  );
-  return response.data.data;
-}
-
-export async function createAccountPaymentMethodRequest(payload: Partial<PortalPaymentMethod> & {
-  providerToken?: string;
-}) {
-  const response = await apiClient.post<{ ok: boolean; data: PortalPaymentMethod[] }>(
-    '/account/payment-methods',
-    payload
-  );
-  return response.data.data;
-}
-
-export async function updateAccountPaymentMethodRequest(
-  paymentMethodId: string,
-  payload: Partial<PortalPaymentMethod> & { providerToken?: string }
-) {
-  const response = await apiClient.patch<{ ok: boolean; data: PortalPaymentMethod[] }>(
-    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}`,
-    payload
-  );
-  return response.data.data;
-}
-
-export async function deleteAccountPaymentMethodRequest(paymentMethodId: string) {
-  const response = await apiClient.delete<{ ok: boolean; data: PortalPaymentMethod[] }>(
-    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}`
-  );
-  return response.data.data;
-}
-
-export async function setDefaultAccountPaymentMethodRequest(paymentMethodId: string) {
-  const response = await apiClient.post<{ ok: boolean; data: PortalPaymentMethod[] }>(
-    `/account/payment-methods/${encodeURIComponent(paymentMethodId)}/default`
-  );
-  return response.data.data;
-}
-
-export async function getAccountSessionsRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: PortalSession[] }>('/account/sessions');
-  return response.data.data;
-}
-
-export async function revokeAccountSessionRequest(sessionId: string) {
-  await apiClient.delete(`/account/sessions/${encodeURIComponent(sessionId)}`);
-}
-
 export async function validateDriverActivationKeyRequest(key: string) {
   const response = await apiClient.post<{ ok: boolean; data: DriverActivationValidation }>(
     '/driver/activation/validate',
-    { key }
+    { key },
+    {
+      _allowRetry: true,
+      _skipAuthRefresh: true,
+    } as RetryableRequestConfig
   );
   return response.data.data;
 }

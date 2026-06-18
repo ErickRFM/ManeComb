@@ -14,6 +14,7 @@ const {
   revokeActivationKeyForAdmin,
   validateDriverActivationKey
 } = require("../../services/activation-keys");
+const { buildAuthContext } = require("../../services/auth-context");
 const { createSessionForRequest } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
 
@@ -47,6 +48,7 @@ function emitActivationKeysUpdated(req, payload) {
 async function buildDriverLoginResponse(req, res, user, activation) {
   const refresh = await createSessionForRequest(req, user);
   const session = buildAuthSession(user, refresh.session.id);
+  const authContext = await buildAuthContext(req.app.locals.store, user);
 
   await recordAuditLog(req, {
     actorId: user.id,
@@ -69,7 +71,16 @@ async function buildDriverLoginResponse(req, res, user, activation) {
     refreshTokenExpiresAt: refresh.session.expiresAt,
     session: refresh.session,
     user,
-    dashboard: await req.app.locals.store.getDashboardOverview(user),
+    authContext,
+    canAccessMobile: authContext.canAccessMobile,
+    mobileBlockReason: authContext.mobileBlockReason,
+    tenant: authContext.tenant,
+    subscription: authContext.subscription,
+    onboarding: authContext.onboarding,
+    postLoginRoute: authContext.route,
+    dashboard: authContext.canUseOperations
+      ? await req.app.locals.store.getDashboardOverview(user)
+      : null,
     activation
   });
 }

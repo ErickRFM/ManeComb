@@ -1,4 +1,4 @@
-const { getOrganizationId } = require("../middlewares/access-control");
+const { canAccessAllTenants, getOrganizationId } = require("../middlewares/access-control");
 const {
   buildOnboarding,
   buildSubscription,
@@ -19,6 +19,13 @@ const INACTIVE_SUBSCRIPTION_STATUSES = new Set([
   "expired",
   "inactive",
   "past_due",
+  "suspended"
+]);
+const INACTIVE_TENANT_STATUSES = new Set([
+  "cancelled",
+  "canceled",
+  "disabled",
+  "inactive",
   "suspended"
 ]);
 
@@ -58,6 +65,27 @@ function hasOperationalTenant(user, order) {
   return Boolean(getOrganizationId(user) || getOrderOrganizationId(order));
 }
 
+function getTenantStatus(user, order, subscription) {
+  const explicitStatus = normalizeStatus(
+    user?.tenantStatus ||
+      user?.organizationStatus ||
+      user?.companyStatus ||
+      order?.tenantStatus ||
+      order?.organizationStatus ||
+      order?.companyStatus
+  );
+
+  if (INACTIVE_TENANT_STATUSES.has(explicitStatus)) {
+    return explicitStatus;
+  }
+
+  if (normalizeStatus(user?.userStatus) === "suspended") {
+    return "suspended";
+  }
+
+  return isActiveSubscription(subscription) ? "active" : explicitStatus || "registered";
+}
+
 function buildTenantContext(user, order, subscription) {
   const id = getOrganizationId(user) || getOrderOrganizationId(order);
 
@@ -66,14 +94,15 @@ function buildTenantContext(user, order, subscription) {
   }
 
   const active = isActiveSubscription(subscription);
+  const status = getTenantStatus(user, order, subscription);
 
   return {
     id,
     organizationId: id,
     companyId: id,
     name: user?.companyProfile?.companyName || order?.companyName || user?.name || "Cuenta",
-    status: active ? "active" : "registered",
-    isOperational: active
+    status,
+    isOperational: active && status === "active"
   };
 }
 
@@ -133,14 +162,6 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
 
   const role = normalizeStatus(user.role);
 
-  if (role === "driver" || role === "conductor") {
-    return {
-      destination: "HomeConductor",
-      reason: "driver_role",
-      route: "/mapa"
-    };
-  }
-
   const status = normalizeStatus(subscription?.status);
   const hasPlan = Boolean(subscription?.id || subscription?.planId);
   const active = isActiveSubscription(subscription) || options.canUseOperations === true;
@@ -167,6 +188,14 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
       destination: "OperationalOnboarding",
       reason: "missing_operational_tenant",
       route: "/portal/onboarding"
+    };
+  }
+
+  if (active && (role === "driver" || role === "conductor")) {
+    return {
+      destination: "HomeConductor",
+      reason: "driver_role",
+      route: "/mapa"
     };
   }
 
@@ -223,10 +252,12 @@ async function buildAuthContext(store, user, options = {}) {
         users
       })
     : null;
+  const mobileAccess = resolveMobileAccess(subscription, tenant);
   const canUseOperations =
     options.canUseOperations === true ||
-    (isActiveSubscription(subscription) && hasOperationalTenant(user, activeOrder));
-  const mobileAccess = resolveMobileAccess(subscription, tenant);
+    mobileAccess.canAccessMobile ||
+    canAccessAllTenants(user) ||
+    Boolean(options.allowPlatformAdmin === true);
   const resolution = resolvePostLoginRoute(user, subscription, tenant, onboarding, {
     canUseOperations
   });
@@ -243,7 +274,12 @@ async function buildAuthContext(store, user, options = {}) {
 }
 
 module.exports = {
+  buildTenantContext,
   buildAuthContext,
+  getMobileBlockReason,
+  hasOperationalTenant,
+  isActiveSubscription,
+  isActiveTenant,
   resolveMobileAccess,
   resolvePostLoginRoute
 };

@@ -41,9 +41,12 @@ function getApiErrorPayload(error: AxiosError) {
 }
 
 const FALLBACK_API_URL = import.meta.env.DEV ? DEFAULT_API_URL : '/api';
+if (import.meta.env.PROD && !String(import.meta.env.VITE_API_URL || '').trim()) {
+  throw new Error('VITE_API_URL es obligatorio en produccion para conectar ventas con el backend.');
+}
+
 export const API_URL = normalizeUrl(import.meta.env.VITE_API_URL, FALLBACK_API_URL);
-const FALLBACK_SOCKET_URL =
-  import.meta.env.DEV ? getApiOrigin(API_URL) : typeof window === 'undefined' ? '' : window.location.origin;
+const FALLBACK_SOCKET_URL = getApiOrigin(API_URL);
 export const SOCKET_URL = normalizeUrl(import.meta.env.VITE_SOCKET_URL, FALLBACK_SOCKET_URL);
 export const API_ORIGIN = getApiOrigin(API_URL);
 
@@ -88,6 +91,10 @@ export function getApiErrorMessage(error: unknown, fallbackMessage = 'No fue pos
 
   if (!error.response) {
     return `No se pudo conectar con el backend: ${API_URL}`;
+  }
+
+  if ([502, 503, 504].includes(error.response.status)) {
+    return 'El servidor esta iniciando o tardo demasiado. Intenta de nuevo en unos segundos.';
   }
 
   if (error.response.status === 401) {

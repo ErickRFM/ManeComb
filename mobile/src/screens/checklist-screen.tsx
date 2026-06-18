@@ -21,6 +21,7 @@ import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
+import { getLocationStatus } from '@/src/utils/location-status';
 import type {
   FleetControlLog,
   GeoPoint,
@@ -1065,7 +1066,14 @@ export function ChecklistScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1120;
   const isPhone = width < 640;
-  const { coordinates, permission, refresh } = useUserLocation();
+  const {
+    coordinates,
+    issue: locationIssue,
+    loading: locationLoading,
+    permission,
+    refresh,
+    servicesEnabled,
+  } = useUserLocation();
   const { mapData, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
@@ -1089,6 +1097,17 @@ export function ChecklistScreen() {
     user?.vehicleId && selectedVehicle?.id === user.vehicleId && coordinates
       ? coordinates
       : selectedVehicle?.location || coordinates || null;
+  const locationStatus = useMemo(
+    () =>
+      getLocationStatus({
+        coordinatesReady: Boolean(coordinates),
+        issue: locationIssue,
+        loading: locationLoading,
+        permission,
+        servicesEnabled,
+      }),
+    [coordinates, locationIssue, locationLoading, permission, servicesEnabled]
+  );
 
   const tracker = usePointToPointTracker({
     searchAnchor: selectedVehicle?.location || coordinates || null,
@@ -1213,7 +1232,10 @@ export function ChecklistScreen() {
 
   const handleUseCurrentLocation = (role: PointRole) => {
     if (!coordinates) {
-      tracker.setPointMessage('GPS no disponible. Revisa permisos o intenta actualizar ubicacion.');
+      tracker.setPointMessage(
+        locationStatus.message ||
+          'GPS no disponible. Puedes usar la unidad seleccionada o actualizar ubicacion.'
+      );
       return;
     }
 

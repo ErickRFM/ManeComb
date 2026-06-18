@@ -4,11 +4,13 @@ Fecha: 2026-05-06
 Proyecto: Combis App  
 Estado del documento: Version base para presentacion, planeacion y seguimiento tecnico
 
+Nota de estabilizacion 2026-06-17: este documento conserva contexto historico. El stack activo de la app movil es React Native CLI en `mobile/`; las referencias a Expo/desktop pertenecen a una etapa anterior y no deben usarse como guia de build o deploy.
+
 ## 1. Resumen ejecutivo
 
 Combis App es un sistema integral para administrar la operacion diaria de una flotilla de combis. El sistema concentra en una sola plataforma la gestion de usuarios, unidades, rutas, ubicacion en tiempo real, incidencias, documentos operativos, comunicacion interna, notificaciones, seguimiento comercial y herramientas administrativas.
 
-La solucion esta pensada para empresas o grupos operadores de transporte que necesitan visibilidad sobre sus unidades, mejor coordinacion entre administradores, supervisores y choferes, y control documental para reducir riesgos operativos. La aplicacion funciona como una plataforma movil, web y desktop basada en Expo/React Native, conectada a una API Express con persistencia en MongoDB y comunicacion en tiempo real mediante Socket.IO.
+La solucion esta pensada para empresas o grupos operadores de transporte que necesitan visibilidad sobre sus unidades, mejor coordinacion entre administradores, supervisores y choferes, y control documental para reducir riesgos operativos. La aplicacion activa funciona como una plataforma movil React Native CLI y una web comercial Vite, conectadas a una API Express con persistencia en MongoDB y comunicacion en tiempo real mediante Socket.IO.
 
 ## 2. Objetivo general
 
