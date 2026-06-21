@@ -1,4 +1,9 @@
+jest.mock('@/src/config/api_config', () => ({
+  readRuntimeValue: () => '',
+}));
+
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
+import { getSalesPortalPathForBlockReason } from '@/src/utils/sales-portal';
 import type {
   AuthRoutingContext,
   AuthTenantContext,
@@ -167,5 +172,15 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.destination).toBe('SyncError');
     expect(result.reason).toBe('sync_error');
     expect(result.route).toBe('/sync-error');
+  });
+});
+
+describe('getSalesPortalPathForBlockReason', () => {
+  it('usa rutas web reales para acciones de plan y pago', () => {
+    expect(getSalesPortalPathForBlockReason('payment_pending')).toBe('/portal/pagos');
+    expect(getSalesPortalPathForBlockReason('inactive_plan')).toBe('/portal/plan');
+    expect(getSalesPortalPathForBlockReason('no_plan')).toBe('/ventas');
+    expect(getSalesPortalPathForBlockReason('missing_tenant')).toBe('/portal/onboarding');
+    expect(getSalesPortalPathForBlockReason('sync_error')).toBe('/ventas');
   });
 });

@@ -11,7 +11,7 @@ import {
   resolveMobilePostLoginRoute,
   type MobileRouteBlockReason,
 } from '@/src/utils/account-routing';
-import { openSalesPortal } from '@/src/utils/sales-portal';
+import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
 const BLOCK_COPY: Record<MobileRouteBlockReason, {
   action: string;
@@ -29,7 +29,7 @@ const BLOCK_COPY: Record<MobileRouteBlockReason, {
     action: 'Continuar configuracion',
     body: 'Tu plan esta activo. Configura tu empresa para comenzar.',
     icon: 'office-building-cog-outline',
-    title: 'Completa tu configuracion',
+    title: 'Completa tu configuración',
   },
   no_plan: {
     action: 'Comprar plan',
@@ -39,7 +39,7 @@ const BLOCK_COPY: Record<MobileRouteBlockReason, {
   },
   payment_pending: {
     action: 'Revisar pago',
-    body: 'Tu plan esta en espera de confirmacion.',
+    body: 'Tu pago aún no se ha confirmado. Revisa tu cuenta desde el portal web.',
     icon: 'clock-alert-outline',
     title: 'Pago pendiente',
   },
@@ -111,7 +111,7 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
       return;
     }
 
-    openSalesPortal(reason === 'payment_pending' ? '/login' : '').catch(() => {
+    openSalesPortal(getSalesPortalPathForBlockReason(reason)).catch(() => {
       refreshAll();
     });
   };

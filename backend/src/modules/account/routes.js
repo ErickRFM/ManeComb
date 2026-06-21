@@ -3,6 +3,7 @@ const {
   getCommercialPlanById,
   getCommercialPlanPricing
 } = require("../../config/commercial-plans");
+const { IS_PRODUCTION_RUNTIME } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
 const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
@@ -39,6 +40,15 @@ async function recordAudit(req, payload) {
       ...payload.metadata
     }
   });
+}
+
+function isForbiddenPaymentReference(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return Boolean(
+    IS_PRODUCTION_RUNTIME &&
+      ["portal-token", "visual-checkout-token"].includes(normalized)
+  );
 }
 
 async function getOrders(req) {
@@ -186,7 +196,16 @@ router.post("/payment-methods", authenticate, requirePermission("canManageBillin
   if (!cardLast4) {
     return res.status(400).json({
       ok: false,
-      message: "Solo se guarda token del proveedor, marca y ultimos 4 digitos"
+      message: "Marca y ultimos 4 digitos son obligatorios"
+    });
+  }
+
+  const customerReference = String(req.body?.providerToken || req.body?.customerReference || "").trim();
+
+  if (isForbiddenPaymentReference(customerReference)) {
+    return res.status(400).json({
+      ok: false,
+      message: "Referencia de pago simulada no permitida"
     });
   }
 
@@ -196,7 +215,7 @@ router.post("/payment-methods", authenticate, requirePermission("canManageBillin
     cardLast4,
     cardExpMonth: String(req.body?.expMonth || req.body?.cardExpMonth || "").replace(/[^\d]/g, "").slice(0, 2),
     cardExpYear: String(req.body?.expYear || req.body?.cardExpYear || "").replace(/[^\d]/g, "").slice(-2),
-    customerReference: String(req.body?.providerToken || req.body?.customerReference || "").trim()
+    customerReference
   });
   const methods = buildPaymentMethods(user);
 
@@ -244,7 +263,16 @@ router.patch("/payment-methods/:id", authenticate, requirePermission("canManageB
     typeof req.body?.providerToken !== "undefined" ||
     typeof req.body?.customerReference !== "undefined"
   ) {
-    payload.customerReference = String(req.body?.providerToken || req.body?.customerReference || "").trim();
+    const customerReference = String(req.body?.providerToken || req.body?.customerReference || "").trim();
+
+    if (isForbiddenPaymentReference(customerReference)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Referencia de pago simulada no permitida"
+      });
+    }
+
+    payload.customerReference = customerReference;
   }
 
   const user = await req.app.locals.store.updateUser(req.user.id, payload);

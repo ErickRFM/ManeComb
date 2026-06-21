@@ -1,5 +1,6 @@
 const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
+const { IS_PRODUCTION_RUNTIME } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
 const { requireAdmin } = require("../../middlewares/require-admin");
 const { getOrganizationId, requirePermission } = require("../../middlewares/access-control");
@@ -309,8 +310,16 @@ router.post("/confirm", async (req, res) => {
       ? await req.app.locals.store.findCommercialOrderByExternalReference(requestedExternalReference)
       : null;
     let confirmation;
+    const visualCheckoutSimulation = isVisualCheckoutSimulation(req);
 
-    if (isVisualCheckoutSimulation(req)) {
+    if (visualCheckoutSimulation && IS_PRODUCTION_RUNTIME) {
+      return res.status(403).json({
+        ok: false,
+        message: "La confirmacion visual de pagos no esta permitida en produccion"
+      });
+    }
+
+    if (visualCheckoutSimulation) {
       if (!order) {
         return res.status(404).json({
           ok: false,

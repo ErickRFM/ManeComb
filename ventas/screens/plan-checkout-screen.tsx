@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,14 +9,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import {
-  confirmCommercialPaymentRequest,
   createCommercialCheckoutRequest,
   getApiErrorMessage,
   getCommercialPlansRequest,
@@ -74,10 +71,6 @@ function formatCurrency(value?: number | null) {
   }).format(Number(value || 0));
 }
 
-function normalizeDigits(value: string, maxLength: number) {
-  return value.replace(/[^\d]/g, '').slice(0, maxLength);
-}
-
 function getPlanById(plans: CommercialPlan[], planId?: string | null) {
   return plans.find((plan) => plan.id === planId) || FALLBACK_COMMERCIAL_PLANS.find((plan) => plan.id === planId) || null;
 }
@@ -85,6 +78,12 @@ function getPlanById(plans: CommercialPlan[], planId?: string | null) {
 function getContactPhone(phone?: string | null) {
   const cleanPhone = String(phone || '').trim();
   return cleanPhone || 'Por confirmar';
+}
+
+function openCheckoutUrl(url: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.location.assign(url);
+  }
 }
 
 export function PlanCheckoutScreen() {
@@ -100,19 +99,14 @@ export function PlanCheckoutScreen() {
       ? routeTrialParam === '1'
       : Boolean(storedCheckout?.requestTrial && storedCheckout.planId === planId);
   const user = useAppStore((state) => state.user);
-  const { createPaymentMethod, loadAll, portalSubmitting } = usePortalStore(
+  const { loadAll, portalSubmitting } = usePortalStore(
     useShallow((state) => ({
-      createPaymentMethod: state.createPaymentMethod,
       loadAll: state.loadAll,
       portalSubmitting: state.isSubmitting,
     }))
   );
   const [plans, setPlans] = useState<CommercialPlan[]>(FALLBACK_COMMERCIAL_PLANS);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiration, setExpiration] = useState('');
-  const [cvc, setCvc] = useState('');
-  const [cardholder, setCardholder] = useState(user?.name || '');
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [message, setMessage] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<any>(null);
@@ -138,12 +132,6 @@ export function PlanCheckoutScreen() {
     }
   }, [planId, requestTrial]);
 
-  useEffect(() => {
-    if (!cardholder && user?.name) {
-      setCardholder(user.name);
-    }
-  }, [cardholder, user?.name]);
-
   if (!planId) {
     return <Redirect href="/ventas" />;
   }
@@ -165,26 +153,8 @@ export function PlanCheckoutScreen() {
     );
   }
 
-  const validateCard = () => {
-    const digits = normalizeDigits(cardNumber, 16);
-    const cleanExpiration = expiration.trim();
-    const cleanCvc = normalizeDigits(cvc, 4);
-    const cleanName = cardholder.trim();
-
-    if (selectedMethod !== 'card') {
-      return true;
-    }
-
-    if (digits.length < 15 || !/^\d{2}\s*\/\s*\d{2}$/.test(cleanExpiration) || cleanCvc.length < 3 || !cleanName) {
-      setMessage('Completa los datos visuales de tarjeta antes de continuar.');
-      return false;
-    }
-
-    return true;
-  };
-
   const submitPayment = async () => {
-    if (!canSubmit || !validateCard()) {
+    if (!canSubmit) {
       return;
     }
 
@@ -205,31 +175,16 @@ export function PlanCheckoutScreen() {
         selectedAddOns: [],
       });
 
-      const activatedOrder = requestTrial
-        ? checkout
-        : await confirmCommercialPaymentRequest({
-            externalReference: checkout.paymentExternalReference || checkout.id || checkout.referenceCode,
-            paymentId: `visual-checkout-${Date.now()}`,
-            paymentMethod: selectedMethod,
-            visualSimulation: true,
-          });
-
-      if (selectedMethod === 'card' && !requestTrial) {
-        const cleanDigits = normalizeDigits(cardNumber, 16);
-        const [expMonth = '', expYear = ''] = expiration.split('/').map((item) => item.trim());
-
-        await createPaymentMethod({
-          brand: 'Tarjeta',
-          last4: cleanDigits.slice(-4),
-          expMonth,
-          expYear,
-          providerToken: 'visual-checkout-token',
-        }).catch(() => undefined);
+      if (!requestTrial && checkout.checkoutUrl) {
+        setReceipt(checkout);
+        setMessage('Te estamos llevando al checkout seguro de Mercado Pago.');
+        openCheckoutUrl(checkout.checkoutUrl);
+        return;
       }
 
       await loadAll().catch(() => undefined);
       clearCheckoutContext();
-      setReceipt(activatedOrder);
+      setReceipt(checkout);
       setStep('done');
     } catch (error) {
       const readableMessage = getApiErrorMessage(error, 'No fue posible completar la compra.');
@@ -243,6 +198,24 @@ export function PlanCheckoutScreen() {
   const goToPortal = () => {
     router.replace({ pathname: '/portal', params: { compra: 'lista' } } as never);
   };
+  const receiptPaymentStatus = String(receipt?.paymentStatus || '').toLowerCase();
+  const receiptAccountStatus = String(receipt?.status || '').toLowerCase();
+  const receiptIsActive =
+    ['paid', 'trial_active'].includes(receiptPaymentStatus) ||
+    ['active', 'trial'].includes(receiptAccountStatus);
+  const receiptIsPending = receiptPaymentStatus.includes('pending') || receiptPaymentStatus === 'pending';
+  const doneTitle = receiptIsActive
+    ? 'Plan activado en tu cuenta.'
+    : receiptIsPending
+      ? 'Pago pendiente de confirmacion.'
+      : 'Orden registrada.';
+  const doneText =
+    receipt?.nextStep ||
+    receipt?.paymentInstructions?.summary ||
+    (receiptIsActive
+      ? `${receipt?.planName || selectedPlan.name} quedo ligado a tu portal ManeComb.`
+      : 'Revisa el estado del pago desde tu portal ManeComb.');
+  const doneButtonLabel = receiptIsActive ? 'Acceder al dashboard' : 'Ver estado en portal';
 
   return (
     <View style={styles.screen}>
@@ -271,15 +244,17 @@ export function PlanCheckoutScreen() {
           {step === 'done' ? (
             <View style={styles.donePanel}>
               <View style={styles.doneIcon}>
-                <MaterialCommunityIcons name="check-circle-outline" size={46} color={palette.lime} />
+                <MaterialCommunityIcons
+                  name={receiptIsActive ? 'check-circle-outline' : 'clock-outline'}
+                  size={46}
+                  color={receiptIsActive ? palette.lime : palette.cyan}
+                />
               </View>
-              <Text style={styles.doneTitle}>Plan activado en tu cuenta.</Text>
-              <Text style={styles.doneText}>
-                {receipt?.planName || selectedPlan.name} quedo ligado a tu portal ManeComb. El proximo cobro usara {buttonAmount}.
-              </Text>
+              <Text style={styles.doneTitle}>{doneTitle}</Text>
+              <Text style={styles.doneText}>{doneText}</Text>
               <Pressable onPress={goToPortal} style={[styles.payButton, styles.doneButton]}>
                 <MaterialCommunityIcons name="view-dashboard-outline" size={22} color="#FFFFFF" />
-                <Text style={styles.payButtonText}>Acceder al dashboard</Text>
+                <Text style={styles.payButtonText}>{doneButtonLabel}</Text>
                 <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
               </Pressable>
             </View>
@@ -313,46 +288,14 @@ export function PlanCheckoutScreen() {
                   </View>
 
                   {selectedMethod === 'card' ? (
-                    <View style={styles.formGrid}>
-                      <CheckoutField
-                        label="Numero de tarjeta"
-                        placeholder="1234 1234 1234 1234"
-                        value={cardNumber}
-                        keyboardType="number-pad"
-                        maxLength={19}
-                        onChangeText={(value) => {
-                          const digits = normalizeDigits(value, 16);
-                          setCardNumber(digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim());
-                        }}
-                        right={<CardMarks />}
-                      />
-                      <View style={styles.inlineFields}>
-                        <CheckoutField
-                          label="Fecha de expiracion"
-                          placeholder="MM / AA"
-                          value={expiration}
-                          maxLength={7}
-                          onChangeText={(value) => {
-                            const digits = normalizeDigits(value, 4);
-                            setExpiration(digits.length > 2 ? `${digits.slice(0, 2)} / ${digits.slice(2)}` : digits);
-                          }}
-                        />
-                        <CheckoutField
-                          label="CVC"
-                          placeholder="123"
-                          value={cvc}
-                          keyboardType="number-pad"
-                          maxLength={4}
-                          onChangeText={(value) => setCvc(normalizeDigits(value, 4))}
-                          right={<MaterialCommunityIcons name="credit-card-lock-outline" size={20} color={palette.muted} />}
-                        />
+                    <View style={styles.speiPanel}>
+                      <MaterialCommunityIcons name="shield-lock-outline" size={32} color={palette.cyan} />
+                      <View style={styles.speiCopy}>
+                        <Text style={styles.speiTitle}>Checkout seguro Mercado Pago</Text>
+                        <Text style={styles.speiText}>
+                          Al continuar te llevaremos a Mercado Pago para completar el cobro. ManeComb no captura ni guarda datos de tarjeta.
+                        </Text>
                       </View>
-                      <CheckoutField
-                        label="Nombre en la tarjeta"
-                        placeholder="Nombre completo"
-                        value={cardholder}
-                        onChangeText={setCardholder}
-                      />
                     </View>
                   ) : (
                     <View style={styles.speiPanel}>
@@ -360,7 +303,7 @@ export function PlanCheckoutScreen() {
                       <View style={styles.speiCopy}>
                         <Text style={styles.speiTitle}>Referencia SPEI preparada</Text>
                         <Text style={styles.speiText}>
-                          La compra queda registrada con referencia comercial y se completa con la simulacion interna de pago.
+                          La orden queda registrada con referencia comercial. El plan se activa cuando el pago sea validado.
                         </Text>
                       </View>
                     </View>
@@ -368,7 +311,7 @@ export function PlanCheckoutScreen() {
 
                   <View style={styles.securityNote}>
                     <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
-                    <Text style={styles.securityText}>Pago seguro, facturacion automatica y cancelacion sin complicaciones.</Text>
+                    <Text style={styles.securityText}>Pago seguro por proveedor externo y estado del plan confirmado por backend.</Text>
                   </View>
 
                   {message ? (
@@ -391,7 +334,11 @@ export function PlanCheckoutScreen() {
                       <>
                         <MaterialCommunityIcons name={requestTrial ? 'flask-outline' : 'lock-check-outline'} size={24} color="#FFFFFF" />
                         <Text style={styles.payButtonText}>
-                          {requestTrial ? `Activar prueba ${selectedPlan.trialDays || 7} dias` : `Pagar ${buttonAmount}`}
+                          {requestTrial
+                            ? `Activar prueba ${selectedPlan.trialDays || 7} dias`
+                            : selectedMethod === 'card'
+                              ? 'Continuar a Mercado Pago'
+                              : `Generar referencia ${buttonAmount}`}
                         </Text>
                         <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
                       </>
@@ -459,59 +406,6 @@ function MethodTab({
       <MaterialCommunityIcons name={icon} size={23} color={active ? palette.violet : palette.text} />
       <Text style={[styles.methodLabel, active ? styles.methodLabelActive : undefined]}>{label}</Text>
     </Pressable>
-  );
-}
-
-function CheckoutField({
-  keyboardType = 'default',
-  label,
-  maxLength,
-  onChangeText,
-  placeholder,
-  right,
-  value,
-}: {
-  keyboardType?: 'default' | 'number-pad';
-  label: string;
-  maxLength?: number;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  right?: ReactNode;
-  value: string;
-}) {
-  const [focused, setFocused] = useState(false);
-
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={[styles.inputShell, focused ? styles.inputShellFocused : undefined]}>
-        <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor="rgba(216, 226, 245, 0.42)"
-          keyboardType={keyboardType}
-          maxLength={maxLength}
-          selectionColor={palette.violet}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={styles.input}
-        />
-        {right ? <View style={styles.fieldRight}>{right}</View> : null}
-      </View>
-    </View>
-  );
-}
-
-function CardMarks() {
-  return (
-    <View style={styles.cardMarks}>
-      {['VISA', 'MC', 'AMEX'].map((item) => (
-        <View key={item} style={styles.cardMark}>
-          <Text style={styles.cardMarkText}>{item}</Text>
-        </View>
-      ))}
-    </View>
   );
 }
 

@@ -456,7 +456,7 @@ export function PortalPaymentsScreen() {
 
   const validateForm = () => {
     const normalizedBrand = brand.trim();
-    const normalizedCardNumber = normalizeDigits(cardNumber, 16);
+    const normalizedCardNumber = normalizeDigits(cardNumber, 4);
     const normalizedMonth = normalizeDigits(expMonth, 2);
     const normalizedYear = normalizeDigits(expYear, 2);
     const monthNumber = Number(normalizedMonth);
@@ -466,8 +466,8 @@ export function PortalPaymentsScreen() {
       nextErrors.brand = 'Marca requerida.';
     }
 
-    if (normalizedCardNumber.length !== 16) {
-      nextErrors.cardNumber = 'Ingresa 16 digitos.';
+    if (normalizedCardNumber.length !== 4) {
+      nextErrors.cardNumber = 'Ingresa los ultimos 4 digitos.';
     }
 
     if (!normalizedMonth || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
@@ -488,7 +488,7 @@ export function PortalPaymentsScreen() {
 
     return {
       brand: normalizedBrand,
-      last4: normalizedCardNumber.slice(-4),
+      last4: normalizedCardNumber,
       expMonth: String(monthNumber).padStart(2, '0'),
       expYear: normalizedYear,
     };
@@ -503,10 +503,7 @@ export function PortalPaymentsScreen() {
 
     const result = editingId
       ? await updatePaymentMethod(editingId, payload)
-      : await createPaymentMethod({
-          ...payload,
-          providerToken: 'portal-token',
-        });
+      : await createPaymentMethod(payload);
 
     setMessage(
       result.ok
@@ -529,7 +526,7 @@ export function PortalPaymentsScreen() {
     setExpMonth(method.expMonth || '');
     setExpYear(method.expYear || '');
     setErrors({});
-    setMessage('Editando metodo guardado. Ingresa los 16 digitos; solo se guardara la terminacion.');
+    setMessage('Editando metodo guardado. Ingresa solo los ultimos 4 digitos.');
     setMessageTone('info');
   };
 
@@ -540,11 +537,11 @@ export function PortalPaymentsScreen() {
   };
 
   const formSubtitle = editingId
-    ? 'Actualiza marca, terminacion y vigencia del metodo tokenizado.'
-    : 'Ingresa los 16 digitos para tokenizar; solo se guarda la terminacion.';
+    ? 'Actualiza marca, terminacion y vigencia de la referencia administrativa.'
+    : 'Registra solo la terminacion de tarjeta. El cobro real se completa desde Mercado Pago.';
 
   return (
-    <PortalLayout title="Metodos de pago" subtitle="Centro de cobros, tarjetas tokenizadas y metodo principal.">
+    <PortalLayout title="Metodos de pago" subtitle="Centro de cobros, referencias de pago y metodo principal.">
       <View style={styles.summaryGrid}>
         <SummaryMetricCard
           icon="credit-card-multiple-outline"
@@ -604,12 +601,12 @@ export function PortalPaymentsScreen() {
           </PortalSectionCard>
 
           <PortalSectionCard
-            title={editingId ? 'Editar metodo tokenizado' : 'Agregar tarjeta'}
+            title={editingId ? 'Editar referencia de pago' : 'Agregar referencia de tarjeta'}
             subtitle={formSubtitle}
-            right={<StatusBadge label="tokenizado" tone="info" />}>
+            right={<StatusBadge label="referencia" tone="info" />}>
             <View style={styles.securityNote}>
               <MaterialCommunityIcons name="lock-check-outline" size={18} color={portalPalette.success} />
-              <Text style={styles.securityNoteText}>Ingresa los 16 digitos; ManeComb solo guarda marca, terminacion y vigencia.</Text>
+              <Text style={styles.securityNoteText}>Ingresa solo los ultimos 4 digitos. ManeComb no captura ni guarda el numero completo.</Text>
             </View>
 
             {message ? (
@@ -636,17 +633,17 @@ export function PortalPaymentsScreen() {
               </View>
               <View style={styles.formWide}>
                 <PaymentInput
-                  label="Numero de tarjeta"
-                  placeholder="16 digitos"
+                  label="Ultimos 4 digitos"
+                  placeholder="1234"
                   value={cardNumber}
                   error={errors.cardNumber}
                   focused={focusedField === 'cardNumber'}
                   keyboardType="number-pad"
-                  maxLength={16}
+                  maxLength={4}
                   onFocus={() => setFocusedField('cardNumber')}
                   onBlur={() => setFocusedField(null)}
                   onChangeText={(value) => {
-                    setCardNumber(normalizeDigits(value, 16));
+                    setCardNumber(normalizeDigits(value, 4));
                     setErrors((current) => ({ ...current, cardNumber: undefined }));
                   }}
                 />

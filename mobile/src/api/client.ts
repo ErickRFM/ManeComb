@@ -138,7 +138,7 @@ function isProductionBackendUrl(value: string) {
 }
 
 export function getBackendLabel(apiUrl = RESOLVED_API_URL) {
-  return isProductionBackendUrl(apiUrl) ? 'backend de produccion' : 'backend local';
+  return isProductionBackendUrl(apiUrl) ? 'backend de produccion' : 'backend configurado';
 }
 
 function getRequestUrl(config: AxiosError['config'] | undefined) {
@@ -239,7 +239,7 @@ export function getApiErrorMessage(
   if (isTimeoutError(error)) {
     return isProductionBackendUrl(apiUrl)
       ? `Timeout: el backend de produccion no respondio a tiempo en ${apiUrl}. Verifica tu internet y el estado de Render.`
-      : `Timeout: el backend local no respondio a tiempo en ${apiUrl}. Verifica que Node este encendido y que el puerto este abierto.`;
+      : `Timeout: el backend configurado no respondio a tiempo en ${apiUrl}. Verifica la URL y la conexion.`;
   }
 
   if (!error.response) {
@@ -250,12 +250,12 @@ export function getApiErrorMessage(
     if (/handshake|ssl|certificate|cert/i.test(error.message || '')) {
       return isProductionBackendUrl(apiUrl)
         ? 'Error de SSL/handshake con el backend de produccion. Verifica el certificado HTTPS de Render.'
-        : 'Error de SSL/handshake: el backend local esta en HTTP. Usa una URL http:// o publica un backend HTTPS valido.';
+        : 'Error de SSL/handshake con el backend configurado. Verifica que la URL use HTTPS valido.';
     }
 
     return isProductionBackendUrl(apiUrl)
       ? `No se pudo conectar con el backend de produccion en ${apiUrl}. Verifica tu internet y que Render este activo.`
-      : `No se pudo conectar con el backend local en ${apiUrl}. Verifica que el servidor Node este encendido, que el puerto 5000 este permitido por Windows Firewall y que el celular este en la misma Wi-Fi.`;
+      : `No se pudo conectar con el backend configurado en ${apiUrl}. Verifica la URL y la conexion.`;
   }
 
   if (status === 400 && typeof apiMessage === 'string' && apiMessage.trim()) {
@@ -293,7 +293,7 @@ export function getApiErrorMessage(
   if (status === 502 || status === 503 || status === 504) {
     return isProductionBackendUrl(apiUrl)
       ? `Despertando servidor, intentando de nuevo. Si continua, revisa Render. ${traceSuffix}`.trim()
-      : `El backend local no respondio (${status}). Verifica que Node siga encendido.${traceSuffix}`;
+      : `El backend configurado no respondio (${status}).${traceSuffix}`;
   }
 
   if (status && status >= 500) {

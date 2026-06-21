@@ -23,7 +23,7 @@ import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import { getLocationStatus } from '@/src/utils/location-status';
-import { openSalesPortal } from '@/src/utils/sales-portal';
+import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
 const lightMapStyle: MapStyleElement[] = [
   { elementType: 'geometry', stylers: [{ color: '#f4f5f7' }] },
@@ -249,15 +249,19 @@ export function MapScreen() {
       ? 'Pago pendiente'
       : isBlocked && resolution.reason === 'no_plan'
         ? 'Activa tu plan'
-        : isBlocked
-          ? 'Plan no activo'
-          : isOnboarding
-            ? 'Completa tu configuracion'
-            : 'No pudimos sincronizar tu cuenta';
+        : isBlocked && resolution.reason === 'missing_tenant'
+          ? 'Completa tu configuración'
+          : isBlocked
+            ? 'Plan no activo'
+            : isOnboarding
+              ? 'Completa tu configuración'
+              : 'No pudimos sincronizar tu cuenta';
     const recoveryMessage = isBlocked && resolution.reason === 'payment_pending'
-      ? 'Tu plan esta en espera de confirmacion.'
+      ? 'Tu pago aún no se ha confirmado. Revisa tu cuenta desde el portal web.'
       : isBlocked && resolution.reason === 'no_plan'
         ? 'Tu cuenta esta creada, pero aun no tienes un plan activo.'
+        : isBlocked && resolution.reason === 'missing_tenant'
+          ? 'Tu plan esta activo. Configura tu empresa para comenzar.'
         : isBlocked
           ? 'Renueva tu plan para volver a operar ManeComb.'
           : isOnboarding
@@ -295,7 +299,7 @@ export function MapScreen() {
             <Pressable
               onPress={() => {
                 if (isBlocked) {
-                  openSalesPortal(resolution.reason === 'payment_pending' ? '/login' : '').catch(() => undefined);
+                  openSalesPortal(getSalesPortalPathForBlockReason(resolution.reason)).catch(() => undefined);
                   return;
                 }
 

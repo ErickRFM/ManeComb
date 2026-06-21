@@ -15,6 +15,26 @@ const router = Router();
 const authLimiter = enterpriseRateLimit({ scope: "auth", max: 20, windowMs: 60 * 1000 });
 const refreshLimiter = enterpriseRateLimit({ scope: "auth-refresh", max: 30, windowMs: 60 * 1000 });
 
+function shouldLogAuthAccessDecision() {
+  return process.env.AUTH_ACCESS_DEBUG === "true" || process.env.NODE_ENV === "development";
+}
+
+function logAuthAccessDecision(source, user, authContext) {
+  if (!shouldLogAuthAccessDecision()) {
+    return;
+  }
+
+  console.info("[auth-access]", {
+    source,
+    email: user?.email || null,
+    subscriptionStatus: authContext?.subscription?.status || null,
+    subscriptionIsActive: authContext?.subscription?.isActive ?? null,
+    tenantStatus: authContext?.tenant?.status || null,
+    canAccessMobile: authContext?.canAccessMobile ?? null,
+    mobileBlockReason: authContext?.mobileBlockReason || null
+  });
+}
+
 function buildAuthContextPayload(authContext) {
   return {
     authContext,
@@ -31,6 +51,7 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
   const refresh = await createSessionForRequest(req, user);
   const session = buildAuthSession(user, refresh.session.id);
   const authContext = await buildAuthContext(req.app.locals.store, user);
+  logAuthAccessDecision(action, user, authContext);
 
   await recordAuditLog(req, {
     actorId: user.id,
@@ -220,6 +241,7 @@ router.post("/logout-all", authenticate, async (req, res) => {
 
 async function sendSessionResponse(req, res) {
   const authContext = await buildAuthContext(req.app.locals.store, req.user);
+  logAuthAccessDecision(req.path === "/session" ? "auth.session" : "auth.me", req.user, authContext);
 
   return res.json({
     ok: true,

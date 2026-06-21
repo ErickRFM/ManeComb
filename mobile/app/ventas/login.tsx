@@ -4,7 +4,7 @@ import { openSalesPortal } from '@/src/utils/sales-portal';
 
 export default function SalesLoginRoute() {
   useEffect(() => {
-    openSalesPortal('/login').catch(() => undefined);
+    openSalesPortal('/ventas/login').catch(() => undefined);
   }, []);
 
   return <Redirect href="/login" />;

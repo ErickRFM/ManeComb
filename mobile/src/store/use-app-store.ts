@@ -435,13 +435,7 @@ function getAuthContextFromPayload(
     };
   }
 
-  if (
-    typeof payload.canAccessMobile === 'boolean' ||
-    payload.subscription ||
-    payload.tenant ||
-    payload.onboarding ||
-    payload.postLoginRoute
-  ) {
+  if (typeof payload.canAccessMobile === 'boolean') {
     const canAccessMobile = payload.canAccessMobile === true;
     const mobileBlockReason: AuthRoutingContext['mobileBlockReason'] =
       payload.mobileBlockReason ?? (canAccessMobile ? null : 'sync_error');

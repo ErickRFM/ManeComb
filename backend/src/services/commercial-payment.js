@@ -80,9 +80,9 @@ async function createMercadoPagoPreference(order) {
         name: order.contactName
       },
       back_urls: {
-        success: `${APP_URL.replace(/\/$/, "")}/ventas?checkout=success`,
-        failure: `${APP_URL.replace(/\/$/, "")}/ventas?checkout=failure`,
-        pending: `${APP_URL.replace(/\/$/, "")}/ventas?checkout=pending`
+        success: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=success`,
+        failure: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=failure`,
+        pending: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=pending`
       },
       auto_return: "approved",
       payment_methods: {

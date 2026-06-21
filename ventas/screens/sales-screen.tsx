@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -26,6 +26,10 @@ import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-c
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+const SUPPORT_EMAIL = 'ventas@manecomb.com';
+const SUPPORT_PHONE = '81812345678';
+const SYSTEM_STATUS_URL = 'https://manecomb.onrender.com/api/health';
 
 const accentByTone = {
   info: '#00C2FF',
@@ -248,8 +252,60 @@ function webStyle(style: Record<string, unknown>) {
   return Platform.OS === 'web' ? (style as any) : undefined;
 }
 
+function getFirstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function openExternalUrl(url: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (/^https?:\/\//i.test(url)) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    window.location.href = url;
+  }
+}
+
+function getCheckoutReturnCopy(status?: string) {
+  const normalized = String(status || '').trim().toLowerCase();
+
+  if (normalized === 'success') {
+    return {
+      icon: 'check-circle-outline' as IconName,
+      title: 'Tu pago fue aprobado',
+      body: 'Estamos sincronizando tu plan. Entra al portal para revisar el estado de activacion.',
+      action: 'Abrir portal',
+      tone: 'success' as const,
+    };
+  }
+
+  if (normalized === 'pending') {
+    return {
+      icon: 'clock-outline' as IconName,
+      title: 'Tu pago esta pendiente',
+      body: 'Mercado Pago aun no confirma el cobro. Puedes revisar el estado desde el portal.',
+      action: 'Ver pagos',
+      tone: 'pending' as const,
+    };
+  }
+
+  if (normalized === 'failure') {
+    return {
+      icon: 'alert-circle-outline' as IconName,
+      title: 'El pago fue rechazado',
+      body: 'Intenta de nuevo o usa otro metodo de pago.',
+      action: 'Reintentar pago',
+      tone: 'danger' as const,
+    };
+  }
+
+  return null;
+}
+
 export function SalesScreen() {
   const { width, height } = useWindowDimensions();
+  const routeParams = useLocalSearchParams<{ checkout?: string | string[] }>();
   const isDesktop = width >= 1080;
   const isTablet = width >= 760;
   const isPhone = width < 640;
@@ -309,6 +365,7 @@ export function SalesScreen() {
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0];
   const headerCompact = scrollY > 36;
+  const checkoutReturnStatus = getFirstParam(routeParams.checkout);
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
     const params = buildPlanParams(plan, requestTrial);
@@ -389,6 +446,18 @@ export function SalesScreen() {
 
       <PageScroller {...(pageScrollerProps as any)}>
         <View style={[styles.container, isPhone ? styles.containerPhone : undefined]}>
+          <CheckoutReturnBanner
+            status={checkoutReturnStatus}
+            onPrimaryPress={() => {
+              const status = String(checkoutReturnStatus || '').toLowerCase();
+              if (status === 'failure') {
+                scrollToSection('planes');
+                return;
+              }
+
+              router.push((status === 'pending' ? '/portal/pagos' : '/portal') as never);
+            }}
+          />
           <RevealView index={0} scrollY={scrollY} viewportHeight={height} immediate>
             <View
               nativeID="inicio"
@@ -442,7 +511,7 @@ export function SalesScreen() {
           >
             <SectionHeading
               nativeID="funcionalidades"
-              eyebrow="TODO LO QUE NECESITAS, EN UN SOLO LUGAR"
+              eyebrow="CONTROL OPERATIVO EN UN SOLO LUGAR"
               title="Funciones que impulsan tu operación"
               intro="Una capa operativa para ver, coordinar, documentar y decidir con datos de tu flotilla."
               centered
@@ -1397,6 +1466,42 @@ function ActionButton({
   );
 }
 
+function CheckoutReturnBanner({
+  onPrimaryPress,
+  status,
+}: {
+  onPrimaryPress: () => void;
+  status?: string | string[];
+}) {
+  const copy = getCheckoutReturnCopy(getFirstParam(status));
+
+  if (!copy) {
+    return null;
+  }
+
+  const toneColor =
+    copy.tone === 'success'
+      ? neonPalette.mint
+      : copy.tone === 'pending'
+        ? neonPalette.cyan
+        : neonPalette.accent;
+
+  return (
+    <View style={[styles.checkoutReturnBanner, { borderColor: `${toneColor}66`, backgroundColor: `${toneColor}14` }]}>
+      <View style={[styles.checkoutReturnIcon, { backgroundColor: `${toneColor}22` }]}>
+        <MaterialCommunityIcons name={copy.icon} size={24} color={toneColor} />
+      </View>
+      <View style={styles.checkoutReturnCopy}>
+        <Text style={styles.checkoutReturnTitle}>{copy.title}</Text>
+        <Text style={styles.checkoutReturnBody}>{copy.body}</Text>
+      </View>
+      <Pressable onPress={onPrimaryPress} style={[styles.checkoutReturnButton, { backgroundColor: toneColor }]}>
+        <Text style={styles.checkoutReturnButtonText}>{copy.action}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function RoundIconButton({
   icon,
   onPress,
@@ -1544,8 +1649,24 @@ function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
       onNavigate('funcionalidades');
       return;
     }
-    if (label === 'Casos de éxito') {
+    if (label === 'Nosotros' || label.startsWith('Casos de')) {
       onNavigate('confianza');
+      return;
+    }
+    if (label === 'Contacto' || label === 'Centro de ayuda') {
+      openExternalUrl(`mailto:${SUPPORT_EMAIL}?subject=Soporte%20ManeComb`);
+      return;
+    }
+    if (label.startsWith('Documentaci')) {
+      openExternalUrl(`mailto:${SUPPORT_EMAIL}?subject=Documentacion%20ManeComb`);
+      return;
+    }
+    if (label === 'Estado del sistema') {
+      openExternalUrl(SYSTEM_STATUS_URL);
+      return;
+    }
+    if (label === 'Cookies') {
+      router.push('/privacidad' as never);
       return;
     }
     if (label === 'Privacidad') {
@@ -1566,22 +1687,6 @@ function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
           <Text style={styles.footerDescription}>
             Plataforma integral para el control y operación de flotillas de transporte tipo combi.
           </Text>
-          <View style={styles.socialRow}>
-            {[
-              { icon: 'facebook' as IconName, label: 'Facebook' },
-              { icon: 'instagram' as IconName, label: 'Instagram' },
-              { icon: 'linkedin' as IconName, label: 'LinkedIn' },
-              { icon: 'youtube' as IconName, label: 'YouTube' },
-            ].map((social) => (
-              <Pressable
-                key={social.label}
-                accessibilityLabel={social.label}
-                accessibilityRole="link"
-                style={styles.socialButton}>
-                <MaterialCommunityIcons name={social.icon} size={17} color={neonPalette.text} />
-              </Pressable>
-            ))}
-          </View>
         </View>
 
         <View style={styles.footerColumns}>
@@ -1603,8 +1708,8 @@ function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
 
         <View style={styles.contactCard}>
           <Text style={styles.contactTitle}>¿Hablamos?</Text>
-          <ContactRow icon="email-outline" text="ventas@manecomb.com" />
-          <ContactRow icon="phone-outline" text="(81) 1234 5678" />
+          <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
+          <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
           <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
         </View>
       </View>
@@ -1617,12 +1722,20 @@ function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
   );
 }
 
-function ContactRow({ icon, text }: { icon: IconName; text: string }) {
-  return (
-    <View style={styles.contactRow}>
+function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => void; text: string }) {
+  const content = (
+    <>
       <MaterialCommunityIcons name={icon} size={15} color={neonPalette.accent} />
       <Text style={styles.contactText}>{text}</Text>
-    </View>
+    </>
+  );
+
+  return onPress ? (
+    <Pressable onPress={onPress} style={styles.contactRow}>
+      {content}
+    </Pressable>
+  ) : (
+    <View style={styles.contactRow}>{content}</View>
   );
 }
 
@@ -1653,6 +1766,55 @@ const styles = StyleSheet.create({
     paddingTop: 112,
     paddingBottom: 36,
     gap: 78,
+  },
+  checkoutReturnBanner: {
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: -34,
+    minWidth: 0,
+    padding: 14,
+  },
+  checkoutReturnIcon: {
+    alignItems: 'center',
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  checkoutReturnCopy: {
+    flex: 1,
+    flexBasis: 260,
+    gap: 3,
+    minWidth: 0,
+  },
+  checkoutReturnTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  checkoutReturnBody: {
+    color: neonPalette.mutedStrong,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  checkoutReturnButton: {
+    alignItems: 'center',
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 14,
+  },
+  checkoutReturnButtonText: {
+    color: '#050816',
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
   },
   containerPhone: {
     paddingHorizontal: 16,
@@ -2685,20 +2847,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12.5,
     lineHeight: 19,
-  },
-  socialRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  socialButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: neonPalette.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(245, 247, 255, 0.045)',
   },
   footerColumns: {
     flex: 1,

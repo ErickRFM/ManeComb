@@ -57,8 +57,10 @@ function Routes() {
     case '/':
     case '/ventas':
       return <SalesScreen />;
+    case '/login':
     case '/ventas/login':
       return <SalesAuthScreen mode="login" />;
+    case '/registro':
     case '/ventas/registro':
       return <SalesAuthScreen mode="register" />;
     case '/ventas/pago':
@@ -83,9 +85,9 @@ function Routes() {
     case '/radio':
       return <OperationalPlaceholder title="Radio operativo" />;
     case '/terminos':
-      return <StaticPage title="Terminos" body="Documento legal pendiente de publicar para el sitio de ventas." />;
+      return <StaticPage title="Terminos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
-      return <StaticPage title="Privacidad" body="Aviso de privacidad pendiente de publicar para el sitio de ventas." />;
+      return <StaticPage title="Privacidad" body="Informacion de privacidad y canales de contacto para cuentas ManeComb." />;
     default:
       return <StaticPage title="Pagina no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
   }
