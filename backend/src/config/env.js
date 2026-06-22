@@ -31,6 +31,10 @@ function parseOrigins(value) {
     .filter(Boolean);
 }
 
+function getFirstPublicOrigin(value) {
+  return parseOrigins(value).find((origin) => /^https?:\/\//.test(origin) && !origin.includes("*")) || "";
+}
+
 const DEFAULT_CLIENT_ORIGINS = [
   "https://manecomb1.pages.dev",
   "https://*.manecomb1.pages.dev",
@@ -146,8 +150,13 @@ const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
   ? "*"
   : (origin, callback) => callback(null, isClientOriginAllowed(origin));
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
-const APP_URL = process.env.APP_URL || process.env.CLIENT_URL || "http://localhost:8081";
-const PUBLIC_WEBHOOK_BASE_URL = process.env.PUBLIC_WEBHOOK_BASE_URL || "";
+const APP_URL =
+  process.env.APP_URL ||
+  process.env.CLIENT_URL ||
+  getFirstPublicOrigin(process.env.CLIENT_ORIGIN) ||
+  (IS_PRODUCTION_RUNTIME ? DEFAULT_CLIENT_ORIGINS[0] : "http://localhost:8081");
+const PUBLIC_WEBHOOK_BASE_URL =
+  process.env.PUBLIC_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
 const DOCUMENT_STORAGE_DRIVER = process.env.DOCUMENT_STORAGE_DRIVER || "mongo";
 const COMMERCIAL_BRAND_NAME = process.env.COMMERCIAL_BRAND_NAME || "ManeComb";
 const COMMERCIAL_LEGAL_NAME = process.env.COMMERCIAL_LEGAL_NAME || "";
@@ -162,6 +171,8 @@ const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || "mercado_pago";
 const MERCADO_PAGO_ACCESS_TOKEN =
   process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "";
+const MERCADO_PAGO_WEBHOOK_SECRET =
+  process.env.MERCADO_PAGO_WEBHOOK_SECRET || process.env.MERCADOPAGO_WEBHOOK_SECRET || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
@@ -231,6 +242,7 @@ module.exports = {
   CLOUDINARY_API_SECRET,
   PAYMENT_PROVIDER,
   MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_WEBHOOK_SECRET,
   RESEND_API_KEY,
   RESEND_FROM_EMAIL,
   TWILIO_ACCOUNT_SID,

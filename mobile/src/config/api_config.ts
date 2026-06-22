@@ -148,7 +148,9 @@ export function isDevRuntime() {
 }
 
 export function mobileLog(scope: string, message: string, details?: unknown) {
-  void scope;
-  void message;
-  void details;
+  const ignored = Boolean(scope || message || details);
+
+  if (ignored) {
+    return;
+  }
 }

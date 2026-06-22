@@ -20,7 +20,6 @@ import { Typography } from '@/constants/theme';
 import {
   API_URL,
   getApiErrorMessage,
-  getBackendLabel,
   healthRequest,
   validateDriverActivationKeyRequest,
 } from '@/src/api/client';
@@ -228,16 +227,15 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
         status?: string;
       };
       const pingMs = Date.now() - startedAt;
-      const backendLabel = getBackendLabel(API_URL);
       setHelperTone('success');
       setHelperMessage(
-        `Conexion OK (${pingMs} ms). ${backendLabel}: ${health.status || 'ok'} / ${health.mode || 'online'}. URL: ${API_URL}`
+        `Conexion OK (${pingMs} ms). Servicio: ${health.status || 'ok'} / ${health.mode || 'online'}.`
       );
     } catch (error) {
       setHelperMessage(
         `${getApiErrorMessage(error, 'No fue posible probar la conexión.', {
           apiUrl: API_URL,
-        })} URL actual: ${API_URL}`
+        })}`
       );
     } finally {
       setIsTestingConnection(false);
@@ -331,8 +329,8 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   </>
                 ) : null}
                 <AuthField
-                  label={isDriverRegister ? 'Correo o teléfono' : 'Correo electrónico o número'}
-                  placeholder="User@correo.com"
+                  label="Correo o telefono"
+                  placeholder="usuario@correo.com"
                   value={isRegister ? registerIdentity : loginIdentity}
                   onChangeText={isRegister ? setRegisterIdentity : setLoginIdentity}
                   keyboardType="email-address"
@@ -384,13 +382,13 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     <View style={[styles.checkbox, rememberSession ? styles.checkboxActive : undefined]}>
                       {rememberSession ? <View style={styles.checkboxDot} /> : null}
                     </View>
-                    <Text style={styles.smallActionText}>Recordar contraseña</Text>
+                    <Text style={styles.smallActionText}>Recordarme</Text>
                   </Pressable>
                   <Pressable
                     onPress={() =>
                       setHelperMessage('Contacta al administrador para recuperar tu acceso.')
                     }>
-                    <Text style={styles.smallActionText}>¿Olvidó la contraseña?</Text>
+                    <Text style={styles.smallActionText}>Recuperar acceso</Text>
                   </Pressable>
                 </View>
               ) : null}

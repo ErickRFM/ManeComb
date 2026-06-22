@@ -273,7 +273,7 @@ function PaymentWalletCard({
       <View style={styles.walletFooter}>
         <View style={styles.walletSecurity}>
           <MaterialCommunityIcons name="shield-check-outline" size={16} color={portalPalette.success} />
-          <Text style={styles.walletSecurityText}>Token seguro</Text>
+          <Text style={styles.walletSecurityText}>Referencia segura</Text>
         </View>
         <View style={styles.walletActions}>
           {isCard ? (
@@ -320,7 +320,7 @@ function EmptyPaymentMethods({ onAddPress }: { onAddPress: () => void }) {
       </View>
       <View style={styles.emptyCopy}>
         <Text style={styles.emptyTitle}>No hay metodos de pago registrados</Text>
-        <Text style={styles.emptyText}>Agrega una tarjeta o transferencia SPEI para continuar.</Text>
+        <Text style={styles.emptyText}>Agrega una referencia de pago para continuar.</Text>
       </View>
       <Pressable onPress={onAddPress} style={[styles.emptyButton, portalButtonGradient()]}>
         <MaterialCommunityIcons name="plus" size={17} color="#FFFFFF" />

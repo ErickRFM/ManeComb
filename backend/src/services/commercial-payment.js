@@ -36,15 +36,15 @@ function getPaymentProviderName(paymentMethod) {
     return "trial_access";
   }
 
+  if (isAutomaticPaymentEnabled()) {
+    return "mercado_pago";
+  }
+
   if (paymentMethod === "spei" || paymentMethod === "transfer") {
     return isManualTransferConfigured() ? "manual_bank_transfer" : "manual";
   }
 
-  if (!isAutomaticPaymentEnabled()) {
-    return isManualTransferConfigured() ? "manual_bank_transfer" : "manual";
-  }
-
-  return "mercado_pago";
+  return isManualTransferConfigured() ? "manual_bank_transfer" : "manual";
 }
 
 function buildOrderDescription(order) {

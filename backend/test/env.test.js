@@ -155,21 +155,81 @@ function testDeploymentEnvAliases() {
       "process.env.JWT_EXPIRES_IN='20m';",
       "process.env.CLIENT_URL='https://manecomb1.pages.dev';",
       "process.env.MERCADOPAGO_ACCESS_TOKEN='mp-token';",
+      "process.env.MERCADOPAGO_WEBHOOK_SECRET='wh-secret';",
       "const env=require('./src/config/env');",
       "if(env.MONGO_URI!=='mongodb://atlas.example/manecomb') process.exit(2);",
       "if(env.ACCESS_TOKEN_TTL!=='20m') process.exit(3);",
       "if(env.APP_URL!=='https://manecomb1.pages.dev') process.exit(4);",
-      "if(env.MERCADO_PAGO_ACCESS_TOKEN!=='mp-token') process.exit(5);"
+      "if(env.MERCADO_PAGO_ACCESS_TOKEN!=='mp-token') process.exit(5);",
+      "if(env.MERCADO_PAGO_WEBHOOK_SECRET!=='wh-secret') process.exit(6);"
     ].join(""),
     {
       NODE_ENV: "development",
       RENDER: ""
     },
-    ["MONGO_URI", "MONGODB_URI", "ACCESS_TOKEN_TTL", "JWT_EXPIRES_IN", "APP_URL", "CLIENT_URL", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADOPAGO_ACCESS_TOKEN"]
+    ["MONGO_URI", "MONGODB_URI", "ACCESS_TOKEN_TTL", "JWT_EXPIRES_IN", "APP_URL", "CLIENT_URL", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADOPAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "MERCADOPAGO_WEBHOOK_SECRET"]
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   console.log("ok - aliases de variables de deploy resuelven correctamente");
+}
+
+function testClientOriginFallbackForAppUrl() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.APP_URL!=='https://manecomb1.pages.dev') process.exit(2);"
+    ].join(""),
+    {
+      CLIENT_ORIGIN: "https://manecomb1.pages.dev,http://localhost:5173",
+      NODE_ENV: "development",
+      RENDER: ""
+    },
+    ["APP_URL", "CLIENT_URL"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - APP_URL usa CLIENT_ORIGIN publico antes de localhost");
+}
+
+function testRenderWebhookBaseUrlFallback() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.PUBLIC_WEBHOOK_BASE_URL!=='https://manecomb.onrender.com') process.exit(2);"
+    ].join(""),
+    {
+      MONGODB_URI: mongoUri,
+      NODE_ENV: "",
+      RENDER: "true",
+      RENDER_EXTERNAL_URL: "https://manecomb.onrender.com"
+    },
+    ["PUBLIC_WEBHOOK_BASE_URL", "MONGO_URI"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - Render usa RENDER_EXTERNAL_URL como webhook publico");
+}
+
+function testMercadoPagoProviderSelection() {
+  const result = runEnvScript(
+    [
+      "const payments=require('./src/services/commercial-payment');",
+      "if(!payments.isAutomaticPaymentEnabled()) process.exit(2);",
+      "if(payments.getPaymentProviderName('spei')!=='mercado_pago') process.exit(3);",
+      "if(payments.getPaymentProviderName('card')!=='mercado_pago') process.exit(4);"
+    ].join(""),
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "mp-token",
+      NODE_ENV: "development",
+      PAYMENT_PROVIDER: "mercado_pago",
+      RENDER: ""
+    },
+    ["MERCADOPAGO_ACCESS_TOKEN"]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - Mercado Pago procesa tarjeta y SPEI cuando esta configurado");
 }
 
 testProductionRequiresJwtSecret();
@@ -179,3 +239,6 @@ testProductionAcceptsJwtSecretAliases();
 testProductionDerivesShortJwtSecret();
 testRenderAcceptsMongoDerivedJwtSecret();
 testDeploymentEnvAliases();
+testClientOriginFallbackForAppUrl();
+testRenderWebhookBaseUrlFallback();
+testMercadoPagoProviderSelection();

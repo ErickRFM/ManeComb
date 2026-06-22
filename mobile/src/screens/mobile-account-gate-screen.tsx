@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Redirect, router } from '@/src/navigation/router';
 import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { StatusBar } from '@/src/native/status-bar';
@@ -121,50 +122,52 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: theme.colors.background }]}>
       <StatusBar style={theme.statusBar} />
-      <View style={[styles.iconWrap, { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.line }]}>
-        <MaterialCommunityIcons name={copy.icon} size={32} color={theme.colors.accent} />
-      </View>
-      <Text style={[styles.title, { color: theme.colors.text }]}>{copy.title}</Text>
-      <Text style={[styles.body, { color: theme.colors.muted }]}>
-        {reason === 'sync_error' && error ? String(error) : copy.body}
-      </Text>
-      <View style={styles.actions}>
-        <Pressable
-          onPress={handlePrimaryAction}
-          disabled={isRefreshing}
-          style={({ pressed }) => [
-            styles.primaryButton,
-            { backgroundColor: theme.colors.accent },
-            pressed && !isRefreshing ? styles.pressed : undefined,
-            isRefreshing ? styles.disabled : undefined,
-          ]}>
-          {isRefreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
-          <Text style={styles.primaryText}>{isRefreshing ? 'Sincronizando...' : copy.action}</Text>
-        </Pressable>
-        {reason !== 'sync_error' ? (
+      <View style={styles.content}>
+        <View style={[styles.iconWrap, { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.line }]}>
+          <MaterialCommunityIcons name={copy.icon} size={32} color={theme.colors.accent} />
+        </View>
+        <Text style={[styles.title, { color: theme.colors.text }]}>{copy.title}</Text>
+        <Text style={[styles.body, { color: theme.colors.muted }]}>
+          {reason === 'sync_error' && error ? String(error) : copy.body}
+        </Text>
+        <View style={styles.actions}>
           <Pressable
-            onPress={refreshAll}
+            onPress={handlePrimaryAction}
             disabled={isRefreshing}
             style={({ pressed }) => [
-              styles.secondaryButton,
-              { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+              styles.primaryButton,
+              { backgroundColor: theme.colors.accent },
               pressed && !isRefreshing ? styles.pressed : undefined,
+              isRefreshing ? styles.disabled : undefined,
             ]}>
-            <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Reintentar</Text>
+            {isRefreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+            <Text style={styles.primaryText}>{isRefreshing ? 'Sincronizando...' : copy.action}</Text>
           </Pressable>
-        ) : null}
-        <Pressable
-          onPress={handleSignOut}
-          style={({ pressed }) => [
-            styles.ghostButton,
-            pressed ? styles.pressed : undefined,
-          ]}>
-          <Text style={[styles.ghostText, { color: theme.colors.muted }]}>Cerrar sesion</Text>
-        </Pressable>
+          {reason !== 'sync_error' ? (
+            <Pressable
+              onPress={refreshAll}
+              disabled={isRefreshing}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+                pressed && !isRefreshing ? styles.pressed : undefined,
+              ]}>
+              <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Reintentar</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={handleSignOut}
+            style={({ pressed }) => [
+              styles.ghostButton,
+              pressed ? styles.pressed : undefined,
+            ]}>
+            <Text style={[styles.ghostText, { color: theme.colors.muted }]}>Cerrar sesion</Text>
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -184,6 +187,12 @@ function createStyles() {
     },
     disabled: {
       opacity: 0.65,
+    },
+    content: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      maxWidth: 430,
+      width: '100%',
     },
     ghostButton: {
       alignItems: 'center',
@@ -228,6 +237,7 @@ function createStyles() {
       flex: 1,
       justifyContent: 'center',
       paddingHorizontal: AppTheme.spacing.xl,
+      paddingVertical: AppTheme.spacing.lg,
     },
     secondaryButton: {
       alignItems: 'center',

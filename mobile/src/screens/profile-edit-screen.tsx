@@ -408,8 +408,7 @@ export function ProfileEditScreen() {
           }}>
           <Text style={styles.sectionHeading}>Metodo de pago</Text>
           <Text style={styles.sectionCaption}>
-            Guardamos solo referencia enmascarada y preferencia de cobro. La tarjeta completa la
-            sigue tokenizando la pasarela externa.
+            Guardamos solo una referencia de cobro. El pago real se completa desde el portal web.
           </Text>
           <View style={styles.methodRow}>
             {[

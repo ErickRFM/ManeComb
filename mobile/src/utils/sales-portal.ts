@@ -26,7 +26,7 @@ export function getSalesPortalPathForBlockReason(reason: MobileBlockReason | str
     return '/portal/onboarding';
   }
 
-  return '/ventas';
+  return '/ventas/';
 }
 
 export function openSalesPortal(path = '') {

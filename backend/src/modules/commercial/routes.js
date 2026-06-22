@@ -1,11 +1,11 @@
+const crypto = require("node:crypto");
 const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
-const { IS_PRODUCTION_RUNTIME } = require("../../config/env");
+const { MERCADO_PAGO_WEBHOOK_SECRET } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
 const { requireAdmin } = require("../../middlewares/require-admin");
-const { getOrganizationId, requirePermission } = require("../../middlewares/access-control");
+const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
-const { verifyToken } = require("../../utils/jwt");
 const {
   confirmCommercialPayment,
   createCommercialCheckout
@@ -29,71 +29,6 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
-function routeError(message, statusCode = 400) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
-
-async function getOptionalAuthenticatedUser(req) {
-  const header = req.headers.authorization;
-
-  if (!header?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  try {
-    const payload = verifyToken(header.replace("Bearer ", "").trim());
-    return await req.app.locals.store.getUserById(payload.sub);
-  } catch {
-    return null;
-  }
-}
-
-function canConfirmVisualPayment(user, order) {
-  if (!user || !order) {
-    return false;
-  }
-
-  const userOrganizationId = getOrganizationId(user);
-  const orderOrganizationId = String(order.organizationId || order.organizationSlug || "").trim();
-  const userEmail = String(user.email || "").trim().toLowerCase();
-  const orderEmail = String(order.ownerAccountEmail || order.email || "").trim().toLowerCase();
-
-  return Boolean(
-    String(order.ownerUserId || "").trim() === String(user.id || "").trim() ||
-      (userOrganizationId && userOrganizationId === orderOrganizationId) ||
-      (userEmail && userEmail === orderEmail)
-  );
-}
-
-function isVisualCheckoutSimulation(req) {
-  const paymentId = String(req.body.paymentId || "").trim();
-  return Boolean(req.body.visualSimulation || req.body.simulatePayment || paymentId.startsWith("visual-checkout-"));
-}
-
-async function buildVisualCheckoutConfirmation(req, order) {
-  const user = await getOptionalAuthenticatedUser(req);
-
-  if (!canConfirmVisualPayment(user, order)) {
-    throw routeError("Sesion requerida para confirmar este pago visual", user ? 403 : 401);
-  }
-
-  const paymentMethod = String(req.body.paymentMethod || order.paymentMethod || "card").trim();
-  const approvedAt = new Date().toISOString();
-
-  return {
-    paymentStatus: "paid",
-    activationStatus: "ready_for_activation",
-    approvedAt,
-    paymentProvider: paymentMethod === "spei" ? "visual_spei" : "visual_card",
-    paymentProviderReference: String(req.body.paymentId || `visual-checkout-${Date.now()}`).trim(),
-    paymentExternalReference: String(order.paymentExternalReference || order.id || order.referenceCode).trim(),
-    paymentInstructions: null,
-    nextStep: "Pago visual confirmado. La cuenta quedo activada para el portal."
-  };
-}
-
 function emitCommercialEvent(req, eventName, order, payload = {}) {
   const organizationId = String(order?.organizationId || order?.organizationSlug || "").trim();
   const ownerUserId = String(order?.ownerUserId || "").trim();
@@ -113,6 +48,89 @@ function emitCommercialEvent(req, eventName, order, payload = {}) {
   }
 
   req.app.locals.io?.to("platform:admin").emit(eventName, eventPayload);
+}
+
+function isCommercialOrderPaid(order) {
+  return Boolean(
+    ["paid"].includes(String(order?.paymentStatus || "").toLowerCase()) ||
+      ["active", "paid"].includes(String(order?.status || "").toLowerCase()) ||
+      String(order?.activationStatus || "").toLowerCase() === "active"
+  );
+}
+
+function buildPaymentConfirmationUpdate(order, confirmation) {
+  const paymentStatus = String(confirmation.paymentStatus || order.paymentStatus || "pending").trim();
+  const paidConfirmation = paymentStatus === "paid";
+
+  if (isCommercialOrderPaid(order) && !paidConfirmation) {
+    return {
+      paymentProvider: confirmation.paymentProvider || order.paymentProvider,
+      paymentProviderReference: confirmation.paymentProviderReference || order.paymentProviderReference,
+      paymentExternalReference: confirmation.paymentExternalReference || order.paymentExternalReference,
+      paymentStatus: order.paymentStatus,
+      paymentApprovedAt: order.paymentApprovedAt,
+      activationStatus: order.activationStatus,
+      activationStartedAt: order.activationStartedAt,
+      status: order.status
+    };
+  }
+
+  return {
+    paymentProvider: confirmation.paymentProvider || order.paymentProvider,
+    paymentStatus,
+    paymentProviderReference: confirmation.paymentProviderReference || order.paymentProviderReference,
+    paymentExternalReference: confirmation.paymentExternalReference || order.paymentExternalReference,
+    paymentApprovedAt: confirmation.approvedAt || order.paymentApprovedAt || null,
+    activationStatus: confirmation.activationStatus,
+    activationStartedAt:
+      confirmation.activationStatus === "ready_for_activation"
+        ? new Date().toISOString()
+        : order.activationStartedAt || null,
+    status: paidConfirmation ? "paid" : order.status
+  };
+}
+
+function parseMercadoPagoSignature(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim().split("="))
+    .reduce((signature, [key, entryValue]) => {
+      if (key && entryValue) {
+        signature[key] = entryValue;
+      }
+
+      return signature;
+    }, {});
+}
+
+function compareHexDigest(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "hex");
+  const rightBuffer = Buffer.from(String(right || ""), "hex");
+
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function isMercadoPagoWebhookSignatureValid(req, paymentId) {
+  if (!MERCADO_PAGO_WEBHOOK_SECRET) {
+    return true;
+  }
+
+  const signature = parseMercadoPagoSignature(req.headers["x-signature"]);
+  const requestId = String(req.headers["x-request-id"] || "").trim();
+  const ts = String(signature.ts || "").trim();
+  const v1 = String(signature.v1 || "").trim();
+
+  if (!paymentId || !requestId || !ts || !v1) {
+    return false;
+  }
+
+  const manifest = `id:${paymentId};request-id:${requestId};ts:${ts};`;
+  const expectedSignature = crypto
+    .createHmac("sha256", MERCADO_PAGO_WEBHOOK_SECRET)
+    .update(manifest)
+    .digest("hex");
+
+  return compareHexDigest(expectedSignature, v1);
 }
 
 router.get("/plans", (req, res) => {
@@ -306,38 +324,14 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
 router.post("/confirm", async (req, res) => {
   try {
     const requestedExternalReference = String(req.body.externalReference || req.body.referenceCode || "").trim();
-    let order = requestedExternalReference
-      ? await req.app.locals.store.findCommercialOrderByExternalReference(requestedExternalReference)
+    const confirmation = await confirmCommercialPayment({
+      externalReference: requestedExternalReference,
+      paymentId: String(req.body.paymentId || "").trim()
+    });
+    const externalReference = String(confirmation.paymentExternalReference || requestedExternalReference).trim();
+    const order = externalReference
+      ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
       : null;
-    let confirmation;
-    const visualCheckoutSimulation = isVisualCheckoutSimulation(req);
-
-    if (visualCheckoutSimulation && IS_PRODUCTION_RUNTIME) {
-      return res.status(403).json({
-        ok: false,
-        message: "La confirmacion visual de pagos no esta permitida en produccion"
-      });
-    }
-
-    if (visualCheckoutSimulation) {
-      if (!order) {
-        return res.status(404).json({
-          ok: false,
-          message: "Orden comercial no encontrada"
-        });
-      }
-
-      confirmation = await buildVisualCheckoutConfirmation(req, order);
-    } else {
-      confirmation = await confirmCommercialPayment({
-        externalReference: requestedExternalReference,
-        paymentId: String(req.body.paymentId || "").trim()
-      });
-      const externalReference = String(confirmation.paymentExternalReference || requestedExternalReference).trim();
-      order = externalReference
-        ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
-        : null;
-    }
 
     if (!order) {
       return res.status(404).json({
@@ -346,17 +340,10 @@ router.post("/confirm", async (req, res) => {
       });
     }
 
-    const updatedOrder = await req.app.locals.store.updateCommercialOrder(order.id, {
-      paymentProvider: confirmation.paymentProvider || order.paymentProvider,
-      paymentStatus: confirmation.paymentStatus,
-      paymentProviderReference: confirmation.paymentProviderReference || order.paymentProviderReference,
-      paymentExternalReference: confirmation.paymentExternalReference || order.paymentExternalReference,
-      paymentApprovedAt: confirmation.approvedAt,
-      activationStatus: confirmation.activationStatus,
-      activationStartedAt:
-        confirmation.activationStatus === "ready_for_activation" ? new Date().toISOString() : null,
-      status: confirmation.paymentStatus === "paid" ? "paid" : order.status
-    });
+    const updatedOrder = await req.app.locals.store.updateCommercialOrder(
+      order.id,
+      buildPaymentConfirmationUpdate(order, confirmation)
+    );
     const activatedOrder =
       confirmation.paymentStatus === "paid"
         ? await req.app.locals.store.updateCommercialOrder(
@@ -418,9 +405,18 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       });
     }
 
+    const normalizedPaymentId = String(paymentId).trim();
+
+    if (!isMercadoPagoWebhookSignatureValid(req, normalizedPaymentId)) {
+      return res.status(401).json({
+        ok: false,
+        message: "Firma de Mercado Pago invalida"
+      });
+    }
+
     const webhookEvent = await registerWebhookEvent({
       provider: "mercado_pago",
-      providerEventId: String(paymentId).trim(),
+      providerEventId: normalizedPaymentId,
       payload: req.body,
       metadata: {
         query: req.query,
@@ -436,7 +432,7 @@ router.post("/webhooks/mercadopago", async (req, res) => {
     }
 
     await confirmCommercialPayment({
-      paymentId: String(paymentId).trim()
+      paymentId: normalizedPaymentId
     }).then(async (confirmation) => {
       const externalReference = String(confirmation.paymentExternalReference || "").trim();
 
@@ -450,16 +446,10 @@ router.post("/webhooks/mercadopago", async (req, res) => {
         return;
       }
 
-      const updatedOrder = await req.app.locals.store.updateCommercialOrder(order.id, {
-        paymentStatus: confirmation.paymentStatus,
-        paymentProviderReference: confirmation.paymentProviderReference,
-        paymentExternalReference: confirmation.paymentExternalReference,
-        paymentApprovedAt: confirmation.approvedAt,
-        activationStatus: confirmation.activationStatus,
-        activationStartedAt:
-          confirmation.activationStatus === "ready_for_activation" ? new Date().toISOString() : null,
-        status: confirmation.paymentStatus === "paid" ? "paid" : order.status
-      });
+      const updatedOrder = await req.app.locals.store.updateCommercialOrder(
+        order.id,
+        buildPaymentConfirmationUpdate(order, confirmation)
+      );
 
       const activatedOrder =
         confirmation.paymentStatus === "paid"

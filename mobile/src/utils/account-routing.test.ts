@@ -179,8 +179,8 @@ describe('getSalesPortalPathForBlockReason', () => {
   it('usa rutas web reales para acciones de plan y pago', () => {
     expect(getSalesPortalPathForBlockReason('payment_pending')).toBe('/portal/pagos');
     expect(getSalesPortalPathForBlockReason('inactive_plan')).toBe('/portal/plan');
-    expect(getSalesPortalPathForBlockReason('no_plan')).toBe('/ventas');
+    expect(getSalesPortalPathForBlockReason('no_plan')).toBe('/ventas/');
     expect(getSalesPortalPathForBlockReason('missing_tenant')).toBe('/portal/onboarding');
-    expect(getSalesPortalPathForBlockReason('sync_error')).toBe('/ventas');
+    expect(getSalesPortalPathForBlockReason('sync_error')).toBe('/ventas/');
   });
 });

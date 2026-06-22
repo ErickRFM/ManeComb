@@ -17,7 +17,11 @@ import {
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
-import { getCommercialPlansRequest } from '@/src/api/client';
+import {
+  confirmCommercialPaymentRequest,
+  getApiErrorMessage,
+  getCommercialPlansRequest,
+} from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { COMMERCIAL_FAQS, FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -26,6 +30,11 @@ import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-c
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+type CheckoutConfirmState = {
+  message?: string;
+  status: 'idle' | 'checking' | 'confirmed' | 'error';
+  paymentStatus?: string;
+};
 
 const SUPPORT_EMAIL = 'ventas@manecomb.com';
 const SUPPORT_PHONE = '81812345678';
@@ -267,14 +276,52 @@ function openExternalUrl(url: string) {
   }
 }
 
-function getCheckoutReturnCopy(status?: string) {
+function normalizeMercadoPagoReturnStatus(status?: string) {
+  const normalized = String(status || '').trim().toLowerCase();
+
+  if (['approved', 'success', 'paid', 'accredited'].includes(normalized)) {
+    return 'success';
+  }
+
+  if (['rejected', 'failure', 'cancelled', 'canceled', 'refunded', 'charged_back'].includes(normalized)) {
+    return 'failure';
+  }
+
+  if (['pending', 'in_process', 'in_mediation', 'authorized'].includes(normalized)) {
+    return 'pending';
+  }
+
+  return normalized || undefined;
+}
+
+function getCheckoutReturnCopy(status?: string, confirmation?: CheckoutConfirmState) {
+  if (confirmation?.status === 'checking') {
+    return {
+      icon: 'sync' as IconName,
+      title: 'Validando pago',
+      body: 'Estamos confirmando el pago con Mercado Pago.',
+      action: 'Ver portal',
+      tone: 'pending' as const,
+    };
+  }
+
+  if (confirmation?.status === 'error') {
+    return {
+      icon: 'alert-circle-outline' as IconName,
+      title: 'No pudimos confirmar el pago',
+      body: confirmation.message || 'Revisa el estado del pago desde el portal.',
+      action: 'Ver pagos',
+      tone: 'danger' as const,
+    };
+  }
+
   const normalized = String(status || '').trim().toLowerCase();
 
   if (normalized === 'success') {
     return {
       icon: 'check-circle-outline' as IconName,
-      title: 'Tu pago fue aprobado',
-      body: 'Estamos sincronizando tu plan. Entra al portal para revisar el estado de activacion.',
+      title: 'Pago aprobado',
+      body: confirmation?.message || 'Tu plan se esta sincronizando con el portal.',
       action: 'Abrir portal',
       tone: 'success' as const,
     };
@@ -283,8 +330,8 @@ function getCheckoutReturnCopy(status?: string) {
   if (normalized === 'pending') {
     return {
       icon: 'clock-outline' as IconName,
-      title: 'Tu pago esta pendiente',
-      body: 'Mercado Pago aun no confirma el cobro. Puedes revisar el estado desde el portal.',
+      title: 'Pago pendiente',
+      body: confirmation?.message || 'Mercado Pago aun no confirma el cobro.',
       action: 'Ver pagos',
       tone: 'pending' as const,
     };
@@ -293,7 +340,7 @@ function getCheckoutReturnCopy(status?: string) {
   if (normalized === 'failure') {
     return {
       icon: 'alert-circle-outline' as IconName,
-      title: 'El pago fue rechazado',
+      title: 'Pago rechazado',
       body: 'Intenta de nuevo o usa otro metodo de pago.',
       action: 'Reintentar pago',
       tone: 'danger' as const,
@@ -305,7 +352,15 @@ function getCheckoutReturnCopy(status?: string) {
 
 export function SalesScreen() {
   const { width, height } = useWindowDimensions();
-  const routeParams = useLocalSearchParams<{ checkout?: string | string[] }>();
+  const routeParams = useLocalSearchParams<{
+    checkout?: string | string[];
+    collection_id?: string | string[];
+    collection_status?: string | string[];
+    external_reference?: string | string[];
+    payment_id?: string | string[];
+    preference_id?: string | string[];
+    status?: string | string[];
+  }>();
   const isDesktop = width >= 1080;
   const isTablet = width >= 760;
   const isPhone = width < 640;
@@ -320,6 +375,8 @@ export function SalesScreen() {
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const [scrollY, setScrollY] = useState(0);
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
+  const [checkoutConfirm, setCheckoutConfirm] = useState<CheckoutConfirmState>({ status: 'idle' });
+  const lastConfirmedPaymentRef = useRef<string | null>(null);
 
   useEffect(() => {
     void getCommercialPlansRequest()
@@ -365,7 +422,48 @@ export function SalesScreen() {
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0];
   const headerCompact = scrollY > 36;
-  const checkoutReturnStatus = getFirstParam(routeParams.checkout);
+  const paymentId = getFirstParam(routeParams.payment_id) || getFirstParam(routeParams.collection_id);
+  const externalReference = getFirstParam(routeParams.external_reference);
+  const mercadoPagoStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
+  const checkoutReturnStatus =
+    normalizeMercadoPagoReturnStatus(checkoutConfirm.paymentStatus) ||
+    normalizeMercadoPagoReturnStatus(getFirstParam(routeParams.checkout)) ||
+    normalizeMercadoPagoReturnStatus(mercadoPagoStatus);
+
+  useEffect(() => {
+    const cleanPaymentId = String(paymentId || '').trim();
+
+    if (!cleanPaymentId) {
+      return;
+    }
+
+    const confirmationKey = `${cleanPaymentId}:${externalReference || ''}`;
+
+    if (lastConfirmedPaymentRef.current === confirmationKey) {
+      return;
+    }
+
+    lastConfirmedPaymentRef.current = confirmationKey;
+    setCheckoutConfirm({ status: 'checking' });
+
+    void confirmCommercialPaymentRequest({
+      externalReference,
+      paymentId: cleanPaymentId,
+    })
+      .then((order) => {
+        setCheckoutConfirm({
+          message: order?.nextStep || undefined,
+          paymentStatus: order?.paymentStatus,
+          status: 'confirmed',
+        });
+      })
+      .catch((error) => {
+        setCheckoutConfirm({
+          message: getApiErrorMessage(error, 'No fue posible confirmar el pago.'),
+          status: 'error',
+        });
+      });
+  }, [externalReference, paymentId]);
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
     const params = buildPlanParams(plan, requestTrial);
@@ -447,6 +545,7 @@ export function SalesScreen() {
       <PageScroller {...(pageScrollerProps as any)}>
         <View style={[styles.container, isPhone ? styles.containerPhone : undefined]}>
           <CheckoutReturnBanner
+            confirmation={checkoutConfirm}
             status={checkoutReturnStatus}
             onPrimaryPress={() => {
               const status = String(checkoutReturnStatus || '').toLowerCase();
@@ -1467,13 +1566,15 @@ function ActionButton({
 }
 
 function CheckoutReturnBanner({
+  confirmation,
   onPrimaryPress,
   status,
 }: {
+  confirmation?: CheckoutConfirmState;
   onPrimaryPress: () => void;
   status?: string | string[];
 }) {
-  const copy = getCheckoutReturnCopy(getFirstParam(status));
+  const copy = getCheckoutReturnCopy(getFirstParam(status), confirmation);
 
   if (!copy) {
     return null;

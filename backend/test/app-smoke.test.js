@@ -20,6 +20,7 @@ const createApp = require("../src/app");
 const { connectDB, getDbState } = require("../src/config/db");
 const { createEmbeddedStore } = require("../src/data/store");
 const { createMongoStore } = require("../src/data/mongo-store");
+const { buildCommercialActivationUpdate } = require("../src/services/commercial-activation");
 
 async function createMongoTestServer() {
   let store;
@@ -179,7 +180,7 @@ async function testCriticalFlows() {
     assert.equal(checkoutResponse.payload.data.radioFeatureEnabled, true);
     assert.ok(Array.isArray(checkoutResponse.payload.data.downloads));
 
-    const visualCheckoutResponse = await requestJson(`${context.url}/commercial/checkout`, {
+    const operationalCheckoutResponse = await requestJson(`${context.url}/commercial/checkout`, {
       body: JSON.stringify({
         companyName,
         contactName: "Smoke Ops",
@@ -195,15 +196,24 @@ async function testCriticalFlows() {
       method: "POST"
     });
 
-    assert.equal(visualCheckoutResponse.status, 201);
-    const visualConfirmResponse = await requestJson(`${context.url}/commercial/confirm`, {
+    assert.equal(operationalCheckoutResponse.status, 201);
+    const activatedOrder = await context.store.updateCommercialOrder(
+      operationalCheckoutResponse.payload.data.id,
+      {
+        ...buildCommercialActivationUpdate(operationalCheckoutResponse.payload.data, "active"),
+        paymentApprovedAt: new Date().toISOString(),
+        paymentStatus: "paid",
+        status: "active"
+      }
+    );
+
+    assert.equal(activatedOrder.activationStatus, "active");
+    assert.equal(activatedOrder.status, "active");
+    const confirmResponse = await requestJson(`${context.url}/commercial/confirm`, {
       body: JSON.stringify({
         externalReference:
-          visualCheckoutResponse.payload.data.paymentExternalReference ||
-          visualCheckoutResponse.payload.data.id,
-        paymentId: `visual-checkout-${stamp}`,
-        paymentMethod: "card",
-        visualSimulation: true
+          operationalCheckoutResponse.payload.data.paymentExternalReference ||
+          operationalCheckoutResponse.payload.data.id
       }),
       headers: {
         Authorization: `Bearer ${token}`
@@ -211,9 +221,8 @@ async function testCriticalFlows() {
       method: "POST"
     });
 
-    assert.equal(visualConfirmResponse.status, 200);
-    assert.equal(visualConfirmResponse.payload.data.paymentStatus, "paid");
-    assert.equal(visualConfirmResponse.payload.data.activationStatus, "active");
+    assert.equal(confirmResponse.status, 200);
+    assert.equal(confirmResponse.payload.data.activationStatus, "active");
 
     const activeSessionResponse = await requestJson(`${context.url}/auth/me`, {
       headers: {

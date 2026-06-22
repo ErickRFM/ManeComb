@@ -301,9 +301,9 @@ export function PlanCheckoutScreen() {
                     <View style={styles.speiPanel}>
                       <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
                       <View style={styles.speiCopy}>
-                        <Text style={styles.speiTitle}>Referencia SPEI preparada</Text>
+                        <Text style={styles.speiTitle}>Pago SPEI por proveedor externo</Text>
                         <Text style={styles.speiText}>
-                          La orden queda registrada con referencia comercial. El plan se activa cuando el pago sea validado.
+                          Al continuar abriremos el checkout disponible para completar o registrar el cobro. El plan se activa cuando el pago sea validado.
                         </Text>
                       </View>
                     </View>
@@ -338,7 +338,7 @@ export function PlanCheckoutScreen() {
                             ? `Activar prueba ${selectedPlan.trialDays || 7} dias`
                             : selectedMethod === 'card'
                               ? 'Continuar a Mercado Pago'
-                              : `Generar referencia ${buttonAmount}`}
+                              : `Continuar pago SPEI ${buttonAmount}`}
                         </Text>
                         <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
                       </>
