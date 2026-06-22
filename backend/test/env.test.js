@@ -155,19 +155,41 @@ function testDeploymentEnvAliases() {
       "process.env.JWT_EXPIRES_IN='20m';",
       "process.env.CLIENT_URL='https://manecomb1.pages.dev';",
       "process.env.MERCADOPAGO_ACCESS_TOKEN='mp-token';",
+      "process.env.MERCADOPAGO_PUBLIC_KEY='mp-public';",
       "process.env.MERCADOPAGO_WEBHOOK_SECRET='wh-secret';",
       "const env=require('./src/config/env');",
       "if(env.MONGO_URI!=='mongodb://atlas.example/manecomb') process.exit(2);",
       "if(env.ACCESS_TOKEN_TTL!=='20m') process.exit(3);",
       "if(env.APP_URL!=='https://manecomb1.pages.dev') process.exit(4);",
       "if(env.MERCADO_PAGO_ACCESS_TOKEN!=='mp-token') process.exit(5);",
-      "if(env.MERCADO_PAGO_WEBHOOK_SECRET!=='wh-secret') process.exit(6);"
+      "if(env.MERCADO_PAGO_ACCESS_TOKEN_SOURCE!=='MERCADOPAGO_ACCESS_TOKEN') process.exit(6);",
+      "if(env.MERCADO_PAGO_PUBLIC_KEY!=='mp-public') process.exit(7);",
+      "if(env.MERCADO_PAGO_PUBLIC_KEY_SOURCE!=='MERCADOPAGO_PUBLIC_KEY') process.exit(8);",
+      "if(env.MERCADO_PAGO_WEBHOOK_SECRET!=='wh-secret') process.exit(9);",
+      "if(env.MERCADO_PAGO_WEBHOOK_SECRET_SOURCE!=='MERCADOPAGO_WEBHOOK_SECRET') process.exit(10);"
     ].join(""),
     {
       NODE_ENV: "development",
       RENDER: ""
     },
-    ["MONGO_URI", "MONGODB_URI", "ACCESS_TOKEN_TTL", "JWT_EXPIRES_IN", "APP_URL", "CLIENT_URL", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADOPAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "MERCADOPAGO_WEBHOOK_SECRET"]
+    [
+      "MONGO_URI",
+      "MONGODB_URI",
+      "ACCESS_TOKEN_TTL",
+      "JWT_EXPIRES_IN",
+      "APP_URL",
+      "CLIENT_URL",
+      "MERCADO_PAGO_ACCESS_TOKEN",
+      "MERCADOPAGO_ACCESS_TOKEN",
+      "MP_ACCESS_TOKEN",
+      "MERCADO_PAGO_PUBLIC_KEY",
+      "MERCADOPAGO_PUBLIC_KEY",
+      "MP_PUBLIC_KEY",
+      "MERCADO_PAGO_WEBHOOK_SECRET",
+      "MERCADOPAGO_WEBHOOK_SECRET",
+      "MP_WEBHOOK_SECRET",
+      "WEBHOOK_SECRET"
+    ]
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -232,6 +254,54 @@ function testMercadoPagoProviderSelection() {
   console.log("ok - Mercado Pago procesa tarjeta y SPEI cuando esta configurado");
 }
 
+function testMercadoPagoShortAliasesAndReturnUrls() {
+  const result = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.MERCADO_PAGO_ACCESS_TOKEN!=='TEST-short-token') process.exit(2);",
+      "if(env.MERCADO_PAGO_ACCESS_TOKEN_SOURCE!=='MP_ACCESS_TOKEN') process.exit(3);",
+      "if(env.MERCADO_PAGO_PUBLIC_KEY!=='TEST-public-key') process.exit(4);",
+      "if(env.MERCADO_PAGO_PUBLIC_KEY_SOURCE!=='MP_PUBLIC_KEY') process.exit(5);",
+      "if(env.MERCADO_PAGO_WEBHOOK_SECRET!=='generic-webhook-secret') process.exit(6);",
+      "if(env.MERCADO_PAGO_WEBHOOK_SECRET_SOURCE!=='WEBHOOK_SECRET') process.exit(7);",
+      "if(env.MERCADO_PAGO_SUCCESS_URL!=='https://example.com/success') process.exit(8);",
+      "if(env.MERCADO_PAGO_FAILURE_URL!=='https://example.com/failure') process.exit(9);",
+      "if(env.MERCADO_PAGO_PENDING_URL!=='https://example.com/pending') process.exit(10);"
+    ].join(""),
+    {
+      FAILURE_URL: "https://example.com/failure",
+      MP_ACCESS_TOKEN: "TEST-short-token",
+      MP_PUBLIC_KEY: "TEST-public-key",
+      NODE_ENV: "development",
+      PENDING_URL: "https://example.com/pending",
+      RENDER: "",
+      SUCCESS_URL: "https://example.com/success",
+      WEBHOOK_SECRET: "generic-webhook-secret"
+    },
+    [
+      "MERCADO_PAGO_ACCESS_TOKEN",
+      "MERCADOPAGO_ACCESS_TOKEN",
+      "MERCADO_PAGO_PUBLIC_KEY",
+      "MERCADOPAGO_PUBLIC_KEY",
+      "MERCADO_PAGO_WEBHOOK_SECRET",
+      "MERCADOPAGO_WEBHOOK_SECRET",
+      "MP_WEBHOOK_SECRET",
+      "MERCADO_PAGO_SUCCESS_URL",
+      "MERCADOPAGO_SUCCESS_URL",
+      "MP_SUCCESS_URL",
+      "MERCADO_PAGO_FAILURE_URL",
+      "MERCADOPAGO_FAILURE_URL",
+      "MP_FAILURE_URL",
+      "MERCADO_PAGO_PENDING_URL",
+      "MERCADOPAGO_PENDING_URL",
+      "MP_PENDING_URL"
+    ]
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - aliases cortos de Mercado Pago y URLs de retorno resuelven correctamente");
+}
+
 testProductionRequiresJwtSecret();
 testRenderRequiresJwtSecret();
 testProductionAcceptsStrongJwtSecret();
@@ -242,3 +312,4 @@ testDeploymentEnvAliases();
 testClientOriginFallbackForAppUrl();
 testRenderWebhookBaseUrlFallback();
 testMercadoPagoProviderSelection();
+testMercadoPagoShortAliasesAndReturnUrls();

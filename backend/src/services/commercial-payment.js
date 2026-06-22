@@ -1,8 +1,20 @@
 const {
-  APP_URL,
   MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES,
+  MERCADO_PAGO_ACCESS_TOKEN_SOURCE,
+  MERCADO_PAGO_FAILURE_URL,
+  MERCADO_PAGO_FAILURE_URL_SOURCE,
+  MERCADO_PAGO_PENDING_URL,
+  MERCADO_PAGO_PENDING_URL_SOURCE,
+  MERCADO_PAGO_PUBLIC_KEY,
+  MERCADO_PAGO_PUBLIC_KEY_SOURCE,
+  MERCADO_PAGO_SUCCESS_URL,
+  MERCADO_PAGO_SUCCESS_URL_SOURCE,
+  MERCADO_PAGO_WEBHOOK_SECRET,
+  MERCADO_PAGO_WEBHOOK_SECRET_SOURCE,
+  MERCADO_PAGO_WEBHOOK_URL,
+  MERCADO_PAGO_WEBHOOK_URL_SOURCE,
   PAYMENT_PROVIDER,
-  PUBLIC_WEBHOOK_BASE_URL
 } = require("../config/env");
 const {
   getManualPaymentInstructions,
@@ -13,12 +25,84 @@ function isAutomaticPaymentEnabled() {
   return PAYMENT_PROVIDER === "mercado_pago" && Boolean(MERCADO_PAGO_ACCESS_TOKEN);
 }
 
+function getMercadoPagoTokenPrefix() {
+  if (!MERCADO_PAGO_ACCESS_TOKEN) {
+    return "none";
+  }
+
+  if (MERCADO_PAGO_ACCESS_TOKEN.startsWith("TEST-")) {
+    return "TEST";
+  }
+
+  if (MERCADO_PAGO_ACCESS_TOKEN.startsWith("APP_USR-")) {
+    return "APP_USR";
+  }
+
+  return "unknown";
+}
+
+function getMercadoPagoEnvironment() {
+  const prefix = getMercadoPagoTokenPrefix();
+
+  if (prefix === "TEST") {
+    return "sandbox";
+  }
+
+  if (prefix === "APP_USR") {
+    return "production";
+  }
+
+  return MERCADO_PAGO_ACCESS_TOKEN ? "unknown" : "not_configured";
+}
+
+function getMercadoPagoRuntimeDiagnostics() {
+  return {
+    accessTokenDetected: Boolean(MERCADO_PAGO_ACCESS_TOKEN),
+    accessTokenSource: MERCADO_PAGO_ACCESS_TOKEN_SOURCE || null,
+    attemptedAccessTokenEnvNames: MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES,
+    environment: getMercadoPagoEnvironment(),
+    failureUrlDetected: Boolean(MERCADO_PAGO_FAILURE_URL),
+    failureUrlSource: MERCADO_PAGO_FAILURE_URL_SOURCE || null,
+    pendingUrlDetected: Boolean(MERCADO_PAGO_PENDING_URL),
+    pendingUrlSource: MERCADO_PAGO_PENDING_URL_SOURCE || null,
+    publicKeyDetected: Boolean(MERCADO_PAGO_PUBLIC_KEY),
+    publicKeySource: MERCADO_PAGO_PUBLIC_KEY_SOURCE || null,
+    successUrlDetected: Boolean(MERCADO_PAGO_SUCCESS_URL),
+    successUrlSource: MERCADO_PAGO_SUCCESS_URL_SOURCE || null,
+    tokenPrefix: getMercadoPagoTokenPrefix(),
+    webhookSecretDetected: Boolean(MERCADO_PAGO_WEBHOOK_SECRET),
+    webhookSecretSource: MERCADO_PAGO_WEBHOOK_SECRET_SOURCE || null,
+    webhookUrlDetected: Boolean(MERCADO_PAGO_WEBHOOK_URL),
+    webhookUrlSource: MERCADO_PAGO_WEBHOOK_URL_SOURCE || null
+  };
+}
+
+function logMercadoPagoRuntimeDiagnostics() {
+  const diagnostics = getMercadoPagoRuntimeDiagnostics();
+
+  console.log(`[payments] Mercado Pago access token detected: ${diagnostics.accessTokenDetected ? "yes" : "no"}`);
+  console.log(`[payments] Token prefix: ${diagnostics.tokenPrefix}`);
+  console.log(`[payments] Mercado Pago public key detected: ${diagnostics.publicKeyDetected ? "yes" : "no"}`);
+  console.log(`[payments] Success URL detected: ${diagnostics.successUrlDetected ? "yes" : "no"}`);
+  console.log(`[payments] Failure URL detected: ${diagnostics.failureUrlDetected ? "yes" : "no"}`);
+  console.log(`[payments] Pending URL detected: ${diagnostics.pendingUrlDetected ? "yes" : "no"}`);
+  console.log(`[payments] Webhook secret detected: ${diagnostics.webhookSecretDetected ? "yes" : "no"}`);
+
+  if (!diagnostics.accessTokenDetected && PAYMENT_PROVIDER === "mercado_pago") {
+    console.warn(
+      `[payments] Mercado Pago access token missing. Tried env names: ${diagnostics.attemptedAccessTokenEnvNames.join(", ")}`
+    );
+  }
+}
+
 function getPaymentReadiness() {
   const automaticReady = isAutomaticPaymentEnabled();
   const manualReady = isManualTransferConfigured();
   const ready = automaticReady || manualReady;
+  const diagnostics = getMercadoPagoRuntimeDiagnostics();
 
   return {
+    diagnostics,
     mode: automaticReady ? "mercado_pago" : manualReady ? "manual_transfer_ready" : "configuration_required",
     provider: PAYMENT_PROVIDER || "mercado_pago",
     ready,
@@ -27,7 +111,11 @@ function getPaymentReadiness() {
         ? []
         : manualReady
           ? []
-          : ["MERCADO_PAGO_ACCESS_TOKEN", "BANK_TRANSFER_ACCOUNT_NAME", "BANK_TRANSFER_CLABE"]
+          : [
+              `Mercado Pago access token (tried: ${MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES.join(", ")})`,
+              "BANK_TRANSFER_ACCOUNT_NAME",
+              "BANK_TRANSFER_CLABE"
+            ]
   };
 }
 
@@ -53,9 +141,6 @@ function buildOrderDescription(order) {
 }
 
 async function createMercadoPagoPreference(order) {
-  const notificationUrl = PUBLIC_WEBHOOK_BASE_URL
-    ? `${PUBLIC_WEBHOOK_BASE_URL.replace(/\/$/, "")}/api/commercial/webhooks/mercadopago`
-    : undefined;
   const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
@@ -80,15 +165,15 @@ async function createMercadoPagoPreference(order) {
         name: order.contactName
       },
       back_urls: {
-        success: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=success`,
-        failure: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=failure`,
-        pending: `${APP_URL.replace(/\/$/, "")}/ventas/?checkout=pending`
+        success: MERCADO_PAGO_SUCCESS_URL,
+        failure: MERCADO_PAGO_FAILURE_URL,
+        pending: MERCADO_PAGO_PENDING_URL
       },
       auto_return: "approved",
       payment_methods: {
         installments: 12
       },
-      ...(notificationUrl ? { notification_url: notificationUrl } : {})
+      ...(MERCADO_PAGO_WEBHOOK_URL ? { notification_url: MERCADO_PAGO_WEBHOOK_URL } : {})
     })
   });
 
@@ -215,7 +300,10 @@ async function confirmCommercialPayment({ externalReference, paymentId }) {
 module.exports = {
   confirmCommercialPayment,
   createCommercialCheckout,
+  getMercadoPagoRuntimeDiagnostics,
+  getMercadoPagoTokenPrefix,
   getPaymentReadiness,
   getPaymentProviderName,
-  isAutomaticPaymentEnabled
+  isAutomaticPaymentEnabled,
+  logMercadoPagoRuntimeDiagnostics
 };

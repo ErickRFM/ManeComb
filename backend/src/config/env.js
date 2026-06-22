@@ -35,6 +35,24 @@ function getFirstPublicOrigin(value) {
   return parseOrigins(value).find((origin) => /^https?:\/\//.test(origin) && !origin.includes("*")) || "";
 }
 
+function readFirstEnv(candidates) {
+  for (const name of candidates) {
+    const value = String(process.env[name] || "").trim();
+
+    if (value) {
+      return {
+        name,
+        value
+      };
+    }
+  }
+
+  return {
+    name: "",
+    value: ""
+  };
+}
+
 const DEFAULT_CLIENT_ORIGINS = [
   "https://manecomb1.pages.dev",
   "https://*.manecomb1.pages.dev",
@@ -157,6 +175,46 @@ const APP_URL =
   (IS_PRODUCTION_RUNTIME ? DEFAULT_CLIENT_ORIGINS[0] : "http://localhost:8081");
 const PUBLIC_WEBHOOK_BASE_URL =
   process.env.PUBLIC_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
+const MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES = [
+  "MERCADO_PAGO_ACCESS_TOKEN",
+  "MERCADOPAGO_ACCESS_TOKEN",
+  "MP_ACCESS_TOKEN"
+];
+const MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES = [
+  "MERCADO_PAGO_PUBLIC_KEY",
+  "MERCADOPAGO_PUBLIC_KEY",
+  "MP_PUBLIC_KEY"
+];
+const MERCADO_PAGO_WEBHOOK_SECRET_ENV_NAMES = [
+  "MERCADO_PAGO_WEBHOOK_SECRET",
+  "MERCADOPAGO_WEBHOOK_SECRET",
+  "MP_WEBHOOK_SECRET",
+  "WEBHOOK_SECRET"
+];
+const MERCADO_PAGO_SUCCESS_URL_ENV_NAMES = [
+  "MERCADO_PAGO_SUCCESS_URL",
+  "MERCADOPAGO_SUCCESS_URL",
+  "MP_SUCCESS_URL",
+  "SUCCESS_URL"
+];
+const MERCADO_PAGO_FAILURE_URL_ENV_NAMES = [
+  "MERCADO_PAGO_FAILURE_URL",
+  "MERCADOPAGO_FAILURE_URL",
+  "MP_FAILURE_URL",
+  "FAILURE_URL"
+];
+const MERCADO_PAGO_PENDING_URL_ENV_NAMES = [
+  "MERCADO_PAGO_PENDING_URL",
+  "MERCADOPAGO_PENDING_URL",
+  "MP_PENDING_URL",
+  "PENDING_URL"
+];
+const MERCADO_PAGO_WEBHOOK_URL_ENV_NAMES = [
+  "MERCADO_PAGO_WEBHOOK_URL",
+  "MERCADOPAGO_WEBHOOK_URL",
+  "MP_WEBHOOK_URL",
+  "WEBHOOK_URL"
+];
 const DOCUMENT_STORAGE_DRIVER = process.env.DOCUMENT_STORAGE_DRIVER || "mongo";
 const COMMERCIAL_BRAND_NAME = process.env.COMMERCIAL_BRAND_NAME || "ManeComb";
 const COMMERCIAL_LEGAL_NAME = process.env.COMMERCIAL_LEGAL_NAME || "";
@@ -169,10 +227,35 @@ const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "";
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || "mercado_pago";
-const MERCADO_PAGO_ACCESS_TOKEN =
-  process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "";
-const MERCADO_PAGO_WEBHOOK_SECRET =
-  process.env.MERCADO_PAGO_WEBHOOK_SECRET || process.env.MERCADOPAGO_WEBHOOK_SECRET || "";
+const mercadoPagoAccessToken = readFirstEnv(MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES);
+const mercadoPagoPublicKey = readFirstEnv(MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES);
+const mercadoPagoWebhookSecret = readFirstEnv(MERCADO_PAGO_WEBHOOK_SECRET_ENV_NAMES);
+const mercadoPagoSuccessUrl = readFirstEnv(MERCADO_PAGO_SUCCESS_URL_ENV_NAMES);
+const mercadoPagoFailureUrl = readFirstEnv(MERCADO_PAGO_FAILURE_URL_ENV_NAMES);
+const mercadoPagoPendingUrl = readFirstEnv(MERCADO_PAGO_PENDING_URL_ENV_NAMES);
+const mercadoPagoWebhookUrl = readFirstEnv(MERCADO_PAGO_WEBHOOK_URL_ENV_NAMES);
+const appUrlWithoutSlash = APP_URL.replace(/\/$/, "");
+const MERCADO_PAGO_ACCESS_TOKEN = mercadoPagoAccessToken.value;
+const MERCADO_PAGO_ACCESS_TOKEN_SOURCE = mercadoPagoAccessToken.name;
+const MERCADO_PAGO_PUBLIC_KEY = mercadoPagoPublicKey.value;
+const MERCADO_PAGO_PUBLIC_KEY_SOURCE = mercadoPagoPublicKey.name;
+const MERCADO_PAGO_WEBHOOK_SECRET = mercadoPagoWebhookSecret.value;
+const MERCADO_PAGO_WEBHOOK_SECRET_SOURCE = mercadoPagoWebhookSecret.name;
+const MERCADO_PAGO_SUCCESS_URL =
+  mercadoPagoSuccessUrl.value || `${appUrlWithoutSlash}/ventas/?checkout=success`;
+const MERCADO_PAGO_SUCCESS_URL_SOURCE = mercadoPagoSuccessUrl.name || "APP_URL";
+const MERCADO_PAGO_FAILURE_URL =
+  mercadoPagoFailureUrl.value || `${appUrlWithoutSlash}/ventas/?checkout=failure`;
+const MERCADO_PAGO_FAILURE_URL_SOURCE = mercadoPagoFailureUrl.name || "APP_URL";
+const MERCADO_PAGO_PENDING_URL =
+  mercadoPagoPendingUrl.value || `${appUrlWithoutSlash}/ventas/?checkout=pending`;
+const MERCADO_PAGO_PENDING_URL_SOURCE = mercadoPagoPendingUrl.name || "APP_URL";
+const MERCADO_PAGO_WEBHOOK_URL =
+  mercadoPagoWebhookUrl.value ||
+  (PUBLIC_WEBHOOK_BASE_URL
+    ? `${PUBLIC_WEBHOOK_BASE_URL.replace(/\/$/, "")}/api/commercial/webhooks/mercadopago`
+    : "");
+const MERCADO_PAGO_WEBHOOK_URL_SOURCE = mercadoPagoWebhookUrl.name || (PUBLIC_WEBHOOK_BASE_URL ? "PUBLIC_WEBHOOK_BASE_URL" : "");
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
@@ -242,7 +325,26 @@ module.exports = {
   CLOUDINARY_API_SECRET,
   PAYMENT_PROVIDER,
   MERCADO_PAGO_ACCESS_TOKEN,
+  MERCADO_PAGO_ACCESS_TOKEN_SOURCE,
+  MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES,
+  MERCADO_PAGO_PUBLIC_KEY,
+  MERCADO_PAGO_PUBLIC_KEY_SOURCE,
+  MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES,
   MERCADO_PAGO_WEBHOOK_SECRET,
+  MERCADO_PAGO_WEBHOOK_SECRET_SOURCE,
+  MERCADO_PAGO_WEBHOOK_SECRET_ENV_NAMES,
+  MERCADO_PAGO_SUCCESS_URL,
+  MERCADO_PAGO_SUCCESS_URL_SOURCE,
+  MERCADO_PAGO_SUCCESS_URL_ENV_NAMES,
+  MERCADO_PAGO_FAILURE_URL,
+  MERCADO_PAGO_FAILURE_URL_SOURCE,
+  MERCADO_PAGO_FAILURE_URL_ENV_NAMES,
+  MERCADO_PAGO_PENDING_URL,
+  MERCADO_PAGO_PENDING_URL_SOURCE,
+  MERCADO_PAGO_PENDING_URL_ENV_NAMES,
+  MERCADO_PAGO_WEBHOOK_URL,
+  MERCADO_PAGO_WEBHOOK_URL_SOURCE,
+  MERCADO_PAGO_WEBHOOK_URL_ENV_NAMES,
   RESEND_API_KEY,
   RESEND_FROM_EMAIL,
   TWILIO_ACCOUNT_SID,

@@ -9,6 +9,7 @@ const { HOST, PORT, REQUIRE_MONGO } = require("./config/env");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const { initializeQueues } = require("./services/queue");
+const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
 const { migrateLegacyLocalDocumentsToMongo } = require("./services/storage");
 const { registerSocketServer } = require("./sockets");
 
@@ -33,6 +34,8 @@ async function startServer() {
       );
     }
   }
+
+  logMercadoPagoRuntimeDiagnostics();
 
   const app = createApp({
     store,
