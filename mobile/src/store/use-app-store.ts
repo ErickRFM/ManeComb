@@ -185,7 +185,7 @@ type AppState = {
   openGeneralConversation: (
     channelMode?: ConversationChannelMode
   ) => Promise<ConversationSummary | null>;
-  sendMessage: (conversationId: string, text: string) => Promise<void>;
+  sendMessage: (conversationId: string, text: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendMediaMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   createIncident: (draft: IncidentDraft) => Promise<boolean>;
@@ -1093,7 +1093,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   sendMessage: async (cid, t) => {
     const { user } = get();
-    if (!t.trim() || !user) return;
+    if (!t.trim() || !user) {
+      return { ok: false, message: 'El mensaje no puede ir vacio.' };
+    }
     set({ isSubmitting: true });
     try {
       const m = await sendMessageRequest(cid, { text: t.trim() });
@@ -1102,6 +1104,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h),
         conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c))
       }));
+      return { ok: true, messageRecord: h };
     } catch (error) {
       logStoreError('sendMessage', error);
       if (isProbablyNetworkError(error)) {
@@ -1114,7 +1117,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         await refreshPendingSyncCount(set);
         set({ networkStatus: 'offline', error: 'Mensaje guardado para sincronizar.' });
+        return { ok: true, message: 'Mensaje guardado para sincronizar.' };
       }
+      return {
+        ok: false,
+        message: getReadableErrorMessage(error, 'No fue posible enviar el mensaje.'),
+      };
     } finally { set({ isSubmitting: false }); }
   },
   createIncident: async (d) => {

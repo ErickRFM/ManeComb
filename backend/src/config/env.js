@@ -180,6 +180,11 @@ const MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES = [
   "MERCADOPAGO_ACCESS_TOKEN",
   "MP_ACCESS_TOKEN"
 ];
+const MERCADO_PAGO_ENV_NAMES = [
+  "MERCADO_PAGO_ENV",
+  "MERCADOPAGO_ENV",
+  "MP_ENV"
+];
 const MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES = [
   "MERCADO_PAGO_PUBLIC_KEY",
   "MERCADOPAGO_PUBLIC_KEY",
@@ -228,6 +233,7 @@ const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || "mercado_pago";
 const mercadoPagoAccessToken = readFirstEnv(MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES);
+const mercadoPagoEnv = readFirstEnv(MERCADO_PAGO_ENV_NAMES);
 const mercadoPagoPublicKey = readFirstEnv(MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES);
 const mercadoPagoWebhookSecret = readFirstEnv(MERCADO_PAGO_WEBHOOK_SECRET_ENV_NAMES);
 const mercadoPagoSuccessUrl = readFirstEnv(MERCADO_PAGO_SUCCESS_URL_ENV_NAMES);
@@ -237,6 +243,8 @@ const mercadoPagoWebhookUrl = readFirstEnv(MERCADO_PAGO_WEBHOOK_URL_ENV_NAMES);
 const appUrlWithoutSlash = APP_URL.replace(/\/$/, "");
 const MERCADO_PAGO_ACCESS_TOKEN = mercadoPagoAccessToken.value;
 const MERCADO_PAGO_ACCESS_TOKEN_SOURCE = mercadoPagoAccessToken.name;
+const MERCADO_PAGO_ENV = mercadoPagoEnv.value;
+const MERCADO_PAGO_ENV_SOURCE = mercadoPagoEnv.name;
 const MERCADO_PAGO_PUBLIC_KEY = mercadoPagoPublicKey.value;
 const MERCADO_PAGO_PUBLIC_KEY_SOURCE = mercadoPagoPublicKey.name;
 const MERCADO_PAGO_WEBHOOK_SECRET = mercadoPagoWebhookSecret.value;
@@ -327,6 +335,9 @@ module.exports = {
   MERCADO_PAGO_ACCESS_TOKEN,
   MERCADO_PAGO_ACCESS_TOKEN_SOURCE,
   MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES,
+  MERCADO_PAGO_ENV,
+  MERCADO_PAGO_ENV_SOURCE,
+  MERCADO_PAGO_ENV_NAMES,
   MERCADO_PAGO_PUBLIC_KEY,
   MERCADO_PAGO_PUBLIC_KEY_SOURCE,
   MERCADO_PAGO_PUBLIC_KEY_ENV_NAMES,

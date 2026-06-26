@@ -4,6 +4,7 @@ import { useVideoPlayer, VideoView } from '@/src/native/video';
 import { io, type Socket } from 'socket.io-client';
 import {
   RecordingPresets,
+  getAudioPlaybackErrorMessage,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioPlayer,
@@ -15,6 +16,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,6 +25,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -48,7 +52,11 @@ type RecordingState = 'idle' | 'recording' | 'uploading';
 type VoiceSearchState = 'idle' | 'recording' | 'processing';
 type CallMode = 'audio' | 'video';
 type CallPhase = 'waiting' | 'connecting' | 'connected';
-type MessageDeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
+type MessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+type LocalTextMessage = ChatMessage & {
+  localStatus: 'sending' | 'failed';
+  retryText: string;
+};
 type RtcParticipant = {
   socketId: string;
   userId: string;
@@ -218,9 +226,17 @@ function getMessageDeliveryStatus(message: ChatMessage, isOwn: boolean): Message
     deliveryStatus?: MessageDeliveryStatus;
   }).deliveryStatus || (message as ChatMessage & {
     sendStatus?: MessageDeliveryStatus;
-  }).sendStatus;
+  }).sendStatus || (message as ChatMessage & {
+    localStatus?: MessageDeliveryStatus;
+  }).localStatus;
 
-  if (status === 'sent' || status === 'delivered' || status === 'read' || status === 'failed') {
+  if (
+    status === 'sending' ||
+    status === 'sent' ||
+    status === 'delivered' ||
+    status === 'read' ||
+    status === 'failed'
+  ) {
     return status;
   }
 
@@ -287,7 +303,13 @@ export function ChatScreen() {
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [isCallMuted, setIsCallMuted] = useState(false);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
+  const [pendingTextMessages, setPendingTextMessages] = useState<LocalTextMessage[]>([]);
+  const [activeAudioMessageId, setActiveAudioMessageId] = useState<string | null>(null);
 
+  const messagesListRef = useRef<FlatList<MessageListItem> | null>(null);
+  const isNearMessagesBottomRef = useRef(true);
+  const shouldScrollAfterSendRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -683,9 +705,20 @@ export function ChatScreen() {
     () => (activeConversationKey ? messagesByConversation[activeConversationKey] || [] : []),
     [activeConversationKey, messagesByConversation]
   );
+  const activePendingTextMessages = useMemo(
+    () =>
+      activeConversationKey
+        ? pendingTextMessages.filter((message) => message.conversationId === activeConversationKey)
+        : [],
+    [activeConversationKey, pendingTextMessages]
+  );
+  const visibleMessages = useMemo(
+    () => [...activeMessages, ...activePendingTextMessages],
+    [activeMessages, activePendingTextMessages]
+  );
   const activeContact = activeConversation ? getConversationContact(activeConversation, user?.id) : null;
   const searchTerm = search.trim().toLowerCase();
-  const activeMessageItems = useMemo(() => buildMessageList(activeMessages), [activeMessages]);
+  const activeMessageItems = useMemo(() => buildMessageList(visibleMessages), [visibleMessages]);
   const conversationFilterCounts = useMemo(
     () => ({
       all: chatConversations.length,
@@ -839,6 +872,65 @@ export function ChatScreen() {
         : 'neutral';
   const activeConversationCallMode = activeCallSession?.mode ?? null;
 
+  const scrollMessagesToEnd = (animated = true) => {
+    requestAnimationFrame(() => {
+      messagesListRef.current?.scrollToEnd({ animated });
+    });
+  };
+
+  const handleMessagesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    isNearMessagesBottomRef.current = distanceFromBottom < 96;
+  };
+
+  const handleMessagesLayout = () => {
+    if (isNearMessagesBottomRef.current || shouldScrollAfterSendRef.current) {
+      scrollMessagesToEnd(false);
+    }
+  };
+
+  const handleMessagesContentSizeChange = () => {
+    if (isNearMessagesBottomRef.current || shouldScrollAfterSendRef.current) {
+      scrollMessagesToEnd(true);
+      shouldScrollAfterSendRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    isNearMessagesBottomRef.current = true;
+    shouldScrollAfterSendRef.current = true;
+    previousMessageCountRef.current = 0;
+    scrollMessagesToEnd(false);
+  }, [activeConversationKey]);
+
+  useEffect(() => {
+    const messageCount = activeMessageItems.filter((item) => item.type === 'message').length;
+    const hasNewMessage = messageCount > previousMessageCountRef.current;
+
+    if (hasNewMessage && (isNearMessagesBottomRef.current || shouldScrollAfterSendRef.current)) {
+      scrollMessagesToEnd(true);
+      shouldScrollAfterSendRef.current = false;
+    }
+
+    previousMessageCountRef.current = messageCount;
+  }, [activeMessageItems]);
+
+  useEffect(() => {
+    const handleKeyboardChange = () => {
+      if (isNearMessagesBottomRef.current || shouldScrollAfterSendRef.current) {
+        setTimeout(() => scrollMessagesToEnd(true), 80);
+      }
+    };
+    const showSubscription = Keyboard.addListener('keyboardDidShow', handleKeyboardChange);
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', handleKeyboardChange);
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const startRecordingTicker = () => {
     recordStartedAtRef.current = Date.now();
     setRecordingSeconds(0);
@@ -974,8 +1066,78 @@ export function ChatScreen() {
       return;
     }
 
-    await sendMessage(activeConversation.id, draft.trim());
+    const text = draft.trim();
+    const localId = `local-${activeConversation.id}-${Date.now()}`;
+    const localMessage: LocalTextMessage = {
+      id: localId,
+      conversationId: activeConversation.id,
+      senderId: user?.id || 'local-user',
+      sender: user || null,
+      kind: 'text',
+      text,
+      createdAt: new Date().toISOString(),
+      localStatus: 'sending',
+      retryText: text,
+    };
+
+    shouldScrollAfterSendRef.current = true;
+    setPendingTextMessages((current) => [...current, localMessage]);
     setDraft('');
+
+    const result = await sendMessage(activeConversation.id, text);
+
+    if (!result || result.ok) {
+      setPendingTextMessages((current) => current.filter((message) => message.id !== localId));
+      return;
+    }
+
+    setPendingTextMessages((current) =>
+      current.map((message) =>
+        message.id === localId
+          ? {
+              ...message,
+              localStatus: 'failed',
+            }
+          : message
+      )
+    );
+  };
+
+  const handleRetryTextMessage = async (message: LocalTextMessage) => {
+    if (!message.conversationId || message.localStatus !== 'failed') {
+      return;
+    }
+
+    shouldScrollAfterSendRef.current = true;
+    setPendingTextMessages((current) =>
+      current.map((entry) =>
+        entry.id === message.id
+          ? {
+              ...entry,
+              localStatus: 'sending',
+              createdAt: new Date().toISOString(),
+            }
+          : entry
+      )
+    );
+
+    const result = await sendMessage(message.conversationId, message.retryText);
+
+    if (!result || result.ok) {
+      setPendingTextMessages((current) => current.filter((entry) => entry.id !== message.id));
+      return;
+    }
+
+    setPendingTextMessages((current) =>
+      current.map((entry) =>
+        entry.id === message.id
+          ? {
+              ...entry,
+              localStatus: 'failed',
+            }
+          : entry
+      )
+    );
   };
 
   const handleAttachmentUnavailable = (label: string) => {
@@ -1149,7 +1311,11 @@ export function ChatScreen() {
     }
 
     if (!supportsRtcCalls) {
-      setCallNotice('Las llamadas y videollamadas viven en la version web de este chat.');
+      setCallNotice(
+        Platform.OS === 'web'
+          ? 'Este navegador no soporta llamadas en vivo.'
+          : 'Llamadas proximamente en Android. Esta funcion necesita WebRTC nativo.'
+      );
       return;
     }
 
@@ -1946,7 +2112,7 @@ export function ChatScreen() {
 
         {showConversationPanel ? (
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={isPhone ? 8 : 0}
             style={[
               styles.conversationPanel,
@@ -2139,10 +2305,16 @@ export function ChatScreen() {
                 ) : null}
 
                 <FlatList
+                  ref={messagesListRef}
                   style={styles.messagesScroll}
                   contentContainerStyle={styles.messagesList}
                   data={activeMessageItems}
                   keyExtractor={(item) => item.id}
+                  keyboardShouldPersistTaps="handled"
+                  onContentSizeChange={handleMessagesContentSizeChange}
+                  onLayout={handleMessagesLayout}
+                  onScroll={handleMessagesScroll}
+                  scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item }) => {
                       if (item.type === 'date') {
@@ -2156,6 +2328,9 @@ export function ChatScreen() {
                       const { message } = item;
                       const isOwn = message.senderId === user?.id;
                       const deliveryStatus = getMessageDeliveryStatus(message, isOwn);
+                      const localTextMessage = message as LocalTextMessage;
+                      const canRetryMessage =
+                        localTextMessage.localStatus === 'failed' && Boolean(localTextMessage.retryText);
 
                       return (
                         <View
@@ -2200,7 +2375,18 @@ export function ChatScreen() {
                             </View>
 
                             {message.kind === 'audio' ? (
-                              <VoiceMessageBubble isOwn={isOwn} message={message} token={token} />
+                              <VoiceMessageBubble
+                                isActive={activeAudioMessageId === message.id}
+                                isOwn={isOwn}
+                                message={message}
+                                onActivate={setActiveAudioMessageId}
+                                onDeactivate={() => {
+                                  setActiveAudioMessageId((current) =>
+                                    current === message.id ? null : current
+                                  );
+                                }}
+                                token={token}
+                              />
                             ) : message.kind === 'image' ? (
                               <ImageMessageBubble message={message} token={token} />
                             ) : message.kind === 'video' ? (
@@ -2217,6 +2403,27 @@ export function ChatScreen() {
 
                             {deliveryStatus ? (
                               <MessageDeliveryMeta status={deliveryStatus} isOwn={isOwn} />
+                            ) : null}
+
+                            {canRetryMessage ? (
+                              <Pressable
+                                onPress={() => { handleRetryTextMessage(localTextMessage); }}
+                                style={styles.retryMessageButton}
+                                accessibilityRole="button"
+                                accessibilityLabel="Reintentar mensaje">
+                                <MaterialCommunityIcons
+                                  name="refresh"
+                                  size={14}
+                                  color={isOwn ? '#FFFFFF' : theme.colors.danger}
+                                />
+                                <Text
+                                  style={[
+                                    styles.retryMessageText,
+                                    isOwn ? styles.retryMessageTextOwn : undefined,
+                                  ]}>
+                                  Reintentar
+                                </Text>
+                              </Pressable>
                             ) : null}
                           </View>
                         </View>
@@ -2282,6 +2489,11 @@ export function ChatScreen() {
                         placeholder={composerPlaceholder}
                         placeholderTextColor={theme.colors.muted}
                         style={styles.composerInput}
+                        onFocus={() => {
+                          if (isNearMessagesBottomRef.current) {
+                            setTimeout(() => scrollMessagesToEnd(true), 80);
+                          }
+                        }}
                         multiline
                       />
                     </View>
@@ -2432,7 +2644,11 @@ export function ChatScreen() {
               style={styles.optionRow}
               onPress={() => {
                 setOptionsMenuOpen(false);
-                setCallNotice('Funcion en preparacion.');
+                setCallNotice(
+                  Platform.OS === 'web'
+                    ? 'Crear reunion esta en preparacion.'
+                    : 'Crear reunion esta en preparacion. En Android requiere WebRTC nativo.'
+                );
               }}>
               <MaterialCommunityIcons name="account-group-outline" size={22} color={theme.colors.text} />
               <Text style={styles.optionRowText}>Crear reunion</Text>
@@ -2454,6 +2670,11 @@ function MessageDeliveryMeta({
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
   const config = {
+    sending: {
+      icon: 'clock-outline',
+      label: 'Enviando',
+      color: isOwn ? 'rgba(255,255,255,0.76)' : theme.colors.muted,
+    },
     sent: {
       icon: 'check',
       label: 'Enviado',
@@ -2485,16 +2706,23 @@ function MessageDeliveryMeta({
 }
 
 function VoiceMessageBubble({
+  isActive,
   isOwn,
   message,
+  onActivate,
+  onDeactivate,
   token,
 }: {
+  isActive: boolean;
   isOwn: boolean;
   message: ChatMessage;
+  onActivate: (messageId: string) => void;
+  onDeactivate: () => void;
   token: string | null;
 }) {
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const resolvedAudioUrl = resolveAssetUrl(message.audioUrl);
   const player = useAudioPlayer(
     resolvedAudioUrl
@@ -2509,36 +2737,92 @@ function VoiceMessageBubble({
     }
   );
   const playerStatus = useAudioPlayerStatus(player);
+  const currentSeconds = Math.max(0, Number(playerStatus.currentTime || 0));
+  const durationSeconds = Math.max(
+    0,
+    Number(playerStatus.duration || message.durationSeconds || 0)
+  );
+  const progressRatio =
+    durationSeconds > 0 ? Math.min(1, currentSeconds / durationSeconds) : 0;
+  const isLoading = Boolean(playerStatus.isBuffering);
+  const isPlaying = Boolean(playerStatus.playing);
+  const hasStarted = playerStatus.isLoaded || currentSeconds > 0;
+  const stateLabel = playbackError
+    ? 'Error de audio'
+    : isLoading
+      ? 'Cargando'
+      : isPlaying
+        ? 'Reproduciendo'
+        : hasStarted
+          ? 'Pausado'
+          : 'Listo';
+
+  useEffect(() => {
+    if (!isActive && playerStatus.playing) {
+      player.pause().catch(() => undefined);
+    }
+  }, [isActive, player, playerStatus.playing]);
+
+  useEffect(() => {
+    if (
+      isActive &&
+      playerStatus.isLoaded &&
+      !playerStatus.playing &&
+      durationSeconds > 0 &&
+      currentSeconds >= durationSeconds - 0.25
+    ) {
+      player.seekTo(0).catch(() => undefined);
+      onDeactivate();
+    }
+  }, [
+    currentSeconds,
+    durationSeconds,
+    isActive,
+    onDeactivate,
+    player,
+    playerStatus.isLoaded,
+    playerStatus.playing,
+  ]);
 
   const handlePlayback = async () => {
+    setPlaybackError(null);
+
     if (!resolvedAudioUrl) {
+      setPlaybackError('URL de audio invalida.');
       return;
     }
 
-    if (playerStatus?.playing) {
-      player.pause();
-      return;
-    }
+    try {
+      if (playerStatus?.playing) {
+        await player.pause();
+        return;
+      }
 
-    if (
-      playerStatus?.isLoaded &&
-      playerStatus.duration > 0 &&
-      playerStatus.currentTime >= playerStatus.duration
-    ) {
-      await player.seekTo(0);
-    }
+      onActivate(message.id);
 
-    player.play();
+      if (
+        playerStatus?.isLoaded &&
+        playerStatus.duration > 0 &&
+        playerStatus.currentTime >= playerStatus.duration
+      ) {
+        await player.seekTo(0);
+      }
+
+      await player.play();
+    } catch (error) {
+      setPlaybackError(getAudioPlaybackErrorMessage(error));
+      onDeactivate();
+    }
   };
 
   return (
     <Pressable onPress={() => { handlePlayback(); }} style={styles.voiceMessageCard}>
       <View style={[styles.voicePlayButton, isOwn ? styles.voicePlayButtonOwn : undefined]}>
-        {!playerStatus?.isLoaded || playerStatus?.isBuffering ? (
+        {isLoading ? (
           <ActivityIndicator color={isOwn ? theme.colors.accent : '#FFFFFF'} />
         ) : (
           <MaterialCommunityIcons
-            name={playerStatus.playing ? 'pause' : 'play'}
+            name={isPlaying ? 'pause' : 'play'}
             size={18}
             color={isOwn ? theme.colors.accent : '#FFFFFF'}
           />
@@ -2546,12 +2830,35 @@ function VoiceMessageBubble({
       </View>
 
       <View style={styles.voiceCopy}>
-        <Text style={[styles.voiceTitle, isOwn ? styles.voiceTitleOwn : undefined]}>
-          {message.transcript || message.text || 'Transmision de audio'}
-        </Text>
-        <Text style={[styles.voiceMeta, isOwn ? styles.voiceMetaOwn : undefined]}>
-          {formatDuration(message.durationSeconds || 0)}
-        </Text>
+        <View style={[styles.voiceProgressTrack, isOwn ? styles.voiceProgressTrackOwn : undefined]}>
+          <View
+            style={[
+              styles.voiceProgressFill,
+              isOwn ? styles.voiceProgressFillOwn : undefined,
+              { width: `${Math.round(progressRatio * 100)}%` },
+            ]}
+          />
+        </View>
+        <View style={styles.voiceMetaRow}>
+          <Text style={[styles.voiceMeta, isOwn ? styles.voiceMetaOwn : undefined]}>
+            {formatDuration(currentSeconds)} / {formatDuration(durationSeconds || message.durationSeconds || 0)}
+          </Text>
+          <Text style={[styles.voiceStateText, isOwn ? styles.voiceMetaOwn : undefined]}>
+            {stateLabel}
+          </Text>
+        </View>
+        {message.transcript || message.text ? (
+          <Text
+            style={[styles.voiceTitle, isOwn ? styles.voiceTitleOwn : undefined]}
+            numberOfLines={2}>
+            {message.transcript || message.text}
+          </Text>
+        ) : null}
+        {playbackError ? (
+          <Text style={[styles.voiceErrorInline, isOwn ? styles.voiceMetaOwn : undefined]}>
+            {playbackError}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -2561,6 +2868,8 @@ function ImageMessageBubble({ message, token }: { message: ChatMessage; token: s
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const resolvedUrl = resolveAssetUrl(message.audioUrl); // Reusing field
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
 
@@ -2568,8 +2877,41 @@ function ImageMessageBubble({ message, token }: { message: ChatMessage; token: s
 
   return (
     <View style={styles.mediaContainer}>
-      <Pressable onPress={() => setIsFullscreen(true)}>
-        <Image source={{ uri: resolvedUrl, headers }} style={styles.messageImage} resizeMode="cover" />
+      <Pressable
+        disabled={hasError}
+        onPress={() => setIsFullscreen(true)}
+        style={styles.mediaPreviewShell}>
+        <Image
+          source={{ uri: resolvedUrl, headers }}
+          style={styles.messageImage}
+          resizeMode="cover"
+          onError={() => {
+            setHasError(true);
+            setIsLoading(false);
+          }}
+          onLoad={() => {
+            setHasError(false);
+            setIsLoading(false);
+          }}
+          onLoadStart={() => {
+            setIsLoading(true);
+            setHasError(false);
+          }}
+        />
+        {isLoading ? (
+          <View style={styles.mediaLoadingOverlay}>
+            <ActivityIndicator color="#FFFFFF" />
+            <Text style={styles.mediaStateText}>Cargando imagen...</Text>
+          </View>
+        ) : null}
+        {hasError ? (
+          <View style={styles.mediaErrorBox}>
+            <MaterialCommunityIcons name="image-off-outline" size={24} color={theme.colors.warning} />
+            <Text style={[styles.mediaStateText, { color: theme.colors.warning }]}>
+              No se pudo cargar la imagen.
+            </Text>
+          </View>
+        ) : null}
       </Pressable>
       {message.text ? <Text style={styles.mediaCaption}>{message.text}</Text> : null}
 
@@ -2595,6 +2937,21 @@ function VideoMessageBubble({ message, token }: { message: ChatMessage; token: s
   });
 
   if (!resolvedUrl) return null;
+
+  if (Platform.OS !== 'web') {
+    return (
+      <View style={styles.mediaContainer}>
+        <View style={styles.videoUnavailableBox}>
+          <MaterialCommunityIcons name="video-off-outline" size={26} color={theme.colors.muted} />
+          <Text style={styles.videoUnavailableTitle}>Video proximamente</Text>
+          <Text style={styles.videoUnavailableText}>
+            Reproduccion de video no disponible todavia en Android.
+          </Text>
+        </View>
+        {message.text ? <Text style={styles.mediaCaption}>{message.text}</Text> : null}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.mediaContainer}>
@@ -3552,7 +3909,8 @@ function createStyles(
       borderBottomLeftRadius: 5,
     },
     messageBubbleAudio: {
-      minWidth: isPhone ? 0 : 260,
+      minWidth: isPhone ? 220 : 260,
+      maxWidth: isPhone ? '88%' : 320,
     },
     messageBubbleMedia: {
       paddingHorizontal: 7,
@@ -3562,15 +3920,70 @@ function createStyles(
     mediaContainer: {
       gap: 6,
     },
+    mediaPreviewShell: {
+      position: 'relative',
+      overflow: 'hidden',
+      borderRadius: 16,
+      backgroundColor: theme.colors.surfaceAlt,
+    },
     messageImage: {
       width: '100%',
       aspectRatio: 1,
       borderRadius: 16,
+      maxHeight: isPhone ? 260 : 320,
     },
     messageVideo: {
       width: '100%',
       aspectRatio: 16 / 9,
       borderRadius: 16,
+      maxHeight: isPhone ? 220 : 280,
+    },
+    mediaLoadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: 'rgba(0,0,0,0.34)',
+    },
+    mediaErrorBox: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingHorizontal: 16,
+      backgroundColor: theme.colors.surfaceAlt,
+    },
+    mediaStateText: {
+      color: '#FFFFFF',
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    videoUnavailableBox: {
+      minHeight: 150,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      padding: 16,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+    },
+    videoUnavailableTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 14,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    videoUnavailableText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 17,
+      textAlign: 'center',
     },
     mediaCaption: {
       color: theme.colors.text,
@@ -3647,6 +4060,7 @@ function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 9,
+      minWidth: 0,
     },
     voicePlayButton: {
       width: 36,
@@ -3661,12 +4075,14 @@ function createStyles(
     },
     voiceCopy: {
       flex: 1,
+      minWidth: 0,
       gap: 2,
     },
     voiceTitle: {
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 13,
+      fontSize: 12,
+      lineHeight: 16,
       fontWeight: '700',
     },
     voiceTitleOwn: {
@@ -3675,10 +4091,68 @@ function createStyles(
     voiceMeta: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 12,
+      fontSize: 11,
+      fontWeight: '700',
     },
     voiceMetaOwn: {
       color: 'rgba(255,255,255,0.76)',
+    },
+    voiceMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    voiceStateText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 10,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+    },
+    voiceProgressTrack: {
+      height: 4,
+      borderRadius: 999,
+      backgroundColor: theme.colors.surface,
+      overflow: 'hidden',
+    },
+    voiceProgressTrackOwn: {
+      backgroundColor: 'rgba(255,255,255,0.24)',
+    },
+    voiceProgressFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: theme.colors.accent,
+    },
+    voiceProgressFillOwn: {
+      backgroundColor: '#FFFFFF',
+    },
+    voiceErrorInline: {
+      color: theme.colors.warning,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      lineHeight: 15,
+      fontWeight: '700',
+    },
+    retryMessageButton: {
+      alignSelf: 'flex-end',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      marginTop: 2,
+      backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    retryMessageText: {
+      color: theme.colors.danger,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    retryMessageTextOwn: {
+      color: '#FFFFFF',
     },
     composerShell: {
       flexShrink: 0,
