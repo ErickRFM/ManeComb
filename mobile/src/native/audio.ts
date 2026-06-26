@@ -316,17 +316,17 @@ export function useAudioPlayer(
   const updateStatus = useCallback((nextStatus?: PlayerStatus | null) => {
     const normalized = normalizePlayerStatus(nextStatus);
     const currentUri = sourceRef.current?.uri || null;
-
-    setStatus(
+    const effectiveStatus =
       currentUri && normalized.uri && normalized.uri !== currentUri
         ? {
             ...idlePlayerStatus,
             uri: currentUri,
           }
-        : normalized
-    );
+        : normalized;
 
-    return normalized;
+    setStatus(effectiveStatus);
+
+    return effectiveStatus;
   }, []);
 
   const pollStatus = useCallback(() => {
