@@ -30,6 +30,7 @@ const PROFILE_FIELDS = new Set([
   "customerReference",
   "companyProfile",
   "paymentProfile",
+  "operationalSchedule",
   "e2eePublicKey",
   "e2eeKeyRotatedAt"
 ]);

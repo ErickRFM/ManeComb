@@ -14,6 +14,11 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
+import {
+  DEFAULT_ACTIVE_DAYS,
+  getOperationalScheduleState,
+  normalizeOperationalSchedule,
+} from '@/src/utils/operational-schedule';
 
 type ProfileForm = {
   name: string;
@@ -33,7 +38,22 @@ type ProfileForm = {
   cardExpMonth: string;
   cardExpYear: string;
   customerReference: string;
+  scheduleEnabled: boolean;
+  scheduleStartTime: string;
+  scheduleEndTime: string;
+  scheduleActiveDays: number[];
+  scheduleTimezone: string;
 };
+
+const DAY_OPTIONS = [
+  { id: 1, label: 'Lun' },
+  { id: 2, label: 'Mar' },
+  { id: 3, label: 'Mie' },
+  { id: 4, label: 'Jue' },
+  { id: 5, label: 'Vie' },
+  { id: 6, label: 'Sab' },
+  { id: 0, label: 'Dom' },
+];
 
 function createProfileForm(): ProfileForm {
   return {
@@ -54,7 +74,16 @@ function createProfileForm(): ProfileForm {
     cardExpMonth: '',
     cardExpYear: '',
     customerReference: '',
+    scheduleEnabled: true,
+    scheduleStartTime: '',
+    scheduleEndTime: '',
+    scheduleActiveDays: DEFAULT_ACTIVE_DAYS,
+    scheduleTimezone: '',
   };
+}
+
+function isValidScheduleTime(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value.trim());
 }
 
 export function ProfileEditScreen() {
@@ -102,6 +131,13 @@ export function ProfileEditScreen() {
       cardExpMonth: user.paymentProfile?.cardExpMonth || '',
       cardExpYear: user.paymentProfile?.cardExpYear || '',
       customerReference: user.paymentProfile?.customerReference || '',
+      scheduleEnabled: user.operationalSchedule?.enabled ?? true,
+      scheduleStartTime: user.operationalSchedule?.startTime || '',
+      scheduleEndTime: user.operationalSchedule?.endTime || '',
+      scheduleActiveDays: user.operationalSchedule?.activeDays?.length
+        ? user.operationalSchedule.activeDays
+        : DEFAULT_ACTIVE_DAYS,
+      scheduleTimezone: user.operationalSchedule?.timezone || '',
     });
   }, [user]);
 
@@ -131,6 +167,20 @@ export function ProfileEditScreen() {
       ...current,
       [field]: value,
     }));
+  };
+
+  const toggleScheduleDay = (day: number) => {
+    setProfileForm((current) => {
+      const exists = current.scheduleActiveDays.includes(day);
+      const nextDays = exists
+        ? current.scheduleActiveDays.filter((entry) => entry !== day)
+        : [...current.scheduleActiveDays, day];
+
+      return {
+        ...current,
+        scheduleActiveDays: nextDays.length ? nextDays : [day],
+      };
+    });
   };
 
   const handlePhotoUpload = async () => {
@@ -196,6 +246,18 @@ export function ProfileEditScreen() {
       return;
     }
 
+    const hasSchedule =
+      profileForm.scheduleStartTime.trim() || profileForm.scheduleEndTime.trim();
+    if (hasSchedule) {
+      if (
+        !isValidScheduleTime(profileForm.scheduleStartTime) ||
+        !isValidScheduleTime(profileForm.scheduleEndTime)
+      ) {
+        setMessage('El horario operativo debe usar formato HH:mm.');
+        return;
+      }
+    }
+
     const result = await updateProfile({
       name: profileForm.name.trim(),
       email: profileForm.email.trim(),
@@ -217,6 +279,15 @@ export function ProfileEditScreen() {
         cardExpYear: profileForm.cardExpYear.replace(/[^\d]/g, '').slice(-2),
         customerReference: profileForm.customerReference.trim(),
       },
+      operationalSchedule: hasSchedule
+        ? {
+            activeDays: profileForm.scheduleActiveDays,
+            enabled: profileForm.scheduleEnabled,
+            endTime: profileForm.scheduleEndTime.trim(),
+            startTime: profileForm.scheduleStartTime.trim(),
+            timezone: profileForm.scheduleTimezone.trim() || null,
+          }
+        : null,
       ...(profileForm.password.trim() ? { password: profileForm.password.trim() } : {}),
     });
 
@@ -242,6 +313,16 @@ export function ProfileEditScreen() {
       </AppShell>
     );
   }
+
+  const scheduleState = getOperationalScheduleState(
+    normalizeOperationalSchedule({
+      activeDays: profileForm.scheduleActiveDays,
+      enabled: profileForm.scheduleEnabled,
+      endTime: profileForm.scheduleEndTime,
+      startTime: profileForm.scheduleStartTime,
+      timezone: profileForm.scheduleTimezone || null,
+    })
+  );
 
   return (
     <AppShell
@@ -485,6 +566,87 @@ export function ProfileEditScreen() {
             onChangeText={(value) => updateField('customerReference', value)}
             placeholder="Ej. cus_001 o convenio interno"
           />
+        </View>
+
+        <View
+          style={styles.formGrid}
+          onLayout={(e) => {
+            // @ts-ignore
+            sectionsRef.current.schedule = e.target;
+          }}>
+          <Text style={styles.sectionHeading}>Horario operativo</Text>
+          <Text style={styles.sectionCaption}>
+            Controla cuando la app puede operar GPS y radio. Si lo dejas vacio, se conserva el comportamiento actual.
+          </Text>
+          <View style={styles.identityPills}>
+            <StatusPill
+              label={scheduleState.label}
+              tone={scheduleState.isWithinSchedule ? 'positive' : 'warning'}
+            />
+            <StatusPill
+              label={profileForm.scheduleEnabled ? 'Activo' : 'Pausado'}
+              tone={profileForm.scheduleEnabled ? 'info' : 'neutral'}
+            />
+          </View>
+          <View style={styles.inlineGrid}>
+            <Field
+              label="Hora inicio"
+              value={profileForm.scheduleStartTime}
+              onChangeText={(value) => updateField('scheduleStartTime', value)}
+              placeholder="08:00"
+              keyboardType="phone-pad"
+            />
+            <Field
+              label="Hora fin"
+              value={profileForm.scheduleEndTime}
+              onChangeText={(value) => updateField('scheduleEndTime', value)}
+              placeholder="18:00"
+              keyboardType="phone-pad"
+            />
+            <Field
+              label="Zona horaria"
+              value={profileForm.scheduleTimezone}
+              onChangeText={(value) => updateField('scheduleTimezone', value)}
+              placeholder="Local del dispositivo"
+              autoCapitalize="none"
+            />
+          </View>
+          <View style={styles.methodRow}>
+            {DAY_OPTIONS.map((day) => {
+              const selected = profileForm.scheduleActiveDays.includes(day.id);
+
+              return (
+                <Pressable
+                  key={day.id}
+                  onPress={() => toggleScheduleDay(day.id)}
+                  style={[styles.methodChip, selected ? styles.methodChipActive : undefined]}>
+                  <Text
+                    style={[
+                      styles.methodChipText,
+                      selected ? styles.methodChipTextActive : undefined,
+                    ]}>
+                    {day.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            onPress={() =>
+              setProfileForm((current) => ({
+                ...current,
+                scheduleEnabled: !current.scheduleEnabled,
+              }))
+            }
+            style={[styles.methodChip, profileForm.scheduleEnabled ? styles.methodChipActive : undefined]}>
+            <Text
+              style={[
+                styles.methodChipText,
+                profileForm.scheduleEnabled ? styles.methodChipTextActive : undefined,
+              ]}>
+              {profileForm.scheduleEnabled ? 'Horario habilitado' : 'Horario pausado'}
+            </Text>
+          </Pressable>
         </View>
 
         {helperMessage ? (

@@ -189,6 +189,14 @@ export async function setAudioModeAsync(_options?: Record<string, unknown>) {
   return undefined;
 }
 
+export async function stopActiveAudioPlaybackAsync() {
+  if (!NativeAudio) {
+    return;
+  }
+
+  await NativeAudio.stopPlayer();
+}
+
 export function useAudioRecorder(
   preset?: Record<string, unknown>,
   onStatusUpdate?: (status: RecorderStatus) => void
@@ -380,19 +388,9 @@ export function useAudioPlayer(
     };
     const requestHeaders = Object.keys(headers).length ? headers : undefined;
 
-    console.info('[audio] playback start', {
-      uri: currentSource.uri,
-      hasAuthorization: Boolean(requestHeaders?.Authorization),
-    });
-
     const nextStatus = await NativeAudio.startPlayer({
       uri: currentSource.uri,
       headers: requestHeaders,
-    });
-    console.info('[audio] playback ready', {
-      uri: nextStatus.uri,
-      localUri: nextStatus.localUri,
-      durationMillis: nextStatus.durationMillis,
     });
     updateStatus(nextStatus);
     startPolling();

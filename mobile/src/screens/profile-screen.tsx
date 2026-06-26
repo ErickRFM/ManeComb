@@ -13,6 +13,10 @@ import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRole, formatStatus } from '@/src/utils/format';
+import {
+  formatOperationalSchedule,
+  getOperationalScheduleState,
+} from '@/src/utils/operational-schedule';
 
 const fasterArtwork = require('../../assets/images/faster.png');
 
@@ -353,6 +357,8 @@ export function ProfileScreen() {
 
   const pendingNotifications = notifications.filter((notification) => !notification.isRead).length;
   const roleLabel = user.accountType === 'company_owner' ? 'Propietario' : formatRole(user.role);
+  const scheduleState = getOperationalScheduleState(user.operationalSchedule);
+  const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const actions: ActionItem[] = [
     {
       id: 'edit',
@@ -440,6 +446,7 @@ export function ProfileScreen() {
               <InfoTile icon="email-outline" label="Correo" value={user.email} styles={styles} theme={theme} />
               <InfoTile icon="phone-outline" label="Telefono" value={user.phone || 'Pendiente'} styles={styles} theme={theme} />
               <InfoTile icon="clock-outline" label="Turno" value={user.shift || 'Control de flota'} styles={styles} theme={theme} />
+              <InfoTile icon="calendar-clock" label="Horario" value={`${scheduleLabel} - ${scheduleState.label}`} styles={styles} theme={theme} />
               <InfoTile icon="account-key-outline" label="Rol" value={roleLabel} styles={styles} theme={theme} />
             </View>
           </View>

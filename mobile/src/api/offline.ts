@@ -885,6 +885,20 @@ export function offlineUpdateUser(token: string, userId: string, payload: UserMu
     user.shift = payload.shift.trim() || 'Pendiente asignacion';
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, 'operationalSchedule')) {
+    user.operationalSchedule = payload.operationalSchedule
+      ? {
+          activeDays: Array.isArray(payload.operationalSchedule.activeDays)
+            ? payload.operationalSchedule.activeDays.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+            : [1, 2, 3, 4, 5, 6, 0],
+          enabled: payload.operationalSchedule.enabled !== false,
+          endTime: String(payload.operationalSchedule.endTime || '').trim(),
+          startTime: String(payload.operationalSchedule.startTime || '').trim(),
+          timezone: payload.operationalSchedule.timezone || null,
+        }
+      : null;
+  }
+
   const nextRole = payload.role ? normalizeRole(payload.role) : user.role;
   user.role = nextRole;
   user.accountType = normalizeAccountType(payload.accountType || user.accountType);
@@ -927,6 +941,20 @@ export function offlineUpdateProfile(token: string, payload: ProfileMutationPayl
 
   if (typeof payload.avatarUrl !== 'undefined') {
     user.avatarUrl = payload.avatarUrl || null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'operationalSchedule')) {
+    user.operationalSchedule = payload.operationalSchedule
+      ? {
+          activeDays: Array.isArray(payload.operationalSchedule.activeDays)
+            ? payload.operationalSchedule.activeDays.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+            : [1, 2, 3, 4, 5, 6, 0],
+          enabled: payload.operationalSchedule.enabled !== false,
+          endTime: String(payload.operationalSchedule.endTime || '').trim(),
+          startTime: String(payload.operationalSchedule.startTime || '').trim(),
+          timezone: payload.operationalSchedule.timezone || null,
+        }
+      : null;
   }
 
   if (payload.accountType) {

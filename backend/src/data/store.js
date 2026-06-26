@@ -8,6 +8,7 @@ const { createSeedState } = require("./seedData");
 const { createMongoStore } = require("./mongo-store");
 const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
+const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -78,6 +79,7 @@ function createEmbeddedStore() {
     safeUser.lastAccessAt = safeUser.lastAccessAt || null;
     safeUser.invitedAt = safeUser.invitedAt || null;
     safeUser.suspendedAt = safeUser.userStatus === "suspended" ? safeUser.suspendedAt || null : null;
+    safeUser.operationalSchedule = safeUser.operationalSchedule || null;
     return clone(safeUser);
   }
 
@@ -660,6 +662,12 @@ function createEmbeddedStore() {
       typeof payload.customerReference === "string"
     ) {
       user.paymentProfile = mergePaymentProfile(user.paymentProfile, payload);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "operationalSchedule")) {
+      user.operationalSchedule = payload.operationalSchedule
+        ? normalizeOperationalSchedule(payload.operationalSchedule)
+        : null;
     }
 
     if (typeof payload.shift === "string") {

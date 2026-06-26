@@ -53,6 +53,14 @@ export type PaymentProfile = {
   customerReference: string;
 };
 
+export type OperationalSchedule = {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+  activeDays: number[];
+  timezone?: string | null;
+};
+
 export type UserMutationPayload = {
   name?: string;
   email?: string;
@@ -82,6 +90,7 @@ export type UserMutationPayload = {
   e2eeKeyRotatedAt?: string;
   companyProfile?: Partial<CompanyProfile>;
   paymentProfile?: Partial<PaymentProfile>;
+  operationalSchedule?: Partial<OperationalSchedule> | null;
 };
 
 export type ProfileMutationPayload = {
@@ -109,6 +118,7 @@ export type ProfileMutationPayload = {
   e2eeKeyRotatedAt?: string;
   companyProfile?: Partial<CompanyProfile>;
   paymentProfile?: Partial<PaymentProfile>;
+  operationalSchedule?: Partial<OperationalSchedule> | null;
 };
 
 export type User = {
@@ -132,6 +142,7 @@ export type User = {
   e2eeKeyRotatedAt?: string;
   companyProfile?: CompanyProfile;
   paymentProfile?: PaymentProfile;
+  operationalSchedule?: OperationalSchedule | null;
 };
 
 export type UserAccountStatus = 'active' | 'pending' | 'suspended';

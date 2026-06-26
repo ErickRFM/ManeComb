@@ -1,4 +1,15 @@
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
+
 let notificationsConfigured = false;
+
+type ManeCombNotificationModule = {
+  show: (title: string, body: string, category: string) => Promise<boolean>;
+};
+
+const NativeNotification =
+  Platform.OS === 'android'
+    ? (NativeModules.ManeCombNotification as ManeCombNotificationModule | undefined)
+    : undefined;
 
 export type PushRouteIntent = {
   target: 'chat' | 'radio' | 'sos' | 'incidents' | 'notifications' | 'unknown';
@@ -15,6 +26,12 @@ export async function configureAppNotifications() {
   }
 
   notificationsConfigured = true;
+
+  if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(
+      () => undefined
+    );
+  }
 }
 
 export async function requestNativePushToken() {
@@ -22,13 +39,18 @@ export async function requestNativePushToken() {
   return null;
 }
 
-export async function showInAppNotification(_payload: {
+export async function showInAppNotification(payload: {
   title: string;
   body: string;
   data?: Record<string, unknown>;
   category?: string;
 }) {
   await configureAppNotifications();
+  await NativeNotification?.show(
+    payload.title,
+    payload.body,
+    payload.category || String(payload.data?.category || 'notifications')
+  ).catch(() => false);
 }
 
 export function getPushRouteIntent(rawData: Record<string, unknown> | null | undefined): PushRouteIntent {

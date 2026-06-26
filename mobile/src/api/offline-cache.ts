@@ -5,6 +5,7 @@ import type {
   ConversationSummary,
   DashboardData,
   DocumentItem,
+  GeoPoint,
   Incident,
   LiveLocationsData,
   NotificationItem,
@@ -64,6 +65,21 @@ export type PendingSyncOperation =
       payload: {
         conversationId: string;
         text: string;
+      };
+    }
+  | {
+      id: string;
+      type: 'vehicle:location';
+      createdAt: string;
+      attempts: number;
+      payload: {
+        vehicleId: string;
+        coordinates: GeoPoint & {
+          accuracy?: number | null;
+          heading?: number | null;
+          speed?: number | null;
+        };
+        speed?: number | null;
       };
     };
 

@@ -13,9 +13,6 @@ import MapView, { Marker, Polyline, type MapStyleElement } from 'react-native-ma
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
-import {
-  updateVehicleLocationRequest,
-} from '@/src/api/client';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
 import { StatusPill } from '@/src/components/status-pill';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -23,6 +20,7 @@ import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import { getLocationStatus } from '@/src/utils/location-status';
+import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
 const lightMapStyle: MapStyleElement[] = [
@@ -42,22 +40,7 @@ const darkMapStyle: MapStyleElement[] = [
 ];
 
 const ACTIVE_TRACKING_STATUSES = new Set(['online', 'patrolling', 'on-route']);
-const LOCATION_SYNC_INTERVAL_MS = 10000;
-const LOCATION_SYNC_DISTANCE_METERS = 15;
-
-function distanceInMeters(left: { latitude: number; longitude: number }, right: { latitude: number; longitude: number }) {
-  const radius = 6371000;
-  const dLat = ((right.latitude - left.latitude) * Math.PI) / 180;
-  const dLon = ((right.longitude - left.longitude) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((left.latitude * Math.PI) / 180) *
-      Math.cos((right.latitude * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+const LOCATION_SYNC_INTERVAL_MS = 5000;
 
 export function MapScreen() {
   const { theme } = useAppTheme();
@@ -73,7 +56,6 @@ export function MapScreen() {
     servicesEnabled,
   } = useUserLocation();
   const lastLocationSyncRef = useRef(0);
-  const lastSyncedLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   const {
     connectionMode,
@@ -82,6 +64,7 @@ export function MapScreen() {
     isRefreshing,
     mapData,
     refreshAll,
+    sendVehicleLocation,
     signOut,
     user,
   } = useAppStore(
@@ -92,6 +75,7 @@ export function MapScreen() {
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
       refreshAll: state.refreshAll,
+      sendVehicleLocation: state.sendVehicleLocation,
       signOut: state.signOut,
       user: state.user,
     }))
@@ -102,6 +86,7 @@ export function MapScreen() {
   const [followMode, setFollowMode] = useState(true);
   const [trafficEnabled, setTrafficEnabled] = useState(true);
   const [activeAlertIndex, setActiveAlertIndex] = useState(0);
+  const [scheduleTick, setScheduleTick] = useState(0);
 
   const locationStatus = useMemo(
     () =>
@@ -122,6 +107,15 @@ export function MapScreen() {
         : locationStatus.tone === 'warning'
           ? theme.colors.warning
           : theme.colors.muted;
+  const operationalScheduleState = useMemo(
+    () => getOperationalScheduleState(user?.operationalSchedule || null, new Date(Date.now() + scheduleTick * 0)),
+    [scheduleTick, user?.operationalSchedule]
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => setScheduleTick((current) => current + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (params.vehicleId) {
@@ -198,7 +192,12 @@ export function MapScreen() {
   }, [selectedVehicle?.location, followMode, selectedVehicle]);
 
   useEffect(() => {
-    if (!coordinates || !user?.vehicleId || connectionMode !== 'online') {
+    if (
+      !coordinates ||
+      !user?.vehicleId ||
+      connectionMode !== 'online' ||
+      !operationalScheduleState.isWithinSchedule
+    ) {
       return;
     }
 
@@ -207,21 +206,13 @@ export function MapScreen() {
       return;
     }
 
-    if (
-      lastSyncedLocationRef.current &&
-      distanceInMeters(lastSyncedLocationRef.current, coordinates) < LOCATION_SYNC_DISTANCE_METERS
-    ) {
-      return;
-    }
-
     lastLocationSyncRef.current = now;
-    lastSyncedLocationRef.current = coordinates;
-    updateVehicleLocationRequest({
+    sendVehicleLocation({
       vehicleId: user.vehicleId,
       coordinates,
       speed: coordinates.speed,
     }).catch(() => undefined);
-  }, [connectionMode, coordinates, user?.vehicleId]);
+  }, [connectionMode, coordinates, operationalScheduleState.isWithinSchedule, sendVehicleLocation, user?.vehicleId]);
 
   const handleRefresh = async () => {
     await Promise.all([refreshAll(), refresh()]);

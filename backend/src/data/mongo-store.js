@@ -22,6 +22,7 @@ const {
   UserModel,
   VehicleModel
 } = require("./models");
+const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 
 function buildAvatar(name) {
   return String(name)
@@ -179,6 +180,7 @@ function sanitizeUser(doc) {
   safeUser.lastAccessAt = safeUser.lastAccessAt || null;
   safeUser.invitedAt = safeUser.invitedAt || null;
   safeUser.suspendedAt = safeUser.userStatus === "suspended" ? safeUser.suspendedAt || null : null;
+  safeUser.operationalSchedule = safeUser.operationalSchedule || null;
   return safeUser;
 }
 
@@ -1442,6 +1444,13 @@ async function createMongoStore() {
     ) {
       user.paymentProfile = mergePaymentProfile(user.paymentProfile, payload);
       user.markModified("paymentProfile");
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "operationalSchedule")) {
+      user.operationalSchedule = payload.operationalSchedule
+        ? normalizeOperationalSchedule(payload.operationalSchedule)
+        : null;
+      user.markModified("operationalSchedule");
     }
 
     if (typeof payload.shift === "string") {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -20,9 +20,16 @@ import { ProfileScreen } from '@/src/screens/profile-screen';
 import { RadioScreen } from '@/src/screens/radio-screen';
 import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { API_URL } from '@/src/api/client';
+import * as Location from '@/src/native/location';
+import {
+  startBackgroundLocationServiceAsync,
+  stopBackgroundLocationServiceAsync,
+} from '@/src/native/background-location';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome, getOperationalHome } from '@/src/utils/account-routing';
+import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
 import { openSalesPortal } from '@/src/utils/sales-portal';
 import { StatusBar } from '@/src/native/status-bar';
@@ -32,6 +39,82 @@ const BOOT_SYNC_TIMEOUT_MS = 16000;
 
 type AppStyles = ReturnType<typeof createStyles>;
 type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
+
+function OperationalBackgroundServices() {
+  const { authContext, connectionMode, token, user } = useAppStore(
+    useShallow((state) => ({
+      authContext: state.authContext,
+      connectionMode: state.connectionMode,
+      token: state.token,
+      user: state.user,
+    }))
+  );
+  const [scheduleTick, setScheduleTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setScheduleTick((current) => current + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const scheduleState = getOperationalScheduleState(user?.operationalSchedule || null);
+
+    const syncService = async () => {
+      const canTryStart =
+        Boolean(token && user?.vehicleId) &&
+        authContext?.canAccessMobile === true &&
+        connectionMode === 'online' &&
+        scheduleState.isWithinSchedule;
+
+      if (!canTryStart) {
+        await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        return;
+      }
+
+      const [foreground, background] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
+        Location.requestBackgroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
+      ]);
+
+      if (
+        cancelled ||
+        foreground.status !== Location.PermissionStatus.GRANTED ||
+        background.status !== Location.PermissionStatus.GRANTED
+      ) {
+        await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        return;
+      }
+
+      await startBackgroundLocationServiceAsync({
+        apiUrl: API_URL,
+        schedule: user?.operationalSchedule || null,
+        token: token || '',
+        vehicleId: user?.vehicleId || '',
+      }).catch(() => undefined);
+    };
+
+    syncService();
+
+    return () => {
+      cancelled = true;
+      stopBackgroundLocationServiceAsync().catch(() => undefined);
+    };
+  }, [
+    authContext?.canAccessMobile,
+    connectionMode,
+    scheduleTick,
+    token,
+    user?.operationalSchedule,
+    user?.vehicleId,
+  ]);
+
+  return null;
+}
 
 function RecoverableAppState({
   continueLabel,
@@ -433,6 +516,7 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           <ThemeProvider value={navigationTheme}>
+            <OperationalBackgroundServices />
             <MobileErrorBoundary styles={styles} theme={theme}>
               {!isReady ? (
                 bootTimedOut ? (

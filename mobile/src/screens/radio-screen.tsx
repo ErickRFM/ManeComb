@@ -4,6 +4,7 @@ import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
+  stopActiveAudioPlaybackAsync,
   useAudioPlayer,
   useAudioPlayerStatus,
   useAudioRecorder,
@@ -44,6 +45,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
 import { formatRelativeTime, formatRole } from '@/src/utils/format';
+import { getRadioConnectionStatus } from '@/src/utils/radio-status';
 
 type RecordingState = 'idle' | 'recording' | 'uploading' | 'sent' | 'error';
 type AudioPermissionState = 'unknown' | 'granted' | 'denied';
@@ -54,6 +56,27 @@ const MIN_RADIO_NOTE_SECONDS = 1;
 const MAX_RADIO_NOTE_SECONDS = 60;
 const INITIAL_RADIO_PAGE_INDEX: RadioPageIndex = 1;
 const RADIO_PAGES = ['Canales', 'Radio', 'Audios'] as const;
+
+async function withRadioTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -153,6 +176,7 @@ export function RadioScreen() {
     openDirectConversation,
     openGeneralConversation,
     sendVoiceMessage,
+    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -167,6 +191,7 @@ export function RadioScreen() {
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
       sendVoiceMessage: state.sendVoiceMessage,
+      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -200,6 +225,9 @@ export function RadioScreen() {
   const pressToTalkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressToTalkActiveRef = useRef(false);
   const pressToTalkTriggeredRef = useRef(false);
+  const pttBusyRef = useRef(false);
+  const pendingStopAfterStartRef = useRef(false);
+  const idleStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
@@ -290,6 +318,11 @@ export function RadioScreen() {
 
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
+  const receivingVoiceNote = useMemo(
+    () => loadedVoiceNotes.find((item) => item.message.id === playingMessageId)?.message || null,
+    [loadedVoiceNotes, playingMessageId]
+  );
+  const receivingSenderName = receivingVoiceNote?.sender?.name || null;
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -333,7 +366,16 @@ export function RadioScreen() {
     (typeof globalThis !== 'undefined' &&
       Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
       typeof (globalThis as any).MediaRecorder !== 'undefined');
+  const radioConnection = useMemo(
+    () => getRadioConnectionStatus(socketStatus),
+    [socketStatus]
+  );
   const isBusy = isSubmitting || recordingState === 'uploading';
+  const isPttDisabled =
+    !supportsTapToTalk ||
+    isBusy ||
+    !activeChannel ||
+    (!radioConnection.canTransmit && recordingState !== 'recording');
 
   const pttAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseValue.value }],
@@ -492,9 +534,13 @@ export function RadioScreen() {
       if (pressToTalkTimerRef.current) {
         clearTimeout(pressToTalkTimerRef.current);
       }
+      if (idleStatusTimerRef.current) {
+        clearTimeout(idleStatusTimerRef.current);
+      }
 
       stopWebMetering();
       nativeRecorder.stop().catch(() => undefined);
+      stopActiveAudioPlaybackAsync().catch(() => undefined);
       webRecorderRef.current?.stop?.();
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
     };
@@ -537,7 +583,11 @@ export function RadioScreen() {
   };
 
   const scheduleIdleAfterStatus = (delayMs = 1400) => {
-    setTimeout(() => {
+    if (idleStatusTimerRef.current) {
+      clearTimeout(idleStatusTimerRef.current);
+    }
+
+    idleStatusTimerRef.current = setTimeout(() => {
       if (recordingStateRef.current === 'sent' || recordingStateRef.current === 'error') {
         setRecordingMode('idle');
       }
@@ -687,6 +737,14 @@ export function RadioScreen() {
       return;
     }
 
+    if (!radioConnection.canTransmit) {
+      setRecorderMessage(radioConnection.detail);
+      return;
+    }
+
+    await stopActiveAudioPlaybackAsync().catch(() => undefined);
+    setPlayingMessageId(null);
+
     const permission = await requestRecordingPermissionsAsync();
 
     if (!permission.granted) {
@@ -709,7 +767,11 @@ export function RadioScreen() {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
 
-    await nativeRecorder.prepareToRecordAsync();
+    await withRadioTimeout(
+      nativeRecorder.prepareToRecordAsync(),
+      7000,
+      'No se pudo iniciar el microfono a tiempo.'
+    );
     nativeRecorder.record();
     startRecordingTicker();
     syncRecordingAnimation(true);
@@ -724,7 +786,11 @@ export function RadioScreen() {
     }
 
     setRecordingMode('uploading');
-    await nativeRecorder.stop();
+    await withRadioTimeout(
+      nativeRecorder.stop(),
+      7000,
+      'No se pudo cerrar la grabacion a tiempo.'
+    );
     const status = nativeRecorder.getStatus();
     const uri = status.url || nativeRecorder.uri;
     stopRecordingTicker();
@@ -769,7 +835,11 @@ export function RadioScreen() {
       type: 'audio/mp4',
     } as any);
 
-    const result = await sendVoiceMessage(activeChannel.id, formData);
+    const result = await withRadioTimeout(
+      sendVoiceMessage(activeChannel.id, formData),
+      50000,
+      'Tiempo de espera agotado al enviar la transmision.'
+    );
     if (!result.ok) {
       throw new Error(result.message || 'No fue posible enviar la transmision.');
     }
@@ -782,6 +852,14 @@ export function RadioScreen() {
     if (!activeChannel) {
       return;
     }
+
+    if (!radioConnection.canTransmit) {
+      setRecorderMessage(radioConnection.detail);
+      return;
+    }
+
+    await stopActiveAudioPlaybackAsync().catch(() => undefined);
+    setPlayingMessageId(null);
 
     const mediaDevices = (globalThis as any).navigator?.mediaDevices;
     const MediaRecorderCtor = (globalThis as any).MediaRecorder;
@@ -841,36 +919,44 @@ export function RadioScreen() {
     const durationSeconds = Math.min(MAX_RADIO_NOTE_SECONDS, rawDurationSeconds);
 
     try {
-      await new Promise<void>((resolve, reject) => {
-      recorder.onstop = async () => {
-        try {
-          if (isTooShort) {
-            resolve();
-            return;
-          }
+      await withRadioTimeout(
+        new Promise<void>((resolve, reject) => {
+          recorder.onstop = async () => {
+            try {
+              if (isTooShort) {
+                resolve();
+                return;
+              }
 
-          const blob = new Blob(webChunksRef.current, { type: mimeType });
-          const file = new File([blob], `radio-note-${Date.now()}.webm`, { type: mimeType });
-          const formData = new FormData();
-          formData.append('channelId', activeChannel.id);
-          formData.append('durationSeconds', String(durationSeconds));
-          formData.append('createdAt', new Date().toISOString());
-          if (user?.id) {
-            formData.append('userId', user.id);
-          }
-          formData.append('file', file);
-          const result = await sendVoiceMessage(activeChannel.id, formData);
-          if (!result.ok) {
-            throw new Error(result.message || 'No fue posible enviar la transmision.');
-          }
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      };
+              const blob = new Blob(webChunksRef.current, { type: mimeType });
+              const file = new File([blob], `radio-note-${Date.now()}.webm`, { type: mimeType });
+              const formData = new FormData();
+              formData.append('channelId', activeChannel.id);
+              formData.append('durationSeconds', String(durationSeconds));
+              formData.append('createdAt', new Date().toISOString());
+              if (user?.id) {
+                formData.append('userId', user.id);
+              }
+              formData.append('file', file);
+              const result = await sendVoiceMessage(activeChannel.id, formData);
+              if (!result.ok) {
+                throw new Error(result.message || 'No fue posible enviar la transmision.');
+              }
+              resolve();
+            } catch (error) {
+              reject(error);
+            }
+          };
 
-      recorder.stop();
-      });
+          try {
+            recorder.stop();
+          } catch (error) {
+            reject(error);
+          }
+        }),
+        50000,
+        'Tiempo de espera agotado al enviar la transmision.'
+      );
 
       if (isTooShort) {
         setRecorderMessage('Manten presionado al menos 1 segundo');
@@ -920,9 +1006,16 @@ export function RadioScreen() {
   const handleTapToTalk = async () => {
     const currentRecordingState = recordingStateRef.current;
 
-    if (!activeChannel || !supportsTapToTalk || isSubmitting || currentRecordingState === 'uploading') {
+    if (!activeChannel || !supportsTapToTalk || isSubmitting || currentRecordingState === 'uploading' || pttBusyRef.current) {
       return;
     }
+
+    if (currentRecordingState !== 'recording' && !radioConnection.canTransmit) {
+      setRecorderMessage(radioConnection.detail);
+      return;
+    }
+
+    pttBusyRef.current = true;
 
     try {
       if (currentRecordingState === 'recording') {
@@ -957,6 +1050,18 @@ export function RadioScreen() {
       }
       setRecordingMode('error');
       scheduleIdleAfterStatus(2200);
+    } finally {
+      pttBusyRef.current = false;
+
+      if (pendingStopAfterStartRef.current && recordingStateRef.current === 'recording') {
+        pendingStopAfterStartRef.current = false;
+        handleTapToTalk();
+        return;
+      }
+
+      if (recordingStateRef.current !== 'recording') {
+        pendingStopAfterStartRef.current = false;
+      }
     }
   };
 
@@ -989,7 +1094,17 @@ export function RadioScreen() {
     pressToTalkActiveRef.current = false;
 
     if (recordingStateRef.current === 'recording') {
+      if (pttBusyRef.current) {
+        pendingStopAfterStartRef.current = true;
+        return;
+      }
+
       handleTapToTalk();
+      return;
+    }
+
+    if (pttBusyRef.current) {
+      pendingStopAfterStartRef.current = true;
     }
   };
 
@@ -1021,19 +1136,25 @@ export function RadioScreen() {
         ? 'receiving'
         : 'idle';
   const liveStatus =
-    recordingState === 'uploading'
-      ? 'ENVIANDO'
-      : recordingState === 'sent'
-        ? 'ENVIADO'
-        : recordingState === 'error'
-          ? 'ERROR'
-          : radioVisualState === 'transmitting'
-      ? 'TRANSMITIENDO'
-      : radioVisualState === 'receiving'
-        ? 'RECIBIENDO AUDIO'
-        : 'EN ESPERA';
+    !radioConnection.canTransmit && recordingState === 'idle' && !playingMessageId
+      ? radioConnection.label.toUpperCase()
+      : recordingState === 'uploading'
+        ? 'ENVIANDO'
+        : recordingState === 'sent'
+          ? 'ENVIADO'
+          : recordingState === 'error'
+            ? 'ERROR'
+            : radioVisualState === 'transmitting'
+              ? 'TRANSMITIENDO'
+              : radioVisualState === 'receiving'
+                ? receivingSenderName
+                  ? `RECIBIENDO ${receivingSenderName.split(' ')[0].toUpperCase()}`
+                  : 'RECIBIENDO AUDIO'
+                : 'EN ESPERA';
   const liveStatusTone =
-    recordingState === 'uploading' || recordingState === 'sent'
+    !radioConnection.canTransmit && recordingState === 'idle' && !playingMessageId
+      ? radioConnection.tone
+      : recordingState === 'uploading' || recordingState === 'sent'
       ? 'info'
       : recordingState === 'error'
         ? 'warning'
@@ -1123,6 +1244,7 @@ export function RadioScreen() {
             <Text style={styles.title}>Radio operativo</Text>
             <View style={styles.headerPills}>
               <StatusPill label={`${radioChannels.length} canales`} tone="info" />
+              <StatusPill label={radioConnection.label} tone={radioConnection.tone} />
               <StatusPill
                 label={liveStatus}
                 tone={liveStatusTone}
@@ -1313,6 +1435,7 @@ export function RadioScreen() {
                   label={liveStatus}
                   tone={liveStatusTone}
                 />
+                <StatusPill label={radioConnection.label} tone={radioConnection.tone} />
                 <StatusPill
                   label={activeChannel?.encrypted ? 'Cifrado activo' : 'Operación segura'}
                   tone={activeChannel?.encrypted ? 'positive' : 'neutral'}
@@ -1353,13 +1476,13 @@ export function RadioScreen() {
                   onPress={() => { handlePttPress(); }}
                   onPressIn={handlePttPressIn}
                   onPressOut={handlePttPressOut}
-                  disabled={!supportsTapToTalk || isBusy || !activeChannel}
+                  disabled={isPttDisabled}
                   style={[
                     styles.pttButton,
                     recordingState === 'recording'
                       ? styles.pttButtonRecording
                       : styles.pttButtonIdle,
-                    (!supportsTapToTalk || isBusy || !activeChannel)
+                    isPttDisabled
                       ? styles.pttButtonDisabled
                       : undefined,
                   ]}>
@@ -1438,7 +1561,9 @@ export function RadioScreen() {
               </View>
             </View>
 
-            {recorderMessage ? <Text style={styles.heroNote}>{recorderMessage}</Text> : null}
+            {recorderMessage || !radioConnection.canTransmit ? (
+              <Text style={styles.heroNote}>{recorderMessage || radioConnection.detail}</Text>
+            ) : null}
           </View>
 
           </View>
@@ -1623,6 +1748,10 @@ function VoiceTransmissionCard({
             : 'Sin audio';
 
   useEffect(() => {
+    setPlaybackError(null);
+  }, [resolvedUrl]);
+
+  useEffect(() => {
     onPlaybackChange?.(message.id, isPlaybackActive);
 
     return () => {
@@ -1631,13 +1760,6 @@ function VoiceTransmissionCard({
   }, [isPlaybackActive, message.id, onPlaybackChange]);
 
   const handleTogglePlayback = async () => {
-    console.info('[radio] playback request', {
-      messageId: message.id,
-      audioUrl: message.audioUrl,
-      resolvedUrl,
-      durationSeconds: message.durationSeconds || 0,
-    });
-
     if (!resolvedUrl) {
       setPlaybackError('URL de audio invalida.');
       return;
@@ -1658,9 +1780,7 @@ function VoiceTransmissionCard({
       const playbackMessage = getAudioPlaybackErrorMessage(error);
       console.warn('[radio] playback failed', {
         messageId: message.id,
-        audioUrl: message.audioUrl,
-        resolvedUrl,
-        error,
+        hasAudioUrl: Boolean(message.audioUrl),
         playbackMessage,
       });
       onPlaybackChange?.(message.id, false);

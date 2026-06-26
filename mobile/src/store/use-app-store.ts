@@ -50,6 +50,7 @@ import {
   setAuthToken,
   registerPushSubscriptionRequest,
   unregisterPushSubscriptionRequest,
+  updateVehicleLocationRequest,
   uploadDocumentRequest,
   updateIncidentStatusRequest,
   updateProfileRequest,
@@ -62,6 +63,7 @@ import {
   subscribeMobileNetwork,
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
+import { stopBackgroundLocationServiceAsync } from '@/src/native/background-location';
 import { usePortalStore } from '@/src/store/portal-store-bridge';
 import type {
   ChatMessage,
@@ -71,6 +73,7 @@ import type {
   ConversationSummary,
   DashboardData,
   DocumentItem,
+  GeoPoint,
   Incident,
   IncidentDraft,
   IncidentStatus,
@@ -96,6 +99,7 @@ import {
 import {
   configureAppNotifications,
   requestNativePushToken,
+  showInAppNotification,
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
 
@@ -169,6 +173,15 @@ type AppState = {
   signOut: () => Promise<void>;
   refreshAll: () => Promise<void>;
   flushPendingSync: () => Promise<void>;
+  sendVehicleLocation: (payload: {
+    vehicleId: string;
+    coordinates: GeoPoint & {
+      accuracy?: number | null;
+      heading?: number | null;
+      speed?: number | null;
+    };
+    speed?: number | null;
+  }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
   createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
   updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
@@ -629,6 +642,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     autoConnect: false,
   });
 
+  const joinCurrentConversations = () => {
+    const activeSocket = socket;
+    if (!activeSocket?.connected) {
+      return;
+    }
+
+    get().conversations.forEach((c) => activeSocket.emit('conversation:join', c.id));
+  };
+
   socket.on('connect', () => {
     set({ socketStatus: 'connected', networkStatus: 'online' });
     mobileLog('socket', `connected ${socket?.id || ''}`);
@@ -638,7 +660,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       organizationId: user.organizationId,
       accountType: user.accountType,
     });
-    get().conversations.forEach((c) => socket?.emit('conversation:join', c.id));
+    joinCurrentConversations();
   });
 
   socket.io.on('reconnect_attempt', () => {
@@ -647,6 +669,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
   socket.io.on('reconnect', () => {
     set({ socketStatus: 'connected', networkStatus: 'online' });
+    joinCurrentConversations();
     get().flushPendingSync();
   });
 
@@ -667,10 +690,42 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
     if (!m.conversationId) return;
     const hydrated = await hydrateConversationMessage(m, get().conversations.find(c => c.id === m.conversationId) || null, get().user);
-    set(s => ({
-      messagesByConversation: upsertConversationMessage(s.messagesByConversation, hydrated.conversationId!, hydrated),
-      conversations: sortConversations(s.conversations.map(c => c.id === hydrated.conversationId ? { ...c, lastMessage: hydrated, unreadCount: hydrated.senderId === s.user?.id ? c.unreadCount : c.unreadCount + 1 } : c))
-    }));
+    const conversationId = hydrated.conversationId!;
+    const alreadyExistsBefore = (get().messagesByConversation[conversationId] || []).some(
+      (message) => message.id === hydrated.id
+    );
+    const isOwnMessageBefore = hydrated.senderId === get().user?.id;
+    set(s => {
+      const alreadyExists = alreadyExistsBefore;
+      const isOwnMessage = hydrated.senderId === s.user?.id;
+
+      return {
+        messagesByConversation: alreadyExists
+          ? s.messagesByConversation
+          : upsertConversationMessage(s.messagesByConversation, conversationId, hydrated),
+        conversations: sortConversations(s.conversations.map(c => c.id === conversationId ? {
+          ...c,
+          lastMessage: hydrated,
+          unreadCount: !alreadyExists && !isOwnMessage ? c.unreadCount + 1 : c.unreadCount
+        } : c))
+      };
+    });
+
+    if (!alreadyExistsBefore && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
+      const isRadio =
+        hydrated.kind === 'audio' ||
+        get().conversations.find((conversation) => conversation.id === conversationId)
+          ?.channelMode === 'radio';
+      showInAppNotification({
+        title: isRadio ? 'Audio de radio recibido' : 'Mensaje nuevo',
+        body: hydrated.sender?.name || 'ManeComb operativo',
+        category: isRadio ? 'radio' : 'chat',
+        data: {
+          category: isRadio ? 'radio' : 'chat',
+          conversationId,
+        },
+      }).catch(() => undefined);
+    }
   };
 
   socket.on('chat:message', handleIncomingConversationMessage);
@@ -848,6 +903,8 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
           await sendMessageRequest(operation.payload.conversationId, {
             text: operation.payload.text,
           });
+        } else if (operation.type === 'vehicle:location') {
+          await updateVehicleLocationRequest(operation.payload);
         }
 
         await removePendingSyncOperation(operation.id);
@@ -996,6 +1053,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   signOut: async () => {
     disconnectSocket();
+    await stopBackgroundLocationServiceAsync().catch(() => undefined);
     const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
     await logoutRequest(rt).catch(() => {});
     const pt = await getStoredItem(PUSH_TOKEN_KEY);
@@ -1090,6 +1148,39 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   flushPendingSync: async () => {
     await processPendingSyncQueue(set, get);
+  },
+  sendVehicleLocation: async (payload) => {
+    try {
+      const vehicle = await updateVehicleLocationRequest(payload);
+      set(s => ({
+        mapData: s.mapData
+          ? {
+              ...s.mapData,
+              vehicles: s.mapData.vehicles.map((entry) =>
+                entry.id === vehicle.id ? { ...entry, ...vehicle } : entry
+              ),
+              updatedAt: new Date().toISOString(),
+            }
+          : s.mapData,
+      }));
+      return { ok: true };
+    } catch (error) {
+      if (isProbablyNetworkError(error)) {
+        await enqueuePendingSyncOperation({
+          type: 'vehicle:location',
+          payload,
+        });
+        await refreshPendingSyncCount(set);
+        set({ networkStatus: 'offline' });
+        return { ok: true, message: 'Ubicacion guardada para sincronizar.' };
+      }
+
+      logStoreError('sendVehicleLocation', error);
+      return {
+        ok: false,
+        message: getReadableErrorMessage(error, 'No fue posible actualizar la ubicacion.'),
+      };
+    }
   },
   sendMessage: async (cid, t) => {
     const { user } = get();

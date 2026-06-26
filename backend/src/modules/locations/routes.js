@@ -9,6 +9,7 @@ const {
   getOrganizationId,
   requireOrganization
 } = require("../../middlewares/access-control");
+const { getOperationalScheduleState } = require("../../utils/operational-schedule");
 
 const router = Router();
 const gpsLimiter = enterpriseRateLimit({ scope: "gps", max: 120, windowMs: 60 * 1000 });
@@ -98,6 +99,15 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
     return res.status(403).json({
       ok: false,
       message: "No puedes actualizar la ubicacion de otra unidad"
+    });
+  }
+
+  const scheduleState = getOperationalScheduleState(req.user.operationalSchedule);
+  if (scheduleState.isConfigured && !scheduleState.isWithinSchedule) {
+    return res.status(409).json({
+      ok: false,
+      code: "outside_operational_schedule",
+      message: "GPS pausado fuera del horario operativo"
     });
   }
 

@@ -87,6 +87,19 @@ const paymentProfileSchema = new mongoose.Schema(
   }
 );
 
+const operationalScheduleSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: true },
+    startTime: { type: String, default: "" },
+    endTime: { type: String, default: "" },
+    activeDays: { type: [Number], default: undefined },
+    timezone: { type: String, default: null }
+  },
+  {
+    _id: false
+  }
+);
+
 const pushSubscriptionSchema = new mongoose.Schema(
   {
     token: { type: String, required: true },
@@ -146,7 +159,8 @@ const userSchema = new mongoose.Schema(
     e2eeBackups: { type: [e2eeBackupSchema], default: [] },
     pushSubscriptions: { type: [pushSubscriptionSchema], default: [] },
     companyProfile: { type: companyProfileSchema, default: () => ({}) },
-    paymentProfile: { type: paymentProfileSchema, default: () => ({}) }
+    paymentProfile: { type: paymentProfileSchema, default: () => ({}) },
+    operationalSchedule: { type: operationalScheduleSchema, default: null }
   },
   {
     collection: "users",
