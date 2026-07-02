@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createNavigationTripLogRequest,
   getNavigationTripLogsRequest,
@@ -347,7 +347,7 @@ export function usePointToPointTracker({
     setPointMessage('Partida tomada desde la unidad activa.');
   };
 
-  const planPointToPointRoute = async () => {
+  const planPointToPointRoute = useCallback(async () => {
     if (!pointSelection.origin || !pointSelection.destination) {
       setPointMessage('Selecciona partida y llegada para calcular el recorrido.');
       return;
@@ -381,7 +381,7 @@ export function usePointToPointTracker({
         setIsPlanningPointRoute(false);
       }
     }
-  };
+  }, [onPlanReady, pointSelection.destination, pointSelection.origin, pointStops]);
 
   useEffect(() => {
     if (!autoPlanStopsRef.current || !pointSelection.origin || !pointSelection.destination) {
@@ -390,7 +390,7 @@ export function usePointToPointTracker({
 
     autoPlanStopsRef.current = false;
     planPointToPointRoute();
-  }, [pointSelection.destination, pointSelection.origin, pointStopsSignature]);
+  }, [planPointToPointRoute, pointSelection.destination, pointSelection.origin, pointStopsSignature]);
 
   const toggleTracker = () => {
     if (trackerStatus === 'off') {

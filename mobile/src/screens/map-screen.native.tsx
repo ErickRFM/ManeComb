@@ -226,9 +226,11 @@ export function MapScreen() {
   }, [params.vehicleId, params.follow]);
 
   useEffect(() => {
+    const controllers = reverseControllersRef.current;
+
     return () => {
-      reverseControllersRef.current.origin?.abort();
-      reverseControllersRef.current.destination?.abort();
+      controllers.origin?.abort();
+      controllers.destination?.abort();
     };
   }, []);
 
@@ -407,10 +409,8 @@ export function MapScreen() {
     insets.bottom,
     insets.top,
     selectorMode,
-    selectorPoints.destination?.location.latitude,
-    selectorPoints.destination?.location.longitude,
-    selectorPoints.origin?.location.latitude,
-    selectorPoints.origin?.location.longitude,
+    selectorPoints.destination,
+    selectorPoints.origin,
     selectorStops,
   ]);
 

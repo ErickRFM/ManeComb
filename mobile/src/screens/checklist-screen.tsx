@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -1251,8 +1251,13 @@ export function ChecklistScreen() {
     selectedVehicle,
     trackedLocation,
   });
+  const trackerRef = useRef(tracker);
   const syncedVehicleRouteRef = useRef<string | null>(null);
   const pendingStopPersistRef = useRef(false);
+
+  useEffect(() => {
+    trackerRef.current = tracker;
+  }, [tracker]);
 
   useEffect(() => {
     if (!routeModalOpen || !selectedVehicle) {
@@ -1270,7 +1275,7 @@ export function ChecklistScreen() {
     const assignedSelection = buildAssignedRouteSelection(selectedVehicle);
 
     if (assignedSelection) {
-      tracker.applyPointToPointSelection(
+      trackerRef.current.applyPointToPointSelection(
         assignedSelection.origin,
         assignedSelection.destination,
         assignedSelection.plan,
@@ -1279,7 +1284,7 @@ export function ChecklistScreen() {
       return;
     }
 
-    tracker.resetPointToPointSession();
+    trackerRef.current.resetPointToPointSession();
   }, [routeModalOpen, selectedVehicle]);
 
   const routeOption = tracker.pointPlan?.routes[0] || selectedVehicle?.assignedRoute?.route || null;
@@ -1474,18 +1479,19 @@ export function ChecklistScreen() {
     tracker.selectPoint(role, buildCurrentLocationPoint(coordinates));
   };
 
-  const saveAssignedRoute = async () => {
-    const origin = tracker.pointSelection.origin;
-    const destination = tracker.pointSelection.destination;
-    const route = tracker.pointPlan?.routes[0] || null;
+  const saveAssignedRoute = useCallback(async () => {
+    const trackerState = trackerRef.current;
+    const origin = trackerState.pointSelection.origin;
+    const destination = trackerState.pointSelection.destination;
+    const route = trackerState.pointPlan?.routes[0] || null;
 
-    if (!selectedVehicle || !origin || !destination || !tracker.pointPlan || !route) {
-      tracker.setPointMessage('Calcula la ruta antes de guardarla.');
+    if (!selectedVehicle?.id || !origin || !destination || !trackerState.pointPlan || !route) {
+      trackerState.setPointMessage('Calcula la ruta antes de guardarla.');
       return;
     }
 
     if (isCalculatedRouteSaved) {
-      tracker.setPointMessage('La ruta ya esta guardada para esta unidad.');
+      trackerState.setPointMessage('La ruta ya esta guardada para esta unidad.');
       return;
     }
 
@@ -1498,19 +1504,19 @@ export function ChecklistScreen() {
         destination: destination.location,
         originLabel: origin.label,
         destinationLabel: destination.label,
-        provider: tracker.pointPlan.provider,
+        provider: trackerState.pointPlan.provider,
         route,
-        alternatives: tracker.pointPlan.routes.slice(1),
-        stops: tracker.pointStops,
+        alternatives: trackerState.pointPlan.routes.slice(1),
+        stops: trackerState.pointStops,
       });
       await refreshAll();
-      tracker.setPointMessage('Ruta guardada para la unidad.');
+      trackerState.setPointMessage('Ruta guardada para la unidad.');
     } catch {
-      tracker.setPointMessage('No fue posible guardar la ruta.');
+      trackerState.setPointMessage('No fue posible guardar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  };
+  }, [isCalculatedRouteSaved, refreshAll, selectedVehicle?.id]);
 
   const navParams = useLocalSearchParams<{
     originLatitude?: string;
@@ -1555,7 +1561,7 @@ export function ChecklistScreen() {
           location: { latitude: oLat, longitude: oLon },
         };
       }
-    } catch (e) {
+    } catch {
       // ignore malformed params
     }
 
@@ -1571,7 +1577,7 @@ export function ChecklistScreen() {
           location: { latitude: dLat, longitude: dLon },
         };
       }
-    } catch (e) {
+    } catch {
       // ignore malformed params
     }
 
@@ -1662,6 +1668,8 @@ export function ChecklistScreen() {
     destLatCurrent,
     destLonCurrent,
     hasPointPlan,
+    tracker.pointSelection.destination,
+    tracker.pointSelection.origin,
     tracker.pointStops,
     // functions
     applyPointToPointSelection,
@@ -1688,6 +1696,7 @@ export function ChecklistScreen() {
     isCalculatedRouteSaved,
     isSavingAssignedRoute,
     routeModalOpen,
+    saveAssignedRoute,
     selectedVehicle,
     tracker.pointPlan,
   ]);
