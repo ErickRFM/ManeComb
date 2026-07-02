@@ -398,6 +398,12 @@ export type NavigationPlaceResult = {
   location: GeoPoint;
 };
 
+export type NavigationStop = GeoPoint & {
+  id: string;
+  address: string;
+  order: number;
+};
+
 export type NavigationRouteOption = {
   label: string;
   distanceMeters: number;
@@ -408,20 +414,23 @@ export type NavigationRouteOption = {
 };
 
 export type NavigationPlan = {
-  provider: 'google' | 'system';
+  provider: 'google' | 'system' | 'osrm' | 'valhalla';
   origin: GeoPoint;
   destination: GeoPoint;
+  stops?: NavigationStop[];
   routes: NavigationRouteOption[];
   updatedAt?: string;
 };
 
 export type AssignedRoute = {
   originLabel: string;
+  origin?: GeoPoint | null;
   destinationLabel: string;
   destination: GeoPoint;
+  stops?: NavigationStop[];
   assignedBy: string;
   assignedAt: string;
-  provider: 'google' | 'system';
+  provider: 'google' | 'system' | 'osrm' | 'valhalla';
   route: NavigationRouteOption;
   alternatives: NavigationRouteOption[];
 };

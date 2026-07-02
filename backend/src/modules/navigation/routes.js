@@ -6,7 +6,7 @@ const {
   hasPermission
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
-const { planRoute, searchPlaces } = require("../../services/navigation-service");
+const { planRoute, reverseGeocode, searchPlaces } = require("../../services/navigation-service");
 const { isServiceDate, toServiceDate } = require("../../utils/service-date");
 
 const router = Router();
@@ -19,7 +19,12 @@ function normalizePoint(point) {
   const latitude = Number(point.latitude);
   const longitude = Number(point.longitude);
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    Math.abs(latitude) > 90 ||
+    Math.abs(longitude) > 180
+  ) {
     return null;
   }
 
@@ -27,6 +32,82 @@ function normalizePoint(point) {
     latitude,
     longitude
   };
+}
+
+function normalizeRouteOption(route) {
+  if (!route || typeof route !== "object") {
+    return null;
+  }
+
+  const polyline = Array.isArray(route.polyline)
+    ? route.polyline.map(normalizePoint).filter(Boolean)
+    : [];
+
+  if (polyline.length < 2) {
+    return null;
+  }
+
+  return {
+    label: String(route.label || "Ruta recomendada").trim() || "Ruta recomendada",
+    distanceMeters: Math.max(0, Number(route.distanceMeters) || 0),
+    durationSeconds: Math.max(0, Number(route.durationSeconds) || 0),
+    durationInTrafficSeconds: Math.max(0, Number(route.durationInTrafficSeconds) || 0),
+    trafficLevel: ["low", "medium", "high"].includes(String(route.trafficLevel || ""))
+      ? String(route.trafficLevel)
+      : "low",
+    polyline
+  };
+}
+
+function normalizeStops(stops) {
+  return (Array.isArray(stops) ? stops : [])
+    .map((stop, index) => {
+      const point = normalizePoint(stop);
+
+      if (!point) {
+        return null;
+      }
+
+      return {
+        id: String(stop.id || `stop-${index + 1}`).trim() || `stop-${index + 1}`,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        address: String(stop.address || "").trim(),
+        order: Math.max(0, Number(stop.order) || index)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.order - right.order)
+    .map((stop, index) => ({
+      ...stop,
+      order: index
+    }));
+}
+
+function pointKey(point) {
+  return `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`;
+}
+
+function getStopsValidationError(origin, destination, stops) {
+  const originKey = pointKey(origin);
+  const destinationKey = pointKey(destination);
+  const seen = new Set();
+
+  for (const stop of stops) {
+    const key = pointKey(stop);
+
+    if (key === originKey || key === destinationKey) {
+      return "Las paradas no pueden coincidir con origen o destino";
+    }
+
+    if (seen.has(key)) {
+      return "Las paradas duplicadas no estan permitidas";
+    }
+
+    seen.add(key);
+  }
+
+  return null;
 }
 
 async function getAccessibleVehicle(req, res, vehicleId) {
@@ -78,10 +159,36 @@ router.get("/search", authenticate, requireOperationalAccess, async (req, res, n
   }
 });
 
+router.get("/reverse", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    const point = normalizePoint({
+      latitude: req.query.latitude,
+      longitude: req.query.longitude
+    });
+
+    if (!point) {
+      return res.status(400).json({
+        ok: false,
+        message: "latitude y longitude son obligatorios"
+      });
+    }
+
+    const result = await reverseGeocode(point);
+
+    return res.json({
+      ok: true,
+      data: result
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/plan", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
     const origin = normalizePoint(req.body.origin);
     const destination = normalizePoint(req.body.destination);
+    const stops = normalizeStops(req.body.stops);
 
     if (!origin || !destination) {
       return res.status(400).json({
@@ -90,7 +197,16 @@ router.post("/plan", authenticate, requireOperationalAccess, async (req, res, ne
       });
     }
 
-    const routePlan = await planRoute(origin, destination);
+    const stopsError = getStopsValidationError(origin, destination, stops);
+
+    if (stopsError) {
+      return res.status(400).json({
+        ok: false,
+        message: stopsError
+      });
+    }
+
+    const routePlan = await planRoute(origin, destination, stops);
 
     return res.json({
       ok: true,
@@ -118,11 +234,26 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
     const destination = normalizePoint(req.body.destination);
     const destinationLabel = String(req.body.destinationLabel || "").trim();
     const originLabel = String(req.body.originLabel || "Ubicacion actual").trim();
+    const stops = normalizeStops(req.body.stops);
+    const providedRoute = normalizeRouteOption(req.body.route);
+    const providedAlternatives = Array.isArray(req.body.alternatives)
+      ? req.body.alternatives.map(normalizeRouteOption).filter(Boolean)
+      : [];
+    const providedProvider = String(req.body.provider || "").trim();
 
     if (!vehicleId || !origin || !destination || !destinationLabel) {
       return res.status(400).json({
         ok: false,
         message: "vehicleId, origin, destination y destinationLabel son obligatorios"
+      });
+    }
+
+    const stopsError = getStopsValidationError(origin, destination, stops);
+
+    if (stopsError) {
+      return res.status(400).json({
+        ok: false,
+        message: stopsError
       });
     }
 
@@ -132,7 +263,13 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       return;
     }
 
-    const routePlan = await planRoute(origin, destination);
+    const routePlan = providedRoute
+      ? {
+          provider: providedProvider || "system",
+          stops,
+          routes: [providedRoute, ...providedAlternatives]
+        }
+      : await planRoute(origin, destination, stops);
     const [primaryRoute, ...alternatives] = routePlan.routes;
 
     if (!primaryRoute) {
@@ -146,8 +283,10 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       vehicleId,
       assignment: {
         originLabel,
+        origin,
         destinationLabel,
         destination,
+        stops,
         assignedBy: req.user.id,
         assignedAt: new Date().toISOString(),
         provider: routePlan.provider,
@@ -155,6 +294,52 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
         alternatives
       }
     });
+
+    if (!updatedVehicle) {
+      return res.status(404).json({
+        ok: false,
+        message: "Unidad no encontrada"
+      });
+    }
+
+    req.app.locals.io
+      ?.to(`org:${String(vehicle.organizationId || getOrganizationId(req.user)).trim()}`)
+      .emit("location:updated", updatedVehicle);
+
+    return res.json({
+      ok: true,
+      data: updatedVehicle
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/assign/:vehicleId", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({
+        ok: false,
+        message: "Solo administracion puede limpiar rutas"
+      });
+    }
+
+    const vehicleId = String(req.params.vehicleId || "").trim();
+
+    if (!vehicleId) {
+      return res.status(400).json({
+        ok: false,
+        message: "vehicleId es obligatorio"
+      });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, vehicleId);
+
+    if (!vehicle) {
+      return;
+    }
+
+    const updatedVehicle = await req.app.locals.store.clearAssignedRouteFromVehicle(vehicleId);
 
     if (!updatedVehicle) {
       return res.status(404).json({

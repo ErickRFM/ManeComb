@@ -168,6 +168,13 @@ const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
   ? "*"
   : (origin, callback) => callback(null, isClientOriginAllowed(origin));
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
+const MAP_GEOCODING_PROVIDER = String(process.env.MAP_GEOCODING_PROVIDER || "photon").trim().toLowerCase();
+const MAP_ROUTING_PROVIDER = String(process.env.MAP_ROUTING_PROVIDER || "osrm").trim().toLowerCase();
+const PHOTON_API_URL = process.env.PHOTON_API_URL || "https://photon.komoot.io";
+const NOMINATIM_API_URL = process.env.NOMINATIM_API_URL || "https://nominatim.openstreetmap.org";
+const OSRM_API_URL = process.env.OSRM_API_URL || "https://router.project-osrm.org";
+const VALHALLA_API_URL = process.env.VALHALLA_API_URL || "";
+const MAP_HTTP_USER_AGENT = process.env.MAP_HTTP_USER_AGENT || "ManeComb/1.0";
 const APP_URL =
   process.env.APP_URL ||
   process.env.CLIENT_URL ||
@@ -319,6 +326,13 @@ module.exports = {
   CORS_ORIGIN,
   isClientOriginAllowed,
   GOOGLE_MAPS_API_KEY,
+  MAP_GEOCODING_PROVIDER,
+  MAP_ROUTING_PROVIDER,
+  MAP_HTTP_USER_AGENT,
+  NOMINATIM_API_URL,
+  OSRM_API_URL,
+  PHOTON_API_URL,
+  VALHALLA_API_URL,
   PUBLIC_WEBHOOK_BASE_URL,
   DOCUMENT_STORAGE_DRIVER,
   COMMERCIAL_BRAND_NAME,

@@ -2049,10 +2049,24 @@ function createEmbeddedStore() {
     return enrichVehicle(vehicle);
   }
 
+  function clearAssignedRouteFromVehicle(vehicleId) {
+    const vehicle = getVehicleById(vehicleId);
+
+    if (!vehicle) {
+      return null;
+    }
+
+    vehicle.assignedRoute = null;
+    vehicle.updatedAt = new Date().toISOString();
+
+    return enrichVehicle(vehicle);
+  }
+
   return {
     authenticate,
     addMessage,
     assignRouteToVehicle,
+    clearAssignedRouteFromVehicle,
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,

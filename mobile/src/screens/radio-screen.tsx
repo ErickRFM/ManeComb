@@ -232,6 +232,7 @@ export function RadioScreen() {
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const bootstrappedRef = useRef(false);
+  const autoPlayedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
   const meteringFrameRef = useRef<number | null>(null);
   const meteringCleanupRef = useRef<(() => void) | null>(null);
   const meteringActiveRef = useRef(false);
@@ -321,6 +322,19 @@ export function RadioScreen() {
   const receivingVoiceNote = useMemo(
     () => loadedVoiceNotes.find((item) => item.message.id === playingMessageId)?.message || null,
     [loadedVoiceNotes, playingMessageId]
+  );
+  const latestIncomingActiveVoiceNote = useMemo(
+    () =>
+      activeChannel
+        ? loadedVoiceNotes.find(
+            (item) =>
+              item.channelId === activeChannel.id &&
+              item.message.senderId !== user?.id &&
+              Boolean(item.message.audioUrl) &&
+              !autoPlayedVoiceNoteIdsRef.current.has(item.message.id)
+          ) || null
+        : null,
+    [activeChannel, loadedVoiceNotes, user?.id]
   );
   const receivingSenderName = receivingVoiceNote?.sender?.name || null;
 
@@ -730,6 +744,10 @@ export function RadioScreen() {
 
       return current === messageId ? null : current;
     });
+  }, []);
+
+  const handleAutoPlaybackStart = useCallback((messageId: string) => {
+    autoPlayedVoiceNoteIdsRef.current.add(messageId);
   }, []);
 
   const startNativeRecording = async () => {
@@ -1611,9 +1629,11 @@ export function RadioScreen() {
                 <VoiceTransmissionCard
                   message={item.message}
                   channelTitle={item.channelTitle}
+                  autoPlay={latestIncomingActiveVoiceNote?.message.id === item.message.id}
                   isActive={playingMessageId === item.message.id}
                   token={token}
                   theme={theme}
+                  onAutoPlaybackStart={handleAutoPlaybackStart}
                   onPlaybackChange={handleVoicePlaybackChange}
                 />
               )}
@@ -1689,16 +1709,20 @@ function WaveBar({
 }
 
 function VoiceTransmissionCard({
+  autoPlay,
   channelTitle,
   isActive,
   message,
+  onAutoPlaybackStart,
   onPlaybackChange,
   token,
   theme,
 }: {
+  autoPlay?: boolean;
   channelTitle?: string;
   isActive?: boolean;
   message: ChatMessage;
+  onAutoPlaybackStart?: (messageId: string) => void;
   onPlaybackChange?: (messageId: string, isPlaying: boolean) => void;
   token: string | null;
   theme: ReturnType<typeof useAppTheme>['theme'];
@@ -1759,33 +1783,71 @@ function VoiceTransmissionCard({
     };
   }, [isPlaybackActive, message.id, onPlaybackChange]);
 
+  const playTransmission = useCallback(
+    async (source: 'manual' | 'auto') => {
+      if (!resolvedUrl) {
+        setPlaybackError('URL de audio invalida.');
+        return;
+      }
+
+      if (isPlaying || isBuffering) {
+        return;
+      }
+
+      try {
+        setPlaybackError(null);
+        await stopActiveAudioPlaybackAsync().catch(() => undefined);
+        onPlaybackChange?.(message.id, true);
+
+        if (source === 'auto') {
+          onAutoPlaybackStart?.(message.id);
+        }
+
+        await player.play();
+      } catch (error) {
+        const playbackMessage = getAudioPlaybackErrorMessage(error);
+        console.warn('[radio] playback failed', {
+          messageId: message.id,
+          hasAudioUrl: Boolean(message.audioUrl),
+          playbackMessage,
+        });
+        onPlaybackChange?.(message.id, false);
+        setPlaybackError(playbackMessage);
+      }
+    },
+    [
+      isBuffering,
+      isPlaying,
+      message.audioUrl,
+      message.id,
+      onAutoPlaybackStart,
+      onPlaybackChange,
+      player,
+      resolvedUrl,
+    ]
+  );
+
+  useEffect(() => {
+    if (!autoPlay) {
+      return;
+    }
+
+    playTransmission('auto');
+  }, [autoPlay, playTransmission]);
+
   const handleTogglePlayback = async () => {
     if (!resolvedUrl) {
       setPlaybackError('URL de audio invalida.');
       return;
     }
 
-    try {
-      setPlaybackError(null);
-
-      if (isPlaying) {
-        await player.pause();
-        onPlaybackChange?.(message.id, false);
-        return;
-      }
-
-      onPlaybackChange?.(message.id, true);
-      await player.play();
-    } catch (error) {
-      const playbackMessage = getAudioPlaybackErrorMessage(error);
-      console.warn('[radio] playback failed', {
-        messageId: message.id,
-        hasAudioUrl: Boolean(message.audioUrl),
-        playbackMessage,
-      });
+    if (isPlaying) {
+      await player.pause();
       onPlaybackChange?.(message.id, false);
-      setPlaybackError(playbackMessage);
+      return;
     }
+
+    await playTransmission('manual');
   };
 
   return (

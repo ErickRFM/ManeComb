@@ -15,6 +15,7 @@ import type {
   GeoPoint,
   NavigationPlaceResult,
   NavigationPlan,
+  NavigationStop,
   Vehicle,
   VehicleTripRecord,
 } from '@/src/types/app';
@@ -36,6 +37,20 @@ function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult {
     label: `${vehicle.code} salida`,
     address: vehicle.routeName || vehicle.driverName || 'Unidad activa',
     location: vehicle.location,
+  };
+}
+
+function getPointKey(point: GeoPoint) {
+  return `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`;
+}
+
+function createStopFromPlace(point: NavigationPlaceResult, order: number): NavigationStop {
+  return {
+    id: `stop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    latitude: point.location.latitude,
+    longitude: point.location.longitude,
+    address: point.address || point.label,
+    order,
   };
 }
 
@@ -101,6 +116,7 @@ export function usePointToPointTracker({
     origin: null,
     destination: null,
   });
+  const [pointStops, setPointStops] = useState<NavigationStop[]>([]);
   const [isSearchingPoint, setIsSearchingPoint] = useState<Record<PointRole, boolean>>({
     origin: false,
     destination: false,
@@ -118,6 +134,8 @@ export function usePointToPointTracker({
   const [isLoadingTripLogs, setIsLoadingTripLogs] = useState(false);
   const [isSavingTripLog, setIsSavingTripLog] = useState(false);
   const persistTripRef = useRef(false);
+  const planRequestRef = useRef(0);
+  const autoPlanStopsRef = useRef(false);
 
   const todayServiceDate = getServiceDateValue();
   const historyDateLabel = useMemo(() => formatServiceDateLabel(historyDate), [historyDate]);
@@ -153,9 +171,35 @@ export function usePointToPointTracker({
 
     return distanceInMeters(trackedLocation, pointSelection.destination.location);
   }, [pointSelection.destination, trackedLocation]);
+  const pointStopsSignature = useMemo(
+    () => pointStops.map((stop) => `${stop.order}:${getPointKey(stop)}`).join('|'),
+    [pointStops]
+  );
 
   const clearPlan = () => {
     setPointPlan(null);
+    setTrackerStatus('off');
+    setTrackerStartedAt(null);
+    setTrackerZone('none');
+    setTrackedVehicleId(null);
+  };
+
+  const resetPointToPointSession = () => {
+    setPointQueries({
+      origin: '',
+      destination: '',
+    });
+    setPointResults({
+      origin: [],
+      destination: [],
+    });
+    setPointSelection({
+      origin: null,
+      destination: null,
+    });
+    setPointStops([]);
+    setPointPlan(null);
+    setPointMessage(null);
     setTrackerStatus('off');
     setTrackerStartedAt(null);
     setTrackerZone('none');
@@ -222,6 +266,64 @@ export function usePointToPointTracker({
     setPointMessage(role === 'origin' ? 'Punto de partida listo.' : 'Punto de llegada listo.');
   };
 
+  const applyPointToPointSelection = (
+    origin: NavigationPlaceResult,
+    destination: NavigationPlaceResult,
+    plan: NavigationPlan | null,
+    stops: NavigationStop[] = plan?.stops || []
+  ) => {
+    setPointSelection({ origin, destination });
+    setPointStops(stops.map((stop, index) => ({ ...stop, order: index })));
+    setPointQueries({
+      origin: origin.label,
+      destination: destination.label,
+    });
+    setPointResults({ origin: [], destination: [] });
+    setPointPlan(plan);
+    setTrackerStatus('off');
+    setTrackerStartedAt(null);
+    setTrackerZone('none');
+    setTrackedVehicleId(null);
+    setPointMessage(plan ? `Ruta lista entre ${origin.label} y ${destination.label}.` : 'Puntos seleccionados.');
+  };
+
+  const addStop = (point: NavigationPlaceResult) => {
+    if (!pointSelection.origin || !pointSelection.destination) {
+      setPointMessage('Selecciona origen y destino antes de agregar una parada.');
+      return;
+    }
+
+    const stopKey = getPointKey(point.location);
+
+    if (
+      stopKey === getPointKey(pointSelection.origin.location) ||
+      stopKey === getPointKey(pointSelection.destination.location) ||
+      pointStops.some((stop) => getPointKey(stop) === stopKey)
+    ) {
+      setPointMessage('La parada ya existe o coincide con origen/destino.');
+      return;
+    }
+
+    autoPlanStopsRef.current = true;
+    setPointStops((current) => [...current, createStopFromPlace(point, current.length)]);
+    clearPlan();
+    setPointMessage('Parada agregada. Recalculando ruta.');
+  };
+
+  const removeStop = (stopId: string) => {
+    autoPlanStopsRef.current = true;
+    setPointStops((current) =>
+      current
+        .filter((stop) => stop.id !== stopId)
+        .map((stop, index) => ({
+          ...stop,
+          order: index,
+        }))
+    );
+    clearPlan();
+    setPointMessage('Parada eliminada. Recalculando ruta.');
+  };
+
   const useSelectedVehicleAsOrigin = () => {
     if (!selectedVehicle) {
       setPointMessage('Selecciona una unidad para usar su posicion como partida.');
@@ -251,6 +353,8 @@ export function usePointToPointTracker({
       return;
     }
 
+    const requestId = planRequestRef.current + 1;
+    planRequestRef.current = requestId;
     setIsPlanningPointRoute(true);
     setPointMessage(null);
 
@@ -258,22 +362,57 @@ export function usePointToPointTracker({
       const response = await planNavigationRouteRequest({
         origin: pointSelection.origin.location,
         destination: pointSelection.destination.location,
+        stops: pointStops,
       });
+
+      if (requestId !== planRequestRef.current) {
+        return;
+      }
 
       setPointPlan(response);
       onPlanReady?.(response, pointSelection.destination.label);
       setPointMessage(`Ruta lista entre ${pointSelection.origin.label} y ${pointSelection.destination.label}.`);
     } catch {
-      setPointMessage('No fue posible calcular la ruta punto a punto.');
+      if (requestId === planRequestRef.current) {
+        setPointMessage('No fue posible calcular la ruta punto a punto.');
+      }
     } finally {
-      setIsPlanningPointRoute(false);
+      if (requestId === planRequestRef.current) {
+        setIsPlanningPointRoute(false);
+      }
     }
   };
 
+  useEffect(() => {
+    if (!autoPlanStopsRef.current || !pointSelection.origin || !pointSelection.destination) {
+      return;
+    }
+
+    autoPlanStopsRef.current = false;
+    planPointToPointRoute();
+  }, [pointSelection.destination, pointSelection.origin, pointStopsSignature]);
+
   const toggleTracker = () => {
     if (trackerStatus === 'off') {
-      if (!pointPlan || !selectedVehicle) {
+      const route = pointPlan?.routes[0] || null;
+
+      if (!pointPlan || !route || !selectedVehicle) {
         setPointMessage('Primero calcula la ruta y elige la unidad que vas a registrar.');
+        return;
+      }
+
+      if (!pointSelection.origin || !pointSelection.destination) {
+        setPointMessage('Selecciona origen y destino antes de iniciar.');
+        return;
+      }
+
+      if (route.polyline.length < 2) {
+        setPointMessage('La ruta no tiene una polyline valida.');
+        return;
+      }
+
+      if (!selectedVehicle.assignedRoute) {
+        setPointMessage('Guarda la ruta para la unidad antes de iniciar.');
         return;
       }
 
@@ -477,6 +616,7 @@ export function usePointToPointTracker({
     pointPlan,
     pointSelection.destination,
     pointSelection.origin,
+    pointStops,
     selectedVehicle,
     trackedLocation,
     trackerStartedAt,
@@ -500,6 +640,8 @@ export function usePointToPointTracker({
     isPlanningPointRoute,
     isSavingTripLog,
     isSearchingPoint,
+    applyPointToPointSelection,
+    addStop,
     lastTrip,
     planPointToPointRoute,
     pointMessage,
@@ -507,6 +649,9 @@ export function usePointToPointTracker({
     pointQueries,
     pointResults,
     pointSelection,
+    pointStops,
+    removeStop,
+    resetPointToPointSession,
     resetTrackerLog,
     searchPoint,
     selectPoint,

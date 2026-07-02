@@ -26,6 +26,7 @@ import type {
   LoginResult,
   NavigationPlaceResult,
   NavigationPlan,
+  NavigationStop,
   VehicleTripRecord,
   NotificationItem,
   OperationalObservabilitySnapshot,
@@ -806,7 +807,7 @@ export async function updateVehicleLocationRequest(payload: {
 }
 
 export async function searchNavigationPlacesRequest(query: string, origin: GeoPoint) {
-  const response = await apiClient.get<{ ok: boolean; data: { provider: 'google' | 'system'; results: NavigationPlaceResult[] } }>(
+  const response = await apiClient.get<{ ok: boolean; data: { provider: string; results: NavigationPlaceResult[] } }>(
     '/navigation/search',
     {
       params: {
@@ -820,11 +821,29 @@ export async function searchNavigationPlacesRequest(query: string, origin: GeoPo
   return response.data.data;
 }
 
+export async function reverseNavigationPlaceRequest(point: GeoPoint, options?: { signal?: AbortSignal }) {
+  const response = await apiClient.get<{ ok: boolean; data: { provider: string; result: NavigationPlaceResult } }>(
+    '/navigation/reverse',
+    {
+      params: {
+        latitude: point.latitude,
+        longitude: point.longitude,
+      },
+      signal: options?.signal,
+    }
+  );
+
+  return response.data.data;
+}
+
 export async function planNavigationRouteRequest(payload: {
   origin: GeoPoint;
   destination: GeoPoint;
-}) {
-  const response = await apiClient.post<{ ok: boolean; data: NavigationPlan }>('/navigation/plan', payload);
+  stops?: NavigationStop[];
+}, options?: { signal?: AbortSignal }) {
+  const response = await apiClient.post<{ ok: boolean; data: NavigationPlan }>('/navigation/plan', payload, {
+    signal: options?.signal,
+  });
   return response.data.data;
 }
 
@@ -834,8 +853,19 @@ export async function assignVehicleRouteRequest(payload: {
   destination: GeoPoint;
   originLabel?: string;
   destinationLabel: string;
+  provider?: NavigationPlan['provider'];
+  route?: NavigationPlan['routes'][number];
+  alternatives?: NavigationPlan['routes'];
+  stops?: NavigationStop[];
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/navigation/assign', payload);
+  return response.data.data;
+}
+
+export async function clearAssignedVehicleRouteRequest(vehicleId: string) {
+  const response = await apiClient.delete<{ ok: boolean; data: Vehicle }>(
+    `/navigation/assign/${encodeURIComponent(vehicleId)}`
+  );
   return response.data.data;
 }
 

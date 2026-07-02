@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -17,6 +17,7 @@ import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
+import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
@@ -25,8 +26,10 @@ import { getLocationStatus } from '@/src/utils/location-status';
 import type {
   FleetControlLog,
   GeoPoint,
+  NavigationPlan,
   NavigationPlaceResult,
   NavigationRouteOption,
+  NavigationStop,
   Vehicle,
 } from '@/src/types/app';
 import { formatTime } from '@/src/utils/format';
@@ -34,6 +37,7 @@ import { formatTime } from '@/src/utils/format';
 type FilterMode = 'all' | 'active' | 'routes' | 'completed';
 type OperationalStatus = 'available' | 'active' | 'completed' | 'delayed';
 type PointRole = 'origin' | 'destination';
+type MapPointRole = PointRole | 'stop';
 type OperationalRecord = {
   id: string;
   vehicleId: string;
@@ -170,12 +174,140 @@ function buildCurrentLocationPoint(coordinates: GeoPoint): NavigationPlaceResult
   };
 }
 
+function parseRoutePolylineParam(value?: string): GeoPoint[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((point) => ({
+        latitude: Number(point?.latitude),
+        longitude: Number(point?.longitude),
+      }))
+      .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+  } catch {
+    return [];
+  }
+}
+
+function parseStopsParam(value?: string): NavigationStop[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((stop, index) => ({
+        id: String(stop?.id || `stop-${index + 1}`),
+        latitude: Number(stop?.latitude),
+        longitude: Number(stop?.longitude),
+        address: String(stop?.address || ''),
+        order: Math.max(0, Number(stop?.order) || index),
+      }))
+      .filter((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))
+      .sort((left, right) => left.order - right.order)
+      .map((stop, index) => ({ ...stop, order: index }));
+  } catch {
+    return [];
+  }
+}
+
+function getPointSignature(point: GeoPoint | null | undefined) {
+  if (!point) {
+    return '';
+  }
+
+  return `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`;
+}
+
+function getStopsSignature(stops: NavigationStop[] | null | undefined) {
+  return (stops || [])
+    .map((stop, index) => `${index}:${getPointSignature(stop)}`)
+    .join(',');
+}
+
+function getRouteSignature(args: {
+  destination: GeoPoint | null | undefined;
+  distanceMeters?: number;
+  origin: GeoPoint | null | undefined;
+  polyline?: GeoPoint[];
+  stops?: NavigationStop[];
+}) {
+  const polyline = args.polyline || [];
+  const first = polyline[0] || args.origin || null;
+  const last = polyline[polyline.length - 1] || args.destination || null;
+
+  return [
+    getPointSignature(args.origin),
+    getPointSignature(args.destination),
+    Math.round(Number(args.distanceMeters || 0)),
+    getPointSignature(first),
+    getPointSignature(last),
+    getStopsSignature(args.stops),
+    polyline.length,
+  ].join('|');
+}
+
+function buildAssignedRouteSelection(vehicle: Vehicle): {
+  destination: NavigationPlaceResult;
+  origin: NavigationPlaceResult;
+  plan: NavigationPlan;
+} | null {
+  const assignedRoute = vehicle.assignedRoute;
+  const route = assignedRoute?.route;
+  const routeOrigin = assignedRoute?.origin || route?.polyline?.[0] || null;
+
+  if (!assignedRoute || !route || !routeOrigin || !assignedRoute.destination || route.polyline.length < 2) {
+    return null;
+  }
+
+  const originLabel = assignedRoute.originLabel || 'Punto inicial';
+  const destinationLabel = assignedRoute.destinationLabel || 'Punto final';
+
+  return {
+    origin: {
+      id: `assigned-origin-${vehicle.id}`,
+      label: originLabel,
+      address: originLabel,
+      location: routeOrigin,
+    },
+    destination: {
+      id: `assigned-destination-${vehicle.id}`,
+      label: destinationLabel,
+      address: destinationLabel,
+      location: assignedRoute.destination,
+    },
+    plan: {
+      provider: assignedRoute.provider,
+      origin: routeOrigin,
+      destination: assignedRoute.destination,
+      stops: assignedRoute.stops || [],
+      routes: [route, ...(assignedRoute.alternatives || [])],
+      updatedAt: assignedRoute.assignedAt,
+    },
+  };
+}
+
 function buildRouteStops(
   origin: NavigationPlaceResult | null,
   destination: NavigationPlaceResult | null,
-  route: NavigationRouteOption | null
+  route: NavigationRouteOption | null,
+  routeStopEntries: NavigationStop[] = []
 ) {
-  const stops: {
+  const routeStops: {
     id: string;
     label: string;
     address: string;
@@ -184,7 +316,7 @@ function buildRouteStops(
   }[] = [];
 
   if (origin) {
-    stops.push({
+    routeStops.push({
       id: 'origin',
       label: origin.label,
       address: origin.address,
@@ -193,27 +325,22 @@ function buildRouteStops(
     });
   }
 
-  const polyline = route?.polyline || [];
-  const candidates = polyline.slice(1, Math.max(1, polyline.length - 1));
-  const stopCount = Math.min(3, candidates.length);
+  routeStopEntries.forEach((stop, index) => {
+    const location = { latitude: stop.latitude, longitude: stop.longitude };
 
-  for (let index = 0; index < stopCount; index += 1) {
-    const pointIndex = Math.floor(((index + 1) * candidates.length) / (stopCount + 1));
-    const location = candidates[Math.min(pointIndex, candidates.length - 1)];
-
-    if (location) {
-      stops.push({
-        id: `stop-${index + 1}`,
-        label: `Parada ${index + 1}`,
-        address: 'Punto intermedio calculado',
+    if (Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) {
+      routeStops.push({
+        id: stop.id,
+        label: stop.address || `Parada ${index + 1}`,
+        address: stop.address || 'Parada agregada',
         location,
         type: 'stop',
       });
     }
-  }
+  });
 
   if (destination) {
-    stops.push({
+    routeStops.push({
       id: 'destination',
       label: destination.label,
       address: destination.address,
@@ -222,7 +349,7 @@ function buildRouteStops(
     });
   }
 
-  return stops;
+  return routeStops;
 }
 
 function getRouteProgressPercent(args: {
@@ -1030,6 +1157,14 @@ function createStyles(
       flex: 1,
       minWidth: 0,
     },
+    stopRemoveButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.dangerSoft,
+    },
     stopTitle: {
       color: theme.colors.text,
       fontSize: 14,
@@ -1074,9 +1209,10 @@ export function ChecklistScreen() {
     refresh,
     servicesEnabled,
   } = useUserLocation();
-  const { mapData, user } = useAppStore(
+  const { mapData, refreshAll, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
+      refreshAll: state.refreshAll,
       user: state.user,
     }))
   );
@@ -1085,6 +1221,7 @@ export function ChecklistScreen() {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
@@ -1114,15 +1251,64 @@ export function ChecklistScreen() {
     selectedVehicle,
     trackedLocation,
   });
+  const syncedVehicleRouteRef = useRef<string | null>(null);
+  const pendingStopPersistRef = useRef(false);
+
+  useEffect(() => {
+    if (!routeModalOpen || !selectedVehicle) {
+      return;
+    }
+
+    const assignedAt = selectedVehicle.assignedRoute?.assignedAt || 'empty';
+    const syncKey = `${selectedVehicle.id}:${assignedAt}`;
+
+    if (syncedVehicleRouteRef.current === syncKey) {
+      return;
+    }
+
+    syncedVehicleRouteRef.current = syncKey;
+    const assignedSelection = buildAssignedRouteSelection(selectedVehicle);
+
+    if (assignedSelection) {
+      tracker.applyPointToPointSelection(
+        assignedSelection.origin,
+        assignedSelection.destination,
+        assignedSelection.plan,
+        assignedSelection.plan.stops || []
+      );
+      return;
+    }
+
+    tracker.resetPointToPointSession();
+  }, [routeModalOpen, selectedVehicle]);
 
   const routeOption = tracker.pointPlan?.routes[0] || selectedVehicle?.assignedRoute?.route || null;
   const routeStops = useMemo(
-    () => buildRouteStops(tracker.pointSelection.origin, tracker.pointSelection.destination, routeOption),
-    [routeOption, tracker.pointSelection.destination, tracker.pointSelection.origin]
+    () => buildRouteStops(tracker.pointSelection.origin, tracker.pointSelection.destination, routeOption, tracker.pointStops),
+    [routeOption, tracker.pointSelection.destination, tracker.pointSelection.origin, tracker.pointStops]
   );
   const routeDistanceMeters = routeOption?.distanceMeters || 0;
   const routeDurationSeconds =
     routeOption?.durationInTrafficSeconds || routeOption?.durationSeconds || 0;
+  const activeRouteSignature = getRouteSignature({
+    destination: tracker.pointSelection.destination?.location,
+    distanceMeters: tracker.pointPlan?.routes[0]?.distanceMeters,
+    origin: tracker.pointSelection.origin?.location,
+    polyline: tracker.pointPlan?.routes[0]?.polyline,
+    stops: tracker.pointStops,
+  });
+  const savedRouteSignature = getRouteSignature({
+    destination: selectedVehicle?.assignedRoute?.destination,
+    distanceMeters: selectedVehicle?.assignedRoute?.route.distanceMeters,
+    origin: selectedVehicle?.assignedRoute?.origin,
+    polyline: selectedVehicle?.assignedRoute?.route.polyline,
+    stops: selectedVehicle?.assignedRoute?.stops || [],
+  });
+  const isCalculatedRouteSaved = Boolean(
+    tracker.pointPlan &&
+    selectedVehicle?.assignedRoute &&
+    activeRouteSignature === savedRouteSignature
+  );
   const routeProgress = getRouteProgressPercent({
     currentDistanceToDestination: tracker.currentDistanceToDestination,
     routeDistanceMeters,
@@ -1193,7 +1379,7 @@ export function ChecklistScreen() {
     ]);
   };
 
-  const finishTrip = (vehicle: Vehicle) => {
+  const finishTrip = async (vehicle: Vehicle) => {
     const activeLog = getActiveLog(manualLogs, vehicle.id);
 
     if (activeLog) {
@@ -1204,21 +1390,39 @@ export function ChecklistScreen() {
             : log
         )
       );
+    } else {
+      setManualLogs((current) => [
+        {
+          id: `fleet-log-${Date.now()}`,
+          vehicleId: vehicle.id,
+          vehicleCode: vehicle.code,
+          driverName: vehicle.driverName || 'Operador sin asignar',
+          departureAt: vehicle.updatedAt || new Date().toISOString(),
+          arrivalAt: new Date().toISOString(),
+          status: 'completed',
+        },
+        ...current,
+      ]);
+    }
+
+    if (!vehicle.assignedRoute) {
+      if (selectedVehicle?.id === vehicle.id) {
+        tracker.resetPointToPointSession();
+      }
       return;
     }
 
-    setManualLogs((current) => [
-      {
-        id: `fleet-log-${Date.now()}`,
-        vehicleId: vehicle.id,
-        vehicleCode: vehicle.code,
-        driverName: vehicle.driverName || 'Operador sin asignar',
-        departureAt: vehicle.updatedAt || new Date().toISOString(),
-        arrivalAt: new Date().toISOString(),
-        status: 'completed',
-      },
-      ...current,
-    ]);
+    try {
+      await clearAssignedVehicleRouteRequest(vehicle.id);
+      await refreshAll();
+
+      if (selectedVehicle?.id === vehicle.id) {
+        syncedVehicleRouteRef.current = `${vehicle.id}:empty`;
+        tracker.resetPointToPointSession();
+      }
+    } catch {
+      tracker.setPointMessage('No fue posible limpiar la ruta asignada.');
+    }
   };
 
   const openRouteModal = (vehicle: Vehicle) => {
@@ -1226,9 +1430,37 @@ export function ChecklistScreen() {
     setRouteModalOpen(true);
   };
 
-  const openMapForVehicle = (vehicle: Vehicle) => {
-    router.push({ pathname: '/mapa', params: { vehicleId: vehicle.id, follow: 'true' } });
-  };
+  function openMapForVehicle(vehicle: Vehicle, point: MapPointRole) {
+    const routeParams: Record<string, string> = {
+      vehicleId: vehicle.id,
+      follow: 'true',
+      point,
+      returnTo: '/checklist',
+    };
+    const origin = tracker.pointSelection.origin;
+    const destination = tracker.pointSelection.destination;
+
+    if (origin) {
+      routeParams.originLatitude = String(origin.location.latitude);
+      routeParams.originLongitude = String(origin.location.longitude);
+      routeParams.originAddress = origin.address;
+      routeParams.originLabel = origin.label;
+    }
+
+    if (destination) {
+      routeParams.destinationLatitude = String(destination.location.latitude);
+      routeParams.destinationLongitude = String(destination.location.longitude);
+      routeParams.destinationAddress = destination.address;
+      routeParams.destinationLabel = destination.label;
+    }
+
+    routeParams.stops = JSON.stringify(tracker.pointStops);
+
+    router.push({
+      pathname: '/mapa',
+      params: routeParams,
+    });
+  }
 
   const handleUseCurrentLocation = (role: PointRole) => {
     if (!coordinates) {
@@ -1240,6 +1472,229 @@ export function ChecklistScreen() {
     }
 
     tracker.selectPoint(role, buildCurrentLocationPoint(coordinates));
+  };
+
+  const saveAssignedRoute = async () => {
+    const origin = tracker.pointSelection.origin;
+    const destination = tracker.pointSelection.destination;
+    const route = tracker.pointPlan?.routes[0] || null;
+
+    if (!selectedVehicle || !origin || !destination || !tracker.pointPlan || !route) {
+      tracker.setPointMessage('Calcula la ruta antes de guardarla.');
+      return;
+    }
+
+    if (isCalculatedRouteSaved) {
+      tracker.setPointMessage('La ruta ya esta guardada para esta unidad.');
+      return;
+    }
+
+    setIsSavingAssignedRoute(true);
+
+    try {
+      await assignVehicleRouteRequest({
+        vehicleId: selectedVehicle.id,
+        origin: origin.location,
+        destination: destination.location,
+        originLabel: origin.label,
+        destinationLabel: destination.label,
+        provider: tracker.pointPlan.provider,
+        route,
+        alternatives: tracker.pointPlan.routes.slice(1),
+        stops: tracker.pointStops,
+      });
+      await refreshAll();
+      tracker.setPointMessage('Ruta guardada para la unidad.');
+    } catch {
+      tracker.setPointMessage('No fue posible guardar la ruta.');
+    } finally {
+      setIsSavingAssignedRoute(false);
+    }
+  };
+
+  const navParams = useLocalSearchParams<{
+    originLatitude?: string;
+    originLongitude?: string;
+    originAddress?: string;
+    originLabel?: string;
+    destinationLatitude?: string;
+    destinationLongitude?: string;
+    destinationAddress?: string;
+    destinationLabel?: string;
+    routeDistanceMeters?: string;
+    routeDurationSeconds?: string;
+    routeDurationInTrafficSeconds?: string;
+    routePolyline?: string;
+    routeProvider?: string;
+    routeTrafficLevel?: string;
+    stops?: string;
+  }>();
+
+  const { applyPointToPointSelection, selectPoint, planPointToPointRoute } = tracker;
+
+  const originLatCurrent = tracker.pointSelection.origin?.location?.latitude ?? null;
+  const originLonCurrent = tracker.pointSelection.origin?.location?.longitude ?? null;
+  const destLatCurrent = tracker.pointSelection.destination?.location?.latitude ?? null;
+  const destLonCurrent = tracker.pointSelection.destination?.location?.longitude ?? null;
+  const hasPointPlan = Boolean(tracker.pointPlan);
+
+  // Handle return values from MapScreen: create NavigationPlaceResult and delegate to tracker
+  useEffect(() => {
+    let nextOrigin: NavigationPlaceResult | null = null;
+    let nextDestination: NavigationPlaceResult | null = null;
+
+    try {
+      const oLat = navParams.originLatitude ? Number(navParams.originLatitude) : NaN;
+      const oLon = navParams.originLongitude ? Number(navParams.originLongitude) : NaN;
+
+      if (Number.isFinite(oLat) && Number.isFinite(oLon)) {
+        nextOrigin = {
+          id: `map-origin-${oLat}-${oLon}`,
+          label: navParams.originLabel || navParams.originAddress || 'Punto seleccionado',
+          address: navParams.originAddress || '',
+          location: { latitude: oLat, longitude: oLon },
+        };
+      }
+    } catch (e) {
+      // ignore malformed params
+    }
+
+    try {
+      const dLat = navParams.destinationLatitude ? Number(navParams.destinationLatitude) : NaN;
+      const dLon = navParams.destinationLongitude ? Number(navParams.destinationLongitude) : NaN;
+
+      if (Number.isFinite(dLat) && Number.isFinite(dLon)) {
+        nextDestination = {
+          id: `map-destination-${dLat}-${dLon}`,
+          label: navParams.destinationLabel || navParams.destinationAddress || 'Punto seleccionado',
+          address: navParams.destinationAddress || '',
+          location: { latitude: dLat, longitude: dLon },
+        };
+      }
+    } catch (e) {
+      // ignore malformed params
+    }
+
+    if (nextOrigin && nextDestination) {
+      const polyline = parseRoutePolylineParam(navParams.routePolyline);
+      const distanceMeters = Number(navParams.routeDistanceMeters);
+      const durationSeconds = Number(navParams.routeDurationSeconds);
+      const durationInTrafficSeconds = Number(navParams.routeDurationInTrafficSeconds);
+      const trafficLevel =
+        navParams.routeTrafficLevel === 'medium' || navParams.routeTrafficLevel === 'high'
+          ? navParams.routeTrafficLevel
+          : 'low';
+      const hasRoute =
+        polyline.length >= 2 &&
+        Number.isFinite(distanceMeters) &&
+        Number.isFinite(durationSeconds) &&
+        Number.isFinite(durationInTrafficSeconds);
+      const nextStops = parseStopsParam(navParams.stops);
+      const plan: NavigationPlan | null = hasRoute
+        ? {
+            provider: (navParams.routeProvider || 'system') as NavigationPlan['provider'],
+            origin: nextOrigin.location,
+            destination: nextDestination.location,
+            stops: nextStops,
+            routes: [
+              {
+                label: 'Ruta recomendada',
+                distanceMeters,
+                durationSeconds,
+                durationInTrafficSeconds,
+                trafficLevel,
+                polyline,
+              },
+            ],
+            updatedAt: new Date().toISOString(),
+          }
+        : null;
+
+      const sameOrigin = originLatCurrent === nextOrigin.location.latitude && originLonCurrent === nextOrigin.location.longitude;
+      const sameDestination =
+        destLatCurrent === nextDestination.location.latitude && destLonCurrent === nextDestination.location.longitude;
+      const sameStops = getStopsSignature(tracker.pointStops) === getStopsSignature(nextStops);
+
+      if (!sameOrigin || !sameDestination || !sameStops || (plan && !hasPointPlan)) {
+        if (!sameStops) {
+          pendingStopPersistRef.current = true;
+        }
+        applyPointToPointSelection(nextOrigin, nextDestination, plan, nextStops);
+      }
+
+      return;
+    }
+
+    if (nextOrigin && (originLatCurrent !== nextOrigin.location.latitude || originLonCurrent !== nextOrigin.location.longitude)) {
+      selectPoint('origin', nextOrigin);
+    }
+
+    if (
+      nextDestination &&
+      (destLatCurrent !== nextDestination.location.latitude || destLonCurrent !== nextDestination.location.longitude)
+    ) {
+      selectPoint('destination', nextDestination);
+    }
+
+    if (tracker.pointSelection.origin && tracker.pointSelection.destination && !hasPointPlan) {
+      planPointToPointRoute();
+    }
+  }, [
+    // navigation inputs
+    navParams.originLatitude,
+    navParams.originLongitude,
+    navParams.originAddress,
+    navParams.originLabel,
+    navParams.destinationLatitude,
+    navParams.destinationLongitude,
+    navParams.destinationAddress,
+    navParams.destinationLabel,
+    navParams.routeDistanceMeters,
+    navParams.routeDurationInTrafficSeconds,
+    navParams.routeDurationSeconds,
+    navParams.routePolyline,
+    navParams.routeProvider,
+    navParams.routeTrafficLevel,
+    navParams.stops,
+    // tracker pieces we need to compare
+    originLatCurrent,
+    originLonCurrent,
+    destLatCurrent,
+    destLonCurrent,
+    hasPointPlan,
+    tracker.pointStops,
+    // functions
+    applyPointToPointSelection,
+    selectPoint,
+    planPointToPointRoute,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pendingStopPersistRef.current ||
+      !routeModalOpen ||
+      !selectedVehicle ||
+      !tracker.pointPlan ||
+      isSavingAssignedRoute ||
+      isCalculatedRouteSaved
+    ) {
+      return;
+    }
+
+    pendingStopPersistRef.current = false;
+    saveAssignedRoute();
+  }, [
+    activeRouteSignature,
+    isCalculatedRouteSaved,
+    isSavingAssignedRoute,
+    routeModalOpen,
+    selectedVehicle,
+    tracker.pointPlan,
+  ]);
+
+  const handleRemoveRouteStop = (stopId: string) => {
+    pendingStopPersistRef.current = true;
+    tracker.removeStop(stopId);
   };
 
   if (!user || !mapData) {
@@ -1595,9 +2050,17 @@ export function ChecklistScreen() {
                     <MaterialCommunityIcons name="map-marker-check-outline" size={16} color={theme.colors.text} />
                     <Text style={styles.utilityText}>GPS final</Text>
                   </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle)}>
-                    <MaterialCommunityIcons name="map-outline" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>Seleccionar en mapa</Text>
+                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}>
+                    <MaterialCommunityIcons name="map-marker" size={16} color={theme.colors.text} />
+                    <Text style={styles.utilityText}>Elegir origen</Text>
+                  </Pressable>
+                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'destination')}>
+                    <MaterialCommunityIcons name="map-marker-check-outline" size={16} color={theme.colors.text} />
+                    <Text style={styles.utilityText}>Elegir destino</Text>
+                  </Pressable>
+                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'stop')}>
+                    <MaterialCommunityIcons name="map-marker-plus-outline" size={16} color={theme.colors.text} />
+                    <Text style={styles.utilityText}>Agregar parada</Text>
                   </Pressable>
                   <Pressable style={styles.utilityButton} onPress={() => refresh()}>
                     <MaterialCommunityIcons name="refresh" size={16} color={theme.colors.text} />
@@ -1609,16 +2072,24 @@ export function ChecklistScreen() {
 
                 <Pressable
                   style={styles.primaryWide}
-                  onPress={tracker.pointPlan ? tracker.toggleTracker : tracker.planPointToPointRoute}
-                  disabled={tracker.isPlanningPointRoute}>
-                  {tracker.isPlanningPointRoute ? (
+                  onPress={
+                    tracker.pointPlan
+                      ? isCalculatedRouteSaved
+                        ? tracker.toggleTracker
+                        : saveAssignedRoute
+                      : tracker.planPointToPointRoute
+                  }
+                  disabled={tracker.isPlanningPointRoute || isSavingAssignedRoute}>
+                  {tracker.isPlanningPointRoute || isSavingAssignedRoute ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.primaryWideText}>
                       {tracker.pointPlan
-                        ? tracker.trackerStatus === 'off'
-                          ? 'Iniciar ruta'
-                          : 'Detener seguimiento'
+                        ? isCalculatedRouteSaved
+                          ? tracker.trackerStatus === 'off'
+                            ? 'Iniciar ruta'
+                            : 'Detener seguimiento'
+                          : 'Guardar ruta'
                         : 'Calcular ruta'}
                     </Text>
                   )}
@@ -1646,11 +2117,17 @@ export function ChecklistScreen() {
                           {index < visitedStops ? 'Registrada' : stop.type === 'origin' ? 'Inicio' : 'Pendiente'}
                         </Text>
                       </View>
-                      <MaterialCommunityIcons
-                        name={index < visitedStops ? 'check-circle' : 'circle-outline'}
-                        size={20}
-                        color={index < visitedStops ? theme.colors.success : theme.colors.muted}
-                      />
+                      {stop.type === 'stop' ? (
+                        <Pressable style={styles.stopRemoveButton} onPress={() => handleRemoveRouteStop(stop.id)}>
+                          <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
+                        </Pressable>
+                      ) : (
+                        <MaterialCommunityIcons
+                          name={index < visitedStops ? 'check-circle' : 'circle-outline'}
+                          size={20}
+                          color={index < visitedStops ? theme.colors.success : theme.colors.muted}
+                        />
+                      )}
                     </View>
                   ))
                 ) : (

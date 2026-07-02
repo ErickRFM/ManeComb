@@ -691,13 +691,14 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     if (!m.conversationId) return;
     const hydrated = await hydrateConversationMessage(m, get().conversations.find(c => c.id === m.conversationId) || null, get().user);
     const conversationId = hydrated.conversationId!;
-    const alreadyExistsBefore = (get().messagesByConversation[conversationId] || []).some(
-      (message) => message.id === hydrated.id
-    );
     const isOwnMessageBefore = hydrated.senderId === get().user?.id;
+    let insertedMessage = false;
     set(s => {
-      const alreadyExists = alreadyExistsBefore;
+      const alreadyExists = (s.messagesByConversation[conversationId] || []).some(
+        (message) => message.id === hydrated.id
+      );
       const isOwnMessage = hydrated.senderId === s.user?.id;
+      insertedMessage = !alreadyExists;
 
       return {
         messagesByConversation: alreadyExists
@@ -711,7 +712,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       };
     });
 
-    if (!alreadyExistsBefore && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
+    if (insertedMessage && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
       const isRadio =
         hydrated.kind === 'audio' ||
         get().conversations.find((conversation) => conversation.id === conversationId)

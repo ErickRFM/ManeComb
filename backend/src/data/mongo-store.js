@@ -2737,9 +2737,29 @@ async function createMongoStore() {
     return enrichVehicle(vehicle);
   }
 
+  async function clearAssignedRouteFromVehicle(vehicleId) {
+    const vehicle = await VehicleModel.findByIdAndUpdate(
+      vehicleId,
+      {
+        $set: {
+          assignedRoute: null,
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!vehicle) {
+      return null;
+    }
+
+    return enrichVehicle(vehicle);
+  }
+
   return {
     addMessage,
     assignRouteToVehicle,
+    clearAssignedRouteFromVehicle,
     authenticate,
     canUserAccessConversation,
     canUserAccessChatMedia,

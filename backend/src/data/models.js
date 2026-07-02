@@ -31,11 +31,24 @@ const plannedRouteSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const stopSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    address: { type: String, default: "" },
+    order: { type: Number, required: true }
+  },
+  { _id: false }
+);
+
 const assignedRouteSchema = new mongoose.Schema(
   {
     originLabel: { type: String, default: "" },
+    origin: { type: pointSchema, default: null },
     destinationLabel: { type: String, default: "" },
     destination: { type: pointSchema, required: true },
+    stops: { type: [stopSchema], default: [] },
     assignedBy: { type: String, required: true },
     assignedAt: { type: Date, default: Date.now },
     provider: { type: String, default: "system" },
