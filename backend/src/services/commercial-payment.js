@@ -281,68 +281,122 @@ async function createMercadoPagoPreference(order) {
     }
   );
   const metadata = buildPreferenceMetadata(order);
+  const preference = {
+    external_reference: order.id,
+    metadata,
+    statement_descriptor: "MANECOMB",
+    items: [
+      {
+        id: order.planId,
+        title: `ManeComb ${order.planName}`,
+        description: buildOrderDescription(order),
+        quantity: 1,
+        currency_id: "MXN",
+        unit_price: Number(order.totalPrice)
+      }
+    ],
+    ...(environment === "production"
+      ? {
+          payer: {
+            email: order.email,
+            name: order.contactName
+          }
+        }
+      : {}),
+    back_urls: {
+      success: MERCADO_PAGO_SUCCESS_URL,
+      failure: MERCADO_PAGO_FAILURE_URL,
+      pending: MERCADO_PAGO_PENDING_URL
+    },
+    auto_return: "approved",
+    payment_methods: {
+      installments: 12
+    },
+    ...(MERCADO_PAGO_WEBHOOK_URL ? { notification_url: MERCADO_PAGO_WEBHOOK_URL } : {})
+  };
+
+  console.log("[payments] Mercado Pago preference request");
+  console.log(JSON.stringify(preference, null, 2));
+
   const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      external_reference: order.id,
-      metadata,
-      statement_descriptor: "MANECOMB",
-      items: [
-        {
-          id: order.planId,
-          title: `ManeComb ${order.planName}`,
-          description: buildOrderDescription(order),
-          quantity: 1,
-          currency_id: "MXN",
-          unit_price: Number(order.totalPrice)
-        }
-      ],
-      ...(environment === "production"
-        ? {
-            payer: {
-              email: order.email,
-              name: order.contactName
-            }
-          }
-        : {}),
-      back_urls: {
-        success: MERCADO_PAGO_SUCCESS_URL,
-        failure: MERCADO_PAGO_FAILURE_URL,
-        pending: MERCADO_PAGO_PENDING_URL
-      },
-      auto_return: "approved",
-      payment_methods: {
-        installments: 12
-      },
-      ...(MERCADO_PAGO_WEBHOOK_URL ? { notification_url: MERCADO_PAGO_WEBHOOK_URL } : {})
-    })
+    body: JSON.stringify(preference)
   });
+  const responseBodyText = await response.text();
+  let preferenceResponse = {};
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Mercado Pago no pudo crear el checkout. ${body}`);
+  try {
+    preferenceResponse = responseBodyText ? JSON.parse(responseBodyText) : {};
+  } catch (error) {
+    preferenceResponse = {
+      rawBody: responseBodyText
+    };
   }
 
-  const preference = await response.json();
-  const checkout = selectMercadoPagoCheckoutUrl(preference, environment);
+  const responseHeaders = Object.fromEntries(
+    Array.from(response.headers.entries()).filter(([key]) =>
+      ["content-type", "date", "x-request-id", "x-meli-request-id"].includes(String(key).toLowerCase())
+    )
+  );
+
+  console.log("[payments] Mercado Pago preference response");
+  console.log(JSON.stringify(preferenceResponse, null, 2));
+
+  if (!response.ok) {
+    console.error("[payments] Mercado Pago preference error", {
+      body: preferenceResponse,
+      cause: preferenceResponse.cause,
+      error: preferenceResponse.error,
+      headers: responseHeaders,
+      message: preferenceResponse.message,
+      status: response.status
+    });
+    throw new Error(`Mercado Pago no pudo crear el checkout. ${responseBodyText}`);
+  }
+
+  if (process.env.NODE_ENV !== "test") {
+    try {
+      const collectorResponse = await fetch("https://api.mercadolibre.com/users/me", {
+        headers: {
+          Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`
+        }
+      });
+      const collectorBody = await collectorResponse.json();
+
+      console.log("[payments] Mercado Pago collector diagnostics", {
+        id: collectorBody.id,
+        nickname: collectorBody.nickname,
+        siteId: collectorBody.site_id,
+        status: collectorResponse.status,
+        tags: collectorBody.tags,
+        userType: collectorBody.user_type
+      });
+    } catch (error) {
+      console.error("[payments] Mercado Pago collector diagnostics failed", {
+        message: error.message
+      });
+    }
+  }
+
+  const checkout = selectMercadoPagoCheckoutUrl(preferenceResponse, environment);
 
   console.log("[payments] Mercado Pago preference created", {
     checkoutUrlType: checkout.checkoutUrlType,
     environment,
     externalReference: order.id,
     metadata,
-    preferenceId: String(preference.id || ""),
+    preferenceId: String(preferenceResponse.id || ""),
     tokenPrefix: credentialDiagnostics.tokenPrefix
   });
 
   return {
     checkoutUrl: checkout.checkoutUrl,
     checkoutUrlType: checkout.checkoutUrlType,
-    paymentProviderReference: String(preference.id || ""),
+    paymentProviderReference: String(preferenceResponse.id || ""),
     paymentExternalReference: order.id
   };
 }
