@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -18,6 +19,7 @@ import {
   createCommercialCheckoutRequest,
   getApiErrorMessage,
   getCommercialPlansRequest,
+  getRuntimeHealthRequest,
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
@@ -34,6 +36,15 @@ import { usePortalStore } from '@/features/portal/store/use-portal-store';
 
 type PaymentMethod = 'card' | 'spei';
 type CheckoutStep = 'payment' | 'confirmation' | 'done';
+type PaymentMode = 'mercado_pago' | 'test' | 'unknown';
+
+type TestCardForm = {
+  cardholderName: string;
+  cardNumber: string;
+  cvv: string;
+  expiry: string;
+  postalCode: string;
+};
 
 const palette = {
   background: '#050816',
@@ -86,6 +97,78 @@ function openCheckoutUrl(url: string) {
   }
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function passesLuhn(value: string) {
+  const digits = onlyDigits(value);
+  let sum = 0;
+  let doubleDigit = false;
+
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    let digit = Number(digits[index]);
+
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) {
+        digit -= 9;
+      }
+    }
+
+    sum += digit;
+    doubleDigit = !doubleDigit;
+  }
+
+  return digits.length >= 13 && digits.length <= 19 && sum % 10 === 0;
+}
+
+function isValidExpiry(value: string) {
+  const match = String(value || '').trim().match(/^(\d{2})\s*\/\s*(\d{2}|\d{4})$/);
+
+  if (!match) {
+    return false;
+  }
+
+  const month = Number(match[1]);
+  const year = Number(match[2].length === 2 ? `20${match[2]}` : match[2]);
+
+  if (month < 1 || month > 12) {
+    return false;
+  }
+
+  const expiresAt = new Date(year, month, 0, 23, 59, 59, 999);
+  return expiresAt.getTime() >= Date.now();
+}
+
+function validateTestCard(form: TestCardForm) {
+  if (String(form.cardholderName || '').trim().length < 3) {
+    return 'Ingresa el nombre del titular.';
+  }
+
+  if (!passesLuhn(form.cardNumber)) {
+    return 'El numero de tarjeta de prueba no tiene un formato valido.';
+  }
+
+  if (!isValidExpiry(form.expiry)) {
+    return 'La fecha de expiracion debe tener formato MM/AA y estar vigente.';
+  }
+
+  if (!/^\d{3,4}$/.test(onlyDigits(form.cvv))) {
+    return 'El CVV debe tener 3 o 4 digitos.';
+  }
+
+  if (form.postalCode.trim() && !/^[a-zA-Z0-9 -]{4,10}$/.test(form.postalCode.trim())) {
+    return 'El codigo postal no tiene un formato valido.';
+  }
+
+  return null;
+}
+
 export function PlanCheckoutScreen() {
   const { width } = useWindowDimensions();
   const isTwoColumn = width >= 980;
@@ -109,12 +192,21 @@ export function PlanCheckoutScreen() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [message, setMessage] = useState<string | null>(null);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('unknown');
   const [receipt, setReceipt] = useState<any>(null);
   const [processing, setProcessing] = useState(false);
+  const [testCard, setTestCard] = useState<TestCardForm>({
+    cardholderName: '',
+    cardNumber: '',
+    cvv: '',
+    expiry: '',
+    postalCode: '',
+  });
 
   const selectedPlan = useMemo(() => getPlanById(plans, planId), [planId, plans]);
   const buttonAmount = `${formatCurrency(selectedPlan?.price)} MXN`;
   const canSubmit = Boolean(selectedPlan && user && !processing && !portalSubmitting);
+  const isTestPaymentMode = paymentMode === 'test';
 
   useEffect(() => {
     void getCommercialPlansRequest()
@@ -124,6 +216,15 @@ export function PlanCheckoutScreen() {
         }
       })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    void getRuntimeHealthRequest()
+      .then((health) => {
+        const provider = String(health?.readiness?.payments?.provider || health?.payments || '').trim();
+        setPaymentMode(provider === 'test' ? 'test' : 'mercado_pago');
+      })
+      .catch(() => setPaymentMode('mercado_pago'));
   }, []);
 
   useEffect(() => {
@@ -158,11 +259,24 @@ export function PlanCheckoutScreen() {
       return;
     }
 
+    if (!requestTrial && isTestPaymentMode) {
+      const validationMessage = validateTestCard(testCard);
+
+      if (validationMessage) {
+        setMessage(validationMessage);
+        return;
+      }
+    }
+
     setProcessing(true);
     setStep('confirmation');
     setMessage(null);
 
     try {
+      if (!requestTrial && isTestPaymentMode) {
+        await wait(2000);
+      }
+
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
       const checkout = await createCommercialCheckoutRequest({
         companyName,
@@ -175,7 +289,7 @@ export function PlanCheckoutScreen() {
         selectedAddOns: [],
       });
 
-      if (!requestTrial && checkout.checkoutUrl) {
+      if (!requestTrial && !isTestPaymentMode && checkout.checkoutUrl) {
         setReceipt(checkout);
         setMessage('Te estamos llevando al checkout seguro de Mercado Pago.');
         openCheckoutUrl(checkout.checkoutUrl);
@@ -272,22 +386,77 @@ export function PlanCheckoutScreen() {
                     </View>
                   </View>
 
-                  <View style={styles.methodTabs}>
-                    <MethodTab
-                      active={selectedMethod === 'card'}
-                      icon="credit-card-outline"
-                      label="Tarjeta credito/debito"
-                      onPress={() => setSelectedMethod('card')}
-                    />
-                    <MethodTab
-                      active={selectedMethod === 'spei'}
-                      icon="bank-outline"
-                      label="Transferencia SPEI"
-                      onPress={() => setSelectedMethod('spei')}
-                    />
-                  </View>
+                  {isTestPaymentMode && !requestTrial ? (
+                    <View style={styles.testPaymentPanel}>
+                      <View style={styles.testModeHeader}>
+                        <View style={styles.testModeBadge}>
+                          <MaterialCommunityIcons name="flask-outline" size={18} color={palette.lime} />
+                          <Text style={styles.testModeBadgeText}>Modo de pruebas</Text>
+                        </View>
+                        <Text style={styles.testModeText}>Pago simulado sin cargo real.</Text>
+                      </View>
 
-                  {selectedMethod === 'card' ? (
+                      <View style={styles.formGrid}>
+                        <TestPaymentInput
+                          icon="account-outline"
+                          label="Nombre del titular"
+                          onChangeText={(value) => setTestCard((current) => ({ ...current, cardholderName: value }))}
+                          placeholder="Nombre como aparece en la tarjeta"
+                          value={testCard.cardholderName}
+                        />
+                        <TestPaymentInput
+                          icon="credit-card-outline"
+                          keyboardType="number-pad"
+                          label="Numero de tarjeta"
+                          onChangeText={(value) => setTestCard((current) => ({ ...current, cardNumber: value }))}
+                          placeholder="4111 1111 1111 1111"
+                          value={testCard.cardNumber}
+                        />
+                        <View style={styles.inlineFields}>
+                          <TestPaymentInput
+                            icon="calendar-outline"
+                            label="Expiracion"
+                            onChangeText={(value) => setTestCard((current) => ({ ...current, expiry: value }))}
+                            placeholder="MM/AA"
+                            value={testCard.expiry}
+                          />
+                          <TestPaymentInput
+                            icon="lock-outline"
+                            keyboardType="number-pad"
+                            label="CVV"
+                            onChangeText={(value) => setTestCard((current) => ({ ...current, cvv: value }))}
+                            placeholder="123"
+                            secureTextEntry
+                            value={testCard.cvv}
+                          />
+                        </View>
+                        <TestPaymentInput
+                          icon="map-marker-outline"
+                          label="Codigo postal"
+                          onChangeText={(value) => setTestCard((current) => ({ ...current, postalCode: value }))}
+                          placeholder="Opcional"
+                          value={testCard.postalCode}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.methodTabs}>
+                        <MethodTab
+                          active={selectedMethod === 'card'}
+                          icon="credit-card-outline"
+                          label="Tarjeta credito/debito"
+                          onPress={() => setSelectedMethod('card')}
+                        />
+                        <MethodTab
+                          active={selectedMethod === 'spei'}
+                          icon="bank-outline"
+                          label="Transferencia SPEI"
+                          onPress={() => setSelectedMethod('spei')}
+                        />
+                      </View>
+
+                      {selectedMethod === 'card' ? (
                     <View style={styles.speiPanel}>
                       <MaterialCommunityIcons name="shield-lock-outline" size={32} color={palette.cyan} />
                       <View style={styles.speiCopy}>
@@ -297,7 +466,7 @@ export function PlanCheckoutScreen() {
                         </Text>
                       </View>
                     </View>
-                  ) : (
+                      ) : (
                     <View style={styles.speiPanel}>
                       <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
                       <View style={styles.speiCopy}>
@@ -307,11 +476,17 @@ export function PlanCheckoutScreen() {
                         </Text>
                       </View>
                     </View>
+                      )}
+                    </>
                   )}
 
                   <View style={styles.securityNote}>
                     <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
-                    <Text style={styles.securityText}>Pago seguro por proveedor externo y estado del plan confirmado por backend.</Text>
+                    <Text style={styles.securityText}>
+                      {isTestPaymentMode && !requestTrial
+                        ? 'Pago simulado para desarrollo. No se guardan CVV ni numero completo de tarjeta.'
+                        : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
+                    </Text>
                   </View>
 
                   {message ? (
@@ -336,7 +511,9 @@ export function PlanCheckoutScreen() {
                         <Text style={styles.payButtonText}>
                           {requestTrial
                             ? `Activar prueba ${selectedPlan.trialDays || 7} dias`
-                            : selectedMethod === 'card'
+                            : isTestPaymentMode
+                              ? `Pagar en modo de pruebas ${buttonAmount}`
+                              : selectedMethod === 'card'
                               ? 'Continuar a Mercado Pago'
                               : `Continuar pago SPEI ${buttonAmount}`}
                         </Text>
@@ -406,6 +583,43 @@ function MethodTab({
       <MaterialCommunityIcons name={icon} size={23} color={active ? palette.violet : palette.text} />
       <Text style={[styles.methodLabel, active ? styles.methodLabelActive : undefined]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function TestPaymentInput({
+  icon,
+  keyboardType,
+  label,
+  onChangeText,
+  placeholder,
+  secureTextEntry,
+  value,
+}: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  keyboardType?: 'default' | 'number-pad';
+  label: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  secureTextEntry?: boolean;
+  value: string;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.inputShell}>
+        <MaterialCommunityIcons name={icon} size={20} color={palette.violet} />
+        <TextInput
+          autoCapitalize="none"
+          keyboardType={keyboardType}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="rgba(168, 177, 194, 0.52)"
+          secureTextEntry={secureTextEntry}
+          style={styles.input}
+          value={value}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -726,6 +940,43 @@ const styles = StyleSheet.create({
   formGrid: {
     gap: 16,
   },
+  testPaymentPanel: {
+    borderColor: 'rgba(82, 242, 167, 0.35)',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 18,
+    padding: 18,
+    ...(Platform.OS === 'web'
+      ? ({ backgroundImage: 'linear-gradient(145deg, rgba(6, 32, 28, 0.82), rgba(16, 20, 44, 0.9))' } as any)
+      : { backgroundColor: 'rgba(6, 32, 28, 0.82)' }),
+  },
+  testModeHeader: {
+    gap: 8,
+  },
+  testModeBadge: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(82, 242, 167, 0.12)',
+    borderColor: 'rgba(82, 242, 167, 0.42)',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 34,
+    paddingHorizontal: 10,
+  },
+  testModeBadgeText: {
+    color: palette.lime,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  testModeText: {
+    color: palette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    lineHeight: 20,
+  },
   inlineFields: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -749,6 +1000,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
+    gap: 10,
     minHeight: 54,
     paddingHorizontal: 14,
   },

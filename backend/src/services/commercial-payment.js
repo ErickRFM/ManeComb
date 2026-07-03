@@ -28,6 +28,10 @@ function isAutomaticPaymentEnabled() {
   return PAYMENT_PROVIDER === "mercado_pago" && Boolean(MERCADO_PAGO_ACCESS_TOKEN);
 }
 
+function isTestPaymentEnabled() {
+  return PAYMENT_PROVIDER === "test";
+}
+
 function getMercadoPagoCredentialPrefix(value) {
   const credential = String(value || "").trim();
 
@@ -226,17 +230,24 @@ function logMercadoPagoRuntimeDiagnostics() {
 
 function getPaymentReadiness() {
   const automaticReady = isAutomaticPaymentEnabled();
+  const testReady = isTestPaymentEnabled();
   const manualReady = isManualTransferConfigured();
-  const ready = automaticReady || manualReady;
+  const ready = automaticReady || testReady || manualReady;
   const diagnostics = getMercadoPagoRuntimeDiagnostics();
 
   return {
     diagnostics,
-    mode: automaticReady ? "mercado_pago" : manualReady ? "manual_transfer_ready" : "configuration_required",
+    mode: automaticReady
+      ? "mercado_pago"
+      : testReady
+        ? "test_payment"
+        : manualReady
+          ? "manual_transfer_ready"
+          : "configuration_required",
     provider: PAYMENT_PROVIDER || "mercado_pago",
     ready,
     missing:
-      automaticReady || PAYMENT_PROVIDER !== "mercado_pago"
+      automaticReady || testReady || PAYMENT_PROVIDER !== "mercado_pago"
         ? []
         : manualReady
           ? []
@@ -251,6 +262,10 @@ function getPaymentReadiness() {
 function getPaymentProviderName(paymentMethod) {
   if (paymentMethod === "trial") {
     return "trial_access";
+  }
+
+  if (isTestPaymentEnabled()) {
+    return "test";
   }
 
   if (isAutomaticPaymentEnabled()) {
@@ -315,9 +330,6 @@ async function createMercadoPagoPreference(order) {
     ...(MERCADO_PAGO_WEBHOOK_URL ? { notification_url: MERCADO_PAGO_WEBHOOK_URL } : {})
   };
 
-  console.log("[payments] Mercado Pago preference request");
-  console.log(JSON.stringify(preference, null, 2));
-
   const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
@@ -337,49 +349,8 @@ async function createMercadoPagoPreference(order) {
     };
   }
 
-  const responseHeaders = Object.fromEntries(
-    Array.from(response.headers.entries()).filter(([key]) =>
-      ["content-type", "date", "x-request-id", "x-meli-request-id"].includes(String(key).toLowerCase())
-    )
-  );
-
-  console.log("[payments] Mercado Pago preference response");
-  console.log(JSON.stringify(preferenceResponse, null, 2));
-
   if (!response.ok) {
-    console.error("[payments] Mercado Pago preference error", {
-      body: preferenceResponse,
-      cause: preferenceResponse.cause,
-      error: preferenceResponse.error,
-      headers: responseHeaders,
-      message: preferenceResponse.message,
-      status: response.status
-    });
     throw new Error(`Mercado Pago no pudo crear el checkout. ${responseBodyText}`);
-  }
-
-  if (process.env.NODE_ENV !== "test") {
-    try {
-      const collectorResponse = await fetch("https://api.mercadolibre.com/users/me", {
-        headers: {
-          Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`
-        }
-      });
-      const collectorBody = await collectorResponse.json();
-
-      console.log("[payments] Mercado Pago collector diagnostics", {
-        id: collectorBody.id,
-        nickname: collectorBody.nickname,
-        siteId: collectorBody.site_id,
-        status: collectorResponse.status,
-        tags: collectorBody.tags,
-        userType: collectorBody.user_type
-      });
-    } catch (error) {
-      console.error("[payments] Mercado Pago collector diagnostics failed", {
-        message: error.message
-      });
-    }
   }
 
   const checkout = selectMercadoPagoCheckoutUrl(preferenceResponse, environment);
@@ -418,6 +389,26 @@ async function createCommercialCheckout(order) {
 
   const paymentProvider = getPaymentProviderName(order.paymentMethod);
   const manualInstructions = getManualPaymentInstructions(order);
+
+  if (paymentProvider === "test") {
+    return {
+      paymentProvider,
+      checkoutUrl: null,
+      paymentProviderReference: `test-${order.id}`,
+      paymentExternalReference: order.id,
+      paymentStatus: "paid_test",
+      approvedAt: new Date().toISOString(),
+      paymentInstructions: {
+        provider: "test",
+        summary: "Pago simulado aprobado en modo de pruebas.",
+        details: [
+          "No se proceso ningun cargo real.",
+          "No se almacenaron datos sensibles de tarjeta."
+        ]
+      },
+      nextStep: "Pago simulado aprobado. La cuenta queda lista para continuar el onboarding."
+    };
+  }
 
   if (paymentProvider !== "mercado_pago") {
     return {
@@ -529,6 +520,7 @@ module.exports = {
   getPaymentReadiness,
   getPaymentProviderName,
   isAutomaticPaymentEnabled,
+  isTestPaymentEnabled,
   logMercadoPagoRuntimeDiagnostics,
   selectMercadoPagoCheckoutUrl,
   validateMercadoPagoCredentials

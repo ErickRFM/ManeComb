@@ -134,7 +134,7 @@ function buildActivationTimeline(user, order, users = []) {
     {
       id: "payment-confirmed",
       title: "Pago confirmado",
-      status: ["paid", "trial_active"].includes(String(order?.paymentStatus || ""))
+      status: ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
         ? "completed"
         : "pending",
       at: toIso(order?.paymentApprovedAt || order?.trialStartedAt),
@@ -188,7 +188,7 @@ function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) 
   const hasPaymentProfile = Boolean(
     user?.paymentProfile?.preferredMethod ||
       user?.paymentProfile?.cardLast4 ||
-      ["paid", "trial_active"].includes(String(order?.paymentStatus || ""))
+      ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
   );
 
   return [
@@ -208,7 +208,7 @@ function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) 
       id: "payment",
       title: "Pago",
       status: hasPaymentProfile ? "completed" : "pending",
-      description: ["paid", "trial_active"].includes(String(order?.paymentStatus || ""))
+      description: ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
         ? "Pago confirmado o prueba activa."
         : "Pago pendiente de confirmación."
     },

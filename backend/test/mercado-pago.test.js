@@ -507,6 +507,45 @@ async function testPaymentStatusesDoNotActivateUnlessApproved() {
   console.log("ok - pending/rejected no activan y approved activa plan reconocible por backend");
 }
 
+async function testPaymentProviderTestActivatesWithoutMercadoPago() {
+  await withPaymentEnv(
+    {
+      PAYMENT_PROVIDER: "test"
+    },
+    async () => {
+      const mp = installMercadoPagoFetchMock();
+      const context = await createTestServer();
+
+      try {
+        const owner = await registerOwner(context, "test-provider");
+        const checkout = await createCheckout(context, owner);
+
+        assert.equal(checkout.status, 201);
+        assert.equal(checkout.payload.data.paymentProvider, "test");
+        assert.equal(checkout.payload.data.paymentStatus, "paid_test");
+        assert.equal(checkout.payload.data.activationStatus, "active");
+        assert.equal(checkout.payload.data.checkoutUrl, null);
+        assert.equal(mp.preferenceCalls, 0);
+
+        const session = await requestJson(`${context.url}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${owner.token}`
+          }
+        });
+
+        assert.equal(session.payload.canAccessMobile, true);
+        assert.equal(session.payload.subscription.status, "active");
+        assert.equal(session.payload.tenant.status, "active");
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - PAYMENT_PROVIDER=test aprueba y activa sin llamar Mercado Pago");
+}
+
 async function testWebhookApprovedIsIdempotent() {
   await withPaymentEnv(
     {
@@ -584,6 +623,7 @@ function testCredentialValidation() {
     assert.equal(payments.detectMercadoPagoEnvironment("TEST-token", ""), "sandbox");
     assert.equal(payments.detectMercadoPagoEnvironment("APP_USR-token", ""), "production");
     assert.equal(payments.detectMercadoPagoEnvironment("APP_USR-token", "sandbox"), "sandbox");
+    assert.equal(payments.getPaymentProviderName("card"), "manual");
 
     assert.doesNotThrow(() =>
       payments.validateMercadoPagoCredentials("TEST-token-secreto", "TEST-public-secreto", "sandbox")
@@ -653,6 +693,7 @@ async function main() {
   await testMissingCheckoutUrlFailsSafely();
   await testMissingExplicitEnvironmentFailsSafely();
   await testPaymentStatusesDoNotActivateUnlessApproved();
+  await testPaymentProviderTestActivatesWithoutMercadoPago();
   await testWebhookApprovedIsIdempotent();
 }
 

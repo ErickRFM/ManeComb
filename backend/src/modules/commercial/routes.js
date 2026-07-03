@@ -258,13 +258,17 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
       checkoutUrl: checkout.checkoutUrl,
       paymentProviderReference: checkout.paymentProviderReference,
       paymentExternalReference: checkout.paymentExternalReference,
-      paymentStatus: checkout.paymentStatus
+      paymentStatus: checkout.paymentStatus,
+      paymentApprovedAt: checkout.approvedAt
     });
 
-    if (checkout.paymentStatus === "trial_active") {
+    if (checkout.paymentStatus === "trial_active" || checkout.paymentStatus === "paid_test") {
       orderWithCheckout = await req.app.locals.store.updateCommercialOrder(
         order.id,
-        buildCommercialActivationUpdate(orderWithCheckout, "trial")
+        buildCommercialActivationUpdate(
+          orderWithCheckout,
+          checkout.paymentStatus === "trial_active" ? "trial" : "active"
+        )
       );
     }
 

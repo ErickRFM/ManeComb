@@ -157,6 +157,10 @@ export async function getCommercialPlansRequest() {
   return Array.isArray(plans) ? plans : [];
 }
 
+export async function getRuntimeHealthRequest() {
+  return await unwrapData<any>(apiClient.get('/health'));
+}
+
 export async function createCommercialCheckoutRequest(payload: any) {
   return await unwrapData<any>(apiClient.post('/commercial/checkout', payload));
 }
