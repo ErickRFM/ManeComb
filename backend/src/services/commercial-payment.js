@@ -301,10 +301,14 @@ async function createMercadoPagoPreference(order) {
           unit_price: Number(order.totalPrice)
         }
       ],
-      payer: {
-        email: order.email,
-        name: order.contactName
-      },
+      ...(environment === "production"
+        ? {
+            payer: {
+              email: order.email,
+              name: order.contactName
+            }
+          }
+        : {}),
       back_urls: {
         success: MERCADO_PAGO_SUCCESS_URL,
         failure: MERCADO_PAGO_FAILURE_URL,

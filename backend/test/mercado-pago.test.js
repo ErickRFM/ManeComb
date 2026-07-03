@@ -311,6 +311,7 @@ async function testCheckoutUrlsByEnvironment() {
           "https://sandbox.mercadopago.com.mx/checkout/v1/redirect?pref_id=sandbox"
         );
         assert.equal(mp.preferencePayload.metadata.order_id, mp.preferencePayload.external_reference);
+        assert.equal(Object.prototype.hasOwnProperty.call(mp.preferencePayload, "payer"), false);
       } finally {
         mp.restore();
         await context.close();
@@ -336,6 +337,10 @@ async function testCheckoutUrlsByEnvironment() {
           checkout.payload.data.checkoutUrl,
           "https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=prod"
         );
+        assert.deepEqual(mp.preferencePayload.payer, {
+          email: owner.email,
+          name: "MP Owner"
+        });
       } finally {
         mp.restore();
         await context.close();
