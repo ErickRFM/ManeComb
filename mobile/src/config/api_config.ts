@@ -148,9 +148,17 @@ export function isDevRuntime() {
 }
 
 export function mobileLog(scope: string, message: string, details?: unknown) {
-  const ignored = Boolean(scope || message || details);
-
-  if (ignored) {
+  if (!isDevRuntime()) {
     return;
   }
+
+  const timestamp = new Date().toISOString();
+  const prefix = `[mobile:${scope}] ${timestamp} ${message}`;
+
+  if (typeof details === 'undefined') {
+    console.info(prefix);
+    return;
+  }
+
+  console.info(prefix, details);
 }

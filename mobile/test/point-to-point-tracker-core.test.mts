@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { distanceInMeters, evaluateTrackerTransition } from '../src/hooks/point-to-point-tracker-core.ts';
+import {
+  distanceInMeters,
+  evaluateTrackerTransition,
+  projectPointOnRoute,
+} from '../src/hooks/point-to-point-tracker-core.ts';
 
 const origin = {
   latitude: 19.415,
@@ -81,6 +85,57 @@ function testFinishTransitionWithoutDuplicates() {
   console.log('ok - el tracker cierra una sola vez al entrar al punto final');
 }
 
+function testProjectPointOnRouteProgress() {
+  const projection = projectPointOnRoute({
+    point: {
+      latitude: 19.0005,
+      longitude: -99,
+    },
+    polyline: [
+      {
+        latitude: 19,
+        longitude: -99,
+      },
+      {
+        latitude: 19.001,
+        longitude: -99,
+      },
+    ],
+  });
+
+  assert.ok(projection);
+  assert.ok(projection.progressPercent >= 45 && projection.progressPercent <= 55);
+  assert.ok(projection.distanceFromRoute < 5);
+  assert.equal(projection.isOffRoute, false);
+  console.log('ok - snap-to-route calcula progreso sobre la geometria');
+}
+
+function testProjectPointOnRouteDeviation() {
+  const projection = projectPointOnRoute({
+    point: {
+      latitude: 19.0005,
+      longitude: -98.9985,
+    },
+    polyline: [
+      {
+        latitude: 19,
+        longitude: -99,
+      },
+      {
+        latitude: 19.001,
+        longitude: -99,
+      },
+    ],
+  });
+
+  assert.ok(projection);
+  assert.ok(projection.distanceFromRoute > 50);
+  assert.equal(projection.isOffRoute, true);
+  console.log('ok - snap-to-route detecta desviacion de la ruta');
+}
+
 testDistanceInMeters();
 testStartTransition();
 testFinishTransitionWithoutDuplicates();
+testProjectPointOnRouteProgress();
+testProjectPointOnRouteDeviation();

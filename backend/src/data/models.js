@@ -198,10 +198,12 @@ const vehicleSchema = new mongoose.Schema(
     capacity: { type: Number, required: true },
     etaMinutes: { type: Number, default: null },
     delayMinutes: { type: Number, default: 0 },
+    heading: { type: Number, default: null },
     speed: { type: Number, default: 0 },
     fuel: { type: Number, default: 0 },
     updatedAt: { type: Date, default: Date.now },
     location: { type: pointSchema, required: true },
+    locationTimestamp: { type: Date, default: null },
     assignedRoute: { type: assignedRouteSchema, default: null }
   },
   {

@@ -259,7 +259,7 @@ function registerSocketServer(server, store) {
       }
     });
 
-    socket.on("location:update", async ({ vehicleId, coordinates, speed }) => {
+    socket.on("location:update", async ({ vehicleId, coordinates, heading, speed, timestamp }) => {
       const authenticatedUser = socket.data.user || null;
       const vehicle = vehicleId ? await store.getVehicleById(vehicleId) : null;
       const latitude = Number(coordinates?.latitude);
@@ -284,6 +284,8 @@ function registerSocketServer(server, store) {
       const update = await store.updateVehicleLocation({
         vehicleId,
         coordinates: { latitude, longitude },
+        heading: Number.isFinite(Number(heading)) ? Number(heading) : undefined,
+        timestamp,
         speed: Number.isFinite(Number(speed)) ? Number(speed) : 0
       });
 

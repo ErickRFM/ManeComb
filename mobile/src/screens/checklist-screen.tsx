@@ -8,13 +8,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
+import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest } from '@/src/api/client';
@@ -22,7 +22,6 @@ import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
-import { getLocationStatus } from '@/src/utils/location-status';
 import type {
   FleetControlLog,
   GeoPoint,
@@ -38,6 +37,7 @@ type FilterMode = 'all' | 'active' | 'routes' | 'completed';
 type OperationalStatus = 'available' | 'active' | 'completed' | 'delayed';
 type PointRole = 'origin' | 'destination';
 type MapPointRole = PointRole | 'stop';
+type RouteUiState = 'empty' | 'editing' | 'ready' | 'navigation' | 'paused' | 'finalized';
 type OperationalRecord = {
   id: string;
   vehicleId: string;
@@ -51,6 +51,15 @@ type OperationalRecord = {
   status: OperationalStatus;
   vehicle: Vehicle;
 };
+type FinalizedRouteSummary = {
+  distanceLabel: string;
+  durationLabel: string;
+  finishedAt: string;
+  originLabel: string;
+  destinationLabel: string;
+  stopCount: number;
+  vehicleId: string;
+} | null;
 
 const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
 
@@ -165,15 +174,6 @@ function getStatusColor(theme: ReturnType<typeof useAppTheme>['theme'], status: 
   return theme.colors.muted;
 }
 
-function buildCurrentLocationPoint(coordinates: GeoPoint): NavigationPlaceResult {
-  return {
-    id: `gps-${Date.now()}`,
-    label: 'Ubicacion actual',
-    address: 'GPS del dispositivo',
-    location: coordinates,
-  };
-}
-
 function parseRoutePolylineParam(value?: string): GeoPoint[] {
   if (!value) {
     return [];
@@ -231,6 +231,44 @@ function getPointSignature(point: GeoPoint | null | undefined) {
   }
 
   return `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`;
+}
+
+function looksLikeCoordinates(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  return /^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(value.trim());
+}
+
+function getPlaceLabel(place: NavigationPlaceResult | null | undefined, fallback: string) {
+  const label = place?.label?.trim();
+  const address = place?.address?.trim();
+
+  if (label && !looksLikeCoordinates(label)) {
+    return label;
+  }
+
+  if (address && !looksLikeCoordinates(address)) {
+    return address;
+  }
+
+  return fallback;
+}
+
+function getSafeLabel(value: string | null | undefined, fallback: string) {
+  const label = value?.trim();
+  return label && !looksLikeCoordinates(label) ? label : fallback;
+}
+
+function getStopLabel(stop: NavigationStop, index: number) {
+  const address = stop.address?.trim();
+
+  if (address && !looksLikeCoordinates(address)) {
+    return address;
+  }
+
+  return `Parada ${index + 1}`;
 }
 
 function getStopsSignature(stops: NavigationStop[] | null | undefined) {
@@ -316,10 +354,11 @@ function buildRouteStops(
   }[] = [];
 
   if (origin) {
+    const label = getPlaceLabel(origin, 'Punto inicial');
     routeStops.push({
       id: 'origin',
-      label: origin.label,
-      address: origin.address,
+      label,
+      address: label,
       location: origin.location,
       type: 'origin',
     });
@@ -327,12 +366,13 @@ function buildRouteStops(
 
   routeStopEntries.forEach((stop, index) => {
     const location = { latitude: stop.latitude, longitude: stop.longitude };
+    const label = getStopLabel(stop, index);
 
     if (Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) {
       routeStops.push({
         id: stop.id,
-        label: stop.address || `Parada ${index + 1}`,
-        address: stop.address || 'Parada agregada',
+        label,
+        address: label,
         location,
         type: 'stop',
       });
@@ -340,10 +380,11 @@ function buildRouteStops(
   });
 
   if (destination) {
+    const label = getPlaceLabel(destination, 'Punto final');
     routeStops.push({
       id: 'destination',
-      label: destination.label,
-      address: destination.address,
+      label,
+      address: label,
       location: destination.location,
       type: 'destination',
     });
@@ -352,148 +393,101 @@ function buildRouteStops(
   return routeStops;
 }
 
-function getRouteProgressPercent(args: {
-  currentDistanceToDestination: number | null;
-  routeDistanceMeters: number;
-  trackerStatus: string;
-}) {
-  const { currentDistanceToDestination, routeDistanceMeters, trackerStatus } = args;
-
-  if (trackerStatus === 'off') {
-    return 0;
-  }
-
-  if (!currentDistanceToDestination || !routeDistanceMeters) {
-    return trackerStatus === 'in_progress' ? 35 : 0;
-  }
-
-  const progress = ((routeDistanceMeters - currentDistanceToDestination) / routeDistanceMeters) * 100;
-  return Math.max(0, Math.min(100, Math.round(progress)));
-}
-
-function ChecklistMetric({
-  icon,
-  label,
-  tone,
-  value,
-}: {
-  icon: string;
-  label: string;
-  tone: 'info' | 'positive' | 'warning';
-  value: number;
-}) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, false, false), [theme]);
-  const color =
-    tone === 'positive'
-      ? theme.colors.success
-      : tone === 'warning'
-        ? theme.colors.warning
-        : theme.colors.info;
-
-  return (
-    <View style={styles.metricCard}>
-      <View style={[styles.metricIcon, { backgroundColor: `${color}18` }]}>
-        <MaterialCommunityIcons name={icon as any} size={20} color={color} />
-      </View>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function RoutePreview({
+  onPress,
   points,
   route,
   vehicle,
 }: {
+  onPress?: () => void;
   points: ReturnType<typeof buildRouteStops>;
   route: NavigationRouteOption | null;
   vehicle: Vehicle | null;
 }) {
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
-  const sourcePoints =
-    route?.polyline?.length
-      ? route.polyline
-      : points.map((point) => point.location);
+  const mapRef = useRef<AppMapRef>(null);
+  const sourcePoints = useMemo(
+    () =>
+      route?.polyline?.length
+        ? route.polyline
+        : points.map((point) => point.location),
+    [points, route]
+  );
+  const fallbackPoint = useMemo(
+    () =>
+      vehicle?.location || points[0]?.location || {
+        latitude: 19.4326,
+        longitude: -99.1332,
+      },
+    [points, vehicle?.location]
+  );
+  const mapPoints = useMemo(
+    () => (sourcePoints.length ? sourcePoints : [fallbackPoint]),
+    [fallbackPoint, sourcePoints]
+  );
+  const initialRegion = useMemo(
+    () => ({
+      ...fallbackPoint,
+      latitudeDelta: sourcePoints.length ? 0.04 : 0.025,
+      longitudeDelta: sourcePoints.length ? 0.04 : 0.025,
+    }),
+    [fallbackPoint, sourcePoints.length]
+  );
 
-  const allPoints = [...sourcePoints, ...(vehicle ? [vehicle.location] : [])];
-  const latitudes = allPoints.map((point) => point.latitude);
-  const longitudes = allPoints.map((point) => point.longitude);
-  const minLatitude = Math.min(...latitudes, 0);
-  const maxLatitude = Math.max(...latitudes, 1);
-  const minLongitude = Math.min(...longitudes, 0);
-  const maxLongitude = Math.max(...longitudes, 1);
-  const latitudeSpan = Math.max(0.0001, maxLatitude - minLatitude);
-  const longitudeSpan = Math.max(0.0001, maxLongitude - minLongitude);
-
-  const toCanvasPoint = (point: GeoPoint) => ({
-    x: 10 + ((point.longitude - minLongitude) / longitudeSpan) * 80,
-    y: 88 - ((point.latitude - minLatitude) / latitudeSpan) * 76,
-  });
-
-  const canvasPoints = sourcePoints.map(toCanvasPoint);
+  useEffect(() => {
+    if (mapPoints.length) {
+      mapRef.current?.fitToCoordinates(mapPoints, {
+        animated: false,
+        edgePadding: { top: 28, right: 28, bottom: 28, left: 28 },
+      });
+    }
+  }, [mapPoints]);
 
   return (
     <View style={styles.routePreview}>
-      <View style={styles.routeGridLineOne} />
-      <View style={styles.routeGridLineTwo} />
-      {canvasPoints.slice(0, -1).map((point, index) => {
-        const next = canvasPoints[index + 1];
-        const deltaX = next.x - point.x;
-        const deltaY = next.y - point.y;
-        const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-        const angle = `${Math.atan2(deltaY, deltaX)}rad`;
-
-        return (
-          <View
-            key={`segment-${index}`}
-            style={[
-              styles.routeSegment,
-              {
-                left: `${point.x}%` as any,
-                top: `${point.y}%` as any,
-                width: `${length}%` as any,
-                transform: [{ rotate: angle }],
-              },
-            ]}
+      <AppMap
+        ref={mapRef}
+        compassEnabled={false}
+        initialRegion={initialRegion}
+        onPress={() => onPress?.()}
+        scaleEnabled={false}
+        style={StyleSheet.absoluteFill}
+        themeMode={theme.mode}>
+        {sourcePoints.length >= 2 ? (
+          <AppMapPolyline
+            id="route-preview"
+            coordinates={sourcePoints}
+            strokeColor={theme.colors.info}
+            strokeWidth={4}
           />
-        );
-      })}
+        ) : null}
+        {points.map((point, index) => {
+          const isDestination = point.type === 'destination';
+          const isOrigin = point.type === 'origin';
 
-      {points.map((point, index) => {
-        const canvasPoint = toCanvasPoint(point.location);
-        const isDestination = point.type === 'destination';
-        const isOrigin = point.type === 'origin';
-
-        return (
-          <View
-            key={point.id}
-            style={[
-              styles.routeMarker,
-              isDestination ? styles.routeMarkerDestination : undefined,
-              {
-                left: `${canvasPoint.x}%` as any,
-                top: `${canvasPoint.y}%` as any,
-              },
-            ]}>
-            <Text style={styles.routeMarkerText}>{isOrigin ? 'S' : isDestination ? 'F' : index}</Text>
-          </View>
-        );
-      })}
-
-      {vehicle ? (
-        <View
-          style={[
-            styles.vehicleMarker,
-            {
-              left: `${toCanvasPoint(vehicle.location).x}%` as any,
-              top: `${toCanvasPoint(vehicle.location).y}%` as any,
-            },
-          ]}>
-          <MaterialCommunityIcons name="bus" size={18} color={theme.colors.text} />
-        </View>
+          return (
+            <AppMapMarker key={point.id} id={`preview-${point.id}`} coordinate={point.location}>
+              <View style={[styles.miniMapMarker, isDestination ? styles.miniMapMarkerDestination : undefined]}>
+                <Text style={styles.miniMapMarkerText}>{isOrigin ? 'S' : isDestination ? 'F' : index}</Text>
+              </View>
+            </AppMapMarker>
+          );
+        })}
+        {vehicle ? (
+          <AppMapMarker id="preview-vehicle" coordinate={vehicle.location}>
+            <View style={styles.miniMapVehicleMarker}>
+              <MaterialCommunityIcons name="bus" size={15} color={theme.colors.text} />
+            </View>
+          </AppMapMarker>
+        ) : null}
+      </AppMap>
+      {!points.length ? (
+        <Pressable style={styles.routePreviewEmpty} onPress={onPress}>
+          <MaterialCommunityIcons name="map-search-outline" size={28} color={theme.colors.muted} />
+          <Text style={styles.routePreviewEmptyTitle}>Selecciona origen y destino</Text>
+          <Text style={styles.routePreviewEmptyText}>Toca el mapa para elegir o buscar un punto.</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -527,111 +521,36 @@ function createStyles(
       fontWeight: '900',
       lineHeight: isPhone ? 38 : 42,
     },
-    subtitle: {
-      color: theme.colors.muted,
-      fontSize: 15,
-      lineHeight: 22,
-      maxWidth: 680,
-    },
-    metricsRow: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    metricCard: {
-      flex: 1,
-      minHeight: 112,
-      borderRadius: 18,
+    filterFrame: {
+      minHeight: 62,
+      borderRadius: 28,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      padding: 14,
-      justifyContent: 'space-between',
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 6,
+      gap: 6,
     },
-    metricIcon: {
-      width: 36,
-      height: 36,
-      borderRadius: 12,
+    filterSegment: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
+      paddingHorizontal: 10,
     },
-    metricValue: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: 26,
-      fontWeight: '900',
-      lineHeight: 30,
-    },
-    metricLabel: {
-      color: theme.colors.muted,
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    controls: {
-      gap: 12,
-    },
-    searchRow: {
-      flexDirection: 'row',
-      gap: 10,
-      alignItems: 'center',
-    },
-    searchBar: {
-      flex: 1,
-      minHeight: 54,
-      borderRadius: 16,
+    filterSegmentActive: {
       borderWidth: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 14,
-      gap: 10,
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.line,
-    },
-    searchInput: {
-      flex: 1,
-      color: theme.colors.text,
-      fontSize: 15,
-      fontWeight: '700',
-      paddingVertical: 0,
-    },
-    filterIconButton: {
-      width: 54,
-      height: 54,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surface,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    filterScroll: {
-      flexGrow: 0,
-    },
-    filterRow: {
-      flexDirection: 'row',
-      gap: 8,
-      paddingRight: 4,
-    },
-    filterChip: {
-      minHeight: 42,
-      minWidth: 104,
-      paddingHorizontal: 14,
-      borderRadius: 15,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surface,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    filterChipActive: {
       borderColor: theme.colors.accent,
       backgroundColor: theme.colors.accentSoft,
     },
-    filterChipText: {
+    filterSegmentText: {
       color: theme.colors.muted,
-      fontSize: 13,
-      fontWeight: '800',
+      fontSize: 14,
+      fontWeight: '900',
     },
-    filterChipTextActive: {
+    filterSegmentTextActive: {
       color: theme.colors.accent,
     },
     section: {
@@ -659,86 +578,6 @@ function createStyles(
     sectionLink: {
       color: theme.colors.muted,
       fontSize: 13,
-      fontWeight: '800',
-    },
-    quickList: {
-      gap: 12,
-      paddingRight: 6,
-    },
-    unitCard: {
-      width: isPhone ? 142 : 154,
-      minHeight: 172,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surface,
-      padding: 14,
-      gap: 10,
-      justifyContent: 'space-between',
-    },
-    unitTop: {
-      gap: 8,
-    },
-    unitIconRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 8,
-    },
-    unitIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: theme.colors.surfaceAlt,
-    },
-    availabilityRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    statusDot: {
-      width: 9,
-      height: 9,
-      borderRadius: 999,
-    },
-    unitCode: {
-      color: theme.colors.text,
-      fontSize: 16,
-      fontWeight: '900',
-    },
-    unitStatus: {
-      color: theme.colors.muted,
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    unitPrimaryButton: {
-      minHeight: 38,
-      borderRadius: 12,
-      backgroundColor: theme.colors.accent,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: 12,
-    },
-    unitPrimaryText: {
-      color: '#FFFFFF',
-      fontSize: 13,
-      fontWeight: '900',
-    },
-    unitSecondaryButton: {
-      minHeight: 36,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: 10,
-      backgroundColor: theme.colors.surfaceAlt,
-    },
-    unitSecondaryText: {
-      color: theme.colors.text,
-      fontSize: 12,
       fontWeight: '800',
     },
     recordsList: {
@@ -905,6 +744,10 @@ function createStyles(
     modalScroll: {
       flexGrow: 0,
     },
+    modalScrollContent: {
+      gap: 12,
+      paddingBottom: 8,
+    },
     routePreview: {
       height: 230,
       borderRadius: 22,
@@ -913,35 +756,9 @@ function createStyles(
       borderWidth: 1,
       borderColor: theme.colors.line,
     },
-    routeGridLineOne: {
-      position: 'absolute',
-      top: 52,
-      left: 0,
-      right: 0,
-      height: 1,
-      backgroundColor: theme.mode === 'light' ? '#E4EAF2' : 'rgba(255,255,255,0.08)',
-    },
-    routeGridLineTwo: {
-      position: 'absolute',
-      top: 146,
-      left: 0,
-      right: 0,
-      height: 1,
-      backgroundColor: theme.mode === 'light' ? '#E4EAF2' : 'rgba(255,255,255,0.08)',
-    },
-    routeSegment: {
-      position: 'absolute',
-      height: 5,
-      borderRadius: 999,
-      backgroundColor: theme.colors.info,
-      transformOrigin: 'left center' as any,
-    },
-    routeMarker: {
-      position: 'absolute',
-      width: 30,
-      height: 30,
-      marginLeft: -15,
-      marginTop: -15,
+    miniMapMarker: {
+      width: 28,
+      height: 28,
       borderRadius: 999,
       backgroundColor: theme.colors.info,
       borderWidth: 2,
@@ -949,26 +766,44 @@ function createStyles(
       alignItems: 'center',
       justifyContent: 'center',
     },
-    routeMarkerDestination: {
+    miniMapMarkerDestination: {
       backgroundColor: theme.colors.accent,
     },
-    routeMarkerText: {
+    miniMapMarkerText: {
       color: '#FFFFFF',
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '900',
     },
-    vehicleMarker: {
-      position: 'absolute',
-      width: 42,
-      height: 42,
-      marginLeft: -21,
-      marginTop: -21,
-      borderRadius: 15,
+    miniMapVehicleMarker: {
+      width: 34,
+      height: 34,
+      borderRadius: 13,
       backgroundColor: theme.colors.surface,
       borderWidth: 1,
       borderColor: theme.colors.line,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    routePreviewEmpty: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 28,
+      gap: 6,
+      backgroundColor: theme.mode === 'light' ? 'rgba(242,246,251,0.82)' : 'rgba(16,26,39,0.82)',
+    },
+    routePreviewEmptyTitle: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    routePreviewEmptyText: {
+      color: theme.colors.muted,
+      fontSize: 12,
+      lineHeight: 17,
+      textAlign: 'center',
     },
     routeSummary: {
       flexDirection: 'row',
@@ -1028,6 +863,24 @@ function createStyles(
       borderRadius: 999,
       backgroundColor: theme.colors.info,
     },
+    routeAlert: {
+      minHeight: 42,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.danger,
+      backgroundColor: theme.colors.dangerSoft,
+      paddingHorizontal: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    routeAlertText: {
+      flex: 1,
+      color: theme.colors.danger,
+      fontSize: 12,
+      fontWeight: '800',
+      lineHeight: 17,
+    },
     configCard: {
       borderRadius: 20,
       borderWidth: 1,
@@ -1058,79 +911,36 @@ function createStyles(
       letterSpacing: 0.8,
       textTransform: 'uppercase',
     },
-    pointInputRow: {
-      flexDirection: 'row',
-      gap: 8,
-      alignItems: 'center',
+    routeEndpoints: {
+      gap: 6,
     },
-    pointInput: {
+    endpointText: {
+      color: theme.colors.text,
+      fontSize: 15,
+      fontWeight: '900',
+      lineHeight: 20,
+    },
+    routeActionRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    secondaryWide: {
       flex: 1,
-      minHeight: 46,
-      borderRadius: 14,
+      minHeight: 48,
+      borderRadius: 15,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 12,
-      color: theme.colors.text,
-      fontSize: 14,
-      fontWeight: '700',
-    },
-    iconSquare: {
-      width: 46,
-      height: 46,
-      borderRadius: 14,
-      backgroundColor: theme.colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    pointResult: {
-      minHeight: 44,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      gap: 2,
-    },
-    resultTitle: {
-      color: theme.colors.text,
-      fontSize: 13,
-      fontWeight: '900',
-    },
-    resultAddress: {
-      color: theme.colors.muted,
-      fontSize: 12,
-      lineHeight: 17,
-    },
-    utilityRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
       gap: 8,
-    },
-    utilityButton: {
-      minHeight: 38,
-      borderRadius: 13,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
       paddingHorizontal: 12,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 7,
     },
-    utilityText: {
+    secondaryWideText: {
       color: theme.colors.text,
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    stopsCard: {
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surface,
-      padding: 14,
-      gap: 12,
+      fontSize: 14,
+      fontWeight: '900',
     },
     stopRow: {
       flexDirection: 'row',
@@ -1147,6 +957,14 @@ function createStyles(
     },
     stopNumberDestination: {
       backgroundColor: theme.colors.accent,
+    },
+    waypointNumber: {
+      width: 28,
+      height: 28,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.warning,
     },
     stopNumberText: {
       color: '#FFFFFF',
@@ -1165,6 +983,30 @@ function createStyles(
       justifyContent: 'center',
       backgroundColor: theme.colors.dangerSoft,
     },
+    stopMoveGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    stopMoveButton: {
+      width: 28,
+      height: 28,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+    },
+    stopMoveButtonDisabled: {
+      opacity: 0.36,
+    },
+    compactStopsList: {
+      gap: 10,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.line,
+      paddingTop: 10,
+    },
     stopTitle: {
       color: theme.colors.text,
       fontSize: 14,
@@ -1180,7 +1022,20 @@ function createStyles(
       fontSize: 12,
       lineHeight: 18,
     },
+    unitRouteCard: {
+      minHeight: 54,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      padding: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
     primaryWide: {
+      flex: 1,
       minHeight: 48,
       borderRadius: 15,
       backgroundColor: theme.colors.accent,
@@ -1201,14 +1056,7 @@ export function ChecklistScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1120;
   const isPhone = width < 640;
-  const {
-    coordinates,
-    issue: locationIssue,
-    loading: locationLoading,
-    permission,
-    refresh,
-    servicesEnabled,
-  } = useUserLocation();
+  const { coordinates } = useUserLocation();
   const { mapData, refreshAll, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
@@ -1217,11 +1065,11 @@ export function ChecklistScreen() {
     }))
   );
   const [manualLogs, setManualLogs] = useState<FleetControlLog[]>([]);
-  const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
+  const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
@@ -1234,18 +1082,6 @@ export function ChecklistScreen() {
     user?.vehicleId && selectedVehicle?.id === user.vehicleId && coordinates
       ? coordinates
       : selectedVehicle?.location || coordinates || null;
-  const locationStatus = useMemo(
-    () =>
-      getLocationStatus({
-        coordinatesReady: Boolean(coordinates),
-        issue: locationIssue,
-        loading: locationLoading,
-        permission,
-        servicesEnabled,
-      }),
-    [coordinates, locationIssue, locationLoading, permission, servicesEnabled]
-  );
-
   const tracker = usePointToPointTracker({
     searchAnchor: selectedVehicle?.location || coordinates || null,
     selectedVehicle,
@@ -1254,6 +1090,7 @@ export function ChecklistScreen() {
   const trackerRef = useRef(tracker);
   const syncedVehicleRouteRef = useRef<string | null>(null);
   const pendingStopPersistRef = useRef(false);
+  const processedMapSelectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     trackerRef.current = tracker;
@@ -1314,78 +1151,103 @@ export function ChecklistScreen() {
     selectedVehicle?.assignedRoute &&
     activeRouteSignature === savedRouteSignature
   );
-  const routeProgress = getRouteProgressPercent({
-    currentDistanceToDestination: tracker.currentDistanceToDestination,
-    routeDistanceMeters,
-    trackerStatus: tracker.trackerStatus,
-  });
-  const visitedStops = routeProgress >= 100 ? routeStops.length : Math.floor((routeProgress / 100) * routeStops.length);
+  const routeProgress = tracker.routeProgress?.progressPercent || 0;
+  const waypointCount = tracker.pointStops.length;
+  const isRoutePaused = tracker.trackerStatus === 'paused';
+  const isRouteOffRoute = tracker.trackerStatus === 'off_route' || Boolean(tracker.routeProgress?.isOffRoute);
+  const isRouteRunning =
+    tracker.trackerStatus === 'waiting_start' ||
+    tracker.trackerStatus === 'in_progress' ||
+    tracker.trackerStatus === 'off_route';
+  const hasDraftRoute = Boolean(tracker.pointSelection.origin || tracker.pointSelection.destination || tracker.pointPlan || waypointCount);
+  const routeUiState: RouteUiState = finalizedRouteSummary?.vehicleId === selectedVehicle?.id
+    ? 'finalized'
+    : isRouteRunning
+    ? 'navigation'
+    : isRoutePaused
+      ? 'paused'
+      : isCalculatedRouteSaved
+        ? 'ready'
+        : hasDraftRoute
+          ? 'editing'
+          : 'empty';
+  const routeStateLabel =
+    routeUiState === 'finalized'
+      ? 'Finalizada'
+      : isRouteOffRoute
+        ? 'Fuera de ruta'
+      : routeUiState === 'navigation'
+      ? 'Ruta activa'
+      : routeUiState === 'paused'
+        ? 'Ruta pausada'
+        : routeUiState === 'ready'
+          ? 'Ruta lista'
+          : routeUiState === 'editing'
+            ? 'Editando ruta'
+            : 'Sin ruta';
+  const progressLabel =
+    routeUiState === 'navigation' || routeUiState === 'paused'
+      ? `${routeProgress}%`
+      : routeUiState === 'ready'
+        ? 'Preparada'
+        : routeUiState === 'editing'
+          ? 'Esperando guardado'
+          : 'Pendiente';
+  const remainingDistanceLabel =
+    routeUiState === 'navigation' || routeUiState === 'paused'
+      ? formatDistance(tracker.routeProgress?.distanceRemaining || routeDistanceMeters)
+      : formatDistance(routeDistanceMeters);
+  const dynamicEtaLabel =
+    routeUiState === 'navigation' || routeUiState === 'paused'
+      ? tracker.routeProgress?.timeRemainingSeconds
+        ? formatDuration(tracker.routeProgress.timeRemainingSeconds)
+        : routeDurationSeconds
+          ? formatDuration(routeDurationSeconds)
+          : '--'
+      : routeDurationSeconds
+        ? formatDuration(routeDurationSeconds)
+        : '--';
+  const checkpointProgressLabel = tracker.routeProgress
+    ? `${tracker.routeProgress.currentCheckpointIndex} / ${tracker.routeProgress.checkpointCount}`
+    : 'Pendiente';
+  const originLabel = getPlaceLabel(tracker.pointSelection.origin, 'Punto inicial');
+  const destinationLabel = getPlaceLabel(tracker.pointSelection.destination, 'Punto final');
+  const routeHeaderSubtitle =
+    routeUiState === 'empty'
+      ? 'Sin ruta creada'
+      : routeUiState === 'finalized'
+        ? 'Resumen de la ultima ruta'
+        : `${originLabel} - ${destinationLabel}`;
 
   const records = useMemo(
     () => vehicles.map((vehicle) => buildOperationalRecord(vehicle, manualLogs)),
     [manualLogs, vehicles]
   );
-  const normalizedSearch = search.trim().toLowerCase();
   const filteredRecords = useMemo(
     () =>
       records.filter((record) => {
-        const searchable = [
-          record.vehicleCode,
-          record.driverName,
-          record.routeName,
-          record.vehicle.plate,
-        ]
-          .join(' ')
-          .toLowerCase();
-        const matchesSearch = !normalizedSearch || searchable.includes(normalizedSearch);
         const matchesFilter =
           filterMode === 'all' ||
           (filterMode === 'active' && ['active', 'delayed'].includes(record.status)) ||
           (filterMode === 'completed' && record.status === 'completed') ||
           (filterMode === 'routes' && Boolean(record.routeName || record.vehicle.assignedRoute));
 
-        return matchesSearch && matchesFilter;
+        return matchesFilter;
       }),
-    [filterMode, normalizedSearch, records]
+    [filterMode, records]
   );
-  const visibleVehicles = useMemo(
-    () =>
-      vehicles.filter((vehicle) =>
-        filteredRecords.some((record) => record.vehicleId === vehicle.id)
-      ),
-    [filteredRecords, vehicles]
-  );
-  const metrics = useMemo(
-    () => ({
-      active: records.filter((record) => ['active', 'delayed'].includes(record.status)).length,
-      completed: records.filter((record) => record.status === 'completed').length,
-      delayed: records.filter((record) => record.status === 'delayed').length,
-    }),
-    [records]
-  );
-
-  const startTrip = (vehicle: Vehicle) => {
-    const activeLog = getActiveLog(manualLogs, vehicle.id);
-
-    if (activeLog) {
-      return;
-    }
-
-    setManualLogs((current) => [
-      {
-        id: `fleet-log-${Date.now()}`,
-        vehicleId: vehicle.id,
-        vehicleCode: vehicle.code,
-        driverName: vehicle.driverName || 'Operador sin asignar',
-        departureAt: new Date().toISOString(),
-        status: vehicle.delayMinutes > 0 ? 'delayed' : 'active',
-      },
-      ...current,
-    ]);
-  };
 
   const finishTrip = async (vehicle: Vehicle) => {
     const activeLog = getActiveLog(manualLogs, vehicle.id);
+    const summary: NonNullable<FinalizedRouteSummary> = {
+      destinationLabel,
+      distanceLabel: formatDistance(routeDistanceMeters),
+      durationLabel: routeDurationSeconds ? formatDuration(routeDurationSeconds) : '--',
+      finishedAt: new Date().toISOString(),
+      originLabel,
+      stopCount: waypointCount,
+      vehicleId: vehicle.id,
+    };
 
     if (activeLog) {
       setManualLogs((current) =>
@@ -1413,6 +1275,7 @@ export function ChecklistScreen() {
     if (!vehicle.assignedRoute) {
       if (selectedVehicle?.id === vehicle.id) {
         tracker.resetPointToPointSession();
+        setFinalizedRouteSummary(summary);
       }
       return;
     }
@@ -1424,6 +1287,7 @@ export function ChecklistScreen() {
       if (selectedVehicle?.id === vehicle.id) {
         syncedVehicleRouteRef.current = `${vehicle.id}:empty`;
         tracker.resetPointToPointSession();
+        setFinalizedRouteSummary(summary);
       }
     } catch {
       tracker.setPointMessage('No fue posible limpiar la ruta asignada.');
@@ -1432,10 +1296,41 @@ export function ChecklistScreen() {
 
   const openRouteModal = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
+    if (finalizedRouteSummary?.vehicleId !== vehicle.id) {
+      setFinalizedRouteSummary(null);
+    }
     setRouteModalOpen(true);
   };
 
+  const closeRouteModal = () => {
+    const trackerState = trackerRef.current;
+    const hasSavedRoute = Boolean(selectedVehicle?.assignedRoute);
+    const hasActiveTracking = trackerState.trackerStatus !== 'off';
+
+    if (!hasSavedRoute && !hasActiveTracking) {
+      trackerState.resetPointToPointSession();
+      syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
+    }
+
+    setRouteModalOpen(false);
+  };
+
+  const cancelRouteDraft = () => {
+    const trackerState = trackerRef.current;
+
+    if (trackerState.trackerStatus !== 'off' || isCalculatedRouteSaved) {
+      return;
+    }
+
+    pendingStopPersistRef.current = false;
+    setFinalizedRouteSummary(null);
+    trackerState.resetPointToPointSession();
+    syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
+  };
+
   function openMapForVehicle(vehicle: Vehicle, point: MapPointRole) {
+    processedMapSelectionRef.current = null;
+    setFinalizedRouteSummary(null);
     const routeParams: Record<string, string> = {
       vehicleId: vehicle.id,
       follow: 'true',
@@ -1467,16 +1362,10 @@ export function ChecklistScreen() {
     });
   }
 
-  const handleUseCurrentLocation = (role: PointRole) => {
-    if (!coordinates) {
-      tracker.setPointMessage(
-        locationStatus.message ||
-          'GPS no disponible. Puedes usar la unidad seleccionada o actualizar ubicacion.'
-      );
-      return;
-    }
-
-    tracker.selectPoint(role, buildCurrentLocationPoint(coordinates));
+  const handleRemoveRouteStop = (stopId: string) => {
+    pendingStopPersistRef.current = true;
+    setFinalizedRouteSummary(null);
+    tracker.removeStop(stopId);
   };
 
   const saveAssignedRoute = useCallback(async () => {
@@ -1496,6 +1385,7 @@ export function ChecklistScreen() {
     }
 
     setIsSavingAssignedRoute(true);
+    setFinalizedRouteSummary(null);
 
     try {
       await assignVehicleRouteRequest({
@@ -1519,6 +1409,7 @@ export function ChecklistScreen() {
   }, [isCalculatedRouteSaved, refreshAll, selectedVehicle?.id]);
 
   const navParams = useLocalSearchParams<{
+    vehicleId?: string;
     originLatitude?: string;
     originLongitude?: string;
     originAddress?: string;
@@ -1546,6 +1437,30 @@ export function ChecklistScreen() {
 
   // Handle return values from MapScreen: create NavigationPlaceResult and delegate to tracker
   useEffect(() => {
+    if (!routeModalOpen || !selectedVehicle) {
+      return;
+    }
+
+    if (navParams.vehicleId && navParams.vehicleId !== selectedVehicle.id) {
+      return;
+    }
+
+    const incomingSelectionKey = [
+      navParams.vehicleId || selectedVehicle.id,
+      navParams.originLatitude,
+      navParams.originLongitude,
+      navParams.destinationLatitude,
+      navParams.destinationLongitude,
+      navParams.routeDistanceMeters,
+      navParams.routeDurationInTrafficSeconds,
+      navParams.routePolyline,
+      navParams.stops,
+    ].join('|');
+
+    if (processedMapSelectionRef.current === incomingSelectionKey) {
+      return;
+    }
+
     let nextOrigin: NavigationPlaceResult | null = null;
     let nextDestination: NavigationPlaceResult | null = null;
 
@@ -1554,10 +1469,11 @@ export function ChecklistScreen() {
       const oLon = navParams.originLongitude ? Number(navParams.originLongitude) : NaN;
 
       if (Number.isFinite(oLat) && Number.isFinite(oLon)) {
+        const label = getSafeLabel(navParams.originLabel || navParams.originAddress, 'Punto inicial');
         nextOrigin = {
           id: `map-origin-${oLat}-${oLon}`,
-          label: navParams.originLabel || navParams.originAddress || 'Punto seleccionado',
-          address: navParams.originAddress || '',
+          label,
+          address: getSafeLabel(navParams.originAddress || label, label),
           location: { latitude: oLat, longitude: oLon },
         };
       }
@@ -1570,10 +1486,11 @@ export function ChecklistScreen() {
       const dLon = navParams.destinationLongitude ? Number(navParams.destinationLongitude) : NaN;
 
       if (Number.isFinite(dLat) && Number.isFinite(dLon)) {
+        const label = getSafeLabel(navParams.destinationLabel || navParams.destinationAddress, 'Punto final');
         nextDestination = {
           id: `map-destination-${dLat}-${dLon}`,
-          label: navParams.destinationLabel || navParams.destinationAddress || 'Punto seleccionado',
-          address: navParams.destinationAddress || '',
+          label,
+          address: getSafeLabel(navParams.destinationAddress || label, label),
           location: { latitude: dLat, longitude: dLon },
         };
       }
@@ -1625,21 +1542,27 @@ export function ChecklistScreen() {
         if (!sameStops) {
           pendingStopPersistRef.current = true;
         }
+        setFinalizedRouteSummary(null);
         applyPointToPointSelection(nextOrigin, nextDestination, plan, nextStops);
       }
 
+      processedMapSelectionRef.current = incomingSelectionKey;
       return;
     }
 
     if (nextOrigin && (originLatCurrent !== nextOrigin.location.latitude || originLonCurrent !== nextOrigin.location.longitude)) {
+      setFinalizedRouteSummary(null);
       selectPoint('origin', nextOrigin);
+      processedMapSelectionRef.current = incomingSelectionKey;
     }
 
     if (
       nextDestination &&
       (destLatCurrent !== nextDestination.location.latitude || destLonCurrent !== nextDestination.location.longitude)
     ) {
+      setFinalizedRouteSummary(null);
       selectPoint('destination', nextDestination);
+      processedMapSelectionRef.current = incomingSelectionKey;
     }
 
     if (tracker.pointSelection.origin && tracker.pointSelection.destination && !hasPointPlan) {
@@ -1649,6 +1572,7 @@ export function ChecklistScreen() {
     // navigation inputs
     navParams.originLatitude,
     navParams.originLongitude,
+    navParams.vehicleId,
     navParams.originAddress,
     navParams.originLabel,
     navParams.destinationLatitude,
@@ -1662,6 +1586,8 @@ export function ChecklistScreen() {
     navParams.routeProvider,
     navParams.routeTrafficLevel,
     navParams.stops,
+    routeModalOpen,
+    selectedVehicle,
     // tracker pieces we need to compare
     originLatCurrent,
     originLonCurrent,
@@ -1701,10 +1627,39 @@ export function ChecklistScreen() {
     tracker.pointPlan,
   ]);
 
-  const handleRemoveRouteStop = (stopId: string) => {
-    pendingStopPersistRef.current = true;
-    tracker.removeStop(stopId);
-  };
+  const deleteAssignedRoute = useCallback(async () => {
+    if (!selectedVehicle?.id) {
+      return;
+    }
+
+    pendingStopPersistRef.current = false;
+    setFinalizedRouteSummary(null);
+
+    try {
+      await clearAssignedVehicleRouteRequest(selectedVehicle.id);
+      await refreshAll();
+      syncedVehicleRouteRef.current = `${selectedVehicle.id}:empty`;
+      tracker.resetPointToPointSession();
+    } catch {
+      tracker.setPointMessage('No fue posible eliminar la ruta.');
+    }
+  }, [refreshAll, selectedVehicle?.id, tracker]);
+
+  const editAssignedRoute = useCallback(async () => {
+    if (!selectedVehicle?.id) {
+      return;
+    }
+
+    setFinalizedRouteSummary(null);
+
+    try {
+      await clearAssignedVehicleRouteRequest(selectedVehicle.id);
+      await refreshAll();
+      syncedVehicleRouteRef.current = `${selectedVehicle.id}:empty`;
+    } catch {
+      tracker.setPointMessage('No fue posible desbloquear la ruta.');
+    }
+  }, [refreshAll, selectedVehicle?.id, tracker]);
 
   if (!user || !mapData) {
     return (
@@ -1718,129 +1673,32 @@ export function ChecklistScreen() {
     <AppShell
       sectionKey="checklist"
       mobileTitle="Checklist"
-      mobileSubtitle="Controla salidas, llegadas y rutas en tiempo real."
-      mobileBadges={[
-        { label: `${metrics.active} en ruta`, tone: 'info' },
-        { label: `${metrics.delayed} retrasos`, tone: metrics.delayed ? 'warning' : 'positive' },
-      ]}
       header={
         <View style={styles.header}>
           <Text style={styles.eyebrow}>SISTEMA DE CONTROL</Text>
           <Text style={styles.title}>Checklist</Text>
-          <Text style={styles.subtitle}>
-            Controla salidas, llegadas y rutas en tiempo real.
-          </Text>
         </View>
       }>
-      <View style={styles.metricsRow}>
-        <ChecklistMetric icon="route" label="En ruta" tone="info" value={metrics.active} />
-        <ChecklistMetric icon="check-circle-outline" label="Finalizados" tone="positive" value={metrics.completed} />
-        <ChecklistMetric icon="clock-alert-outline" label="Retrasos" tone="warning" value={metrics.delayed} />
+      <View style={styles.filterFrame}>
+        {[
+          { id: 'all', label: 'Historial' },
+          { id: 'active', label: 'En ruta' },
+          { id: 'routes', label: 'Rutas' },
+        ].map((option) => {
+          const isActive = filterMode === option.id;
+
+          return (
+            <Pressable
+              key={option.id}
+              onPress={() => setFilterMode(option.id as FilterMode)}
+              style={[styles.filterSegment, isActive ? styles.filterSegmentActive : undefined]}>
+              <Text style={[styles.filterSegmentText, isActive ? styles.filterSegmentTextActive : undefined]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
-
-      <AppCard style={styles.controls}>
-        <View style={styles.searchRow}>
-          <View style={styles.searchBar}>
-            <MaterialCommunityIcons name="magnify" size={22} color={theme.colors.muted} />
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar unidad, operador o ruta..."
-              placeholderTextColor={theme.colors.muted}
-              style={styles.searchInput}
-            />
-          </View>
-          <Pressable
-            onPress={() => setFilterMode((current) => (current === 'all' ? 'active' : 'all'))}
-            style={styles.filterIconButton}
-            accessibilityLabel="Alternar filtros">
-            <MaterialCommunityIcons name="filter-variant" size={24} color={theme.colors.text} />
-          </Pressable>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
-          {[
-            { id: 'all', label: 'Historial' },
-            { id: 'active', label: 'En ruta' },
-            { id: 'routes', label: 'Rutas' },
-            { id: 'completed', label: 'Finalizados' },
-          ].map((option) => {
-            const isActive = filterMode === option.id;
-
-            return (
-              <Pressable
-                key={option.id}
-                onPress={() => setFilterMode(option.id as FilterMode)}
-                style={[styles.filterChip, isActive ? styles.filterChipActive : undefined]}>
-                <Text style={[styles.filterChipText, isActive ? styles.filterChipTextActive : undefined]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </AppCard>
-
-      {filterMode !== 'completed' ? (
-        <AppCard style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleWrap}>
-              <MaterialCommunityIcons name="lightning-bolt" size={20} color={theme.colors.text} />
-              <Text style={styles.sectionTitle}>Despacho rapido</Text>
-            </View>
-            <Text style={styles.sectionLink}>{visibleVehicles.length} unidades</Text>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickList}>
-            {visibleVehicles.map((vehicle) => {
-              const record = records.find((entry) => entry.vehicleId === vehicle.id);
-              const status = record?.status || 'available';
-              const statusColor = getStatusColor(theme, status);
-              const primaryLabel =
-                status === 'available'
-                  ? 'Salida'
-                  : status === 'completed'
-                    ? 'Historial'
-                    : 'Ver ruta';
-
-              return (
-                <View key={vehicle.id} style={styles.unitCard}>
-                  <View style={styles.unitTop}>
-                    <View style={styles.unitIconRow}>
-                      <View style={styles.unitIcon}>
-                        <MaterialCommunityIcons name="bus" size={22} color={theme.colors.text} />
-                      </View>
-                      <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-                    </View>
-                    <Text style={styles.unitCode}>{vehicle.code}</Text>
-                    <View style={styles.availabilityRow}>
-                      <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-                      <Text style={styles.unitStatus}>{getStatusLabel(status)}</Text>
-                    </View>
-                  </View>
-
-                  <Pressable
-                    style={styles.unitPrimaryButton}
-                    onPress={() => {
-                      if (status === 'available') {
-                        startTrip(vehicle);
-                        return;
-                      }
-
-                      openRouteModal(vehicle);
-                    }}>
-                    <Text style={styles.unitPrimaryText}>{primaryLabel}</Text>
-                  </Pressable>
-
-                  <Pressable style={styles.unitSecondaryButton} onPress={() => openRouteModal(vehicle)}>
-                    <Text style={styles.unitSecondaryText}>Punto a punto</Text>
-                  </Pressable>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </AppCard>
-      ) : null}
 
       <AppCard style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -1918,18 +1776,6 @@ export function ChecklistScreen() {
                       <MaterialCommunityIcons name="map-marker-path" size={16} color={theme.colors.text} />
                       <Text style={styles.miniActionText}>Ruta</Text>
                     </Pressable>
-                    {['active', 'delayed'].includes(record.status) ? (
-                      <>
-                        <Pressable style={styles.miniAction} onPress={() => router.push('/incidencias')}>
-                          <MaterialCommunityIcons name="alert-outline" size={16} color={theme.colors.text} />
-                          <Text style={styles.miniActionText}>Incidencia</Text>
-                        </Pressable>
-                        <Pressable style={styles.miniAction} onPress={() => finishTrip(record.vehicle)}>
-                          <MaterialCommunityIcons name="flag-checkered" size={16} color={theme.colors.text} />
-                          <Text style={styles.miniActionText}>Finalizar</Text>
-                        </Pressable>
-                      </>
-                    ) : null}
                   </View>
                 </View>
               );
@@ -1946,205 +1792,334 @@ export function ChecklistScreen() {
         </View>
       </AppCard>
 
-      <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={() => setRouteModalOpen(false)}>
+      <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
-                <Text style={styles.modalSubtitle}>
-                  {selectedVehicle?.routeName || 'Configura inicio, destino y seguimiento GPS.'}
-                </Text>
+                <Text style={styles.modalSubtitle}>{routeHeaderSubtitle}</Text>
               </View>
-              <Pressable style={styles.modalClose} onPress={() => setRouteModalOpen(false)}>
+              <Pressable style={styles.modalClose} onPress={closeRouteModal}>
                 <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
               </Pressable>
             </View>
 
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              <RoutePreview points={routeStops} route={routeOption} vehicle={selectedVehicle} />
-
-              <View style={styles.routeSummary}>
-                <View style={styles.routeSummaryItem}>
-                  <Text style={styles.summaryLabel}>Distancia</Text>
-                  <Text style={styles.summaryValue}>{formatDistance(routeDistanceMeters)}</Text>
-                </View>
-                <View style={styles.routeSummaryItem}>
-                  <Text style={styles.summaryLabel}>Paradas</Text>
-                  <Text style={styles.summaryValue}>{routeStops.length}</Text>
-                </View>
-                <View style={styles.routeSummaryItem}>
-                  <Text style={styles.summaryLabel}>Estimado</Text>
-                  <Text style={styles.summaryValue}>{routeDurationSeconds ? formatDuration(routeDurationSeconds) : '--'}</Text>
-                </View>
-              </View>
-
-              <View style={styles.progressCard}>
-                <View style={styles.progressTop}>
-                  <Text style={styles.progressTitle}>Progreso de ruta</Text>
-                  <Text style={styles.progressValue}>
-                    {visitedStops} / {routeStops.length || 0} paradas
-                  </Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${routeProgress}%` as any }]} />
-                </View>
-                <Text style={styles.progressValue}>{routeProgress}%</Text>
-              </View>
-
-              <View style={styles.configCard}>
-                <View style={styles.configTitleRow}>
-                  <Text style={styles.configTitle}>Ruta punto a punto</Text>
-                  <StatusPill label={tracker.trackerStatusLabel} tone={tracker.trackerStatusTone} />
-                </View>
-
-                {(['origin', 'destination'] as PointRole[]).map((role) => {
-                  const isOrigin = role === 'origin';
-                  const selection = tracker.pointSelection[role];
-
-                  return (
-                    <View key={role} style={styles.fieldGroup}>
-                      <Text style={styles.fieldLabel}>{isOrigin ? 'Punto inicial' : 'Punto final'}</Text>
-                      <View style={styles.pointInputRow}>
-                        <TextInput
-                          value={tracker.pointQueries[role]}
-                          onChangeText={(value) => tracker.updateQuery(role, value)}
-                          placeholder={isOrigin ? 'Buscar origen...' : 'Buscar destino...'}
-                          placeholderTextColor={theme.colors.muted}
-                          style={styles.pointInput}
-                        />
-                        <Pressable
-                          style={styles.iconSquare}
-                          onPress={() => tracker.searchPoint(role)}
-                          disabled={tracker.isSearchingPoint[role]}>
-                          {tracker.isSearchingPoint[role] ? (
-                            <ActivityIndicator color="#FFFFFF" />
-                          ) : (
-                            <MaterialCommunityIcons name="magnify" size={20} color="#FFFFFF" />
-                          )}
-                        </Pressable>
-                      </View>
-
-                      {selection ? (
-                        <View style={styles.pointResult}>
-                          <Text style={styles.resultTitle}>{selection.label}</Text>
-                          <Text style={styles.resultAddress}>{selection.address}</Text>
-                        </View>
-                      ) : null}
-
-                      {tracker.pointResults[role].map((result) => (
-                        <Pressable
-                          key={result.id}
-                          style={styles.pointResult}
-                          onPress={() => tracker.selectPoint(role, result)}>
-                          <Text style={styles.resultTitle}>{result.label}</Text>
-                          <Text style={styles.resultAddress}>{result.address}</Text>
-                        </Pressable>
-                      ))}
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              {routeUiState === 'empty' ? (
+                <>
+                  <RoutePreview
+                    points={[]}
+                    route={null}
+                    vehicle={selectedVehicle}
+                    onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
+                  />
+                  <View style={styles.configCard}>
+                    <View style={styles.configTitleRow}>
+                      <Text style={styles.configTitle}>Sin ruta creada</Text>
+                      <StatusPill label={routeStateLabel} tone="neutral" />
                     </View>
-                  );
-                })}
-
-                <View style={styles.utilityRow}>
-                  <Pressable style={styles.utilityButton} onPress={tracker.useSelectedVehicleAsOrigin}>
-                    <MaterialCommunityIcons name="bus-marker" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>Usar unidad</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => handleUseCurrentLocation('origin')}>
-                    <MaterialCommunityIcons name="crosshairs-gps" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>GPS inicial</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => handleUseCurrentLocation('destination')}>
-                    <MaterialCommunityIcons name="map-marker-check-outline" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>GPS final</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}>
-                    <MaterialCommunityIcons name="map-marker" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>Elegir origen</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'destination')}>
-                    <MaterialCommunityIcons name="map-marker-check-outline" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>Elegir destino</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'stop')}>
-                    <MaterialCommunityIcons name="map-marker-plus-outline" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>Agregar parada</Text>
-                  </Pressable>
-                  <Pressable style={styles.utilityButton} onPress={() => refresh()}>
-                    <MaterialCommunityIcons name="refresh" size={16} color={theme.colors.text} />
-                    <Text style={styles.utilityText}>{permission === 'granted' ? 'Actualizar GPS' : 'Pedir GPS'}</Text>
-                  </Pressable>
-                </View>
-
-                {tracker.pointMessage ? <Text style={styles.messageText}>{tracker.pointMessage}</Text> : null}
-
-                <Pressable
-                  style={styles.primaryWide}
-                  onPress={
-                    tracker.pointPlan
-                      ? isCalculatedRouteSaved
-                        ? tracker.toggleTracker
-                        : saveAssignedRoute
-                      : tracker.planPointToPointRoute
-                  }
-                  disabled={tracker.isPlanningPointRoute || isSavingAssignedRoute}>
-                  {tracker.isPlanningPointRoute || isSavingAssignedRoute ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryWideText}>
-                      {tracker.pointPlan
-                        ? isCalculatedRouteSaved
-                          ? tracker.trackerStatus === 'off'
-                            ? 'Iniciar ruta'
-                            : 'Detener seguimiento'
-                          : 'Guardar ruta'
-                        : 'Calcular ruta'}
+                    <Text style={styles.messageText}>
+                      Esta unidad no tiene una ruta punto a punto activa.
                     </Text>
-                  )}
-                </Pressable>
-              </View>
+                    <Pressable
+                      style={styles.primaryWide}
+                      onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}>
+                      <MaterialCommunityIcons name="map-plus" size={18} color="#FFFFFF" />
+                      <Text style={styles.primaryWideText}>Crear ruta</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
 
-              <View style={styles.stopsCard}>
-                <View style={styles.configTitleRow}>
-                  <Text style={styles.configTitle}>Paradas de la ruta</Text>
-                  <Text style={styles.progressValue}>{Math.max(0, routeStops.length - 2)} intermedias</Text>
-                </View>
-                {routeStops.length ? (
-                  routeStops.map((stop, index) => (
-                    <View key={stop.id} style={styles.stopRow}>
-                      <View
-                        style={[
-                          styles.stopNumber,
-                          stop.type === 'destination' ? styles.stopNumberDestination : undefined,
-                        ]}>
-                        <Text style={styles.stopNumberText}>{index + 1}</Text>
+              {routeUiState === 'editing' ? (
+                <>
+                  <RoutePreview
+                    points={routeStops}
+                    route={routeOption}
+                    vehicle={selectedVehicle}
+                    onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
+                  />
+                  {routeOption ? (
+                    <View style={styles.routeSummary}>
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>Distancia</Text>
+                        <Text style={styles.summaryValue}>{formatDistance(routeDistanceMeters)}</Text>
                       </View>
-                      <View style={styles.stopCopy}>
-                        <Text style={styles.stopTitle} numberOfLines={1}>{stop.label}</Text>
-                        <Text style={styles.stopMeta} numberOfLines={1}>
-                          {index < visitedStops ? 'Registrada' : stop.type === 'origin' ? 'Inicio' : 'Pendiente'}
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>Paradas</Text>
+                        <Text style={styles.summaryValue}>{waypointCount}</Text>
+                      </View>
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>Estimado</Text>
+                        <Text style={styles.summaryValue}>{dynamicEtaLabel}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  <View style={styles.configCard}>
+                    <View style={styles.configTitleRow}>
+                      <Text style={styles.configTitle}>Editando ruta</Text>
+                      <StatusPill label={routeStateLabel} tone="neutral" />
+                    </View>
+                    <View style={styles.routeEndpoints}>
+                      <Text style={styles.fieldLabel}>Origen</Text>
+                      <Text style={styles.endpointText} numberOfLines={1}>{originLabel}</Text>
+                      <MaterialCommunityIcons name="arrow-down" size={18} color={theme.colors.muted} />
+                      <Text style={styles.fieldLabel}>Destino</Text>
+                      <Text style={styles.endpointText} numberOfLines={1}>{destinationLabel}</Text>
+                    </View>
+                    {waypointCount ? (
+                      <View style={styles.compactStopsList}>
+                        {tracker.pointStops.map((stop, index) => (
+                          <View key={stop.id} style={styles.stopRow}>
+                            <View style={styles.waypointNumber}>
+                              <Text style={styles.stopNumberText}>{index + 1}</Text>
+                            </View>
+                            <View style={styles.stopCopy}>
+                              <Text style={styles.stopTitle} numberOfLines={1}>
+                                {getStopLabel(stop, index)}
+                              </Text>
+                            </View>
+                            <View style={styles.stopMoveGroup}>
+                              <Pressable
+                                style={[styles.stopMoveButton, index === 0 ? styles.stopMoveButtonDisabled : undefined]}
+                                disabled={index === 0}
+                                onPress={() => tracker.moveStop(stop.id, -1)}>
+                                <MaterialCommunityIcons name="chevron-up" size={16} color={theme.colors.text} />
+                              </Pressable>
+                              <Pressable
+                                style={[
+                                  styles.stopMoveButton,
+                                  index === waypointCount - 1 ? styles.stopMoveButtonDisabled : undefined,
+                                ]}
+                                disabled={index === waypointCount - 1}
+                                onPress={() => tracker.moveStop(stop.id, 1)}>
+                                <MaterialCommunityIcons name="chevron-down" size={16} color={theme.colors.text} />
+                              </Pressable>
+                              <Pressable style={styles.stopRemoveButton} onPress={() => handleRemoveRouteStop(stop.id)}>
+                                <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
+                              </Pressable>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {tracker.pointMessage ? <Text style={styles.messageText}>{tracker.pointMessage}</Text> : null}
+                    <View style={styles.routeActionRow}>
+                      <Pressable style={styles.secondaryWide} onPress={cancelRouteDraft}>
+                        <MaterialCommunityIcons name="close" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Cancelar</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.secondaryWide}
+                        onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'stop')}>
+                        <MaterialCommunityIcons name="map-marker-plus-outline" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Abrir mapa</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable
+                      style={styles.primaryWide}
+                      onPress={
+                        tracker.pointPlan
+                          ? saveAssignedRoute
+                          : () => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')
+                      }
+                      disabled={tracker.isPlanningPointRoute || isSavingAssignedRoute}>
+                      {tracker.isPlanningPointRoute || isSavingAssignedRoute ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <MaterialCommunityIcons name="content-save-check-outline" size={18} color="#FFFFFF" />
+                          <Text style={styles.primaryWideText}>
+                            {tracker.pointPlan
+                              ? 'Guardar ruta'
+                              : 'Abrir mapa'}
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {routeUiState === 'ready' ? (
+                <>
+                  <RoutePreview
+                    points={routeStops}
+                    route={routeOption}
+                    vehicle={selectedVehicle}
+                    onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
+                  />
+                  <View style={styles.routeSummary}>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Distancia</Text>
+                      <Text style={styles.summaryValue}>{formatDistance(routeDistanceMeters)}</Text>
+                    </View>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Paradas</Text>
+                      <Text style={styles.summaryValue}>{waypointCount}</Text>
+                    </View>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Estimado</Text>
+                      <Text style={styles.summaryValue}>{dynamicEtaLabel}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.configCard}>
+                    <View style={styles.configTitleRow}>
+                      <Text style={styles.configTitle}>Ruta lista</Text>
+                      <StatusPill label={progressLabel} tone="positive" />
+                    </View>
+                    <View style={styles.routeEndpoints}>
+                      <Text style={styles.fieldLabel}>Origen</Text>
+                      <Text style={styles.endpointText} numberOfLines={1}>{originLabel}</Text>
+                      <MaterialCommunityIcons name="arrow-down" size={18} color={theme.colors.muted} />
+                      <Text style={styles.fieldLabel}>Destino</Text>
+                      <Text style={styles.endpointText} numberOfLines={1}>{destinationLabel}</Text>
+                    </View>
+                    <View style={styles.routeActionRow}>
+                      <Pressable style={styles.secondaryWide} onPress={editAssignedRoute}>
+                        <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Editar</Text>
+                      </Pressable>
+                      <Pressable style={styles.secondaryWide} onPress={deleteAssignedRoute}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Eliminar</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable style={styles.primaryWide} onPress={tracker.toggleTracker}>
+                      <MaterialCommunityIcons name="navigation" size={18} color="#FFFFFF" />
+                      <Text style={styles.primaryWideText}>Iniciar ruta</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+
+              {routeUiState === 'navigation' || routeUiState === 'paused' ? (
+                <>
+                  <RoutePreview
+                    points={routeStops}
+                    route={routeOption}
+                    vehicle={selectedVehicle}
+                    onPress={() => undefined}
+                  />
+                  <View style={styles.progressCard}>
+                    <View style={styles.progressTop}>
+                      <Text style={styles.progressTitle}>{routeUiState === 'paused' ? 'Ruta pausada' : 'En navegación'}</Text>
+                      <Text style={styles.progressValue}>{progressLabel}</Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                      <View style={[styles.progressFill, { width: `${routeProgress}%` as any }]} />
+                    </View>
+                    <View style={styles.routeSummary}>
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>Restante</Text>
+                        <Text style={styles.summaryValue}>{remainingDistanceLabel}</Text>
+                      </View>
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>ETA</Text>
+                        <Text style={styles.summaryValue}>{dynamicEtaLabel}</Text>
+                      </View>
+                      <View style={styles.routeSummaryItem}>
+                        <Text style={styles.summaryLabel}>Checkpoints</Text>
+                        <Text style={styles.summaryValue}>{checkpointProgressLabel}</Text>
+                      </View>
+                    </View>
+                    {isRouteOffRoute ? (
+                      <View style={styles.routeAlert}>
+                        <MaterialCommunityIcons name="alert-outline" size={18} color={theme.colors.danger} />
+                        <Text style={styles.routeAlertText}>
+                          Desviacion detectada a {formatDistance(tracker.routeProgress?.distanceFromRoute || 0)} de la ruta.
                         </Text>
                       </View>
-                      {stop.type === 'stop' ? (
-                        <Pressable style={styles.stopRemoveButton} onPress={() => handleRemoveRouteStop(stop.id)}>
-                          <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
-                        </Pressable>
-                      ) : (
-                        <MaterialCommunityIcons
-                          name={index < visitedStops ? 'check-circle' : 'circle-outline'}
-                          size={20}
-                          color={index < visitedStops ? theme.colors.success : theme.colors.muted}
-                        />
-                      )}
+                    ) : null}
+                    <Pressable
+                      style={styles.primaryWide}
+                      onPress={() => {
+                        const labels = tracker.pointStops.map((stop, index) => getStopLabel(stop, index));
+                        tracker.setPointMessage(labels.length ? labels.join(' · ') : 'Sin paradas manuales.');
+                      }}>
+                      <MaterialCommunityIcons name="flag-variant-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.primaryWideText}>Ver paradas</Text>
+                    </Pressable>
+                    {tracker.pointMessage ? <Text style={styles.messageText}>{tracker.pointMessage}</Text> : null}
+                  </View>
+                  <View style={styles.configCard}>
+                    <View style={styles.unitRouteCard}>
+                      <View>
+                        <Text style={styles.recordTitle}>{selectedVehicle?.code || 'Unidad'}</Text>
+                        <Text style={styles.recordDriver} numberOfLines={1}>
+                          {selectedVehicle?.driverName || 'Operador sin asignar'}
+                        </Text>
+                      </View>
+                      <StatusPill label={routeStateLabel} tone={routeUiState === 'paused' || isRouteOffRoute ? 'warning' : 'info'} />
                     </View>
-                  ))
-                ) : (
-                  <Text style={styles.messageText}>
-                    Busca un punto inicial y final para calcular paradas intermedias.
-                  </Text>
-                )}
-              </View>
+                    <View style={styles.routeActionRow}>
+                      <Pressable style={styles.secondaryWide} onPress={tracker.toggleTracker}>
+                        <MaterialCommunityIcons
+                          name={routeUiState === 'paused' ? 'play' : 'pause'}
+                          size={18}
+                          color={theme.colors.text}
+                        />
+                        <Text style={styles.secondaryWideText}>
+                          {routeUiState === 'paused' ? 'Continuar' : 'Pausar'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.primaryWide}
+                        onPress={() => selectedVehicle && finishTrip(selectedVehicle)}>
+                        <MaterialCommunityIcons name="flag-checkered" size={18} color="#FFFFFF" />
+                        <Text style={styles.primaryWideText}>Finalizar</Text>
+                      </Pressable>
+                    </View>
+                    {routeUiState === 'paused' ? (
+                      <Pressable style={styles.secondaryWide} onPress={deleteAssignedRoute}>
+                        <MaterialCommunityIcons name="close-circle-outline" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Cancelar</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
+
+              {routeUiState === 'finalized' && finalizedRouteSummary ? (
+                <View style={styles.configCard}>
+                  <View style={styles.configTitleRow}>
+                    <Text style={styles.configTitle}>Ruta finalizada</Text>
+                    <StatusPill label={formatTime(finalizedRouteSummary.finishedAt)} tone="positive" />
+                  </View>
+                  <View style={styles.routeSummary}>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Distancia</Text>
+                      <Text style={styles.summaryValue}>{finalizedRouteSummary.distanceLabel}</Text>
+                    </View>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Paradas</Text>
+                      <Text style={styles.summaryValue}>{finalizedRouteSummary.stopCount}</Text>
+                    </View>
+                    <View style={styles.routeSummaryItem}>
+                      <Text style={styles.summaryLabel}>Estimado</Text>
+                      <Text style={styles.summaryValue}>{finalizedRouteSummary.durationLabel}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.routeEndpoints}>
+                    <Text style={styles.fieldLabel}>Origen</Text>
+                    <Text style={styles.endpointText} numberOfLines={1}>{finalizedRouteSummary.originLabel}</Text>
+                    <MaterialCommunityIcons name="arrow-down" size={18} color={theme.colors.muted} />
+                    <Text style={styles.fieldLabel}>Destino</Text>
+                    <Text style={styles.endpointText} numberOfLines={1}>{finalizedRouteSummary.destinationLabel}</Text>
+                  </View>
+                  <Pressable
+                    style={styles.primaryWide}
+                    onPress={() => {
+                      setFinalizedRouteSummary(null);
+                      selectedVehicle && openMapForVehicle(selectedVehicle, 'origin');
+                    }}>
+                    <MaterialCommunityIcons name="map-plus" size={18} color="#FFFFFF" />
+                    <Text style={styles.primaryWideText}>Nueva ruta</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </ScrollView>
           </View>
         </View>

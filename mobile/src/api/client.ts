@@ -800,7 +800,9 @@ export async function getVehiclesRequest() {
 export async function updateVehicleLocationRequest(payload: {
   vehicleId: string;
   coordinates: GeoPoint;
+  heading?: number | null;
   speed?: number | null;
+  timestamp?: string | null;
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/locations/update', payload);
   return response.data.data;

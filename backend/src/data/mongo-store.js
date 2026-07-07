@@ -2690,7 +2690,7 @@ async function createMongoStore() {
     );
   }
 
-  async function updateVehicleLocation({ vehicleId, coordinates, speed }) {
+  async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
     const update = {
       location: {
         latitude: Number(coordinates.latitude),
@@ -2701,6 +2701,18 @@ async function createMongoStore() {
 
     if (typeof speed === "number") {
       update.speed = speed;
+    }
+
+    if (typeof heading === "number" && Number.isFinite(heading)) {
+      update.heading = heading;
+    }
+
+    if (timestamp) {
+      const parsedTimestamp = new Date(timestamp);
+
+      if (!Number.isNaN(parsedTimestamp.getTime())) {
+        update.locationTimestamp = parsedTimestamp;
+      }
     }
 
     const vehicle = await VehicleModel.findByIdAndUpdate(

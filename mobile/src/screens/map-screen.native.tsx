@@ -9,10 +9,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, type MapStyleElement } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
+import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
 import { StatusPill } from '@/src/components/status-pill';
 import { planNavigationRouteRequest, reverseNavigationPlaceRequest } from '@/src/api/client';
@@ -25,29 +25,28 @@ import { getLocationStatus } from '@/src/utils/location-status';
 import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
-const lightMapStyle: MapStyleElement[] = [
-  { elementType: 'geometry', stylers: [{ color: '#f4f5f7' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#6d7280' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#dfe4ec' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#dfeafe' }] },
-];
-
-const darkMapStyle: MapStyleElement[] = [
-  { elementType: 'geometry', stylers: [{ color: '#0f1722' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8c97ab' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1c2735' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#112031' }] },
-];
-
 const ACTIVE_TRACKING_STATUSES = new Set(['online', 'patrolling', 'on-route']);
 const LOCATION_SYNC_INTERVAL_MS = 5000;
 type SelectorRole = 'origin' | 'destination' | 'stop';
 type SelectorPointRole = Exclude<SelectorRole, 'stop'>;
 
-function formatCoordinate(point: GeoPoint) {
-  return `${point.latitude}, ${point.longitude}`;
+function looksLikeCoordinates(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  return /^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(value.trim());
+}
+
+function getSelectorFallback(role: SelectorRole, order = 0) {
+  if (role === 'origin') return 'Punto inicial';
+  if (role === 'destination') return 'Punto final';
+  return `Parada ${order + 1}`;
+}
+
+function getSafePlaceLabel(value: string | null | undefined, fallback: string) {
+  const label = value?.trim();
+  return label && !looksLikeCoordinates(label) ? label : fallback;
 }
 
 function parseOptionalPoint(params: Record<string, string | undefined>, role: SelectorPointRole): NavigationPlaceResult | null {
@@ -58,19 +57,20 @@ function parseOptionalPoint(params: Record<string, string | undefined>, role: Se
     return null;
   }
 
-  const fallbackLabel = formatCoordinate({ latitude, longitude });
-  const label = params[`${role}Label`] || params[`${role}Address`] || fallbackLabel;
+  const fallbackLabel = getSelectorFallback(role);
+  const label = getSafePlaceLabel(params[`${role}Label`] || params[`${role}Address`], fallbackLabel);
+  const address = getSafePlaceLabel(params[`${role}Address`] || label, label);
 
   return {
     id: `map-${role}-${latitude}-${longitude}`,
     label,
-    address: params[`${role}Address`] || label,
+    address,
     location: { latitude, longitude },
   };
 }
 
-function createCoordinatePoint(role: SelectorRole, location: GeoPoint): NavigationPlaceResult {
-  const label = formatCoordinate(location);
+function createCoordinatePoint(role: SelectorRole, location: GeoPoint, order = 0): NavigationPlaceResult {
+  const label = getSelectorFallback(role, order);
 
   return {
     id: `map-${role}-${location.latitude}-${location.longitude}`,
@@ -97,7 +97,7 @@ function parseStopsParam(value?: string): NavigationStop[] {
         id: String(stop?.id || `stop-${index + 1}`),
         latitude: Number(stop?.latitude),
         longitude: Number(stop?.longitude),
-        address: String(stop?.address || ''),
+        address: getSafePlaceLabel(String(stop?.address || ''), getSelectorFallback('stop', index)),
         order: Math.max(0, Number(stop?.order) || index),
       }))
       .filter((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))
@@ -109,18 +109,20 @@ function parseStopsParam(value?: string): NavigationStop[] {
 }
 
 function createStopFromPoint(point: NavigationPlaceResult, order: number): NavigationStop {
+  const label = getSafePlaceLabel(point.address || point.label, getSelectorFallback('stop', order));
+
   return {
     id: `stop-${Date.now()}`,
     latitude: point.location.latitude,
     longitude: point.location.longitude,
-    address: point.address || point.label,
+    address: label,
     order,
   };
 }
 
 export function MapScreen() {
   const { theme } = useAppTheme();
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<AppMapRef | null>(null);
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     vehicleId?: string;
@@ -140,6 +142,7 @@ export function MapScreen() {
   const {
     coordinates,
     issue: locationIssue,
+    lastUpdatedAt,
     loading: locationLoading,
     permission,
     refresh,
@@ -307,9 +310,17 @@ export function MapScreen() {
             return current;
           }
 
+          const fallback = getSelectorFallback(role);
+          const label = getSafePlaceLabel(response.result.label || response.result.address, fallback);
+          const address = getSafePlaceLabel(response.result.address || response.result.label, label);
+
           return {
             ...current,
-            [role]: response.result,
+            [role]: {
+              ...response.result,
+              label,
+              address,
+            },
           };
         });
       })
@@ -317,17 +328,15 @@ export function MapScreen() {
   };
 
   const handleSelectorPress = (location: GeoPoint) => {
-    const role: SelectorRole =
-      params.point === 'stop'
-        ? 'stop'
-        : !selectorPoints.origin
-          ? 'origin'
-          : !selectorPoints.destination
-            ? 'destination'
-            : 'destination';
+    const role: SelectorRole = !selectorPoints.origin
+      ? 'origin'
+      : !selectorPoints.destination
+        ? 'destination'
+        : 'stop';
 
     if (role === 'stop') {
-      const point = createCoordinatePoint(role, location);
+      const stopOrder = selectorStops.length;
+      const point = createCoordinatePoint(role, location, stopOrder);
       const stop = createStopFromPoint(point, selectorStops.length);
       const stopKey = `${stop.latitude.toFixed(6)},${stop.longitude.toFixed(6)}`;
       const originKey = selectorPoints.origin
@@ -348,10 +357,23 @@ export function MapScreen() {
       setSelectorPlan(null);
       setSelectorStops((current) => [...current, stop]);
       focusMap(location.latitude, location.longitude, 'close');
+      reverseNavigationPlaceRequest(location)
+        .then((response) => {
+          const label = getSafePlaceLabel(response.result.address || response.result.label, getSelectorFallback('stop', stopOrder));
+          setSelectorStops((current) =>
+            current.map((entry) => (entry.id === stop.id ? { ...entry, address: label } : entry))
+          );
+        })
+        .catch(() => undefined);
       return;
     }
 
     updateSelectorPoint(role, location);
+  };
+
+  const removeLastSelectorStop = () => {
+    setSelectorPlan(null);
+    setSelectorStops((current) => current.slice(0, -1));
   };
 
   useEffect(() => {
@@ -379,11 +401,11 @@ export function MapScreen() {
 
         setSelectorPlan(response);
 
-        const coordinates = response.routes[0]?.polyline?.length
+        const routeCoordinates = response.routes[0]?.polyline?.length
           ? response.routes[0].polyline
           : [selectorPoints.origin!.location, selectorPoints.destination!.location];
 
-        mapRef.current?.fitToCoordinates(coordinates, {
+        mapRef.current?.fitToCoordinates(routeCoordinates, {
           animated: true,
           edgePadding: {
             top: insets.top + 120,
@@ -467,9 +489,11 @@ export function MapScreen() {
     sendVehicleLocation({
       vehicleId: user.vehicleId,
       coordinates,
+      heading: coordinates.heading,
       speed: coordinates.speed,
+      timestamp: lastUpdatedAt || new Date().toISOString(),
     }).catch(() => undefined);
-  }, [connectionMode, coordinates, operationalScheduleState.isWithinSchedule, sendVehicleLocation, user?.vehicleId]);
+  }, [connectionMode, coordinates, lastUpdatedAt, operationalScheduleState.isWithinSchedule, sendVehicleLocation, user?.vehicleId]);
 
   const handleRefresh = async () => {
     await Promise.all([refreshAll(), refresh()]);
@@ -481,6 +505,9 @@ export function MapScreen() {
     const paramsToSet: Record<string, string> = {};
     const route = selectorPlan?.routes[0] || null;
 
+    if (params.vehicleId) {
+      paramsToSet.vehicleId = params.vehicleId;
+    }
     paramsToSet.originLatitude = String(selectorPoints.origin.location.latitude);
     paramsToSet.originLongitude = String(selectorPoints.origin.location.longitude);
     paramsToSet.originAddress = selectorPoints.origin.address;
@@ -502,6 +529,26 @@ export function MapScreen() {
 
     router.push({ pathname: params.returnTo || '/checklist', params: paramsToSet });
   }
+
+  const selectorStep = !selectorPoints.origin
+    ? 1
+    : !selectorPoints.destination
+      ? 2
+      : 3;
+  const selectorTitle =
+    selectorStep === 1
+      ? 'Selecciona el punto de inicio'
+      : selectorStep === 2
+        ? 'Selecciona el destino'
+        : 'Deseas agregar paradas?';
+  const selectorHint =
+    selectorStep === 1
+      ? 'Toca el mapa para fijar el origen de la ruta.'
+      : selectorStep === 2
+        ? 'Toca el mapa para fijar el destino y calcular la ruta.'
+        : selectorStops.length
+          ? 'Cada toque agrega otro waypoint. Puedes deshacer el ultimo o aceptar.'
+          : 'Las paradas son opcionales. Toca el mapa para agregar una o acepta la ruta.';
 
   const handleResetSession = async () => {
     await signOut();
@@ -633,7 +680,7 @@ export function MapScreen() {
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <StatusBar style={theme.statusBar} />
       <View style={styles.root}>
-        <MapView
+        <AppMap
           ref={mapRef}
           style={StyleSheet.absoluteFill}
           initialRegion={{
@@ -648,11 +695,10 @@ export function MapScreen() {
             bottom: insets.bottom + 210,
             left: 12,
           }}
-          showsBuildings
-          showsCompass
-          showsScale
+          compassEnabled
+          scaleEnabled
           showsTraffic={trafficEnabled}
-          customMapStyle={theme.mode === 'light' ? lightMapStyle : darkMapStyle}
+          themeMode={theme.mode}
           onPress={(e) => {
             if (!selectorMode) return;
             const { latitude, longitude } = e.nativeEvent.coordinate || {};
@@ -663,10 +709,10 @@ export function MapScreen() {
           {/** Map tap selection for Checklist when `point` param is present */}
           {selectorMode
             ? selectorRoute?.polyline?.length
-              ? <Polyline coordinates={selectorRoute.polyline} strokeColor={theme.colors.accent} strokeWidth={3} />
+              ? <AppMapPolyline id="selector-route" coordinates={selectorRoute.polyline} strokeColor={theme.colors.accent} strokeWidth={3} />
               : null
             : mapData.routes.map((route) => (
-                <Polyline key={route.id} coordinates={route.polyline} strokeColor={route.color} strokeWidth={3} />
+                <AppMapPolyline key={route.id} id={route.id} coordinates={route.polyline} strokeColor={route.color} strokeWidth={3} />
               ))}
 
           {mapData.vehicles.map((vehicle) => {
@@ -675,8 +721,9 @@ export function MapScreen() {
             };
 
             return (
-              <Marker
+              <AppMapMarker
                 key={vehicle.id}
+                id={`vehicle-${vehicle.id}`}
                 coordinate={vehicle.location}
                 onPress={() => {
                   setSelectedVehicleId(vehicle.id);
@@ -685,7 +732,7 @@ export function MapScreen() {
                 <View style={[styles.vehicleMarker, vehicleMarkerStyle]}>
                    <View style={styles.vehicleMarkerInner} />
                 </View>
-              </Marker>
+              </AppMapMarker>
             );
           })}
 
@@ -693,16 +740,17 @@ export function MapScreen() {
             const v = mapData.vehicles.find(veh => veh.id === incident.vehicleId);
             if (!v) return null;
             return (
-              <Marker key={incident.id} coordinate={v.location}>
+              <AppMapMarker key={incident.id} id={`incident-${incident.id}`} coordinate={v.location}>
                 <View style={[styles.incidentMarker, { backgroundColor: incident.severity === 'critical' ? theme.colors.danger : theme.colors.warning }]}>
                   <MaterialCommunityIcons name="alert-decagram" size={14} color="#FFF" />
                 </View>
-              </Marker>
+              </AppMapMarker>
             );
           })}
 
           {selectorMode && selectorPoints.origin ? (
-            <Marker
+            <AppMapMarker
+              id="selector-origin"
               coordinate={selectorPoints.origin.location}
               draggable
               onDragStart={() => setSelectorPlan(null)}
@@ -710,10 +758,11 @@ export function MapScreen() {
               <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.success }]}>
                 <MaterialCommunityIcons name="map-marker" size={22} color="#FFF" />
               </View>
-            </Marker>
+            </AppMapMarker>
           ) : null}
           {selectorMode && selectorPoints.destination ? (
-            <Marker
+            <AppMapMarker
+              id="selector-destination"
               coordinate={selectorPoints.destination.location}
               draggable
               onDragStart={() => setSelectorPlan(null)}
@@ -721,36 +770,61 @@ export function MapScreen() {
               <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.danger }]}>
                 <MaterialCommunityIcons name="map-marker" size={22} color="#FFF" />
               </View>
-            </Marker>
+            </AppMapMarker>
           ) : null}
           {selectorMode
-            ? selectorStops.map((stop) => (
-                <Marker key={stop.id} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
+            ? selectorStops.map((stop, index) => (
+                <AppMapMarker key={stop.id} id={`stop-${stop.id}`} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
                   <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.warning }]}>
-                    <MaterialCommunityIcons name="map-marker" size={18} color="#FFF" />
+                    <Text style={styles.stopMarkerText}>{index + 1}</Text>
                   </View>
-                </Marker>
+                </AppMapMarker>
               ))
             : null}
           {coordinates && (
-            <Marker coordinate={coordinates}>
+            <AppMapMarker id="user-location" coordinate={coordinates}>
                <View style={[styles.userMarker, { backgroundColor: theme.colors.info }]} />
-            </Marker>
+            </AppMapMarker>
           )}
-        </MapView>
+        </AppMap>
 
-        {/* Confirm button for selection mode */}
-          {selectorMode && selectorPoints.origin && selectorPoints.destination ? (
-            <View style={{ position: 'absolute', left: 16, right: 16, bottom: insets.bottom + 140, zIndex: 30 }}>
-              <Pressable
-                onPress={() => handleConfirmSelection()}
-                disabled={isPlanningSelectorRoute}
-                style={({ pressed }) => [{ padding: 14, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.accentSoft : theme.colors.accent }]}
-              >
-                <Text style={{ color: '#FFFFFF', fontWeight: '900' }}>Confirmar ubicacion</Text>
-              </Pressable>
+        {selectorMode ? (
+          <View style={[styles.selectorPanel, { top: insets.top + 80, backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+            <View style={styles.selectorStepBadge}>
+              <Text style={styles.selectorStepText}>Paso {selectorStep}</Text>
             </View>
-          ) : null}
+            <View style={styles.selectorCopy}>
+              <Text style={[styles.selectorTitle, { color: theme.colors.text }]}>{selectorTitle}</Text>
+              <Text style={[styles.selectorHint, { color: theme.colors.muted }]}>{selectorHint}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {selectorMode && selectorPoints.origin && selectorPoints.destination ? (
+          <View style={[styles.selectorConfirmWrap, { bottom: insets.bottom + 140 }]}>
+            {selectorStops.length ? (
+              <Pressable
+                onPress={removeLastSelectorStop}
+                style={[styles.selectorUndoButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+                <MaterialCommunityIcons name="undo" size={17} color={theme.colors.text} />
+                <Text style={[styles.selectorUndoText, { color: theme.colors.text }]}>Deshacer ultima parada</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => handleConfirmSelection()}
+              disabled={isPlanningSelectorRoute}
+              style={({ pressed }) => [
+                styles.selectorConfirmButton,
+                { backgroundColor: pressed ? theme.colors.accentSoft : theme.colors.accent },
+                isPlanningSelectorRoute ? styles.selectorConfirmDisabled : undefined,
+              ]}>
+              <MaterialCommunityIcons name="flag-checkered" size={18} color="#FFFFFF" />
+              <Text style={styles.selectorConfirmText}>
+                {isPlanningSelectorRoute ? 'Calculando ruta...' : 'Aceptar ruta'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* HUD Overlay */}
         <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]}>
@@ -893,6 +967,62 @@ const styles = StyleSheet.create({
   hudValue: { flexShrink: 1, fontSize: 15, fontWeight: '800', fontFamily: Typography.mono, minWidth: 0 },
   sideActions: { position: 'absolute', right: 16, gap: 12, zIndex: 10 },
   fab: { width: 48, height: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  selectorPanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 30,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    elevation: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  selectorStepBadge: {
+    minWidth: 62,
+    minHeight: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+  },
+  selectorStepText: {
+    color: '#1473E6',
+    fontSize: 12,
+    fontWeight: '900',
+    fontFamily: Typography.body,
+  },
+  selectorCopy: { flex: 1, minWidth: 0, gap: 2 },
+  selectorTitle: { fontSize: 15, fontWeight: '900', fontFamily: Typography.display },
+  selectorHint: { fontSize: 12, lineHeight: 17, fontFamily: Typography.body },
+  selectorConfirmWrap: { position: 'absolute', left: 16, right: 16, zIndex: 30 },
+  selectorUndoButton: {
+    minHeight: 44,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  selectorUndoText: { fontSize: 13, fontWeight: '900', fontFamily: Typography.body },
+  selectorConfirmButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  selectorConfirmDisabled: { opacity: 0.78 },
+  selectorConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', fontFamily: Typography.body },
   bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 10, paddingHorizontal: 16, zIndex: 10 },
   locationNotice: {
     alignSelf: 'center',
@@ -949,6 +1079,7 @@ const styles = StyleSheet.create({
   vehicleMarkerInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF' },
   incidentMarker: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   userMarker: { width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#FFF' },
+  stopMarkerText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', fontFamily: Typography.body },
   recoveryRoot: {
     flex: 1,
     alignItems: 'center',

@@ -70,7 +70,7 @@ router.get("/live", authenticate, requireOrganization, requireOperationalAccess,
 router.post("/update", authenticate, requireOrganization, requireOperationalAccess, gpsLimiter, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "").trim();
   const coordinates = normalizePoint(req.body.coordinates);
-  const { speed } = req.body;
+  const { heading, speed, timestamp } = req.body;
 
   if (!vehicleId || !coordinates) {
     return res.status(400).json({
@@ -114,6 +114,8 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   const update = await req.app.locals.store.updateVehicleLocation({
     vehicleId,
     coordinates,
+    heading,
+    timestamp,
     speed
   });
 

@@ -2016,7 +2016,7 @@ function createEmbeddedStore() {
     return clone(buildConversationSummary(conversation, userId));
   }
 
-  function updateVehicleLocation({ vehicleId, coordinates, speed }) {
+  function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
     const vehicle = getVehicleById(vehicleId);
 
     if (!vehicle) {
@@ -2031,6 +2031,18 @@ function createEmbeddedStore() {
 
     if (typeof speed === "number") {
       vehicle.speed = speed;
+    }
+
+    if (typeof heading === "number" && Number.isFinite(heading)) {
+      vehicle.heading = heading;
+    }
+
+    if (timestamp) {
+      const parsedTimestamp = new Date(timestamp);
+
+      if (!Number.isNaN(parsedTimestamp.getTime())) {
+        vehicle.locationTimestamp = parsedTimestamp.toISOString();
+      }
     }
 
     return enrichVehicle(vehicle);

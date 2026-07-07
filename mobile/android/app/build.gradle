@@ -61,15 +61,15 @@ def hasReleaseSigningConfig = [
     releaseKeyPassword
 ].every { it != null && it.toString().trim() }
 
-def resolveGoogleMapsApiKey = {
-    def key = findProperty('GOOGLE_MAPS_API_KEY')
-        ?: readRuntimeBuildValue('GOOGLE_MAPS_API_KEY')
-        ?: readRuntimeBuildValue('MANECOMB_GOOGLE_MAPS_API_KEY')
+def resolveMapboxAccessToken = {
+    def token = findProperty('MAPBOX_ACCESS_TOKEN')
+        ?: readRuntimeBuildValue('MAPBOX_ACCESS_TOKEN')
+        ?: readRuntimeBuildValue('MANECOMB_MAPBOX_ACCESS_TOKEN')
 
-    return key?.toString()?.trim() ?: 'DEV_GOOGLE_MAPS_API_KEY_NOT_SET'
+    return token?.toString()?.trim() ?: ''
 }
 
-def googleMapsApiKey = resolveGoogleMapsApiKey()
+def mapboxAccessToken = resolveMapboxAccessToken()
 def allowCleartextTraffic = {
     def explicit = readRuntimeBuildValue('MANECOMB_ANDROID_CLEARTEXT')
     if (explicit != null && explicit.trim()) {
@@ -173,7 +173,7 @@ android {
             missingDimensionStrategy 'detox', 'full'
         }
         manifestPlaceholders = [
-            GOOGLE_MAPS_API_KEY: googleMapsApiKey,
+            MAPBOX_ACCESS_TOKEN: mapboxAccessToken,
             usesCleartextTraffic: allowCleartextTraffic.toString(),
         ]
 

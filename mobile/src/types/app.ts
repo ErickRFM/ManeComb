@@ -414,7 +414,7 @@ export type NavigationRouteOption = {
 };
 
 export type NavigationPlan = {
-  provider: 'google' | 'system' | 'osrm' | 'valhalla';
+  provider: 'mapbox' | 'system' | 'osrm' | 'valhalla';
   origin: GeoPoint;
   destination: GeoPoint;
   stops?: NavigationStop[];
@@ -430,7 +430,7 @@ export type AssignedRoute = {
   stops?: NavigationStop[];
   assignedBy: string;
   assignedAt: string;
-  provider: 'google' | 'system' | 'osrm' | 'valhalla';
+  provider: 'mapbox' | 'system' | 'osrm' | 'valhalla';
   route: NavigationRouteOption;
   alternatives: NavigationRouteOption[];
 };
@@ -450,7 +450,7 @@ export type VehicleTripRecord = {
   durationSeconds: number;
   distanceMeters: number;
   plannedDurationSeconds: number;
-  provider: 'google' | 'system' | string;
+  provider: 'mapbox' | 'system' | string;
   registeredBy: string;
 };
 
@@ -635,10 +635,12 @@ export type Vehicle = {
   capacity: number;
   etaMinutes: number | null;
   delayMinutes: number;
+  heading?: number | null;
   speed: number;
   fuel: number;
   updatedAt: string;
   location: GeoPoint;
+  locationTimestamp?: string | null;
   assignedRoute?: AssignedRoute | null;
   routeName?: string;
   routeCode?: string;

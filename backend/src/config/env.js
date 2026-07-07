@@ -167,9 +167,9 @@ const CLIENT_ORIGINS = configuredClientOrigins.includes("*")
 const CORS_ORIGIN = CLIENT_ORIGINS.includes("*")
   ? "*"
   : (origin, callback) => callback(null, isClientOriginAllowed(origin));
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
-const MAP_GEOCODING_PROVIDER = String(process.env.MAP_GEOCODING_PROVIDER || "photon").trim().toLowerCase();
-const MAP_ROUTING_PROVIDER = String(process.env.MAP_ROUTING_PROVIDER || "osrm").trim().toLowerCase();
+const MAPBOX_ACCESS_TOKEN = process.env.MAPBOX_ACCESS_TOKEN || process.env.MANECOMB_MAPBOX_ACCESS_TOKEN || "";
+const MAP_GEOCODING_PROVIDER = String(process.env.MAP_GEOCODING_PROVIDER || "mapbox").trim().toLowerCase();
+const MAP_ROUTING_PROVIDER = String(process.env.MAP_ROUTING_PROVIDER || "mapbox").trim().toLowerCase();
 const PHOTON_API_URL = process.env.PHOTON_API_URL || "https://photon.komoot.io";
 const NOMINATIM_API_URL = process.env.NOMINATIM_API_URL || "https://nominatim.openstreetmap.org";
 const OSRM_API_URL = process.env.OSRM_API_URL || "https://router.project-osrm.org";
@@ -325,7 +325,7 @@ module.exports = {
   DEFAULT_CLIENT_ORIGINS,
   CORS_ORIGIN,
   isClientOriginAllowed,
-  GOOGLE_MAPS_API_KEY,
+  MAPBOX_ACCESS_TOKEN,
   MAP_GEOCODING_PROVIDER,
   MAP_ROUTING_PROVIDER,
   MAP_HTTP_USER_AGENT,

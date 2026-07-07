@@ -180,7 +180,9 @@ type AppState = {
       heading?: number | null;
       speed?: number | null;
     };
+    heading?: number | null;
     speed?: number | null;
+    timestamp?: string | null;
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
   createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
@@ -1023,6 +1025,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: s.dashboard, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
+      connectSocket(set, get);
       if (shouldRefreshOperationalData(authContext, s.profile.user)) {
         get().refreshAll();
       }

@@ -8,6 +8,7 @@ import {
 import {
   distanceInMeters,
   evaluateTrackerTransition,
+  projectPointOnRoute,
   type TrackerStatus,
   type TrackerZone,
 } from '@/src/hooks/point-to-point-tracker-core';
@@ -21,14 +22,33 @@ import type {
 } from '@/src/types/app';
 
 type PointRole = 'origin' | 'destination';
+type TrackedLocation = GeoPoint & {
+  heading?: number | null;
+  speed?: number | null;
+};
 
 export type PointToPointTripRecord = VehicleTripRecord;
 
 type UsePointToPointTrackerArgs = {
   searchAnchor: GeoPoint | null;
-  trackedLocation: GeoPoint | null;
+  trackedLocation: TrackedLocation | null;
   selectedVehicle: Vehicle | null;
   onPlanReady?: (plan: NavigationPlan, destinationLabel: string) => void;
+};
+
+export type RouteProgressSnapshot = {
+  checkpointCount: number;
+  currentCheckpointIndex: number;
+  distanceAlongRoute: number;
+  distanceFromRoute: number;
+  distanceRemaining: number;
+  etaAt: string | null;
+  isOffRoute: boolean;
+  progressPercent: number;
+  snappedLocation: GeoPoint | null;
+  speedMetersPerSecond: number | null;
+  timeRemainingSeconds: number;
+  timestamp: string;
 };
 
 function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult {
@@ -98,6 +118,87 @@ function formatServiceDateLabel(value: string) {
   }).format(date);
 }
 
+function normalizeSpeedMetersPerSecond(speed: number | null | undefined) {
+  if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) {
+    return null;
+  }
+
+  return speed > 45 ? speed / 3.6 : speed;
+}
+
+function buildRouteProgressSnapshot({
+  plannedDurationSeconds,
+  routeDistanceMeters,
+  routePolyline,
+  startedAt,
+  trackedLocation,
+}: {
+  plannedDurationSeconds: number;
+  routeDistanceMeters: number;
+  routePolyline: GeoPoint[];
+  startedAt: string | null;
+  trackedLocation: TrackedLocation | null;
+}): RouteProgressSnapshot | null {
+  if (!trackedLocation || routePolyline.length < 2) {
+    return null;
+  }
+
+  const projection = projectPointOnRoute({
+    point: trackedLocation,
+    polyline: routePolyline,
+  });
+
+  if (!projection) {
+    return null;
+  }
+
+  const speedMetersPerSecond = normalizeSpeedMetersPerSecond(trackedLocation.speed);
+  const startedAtTime = startedAt ? new Date(startedAt).getTime() : null;
+  const elapsedSeconds =
+    startedAtTime && Number.isFinite(startedAtTime)
+      ? Math.max(1, Math.round((Date.now() - startedAtTime) / 1000))
+      : null;
+  const averageSpeed =
+    elapsedSeconds && projection.distanceAlongRoute > 0
+      ? projection.distanceAlongRoute / elapsedSeconds
+      : null;
+  const effectiveSpeed =
+    speedMetersPerSecond && speedMetersPerSecond >= 1
+      ? speedMetersPerSecond
+      : averageSpeed && averageSpeed >= 1
+        ? averageSpeed
+        : null;
+  const distanceRemaining =
+    routeDistanceMeters > 0 && projection.totalDistance > 0
+      ? Math.max(0, routeDistanceMeters - (projection.distanceAlongRoute / projection.totalDistance) * routeDistanceMeters)
+      : projection.distanceRemaining;
+  const fallbackSeconds =
+    plannedDurationSeconds > 0 && projection.totalDistance > 0
+      ? Math.max(0, Math.round(plannedDurationSeconds * (projection.distanceRemaining / projection.totalDistance)))
+      : 0;
+  const timeRemainingSeconds = effectiveSpeed
+    ? Math.max(0, Math.round(distanceRemaining / effectiveSpeed))
+    : fallbackSeconds;
+  const etaAt = timeRemainingSeconds
+    ? new Date(Date.now() + timeRemainingSeconds * 1000).toISOString()
+    : null;
+
+  return {
+    checkpointCount: projection.checkpointCount,
+    currentCheckpointIndex: projection.currentCheckpointIndex,
+    distanceAlongRoute: projection.distanceAlongRoute,
+    distanceFromRoute: projection.distanceFromRoute,
+    distanceRemaining,
+    etaAt,
+    isOffRoute: projection.isOffRoute,
+    progressPercent: projection.progressPercent,
+    snappedLocation: projection.snappedLocation,
+    speedMetersPerSecond,
+    timeRemainingSeconds,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 export function usePointToPointTracker({
   searchAnchor,
   trackedLocation,
@@ -130,6 +231,12 @@ export function usePointToPointTracker({
   const [trackerStartedAt, setTrackerStartedAt] = useState<string | null>(null);
   const [trackerZone, setTrackerZone] = useState<TrackerZone>('none');
   const [trackedVehicleId, setTrackedVehicleId] = useState<string | null>(null);
+  const [pausedTrackerState, setPausedTrackerState] = useState<{
+    startedAt: string | null;
+    status: Exclude<TrackerStatus, 'off' | 'paused'>;
+    trackedVehicleId: string | null;
+    zone: TrackerZone;
+  } | null>(null);
   const [tripLogs, setTripLogs] = useState<PointToPointTripRecord[]>([]);
   const [isLoadingTripLogs, setIsLoadingTripLogs] = useState(false);
   const [isSavingTripLog, setIsSavingTripLog] = useState(false);
@@ -141,15 +248,19 @@ export function usePointToPointTracker({
   const historyDateLabel = useMemo(() => formatServiceDateLabel(historyDate), [historyDate]);
   const trackerStatusLabel = isSavingTripLog
     ? 'Guardando vuelta'
+    : trackerStatus === 'off_route'
+      ? 'Fuera de ruta'
     : trackerStatus === 'in_progress'
       ? 'En recorrido'
-      : trackerStatus === 'waiting_start'
-        ? 'Esperando salida'
-        : 'Registro apagado';
+      : trackerStatus === 'paused'
+        ? 'Ruta pausada'
+        : trackerStatus === 'waiting_start'
+          ? 'Esperando salida'
+          : 'Registro apagado';
   const trackerStatusTone: 'info' | 'warning' | 'neutral' =
     isSavingTripLog || trackerStatus === 'in_progress'
       ? 'info'
-      : trackerStatus === 'waiting_start'
+      : trackerStatus === 'waiting_start' || trackerStatus === 'paused' || trackerStatus === 'off_route'
         ? 'warning'
         : 'neutral';
   const lastTrip = tripLogs[0] || null;
@@ -171,6 +282,21 @@ export function usePointToPointTracker({
 
     return distanceInMeters(trackedLocation, pointSelection.destination.location);
   }, [pointSelection.destination, trackedLocation]);
+  const routeProgress = useMemo(() => {
+    const route = pointPlan?.routes[0] || null;
+
+    if (!route) {
+      return null;
+    }
+
+    return buildRouteProgressSnapshot({
+      plannedDurationSeconds: route.durationInTrafficSeconds || route.durationSeconds || 0,
+      routeDistanceMeters: route.distanceMeters || 0,
+      routePolyline: route.polyline || [],
+      startedAt: trackerStartedAt,
+      trackedLocation,
+    });
+  }, [pointPlan, trackedLocation, trackerStartedAt]);
   const pointStopsSignature = useMemo(
     () => pointStops.map((stop) => `${stop.order}:${getPointKey(stop)}`).join('|'),
     [pointStops]
@@ -182,6 +308,7 @@ export function usePointToPointTracker({
     setTrackerStartedAt(null);
     setTrackerZone('none');
     setTrackedVehicleId(null);
+    setPausedTrackerState(null);
   };
 
   const resetPointToPointSession = () => {
@@ -204,6 +331,7 @@ export function usePointToPointTracker({
     setTrackerStartedAt(null);
     setTrackerZone('none');
     setTrackedVehicleId(null);
+    setPausedTrackerState(null);
   };
 
   const updateQuery = (role: PointRole, value: string) => {
@@ -324,6 +452,29 @@ export function usePointToPointTracker({
     setPointMessage('Parada eliminada. Recalculando ruta.');
   };
 
+  const moveStop = (stopId: string, direction: -1 | 1) => {
+    autoPlanStopsRef.current = true;
+    setPointStops((current) => {
+      const currentIndex = current.findIndex((stop) => stop.id === stopId);
+      const nextIndex = currentIndex + direction;
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const nextStops = [...current];
+      const [movedStop] = nextStops.splice(currentIndex, 1);
+      nextStops.splice(nextIndex, 0, movedStop);
+
+      return nextStops.map((stop, index) => ({
+        ...stop,
+        order: index,
+      }));
+    });
+    clearPlan();
+    setPointMessage('Orden de paradas actualizado. Recalculando ruta.');
+  };
+
   const useSelectedVehicleAsOrigin = () => {
     if (!selectedVehicle) {
       setPointMessage('Selecciona una unidad para usar su posicion como partida.');
@@ -393,6 +544,26 @@ export function usePointToPointTracker({
   }, [planPointToPointRoute, pointSelection.destination, pointSelection.origin, pointStopsSignature]);
 
   const toggleTracker = () => {
+    if (trackerStatus === 'paused' && pausedTrackerState) {
+      setTrackerStatus(pausedTrackerState.status);
+      setTrackerStartedAt(pausedTrackerState.startedAt);
+      setTrackerZone(pausedTrackerState.zone);
+      setTrackedVehicleId(pausedTrackerState.trackedVehicleId);
+      setPausedTrackerState(null);
+      setPointMessage('Seguimiento reanudado.');
+      return;
+    }
+
+    if (trackerStatus === 'paused') {
+      setTrackerStatus('off');
+      setTrackerStartedAt(null);
+      setTrackerZone('none');
+      setTrackedVehicleId(null);
+      setPausedTrackerState(null);
+      setPointMessage('Seguimiento detenido.');
+      return;
+    }
+
     if (trackerStatus === 'off') {
       const route = pointPlan?.routes[0] || null;
 
@@ -421,15 +592,19 @@ export function usePointToPointTracker({
       setTrackerStartedAt(null);
       setTrackerZone('none');
       setTrackedVehicleId(selectedVehicle.id);
+      setPausedTrackerState(null);
       setPointMessage('Registro activado. Esperando llegada al punto de salida.');
       return;
     }
 
-    setTrackerStatus('off');
-    setTrackerStartedAt(null);
-    setTrackerZone('none');
-    setTrackedVehicleId(null);
-    setPointMessage('Registro detenido.');
+    setPausedTrackerState({
+      startedAt: trackerStartedAt,
+      status: trackerStatus,
+      trackedVehicleId,
+      zone: trackerZone,
+    });
+    setTrackerStatus('paused');
+    setPointMessage('Seguimiento pausado. Puedes reanudarlo cuando la unidad continue.');
   };
 
   const resetTrackerLog = () => {
@@ -437,6 +612,7 @@ export function usePointToPointTracker({
     setTrackerZone('none');
     setTrackerStatus('off');
     setTrackedVehicleId(null);
+    setPausedTrackerState(null);
     setPointMessage('Registro reiniciado. El historial guardado sigue disponible.');
   };
 
@@ -522,7 +698,7 @@ export function usePointToPointTracker({
   }, [historyDate, selectedVehicle?.id]);
 
   useEffect(() => {
-    if (!trackedVehicleId || !selectedVehicle || trackerStatus === 'off') {
+    if (!trackedVehicleId || !selectedVehicle || trackerStatus === 'off' || trackerStatus === 'paused') {
       return;
     }
 
@@ -531,6 +707,7 @@ export function usePointToPointTracker({
       setTrackerStartedAt(null);
       setTrackerZone('none');
       setTrackedVehicleId(null);
+      setPausedTrackerState(null);
       setPointMessage('Se cambio la unidad activa. El registro se detuvo para evitar mezclar vueltas.');
     }
   }, [selectedVehicle, trackedVehicleId, trackerStatus]);
@@ -538,6 +715,7 @@ export function usePointToPointTracker({
   useEffect(() => {
     if (
       trackerStatus === 'off' ||
+      trackerStatus === 'paused' ||
       !trackedLocation ||
       !pointSelection.origin ||
       !pointSelection.destination ||
@@ -545,6 +723,17 @@ export function usePointToPointTracker({
       !selectedVehicle
     ) {
       return;
+    }
+
+    if (trackerStatus === 'in_progress' && routeProgress?.isOffRoute) {
+      setTrackerStatus('off_route');
+      setPointMessage('Alerta: unidad fuera de ruta.');
+      return;
+    }
+
+    if (trackerStatus === 'off_route' && routeProgress && !routeProgress.isOffRoute) {
+      setTrackerStatus('in_progress');
+      setPointMessage('Unidad de vuelta en la ruta.');
     }
 
     const transition = evaluateTrackerTransition({
@@ -610,6 +799,7 @@ export function usePointToPointTracker({
           setIsSavingTripLog(false);
           setTrackerStartedAt(null);
           setTrackerStatus('waiting_start');
+          setPausedTrackerState(null);
         });
     }
   }, [
@@ -617,6 +807,7 @@ export function usePointToPointTracker({
     pointSelection.destination,
     pointSelection.origin,
     pointStops,
+    routeProgress,
     selectedVehicle,
     trackedLocation,
     trackerStartedAt,
@@ -650,9 +841,11 @@ export function usePointToPointTracker({
     pointResults,
     pointSelection,
     pointStops,
+    moveStop,
     removeStop,
     resetPointToPointSession,
     resetTrackerLog,
+    routeProgress,
     searchPoint,
     selectPoint,
     setPointMessage,

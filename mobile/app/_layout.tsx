@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
+import { mobileLog } from '@/src/config/api_config';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
@@ -13,15 +14,26 @@ import { addPushResponseListener } from '@/src/utils/push-notifications';
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const { theme } = useAppTheme();
+  const isDevelopment = (globalThis as typeof globalThis & { __DEV__?: boolean }).__DEV__ ?? process.env.NODE_ENV !== 'production';
+  const errorName = error.name || 'Error';
+  const errorStack = error.stack || 'Stack no disponible';
 
   return (
     <View style={[styles.loader, { backgroundColor: theme.colors.background }]}>
       <Text style={[styles.errorTitle, { color: theme.colors.text }]}>
-        ManeComb necesita reiniciar esta vista.
+        {isDevelopment ? `${errorName} en la vista` : 'ManeComb necesita reiniciar esta vista.'}
       </Text>
       <Text style={[styles.errorText, { color: theme.colors.muted }]} numberOfLines={4}>
         {error.message || 'Ocurrio un error inesperado.'}
       </Text>
+      {isDevelopment ? (
+        <View style={[styles.debugPanel, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
+          <Text style={[styles.debugLabel, { color: theme.colors.muted }]}>Stack</Text>
+          <Text style={[styles.debugText, { color: theme.colors.text }]} selectable>
+            {errorStack}
+          </Text>
+        </View>
+      ) : null}
       <Text onPress={retry} style={[styles.retryText, { color: theme.colors.accent }]}>
         Reintentar
       </Text>
@@ -57,7 +69,9 @@ export default function RootLayout() {
   }, [hideSplash, isReady]);
 
   useEffect(() => {
-    initialize().catch(() => undefined);
+    initialize().catch((error) => {
+      mobileLog('boot', 'initialize failed', error);
+    });
   }, [initialize]);
 
   useEffect(() => {
@@ -181,5 +195,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     paddingVertical: 10,
+  },
+  debugPanel: {
+    width: '100%',
+    maxHeight: 260,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  debugLabel: {
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  debugText: {
+    fontFamily: Typography.mono,
+    fontSize: 11,
+    lineHeight: 16,
   },
 });

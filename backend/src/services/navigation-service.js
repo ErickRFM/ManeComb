@@ -1,5 +1,5 @@
 const {
-  GOOGLE_MAPS_API_KEY,
+  MAPBOX_ACCESS_TOKEN,
   MAP_GEOCODING_PROVIDER,
   MAP_HTTP_USER_AGENT,
   MAP_ROUTING_PROVIDER,
@@ -284,6 +284,21 @@ function buildAddressLabel(properties) {
 }
 
 function normalizeExternalPlace(entry, index, provider) {
+  if (provider === "mapbox") {
+    const [longitude, latitude] = entry.center || entry.geometry?.coordinates || [];
+    const label = entry.text || entry.place_name || "Destino";
+
+    return {
+      id: entry.id || `${provider}-${index}`,
+      label,
+      address: entry.place_name || label,
+      location: {
+        latitude: Number(latitude),
+        longitude: Number(longitude)
+      }
+    };
+  }
+
   if (provider === "photon") {
     const [longitude, latitude] = entry.geometry?.coordinates || [];
     const label = buildAddressLabel(entry.properties || {}) || "Destino";
@@ -316,6 +331,32 @@ function cleanPlaceResults(results) {
     Number.isFinite(result.location.latitude) &&
     Number.isFinite(result.location.longitude)
   ));
+}
+
+async function searchMapboxPlaces(query, origin) {
+  if (!MAPBOX_ACCESS_TOKEN) {
+    throw new Error("MAPBOX_ACCESS_TOKEN no configurado");
+  }
+
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+  );
+  url.searchParams.set("access_token", MAPBOX_ACCESS_TOKEN);
+  url.searchParams.set("country", "mx");
+  url.searchParams.set("language", "es");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("types", "address,poi,place,locality,neighborhood");
+
+  if (origin) {
+    url.searchParams.set("proximity", `${origin.longitude},${origin.latitude}`);
+  }
+
+  const payload = await fetchJson(url);
+
+  return {
+    provider: "mapbox",
+    results: cleanPlaceResults((payload.features || []).map((entry, index) => normalizeExternalPlace(entry, index, "mapbox")))
+  };
 }
 
 async function searchPhotonPlaces(query, origin) {
@@ -384,11 +425,34 @@ async function reverseNominatim(point) {
   return cleanPlaceResults([normalizeExternalPlace(payload, 0, "nominatim")])[0] || null;
 }
 
+async function reverseMapbox(point) {
+  if (!MAPBOX_ACCESS_TOKEN) {
+    throw new Error("MAPBOX_ACCESS_TOKEN no configurado");
+  }
+
+  const location = toPoint(point);
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${location.longitude},${location.latitude}.json`
+  );
+  url.searchParams.set("access_token", MAPBOX_ACCESS_TOKEN);
+  url.searchParams.set("country", "mx");
+  url.searchParams.set("language", "es");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("types", "address,poi,place,locality,neighborhood");
+
+  const payload = await fetchJson(url);
+  return cleanPlaceResults((payload.features || []).map((entry, index) => normalizeExternalPlace(entry, index, "mapbox")))[0] || null;
+}
+
 async function searchPlaces(query, origin, store) {
-  const providers =
+  const openProviders =
     MAP_GEOCODING_PROVIDER === "nominatim"
       ? [searchNominatimPlaces, searchPhotonPlaces]
       : [searchPhotonPlaces, searchNominatimPlaces];
+  const providers =
+    MAP_GEOCODING_PROVIDER === "mapbox"
+      ? [searchMapboxPlaces, ...openProviders]
+      : [...openProviders, searchMapboxPlaces];
 
   for (const provider of providers) {
     try {
@@ -402,65 +466,22 @@ async function searchPlaces(query, origin, store) {
     }
   }
 
-  if (!GOOGLE_MAPS_API_KEY) {
-    const liveLocations = store ? await store.getLiveLocations() : null;
-    return {
-      provider: "system",
-      results: buildFallbackPlaceResults(query, liveLocations, origin)
-    };
-  }
-
-  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-      "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location"
-    },
-    body: JSON.stringify({
-      textQuery: query,
-      languageCode: "es-MX",
-      regionCode: "MX",
-      pageSize: 5,
-      locationBias: {
-        circle: {
-          center: {
-            latitude: origin.latitude,
-            longitude: origin.longitude
-          },
-          radius: 25000
-        }
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Places API respondio ${response.status}: ${errorText}`);
-  }
-
-  const payload = await response.json();
-
+  const liveLocations = store ? await store.getLiveLocations() : null;
   return {
-    provider: "google",
-    results: (payload.places || []).map((place) => ({
-      id: place.id,
-      label: place.displayName?.text || place.formattedAddress || "Destino",
-      address: place.formattedAddress || "",
-      location: {
-        latitude: Number(place.location?.latitude),
-        longitude: Number(place.location?.longitude)
-      }
-    }))
+    provider: "system",
+    results: buildFallbackPlaceResults(query, liveLocations, origin)
   };
 }
 
 async function reverseGeocode(point) {
-  const providers =
+  const openProviders =
     MAP_GEOCODING_PROVIDER === "nominatim"
       ? [reverseNominatim, reversePhoton]
       : [reversePhoton, reverseNominatim];
+  const providers =
+    MAP_GEOCODING_PROVIDER === "mapbox"
+      ? [reverseMapbox, ...openProviders]
+      : [...openProviders, reverseMapbox];
 
   for (const provider of providers) {
     try {
@@ -468,7 +489,9 @@ async function reverseGeocode(point) {
 
       if (result) {
         return {
-          provider: result.id.startsWith("nominatim") ? "nominatim" : "photon",
+          provider: result.id.startsWith("mapbox") || result.id.startsWith("poi") || result.id.startsWith("address")
+            ? "mapbox"
+            : result.id.startsWith("nominatim") ? "nominatim" : "photon",
           result
         };
       }
@@ -566,12 +589,57 @@ async function planValhallaRoute(origin, destination, stops = []) {
   };
 }
 
+async function planMapboxRoute(origin, destination, stops = []) {
+  if (!MAPBOX_ACCESS_TOKEN) {
+    throw new Error("MAPBOX_ACCESS_TOKEN no configurado");
+  }
+
+  const routePoints = [toPoint(origin), ...normalizeStops(stops).map(toPoint), toPoint(destination)];
+  const coordinates = routePoints.map((point) => `${point.longitude},${point.latitude}`).join(";");
+  const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coordinates}`);
+  url.searchParams.set("access_token", MAPBOX_ACCESS_TOKEN);
+  url.searchParams.set("alternatives", "true");
+  url.searchParams.set("geometries", "geojson");
+  url.searchParams.set("language", "es");
+  url.searchParams.set("overview", "full");
+  url.searchParams.set("steps", "false");
+
+  const payload = await fetchJson(url);
+
+  return {
+    provider: "mapbox",
+    origin: toPoint(origin),
+    destination: toPoint(destination),
+    stops: normalizeStops(stops),
+    routes: (payload.routes || []).slice(0, 3).map((route, index) => {
+      const durationSeconds = Math.round(Number(route.duration_typical || route.duration || 0));
+      const durationInTrafficSeconds = Math.round(Number(route.duration || durationSeconds));
+
+      return {
+        label: index === 0 ? "Ruta recomendada" : `Alternativa ${index}`,
+        distanceMeters: Math.round(Number(route.distance || 0)),
+        durationSeconds,
+        durationInTrafficSeconds,
+        trafficLevel: buildTrafficLevel(durationSeconds, durationInTrafficSeconds),
+        polyline: (route.geometry?.coordinates || []).map(([longitude, latitude]) => ({
+          latitude: Number(latitude),
+          longitude: Number(longitude)
+        }))
+      };
+    })
+  };
+}
+
 async function planRoute(origin, destination, stops = []) {
   const normalizedStops = normalizeStops(stops);
-  const providers =
+  const openProviders =
     MAP_ROUTING_PROVIDER === "valhalla"
       ? [planValhallaRoute, planOsrmRoute]
       : [planOsrmRoute, planValhallaRoute];
+  const providers =
+    MAP_ROUTING_PROVIDER === "mapbox"
+      ? [planMapboxRoute, ...openProviders]
+      : [...openProviders, planMapboxRoute];
 
   for (const provider of providers) {
     try {
@@ -589,89 +657,15 @@ async function planRoute(origin, destination, stops = []) {
     }
   }
 
-  if (!GOOGLE_MAPS_API_KEY) {
-    return {
-      provider: "system",
-      origin: toPoint(origin),
-      destination: toPoint(destination),
-      stops: normalizedStops,
-      routes: [
-        buildFallbackRoute("Ruta recomendada", origin, destination, 1.1, 0.01, normalizedStops),
-        buildFallbackRoute("Alternativa por congestion", origin, destination, 1.22, -0.012, normalizedStops)
-      ]
-    };
-  }
-
-  const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-      "X-Goog-FieldMask":
-        "routes.distanceMeters,routes.duration,routes.staticDuration,routes.polyline.encodedPolyline,routes.routeLabels"
-    },
-    body: JSON.stringify({
-      origin: {
-        location: {
-          latLng: {
-            latitude: origin.latitude,
-            longitude: origin.longitude
-          }
-        }
-      },
-      destination: {
-        location: {
-          latLng: {
-            latitude: destination.latitude,
-            longitude: destination.longitude
-          }
-        }
-      },
-      intermediates: normalizedStops.map((stop) => ({
-        location: {
-          latLng: {
-            latitude: stop.latitude,
-            longitude: stop.longitude
-          }
-        }
-      })),
-      travelMode: "DRIVE",
-      routingPreference: "TRAFFIC_AWARE_OPTIMAL",
-      computeAlternativeRoutes: true,
-      polylineQuality: "HIGH_QUALITY",
-      polylineEncoding: "ENCODED_POLYLINE",
-      languageCode: "es-MX",
-      regionCode: "MX",
-      units: "METRIC",
-      departureTime: new Date().toISOString()
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Routes API respondio ${response.status}: ${errorText}`);
-  }
-
-  const payload = await response.json();
-
   return {
-    provider: "google",
+    provider: "system",
     origin: toPoint(origin),
     destination: toPoint(destination),
     stops: normalizedStops,
-    routes: (payload.routes || []).map((route, index) => {
-      const durationSeconds = parseDurationSeconds(route.staticDuration || route.duration);
-      const durationInTrafficSeconds = parseDurationSeconds(route.duration);
-
-      return {
-        label: index === 0 ? "Ruta recomendada" : `Alternativa ${index}`,
-        distanceMeters: Number(route.distanceMeters || 0),
-        durationSeconds,
-        durationInTrafficSeconds,
-        trafficLevel: buildTrafficLevel(durationSeconds, durationInTrafficSeconds),
-        polyline: decodePolyline(route.polyline?.encodedPolyline || "")
-      };
-    })
+    routes: [
+      buildFallbackRoute("Ruta recomendada", origin, destination, 1.1, 0.01, normalizedStops),
+      buildFallbackRoute("Alternativa por congestion", origin, destination, 1.22, -0.012, normalizedStops)
+    ]
   };
 }
 
