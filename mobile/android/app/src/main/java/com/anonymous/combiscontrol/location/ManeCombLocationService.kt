@@ -5,15 +5,23 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.anonymous.combiscontrol.MainActivity
@@ -21,6 +29,7 @@ import com.anonymous.combiscontrol.R
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.ArrayDeque
 import java.util.Calendar
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,31 +43,53 @@ class ManeCombLocationService : Service(), LocationListener {
   private var scheduleEndTime: String = ""
   private var activeDays: Set<Int> = emptySet()
   private var locationManager: LocationManager? = null
+  private var connectivityManager: ConnectivityManager? = null
+  private var networkCallback: ConnectivityManager.NetworkCallback? = null
   private var lastSentAt: Long = 0L
+  private var lastSentLocation: Location? = null
+  private val pendingLocations = ArrayDeque<JSONObject>()
+  private val queueLock = Object()
+  private var flushInProgress = false
+  private var retryScheduled = false
+  private var retryDelayMs = RETRY_BASE_MS
 
   override fun onCreate() {
     super.onCreate()
     locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     ensureNotificationChannel()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
+      clearServiceConfig()
       stopTracking()
       stopSelf()
       return START_NOT_STICKY
     }
 
-    apiUrl = intent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
-    token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty()
-    vehicleId = intent?.getStringExtra(EXTRA_VEHICLE_ID).orEmpty()
-    scheduleEnabled = intent?.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true) ?: true
-    scheduleStartTime = intent?.getStringExtra(EXTRA_SCHEDULE_START).orEmpty()
-    scheduleEndTime = intent?.getStringExtra(EXTRA_SCHEDULE_END).orEmpty()
-    activeDays = parseActiveDays(intent?.getStringExtra(EXTRA_ACTIVE_DAYS).orEmpty())
+    val startIntent = intent ?: buildIntentFromPrefs(this)
+    apiUrl = startIntent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
+    token = startIntent?.getStringExtra(EXTRA_TOKEN).orEmpty()
+    vehicleId = startIntent?.getStringExtra(EXTRA_VEHICLE_ID).orEmpty()
+    scheduleEnabled = startIntent?.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true) ?: true
+    scheduleStartTime = startIntent?.getStringExtra(EXTRA_SCHEDULE_START).orEmpty()
+    scheduleEndTime = startIntent?.getStringExtra(EXTRA_SCHEDULE_END).orEmpty()
+    activeDays = parseActiveDays(startIntent?.getStringExtra(EXTRA_ACTIVE_DAYS).orEmpty())
 
+    if (apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank()) {
+      Log.w(TAG, "Cannot start background GPS without apiUrl, token and vehicleId.")
+      clearServiceConfig()
+      stopSelf()
+      return START_NOT_STICKY
+    }
+
+    startIntent?.let { persistServiceConfig(it) }
+    loadPendingLocations()
     startForeground(NOTIFICATION_ID, buildNotification())
+    registerNetworkCallback()
     startTracking()
+    flushPendingLocations()
     return START_STICKY
   }
 
@@ -66,17 +97,28 @@ class ManeCombLocationService : Service(), LocationListener {
 
   override fun onDestroy() {
     stopTracking()
+    unregisterNetworkCallback()
     super.onDestroy()
   }
 
   override fun onLocationChanged(location: Location) {
     val now = System.currentTimeMillis()
-    if (now - lastSentAt < 5000L || !isWithinSchedule()) {
+    val distanceFromLast = lastSentLocation?.distanceTo(location) ?: Float.MAX_VALUE
+
+    if (
+      now - lastSentAt < LOCATION_INTERVAL_MS &&
+      distanceFromLast < LOCATION_DISTANCE_METERS
+    ) {
+      return
+    }
+
+    if (!isWithinSchedule()) {
       return
     }
 
     lastSentAt = now
-    sendLocation(location)
+    lastSentLocation = Location(location)
+    enqueueLocation(location)
   }
 
   @Deprecated("Deprecated in Android SDK")
@@ -94,59 +136,235 @@ class ManeCombLocationService : Service(), LocationListener {
     val manager = locationManager ?: return
     try {
       manager.removeUpdates(this)
-      manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000L, 0f, this)
-      manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 0f, this)
-    } catch (_: SecurityException) {
+      manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+      manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+    } catch (error: SecurityException) {
+      Log.w(TAG, "Location permission changed while starting service.", error)
       stopSelf()
-    } catch (_: IllegalArgumentException) {
-      // Provider can be missing on some devices.
+    } catch (error: IllegalArgumentException) {
+      Log.w(TAG, "Location provider unavailable on this device.", error)
     }
   }
 
   private fun stopTracking() {
     try {
       locationManager?.removeUpdates(this)
-    } catch (_: SecurityException) {
-      // Ignore permission changes while stopping.
+    } catch (error: SecurityException) {
+      Log.w(TAG, "Location permission changed while stopping service.", error)
     }
   }
 
-  private fun sendLocation(location: Location) {
+  private fun enqueueLocation(location: Location) {
     val safeApiUrl = apiUrl
     val safeToken = token
     val safeVehicleId = vehicleId
 
+    if (safeApiUrl.isBlank() || safeToken.isBlank() || safeVehicleId.isBlank()) {
+      return
+    }
+
+    val body = JSONObject()
+      .put("vehicleId", safeVehicleId)
+      .put(
+        "coordinates",
+        JSONObject()
+          .put("latitude", location.latitude)
+          .put("longitude", location.longitude)
+          .put("accuracy", if (location.hasAccuracy()) location.accuracy else JSONObject.NULL)
+          .put("heading", if (location.hasBearing()) location.bearing else JSONObject.NULL)
+          .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
+      )
+      .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
+      .put("timestamp", System.currentTimeMillis())
+
+    synchronized(queueLock) {
+      while (pendingLocations.size >= MAX_PENDING_LOCATIONS) {
+        pendingLocations.removeFirst()
+      }
+      pendingLocations.addLast(body)
+      savePendingLocationsLocked()
+    }
+
+    flushPendingLocations()
+  }
+
+  private fun flushPendingLocations() {
+    synchronized(queueLock) {
+      if (flushInProgress) {
+        return
+      }
+      flushInProgress = true
+    }
+
     Thread {
       try {
-        val body = JSONObject()
-          .put("vehicleId", safeVehicleId)
-          .put(
-            "coordinates",
-            JSONObject()
-              .put("latitude", location.latitude)
-              .put("longitude", location.longitude)
-              .put("accuracy", if (location.hasAccuracy()) location.accuracy else JSONObject.NULL)
-              .put("heading", if (location.hasBearing()) location.bearing else JSONObject.NULL)
-              .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
-          )
-          .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
+        while (true) {
+          val next = synchronized(queueLock) { pendingLocations.peekFirst() } ?: break
 
-        val connection = URL("$safeApiUrl/locations/update").openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.connectTimeout = 10000
-        connection.readTimeout = 10000
-        connection.doOutput = true
-        connection.setRequestProperty("Authorization", "Bearer $safeToken")
-        connection.setRequestProperty("Content-Type", "application/json")
-        OutputStreamWriter(connection.outputStream).use { writer ->
-          writer.write(body.toString())
+          if (!postLocation(next)) {
+            scheduleRetry()
+            break
+          }
+
+          synchronized(queueLock) {
+            pendingLocations.removeFirst()
+            savePendingLocationsLocked()
+          }
+          retryDelayMs = RETRY_BASE_MS
         }
-        connection.inputStream.close()
-        connection.disconnect()
-      } catch (_: Exception) {
-        // Network retry is handled by the JS foreground path when the app is active.
+      } finally {
+        synchronized(queueLock) {
+          flushInProgress = false
+        }
       }
     }.start()
+  }
+
+  private fun postLocation(body: JSONObject): Boolean {
+    val safeApiUrl = apiUrl
+    val safeToken = token
+    var connection: HttpURLConnection? = null
+    val wakeLock = acquireUploadWakeLock()
+
+    return try {
+      connection = URL("$safeApiUrl/locations/update").openConnection() as HttpURLConnection
+      connection.requestMethod = "POST"
+      connection.connectTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.readTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.doOutput = true
+      connection.setRequestProperty("Authorization", "Bearer $safeToken")
+      connection.setRequestProperty("Content-Type", "application/json")
+      OutputStreamWriter(connection.outputStream).use { writer ->
+        writer.write(body.toString())
+      }
+
+      val responseCode = connection.responseCode
+      closeConnectionBody(connection)
+
+      when {
+        responseCode in 200..299 -> true
+        responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
+          responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
+          Log.w(TAG, "Stopping background GPS after auth failure HTTP $responseCode.")
+          clearServiceConfig()
+          stopSelf()
+          true
+        }
+        else -> {
+          Log.w(TAG, "Background GPS upload failed HTTP $responseCode; queued for retry.")
+          false
+        }
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Background GPS upload failed; queued for retry.", error)
+      false
+    } finally {
+      connection?.disconnect()
+      releaseUploadWakeLock(wakeLock)
+    }
+  }
+
+  private fun acquireUploadWakeLock(): PowerManager.WakeLock? =
+    try {
+      val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+      powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+        setReferenceCounted(false)
+        acquire(WAKE_LOCK_TIMEOUT_MS)
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not acquire upload wake lock.", error)
+      null
+    }
+
+  private fun releaseUploadWakeLock(wakeLock: PowerManager.WakeLock?) {
+    try {
+      if (wakeLock?.isHeld == true) {
+        wakeLock.release()
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not release upload wake lock.", error)
+    }
+  }
+
+  private fun closeConnectionBody(connection: HttpURLConnection) {
+    try {
+      connection.inputStream?.close()
+    } catch (_: Exception) {
+      try {
+        connection.errorStream?.close()
+      } catch (_: Exception) {
+        // Nothing else to close.
+      }
+    }
+  }
+
+  private fun scheduleRetry() {
+    synchronized(queueLock) {
+      if (retryScheduled || pendingLocations.isEmpty()) {
+        return
+      }
+      retryScheduled = true
+    }
+
+    val delay = retryDelayMs
+    retryDelayMs = (retryDelayMs * 2).coerceAtMost(RETRY_MAX_MS)
+
+    Thread {
+      try {
+        Thread.sleep(delay)
+      } catch (error: InterruptedException) {
+        Thread.currentThread().interrupt()
+        Log.w(TAG, "Background GPS retry interrupted.", error)
+      }
+
+      synchronized(queueLock) {
+        retryScheduled = false
+      }
+      flushPendingLocations()
+    }.start()
+  }
+
+  private fun registerNetworkCallback() {
+    if (networkCallback != null) {
+      return
+    }
+
+    val callback = object : ConnectivityManager.NetworkCallback() {
+      override fun onAvailable(network: Network) {
+        Log.i(TAG, "Network available; flushing pending GPS queue.")
+        flushPendingLocations()
+      }
+
+      override fun onLost(network: Network) {
+        Log.w(TAG, "Network lost while background GPS is active.")
+      }
+    }
+
+    try {
+      val manager = connectivityManager ?: return
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        manager.registerDefaultNetworkCallback(callback)
+      } else {
+        val request = NetworkRequest.Builder()
+          .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+          .build()
+        manager.registerNetworkCallback(request, callback)
+      }
+      networkCallback = callback
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not register network callback.", error)
+    }
+  }
+
+  private fun unregisterNetworkCallback() {
+    val callback = networkCallback ?: return
+    try {
+      connectivityManager?.unregisterNetworkCallback(callback)
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not unregister network callback.", error)
+    } finally {
+      networkCallback = null
+    }
   }
 
   private fun hasLocationPermission(): Boolean {
@@ -205,6 +423,65 @@ class ManeCombLocationService : Service(), LocationListener {
     }
   }
 
+  private fun prefs(): SharedPreferences =
+    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+  private fun persistServiceConfig(intent: Intent) {
+    prefs()
+      .edit()
+      .putBoolean(KEY_SERVICE_ENABLED, true)
+      .putString(KEY_API_URL, intent.getStringExtra(EXTRA_API_URL).orEmpty())
+      .putString(KEY_TOKEN, intent.getStringExtra(EXTRA_TOKEN).orEmpty())
+      .putString(KEY_VEHICLE_ID, intent.getStringExtra(EXTRA_VEHICLE_ID).orEmpty())
+      .putBoolean(KEY_SCHEDULE_ENABLED, intent.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true))
+      .putString(KEY_SCHEDULE_START, intent.getStringExtra(EXTRA_SCHEDULE_START).orEmpty())
+      .putString(KEY_SCHEDULE_END, intent.getStringExtra(EXTRA_SCHEDULE_END).orEmpty())
+      .putString(KEY_ACTIVE_DAYS, intent.getStringExtra(EXTRA_ACTIVE_DAYS).orEmpty())
+      .apply()
+  }
+
+  private fun clearServiceConfig() {
+    prefs()
+      .edit()
+      .putBoolean(KEY_SERVICE_ENABLED, false)
+      .remove(KEY_API_URL)
+      .remove(KEY_TOKEN)
+      .remove(KEY_VEHICLE_ID)
+      .remove(KEY_SCHEDULE_ENABLED)
+      .remove(KEY_SCHEDULE_START)
+      .remove(KEY_SCHEDULE_END)
+      .remove(KEY_ACTIVE_DAYS)
+      .remove(KEY_PENDING_LOCATIONS)
+      .apply()
+  }
+
+  private fun loadPendingLocations() {
+    val rawQueue = prefs().getString(KEY_PENDING_LOCATIONS, "").orEmpty()
+    if (rawQueue.isBlank()) {
+      return
+    }
+
+    try {
+      val entries = JSONArray(rawQueue)
+      synchronized(queueLock) {
+        pendingLocations.clear()
+        for (index in 0 until entries.length()) {
+          val entry = entries.optJSONObject(index) ?: continue
+          pendingLocations.addLast(entry)
+        }
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not restore pending GPS queue.", error)
+      prefs().edit().remove(KEY_PENDING_LOCATIONS).apply()
+    }
+  }
+
+  private fun savePendingLocationsLocked() {
+    val entries = JSONArray()
+    pendingLocations.forEach { entries.put(it) }
+    prefs().edit().putString(KEY_PENDING_LOCATIONS, entries.toString()).apply()
+  }
+
   private fun ensureNotificationChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
       return
@@ -238,6 +515,7 @@ class ManeCombLocationService : Service(), LocationListener {
 
   companion object {
     const val ACTION_STOP = "com.anonymous.combiscontrol.location.STOP"
+    const val ACTION_RESTORE = "com.anonymous.combiscontrol.location.RESTORE"
     const val EXTRA_API_URL = "apiUrl"
     const val EXTRA_TOKEN = "token"
     const val EXTRA_VEHICLE_ID = "vehicleId"
@@ -247,5 +525,65 @@ class ManeCombLocationService : Service(), LocationListener {
     const val EXTRA_ACTIVE_DAYS = "activeDays"
     private const val CHANNEL_ID = "manecomb-location"
     private const val NOTIFICATION_ID = 4107
+    private const val TAG = "ManeCombLocation"
+    private const val WAKE_LOCK_TAG = "ManeComb:LocationUpload"
+    private const val HTTP_TIMEOUT_MS = 10000L
+    private const val WAKE_LOCK_TIMEOUT_MS = 15000L
+    private const val LOCATION_INTERVAL_MS = 5000L
+    private const val LOCATION_DISTANCE_METERS = 20f
+    private const val MAX_PENDING_LOCATIONS = 120
+    private const val RETRY_BASE_MS = 5000L
+    private const val RETRY_MAX_MS = 60000L
+    private const val PREFS_NAME = "manecomb-location-service"
+    private const val KEY_SERVICE_ENABLED = "serviceEnabled"
+    private const val KEY_API_URL = "apiUrl"
+    private const val KEY_TOKEN = "token"
+    private const val KEY_VEHICLE_ID = "vehicleId"
+    private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
+    private const val KEY_SCHEDULE_START = "scheduleStart"
+    private const val KEY_SCHEDULE_END = "scheduleEnd"
+    private const val KEY_ACTIVE_DAYS = "activeDays"
+    private const val KEY_PENDING_LOCATIONS = "pendingLocations"
+
+    fun buildIntentFromPrefs(context: Context): Intent? {
+      val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      if (!prefs.getBoolean(KEY_SERVICE_ENABLED, false)) {
+        return null
+      }
+
+      val apiUrl = prefs.getString(KEY_API_URL, "").orEmpty()
+      val token = prefs.getString(KEY_TOKEN, "").orEmpty()
+      val vehicleId = prefs.getString(KEY_VEHICLE_ID, "").orEmpty()
+      if (apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank()) {
+        return null
+      }
+
+      return Intent().apply {
+        component = ComponentName(context, ManeCombLocationService::class.java)
+        action = ACTION_RESTORE
+        putExtra(EXTRA_API_URL, apiUrl)
+        putExtra(EXTRA_TOKEN, token)
+        putExtra(EXTRA_VEHICLE_ID, vehicleId)
+        putExtra(EXTRA_SCHEDULE_ENABLED, prefs.getBoolean(KEY_SCHEDULE_ENABLED, true))
+        putExtra(EXTRA_SCHEDULE_START, prefs.getString(KEY_SCHEDULE_START, "").orEmpty())
+        putExtra(EXTRA_SCHEDULE_END, prefs.getString(KEY_SCHEDULE_END, "").orEmpty())
+        putExtra(EXTRA_ACTIVE_DAYS, prefs.getString(KEY_ACTIVE_DAYS, "").orEmpty())
+      }
+    }
+
+    fun startFromPersistedConfig(context: Context): Boolean {
+      val intent = buildIntentFromPrefs(context) ?: return false
+      return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+        true
+      } catch (error: Exception) {
+        Log.w(TAG, "Could not restore background GPS service.", error)
+        false
+      }
+    }
   }
 }

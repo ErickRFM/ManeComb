@@ -8,6 +8,10 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { mobileLog } from '@/src/config/api_config';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import {
+  startBackgroundLocationServiceAsync,
+  stopBackgroundLocationServiceAsync,
+} from '@/src/native/background-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
@@ -45,12 +49,15 @@ export default function RootLayout() {
   const router = useRouter();
   const { navigationTheme, theme } = useAppTheme();
   const splashHiddenRef = useRef(false);
-  const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(useShallow((state) => ({
+  const backgroundLocationKeyRef = useRef<string | null>(null);
+  const { apiUrl, authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, token, user } = useAppStore(useShallow((state) => ({
+    apiUrl: state.apiUrl,
     authContext: state.authContext,
     handlePushIntent: state.handlePushIntent,
     initialize: state.initialize,
     isHydrated: state.isHydrated,
     isBootstrapping: state.isBootstrapping,
+    token: state.token,
     user: state.user,
   })));
 
@@ -113,6 +120,45 @@ export default function RootLayout() {
       router.push((home === '/mapa' ? '/perfil' : home) as never);
     });
   }, [authContext, handlePushIntent, router, user]);
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    const vehicleId = user?.vehicleId || '';
+    const schedule = user?.operationalSchedule || null;
+    const serviceToken = token || '';
+    const nextKey =
+      apiUrl && serviceToken && vehicleId
+        ? `${apiUrl}:${serviceToken}:${vehicleId}:${JSON.stringify(schedule || {})}`
+        : null;
+
+    if (!nextKey) {
+      if (backgroundLocationKeyRef.current) {
+        backgroundLocationKeyRef.current = null;
+        stopBackgroundLocationServiceAsync().catch((error) => {
+          mobileLog('location-service', 'stop failed', error);
+        });
+      }
+      return;
+    }
+
+    if (backgroundLocationKeyRef.current === nextKey) {
+      return;
+    }
+
+    backgroundLocationKeyRef.current = nextKey;
+    startBackgroundLocationServiceAsync({
+      apiUrl,
+      schedule,
+      token: serviceToken,
+      vehicleId,
+    }).catch((error) => {
+      mobileLog('location-service', 'start failed', error);
+      backgroundLocationKeyRef.current = null;
+    });
+  }, [apiUrl, isReady, token, user?.operationalSchedule, user?.vehicleId]);
 
   return (
     <GestureHandlerRootView

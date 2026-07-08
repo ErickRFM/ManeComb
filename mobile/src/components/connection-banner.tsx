@@ -4,29 +4,37 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
+import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
 
 export function ConnectionBanner() {
   const { theme } = useAppTheme();
-  const { networkStatus, pendingSyncCount, socketStatus } = useAppStore(
+  const { networkStatus, pendingSyncCount, socketStatus, user } = useAppStore(
     useShallow((state) => ({
       networkStatus: state.networkStatus,
       pendingSyncCount: state.pendingSyncCount,
       socketStatus: state.socketStatus,
+      user: state.user,
     }))
   );
 
-  const offline = networkStatus === 'offline';
-  const recovering = networkStatus === 'recovering' || socketStatus === 'reconnecting';
+  const realtime = getRealtimeSnapshot({
+    hasUser: Boolean(user),
+    networkStatus,
+    pendingSyncCount,
+    socketStatus,
+  });
+  const offline = realtime.state === 'DISCONNECTED';
+  const visibleStates = new Set(['CONNECTING', 'AUTHENTICATING', 'RECONNECTING', 'ERROR']);
 
-  if (!offline && !recovering && pendingSyncCount === 0) {
+  if (!offline && !visibleStates.has(realtime.state) && pendingSyncCount === 0) {
     return null;
   }
 
   const label = offline
-    ? 'Sin conexion. Operando con datos guardados.'
+    ? realtime.detail
     : pendingSyncCount > 0
       ? 'Sincronizando pendientes...'
-      : 'Reconectando servicios en tiempo real...';
+      : realtime.detail;
 
   return (
     <View

@@ -173,8 +173,10 @@ export function RadioScreen() {
     loadChatContacts,
     loadConversation,
     messagesByConversation,
+    networkStatus,
     openDirectConversation,
     openGeneralConversation,
+    pendingSyncCount,
     sendVoiceMessage,
     socketStatus,
     token,
@@ -188,8 +190,10 @@ export function RadioScreen() {
       loadChatContacts: state.loadChatContacts,
       loadConversation: state.loadConversation,
       messagesByConversation: state.messagesByConversation,
+      networkStatus: state.networkStatus,
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
+      pendingSyncCount: state.pendingSyncCount,
       sendVoiceMessage: state.sendVoiceMessage,
       socketStatus: state.socketStatus,
       token: state.token,
@@ -228,6 +232,7 @@ export function RadioScreen() {
   const pttBusyRef = useRef(false);
   const pendingStopAfterStartRef = useRef(false);
   const idleStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPttBlockReasonRef = useRef<string | null>(null);
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
@@ -380,16 +385,86 @@ export function RadioScreen() {
     (typeof globalThis !== 'undefined' &&
       Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
       typeof (globalThis as any).MediaRecorder !== 'undefined');
+  const isRadioTransmitting = recordingState === 'recording' || recordingState === 'uploading';
+  const isRadioReceiving = Boolean(playingMessageId);
   const radioConnection = useMemo(
-    () => getRadioConnectionStatus(socketStatus),
-    [socketStatus]
+    () =>
+      getRadioConnectionStatus(socketStatus, {
+        hasUser: Boolean(user),
+        isReceiving: isRadioReceiving,
+        isTransmitting: isRadioTransmitting,
+        networkStatus,
+        pendingSyncCount,
+        radioChannelReady: Boolean(activeChannel),
+      }),
+    [
+      activeChannel,
+      isRadioReceiving,
+      isRadioTransmitting,
+      networkStatus,
+      pendingSyncCount,
+      socketStatus,
+      user,
+    ]
   );
   const isBusy = isSubmitting || recordingState === 'uploading';
+  const pttBlockReason = !supportsTapToTalk
+    ? 'Audio API no disponible'
+    : isBusy
+      ? 'Transmision en curso'
+      : !activeChannel
+        ? 'Sin canal activo'
+        : isRadioReceiving
+          ? 'Recibiendo audio'
+          : !radioConnection.canTransmit
+            ? radioConnection.detail
+            : null;
   const isPttDisabled =
     !supportsTapToTalk ||
     isBusy ||
     !activeChannel ||
+    isRadioReceiving ||
     (!radioConnection.canTransmit && recordingState !== 'recording');
+
+  useEffect(() => {
+    const nextReason = isPttDisabled ? pttBlockReason || 'Bloqueado' : null;
+    if (lastPttBlockReasonRef.current === nextReason) {
+      return;
+    }
+
+    lastPttBlockReasonRef.current = nextReason;
+    if (nextReason) {
+      console.info('[radio:ptt] disabled', {
+        activeChannel: Boolean(activeChannel),
+        canTransmit: radioConnection.canTransmit,
+        networkStatus,
+        permission: audioPermissionState,
+        reason: nextReason,
+        receiving: isRadioReceiving,
+        recordingState,
+        socketStatus,
+        state: radioConnection.state,
+        submitting: isSubmitting,
+      });
+    } else {
+      console.info('[radio:ptt] enabled', {
+        activeChannel: Boolean(activeChannel),
+        socketStatus,
+        state: radioConnection.state,
+      });
+    }
+  }, [
+    activeChannel,
+    audioPermissionState,
+    isPttDisabled,
+    isRadioReceiving,
+    isSubmitting,
+    networkStatus,
+    pttBlockReason,
+    radioConnection,
+    recordingState,
+    socketStatus,
+  ]);
 
   const pttAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseValue.value }],
@@ -1147,14 +1222,9 @@ export function RadioScreen() {
       : audioPermissionState === 'granted'
         ? theme.colors.success
         : theme.colors.muted;
-  const radioVisualState =
-    recordingState === 'recording' || recordingState === 'uploading'
-      ? 'transmitting'
-      : playingMessageId
-        ? 'receiving'
-        : 'idle';
+  const radioVisualState = isRadioTransmitting ? 'transmitting' : isRadioReceiving ? 'receiving' : 'idle';
   const liveStatus =
-    !radioConnection.canTransmit && recordingState === 'idle' && !playingMessageId
+    !radioConnection.canTransmit && recordingState === 'idle' && !isRadioReceiving
       ? radioConnection.label.toUpperCase()
       : recordingState === 'uploading'
         ? 'ENVIANDO'
@@ -1170,7 +1240,7 @@ export function RadioScreen() {
                   : 'RECIBIENDO AUDIO'
                 : 'EN ESPERA';
   const liveStatusTone =
-    !radioConnection.canTransmit && recordingState === 'idle' && !playingMessageId
+    !radioConnection.canTransmit && recordingState === 'idle' && !isRadioReceiving
       ? radioConnection.tone
       : recordingState === 'uploading' || recordingState === 'sent'
       ? 'info'

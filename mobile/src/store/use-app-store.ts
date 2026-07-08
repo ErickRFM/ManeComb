@@ -102,6 +102,7 @@ import {
   showInAppNotification,
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
+import { normalizeDashboardData, normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -110,7 +111,9 @@ const THEME_KEY = 'combis-theme-mode';
 const PUSH_TOKEN_KEY = 'combis-push-token';
 const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
 const STORAGE_TIMEOUT_MS = 1200;
-const SOCKET_HEARTBEAT_MS = 45000;
+const SOCKET_HEARTBEAT_MS = 20000;
+const SOCKET_ACK_TIMEOUT_MS = 8000;
+const SOCKET_MISSED_HEARTBEAT_LIMIT = 3;
 const API_HEALTHCHECK_MS = 30000;
 const PLAN_REQUIRED_MESSAGE =
   'Necesitas un plan activo para acceder al panel operativo.';
@@ -123,6 +126,8 @@ let networkUnsubscribe: (() => void) | null = null;
 let appStateSubscription: { remove: () => void } | null = null;
 let pendingSyncInFlight = false;
 let recoveryConfigured = false;
+let missedHeartbeatAcks = 0;
+let socketReconnectAttempts = 0;
 
 type ActionResult = {
   ok: boolean;
@@ -132,6 +137,24 @@ type ActionResult = {
 type NetworkStatus = 'unknown' | 'online' | 'offline' | 'recovering';
 type SocketStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
+type SocketHeartbeatAck = {
+  ok?: boolean;
+  packetId?: string;
+  serverTime?: string;
+  socketId?: string;
+  error?: string;
+};
+
+type RealtimeDiagnostics = {
+  heartbeatLatencyMs: number | null;
+  lastPingAt: string | null;
+  lastPongAt: string | null;
+  lastSocketTransitionAt: string | null;
+  missedHeartbeatAcks: number;
+  reconnectAttempts: number;
+  reason: string | null;
+};
+
 type AppState = {
   apiUrl: string;
   token: string | null;
@@ -139,6 +162,7 @@ type AppState = {
   connectionMode: ConnectionMode;
   networkStatus: NetworkStatus;
   socketStatus: SocketStatus;
+  realtimeDiagnostics: RealtimeDiagnostics;
   networkSnapshot: MobileNetworkSnapshot | null;
   pendingSyncCount: number;
   lastSyncedAt: string | null;
@@ -383,8 +407,8 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
   return {
     authContext: state.authContext,
     user: state.user,
-    dashboard: state.dashboard,
-    mapData: state.mapData,
+    dashboard: normalizeDashboardData(state.dashboard),
+    mapData: normalizeLiveLocationsData(state.mapData),
     incidents: state.incidents,
     conversations: state.conversations,
     chatContacts: state.chatContacts,
@@ -404,8 +428,8 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
   return {
     authContext: snapshot.authContext || null,
     user: snapshot.user,
-    dashboard: snapshot.dashboard,
-    mapData: snapshot.mapData,
+    dashboard: normalizeDashboardData(snapshot.dashboard),
+    mapData: normalizeLiveLocationsData(snapshot.mapData),
     incidents: snapshot.incidents || [],
     conversations: sortConversations(snapshot.conversations || []),
     chatContacts: snapshot.chatContacts || [],
@@ -491,7 +515,7 @@ async function refreshAuthSession(set: StoreSet) {
 
   set({
     authContext,
-    dashboard: session.dashboard,
+    dashboard: normalizeDashboardData(session.dashboard),
     documents: session.profile.documents,
     user: session.profile.user,
   });
@@ -523,7 +547,7 @@ async function replaceSessionFromBackend(
   set({
     ...getEmptyOperationalState(),
     authContext,
-    dashboard: session.dashboard,
+    dashboard: normalizeDashboardData(session.dashboard),
     documents: session.profile.documents,
     networkStatus: 'online',
     refreshToken: refreshToken || null,
@@ -612,7 +636,47 @@ function disconnectSocket() {
   }
 
   socketSessionKey = null;
-  useAppStore.setState({ socketStatus: 'disconnected' });
+  missedHeartbeatAcks = 0;
+  useAppStore.setState((state) => ({
+    socketStatus: 'disconnected',
+    realtimeDiagnostics: {
+      ...state.realtimeDiagnostics,
+      lastSocketTransitionAt: new Date().toISOString(),
+      missedHeartbeatAcks: 0,
+      reason: 'socket_disconnected',
+    },
+  }));
+}
+
+function createRealtimePacketId(scope: string) {
+  return `${scope}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function setSocketTransition(
+  set: StoreSet,
+  status: SocketStatus,
+  reason: string,
+  extra: Partial<RealtimeDiagnostics> = {}
+) {
+  set((state) => {
+    if (state.socketStatus !== status || state.realtimeDiagnostics.reason !== reason) {
+      mobileLog('realtime', 'socket transition', {
+        from: state.socketStatus,
+        reason,
+        to: status,
+      });
+    }
+
+    return {
+      socketStatus: status,
+      realtimeDiagnostics: {
+        ...state.realtimeDiagnostics,
+        ...extra,
+        lastSocketTransitionAt: new Date().toISOString(),
+        reason,
+      },
+    };
+  });
 }
 
 function connectSocket(set: StoreSet, get: () => AppState) {
@@ -623,14 +687,17 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   if (socket && socketSessionKey === nextSessionKey) {
     if (!socket.connected) {
       socket.connect();
-      set({ socketStatus: 'connecting' });
+      setSocketTransition(set, 'connecting', 'socket_reconnect_requested');
     }
     return;
   }
 
   disconnectSocket();
   socketSessionKey = nextSessionKey;
-  set({ socketStatus: 'connecting' });
+  missedHeartbeatAcks = 0;
+  setSocketTransition(set, 'connecting', 'socket_connect_requested', {
+    missedHeartbeatAcks: 0,
+  });
 
   socket = io(SOCKET_URL, {
     auth: token ? { token } : undefined,
@@ -653,35 +720,141 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     get().conversations.forEach((c) => activeSocket.emit('conversation:join', c.id));
   };
 
-  socket.on('connect', () => {
-    set({ socketStatus: 'connected', networkStatus: 'online' });
-    mobileLog('socket', `connected ${socket?.id || ''}`);
-    socket?.emit('presence:join', {
-      userId: user.id,
-      role: user.role,
-      organizationId: user.organizationId,
-      accountType: user.accountType,
+  const emitPresence = () => {
+    const current = get();
+    if (!socket?.connected || !current.user) {
+      return;
+    }
+
+    socket.emit('presence:join', {
+      userId: current.user.id,
+      role: current.user.role,
+      organizationId: current.user.organizationId,
+      accountType: current.user.accountType,
     });
+  };
+
+  const emitHeartbeat = () => {
+    const current = get();
+    if (!socket?.connected || !current.user) {
+      return;
+    }
+
+    const packetId = createRealtimePacketId('heartbeat');
+    const sentAt = Date.now();
+
+    socket.timeout(SOCKET_ACK_TIMEOUT_MS).emit(
+      'client:heartbeat',
+      {
+        accountType: current.user.accountType,
+        organizationId: current.user.organizationId,
+        packetId,
+        role: current.user.role,
+        sentAt: new Date(sentAt).toISOString(),
+        userId: current.user.id,
+      },
+      (error: unknown, ack?: SocketHeartbeatAck) => {
+        if (error || ack?.ok === false) {
+          missedHeartbeatAcks += 1;
+          const reason =
+            error instanceof Error
+              ? error.message
+              : ack?.error || 'heartbeat_ack_timeout';
+          mobileLog('socket', 'heartbeat ack failed', {
+            ms: Date.now() - sentAt,
+            missedHeartbeatAcks,
+            packetId,
+            reason,
+          });
+
+          set((state) => ({
+            networkStatus: socket?.connected ? 'online' : 'recovering',
+            socketStatus:
+              socket?.connected && missedHeartbeatAcks < SOCKET_MISSED_HEARTBEAT_LIMIT
+                ? 'connected'
+                : 'reconnecting',
+            realtimeDiagnostics: {
+              ...state.realtimeDiagnostics,
+              heartbeatLatencyMs: null,
+              lastPingAt: new Date(sentAt).toISOString(),
+              missedHeartbeatAcks,
+              reason:
+                missedHeartbeatAcks < SOCKET_MISSED_HEARTBEAT_LIMIT
+                  ? 'heartbeat_ack_missed_socket_alive'
+                  : 'heartbeat_ack_limit_reached',
+            },
+          }));
+
+          if (missedHeartbeatAcks >= SOCKET_MISSED_HEARTBEAT_LIMIT) {
+            socketReconnectAttempts += 1;
+            setSocketTransition(set, 'reconnecting', 'heartbeat_ack_limit_reached', {
+              reconnectAttempts: socketReconnectAttempts,
+            });
+            socket?.disconnect();
+            socket?.connect();
+          }
+          return;
+        }
+
+        missedHeartbeatAcks = 0;
+        set((state) => ({
+          socketStatus: 'connected',
+          networkStatus: 'online',
+          realtimeDiagnostics: {
+            ...state.realtimeDiagnostics,
+            heartbeatLatencyMs: Date.now() - sentAt,
+            lastPingAt: new Date(sentAt).toISOString(),
+            lastPongAt: new Date().toISOString(),
+            missedHeartbeatAcks: 0,
+            reason: 'heartbeat_ack_ok',
+          },
+        }));
+      }
+    );
+  };
+
+  socket.on('connect', () => {
+    missedHeartbeatAcks = 0;
+    setSocketTransition(set, 'connected', 'socket_connected', {
+      missedHeartbeatAcks: 0,
+    });
+    set({ networkStatus: 'online' });
+    mobileLog('socket', `connected ${socket?.id || ''}`);
+    emitPresence();
+    emitHeartbeat();
     joinCurrentConversations();
   });
 
   socket.io.on('reconnect_attempt', () => {
-    set({ socketStatus: 'reconnecting', networkStatus: 'recovering' });
+    socketReconnectAttempts += 1;
+    setSocketTransition(set, 'reconnecting', 'socket_reconnect_attempt', {
+      reconnectAttempts: socketReconnectAttempts,
+    });
+    set({ networkStatus: 'recovering' });
   });
 
   socket.io.on('reconnect', () => {
-    set({ socketStatus: 'connected', networkStatus: 'online' });
+    missedHeartbeatAcks = 0;
+    setSocketTransition(set, 'connected', 'socket_reconnected', {
+      missedHeartbeatAcks: 0,
+      reconnectAttempts: socketReconnectAttempts,
+    });
+    set({ networkStatus: 'online' });
     joinCurrentConversations();
     get().flushPendingSync();
   });
 
   socket.on('disconnect', (reason) => {
-    set({ socketStatus: reason === 'io client disconnect' ? 'disconnected' : 'reconnecting' });
+    setSocketTransition(
+      set,
+      reason === 'io client disconnect' ? 'disconnected' : 'reconnecting',
+      `socket_disconnect:${reason}`
+    );
     mobileLog('socket', `disconnected: ${reason}`);
   });
 
   socket.on('connect_error', (error) => {
-    set({ socketStatus: 'error' });
+    setSocketTransition(set, 'error', `socket_connect_error:${error.message}`);
     mobileLog('socket', 'connect_error', error.message);
   });
 
@@ -735,9 +908,25 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   socket.on('radio:message:new', handleIncomingConversationMessage);
 
   socket.on('location:updated', (v: Vehicle) => {
+    const nextVehicle = normalizeVehicle(v);
     set(s => ({
-      mapData: s.mapData ? { ...s.mapData, vehicles: s.mapData.vehicles.map(ev => ev.id === v.id ? { ...ev, ...v } : ev), updatedAt: new Date().toISOString() } : s.mapData,
-      dashboard: s.dashboard ? { ...s.dashboard, fleet: s.dashboard.fleet.map(ev => ev.id === v.id ? { ...ev, ...v } : ev) } : s.dashboard
+      mapData: s.mapData
+        ? {
+            ...s.mapData,
+            vehicles: s.mapData.vehicles.map(ev =>
+              ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
+            ),
+            updatedAt: new Date().toISOString(),
+          }
+        : s.mapData,
+      dashboard: s.dashboard
+        ? {
+            ...s.dashboard,
+            fleet: s.dashboard.fleet.map(ev =>
+              ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
+            ),
+          }
+        : s.dashboard
     }));
   });
 
@@ -768,17 +957,8 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socketHeartbeatTimer = setInterval(() => {
-    const current = get();
-    if (!socket?.connected || !current.user) {
-      return;
-    }
-
-    socket.emit('presence:join', {
-      userId: current.user.id,
-      role: current.user.role,
-      organizationId: current.user.organizationId,
-      accountType: current.user.accountType,
-    });
+    emitPresence();
+    emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
   socket.connect();
@@ -935,7 +1115,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
+  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
   authContext: null, user: null, dashboard: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [],
   activeConversationId: null, focusedIncidentId: null, error: null,
   clearError: () => set({ error: null }),
@@ -1022,7 +1202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const authContext = getAuthContextFromPayload(s);
-      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: s.dashboard, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
+      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: normalizeDashboardData(s.dashboard), documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -1085,7 +1265,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
-          data[keys[i]] = r.value;
+          data[keys[i]] =
+            keys[i] === 'mapData'
+              ? normalizeLiveLocationsData(r.value as LiveLocationsData)
+              : keys[i] === 'dashboard'
+                ? normalizeDashboardData(r.value as DashboardData)
+                : r.value;
           fulfilledCount += 1;
         }
       });
@@ -1155,13 +1340,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   sendVehicleLocation: async (payload) => {
     try {
-      const vehicle = await updateVehicleLocationRequest(payload);
+      const vehicle = normalizeVehicle(await updateVehicleLocationRequest(payload));
       set(s => ({
         mapData: s.mapData
           ? {
               ...s.mapData,
               vehicles: s.mapData.vehicles.map((entry) =>
-                entry.id === vehicle.id ? { ...entry, ...vehicle } : entry
+                entry.id === vehicle.id ? normalizeVehicle({ ...entry, ...vehicle }) : entry
               ),
               updatedAt: new Date().toISOString(),
             }

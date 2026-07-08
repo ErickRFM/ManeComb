@@ -135,6 +135,18 @@ function registerSocketServer(server, store) {
     });
   }
 
+  function acknowledge(ack, payload) {
+    if (typeof ack !== "function") {
+      return;
+    }
+
+    try {
+      ack(payload);
+    } catch {
+      // Socket.IO acknowledgements are best-effort and should never break the event path.
+    }
+  }
+
   async function canUseOperations(socket) {
     return await canUseOperationalFeatures(store, socket.data.user);
   }
@@ -184,7 +196,7 @@ function registerSocketServer(server, store) {
   }
 
   io.on("connection", (socket) => {
-    socket.on("presence:join", () => {
+    socket.on("presence:join", (payload, ack) => {
       const authenticatedUser = socket.data.user || null;
       const resolvedUserId = authenticatedUser?.id;
       const resolvedRole = authenticatedUser?.role;
@@ -214,6 +226,38 @@ function registerSocketServer(server, store) {
       if (resolvedAccountType) {
         socket.join(`account:${resolvedAccountType}`);
       }
+
+      acknowledge(ack, {
+        ok: true,
+        packetId: String(payload?.packetId || ""),
+        serverTime: new Date().toISOString(),
+        socketId: socket.id
+      });
+    });
+
+    socket.on("client:heartbeat", (payload, ack) => {
+      const authenticatedUser = socket.data.user || null;
+
+      if (!authenticatedUser) {
+        acknowledge(ack, {
+          ok: false,
+          error: "unauthorized",
+          packetId: String(payload?.packetId || ""),
+          serverTime: new Date().toISOString()
+        });
+        return;
+      }
+
+      const response = {
+        ok: true,
+        packetId: String(payload?.packetId || ""),
+        serverTime: new Date().toISOString(),
+        socketId: socket.id,
+        userId: authenticatedUser.id
+      };
+
+      acknowledge(ack, response);
+      socket.emit("server:pong", response);
     });
 
     socket.on("conversation:join", async (conversationId) => {
@@ -229,10 +273,11 @@ function registerSocketServer(server, store) {
       socket.join(`conversation:${conversationId}`);
     });
 
-    socket.on("chat:send", async ({ conversationId, senderId, text, ...payload }) => {
+    socket.on("chat:send", async ({ conversationId, senderId, text, ...payload } = {}, ack) => {
       const authenticatedUser = socket.data.user || null;
 
       if (!authenticatedUser || authenticatedUser.id !== senderId) {
+        acknowledge(ack, { ok: false, error: "unauthorized" });
         return;
       }
 
@@ -243,6 +288,7 @@ function registerSocketServer(server, store) {
         (!text?.trim() && payload.kind !== "audio") ||
         !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId))
       ) {
+        acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload" });
         return;
       }
 
@@ -256,10 +302,15 @@ function registerSocketServer(server, store) {
 
       if (message) {
         io.to(`conversation:${conversationId}`).emit("chat:message", message);
+        acknowledge(ack, {
+          ok: true,
+          messageId: message.id,
+          packetId: String(payload.packetId || "")
+        });
       }
     });
 
-    socket.on("location:update", async ({ vehicleId, coordinates, heading, speed, timestamp }) => {
+    socket.on("location:update", async ({ vehicleId, coordinates, heading, speed, timestamp, packetId } = {}, ack) => {
       const authenticatedUser = socket.data.user || null;
       const vehicle = vehicleId ? await store.getVehicleById(vehicleId) : null;
       const latitude = Number(coordinates?.latitude);
@@ -278,6 +329,7 @@ function registerSocketServer(server, store) {
         !canAccessTenantResource(authenticatedUser, vehicle) ||
         (authenticatedUser.role !== "admin" && authenticatedUser.vehicleId !== vehicleId)
       ) {
+        acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload", packetId: String(packetId || "") });
         return;
       }
 
@@ -290,6 +342,12 @@ function registerSocketServer(server, store) {
       });
 
       if (update) {
+        acknowledge(ack, {
+          ok: true,
+          packetId: String(packetId || ""),
+          serverTime: new Date().toISOString(),
+          vehicleId
+        });
         const organizationId = String(vehicle.organizationId || "").trim();
 
         if (organizationId) {

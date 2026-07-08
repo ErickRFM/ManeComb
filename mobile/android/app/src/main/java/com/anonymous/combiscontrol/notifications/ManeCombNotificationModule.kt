@@ -27,7 +27,10 @@ class ManeCombNotificationModule(
   @ReactMethod
   fun show(title: String, body: String, category: String, promise: Promise) {
     try {
-      ensureChannel()
+      val normalizedCategory = category.trim().lowercase()
+      val channelId = channelIdForCategory(normalizedCategory)
+      val priority = priorityForCategory(normalizedCategory)
+      ensureChannels()
 
       if (
         Build.VERSION.SDK_INT >= 33 &&
@@ -46,17 +49,32 @@ class ManeCombNotificationModule(
         intent,
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
       )
-      val notification = NotificationCompat.Builder(reactContext, CHANNEL_ID)
+      val builder = NotificationCompat.Builder(reactContext, channelId)
         .setContentTitle(title)
         .setContentText(body)
         .setSmallIcon(R.drawable.notification_icon)
         .setAutoCancel(true)
         .setContentIntent(pendingIntent)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        .build()
+        .setPriority(priority)
+
+      if (
+        normalizedCategory == "sos" ||
+        normalizedCategory == "emergency" ||
+        normalizedCategory == "emergencies" ||
+        normalizedCategory == "emergencia" ||
+        normalizedCategory == "emergencias"
+      ) {
+        builder
+          .setCategory(NotificationCompat.CATEGORY_ALARM)
+          .setFullScreenIntent(pendingIntent, true)
+      } else if (normalizedCategory == "radio") {
+        builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+      }
+
+      val notification = builder.build()
 
       NotificationManagerCompat.from(reactContext).notify(
-        abs("${category}:${System.currentTimeMillis()}".hashCode()),
+        abs("${normalizedCategory}:${System.currentTimeMillis()}".hashCode()),
         notification
       )
       promise.resolve(true)
@@ -65,22 +83,78 @@ class ManeCombNotificationModule(
     }
   }
 
-  private fun ensureChannel() {
+  private fun ensureChannels() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
       return
     }
 
     val manager = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val channel = NotificationChannel(
-      CHANNEL_ID,
+    val general = NotificationChannel(
+      CHANNEL_GENERAL,
       "Operacion ManeComb",
       NotificationManager.IMPORTANCE_DEFAULT
     )
-    channel.description = "Mensajes y radio operativa"
-    manager.createNotificationChannel(channel)
+    general.description = "Mensajes operativos"
+    manager.createNotificationChannel(general)
+
+    val radio = NotificationChannel(
+      CHANNEL_RADIO,
+      "Radio operativa",
+      NotificationManager.IMPORTANCE_HIGH
+    )
+    radio.description = "Transmisiones de radio"
+    manager.createNotificationChannel(radio)
+
+    val incidents = NotificationChannel(
+      CHANNEL_INCIDENTS,
+      "Incidentes",
+      NotificationManager.IMPORTANCE_HIGH
+    )
+    incidents.description = "Incidentes operativos"
+    manager.createNotificationChannel(incidents)
+
+    val emergencies = NotificationChannel(
+      CHANNEL_EMERGENCIES,
+      "Emergencias",
+      NotificationManager.IMPORTANCE_HIGH
+    )
+    emergencies.description = "Eventos criticos de emergencia"
+    emergencies.enableVibration(true)
+    manager.createNotificationChannel(emergencies)
+
+    val sos = NotificationChannel(
+      CHANNEL_SOS,
+      "Alertas SOS",
+      NotificationManager.IMPORTANCE_HIGH
+    )
+    sos.description = "Alertas criticas de seguridad"
+    sos.enableVibration(true)
+    manager.createNotificationChannel(sos)
   }
 
+  private fun channelIdForCategory(category: String): String =
+    when (category) {
+      "emergency", "emergencies", "emergencia", "emergencias" -> CHANNEL_EMERGENCIES
+      "incident", "incidents", "incidente", "incidencias" -> CHANNEL_INCIDENTS
+      "radio" -> CHANNEL_RADIO
+      "sos" -> CHANNEL_SOS
+      else -> CHANNEL_GENERAL
+    }
+
+  private fun priorityForCategory(category: String): Int =
+    when (category) {
+      "emergency", "emergencies", "emergencia", "emergencias" -> NotificationCompat.PRIORITY_MAX
+      "incident", "incidents", "incidente", "incidencias" -> NotificationCompat.PRIORITY_HIGH
+      "radio" -> NotificationCompat.PRIORITY_HIGH
+      "sos" -> NotificationCompat.PRIORITY_MAX
+      else -> NotificationCompat.PRIORITY_DEFAULT
+    }
+
   companion object {
-    private const val CHANNEL_ID = "operacion-general"
+    private const val CHANNEL_GENERAL = "operacion-general"
+    private const val CHANNEL_RADIO = "operacion-radio"
+    private const val CHANNEL_INCIDENTS = "operacion-incidentes"
+    private const val CHANNEL_EMERGENCIES = "operacion-emergencias"
+    private const val CHANNEL_SOS = "operacion-sos"
   }
 }

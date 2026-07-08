@@ -23,6 +23,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
+  AssignedRoute,
   FleetControlLog,
   GeoPoint,
   NavigationPlan,
@@ -32,6 +33,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatTime } from '@/src/utils/format';
+import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 
 type FilterMode = 'all' | 'active' | 'routes' | 'completed';
 type OperationalStatus = 'available' | 'active' | 'completed' | 'delayed';
@@ -304,11 +306,11 @@ function buildAssignedRouteSelection(vehicle: Vehicle): {
   origin: NavigationPlaceResult;
   plan: NavigationPlan;
 } | null {
-  const assignedRoute = vehicle.assignedRoute;
-  const route = assignedRoute?.route;
-  const routeOrigin = assignedRoute?.origin || route?.polyline?.[0] || null;
+  const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
+  const route = assignedRoute?.route || null;
+  const routeOrigin = assignedRoute?.origin || route?.polyline[0] || null;
 
-  if (!assignedRoute || !route || !routeOrigin || !assignedRoute.destination || route.polyline.length < 2) {
+  if (!assignedRoute || !route || !routeOrigin || !assignedRoute.destination) {
     return null;
   }
 
@@ -1078,6 +1080,10 @@ export function ChecklistScreen() {
   );
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
+  const selectedAssignedRoute = useMemo<AssignedRoute | null>(
+    () => normalizeAssignedRoute(selectedVehicle?.assignedRoute),
+    [selectedVehicle?.assignedRoute]
+  );
   const trackedLocation =
     user?.vehicleId && selectedVehicle?.id === user.vehicleId && coordinates
       ? coordinates
@@ -1101,7 +1107,8 @@ export function ChecklistScreen() {
       return;
     }
 
-    const assignedAt = selectedVehicle.assignedRoute?.assignedAt || 'empty';
+    const assignedRoute = normalizeAssignedRoute(selectedVehicle.assignedRoute);
+    const assignedAt = assignedRoute?.assignedAt || 'empty';
     const syncKey = `${selectedVehicle.id}:${assignedAt}`;
 
     if (syncedVehicleRouteRef.current === syncKey) {
@@ -1124,7 +1131,7 @@ export function ChecklistScreen() {
     trackerRef.current.resetPointToPointSession();
   }, [routeModalOpen, selectedVehicle]);
 
-  const routeOption = tracker.pointPlan?.routes[0] || selectedVehicle?.assignedRoute?.route || null;
+  const routeOption = tracker.pointPlan?.routes[0] || selectedAssignedRoute?.route || null;
   const routeStops = useMemo(
     () => buildRouteStops(tracker.pointSelection.origin, tracker.pointSelection.destination, routeOption, tracker.pointStops),
     [routeOption, tracker.pointSelection.destination, tracker.pointSelection.origin, tracker.pointStops]
@@ -1140,15 +1147,15 @@ export function ChecklistScreen() {
     stops: tracker.pointStops,
   });
   const savedRouteSignature = getRouteSignature({
-    destination: selectedVehicle?.assignedRoute?.destination,
-    distanceMeters: selectedVehicle?.assignedRoute?.route.distanceMeters,
-    origin: selectedVehicle?.assignedRoute?.origin,
-    polyline: selectedVehicle?.assignedRoute?.route.polyline,
-    stops: selectedVehicle?.assignedRoute?.stops || [],
+    destination: selectedAssignedRoute?.destination,
+    distanceMeters: selectedAssignedRoute?.route.distanceMeters,
+    origin: selectedAssignedRoute?.origin,
+    polyline: selectedAssignedRoute?.route.polyline,
+    stops: selectedAssignedRoute?.stops || [],
   });
   const isCalculatedRouteSaved = Boolean(
     tracker.pointPlan &&
-    selectedVehicle?.assignedRoute &&
+    selectedAssignedRoute &&
     activeRouteSignature === savedRouteSignature
   );
   const routeProgress = tracker.routeProgress?.progressPercent || 0;
@@ -1230,7 +1237,7 @@ export function ChecklistScreen() {
           filterMode === 'all' ||
           (filterMode === 'active' && ['active', 'delayed'].includes(record.status)) ||
           (filterMode === 'completed' && record.status === 'completed') ||
-          (filterMode === 'routes' && Boolean(record.routeName || record.vehicle.assignedRoute));
+          (filterMode === 'routes' && Boolean(record.routeName || normalizeAssignedRoute(record.vehicle.assignedRoute)));
 
         return matchesFilter;
       }),
@@ -1272,7 +1279,7 @@ export function ChecklistScreen() {
       ]);
     }
 
-    if (!vehicle.assignedRoute) {
+    if (!normalizeAssignedRoute(vehicle.assignedRoute)) {
       if (selectedVehicle?.id === vehicle.id) {
         tracker.resetPointToPointSession();
         setFinalizedRouteSummary(summary);
@@ -1304,7 +1311,7 @@ export function ChecklistScreen() {
 
   const closeRouteModal = () => {
     const trackerState = trackerRef.current;
-    const hasSavedRoute = Boolean(selectedVehicle?.assignedRoute);
+    const hasSavedRoute = Boolean(selectedAssignedRoute);
     const hasActiveTracking = trackerState.trackerStatus !== 'off';
 
     if (!hasSavedRoute && !hasActiveTracking) {

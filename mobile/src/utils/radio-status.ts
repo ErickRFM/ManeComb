@@ -1,3 +1,5 @@
+import { getRealtimeSnapshot, type RealtimeMachineState } from './realtime-state';
+
 export type RadioSocketStatus =
   | 'idle'
   | 'connecting'
@@ -12,43 +14,23 @@ type RadioConnectionStatus = {
   canTransmit: boolean;
   detail: string;
   label: string;
+  state: RealtimeMachineState;
   tone: RadioStatusTone;
 };
 
 export function getRadioConnectionStatus(
-  socketStatus: RadioSocketStatus | null | undefined
+  socketStatus: RadioSocketStatus | null | undefined,
+  options: {
+    hasUser?: boolean;
+    isReceiving?: boolean;
+    isTransmitting?: boolean;
+    networkStatus?: 'unknown' | 'online' | 'offline' | 'recovering' | null;
+    pendingSyncCount?: number;
+    radioChannelReady?: boolean;
+  } = {}
 ): RadioConnectionStatus {
-  switch (socketStatus) {
-    case 'connected':
-      return {
-        canTransmit: true,
-        detail: 'Conectado a radio',
-        label: 'Conectado a radio',
-        tone: 'positive',
-      };
-    case 'connecting':
-    case 'reconnecting':
-      return {
-        canTransmit: false,
-        detail: 'Reconectando radio',
-        label: 'Reconectando',
-        tone: 'warning',
-      };
-    case 'disconnected':
-    case 'error':
-      return {
-        canTransmit: false,
-        detail: 'Audio no disponible hasta recuperar conexion',
-        label: 'Radio desconectada',
-        tone: 'danger',
-      };
-    case 'idle':
-    default:
-      return {
-        canTransmit: false,
-        detail: 'Conectando radio',
-        label: 'Conectando',
-        tone: 'neutral',
-      };
-  }
+  return getRealtimeSnapshot({
+    ...options,
+    socketStatus,
+  });
 }
