@@ -8,7 +8,6 @@ import {
 import {
   distanceInMeters,
   evaluateTrackerTransition,
-  projectPointOnRoute,
   type TrackerStatus,
   type TrackerZone,
 } from '@/src/hooks/point-to-point-tracker-core';
@@ -20,6 +19,10 @@ import type {
   Vehicle,
   VehicleTripRecord,
 } from '@/src/types/app';
+import {
+  buildRouteProgressSnapshot,
+  type ActiveRouteProgress,
+} from '@/src/utils/active-route';
 
 type PointRole = 'origin' | 'destination';
 type TrackedLocation = GeoPoint & {
@@ -36,20 +39,7 @@ type UsePointToPointTrackerArgs = {
   onPlanReady?: (plan: NavigationPlan, destinationLabel: string) => void;
 };
 
-export type RouteProgressSnapshot = {
-  checkpointCount: number;
-  currentCheckpointIndex: number;
-  distanceAlongRoute: number;
-  distanceFromRoute: number;
-  distanceRemaining: number;
-  etaAt: string | null;
-  isOffRoute: boolean;
-  progressPercent: number;
-  snappedLocation: GeoPoint | null;
-  speedMetersPerSecond: number | null;
-  timeRemainingSeconds: number;
-  timestamp: string;
-};
+export type RouteProgressSnapshot = ActiveRouteProgress;
 
 function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult {
   return {
@@ -116,87 +106,6 @@ function formatServiceDateLabel(value: string) {
     month: 'short',
     year: 'numeric',
   }).format(date);
-}
-
-function normalizeSpeedMetersPerSecond(speed: number | null | undefined) {
-  if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) {
-    return null;
-  }
-
-  return speed > 45 ? speed / 3.6 : speed;
-}
-
-function buildRouteProgressSnapshot({
-  plannedDurationSeconds,
-  routeDistanceMeters,
-  routePolyline,
-  startedAt,
-  trackedLocation,
-}: {
-  plannedDurationSeconds: number;
-  routeDistanceMeters: number;
-  routePolyline: GeoPoint[];
-  startedAt: string | null;
-  trackedLocation: TrackedLocation | null;
-}): RouteProgressSnapshot | null {
-  if (!trackedLocation || routePolyline.length < 2) {
-    return null;
-  }
-
-  const projection = projectPointOnRoute({
-    point: trackedLocation,
-    polyline: routePolyline,
-  });
-
-  if (!projection) {
-    return null;
-  }
-
-  const speedMetersPerSecond = normalizeSpeedMetersPerSecond(trackedLocation.speed);
-  const startedAtTime = startedAt ? new Date(startedAt).getTime() : null;
-  const elapsedSeconds =
-    startedAtTime && Number.isFinite(startedAtTime)
-      ? Math.max(1, Math.round((Date.now() - startedAtTime) / 1000))
-      : null;
-  const averageSpeed =
-    elapsedSeconds && projection.distanceAlongRoute > 0
-      ? projection.distanceAlongRoute / elapsedSeconds
-      : null;
-  const effectiveSpeed =
-    speedMetersPerSecond && speedMetersPerSecond >= 1
-      ? speedMetersPerSecond
-      : averageSpeed && averageSpeed >= 1
-        ? averageSpeed
-        : null;
-  const distanceRemaining =
-    routeDistanceMeters > 0 && projection.totalDistance > 0
-      ? Math.max(0, routeDistanceMeters - (projection.distanceAlongRoute / projection.totalDistance) * routeDistanceMeters)
-      : projection.distanceRemaining;
-  const fallbackSeconds =
-    plannedDurationSeconds > 0 && projection.totalDistance > 0
-      ? Math.max(0, Math.round(plannedDurationSeconds * (projection.distanceRemaining / projection.totalDistance)))
-      : 0;
-  const timeRemainingSeconds = effectiveSpeed
-    ? Math.max(0, Math.round(distanceRemaining / effectiveSpeed))
-    : fallbackSeconds;
-  const etaAt = timeRemainingSeconds
-    ? new Date(Date.now() + timeRemainingSeconds * 1000).toISOString()
-    : null;
-
-  return {
-    checkpointCount: projection.checkpointCount,
-    currentCheckpointIndex: projection.currentCheckpointIndex,
-    distanceAlongRoute: projection.distanceAlongRoute,
-    distanceFromRoute: projection.distanceFromRoute,
-    distanceRemaining,
-    etaAt,
-    isOffRoute: projection.isOffRoute,
-    progressPercent: projection.progressPercent,
-    snappedLocation: projection.snappedLocation,
-    speedMetersPerSecond,
-    timeRemainingSeconds,
-    timestamp: new Date().toISOString(),
-  };
 }
 
 export function usePointToPointTracker({

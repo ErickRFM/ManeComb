@@ -168,6 +168,8 @@ const lineLayerStyle = {
 export const AppMapPolyline = memo(function AppMapRouteLine({
   coordinates,
   id,
+  lineBlur = 0,
+  strokeOpacity = 0.86,
   strokeColor,
   strokeWidth = 3,
 }: AppMapPolylineProps) {
@@ -195,7 +197,9 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
         id={`${sourceId}-line`}
         style={{
           ...lineLayerStyle,
+          lineBlur,
           lineColor: strokeColor,
+          lineOpacity: strokeOpacity,
           lineWidth: strokeWidth,
         }}
       />

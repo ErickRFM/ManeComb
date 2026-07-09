@@ -435,6 +435,22 @@ export type AssignedRoute = {
   alternatives: NavigationRouteOption[];
 };
 
+export type ActiveRouteProgress = {
+  checkpointCount: number;
+  currentCheckpointIndex: number;
+  distanceAlongRoute: number;
+  distanceFromRoute: number;
+  distanceRemaining: number;
+  etaAt: string | null;
+  heading?: number | null;
+  isOffRoute: boolean;
+  progressPercent: number;
+  snappedLocation: GeoPoint | null;
+  speedMetersPerSecond: number | null;
+  timeRemainingSeconds: number;
+  timestamp: string;
+};
+
 export type VehicleTripRecord = {
   id: string;
   vehicleId: string;
@@ -641,6 +657,7 @@ export type Vehicle = {
   updatedAt: string;
   location: GeoPoint;
   locationTimestamp?: string | null;
+  activeRouteProgress?: ActiveRouteProgress | null;
   assignedRoute?: AssignedRoute | null;
   routeName?: string;
   routeCode?: string;

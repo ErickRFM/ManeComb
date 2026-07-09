@@ -52,6 +52,8 @@ export type AppMapMarkerProps = {
 export type AppMapPolylineProps = {
   coordinates: GeoPoint[];
   id?: string;
+  lineBlur?: number;
+  strokeOpacity?: number;
   strokeColor: string;
   strokeWidth?: number;
 };

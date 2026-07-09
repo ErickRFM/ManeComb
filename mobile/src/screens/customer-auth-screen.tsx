@@ -11,12 +11,14 @@ import {
   StatusBar,
   Text,
   TextInput,
+  type TextInputProps,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
   API_URL,
   getApiErrorMessage,
@@ -24,8 +26,10 @@ import {
   validateDriverActivationKeyRequest,
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
+import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 
 type CustomerAuthScreenProps = {
   mode: 'login' | 'register';
@@ -335,6 +339,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   onChangeText={isRegister ? setRegisterIdentity : setLoginIdentity}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoComplete="email"
+                  returnKeyType="next"
+                  textContentType="username"
                 />
                 <AuthField
                   label="Contraseña"
@@ -343,6 +350,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   onChangeText={isRegister ? setRegisterPassword : setLoginPassword}
                   secureTextEntry
                   autoCapitalize="none"
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  returnKeyType={isRegister ? 'next' : 'done'}
+                  textContentType={isRegister ? 'newPassword' : 'password'}
                 />
                 {isRegister ? (
                   <AuthField
@@ -352,6 +362,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     onChangeText={setRegisterConfirmPassword}
                     secureTextEntry
                     autoCapitalize="none"
+                    autoComplete="new-password"
+                    returnKeyType="done"
+                    textContentType="newPassword"
                   />
                 ) : null}
                 {isDriverRegister ? (
@@ -483,22 +496,32 @@ function SegmentButton({
 }
 
 function AuthField({
+  autoComplete,
   autoCapitalize = 'sentences',
   keyboardType = 'default',
   label,
   onChangeText,
   placeholder,
+  returnKeyType,
   secureTextEntry = false,
+  textContentType,
   value,
 }: {
+  autoComplete?: TextInputProps['autoComplete'];
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   label: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  returnKeyType?: TextInputProps['returnKeyType'];
   secureTextEntry?: boolean;
+  textContentType?: TextInputProps['textContentType'];
   value: string;
 }) {
+  const { theme } = useAppTheme();
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const inputProps = getTextInputProps(theme, { autoComplete, returnKeyType, textContentType });
+  const showPasswordToggle = secureTextEntry;
   const webInputStyle =
     Platform.OS === 'web'
       ? ({
@@ -511,17 +534,31 @@ function AuthField({
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        secureTextEntry={secureTextEntry}
-        placeholder={placeholder}
-        placeholderTextColor="#9A9A9A"
-        selectionColor="#EA1F23"
-        style={[styles.input, webInputStyle]}
-      />
+      <View style={styles.inputShell}>
+        <TextInput
+          {...inputProps}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          secureTextEntry={secureTextEntry && !passwordVisible}
+          placeholder={placeholder}
+          style={[styles.input, showPasswordToggle ? styles.inputWithToggle : undefined, webInputStyle]}
+        />
+        {showPasswordToggle ? (
+          <Pressable
+            accessibilityLabel={passwordVisible ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+            accessibilityRole="button"
+            onPress={() => setPasswordVisible((current) => !current)}
+            style={styles.passwordToggle}>
+            <MaterialCommunityIcons
+              name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color="#333333"
+            />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -602,17 +639,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '400',
   },
-  input: {
+  inputShell: {
     minHeight: 44,
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: '#2F2F2F',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  input: {
+    minHeight: 44,
+    flex: 1,
     color: '#333333',
     fontFamily: Typography.body,
     fontSize: 13,
     paddingHorizontal: 12,
     paddingVertical: 0,
-    backgroundColor: '#FFFFFF',
+  },
+  inputWithToggle: {
+    paddingRight: 44,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 6,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sessionRow: {
     minHeight: 22,

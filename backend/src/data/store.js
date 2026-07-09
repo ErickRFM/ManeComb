@@ -9,6 +9,7 @@ const { createMongoStore } = require("./mongo-store");
 const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
+const { calculateVehicleRouteProgress } = require("../services/route-progress");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -2043,6 +2044,19 @@ function createEmbeddedStore() {
       if (!Number.isNaN(parsedTimestamp.getTime())) {
         vehicle.locationTimestamp = parsedTimestamp.toISOString();
       }
+    }
+
+    const routeProgress = calculateVehicleRouteProgress({
+      coordinates: vehicle.location,
+      heading: vehicle.heading,
+      speed: vehicle.speed,
+      timestamp: vehicle.locationTimestamp || vehicle.updatedAt,
+      vehicle
+    });
+    vehicle.activeRouteProgress = routeProgress;
+
+    if (routeProgress) {
+      vehicle.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
     return enrichVehicle(vehicle);

@@ -76,7 +76,17 @@ function fitBounds(map: MapboxMap, coordinates: GeoPoint[], padding?: AppMapPadd
 }
 
 export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
-  { children, initialRegion, mapPadding, onPress, showsTraffic = false, style, themeMode },
+  {
+    children,
+    compassEnabled = true,
+    initialRegion,
+    mapPadding,
+    onPress,
+    scaleEnabled = true,
+    showsTraffic = false,
+    style,
+    themeMode,
+  },
   ref
 ) {
   const hostRef = useRef<View | null>(null);
@@ -141,8 +151,12 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       zoom: toZoom(initialRegionValue),
     });
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
-    map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    if (compassEnabled) {
+      map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: false }), 'top-right');
+    }
+    if (scaleEnabled) {
+      map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    }
     map.on('load', () => {
       setMapReady(true);
       if (mapPaddingRef.current) {
@@ -166,7 +180,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [compassEnabled, scaleEnabled]);
 
   useEffect(() => {
     if (mapRef.current) {
@@ -186,6 +200,8 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
 export const AppMapPolyline = memo(function AppMapRouteLine({
   coordinates,
   id,
+  lineBlur = 0,
+  strokeOpacity = 0.86,
   strokeColor,
   strokeWidth = 3,
 }: AppMapPolylineProps) {
@@ -219,7 +235,8 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
         },
         paint: {
           'line-color': strokeColor,
-          'line-opacity': 0.78,
+          'line-blur': lineBlur,
+          'line-opacity': strokeOpacity,
           'line-width': strokeWidth,
         },
         source: sourceId,
@@ -235,7 +252,7 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
         map.removeSource(sourceId);
       }
     };
-  }, [coordinates, layerId, map, sourceId, strokeColor, strokeWidth]);
+  }, [coordinates, layerId, lineBlur, map, sourceId, strokeColor, strokeOpacity, strokeWidth]);
 
   return null;
 });

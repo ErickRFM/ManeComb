@@ -1,13 +1,15 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type LayoutChangeEvent,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
@@ -21,14 +23,66 @@ import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { GeoPoint, NavigationPlaceResult, NavigationPlan, NavigationStop } from '@/src/types/app';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
+import { buildActiveRouteSnapshot } from '@/src/utils/active-route';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
 const ACTIVE_TRACKING_STATUSES = new Set(['online', 'patrolling', 'on-route']);
 const LOCATION_SYNC_INTERVAL_MS = 5000;
+const MANECOMB_ROUTE_COLOR = '#E31E24';
+const MAP_LAYOUT = {
+  edge: 16,
+  safeGap: 16,
+  compactSafeGap: 12,
+  headerHeight: 52,
+  headerToFabGap: 14,
+  fabSize: 48,
+  fabGap: 12,
+  bottomGap: 10,
+  bottomCardEstimate: 214,
+  bottomCardEstimateCompact: 164,
+  bottomSelectorOffset: 142,
+  bottomSelectorOffsetCompact: 118,
+  routeCameraExtra: 24,
+  sideActionCount: 5,
+};
+const MAP_Z_INDEX = {
+  controls: 20,
+  drawer: 40,
+  modal: 50,
+};
 type SelectorRole = 'origin' | 'destination' | 'stop';
 type SelectorPointRole = Exclude<SelectorRole, 'stop'>;
+type MapBottomSheetState = 'collapsed' | 'half' | 'expanded';
+type MapCallout = {
+  meta?: string;
+  subtitle?: string;
+  title: string;
+  tone: 'origin' | 'destination' | 'stop' | 'gps' | 'vehicle';
+} | null;
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getMapBottomSheetState(panelHeight: number, viewportHeight: number): MapBottomSheetState {
+  if (!panelHeight || !viewportHeight) {
+    return 'collapsed';
+  }
+
+  const ratio = panelHeight / viewportHeight;
+
+  if (ratio >= 0.46) {
+    return 'expanded';
+  }
+
+  if (ratio >= 0.28) {
+    return 'half';
+  }
+
+  return 'collapsed';
+}
 
 function looksLikeCoordinates(value: string | null | undefined) {
   if (!value) {
@@ -47,6 +101,71 @@ function getSelectorFallback(role: SelectorRole, order = 0) {
 function getSafePlaceLabel(value: string | null | undefined, fallback: string) {
   const label = value?.trim();
   return label && !looksLikeCoordinates(label) ? label : fallback;
+}
+
+function formatEtaSeconds(totalSeconds: number | null | undefined) {
+  if (!Number.isFinite(Number(totalSeconds)) || Number(totalSeconds) <= 0) {
+    return '--';
+  }
+
+  const minutes = Math.max(1, Math.round(Number(totalSeconds) / 60));
+  return `${minutes} min`;
+}
+
+function formatDistanceMeters(totalMeters: number | null | undefined) {
+  const meters = Math.max(0, Number(totalMeters) || 0);
+
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(meters >= 10000 ? 0 : 1)} km`;
+  }
+
+  return `${Math.round(meters)} m`;
+}
+
+function formatSpeedKmh(value: number | null | undefined) {
+  const speed = Math.max(0, Number(value) || 0);
+  const kmh = speed > 45 ? speed : speed * 3.6;
+  return `${Math.round(kmh)} km/h`;
+}
+
+function getActiveRouteVisualState(route: ReturnType<typeof buildActiveRouteSnapshot>) {
+  if (!route) {
+    return { label: 'Monitoreo', tone: 'neutral' as const };
+  }
+
+  if (route.status === 'arrived') {
+    return { label: 'Finalizada', tone: 'positive' as const };
+  }
+
+  if (route.status === 'off_route' || route.progress?.isOffRoute) {
+    return { label: 'Fuera de ruta', tone: 'warning' as const };
+  }
+
+  if (route.status === 'in_progress') {
+    const remaining = route.progress?.distanceRemaining ?? route.route.distanceMeters;
+    return {
+      label: remaining <= 350 ? 'Llegando' : 'En ruta',
+      tone: 'info' as const,
+    };
+  }
+
+  if (route.status === 'waiting_start' || route.status === 'idle') {
+    return { label: 'Preparada', tone: 'positive' as const };
+  }
+
+  if (route.status === 'paused') {
+    return { label: 'Pausada', tone: 'warning' as const };
+  }
+
+  return { label: 'Monitoreo', tone: 'neutral' as const };
+}
+
+function getAccuracyHaloSize(accuracy?: number | null) {
+  if (!Number.isFinite(Number(accuracy)) || Number(accuracy) <= 0) {
+    return 52;
+  }
+
+  return clampNumber(34 + Number(accuracy) * 1.2, 42, 94);
 }
 
 function parseOptionalPoint(params: Record<string, string | undefined>, role: SelectorPointRole): NavigationPlaceResult | null {
@@ -122,6 +241,7 @@ function createStopFromPoint(point: NavigationPlaceResult, order: number): Navig
 
 export function MapScreen() {
   const { theme } = useAppTheme();
+  const { height, width } = useWindowDimensions();
   const mapRef = useRef<AppMapRef | null>(null);
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -149,6 +269,7 @@ export function MapScreen() {
     servicesEnabled,
   } = useUserLocation();
   const lastLocationSyncRef = useRef(0);
+  const activeRouteCameraKeyRef = useRef<string | null>(null);
 
   const {
     connectionMode,
@@ -187,10 +308,55 @@ export function MapScreen() {
   const [trafficEnabled, setTrafficEnabled] = useState(true);
   const [activeAlertIndex, setActiveAlertIndex] = useState(0);
   const [scheduleTick, setScheduleTick] = useState(0);
+  const [bottomOverlayHeight, setBottomOverlayHeight] = useState(0);
+  const [mapCallout, setMapCallout] = useState<MapCallout>(null);
   const reverseControllersRef = useRef<Partial<Record<SelectorPointRole, AbortController>>>({});
 
   const selectorMode = params.point === 'origin' || params.point === 'destination' || params.point === 'stop';
   const selectorRoute = selectorPlan?.routes[0] || null;
+  const isCompactViewport = Math.min(width, height) < 380 || height < 700;
+  const isLandscape = width > height;
+  const mapLayout = useMemo(() => {
+    const safeGap = isCompactViewport ? MAP_LAYOUT.compactSafeGap : MAP_LAYOUT.safeGap;
+    const top = insets.top + safeGap;
+    const bottom = insets.bottom + MAP_LAYOUT.bottomGap;
+    const bottomCardEstimate = isLandscape
+      ? Math.min(132, MAP_LAYOUT.bottomCardEstimateCompact)
+      : isCompactViewport
+        ? MAP_LAYOUT.bottomCardEstimateCompact
+        : MAP_LAYOUT.bottomCardEstimate;
+    const measuredBottomSheet = bottomOverlayHeight
+      ? bottomOverlayHeight + bottom
+      : bottom + bottomCardEstimate;
+    const bottomSheetState = getMapBottomSheetState(measuredBottomSheet, height);
+    const bottomStateExtra =
+      bottomSheetState === 'expanded'
+        ? 32
+        : bottomSheetState === 'half'
+          ? 20
+          : 12;
+    const rightRail = MAP_LAYOUT.edge + MAP_LAYOUT.fabSize + 16;
+    const sideActionHeight =
+      MAP_LAYOUT.sideActionCount * MAP_LAYOUT.fabSize +
+      (MAP_LAYOUT.sideActionCount - 1) * MAP_LAYOUT.fabGap;
+    const preferredSideTop = top + MAP_LAYOUT.headerHeight + MAP_LAYOUT.headerToFabGap;
+    const sideTopMax = height - measuredBottomSheet - sideActionHeight - safeGap;
+
+    return {
+      bottom,
+      bottomSheetHeight: measuredBottomSheet,
+      bottomSheetState,
+      cameraPadding: {
+        top: top + MAP_LAYOUT.headerHeight + MAP_LAYOUT.routeCameraExtra,
+        right: rightRail + 18,
+        bottom: measuredBottomSheet + bottomStateExtra,
+        left: MAP_LAYOUT.edge + 8,
+      },
+      selectorBottom: measuredBottomSheet + (isCompactViewport ? 8 : 12),
+      sideTop: Math.max(safeGap, Math.min(preferredSideTop, sideTopMax)),
+      top,
+    };
+  }, [bottomOverlayHeight, height, insets.bottom, insets.top, isCompactViewport, isLandscape]);
 
   const locationStatus = useMemo(
     () =>
@@ -246,6 +412,86 @@ export function MapScreen() {
   const selectedVehicle = useMemo(() =>
     prioritizedVehicles.find((vehicle) => vehicle.id === selectedVehicleId) || prioritizedVehicles[0] || null,
   [prioritizedVehicles, selectedVehicleId]);
+  const selectedActiveRoute = useMemo(
+    () => buildActiveRouteSnapshot({ vehicle: selectedVehicle }),
+    [selectedVehicle]
+  );
+  const activeRouteVisualState = useMemo(
+    () => getActiveRouteVisualState(selectedActiveRoute),
+    [selectedActiveRoute]
+  );
+  const routeCameraCoordinates = useMemo(() => {
+    if (selectorMode) {
+      const points = [
+        ...(selectorRoute?.polyline || []),
+        ...(selectorPoints.origin ? [selectorPoints.origin.location] : []),
+        ...(selectorPoints.destination ? [selectorPoints.destination.location] : []),
+        ...selectorStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude })),
+      ];
+
+      return points.length ? points : null;
+    }
+
+    if (!selectedActiveRoute?.route.polyline.length) {
+      return null;
+    }
+
+    return [
+      ...selectedActiveRoute.route.polyline,
+      ...(selectedActiveRoute.origin ? [selectedActiveRoute.origin] : []),
+      selectedActiveRoute.destination,
+      ...(coordinates ? [coordinates] : []),
+    ];
+  }, [
+    coordinates,
+    selectedActiveRoute,
+    selectorMode,
+    selectorPoints.destination,
+    selectorPoints.origin,
+    selectorRoute?.polyline,
+    selectorStops,
+  ]);
+  const routeStats = useMemo(() => {
+    const progress = selectedActiveRoute?.progress || null;
+    const speed = selectedVehicle?.speed || coordinates?.speed || 0;
+
+    if (!progress) {
+      return [
+        { label: 'Estado', value: selectedVehicle ? 'Monitoreo' : 'Sin unidad' },
+        { label: 'Velocidad', value: formatSpeedKmh(speed) },
+      ];
+    }
+
+    return [
+      { label: 'Progreso', value: `${progress.progressPercent}%` },
+      { label: 'Velocidad', value: formatSpeedKmh(speed) },
+      { label: 'ETA', value: formatEtaSeconds(progress.timeRemainingSeconds) },
+      { label: 'Restante', value: formatDistanceMeters(progress.distanceRemaining) },
+    ];
+  }, [coordinates?.speed, selectedActiveRoute?.progress, selectedVehicle]);
+  const userHeadingStyle = useMemo(
+    () => ({
+      transform: [{ rotate: `${coordinates?.heading || 0}deg` }],
+    }),
+    [coordinates?.heading]
+  );
+  const userAccuracyHaloStyle = useMemo(() => {
+    const size = getAccuracyHaloSize(coordinates?.accuracy);
+
+    return {
+      borderRadius: size / 2,
+      height: size,
+      width: size,
+    };
+  }, [coordinates?.accuracy]);
+
+  const handleBottomOverlayLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.round(event.nativeEvent.layout.height);
+
+    setBottomOverlayHeight((current) =>
+      Math.abs(current - nextHeight) > 2 ? nextHeight : current
+    );
+  }, []);
 
   const trackingVehicles = useMemo(() => {
     return prioritizedVehicles.filter((vehicle) => ACTIVE_TRACKING_STATUSES.has(vehicle.status));
@@ -407,12 +653,7 @@ export function MapScreen() {
 
         mapRef.current?.fitToCoordinates(routeCoordinates, {
           animated: true,
-          edgePadding: {
-            top: insets.top + 120,
-            right: 86,
-            bottom: insets.bottom + 230,
-            left: 24,
-          },
+          edgePadding: mapLayout.cameraPadding,
         });
       })
       .catch(() => {
@@ -428,8 +669,7 @@ export function MapScreen() {
 
     return () => controller.abort();
   }, [
-    insets.bottom,
-    insets.top,
+    mapLayout.cameraPadding,
     selectorMode,
     selectorPoints.destination,
     selectorPoints.origin,
@@ -456,10 +696,42 @@ export function MapScreen() {
   };
 
   useEffect(() => {
-    if (followMode && selectedVehicle) {
+    if (followMode && selectedVehicle && !selectedActiveRoute) {
       focusMap(selectedVehicle.location.latitude, selectedVehicle.location.longitude);
     }
-  }, [selectedVehicle?.location, followMode, selectedVehicle]);
+  }, [followMode, selectedActiveRoute, selectedVehicle, selectedVehicle?.location]);
+
+  useEffect(() => {
+    if (!routeCameraCoordinates?.length) {
+      return;
+    }
+
+    const firstPoint = routeCameraCoordinates[0];
+    const lastPoint = routeCameraCoordinates[routeCameraCoordinates.length - 1];
+    const cameraKey = [
+      selectorMode ? 'selector' : selectedActiveRoute?.id || 'route',
+      routeCameraCoordinates.length,
+      firstPoint?.latitude?.toFixed(5),
+      firstPoint?.longitude?.toFixed(5),
+      lastPoint?.latitude?.toFixed(5),
+      lastPoint?.longitude?.toFixed(5),
+      mapLayout.bottomSheetState,
+      mapLayout.cameraPadding.top,
+      mapLayout.cameraPadding.right,
+      mapLayout.cameraPadding.bottom,
+      mapLayout.cameraPadding.left,
+    ].join(':');
+
+    if (activeRouteCameraKeyRef.current === cameraKey) {
+      return;
+    }
+
+    activeRouteCameraKeyRef.current = cameraKey;
+    mapRef.current?.fitToCoordinates(routeCameraCoordinates, {
+      animated: true,
+      edgePadding: mapLayout.cameraPadding,
+    });
+  }, [mapLayout.bottomSheetState, mapLayout.cameraPadding, routeCameraCoordinates, selectedActiveRoute?.id, selectorMode]);
 
   // When in selector mode, if a vehicle is selected beforehand focus on it but disable follow
   useEffect(() => {
@@ -689,18 +961,16 @@ export function MapScreen() {
             latitudeDelta: 0.08,
             longitudeDelta: 0.08,
           }}
-          mapPadding={{
-            top: insets.top + 110,
-            right: 72,
-            bottom: insets.bottom + 210,
-            left: 12,
-          }}
-          compassEnabled
-          scaleEnabled
+          mapPadding={mapLayout.cameraPadding}
+          compassEnabled={false}
+          scaleEnabled={false}
           showsTraffic={trafficEnabled}
           themeMode={theme.mode}
           onPress={(e) => {
-            if (!selectorMode) return;
+            if (!selectorMode) {
+              setMapCallout(null);
+              return;
+            }
             const { latitude, longitude } = e.nativeEvent.coordinate || {};
             if (typeof latitude === 'number' && typeof longitude === 'number') {
               handleSelectorPress({ latitude, longitude });
@@ -709,11 +979,55 @@ export function MapScreen() {
           {/** Map tap selection for Checklist when `point` param is present */}
           {selectorMode
             ? selectorRoute?.polyline?.length
-              ? <AppMapPolyline id="selector-route" coordinates={selectorRoute.polyline} strokeColor={theme.colors.accent} strokeWidth={3} />
+              ? (
+                <>
+                  <AppMapPolyline
+                    id="selector-route-base"
+                    coordinates={selectorRoute.polyline}
+                    lineBlur={1.3}
+                    strokeColor={theme.mode === 'light' ? 'rgba(15,23,42,0.24)' : 'rgba(255,255,255,0.32)'}
+                    strokeOpacity={1}
+                    strokeWidth={10}
+                  />
+                  <AppMapPolyline
+                    id="selector-route-main"
+                    coordinates={selectorRoute.polyline}
+                    strokeColor={MANECOMB_ROUTE_COLOR}
+                    strokeOpacity={0.96}
+                    strokeWidth={5}
+                  />
+                </>
+              )
               : null
             : mapData.routes.map((route) => (
-                <AppMapPolyline key={route.id} id={route.id} coordinates={route.polyline} strokeColor={route.color} strokeWidth={3} />
+                <AppMapPolyline
+                  key={route.id}
+                  id={route.id}
+                  coordinates={route.polyline}
+                  strokeColor={route.color}
+                  strokeOpacity={0.24}
+                  strokeWidth={2}
+                />
               ))}
+          {!selectorMode && selectedActiveRoute?.route.polyline.length ? (
+            <>
+              <AppMapPolyline
+                id={`active-route-${selectedActiveRoute.vehicle.id}-base`}
+                coordinates={selectedActiveRoute.route.polyline}
+                lineBlur={1.4}
+                strokeColor={theme.mode === 'light' ? 'rgba(15,23,42,0.28)' : 'rgba(255,255,255,0.34)'}
+                strokeOpacity={1}
+                strokeWidth={12}
+              />
+              <AppMapPolyline
+                id={`active-route-${selectedActiveRoute.vehicle.id}-main`}
+                coordinates={selectedActiveRoute.route.polyline}
+                strokeColor={MANECOMB_ROUTE_COLOR}
+                strokeOpacity={0.98}
+                strokeWidth={6}
+              />
+            </>
+          ) : null}
 
           {mapData.vehicles.map((vehicle) => {
             const vehicleMarkerStyle = {
@@ -728,6 +1042,12 @@ export function MapScreen() {
                 onPress={() => {
                   setSelectedVehicleId(vehicle.id);
                   setFollowMode(true);
+                  setMapCallout({
+                    meta: formatSpeedKmh(vehicle.speed),
+                    subtitle: vehicle.driverName || vehicle.status,
+                    title: vehicle.code,
+                    tone: 'vehicle',
+                  });
                 }}>
                 <View style={[styles.vehicleMarker, vehicleMarkerStyle]}>
                    <View style={styles.vehicleMarkerInner} />
@@ -753,10 +1073,20 @@ export function MapScreen() {
               id="selector-origin"
               coordinate={selectorPoints.origin.location}
               draggable
+              onPress={() =>
+                setMapCallout({
+                  subtitle: selectorPoints.origin?.address,
+                  title: 'Inicio',
+                  tone: 'origin',
+                })
+              }
               onDragStart={() => setSelectorPlan(null)}
               onDragEnd={(event) => updateSelectorPoint('origin', event.nativeEvent.coordinate)}>
-              <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.success }]}>
-                <MaterialCommunityIcons name="map-marker" size={22} color="#FFF" />
+              <View style={styles.selectorMarkerShell}>
+                <View style={[styles.selectorEndpointMarker, styles.selectorOriginMarker]}>
+                  <MaterialCommunityIcons name="record-circle-outline" size={18} color="#FFF" />
+                </View>
+                <Text style={styles.endpointMarkerLabel}>Inicio</Text>
               </View>
             </AppMapMarker>
           ) : null}
@@ -765,31 +1095,131 @@ export function MapScreen() {
               id="selector-destination"
               coordinate={selectorPoints.destination.location}
               draggable
+              onPress={() =>
+                setMapCallout({
+                  meta: selectorRoute ? formatDistanceMeters(selectorRoute.distanceMeters) : undefined,
+                  subtitle: selectorPoints.destination?.address,
+                  title: 'Destino',
+                  tone: 'destination',
+                })
+              }
               onDragStart={() => setSelectorPlan(null)}
               onDragEnd={(event) => updateSelectorPoint('destination', event.nativeEvent.coordinate)}>
-              <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.danger }]}>
-                <MaterialCommunityIcons name="map-marker" size={22} color="#FFF" />
+              <View style={[styles.selectorMarkerShell, styles.selectorDestinationShell]}>
+                <View style={[styles.selectorEndpointMarker, styles.selectorDestinationMarker]}>
+                  <MaterialCommunityIcons name="flag-checkered" size={17} color="#FFF" />
+                </View>
+                <Text style={styles.endpointMarkerLabel}>Destino</Text>
               </View>
             </AppMapMarker>
           ) : null}
           {selectorMode
             ? selectorStops.map((stop, index) => (
-                <AppMapMarker key={stop.id} id={`stop-${stop.id}`} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
-                  <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.warning }]}>
+                <AppMapMarker
+                  key={stop.id}
+                  id={`stop-${stop.id}`}
+                  coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
+                  onPress={() =>
+                    setMapCallout({
+                      subtitle: stop.address,
+                      title: `Parada ${index + 1}`,
+                      tone: 'stop',
+                    })
+                  }>
+                  <View style={styles.stopMarkerShell}>
+                  <View style={styles.stopMarker}>
                     <Text style={styles.stopMarkerText}>{index + 1}</Text>
+                  </View>
+                  </View>
+                </AppMapMarker>
+              ))
+            : null}
+          {!selectorMode && selectedActiveRoute?.origin ? (
+            <AppMapMarker
+              id={`active-origin-${selectedActiveRoute.vehicle.id}`}
+              coordinate={selectedActiveRoute.origin}
+              onPress={() =>
+                setMapCallout({
+                  subtitle: selectedActiveRoute.originLabel,
+                  title: 'Inicio',
+                  tone: 'origin',
+                })
+              }>
+              <View style={styles.selectorMarkerShell}>
+                <View style={[styles.selectorEndpointMarker, styles.selectorOriginMarker]}>
+                  <MaterialCommunityIcons name="record-circle-outline" size={18} color="#FFF" />
+                </View>
+                <Text style={styles.endpointMarkerLabel}>Inicio</Text>
+              </View>
+            </AppMapMarker>
+          ) : null}
+          {!selectorMode && selectedActiveRoute ? (
+            <AppMapMarker
+              id={`active-destination-${selectedActiveRoute.vehicle.id}`}
+              coordinate={selectedActiveRoute.destination}
+              onPress={() =>
+                setMapCallout({
+                  meta: `${formatDistanceMeters(selectedActiveRoute.progress?.distanceRemaining)} restantes · ETA ${formatEtaSeconds(selectedActiveRoute.progress?.timeRemainingSeconds)}`,
+                  subtitle: selectedActiveRoute.destinationLabel,
+                  title: 'Destino',
+                  tone: 'destination',
+                })
+              }>
+              <View style={[styles.selectorMarkerShell, styles.selectorDestinationShell]}>
+                <View style={[styles.selectorEndpointMarker, styles.selectorDestinationMarker]}>
+                  <MaterialCommunityIcons name="flag-checkered" size={17} color="#FFF" />
+                </View>
+                <Text style={styles.endpointMarkerLabel}>Destino</Text>
+              </View>
+            </AppMapMarker>
+          ) : null}
+          {!selectorMode
+            ? (selectedActiveRoute?.assignedRoute.stops || []).map((stop, index) => (
+                <AppMapMarker
+                  key={stop.id}
+                  id={`active-stop-${stop.id}`}
+                  coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
+                  onPress={() =>
+                    setMapCallout({
+                      subtitle: stop.address,
+                      title: `Parada ${index + 1}`,
+                      tone: 'stop',
+                    })
+                  }>
+                  <View style={styles.stopMarkerShell}>
+                    <View style={styles.stopMarker}>
+                      <Text style={styles.stopMarkerText}>{index + 1}</Text>
+                    </View>
                   </View>
                 </AppMapMarker>
               ))
             : null}
           {coordinates && (
-            <AppMapMarker id="user-location" coordinate={coordinates}>
-               <View style={[styles.userMarker, { backgroundColor: theme.colors.info }]} />
+            <AppMapMarker
+              id="user-location"
+              coordinate={coordinates}
+              onPress={() =>
+                setMapCallout({
+                  meta: coordinates.accuracy ? `Precisión ${Math.round(coordinates.accuracy)} m` : undefined,
+                  subtitle: formatSpeedKmh(coordinates.speed || 0),
+                  title: 'GPS',
+                  tone: 'gps',
+                })
+              }>
+              <View style={styles.userMarkerWrap}>
+                <View style={[styles.userAccuracyHalo, userAccuracyHaloStyle]} />
+                <View style={[styles.userMarker, { backgroundColor: theme.colors.info }]}>
+                  <View style={[styles.userHeading, userHeadingStyle]}>
+                    <MaterialCommunityIcons name="navigation" size={15} color="#FFF" />
+                  </View>
+                </View>
+              </View>
             </AppMapMarker>
           )}
         </AppMap>
 
         {selectorMode ? (
-          <View style={[styles.selectorPanel, { top: insets.top + 80, backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+          <View style={[styles.selectorPanel, { top: mapLayout.top + MAP_LAYOUT.headerHeight + MAP_LAYOUT.headerToFabGap, backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
             <View style={styles.selectorStepBadge}>
               <Text style={styles.selectorStepText}>Paso {selectorStep}</Text>
             </View>
@@ -800,8 +1230,74 @@ export function MapScreen() {
           </View>
         ) : null}
 
+        {mapCallout ? (
+          <View
+            style={[
+              styles.mapCallout,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.line,
+                bottom: mapLayout.bottomSheetHeight + (selectorMode ? 84 : 12),
+              },
+            ]}>
+            <View
+              style={[
+                styles.mapCalloutIcon,
+                {
+                  backgroundColor:
+                    mapCallout.tone === 'origin'
+                      ? theme.colors.success
+                      : mapCallout.tone === 'destination'
+                        ? MANECOMB_ROUTE_COLOR
+                        : mapCallout.tone === 'gps'
+                          ? theme.colors.info
+                          : mapCallout.tone === 'stop'
+                            ? theme.colors.accent
+                            : theme.colors.accent,
+                },
+              ]}>
+              <MaterialCommunityIcons
+                name={
+                  mapCallout.tone === 'origin'
+                    ? 'record-circle-outline'
+                    : mapCallout.tone === 'destination'
+                      ? 'flag-checkered'
+                      : mapCallout.tone === 'gps'
+                        ? 'crosshairs-gps'
+                        : mapCallout.tone === 'stop'
+                          ? 'map-marker-distance'
+                          : 'bus'
+                }
+                size={18}
+                color="#FFFFFF"
+              />
+            </View>
+            <View style={styles.mapCalloutCopy}>
+              <Text style={[styles.mapCalloutTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                {mapCallout.title}
+              </Text>
+              {mapCallout.subtitle ? (
+                <Text style={[styles.mapCalloutSubtitle, { color: theme.colors.muted }]} numberOfLines={1}>
+                  {mapCallout.subtitle}
+                </Text>
+              ) : null}
+              {mapCallout.meta ? (
+                <Text style={[styles.mapCalloutMeta, { color: theme.colors.accent }]} numberOfLines={1}>
+                  {mapCallout.meta}
+                </Text>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityLabel="Cerrar marcador"
+              onPress={() => setMapCallout(null)}
+              style={[styles.mapCalloutClose, { borderColor: theme.colors.line }]}>
+              <MaterialCommunityIcons name="close" size={16} color={theme.colors.text} />
+            </Pressable>
+          </View>
+        ) : null}
+
         {selectorMode && selectorPoints.origin && selectorPoints.destination ? (
-          <View style={[styles.selectorConfirmWrap, { bottom: insets.bottom + 140 }]}>
+          <View style={[styles.selectorConfirmWrap, { bottom: mapLayout.selectorBottom }]}>
             {selectorStops.length ? (
               <Pressable
                 onPress={removeLastSelectorStop}
@@ -827,7 +1323,7 @@ export function MapScreen() {
         ) : null}
 
         {/* HUD Overlay */}
-        <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]}>
+        <View style={[styles.topOverlay, { top: mapLayout.top }]}>
            <View style={styles.topBar}>
               <Pressable onPress={() => router.push('/incidencias')} style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
                 <MaterialCommunityIcons name="alert-outline" size={24} color={theme.colors.accent} />
@@ -847,7 +1343,7 @@ export function MapScreen() {
         </View>
 
         {/* Side Controls */}
-        <View style={[styles.sideActions, { top: insets.top + 80 }]}>
+        <View style={[styles.sideActions, { top: mapLayout.sideTop }]}>
           <Pressable onPress={handleRefresh} style={[styles.fab, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
             <MaterialCommunityIcons name={isRefreshing ? "sync" : "refresh"} size={22} color={theme.colors.text} />
           </Pressable>
@@ -868,7 +1364,10 @@ export function MapScreen() {
         </View>
 
         {/* Bottom HUD */}
-        <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 10 }]}>
+        <View
+          onLayout={handleBottomOverlayLayout}
+          pointerEvents="box-none"
+          style={[styles.bottomOverlay, { paddingBottom: mapLayout.bottom }]}>
           {locationStatus.canRetry && locationStatus.title ? (
             <View style={[styles.locationNotice, { backgroundColor: theme.colors.surface, borderColor: locationStatusColor }]}>
               <MaterialCommunityIcons name="crosshairs-gps" size={20} color={locationStatusColor} />
@@ -891,12 +1390,54 @@ export function MapScreen() {
             </View>
           ) : null}
           <View style={[styles.followCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+             <View style={styles.sheetHandle} />
              <View style={styles.followHeader}>
-                <View>
+                <View style={styles.followCopy}>
                   <Text style={[styles.followTitle, { color: theme.colors.text }]}>{selectedVehicle?.code || 'Flota'}</Text>
-                  <Text style={[styles.followMeta, { color: theme.colors.muted }]}>{selectedVehicle?.driverName || 'En monitoreo'}</Text>
+                  <Text style={[styles.followMeta, { color: theme.colors.muted }]}>
+                    {selectedActiveRoute?.name || selectedVehicle?.driverName || activeRouteVisualState.label}
+                  </Text>
                 </View>
-                <StatusPill label={`${selectedVehicle?.speed || 0} km/h`} tone="info" />
+                <StatusPill
+                  label={activeRouteVisualState.label}
+                  tone={activeRouteVisualState.tone}
+                />
+             </View>
+             <View style={styles.operationalRow}>
+               <View
+                 style={[
+                   styles.operationalDot,
+                   {
+                     backgroundColor:
+                       activeRouteVisualState.tone === 'warning'
+                         ? theme.colors.warning
+                         : activeRouteVisualState.tone === 'positive'
+                           ? theme.colors.success
+                           : activeRouteVisualState.tone === 'info'
+                             ? theme.colors.info
+                             : theme.colors.muted,
+                   },
+                 ]}
+               />
+               <Text style={[styles.operationalText, { color: theme.colors.text }]} numberOfLines={1}>
+                 {activeRouteVisualState.label}
+               </Text>
+               <Text style={[styles.operationalMeta, { color: theme.colors.muted }]} numberOfLines={1}>
+                 {formatSpeedKmh(selectedVehicle?.speed || coordinates?.speed || 0)}
+               </Text>
+               <Text style={[styles.operationalMeta, { color: theme.colors.muted }]} numberOfLines={1}>
+                 ETA {formatEtaSeconds(selectedActiveRoute?.progress?.timeRemainingSeconds)}
+               </Text>
+             </View>
+             <View style={styles.routeStatsRow}>
+               {routeStats.map((stat) => (
+                 <View key={stat.label} style={[styles.routeStatItem, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line }]}>
+                   <Text style={[styles.routeStatLabel, { color: theme.colors.muted }]}>{stat.label}</Text>
+                   <Text style={[styles.routeStatValue, { color: theme.colors.text }]} numberOfLines={1}>
+                     {stat.value}
+                   </Text>
+                 </View>
+               ))}
              </View>
 
              {activeIncident && activeIncidentVehicle ? (
@@ -959,19 +1500,58 @@ function HUDItem({ value, icon, color }: { value: string, icon: keyof typeof Mat
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   root: { flex: 1 },
-  topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, zIndex: 10 },
+  topOverlay: { position: 'absolute', left: 0, right: 0, paddingHorizontal: MAP_LAYOUT.edge, zIndex: MAP_Z_INDEX.controls },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minWidth: 0 },
-  iconButton: { width: 52, height: 52, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  hud: { flex: 1, height: 52, borderRadius: 16, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', minWidth: 0, paddingHorizontal: 12 },
+  iconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+  },
+  hud: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    minWidth: 0,
+    paddingHorizontal: 12,
+    elevation: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+  },
   hudItem: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, gap: 6, minWidth: 0 },
   hudValue: { flexShrink: 1, fontSize: 15, fontWeight: '800', fontFamily: Typography.mono, minWidth: 0 },
-  sideActions: { position: 'absolute', right: 16, gap: 12, zIndex: 10 },
-  fab: { width: 48, height: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  sideActions: { position: 'absolute', right: MAP_LAYOUT.edge, gap: MAP_LAYOUT.fabGap, zIndex: MAP_Z_INDEX.controls },
+  fab: {
+    width: MAP_LAYOUT.fabSize,
+    height: MAP_LAYOUT.fabSize,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 7,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
   selectorPanel: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    zIndex: 30,
+    left: MAP_LAYOUT.edge,
+    right: MAP_LAYOUT.edge,
+    zIndex: MAP_Z_INDEX.controls,
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
@@ -999,7 +1579,7 @@ const styles = StyleSheet.create({
   selectorCopy: { flex: 1, minWidth: 0, gap: 2 },
   selectorTitle: { fontSize: 15, fontWeight: '900', fontFamily: Typography.display },
   selectorHint: { fontSize: 12, lineHeight: 17, fontFamily: Typography.body },
-  selectorConfirmWrap: { position: 'absolute', left: 16, right: 16, zIndex: 30 },
+  selectorConfirmWrap: { position: 'absolute', left: MAP_LAYOUT.edge, right: MAP_LAYOUT.edge, zIndex: MAP_Z_INDEX.controls },
   selectorUndoButton: {
     minHeight: 44,
     borderRadius: 15,
@@ -1023,7 +1603,7 @@ const styles = StyleSheet.create({
   },
   selectorConfirmDisabled: { opacity: 0.78 },
   selectorConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', fontFamily: Typography.body },
-  bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 10, paddingHorizontal: 16, zIndex: 10 },
+  bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: MAP_LAYOUT.bottomGap, paddingHorizontal: MAP_LAYOUT.edge, zIndex: MAP_Z_INDEX.controls },
   locationNotice: {
     alignSelf: 'center',
     borderRadius: 18,
@@ -1040,10 +1620,81 @@ const styles = StyleSheet.create({
   locationNoticeTitle: { flexShrink: 1, fontSize: 13, fontWeight: '900', fontFamily: Typography.body, minWidth: 0 },
   locationNoticeText: { flexShrink: 1, fontSize: 11, lineHeight: 15, fontFamily: Typography.body, minWidth: 0 },
   locationRetry: { width: 38, height: 38, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  followCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 12, elevation: 8, shadowOpacity: 0.15, shadowRadius: 10 },
+  followCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
+    elevation: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(148,163,184,0.45)',
+    marginBottom: 2,
+  },
   followHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', minWidth: 0 },
+  followCopy: { flex: 1, minWidth: 0, gap: 2 },
   followTitle: { flexShrink: 1, fontSize: 22, fontWeight: '800', fontFamily: Typography.display, minWidth: 0 },
   followMeta: { fontSize: 13, fontFamily: Typography.body, minWidth: 0 },
+  operationalRow: {
+    minHeight: 34,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  operationalDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  operationalText: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  operationalMeta: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  routeStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  routeStatItem: {
+    flex: 1,
+    flexBasis: '47%',
+    minWidth: 0,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  routeStatLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    fontFamily: Typography.body,
+  },
+  routeStatValue: {
+    fontSize: 14,
+    fontWeight: '900',
+    fontFamily: Typography.body,
+  },
   alertStrip: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1071,15 +1722,182 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: Typography.body,
   },
+  mapCallout: {
+    position: 'absolute',
+    left: MAP_LAYOUT.edge,
+    right: MAP_LAYOUT.edge,
+    zIndex: MAP_Z_INDEX.controls + 2,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+  },
+  mapCalloutIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapCalloutCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  mapCalloutTitle: {
+    fontFamily: Typography.display,
+    fontSize: 15,
+  },
+  mapCalloutSubtitle: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+  },
+  mapCalloutMeta: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mapCalloutClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   trackList: { gap: 10 },
   trackChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
   trackChipTitle: { fontSize: 14, fontWeight: '700', fontFamily: Typography.body },
   trackChipTitleSelected: { color: '#FFF' },
-  vehicleMarker: { width: 22, height: 22, borderRadius: 11, borderWidth: 3, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  vehicleMarker: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 3,
+    borderColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 4,
+  },
   vehicleMarkerInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF' },
   incidentMarker: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
-  userMarker: { width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#FFF' },
-  stopMarkerText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', fontFamily: Typography.body },
+  selectorMarkerShell: {
+    minWidth: 44,
+    minHeight: 48,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  selectorDestinationShell: {
+    minWidth: 50,
+    minHeight: 52,
+    borderRadius: 20,
+    backgroundColor: 'rgba(227,30,36,0.16)',
+  },
+  selectorEndpointMarker: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectorOriginMarker: {
+    backgroundColor: '#10B981',
+  },
+  selectorDestinationMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: MANECOMB_ROUTE_COLOR,
+  },
+  endpointMarkerLabel: {
+    color: '#111827',
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: '900',
+    fontFamily: Typography.body,
+  },
+  stopMarkerShell: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  stopMarker: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MANECOMB_ROUTE_COLOR,
+  },
+  userMarkerWrap: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAccuracyHalo: {
+    position: 'absolute',
+    backgroundColor: 'rgba(37,99,235,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(37,99,235,0.24)',
+  },
+  userMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 3,
+    borderColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    elevation: 5,
+  },
+  userHeading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopMarkerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '900',
+    fontFamily: Typography.body,
+    textAlign: 'center',
+  },
   recoveryRoot: {
     flex: 1,
     alignItems: 'center',

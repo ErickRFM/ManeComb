@@ -631,6 +631,7 @@ function disconnectSocket() {
 
   if (socket) {
     socket.removeAllListeners();
+    socket.io.removeAllListeners();
     socket.disconnect();
     socket = null;
   }

@@ -21,6 +21,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User } from '@/src/types/app';
 import { formatRole, formatStatus } from '@/src/utils/format';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 
 type EditorState = {
   name: string;
@@ -586,6 +587,7 @@ function Field({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        {...getTextInputProps(theme, { autoComplete: secureTextEntry ? 'new-password' : 'off' })}
         value={value}
         onChangeText={onChangeText}
         placeholder={label}

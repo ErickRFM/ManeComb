@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -33,6 +34,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatTime } from '@/src/utils/format';
+import { buildActiveRouteSnapshot, getAssignedRouteLabel } from '@/src/utils/active-route';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 
 type FilterMode = 'all' | 'active' | 'routes' | 'completed';
@@ -64,6 +66,7 @@ type FinalizedRouteSummary = {
 } | null;
 
 const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
+const MANECOMB_ROUTE_COLOR = '#E31E24';
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -135,6 +138,7 @@ function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[])
   const latestLog = getLatestLog(manualLogs, vehicle.id);
   const activeLog = getActiveLog(manualLogs, vehicle.id);
   const status = getVehicleOperationalStatus(vehicle, activeLog || latestLog);
+  const activeRoute = buildActiveRouteSnapshot({ vehicle });
   const departureAt =
     activeLog?.departureAt ||
     latestLog?.departureAt ||
@@ -145,10 +149,15 @@ function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[])
     vehicleId: vehicle.id,
     vehicleCode: vehicle.code,
     driverName: vehicle.driverName || 'Operador sin asignar',
-    routeName: vehicle.routeName || vehicle.routeCode || 'Ruta sin asignar',
+    routeName:
+      activeRoute?.name ||
+      getAssignedRouteLabel(normalizeAssignedRoute(vehicle.assignedRoute)) ||
+      vehicle.routeName ||
+      vehicle.routeCode ||
+      'Ruta sin asignar',
     departureAt,
     arrivalAt: latestLog?.arrivalAt || null,
-    etaAt: getEtaAt(vehicle),
+    etaAt: activeRoute?.progress?.etaAt || getEtaAt(vehicle),
     delayMinutes: vehicle.delayMinutes || 0,
     status,
     vehicle,
@@ -409,6 +418,7 @@ function RoutePreview({
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
   const mapRef = useRef<AppMapRef>(null);
+  const routeFade = useRef(new Animated.Value(0)).current;
   const sourcePoints = useMemo(
     () =>
       route?.polyline?.length
@@ -425,8 +435,16 @@ function RoutePreview({
     [points, vehicle?.location]
   );
   const mapPoints = useMemo(
-    () => (sourcePoints.length ? sourcePoints : [fallbackPoint]),
-    [fallbackPoint, sourcePoints]
+    () => {
+      const pointsToFit = sourcePoints.length ? [...sourcePoints] : [fallbackPoint];
+
+      if (vehicle?.location) {
+        pointsToFit.push(vehicle.location);
+      }
+
+      return pointsToFit;
+    },
+    [fallbackPoint, sourcePoints, vehicle?.location]
   );
   const initialRegion = useMemo(
     () => ({
@@ -439,12 +457,25 @@ function RoutePreview({
 
   useEffect(() => {
     if (mapPoints.length) {
+      routeFade.setValue(0);
+      Animated.timing(routeFade, {
+        duration: 240,
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
       mapRef.current?.fitToCoordinates(mapPoints, {
-        animated: false,
-        edgePadding: { top: 28, right: 28, bottom: 28, left: 28 },
+        animated: true,
+        edgePadding: { top: 48, right: 38, bottom: 50, left: 38 },
       });
     }
-  }, [mapPoints]);
+  }, [mapPoints, routeFade]);
+
+  const vehicleHeadingStyle = useMemo(
+    () => ({
+      transform: [{ rotate: `${vehicle?.heading || 0}deg` }],
+    }),
+    [vehicle?.heading]
+  );
 
   return (
     <View style={styles.routePreview}>
@@ -457,29 +488,65 @@ function RoutePreview({
         style={StyleSheet.absoluteFill}
         themeMode={theme.mode}>
         {sourcePoints.length >= 2 ? (
-          <AppMapPolyline
-            id="route-preview"
-            coordinates={sourcePoints}
-            strokeColor={theme.colors.info}
-            strokeWidth={4}
-          />
+          <>
+            <AppMapPolyline
+              id="route-preview-base"
+              coordinates={sourcePoints}
+              lineBlur={1.2}
+              strokeColor={theme.mode === 'light' ? 'rgba(15,23,42,0.34)' : 'rgba(255,255,255,0.42)'}
+              strokeOpacity={1}
+              strokeWidth={8}
+            />
+            <AppMapPolyline
+              id="route-preview-main"
+              coordinates={sourcePoints}
+              strokeColor={MANECOMB_ROUTE_COLOR}
+              strokeOpacity={0.96}
+              strokeWidth={4}
+            />
+          </>
         ) : null}
         {points.map((point, index) => {
           const isDestination = point.type === 'destination';
           const isOrigin = point.type === 'origin';
+          const stopNumber = Math.max(1, index);
 
           return (
             <AppMapMarker key={point.id} id={`preview-${point.id}`} coordinate={point.location}>
-              <View style={[styles.miniMapMarker, isDestination ? styles.miniMapMarkerDestination : undefined]}>
-                <Text style={styles.miniMapMarkerText}>{isOrigin ? 'S' : isDestination ? 'F' : index}</Text>
-              </View>
+              <Animated.View
+                style={[
+                  styles.miniMapMarkerShell,
+                  { opacity: routeFade },
+                  isOrigin ? styles.miniMapMarkerShellOrigin : undefined,
+                  isDestination ? styles.miniMapMarkerShellDestination : undefined,
+                ]}>
+                <View
+                  style={[
+                    styles.miniMapMarker,
+                    isOrigin ? styles.miniMapMarkerOrigin : undefined,
+                    isDestination ? styles.miniMapMarkerDestination : undefined,
+                  ]}>
+                  {isOrigin ? (
+                    <MaterialCommunityIcons name="record-circle-outline" size={16} color="#FFFFFF" />
+                  ) : isDestination ? (
+                    <MaterialCommunityIcons name="flag-checkered" size={15} color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.miniMapMarkerText}>{stopNumber}</Text>
+                  )}
+                </View>
+              </Animated.View>
             </AppMapMarker>
           );
         })}
         {vehicle ? (
           <AppMapMarker id="preview-vehicle" coordinate={vehicle.location}>
-            <View style={styles.miniMapVehicleMarker}>
-              <MaterialCommunityIcons name="bus" size={15} color={theme.colors.text} />
+            <View style={styles.miniMapVehicleWrap}>
+              <View style={styles.miniMapAccuracyHalo} />
+              <View style={styles.miniMapVehicleMarker}>
+                <View style={[styles.miniMapVehicleHeading, vehicleHeadingStyle]}>
+                  <MaterialCommunityIcons name="navigation" size={18} color="#FFFFFF" />
+                </View>
+              </View>
             </View>
           </AppMapMarker>
         ) : null}
@@ -759,30 +826,82 @@ function createStyles(
       borderColor: theme.colors.line,
     },
     miniMapMarker: {
-      width: 28,
-      height: 28,
-      borderRadius: 999,
-      backgroundColor: theme.colors.info,
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: MANECOMB_ROUTE_COLOR,
       borderWidth: 2,
       borderColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
     },
+    miniMapMarkerShell: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.mode === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(15,23,42,0.92)',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      elevation: 4,
+    },
+    miniMapMarkerShellOrigin: {
+      backgroundColor: theme.mode === 'light' ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.24)',
+    },
+    miniMapMarkerShellDestination: {
+      backgroundColor: theme.mode === 'light' ? 'rgba(227,30,36,0.14)' : 'rgba(227,30,36,0.24)',
+    },
+    miniMapMarkerOrigin: {
+      backgroundColor: theme.colors.success,
+    },
     miniMapMarkerDestination: {
-      backgroundColor: theme.colors.accent,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: MANECOMB_ROUTE_COLOR,
     },
     miniMapMarkerText: {
       color: '#FFFFFF',
+      fontFamily: Typography.body,
       fontSize: 11,
       fontWeight: '900',
+      lineHeight: 14,
+      textAlign: 'center',
+    },
+    miniMapVehicleWrap: {
+      width: 54,
+      height: 54,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    miniMapAccuracyHalo: {
+      position: 'absolute',
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.mode === 'light' ? 'rgba(37,99,235,0.14)' : 'rgba(96,165,250,0.20)',
+      borderWidth: 1,
+      borderColor: theme.mode === 'light' ? 'rgba(37,99,235,0.18)' : 'rgba(147,197,253,0.24)',
     },
     miniMapVehicleMarker: {
       width: 34,
       height: 34,
-      borderRadius: 13,
-      backgroundColor: theme.colors.surface,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
+      borderRadius: 17,
+      backgroundColor: theme.colors.info,
+      borderWidth: 3,
+      borderColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.22,
+      shadowRadius: 7,
+      elevation: 5,
+    },
+    miniMapVehicleHeading: {
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1528,7 +1647,7 @@ export function ChecklistScreen() {
             stops: nextStops,
             routes: [
               {
-                label: 'Ruta recomendada',
+                label: 'Ruta preparada',
                 distanceMeters,
                 durationSeconds,
                 durationInTrafficSeconds,

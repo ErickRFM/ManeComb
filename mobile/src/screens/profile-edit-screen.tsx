@@ -14,6 +14,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 import {
   DEFAULT_ACTIVE_DAYS,
   getOperationalScheduleState,
@@ -703,6 +704,7 @@ function Field({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        {...getTextInputProps(theme, { autoComplete: secureTextEntry ? 'current-password' : 'off' })}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}

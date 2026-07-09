@@ -45,9 +45,11 @@ import type {
   ConversationSummary,
 } from '@/src/types/app';
 import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 
 type DirectoryMode = 'all' | 'priority' | 'unread';
 type MobilePane = 'directory' | 'conversation';
+type OperationalActionCategory = 'root' | 'drivers' | 'units' | 'groups';
 type RecordingState = 'idle' | 'recording' | 'uploading';
 type VoiceSearchState = 'idle' | 'recording' | 'processing';
 type CallMode = 'audio' | 'video';
@@ -115,6 +117,23 @@ function getConversationPresenceLabel(conversation: ConversationSummary, activeC
   return 'En linea';
 }
 
+function getConversationSubline(conversation: ConversationSummary, activeContact?: ChatDirectoryContact | null) {
+  if (conversation.kind === 'group') {
+    return `${conversation.participants.length || 1} integrantes`;
+  }
+
+  if (!activeContact) {
+    return 'Chat directo';
+  }
+
+  const unitLabel =
+    (activeContact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
+    (activeContact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
+    (activeContact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName;
+
+  return unitLabel || formatRole(activeContact.role);
+}
+
 function getConversationPreview(conversation: ConversationSummary) {
   if (!conversation.lastMessage) {
     return 'Sin mensajes recientes.';
@@ -151,6 +170,31 @@ function isPriorityConversation(conversation: ConversationSummary) {
   );
 }
 
+function getOperationalStatusRank(status?: string | null) {
+  const normalizedStatus = `${status || ''}`.toLowerCase();
+
+  if (/available|disponible|online|linea|activo/.test(normalizedStatus)) return 0;
+  if (/route|ruta|en camino|busy|ocupado/.test(normalizedStatus)) return 1;
+  if (/transmit|transmitiendo|radio|ptt/.test(normalizedStatus)) return 2;
+  if (/offline|desconect|inactive|inactivo/.test(normalizedStatus)) return 3;
+  return 4;
+}
+
+function getOperationalStatusTone(status?: string | null) {
+  const rank = getOperationalStatusRank(status);
+
+  if (rank === 0) return 'positive';
+  if (rank === 1) return 'warning';
+  if (rank === 2) return 'danger';
+  if (rank === 3) return 'neutral';
+  return 'info';
+}
+
+function isSystemMessage(message: ChatMessage) {
+  const body = `${message.text || ''} ${message.textPreview || ''}`.toLowerCase();
+  return /ruta asignada|ruta finalizada|incidente|fuera de ruta|destino|gps perdido|conductor cambiado|cambio de estado/.test(body);
+}
+
 function getMessageDayKey(createdAt: string) {
   const date = new Date(createdAt);
 
@@ -184,6 +228,19 @@ function formatMessageDateLabel(createdAt: string) {
   return date.toLocaleDateString('es-MX', {
     day: '2-digit',
     month: 'short',
+  });
+}
+
+function formatMessageTime(createdAt: string) {
+  const date = new Date(createdAt);
+
+  if (!Number.isFinite(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -289,6 +346,7 @@ export function ChatScreen() {
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [actionCategory, setActionCategory] = useState<OperationalActionCategory>('root');
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
@@ -587,6 +645,7 @@ export function ChatScreen() {
     return () => {
       resetPeerConnection();
       socket.removeAllListeners();
+      socket.io.removeAllListeners();
       socket.disconnect();
     };
   }, [token, user]);
@@ -871,6 +930,39 @@ export function ChatScreen() {
         ? 'warning'
         : 'neutral';
   const activeConversationCallMode = activeCallSession?.mode ?? null;
+  const sortedOperationalContacts = useMemo(
+    () =>
+      [...chatContacts].sort((left, right) => {
+        const statusDiff = getOperationalStatusRank(left.status) - getOperationalStatusRank(right.status);
+
+        if (statusDiff) {
+          return statusDiff;
+        }
+
+        return left.name.localeCompare(right.name);
+      }),
+    [chatContacts]
+  );
+  const activeStatusChips = useMemo(
+    () => [
+      {
+        icon: 'circle',
+        label: activeConversation ? getConversationPresenceLabel(activeConversation, activeContact) : 'Sin canal',
+        tone: activeConversation ? getOperationalStatusTone(activeContact?.status || 'online') : 'neutral',
+      },
+      {
+        icon: 'shield-lock-outline',
+        label: 'Cifrado',
+        tone: 'positive',
+      },
+      {
+        icon: socketRef.current?.connected ? 'access-point' : 'access-point-off',
+        label: socketRef.current?.connected ? 'Socket activo' : 'Reconectando',
+        tone: socketRef.current?.connected ? 'positive' : 'warning',
+      },
+    ],
+    [activeContact, activeConversation]
+  );
 
   const scrollMessagesToEnd = (animated = true) => {
     requestAnimationFrame(() => {
@@ -1059,6 +1151,22 @@ export function ChatScreen() {
     if (conversation?.id && isCompact) {
       setMobilePane('conversation');
     }
+  };
+
+  const handleOpenRadioFromChat = async () => {
+    if (!activeConversation) {
+      return;
+    }
+
+    setAttachmentNotice('Conectando canal de radio...');
+
+    if (activeConversation.kind === 'direct' && activeContact?.id) {
+      await openDirectConversation(activeContact.id, 'radio');
+    } else {
+      await openGeneralConversation('radio');
+    }
+
+    setAttachmentNotice('Canal de radio listo. Usa Radio para PTT dedicado.');
   };
 
   const handleSendText = async () => {
@@ -1833,7 +1941,26 @@ export function ChatScreen() {
       header={
         isMobileConversation ? null : (
         <View style={styles.header}>
-          <Text style={styles.title}>Mensajeria operativa</Text>
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>Mensajeria operativa</Text>
+              <View style={styles.headerStatusRow}>
+                <View style={styles.liveDot} />
+                <Text style={styles.headerStatusText}>Conectado</Text>
+                <MaterialCommunityIcons name="lock-outline" size={15} color={theme.colors.success} />
+                <Text style={styles.headerSecureText}>Cifrado activo</Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => {
+                setAttachmentMenuOpen(true);
+                setActionCategory('root');
+              }}
+              style={styles.headerActionButton}
+              accessibilityLabel="Nueva accion operativa">
+              <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
+            </Pressable>
+          </View>
         </View>
         )
       }>
@@ -1843,6 +1970,7 @@ export function ChatScreen() {
             <View style={styles.searchShell}>
               <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
               <TextInput
+                {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'search' })}
                 value={search}
                 onChangeText={setSearch}
                 placeholder="Buscar conversacion o unidad..."
@@ -2045,14 +2173,26 @@ export function ChatScreen() {
                             <Text style={styles.tilePreview} numberOfLines={1}>
                               {preview}
                             </Text>
-                            {conversation.kind === 'group' ? (
-                              <View style={styles.tileStatusDot} />
-                            ) : null}
                             {conversation.unreadCount ? (
                               <View style={styles.unreadBubble}>
                                 <Text style={styles.unreadBubbleText}>{conversation.unreadCount}</Text>
                               </View>
                             ) : null}
+                          </View>
+                          <View style={styles.tileStatusRow}>
+                            <View
+                              style={[
+                                styles.tileStatusDot,
+                                getOperationalStatusRank(contact?.status || 'online') === 3
+                                  ? styles.tileStatusDotMuted
+                                  : undefined,
+                              ]}
+                            />
+                            <Text style={styles.tileStatusText} numberOfLines={1}>
+                              {conversation.kind === 'group'
+                                ? 'Canal operativo'
+                                : getConversationPresenceLabel(conversation, contact)}
+                            </Text>
                           </View>
                         </View>
                       </View>
@@ -2140,7 +2280,13 @@ export function ChatScreen() {
                           size={isPhone ? 36 : 40}
                         />
                       ) : (
-                        <View style={styles.conversationStatusDot} />
+                        <View style={styles.groupAvatarLarge}>
+                          <MaterialCommunityIcons
+                            name="account-group-outline"
+                            size={isPhone ? 19 : 22}
+                            color={theme.colors.info}
+                          />
+                        </View>
                       )}
 
                       <View style={styles.conversationCopy}>
@@ -2148,7 +2294,7 @@ export function ChatScreen() {
                           {getConversationDisplayTitle(activeConversation)}
                         </Text>
                         <Text style={styles.conversationSubtitle} numberOfLines={1}>
-                          {getConversationPresenceLabel(activeConversation, activeContact)}
+                          {getConversationSubline(activeConversation, activeContact)}  |  {getConversationPresenceLabel(activeConversation, activeContact)}
                         </Text>
                       </View>
                     </View>
@@ -2189,12 +2335,40 @@ export function ChatScreen() {
                         </>
                       ) : null}
                       <Pressable
+                        onPress={() => {
+                          handleOpenRadioFromChat();
+                        }}
+                        style={styles.conversationActionButton}
+                        accessibilityLabel="Hablar por radio">
+                        <MaterialCommunityIcons name="radio-handheld" size={20} color={theme.colors.text} />
+                      </Pressable>
+                      <Pressable
                         onPress={() => setOptionsMenuOpen(true)}
                         style={styles.conversationActionButton}
                         accessibilityLabel="Mas opciones">
                         <MaterialCommunityIcons name="dots-vertical" size={21} color={theme.colors.text} />
                       </Pressable>
                     </View>
+                  </View>
+                  <View style={styles.headerMetaPills}>
+                    {activeStatusChips.map((chip) => (
+                      <View key={chip.label} style={styles.headerMetaPill}>
+                        <MaterialCommunityIcons
+                          name={chip.icon as any}
+                          size={12}
+                          color={
+                            chip.tone === 'positive'
+                              ? theme.colors.success
+                              : chip.tone === 'warning'
+                                ? theme.colors.warning
+                                : chip.tone === 'danger'
+                                  ? theme.colors.danger
+                                  : theme.colors.muted
+                          }
+                        />
+                        <Text style={styles.headerMetaPillText}>{chip.label}</Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
 
@@ -2317,20 +2491,21 @@ export function ChatScreen() {
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item }) => {
-                      if (item.type === 'date') {
-                        return (
-                          <View style={styles.dateSeparator}>
-                            <Text style={styles.dateSeparatorText}>{item.label}</Text>
-                          </View>
-                        );
-                      }
+                    if (item.type === 'date') {
+                      return (
+                        <View style={styles.dateSeparator}>
+                          <Text style={styles.dateSeparatorText}>{item.label}</Text>
+                        </View>
+                      );
+                    }
 
-                      const { message } = item;
-                      const isOwn = message.senderId === user?.id;
-                      const deliveryStatus = getMessageDeliveryStatus(message, isOwn);
-                      const localTextMessage = message as LocalTextMessage;
-                      const canRetryMessage =
-                        localTextMessage.localStatus === 'failed' && Boolean(localTextMessage.retryText);
+                    const { message } = item;
+                    const isOwn = message.senderId === user?.id;
+                    const deliveryStatus = getMessageDeliveryStatus(message, isOwn);
+                    const isSystem = isSystemMessage(message);
+                    const localTextMessage = message as LocalTextMessage;
+                    const canRetryMessage =
+                      localTextMessage.localStatus === 'failed' && Boolean(localTextMessage.retryText);
 
                       return (
                         <View
@@ -2338,8 +2513,9 @@ export function ChatScreen() {
                           style={[
                             styles.messageRow,
                             isOwn ? styles.messageRowOwn : undefined,
+                            isSystem ? styles.messageRowSystem : undefined,
                           ]}>
-                          {!isOwn ? (
+                          {!isOwn && !isSystem ? (
                             <UserAvatar
                               user={message.sender || activeContact}
                               status={message.sender?.status}
@@ -2352,25 +2528,36 @@ export function ChatScreen() {
                               styles.messageBubble,
                               isOwn ? styles.messageBubbleOwn : undefined,
                               !isOwn ? styles.messageBubbleOther : undefined,
+                              isSystem ? styles.systemMessageBubble : undefined,
                               message.kind === 'audio' ? styles.messageBubbleAudio : undefined,
                               (message.kind === 'image' || message.kind === 'video') ? styles.messageBubbleMedia : undefined,
                             ]}>
                             <View style={styles.messageHeader}>
+                              {isSystem ? (
+                                <MaterialCommunityIcons
+                                  name="clipboard-pulse-outline"
+                                  size={15}
+                                  color={theme.colors.warning}
+                                />
+                              ) : null}
                               <Text
                                 style={[
                                   styles.messageSender,
-                                  isOwn ? styles.messageSenderOwn : undefined,
+                                  isSystem ? styles.systemMessageSender : undefined,
+                                  isOwn && !isSystem ? styles.messageSenderOwn : undefined,
                                 ]}>
-                                {isOwn
-                                  ? 'Tu'
-                                  : message.sender?.name || activeConversation.title || 'Operacion'}
+                                {isSystem
+                                  ? 'Evento operativo'
+                                  : isOwn
+                                    ? 'Tu'
+                                    : message.sender?.name || activeConversation.title || 'Operacion'}
                               </Text>
                               <Text
                                 style={[
                                   styles.messageMeta,
-                                  isOwn ? styles.messageMetaOwn : undefined,
+                                  isOwn && !isSystem ? styles.messageMetaOwn : undefined,
                                 ]}>
-                                {formatRelativeTime(message.createdAt)}
+                                {formatMessageTime(message.createdAt)}
                               </Text>
                             </View>
 
@@ -2394,15 +2581,19 @@ export function ChatScreen() {
                             ) : (
                               <Text
                                 style={[
-                                  styles.messageText,
-                                  isOwn ? styles.messageTextOwn : undefined,
-                                ]}>
+                                   styles.messageText,
+                                   isOwn && !isSystem ? styles.messageTextOwn : undefined,
+                                 ]}>
                                 {message.text}
                               </Text>
                             )}
 
-                            {deliveryStatus ? (
-                              <MessageDeliveryMeta status={deliveryStatus} isOwn={isOwn} />
+                            {deliveryStatus && !isSystem ? (
+                              <MessageDeliveryMeta
+                                status={deliveryStatus}
+                                isOwn={isOwn}
+                                time={formatMessageTime(message.createdAt)}
+                              />
                             ) : null}
 
                             {canRetryMessage ? (
@@ -2477,13 +2668,17 @@ export function ChatScreen() {
                     <Pressable
                       accessibilityLabel="Abrir adjuntos"
                       accessibilityRole="button"
-                      onPress={() => { setAttachmentMenuOpen(true); }}
+                      onPress={() => {
+                        setActionCategory('root');
+                        setAttachmentMenuOpen(true);
+                      }}
                       style={styles.attachButton}>
                       <MaterialCommunityIcons name="plus" size={24} color={theme.colors.text} />
                     </Pressable>
 
                     <View style={styles.composerInputShell}>
                       <TextInput
+                        {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'send' })}
                         value={draft}
                         onChangeText={setDraft}
                         placeholder={composerPlaceholder}
@@ -2561,56 +2756,113 @@ export function ChatScreen() {
         <Pressable style={styles.sheetBackdrop} onPress={() => setAttachmentMenuOpen(false)}>
           <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.sheetHandle} />
-            <View style={styles.sheetGrid}>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { handlePickMedia('image', 'camera'); }}>
-                <View style={[styles.sheetActionIcon, styles.sheetActionIconInfo]}>
-                  <MaterialCommunityIcons name="camera-outline" size={24} color={theme.colors.info} />
-                </View>
-                <Text style={styles.sheetActionText}>Camara</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { handlePickMedia('image', 'library'); }}>
-                <View style={[styles.sheetActionIcon, styles.sheetActionIconInfo]}>
-                  <MaterialCommunityIcons name="image-outline" size={24} color={theme.colors.info} />
-                </View>
-                <Text style={styles.sheetActionText}>Galeria</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { handleAttachmentUnavailable('Documento'); setAttachmentMenuOpen(false); }}>
-                <View style={styles.sheetActionIcon}>
-                  <MaterialCommunityIcons name="file-document-outline" size={24} color={theme.colors.muted} />
-                </View>
-                <Text style={styles.sheetActionText}>Documento</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { handleAttachmentUnavailable('Ubicacion'); setAttachmentMenuOpen(false); }}>
-                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
-                  <MaterialCommunityIcons name="map-marker-outline" size={24} color={theme.colors.accent} />
-                </View>
-                <Text style={styles.sheetActionText}>Ubicacion</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { setAttachmentMenuOpen(false); handleVoiceAction(); }}>
-                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
-                  <MaterialCommunityIcons name="microphone-outline" size={24} color={theme.colors.accent} />
-                </View>
-                <Text style={styles.sheetActionText}>Audio</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetAction}
-                onPress={() => { handlePickMedia('video', 'library'); }}>
-                <View style={[styles.sheetActionIcon, styles.sheetActionIconDanger]}>
-                  <MaterialCommunityIcons name="video-outline" size={24} color={theme.colors.accent} />
-                </View>
-                <Text style={styles.sheetActionText}>Video</Text>
-              </Pressable>
+            <View style={styles.sheetHeader}>
+              {actionCategory !== 'root' ? (
+                <Pressable
+                  onPress={() => setActionCategory('root')}
+                  style={styles.sheetBackButton}
+                  accessibilityLabel="Volver a acciones">
+                  <MaterialCommunityIcons name="arrow-left" size={18} color={theme.colors.text} />
+                </Pressable>
+              ) : null}
+              <View style={styles.sheetHeaderCopy}>
+                <Text style={styles.sheetTitle}>
+                  {actionCategory === 'drivers'
+                    ? 'Conductores'
+                    : actionCategory === 'units'
+                      ? 'Unidades'
+                      : actionCategory === 'groups'
+                        ? 'Grupos'
+                        : 'Nueva accion'}
+                </Text>
+                <Text style={styles.sheetSubtitle}>
+                  {actionCategory === 'drivers'
+                    ? 'Inicia un chat directo ordenado por disponibilidad.'
+                    : actionCategory === 'root'
+                      ? 'Acciones rapidas para coordinar la operacion.'
+                      : 'Accion operativa preparada para integrarse al flujo actual.'}
+                </Text>
+              </View>
             </View>
+
+            {actionCategory === 'drivers' ? (
+              <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
+                {sortedOperationalContacts.map((contact) => {
+                  const unitLabel =
+                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
+                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
+                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName ||
+                    formatRole(contact.role);
+                  const statusTone = getOperationalStatusTone(contact.status);
+
+                  return (
+                    <Pressable
+                      key={contact.id}
+                      style={styles.driverActionRow}
+                      onPress={() => {
+                        setAttachmentMenuOpen(false);
+                        handleOpenDirect(contact.id, 'chat');
+                      }}>
+                      <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                      <View style={styles.driverActionCopy}>
+                        <Text style={styles.driverActionName} numberOfLines={1}>
+                          {contact.name}
+                        </Text>
+                        <Text style={styles.driverActionUnit} numberOfLines={1}>
+                          {unitLabel}
+                        </Text>
+                      </View>
+                      <View style={styles.driverStatusPill}>
+                        <View
+                          style={[
+                            styles.driverStatusDot,
+                            statusTone === 'warning' ? styles.driverStatusDotWarning : undefined,
+                            statusTone === 'danger' ? styles.driverStatusDotDanger : undefined,
+                            statusTone === 'neutral' ? styles.driverStatusDotMuted : undefined,
+                          ]}
+                        />
+                        <Text style={styles.driverStatusText}>{formatStatus(contact.status)}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : actionCategory === 'units' || actionCategory === 'groups' ? (
+              <View style={styles.sheetEmptyState}>
+                <MaterialCommunityIcons
+                  name={actionCategory === 'units' ? 'bus-clock' : 'account-group-outline'}
+                  size={28}
+                  color={theme.colors.muted}
+                />
+                <Text style={styles.sheetEmptyTitle}>
+                  {actionCategory === 'units' ? 'Unidades en preparacion' : 'Grupos en preparacion'}
+                </Text>
+                <Text style={styles.sheetEmptyText}>
+                  Esta accion queda lista en la experiencia sin cambiar contratos ni crear datos nuevos.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.sheetActionList}>
+                {[
+                  { label: 'Conductores', icon: 'account-hard-hat-outline', action: () => setActionCategory('drivers') },
+                  { label: 'Unidades', icon: 'bus', action: () => setActionCategory('units') },
+                  { label: 'Grupos', icon: 'account-group-outline', action: () => setActionCategory('groups') },
+                  { label: 'Canal Operativo', icon: 'bullhorn-outline', action: () => { setAttachmentMenuOpen(false); handleOpenGeneral('chat'); } },
+                  { label: 'Reportar incidencia', icon: 'alert-outline', action: () => { handleAttachmentUnavailable('Incidencia'); setAttachmentMenuOpen(false); } },
+                  { label: 'Compartir ubicacion', icon: 'map-marker-outline', action: () => { handleAttachmentUnavailable('Ubicacion'); setAttachmentMenuOpen(false); } },
+                  { label: 'Compartir documento', icon: 'file-document-outline', action: () => { handleAttachmentUnavailable('Documento'); setAttachmentMenuOpen(false); } },
+                  { label: 'Compartir imagen', icon: 'image-outline', action: () => { handlePickMedia('image', 'library'); } },
+                ].map((action) => (
+                  <Pressable key={action.label} style={styles.sheetActionRow} onPress={action.action}>
+                    <View style={styles.sheetActionIcon}>
+                      <MaterialCommunityIcons name={action.icon as any} size={22} color={theme.colors.text} />
+                    </View>
+                    <Text style={styles.sheetActionText}>{action.label}</Text>
+                    <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -2663,9 +2915,11 @@ export function ChatScreen() {
 function MessageDeliveryMeta({
   status,
   isOwn,
+  time,
 }: {
   status: MessageDeliveryStatus;
   isOwn: boolean;
+  time?: string;
 }) {
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
@@ -2699,6 +2953,7 @@ function MessageDeliveryMeta({
 
   return (
     <View style={styles.deliveryMeta}>
+      {time ? <Text style={[styles.deliveryMetaText, { color: config.color }]}>{time}</Text> : null}
       <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
       <Text style={[styles.deliveryMetaText, { color: config.color }]}>{config.label}</Text>
     </View>
@@ -3056,11 +3311,65 @@ function createStyles(
       paddingTop: 4,
       minWidth: 0,
     },
+    headerTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 16,
+    },
+    headerCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 8,
+    },
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
       fontSize: isPhone ? 26 : 32,
       lineHeight: isPhone ? 31 : 38,
+    },
+    headerStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    liveDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: theme.colors.success,
+    },
+    headerStatusText: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    headerSecureText: {
+      color: theme.colors.success,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    headerActionButton: {
+      width: 52,
+      height: 52,
+      borderRadius: 18,
+      backgroundColor: theme.colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...(Platform.OS === 'web'
+        ? {
+            boxShadow: '0px 14px 26px rgba(229, 30, 45, 0.28)',
+          }
+        : {
+            shadowColor: theme.colors.accent,
+            shadowOpacity: 0.28,
+            shadowRadius: 14,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 6,
+          }),
     },
     headerPills: {
       flexDirection: 'row',
@@ -3136,12 +3445,12 @@ function createStyles(
       width: isCompact ? '100%' : 368,
       minWidth: 0,
       minHeight: 0,
-      borderRadius: isPhone ? 20 : 24,
-      borderWidth: 1,
+      borderRadius: isPhone ? 0 : 18,
+      borderWidth: isPhone ? 0 : 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      padding: isPhone ? 10 : 12,
-      gap: 10,
+      padding: isPhone ? 0 : 12,
+      gap: 12,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 18px 36px rgba(4, 16, 27, 0.12)',
@@ -3381,16 +3690,15 @@ function createStyles(
       lineHeight: 16,
     },
     conversationTile: {
-      borderRadius: 0,
-      borderWidth: 0,
-      borderBottomWidth: 1,
-      borderColor: theme.colors.line,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.mode === 'light' ? '#E5EAF1' : 'rgba(159, 176, 202, 0.14)',
       backgroundColor: theme.colors.surface,
-      paddingHorizontal: 2,
-      paddingVertical: 9,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
     },
     conversationTileActive: {
-      borderBottomColor: theme.colors.accent,
+      borderColor: theme.colors.accent,
       backgroundColor: theme.colors.surfaceAlt,
     },
     tileTitleRow: {
@@ -3460,6 +3768,21 @@ function createStyles(
       height: 9,
       borderRadius: 999,
       backgroundColor: theme.colors.success,
+    },
+    tileStatusDotMuted: {
+      backgroundColor: theme.colors.muted,
+    },
+    tileStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    tileStatusText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      lineHeight: 15,
+      fontWeight: '700',
     },
     unreadBubble: {
       minWidth: 22,
@@ -3653,6 +3976,24 @@ function createStyles(
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 6,
+    },
+    headerMetaPill: {
+      minHeight: 28,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    headerMetaPillText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '800',
     },
     callHub: {
       borderRadius: 24,
@@ -3892,14 +4233,17 @@ function createStyles(
     messageRowOwn: {
       justifyContent: 'flex-end',
     },
+    messageRowSystem: {
+      justifyContent: 'center',
+    },
     messageBubble: {
       maxWidth: isPhone ? '88%' : '78%',
       minWidth: 0,
-      borderRadius: 15,
+      borderRadius: 18,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      gap: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      gap: 5,
     },
     messageBubbleOwn: {
       backgroundColor: theme.colors.accent,
@@ -3907,6 +4251,13 @@ function createStyles(
     },
     messageBubbleOther: {
       borderBottomLeftRadius: 5,
+    },
+    systemMessageBubble: {
+      alignSelf: 'center',
+      maxWidth: isPhone ? '92%' : 420,
+      borderWidth: 1,
+      borderColor: theme.colors.warning,
+      backgroundColor: theme.mode === 'light' ? '#FFF8E7' : 'rgba(245, 158, 11, 0.12)',
     },
     messageBubbleAudio: {
       minWidth: isPhone ? 220 : 260,
@@ -3925,6 +4276,17 @@ function createStyles(
       overflow: 'hidden',
       borderRadius: 16,
       backgroundColor: theme.colors.surfaceAlt,
+      ...(Platform.OS === 'web'
+        ? {
+            boxShadow: '0px 12px 24px rgba(4, 16, 27, 0.18)',
+          }
+        : {
+            shadowColor: theme.colors.shadow,
+            shadowOpacity: 0.16,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 6 },
+            elevation: 4,
+          }),
     },
     messageImage: {
       width: '100%',
@@ -4020,6 +4382,11 @@ function createStyles(
       fontSize: 11,
       fontWeight: '800',
       flexShrink: 1,
+    },
+    systemMessageSender: {
+      color: theme.colors.warning,
+      textTransform: 'uppercase',
+      letterSpacing: 0,
     },
     messageSenderOwn: {
       color: '#FFFFFF',
@@ -4157,9 +4524,9 @@ function createStyles(
     composerShell: {
       flexShrink: 0,
       gap: 6,
-      paddingHorizontal: isPhone ? 8 : 0,
-      paddingTop: 6,
-      paddingBottom: isPhone ? 6 : 0,
+      paddingHorizontal: isPhone ? 10 : 0,
+      paddingTop: 8,
+      paddingBottom: isPhone ? 8 : 0,
       borderTopWidth: 1,
       borderTopColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -4175,7 +4542,7 @@ function createStyles(
       minWidth: 0,
       minHeight: 44,
       maxHeight: 92,
-      borderRadius: 18,
+      borderRadius: 20,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -4193,7 +4560,7 @@ function createStyles(
     attachButton: {
       width: 44,
       height: 44,
-      borderRadius: 16,
+      borderRadius: 17,
       borderWidth: 1,
       borderColor: theme.colors.line,
       alignItems: 'center',
@@ -4203,7 +4570,7 @@ function createStyles(
     voiceButton: {
       width: 44,
       height: 44,
-      borderRadius: 16,
+      borderRadius: 17,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
@@ -4213,7 +4580,7 @@ function createStyles(
     sendIconButton: {
       width: 44,
       height: 44,
-      borderRadius: 16,
+      borderRadius: 17,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
@@ -4251,7 +4618,8 @@ function createStyles(
     },
     bottomSheet: {
       width: '100%',
-      maxWidth: 520,
+      maxWidth: 560,
+      maxHeight: '82%',
       alignSelf: 'center',
       borderRadius: 22,
       borderWidth: 1,
@@ -4280,23 +4648,90 @@ function createStyles(
       alignSelf: 'center',
       marginBottom: 14,
     },
-    sheetGrid: {
+    sheetHeader: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      rowGap: 14,
+      alignItems: 'flex-start',
+      gap: 10,
+      marginBottom: 12,
     },
-    sheetAction: {
-      width: '33.333%',
-      minHeight: 82,
+    sheetBackButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sheetHeaderCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 3,
+    },
+    sheetTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.display,
+      fontSize: 20,
+      lineHeight: 25,
+    },
+    sheetSubtitle: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    sheetActionList: {
+      gap: 8,
+    },
+    sheetActionRow: {
+      minHeight: 56,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    sheetList: {
+      maxHeight: 420,
+    },
+    sheetListContent: {
+      gap: 8,
+      paddingBottom: 4,
+    },
+    sheetEmptyState: {
+      minHeight: 180,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
+      padding: 20,
+    },
+    sheetEmptyTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.display,
+      fontSize: 17,
+      textAlign: 'center',
+    },
+    sheetEmptyText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      lineHeight: 19,
+      textAlign: 'center',
+      maxWidth: 320,
     },
     sheetActionIcon: {
-      width: 50,
-      height: 50,
-      borderRadius: 18,
-      backgroundColor: theme.colors.surfaceAlt,
+      width: 40,
+      height: 40,
+      borderRadius: 14,
+      backgroundColor: theme.colors.surface,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -4307,11 +4742,73 @@ function createStyles(
       backgroundColor: theme.colors.dangerSoft,
     },
     sheetActionText: {
+      flex: 1,
       color: theme.colors.text,
       fontFamily: Typography.body,
-      fontSize: 12,
+      fontSize: 14,
       fontWeight: '800',
-      textAlign: 'center',
+    },
+    driverActionRow: {
+      minHeight: 68,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    driverActionCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    driverActionName: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 14,
+      fontWeight: '900',
+    },
+    driverActionUnit: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 16,
+    },
+    driverStatusPill: {
+      flexShrink: 0,
+      minHeight: 28,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 9,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    driverStatusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: theme.colors.success,
+    },
+    driverStatusDotWarning: {
+      backgroundColor: theme.colors.warning,
+    },
+    driverStatusDotDanger: {
+      backgroundColor: theme.colors.danger,
+    },
+    driverStatusDotMuted: {
+      backgroundColor: theme.colors.muted,
+    },
+    driverStatusText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '800',
     },
     optionsSheet: {
       width: '100%',

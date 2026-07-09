@@ -204,6 +204,7 @@ const vehicleSchema = new mongoose.Schema(
     updatedAt: { type: Date, default: Date.now },
     location: { type: pointSchema, required: true },
     locationTimestamp: { type: Date, default: null },
+    activeRouteProgress: { type: mongoose.Schema.Types.Mixed, default: null },
     assignedRoute: { type: assignedRouteSchema, default: null }
   },
   {

@@ -46,11 +46,30 @@ import { useAppStore } from '@/src/store/use-app-store';
 import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
 import { formatRelativeTime, formatRole } from '@/src/utils/format';
 import { getRadioConnectionStatus } from '@/src/utils/radio-status';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 
 type RecordingState = 'idle' | 'recording' | 'uploading' | 'sent' | 'error';
 type AudioPermissionState = 'unknown' | 'granted' | 'denied';
 type AudioFilter = 'all' | 'current' | 'mine';
 type RadioPageIndex = 0 | 1 | 2;
+type VoicePlaybackPhase =
+  | 'IDLE'
+  | 'LOADING'
+  | 'BUFFERING'
+  | 'PLAYING'
+  | 'PAUSED'
+  | 'FINISHED'
+  | 'ERROR';
+type VoicePlaybackChangeMeta = {
+  audioId?: string | null;
+  reason: string;
+  uri?: string | null;
+};
+type ActivePlaybackState = {
+  messageId: string;
+  phase: Extract<VoicePlaybackPhase, 'LOADING' | 'BUFFERING' | 'PLAYING'>;
+  updatedAt: number;
+} | null;
 
 const MIN_RADIO_NOTE_SECONDS = 1;
 const MAX_RADIO_NOTE_SECONDS = 60;
@@ -129,6 +148,45 @@ function getDeviceDisplayName(
   }
 
   return selected.label.replace(/\s*\([^)]*\)\s*$/, '').trim() || fallback;
+}
+
+function getFirstName(name?: string | null) {
+  return String(name || '').trim().split(/\s+/)[0] || null;
+}
+
+function isLivePlaybackPhase(phase?: VoicePlaybackPhase | null) {
+  return phase === 'LOADING' || phase === 'BUFFERING' || phase === 'PLAYING';
+}
+
+function isDevelopmentRuntime() {
+  return typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
+}
+
+function logRadioDevelopmentEvent(scope: 'radio-state' | 'radio-player', event: Record<string, unknown>) {
+  if (!isDevelopmentRuntime()) {
+    return;
+  }
+
+  console.info(`[${scope}]`, {
+    ...event,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function getVoiceWaveformBars(message: ChatMessage, barCount = 18) {
+  const seedText = `${message.id}:${message.durationSeconds || 0}:${message.createdAt}`;
+  let seed = 0;
+
+  for (let index = 0; index < seedText.length; index += 1) {
+    seed = (seed * 31 + seedText.charCodeAt(index)) % 9973;
+  }
+
+  return Array.from({ length: barCount }, (_, index) => {
+    const wave = Math.sin((seed + index * 19) * 0.37);
+    const secondary = Math.cos((seed + index * 11) * 0.21);
+    const envelope = 0.42 + Math.sin((index / Math.max(1, barCount - 1)) * Math.PI) * 0.58;
+    return 7 + Math.round((10 + wave * 5 + secondary * 3) * envelope);
+  });
 }
 
 function normalizeMeteringDecibels(metering?: number) {
@@ -221,7 +279,7 @@ export function RadioScreen() {
   const [activePageIndex, setActivePageIndex] = useState<RadioPageIndex>(INITIAL_RADIO_PAGE_INDEX);
   const [pagerWidth, setPagerWidth] = useState(0);
   const [audioFilter, setAudioFilter] = useState<AudioFilter>('all');
-  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [activePlayback, setActivePlayback] = useState<ActivePlaybackState>(null);
 
   const pagerRef = useRef<ScrollView>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -233,6 +291,7 @@ export function RadioScreen() {
   const pendingStopAfterStartRef = useRef(false);
   const idleStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPttBlockReasonRef = useRef<string | null>(null);
+  const maxRecordingStopRequestedRef = useRef(false);
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
@@ -324,9 +383,14 @@ export function RadioScreen() {
 
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
+  const activePlaybackMessageId = activePlayback?.messageId || null;
   const receivingVoiceNote = useMemo(
-    () => loadedVoiceNotes.find((item) => item.message.id === playingMessageId)?.message || null,
-    [loadedVoiceNotes, playingMessageId]
+    () =>
+      activePlaybackMessageId
+        ? loadedVoiceNotes.find((item) => item.message.id === activePlaybackMessageId)?.message ||
+          null
+        : null,
+    [activePlaybackMessageId, loadedVoiceNotes]
   );
   const latestIncomingActiveVoiceNote = useMemo(
     () =>
@@ -342,6 +406,7 @@ export function RadioScreen() {
     [activeChannel, loadedVoiceNotes, user?.id]
   );
   const receivingSenderName = receivingVoiceNote?.sender?.name || null;
+  const receivingSenderShortName = getFirstName(receivingSenderName);
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -386,7 +451,7 @@ export function RadioScreen() {
       Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
       typeof (globalThis as any).MediaRecorder !== 'undefined');
   const isRadioTransmitting = recordingState === 'recording' || recordingState === 'uploading';
-  const isRadioReceiving = Boolean(playingMessageId);
+  const isRadioReceiving = Boolean(activePlayback && isLivePlaybackPhase(activePlayback.phase));
   const radioConnection = useMemo(
     () =>
       getRadioConnectionStatus(socketStatus, {
@@ -410,17 +475,20 @@ export function RadioScreen() {
   const isBusy = isSubmitting || recordingState === 'uploading';
   const pttBlockReason = !supportsTapToTalk
     ? 'Audio API no disponible'
-    : isBusy
-      ? 'Transmision en curso'
-      : !activeChannel
-        ? 'Sin canal activo'
-        : isRadioReceiving
-          ? 'Recibiendo audio'
-          : !radioConnection.canTransmit
-            ? radioConnection.detail
-            : null;
+    : audioPermissionState === 'denied'
+      ? 'Mic bloqueado'
+      : isBusy
+        ? 'Transmision en curso'
+        : !activeChannel
+          ? 'Sin canal activo'
+          : isRadioReceiving
+            ? 'Recibiendo audio'
+            : !radioConnection.canTransmit
+              ? radioConnection.detail
+              : null;
   const isPttDisabled =
     !supportsTapToTalk ||
+    audioPermissionState === 'denied' ||
     isBusy ||
     !activeChannel ||
     isRadioReceiving ||
@@ -434,6 +502,9 @@ export function RadioScreen() {
 
     lastPttBlockReasonRef.current = nextReason;
     if (nextReason) {
+      if (!isDevelopmentRuntime()) {
+        return;
+      }
       console.info('[radio:ptt] disabled', {
         activeChannel: Boolean(activeChannel),
         canTransmit: radioConnection.canTransmit,
@@ -447,6 +518,9 @@ export function RadioScreen() {
         submitting: isSubmitting,
       });
     } else {
+      if (!isDevelopmentRuntime()) {
+        return;
+      }
       console.info('[radio:ptt] enabled', {
         activeChannel: Boolean(activeChannel),
         socketStatus,
@@ -616,6 +690,29 @@ export function RadioScreen() {
   }, [activeChannelId, loadConversation, radioChannels]);
 
   useEffect(() => {
+    if (!activePlayback) {
+      return;
+    }
+
+    const messageStillLoaded = loadedVoiceNotes.some(
+      (item) => item.message.id === activePlayback.messageId
+    );
+    const transportHealthy = socketStatus === 'connected';
+
+    if (messageStillLoaded && transportHealthy) {
+      return;
+    }
+
+    setActivePlayback(null);
+    stopActiveAudioPlaybackAsync().catch(() => undefined);
+  }, [activePlayback, loadedVoiceNotes, socketStatus]);
+
+  useEffect(() => {
+    setActivePlayback(null);
+    stopActiveAudioPlaybackAsync().catch(() => undefined);
+  }, [activeChannelId]);
+
+  useEffect(() => {
     return () => {
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
@@ -630,6 +727,7 @@ export function RadioScreen() {
       stopWebMetering();
       nativeRecorder.stop().catch(() => undefined);
       stopActiveAudioPlaybackAsync().catch(() => undefined);
+      setActivePlayback(null);
       webRecorderRef.current?.stop?.();
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
     };
@@ -637,6 +735,7 @@ export function RadioScreen() {
 
   const startRecordingTicker = () => {
     recordStartedAtRef.current = Date.now();
+    maxRecordingStopRequestedRef.current = false;
     setRecordingSeconds(0);
 
     if (recordTimerRef.current) {
@@ -654,7 +753,8 @@ export function RadioScreen() {
       );
       setRecordingSeconds(elapsedSeconds);
 
-      if (elapsedSeconds >= MAX_RADIO_NOTE_SECONDS) {
+      if (elapsedSeconds >= MAX_RADIO_NOTE_SECONDS && !maxRecordingStopRequestedRef.current) {
+        maxRecordingStopRequestedRef.current = true;
         handleTapToTalk();
       }
     }, 400);
@@ -667,6 +767,7 @@ export function RadioScreen() {
     }
 
     recordStartedAtRef.current = null;
+    maxRecordingStopRequestedRef.current = false;
     setRecordingSeconds(0);
     volumeValue.value = 0;
   };
@@ -811,13 +912,33 @@ export function RadioScreen() {
     [pagerWidth]
   );
 
-  const handleVoicePlaybackChange = useCallback((messageId: string, isPlaying: boolean) => {
-    setPlayingMessageId((current) => {
-      if (isPlaying) {
-        return messageId;
+  const handleVoicePlaybackChange = useCallback((
+    messageId: string,
+    phase: VoicePlaybackPhase,
+    meta?: VoicePlaybackChangeMeta
+  ) => {
+    setActivePlayback((current) => {
+      if (current?.messageId === messageId && current.phase === phase) {
+        return current;
       }
 
-      return current === messageId ? null : current;
+      logRadioDevelopmentEvent('radio-state', {
+        audioId: meta?.audioId || null,
+        messageId,
+        next: phase,
+        previous: current?.messageId === messageId ? current.phase : current ? `${current.messageId}:${current.phase}` : 'IDLE',
+        reason: meta?.reason || 'player_transition',
+      });
+
+      if (isLivePlaybackPhase(phase)) {
+        return {
+          messageId,
+          phase,
+          updatedAt: Date.now(),
+        };
+      }
+
+      return current?.messageId === messageId ? null : current;
     });
   }, []);
 
@@ -836,7 +957,7 @@ export function RadioScreen() {
     }
 
     await stopActiveAudioPlaybackAsync().catch(() => undefined);
-    setPlayingMessageId(null);
+    setActivePlayback(null);
 
     const permission = await requestRecordingPermissionsAsync();
 
@@ -952,7 +1073,7 @@ export function RadioScreen() {
     }
 
     await stopActiveAudioPlaybackAsync().catch(() => undefined);
-    setPlayingMessageId(null);
+    setActivePlayback(null);
 
     const mediaDevices = (globalThis as any).navigator?.mediaDevices;
     const MediaRecorderCtor = (globalThis as any).MediaRecorder;
@@ -1222,35 +1343,80 @@ export function RadioScreen() {
       : audioPermissionState === 'granted'
         ? theme.colors.success
         : theme.colors.muted;
-  const radioVisualState = isRadioTransmitting ? 'transmitting' : isRadioReceiving ? 'receiving' : 'idle';
-  const liveStatus =
-    !radioConnection.canTransmit && recordingState === 'idle' && !isRadioReceiving
-      ? radioConnection.label.toUpperCase()
-      : recordingState === 'uploading'
-        ? 'ENVIANDO'
-        : recordingState === 'sent'
-          ? 'ENVIADO'
-          : recordingState === 'error'
-            ? 'ERROR'
-            : radioVisualState === 'transmitting'
-              ? 'TRANSMITIENDO'
-              : radioVisualState === 'receiving'
-                ? receivingSenderName
-                  ? `RECIBIENDO ${receivingSenderName.split(' ')[0].toUpperCase()}`
-                  : 'RECIBIENDO AUDIO'
-                : 'EN ESPERA';
-  const liveStatusTone =
-    !radioConnection.canTransmit && recordingState === 'idle' && !isRadioReceiving
-      ? radioConnection.tone
-      : recordingState === 'uploading' || recordingState === 'sent'
-      ? 'info'
-      : recordingState === 'error'
-        ? 'warning'
-        : radioVisualState === 'transmitting'
-      ? 'danger'
-      : radioVisualState === 'receiving'
-        ? 'info'
-        : 'positive';
+  const liveStatus = (() => {
+    if (recordingState === 'recording') {
+      return {
+        detail: 'Transmitiendo en el canal activo',
+        icon: 'microphone' as const,
+        label: 'Transmitiendo',
+        tone: 'danger' as const,
+      };
+    }
+
+    if (recordingState === 'uploading') {
+      return {
+        detail: 'Enviando audio al canal',
+        icon: 'cloud-upload-outline' as const,
+        label: 'Enviando',
+        tone: 'info' as const,
+      };
+    }
+
+    if (recordingState === 'sent') {
+      return {
+        detail: 'Transmision entregada',
+        icon: 'check-circle-outline' as const,
+        label: 'Enviado',
+        tone: 'positive' as const,
+      };
+    }
+
+    if (recordingState === 'error') {
+      return {
+        detail: recorderMessage || 'Revisa el audio e intenta de nuevo',
+        icon: 'alert-circle-outline' as const,
+        label: 'Error',
+        tone: 'warning' as const,
+      };
+    }
+
+    if (isRadioReceiving) {
+      return {
+        detail: receivingSenderShortName
+          ? `Escuchando a ${receivingSenderShortName}`
+          : 'Audio entrante activo',
+        icon: 'volume-high' as const,
+        label: receivingSenderShortName ? `${receivingSenderShortName} transmitiendo` : 'Recibiendo',
+        tone: 'info' as const,
+      };
+    }
+
+    if (!radioConnection.canTransmit) {
+      return {
+        detail: radioConnection.detail,
+        icon: radioConnection.state === 'RECONNECTING' ? 'sync' as const : 'access-point-off' as const,
+        label: radioConnection.label,
+        tone: radioConnection.tone,
+      };
+    }
+
+    return {
+      detail: activeChannel?.title || 'Canal operativo listo',
+      icon: 'check-circle-outline' as const,
+      label: 'Conectado',
+      tone: 'positive' as const,
+    };
+  })();
+  const liveStatusColor =
+    liveStatus.tone === 'danger'
+      ? theme.colors.danger
+      : liveStatus.tone === 'warning'
+        ? theme.colors.warning
+        : liveStatus.tone === 'info'
+          ? theme.colors.info
+          : liveStatus.tone === 'positive'
+            ? theme.colors.success
+            : theme.colors.muted;
   const pageWidth = pagerWidth || width;
   const audioSettingsPanel =
     showSettings && Platform.OS === 'web' ? (
@@ -1331,12 +1497,8 @@ export function RadioScreen() {
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Radio operativo</Text>
             <View style={styles.headerPills}>
-              <StatusPill label={`${radioChannels.length} canales`} tone="info" />
-              <StatusPill label={radioConnection.label} tone={radioConnection.tone} />
-              <StatusPill
-                label={liveStatus}
-                tone={liveStatusTone}
-              />
+              <StatusPill label={liveStatus.label} tone={liveStatus.tone} />
+              <Text style={styles.headerStatusText} numberOfLines={1}>{liveStatus.detail}</Text>
             </View>
           </View>
           {Platform.OS === 'web' && (
@@ -1400,6 +1562,7 @@ export function RadioScreen() {
           <View style={styles.searchShell}>
             <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
             <TextInput
+              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'search' })}
               value={search}
               onChangeText={setSearch}
               placeholder="Buscar canal o contacto"
@@ -1520,14 +1683,10 @@ export function RadioScreen() {
               </View>
               <View style={styles.heroPills}>
                 <StatusPill
-                  label={liveStatus}
-                  tone={liveStatusTone}
+                  label={liveStatus.label}
+                  tone={liveStatus.tone}
                 />
-                <StatusPill label={radioConnection.label} tone={radioConnection.tone} />
-                <StatusPill
-                  label={activeChannel?.encrypted ? 'Cifrado activo' : 'Operación segura'}
-                  tone={activeChannel?.encrypted ? 'positive' : 'neutral'}
-                />
+                <Text style={styles.heroLiveDetail} numberOfLines={1}>{liveStatus.detail}</Text>
                 {Platform.OS === 'web' && isDesktop ? (
                   <View style={styles.heroDeviceBar}>
                     <Pressable
@@ -1609,13 +1768,13 @@ export function RadioScreen() {
             <View style={styles.metricsRow}>
               <View style={styles.metricCard}>
                 <MaterialCommunityIcons
-                  name={radioVisualState === 'transmitting' ? 'record-circle' : 'circle'}
+                  name={liveStatus.icon}
                   size={18}
-                  color={radioVisualState === 'transmitting' ? theme.colors.danger : theme.colors.success}
+                  color={liveStatusColor}
                 />
                 <View style={styles.metricCopy}>
                   <Text style={styles.metricLabel}>Estado</Text>
-                  <Text style={styles.metricValue}>{liveStatus}</Text>
+                  <Text style={styles.metricValue}>{liveStatus.label}</Text>
                 </View>
               </View>
               <View style={styles.metricCard}>
@@ -1650,7 +1809,7 @@ export function RadioScreen() {
             </View>
 
             {recorderMessage || !radioConnection.canTransmit ? (
-              <Text style={styles.heroNote}>{recorderMessage || radioConnection.detail}</Text>
+              <Text style={styles.heroNote}>{recorderMessage || liveStatus.detail}</Text>
             ) : null}
           </View>
 
@@ -1700,7 +1859,7 @@ export function RadioScreen() {
                   message={item.message}
                   channelTitle={item.channelTitle}
                   autoPlay={latestIncomingActiveVoiceNote?.message.id === item.message.id}
-                  isActive={playingMessageId === item.message.id}
+                  isActive={activePlaybackMessageId === item.message.id}
                   token={token}
                   theme={theme}
                   onAutoPlaybackStart={handleAutoPlaybackStart}
@@ -1793,7 +1952,11 @@ function VoiceTransmissionCard({
   isActive?: boolean;
   message: ChatMessage;
   onAutoPlaybackStart?: (messageId: string) => void;
-  onPlaybackChange?: (messageId: string, isPlaying: boolean) => void;
+  onPlaybackChange?: (
+    messageId: string,
+    phase: VoicePlaybackPhase,
+    meta?: VoicePlaybackChangeMeta
+  ) => void;
   token: string | null;
   theme: ReturnType<typeof useAppTheme>['theme'];
   outputDeviceId?: string;
@@ -1808,6 +1971,11 @@ function VoiceTransmissionCard({
       : null
   );
   const playerStatus = useAudioPlayerStatus(player);
+  const playerStatusRef = useRef(playerStatus);
+  const playbackGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackPhaseRef = useRef<VoicePlaybackPhase>('IDLE');
+  const playbackStartedAtRef = useRef<number | null>(null);
+  const playbackOperationRef = useRef(0);
   const isPlaying = Boolean(playerStatus.playing);
   const isBuffering = Boolean(playerStatus.isBuffering);
   const fallbackDurationSeconds = Math.max(0, Number(message.durationSeconds || 0));
@@ -1827,36 +1995,113 @@ function VoiceTransmissionCard({
   const progress = durationSeconds > 0 ? clampVolume(currentSeconds / durationSeconds) : 0;
   const showProgress = durationSeconds > 0 && (isActive || isPlaying || playerStatus.isLoaded);
   const isPlaybackActive = isPlaying || isBuffering;
+  const hasReachedEnd =
+    durationSeconds > 0 && currentSeconds >= Math.max(0, durationSeconds - 0.25);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const waveformBars = useMemo(
+    () => getVoiceWaveformBars(message),
+    [message]
+  );
   const cardActive = Boolean(isActive || isPlaybackActive);
+  const playbackPhase: VoicePlaybackPhase = playbackError
+    ? 'ERROR'
+    : isBuffering
+      ? 'BUFFERING'
+      : isPlaying
+        ? 'PLAYING'
+        : hasReachedEnd
+          ? 'FINISHED'
+          : playerStatus.isLoaded && currentSeconds > 0
+            ? 'PAUSED'
+            : 'IDLE';
   const playbackStateLabel = playbackError
     ? 'Error de audio'
     : isBuffering
       ? 'Cargando'
       : isPlaying
         ? 'Reproduciendo'
-        : playerStatus.isLoaded && currentSeconds > 0
+        : hasReachedEnd
+          ? 'Reproducido'
+          : playerStatus.isLoaded && currentSeconds > 0
           ? 'Pausado'
           : resolvedUrl
             ? 'Listo'
             : 'Sin audio';
 
   useEffect(() => {
-    setPlaybackError(null);
-  }, [resolvedUrl]);
+    playerStatusRef.current = playerStatus;
+  }, [playerStatus]);
 
   useEffect(() => {
-    onPlaybackChange?.(message.id, isPlaybackActive);
+    setPlaybackError(null);
+    playbackPhaseRef.current = 'IDLE';
+  }, [resolvedUrl]);
 
-    return () => {
-      onPlaybackChange?.(message.id, false);
-    };
-  }, [isPlaybackActive, message.id, onPlaybackChange]);
+  const transitionPlayback = useCallback(
+    (nextPhase: VoicePlaybackPhase, reason: string, error?: unknown) => {
+      const previousPhase = playbackPhaseRef.current;
+
+      if (previousPhase === nextPhase) {
+        return false;
+      }
+
+      playbackPhaseRef.current = nextPhase;
+      const elapsedMs = playbackStartedAtRef.current ? Date.now() - playbackStartedAtRef.current : 0;
+
+      if (nextPhase === 'LOADING' || nextPhase === 'BUFFERING' || nextPhase === 'PLAYING') {
+        playbackStartedAtRef.current = playbackStartedAtRef.current || Date.now();
+      }
+
+      if (nextPhase === 'IDLE' || nextPhase === 'FINISHED' || nextPhase === 'ERROR') {
+        playbackStartedAtRef.current = null;
+      }
+
+      const nativeError = error as (Error & { code?: string }) | undefined;
+
+      logRadioDevelopmentEvent('radio-player', {
+        audioId: message.audioUrl || null,
+        elapsedMs,
+        errorCode: nativeError?.code,
+        errorMessage: nativeError?.message,
+        errorName: nativeError?.name,
+        event: reason,
+        messageId: message.id,
+        next: nextPhase,
+        previous: previousPhase,
+        stack: nativeError?.stack,
+        uri: resolvedUrl,
+      });
+      onPlaybackChange?.(message.id, nextPhase, {
+        audioId: message.audioUrl || null,
+        reason,
+        uri: resolvedUrl,
+      });
+
+      return true;
+    },
+    [message.audioUrl, message.id, onPlaybackChange, resolvedUrl]
+  );
+
+  useEffect(() => {
+    transitionPlayback(playbackPhase, 'STATUS');
+  }, [playbackPhase, transitionPlayback]);
+
+  useEffect(
+    () => () => {
+      if (playbackGuardTimerRef.current) {
+        clearTimeout(playbackGuardTimerRef.current);
+      }
+      playbackOperationRef.current += 1;
+      transitionPlayback('IDLE', 'UNMOUNT');
+    },
+    [transitionPlayback]
+  );
 
   const playTransmission = useCallback(
     async (source: 'manual' | 'auto') => {
       if (!resolvedUrl) {
         setPlaybackError('URL de audio invalida.');
+        transitionPlayback('ERROR', 'ERROR', new Error('URL de audio invalida.'));
         return;
       }
 
@@ -1865,23 +2110,53 @@ function VoiceTransmissionCard({
       }
 
       try {
+        const operationId = playbackOperationRef.current + 1;
+        playbackOperationRef.current = operationId;
+        playbackStartedAtRef.current = Date.now();
         setPlaybackError(null);
         await stopActiveAudioPlaybackAsync().catch(() => undefined);
-        onPlaybackChange?.(message.id, true);
+        transitionPlayback('LOADING', source === 'auto' ? 'AUTO_LOAD' : 'LOAD');
 
         if (source === 'auto') {
           onAutoPlaybackStart?.(message.id);
         }
 
         await player.play();
+        if (playbackOperationRef.current !== operationId) {
+          return;
+        }
+
+        if (playbackGuardTimerRef.current) {
+          clearTimeout(playbackGuardTimerRef.current);
+        }
+        playbackGuardTimerRef.current = setTimeout(() => {
+          if (playbackOperationRef.current !== operationId) {
+            return;
+          }
+
+          const latestStatus = playerStatusRef.current;
+
+          if (!latestStatus.playing && !latestStatus.isBuffering) {
+            transitionPlayback('IDLE', 'GUARD_IDLE');
+          }
+        }, 1200);
       } catch (error) {
         const playbackMessage = getAudioPlaybackErrorMessage(error);
+        const nativeError = error as Error & { code?: string };
         console.warn('[radio] playback failed', {
+          audioId: message.audioUrl || null,
+          elapsedMs: playbackStartedAtRef.current ? Date.now() - playbackStartedAtRef.current : 0,
+          errorCode: nativeError?.code,
+          errorMessage: nativeError?.message,
+          errorName: nativeError?.name,
           messageId: message.id,
-          hasAudioUrl: Boolean(message.audioUrl),
+          next: 'ERROR',
           playbackMessage,
+          previous: playbackPhaseRef.current,
+          stack: nativeError?.stack,
+          uri: resolvedUrl,
         });
-        onPlaybackChange?.(message.id, false);
+        transitionPlayback('ERROR', 'ERROR', error);
         setPlaybackError(playbackMessage);
       }
     },
@@ -1891,9 +2166,9 @@ function VoiceTransmissionCard({
       message.audioUrl,
       message.id,
       onAutoPlaybackStart,
-      onPlaybackChange,
       player,
       resolvedUrl,
+      transitionPlayback,
     ]
   );
 
@@ -1908,12 +2183,13 @@ function VoiceTransmissionCard({
   const handleTogglePlayback = async () => {
     if (!resolvedUrl) {
       setPlaybackError('URL de audio invalida.');
+      transitionPlayback('ERROR', 'ERROR', new Error('URL de audio invalida.'));
       return;
     }
 
     if (isPlaying) {
       await player.pause();
-      onPlaybackChange?.(message.id, false);
+      transitionPlayback('PAUSED', 'PAUSE');
       return;
     }
 
@@ -1981,10 +2257,10 @@ function VoiceTransmissionCard({
       </View>
 
       <View style={styles.voiceWaveRow}>
-        {Array.from({ length: 18 }).map((_, index) => {
-          const isBarPassed = progress > 0 && index / 18 <= progress;
+        {waveformBars.map((height, index) => {
+          const isBarPassed = progress > 0 && index / waveformBars.length <= progress;
           const voiceWaveBarStyle = {
-            height: 7 + ((index * 5) % 18),
+            height,
             backgroundColor:
               cardActive || isBarPassed ? theme.colors.accent : theme.colors.line,
           };
@@ -2219,8 +2495,17 @@ function createStyles(
     headerPills: {
       flexDirection: 'row',
       flexWrap: 'wrap',
+      alignItems: 'center',
       gap: 8,
       marginTop: 8,
+    },
+    headerStatusText: {
+      flexShrink: 1,
+      minWidth: 0,
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '700',
     },
     headerControls: {
       flexDirection: 'row',
@@ -2630,6 +2915,16 @@ function createStyles(
       gap: 8,
       alignItems: 'flex-start',
       justifyContent: 'flex-start',
+    },
+    heroLiveDetail: {
+      flexShrink: 1,
+      minWidth: 0,
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '800',
+      lineHeight: 22,
+      paddingVertical: 3,
     },
     heroDeviceBar: {
       width: '100%',

@@ -23,6 +23,7 @@ const {
   VehicleModel
 } = require("./models");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
+const { calculateVehicleRouteProgress } = require("../services/route-progress");
 
 function buildAvatar(name) {
   return String(name)
@@ -2691,6 +2692,12 @@ async function createMongoStore() {
   }
 
   async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
+    const currentVehicle = await VehicleModel.findById(vehicleId).lean();
+
+    if (!currentVehicle) {
+      return null;
+    }
+
     const update = {
       location: {
         latitude: Number(coordinates.latitude),
@@ -2713,6 +2720,19 @@ async function createMongoStore() {
       if (!Number.isNaN(parsedTimestamp.getTime())) {
         update.locationTimestamp = parsedTimestamp;
       }
+    }
+
+    const routeProgress = calculateVehicleRouteProgress({
+      coordinates: update.location,
+      heading: update.heading ?? currentVehicle.heading,
+      speed: update.speed ?? currentVehicle.speed,
+      timestamp: update.locationTimestamp || update.updatedAt,
+      vehicle: currentVehicle
+    });
+    update.activeRouteProgress = routeProgress;
+
+    if (routeProgress) {
+      update.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
     const vehicle = await VehicleModel.findByIdAndUpdate(

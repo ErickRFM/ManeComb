@@ -20,6 +20,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Incident, IncidentSeverity } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
+import { getTextInputProps } from '@/src/utils/text-input-props';
 
 const INCIDENT_TYPES = ['traffic', 'maintenance', 'security', 'passengers'] as const;
 const SEVERITIES: IncidentSeverity[] = ['medium', 'high', 'critical'];
@@ -878,6 +879,7 @@ export function IncidentsScreen() {
           <View style={screenStyles.fieldGroup}>
             <Text style={screenStyles.fieldLabel}>Titulo</Text>
             <TextInput
+              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'next' })}
               maxLength={100}
               placeholder="Titulo de la incidencia"
               placeholderTextColor={theme.colors.muted}
@@ -960,6 +962,7 @@ export function IncidentsScreen() {
           <View style={screenStyles.fieldGroup}>
             <Text style={screenStyles.fieldLabel}>Descripcion</Text>
             <TextInput
+              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'done' })}
               maxLength={420}
               multiline
               numberOfLines={4}
@@ -1029,6 +1032,7 @@ export function IncidentsScreen() {
           <View style={screenStyles.searchShell}>
             <MaterialCommunityIcons name="magnify" size={18} color={theme.colors.muted} />
             <TextInput
+              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'search' })}
               placeholder="Buscar evento..."
               placeholderTextColor={theme.colors.muted}
               style={screenStyles.searchInput}
