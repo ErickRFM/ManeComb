@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { BottomTrackingPanel } from './map/components/BottomTrackingPanel';
@@ -15,6 +14,7 @@ import { MapCanvas } from './map/components/MapCanvas';
 import { MapDataRecovery } from './map/components/MapDataRecovery';
 import { SelectorRouteOverlay } from './map/components/SelectorRouteOverlay';
 import { TrackingHud } from './map/components/TrackingHud';
+import { useLocationEngine } from './map/hooks/use-location-engine';
 import { useLocationSync } from './map/hooks/use-location-sync';
 import { useMapCamera } from './map/hooks/use-map-camera';
 import { useMapSelector } from './map/hooks/use-map-selector';
@@ -36,7 +36,7 @@ export function MapScreen() {
     permission,
     refresh,
     servicesEnabled,
-  } = useUserLocation();
+  } = useLocationEngine();
   const {
     connectionMode,
     authContext,

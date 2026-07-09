@@ -17,7 +17,7 @@
     "build": "npm run build:apk:android",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node ./scripts/run-point-to-point-test.mjs && jest --runInBand src/utils/account-routing.test.ts src/utils/location-status.test.ts src/utils/radio-status.test.ts src/utils/realtime-state.test.ts src/utils/operational-schedule.test.ts src/screens/radio/reducers/radio-reducer.test.ts src/screens/checklist-screen.test.ts",
+    "test": "node ./scripts/run-point-to-point-test.mjs && jest --runInBand src/utils/account-routing.test.ts src/utils/location-status.test.ts src/utils/radio-status.test.ts src/utils/realtime-state.test.ts src/utils/operational-schedule.test.ts src/screens/map/services/location-service.test.ts src/screens/radio/reducers/radio-reducer.test.ts src/screens/checklist-screen.test.ts",
     "test:e2e:web": "playwright test",
     "test:e2e:web:headed": "playwright test --headed",
     "test:e2e:mobile": "node ./scripts/run-detox-mobile.js test",

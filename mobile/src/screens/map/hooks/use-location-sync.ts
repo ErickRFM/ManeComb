@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { GeoPoint } from '@/src/types/app';
-
-const LOCATION_SYNC_INTERVAL_MS = 5000;
+import { buildVehicleLocationPayload, shouldSyncVehicleLocation } from '../services/tracking-service';
 
 type SendVehicleLocation = (payload: {
   vehicleId: string;
@@ -31,22 +30,27 @@ export function useLocationSync({
   const lastLocationSyncRef = useRef(0);
 
   useEffect(() => {
-    if (!coordinates || !vehicleId || connectionMode !== 'online' || !isWithinSchedule) {
-      return;
-    }
-
     const now = Date.now();
-    if (now - lastLocationSyncRef.current < LOCATION_SYNC_INTERVAL_MS) {
+    if (
+      !shouldSyncVehicleLocation({
+        connectionMode,
+        coordinates,
+        isWithinSchedule,
+        lastSyncAt: lastLocationSyncRef.current,
+        now,
+        vehicleId,
+      })
+    ) {
       return;
     }
 
     lastLocationSyncRef.current = now;
-    sendVehicleLocation({
-      vehicleId,
-      coordinates,
-      heading: coordinates.heading,
-      speed: coordinates.speed,
-      timestamp: lastUpdatedAt || new Date().toISOString(),
-    }).catch(() => undefined);
+    sendVehicleLocation(
+      buildVehicleLocationPayload({
+        coordinates: coordinates!,
+        lastUpdatedAt,
+        vehicleId: vehicleId!,
+      })
+    ).catch(() => undefined);
   }, [connectionMode, coordinates, isWithinSchedule, lastUpdatedAt, sendVehicleLocation, vehicleId]);
 }
