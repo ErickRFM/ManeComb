@@ -16,18 +16,8 @@ import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import type { PortalInvoice, PortalSubscription } from '@/src/types/app';
 import { useAppStore } from '@/src/store/use-app-store';
+import { formatDate } from '@/src/utils/format';
 import { canOpenOperationalPanel } from '../utils/access';
-
-function formatDate(value?: string | null) {
-  if (!value) {
-    return 'Pendiente';
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Pendiente'
-    : date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
-}
 
 function getPlanLabel(subscription?: PortalSubscription | null) {
   const status = String(subscription?.status || '').toLowerCase();
@@ -204,7 +194,7 @@ export function PortalDashboardScreen() {
             <AccountSummaryCard
               icon="credit-card-check-outline"
               label={pendingInvoices.length ? 'Facturacion pendiente' : getPaymentLabel(currentSubscription)}
-              value={pendingInvoices.length ? String(pendingInvoices.length) : formatDate(currentSubscription?.currentPeriodEnd)}
+              value={pendingInvoices.length ? String(pendingInvoices.length) : formatDate(currentSubscription?.currentPeriodEnd, { year: false })}
               detail={pendingInvoices.length ? 'Documentos por revisar' : 'Proximo pago'}
               tone={pendingInvoices.length ? 'warning' : getPaymentLabel(currentSubscription) === 'Pago al dia' ? 'positive' : 'warning'}
             />

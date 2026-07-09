@@ -44,7 +44,7 @@ import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
-import { formatRelativeTime, formatRole } from '@/src/utils/format';
+import { formatClockDurationFromSeconds, formatRelativeTime, formatRole } from '@/src/utils/format';
 import { getRadioConnectionStatus } from '@/src/utils/radio-status';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
@@ -52,6 +52,19 @@ type RecordingState = 'idle' | 'recording' | 'uploading' | 'sent' | 'error';
 type AudioPermissionState = 'unknown' | 'granted' | 'denied';
 type AudioFilter = 'all' | 'current' | 'mine';
 type RadioPageIndex = 0 | 1 | 2;
+type RadioOperationalPhase =
+  | 'IDLE'
+  | 'CONNECTING'
+  | 'READY'
+  | 'RECORDING'
+  | 'UPLOADING'
+  | 'LOADING'
+  | 'BUFFERING'
+  | 'PLAYING'
+  | 'PAUSED'
+  | 'FINISHED'
+  | 'ERROR'
+  | 'OFFLINE';
 type VoicePlaybackPhase =
   | 'IDLE'
   | 'LOADING'
@@ -62,19 +75,44 @@ type VoicePlaybackPhase =
   | 'ERROR';
 type VoicePlaybackChangeMeta = {
   audioId?: string | null;
+  elapsedMs?: number;
   reason: string;
   uri?: string | null;
 };
 type ActivePlaybackState = {
   messageId: string;
-  phase: Extract<VoicePlaybackPhase, 'LOADING' | 'BUFFERING' | 'PLAYING'>;
+  phase: VoicePlaybackPhase;
   updatedAt: number;
 } | null;
+type RadioMetrics = {
+  cancelled: number;
+  playbackCount: number;
+  playbackTotalMs: number;
+  received: number;
+  reconnects: number;
+  sent: number;
+  uploadCount: number;
+  uploadTotalMs: number;
+};
 
 const MIN_RADIO_NOTE_SECONDS = 1;
 const MAX_RADIO_NOTE_SECONDS = 60;
 const INITIAL_RADIO_PAGE_INDEX: RadioPageIndex = 1;
 const RADIO_PAGES = ['Canales', 'Radio', 'Audios'] as const;
+const RADIO_PHASE_TRANSITIONS: Record<RadioOperationalPhase, RadioOperationalPhase[]> = {
+  IDLE: ['CONNECTING', 'READY', 'RECORDING', 'LOADING', 'OFFLINE', 'ERROR'],
+  CONNECTING: ['READY', 'OFFLINE', 'ERROR'],
+  READY: ['RECORDING', 'LOADING', 'BUFFERING', 'PLAYING', 'OFFLINE', 'ERROR'],
+  RECORDING: ['UPLOADING', 'READY', 'ERROR', 'OFFLINE'],
+  UPLOADING: ['READY', 'ERROR', 'OFFLINE'],
+  LOADING: ['BUFFERING', 'PLAYING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  BUFFERING: ['PLAYING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  PLAYING: ['BUFFERING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  PAUSED: ['PLAYING', 'READY', 'ERROR', 'OFFLINE'],
+  FINISHED: ['READY', 'LOADING', 'OFFLINE'],
+  ERROR: ['READY', 'RECORDING', 'LOADING', 'OFFLINE'],
+  OFFLINE: ['CONNECTING', 'READY', 'ERROR'],
+};
 
 async function withRadioTimeout<T>(
   task: Promise<T>,
@@ -97,12 +135,7 @@ async function withRadioTimeout<T>(
   }
 }
 
-function formatDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.round(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = String(safeSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
-}
+const formatDuration = formatClockDurationFromSeconds;
 
 function getConversationContact(conversation: ConversationSummary, currentUserId?: string | null) {
   return (
@@ -171,6 +204,14 @@ function logRadioDevelopmentEvent(scope: 'radio-state' | 'radio-player', event: 
     ...event,
     timestamp: new Date().toISOString(),
   });
+}
+
+function isValidRadioPhaseTransition(previous: RadioOperationalPhase, next: RadioOperationalPhase) {
+  return previous === next || RADIO_PHASE_TRANSITIONS[previous]?.includes(next);
+}
+
+function getAverageDuration(totalMs: number, count: number) {
+  return count > 0 ? Math.round(totalMs / count) : 0;
 }
 
 function getVoiceWaveformBars(message: ChatMessage, barCount = 18) {
@@ -280,10 +321,23 @@ export function RadioScreen() {
   const [pagerWidth, setPagerWidth] = useState(0);
   const [audioFilter, setAudioFilter] = useState<AudioFilter>('all');
   const [activePlayback, setActivePlayback] = useState<ActivePlaybackState>(null);
+  const [radioPhase, setRadioPhase] = useState<RadioOperationalPhase>('IDLE');
+  const [radioMetrics, setRadioMetrics] = useState<RadioMetrics>({
+    cancelled: 0,
+    playbackCount: 0,
+    playbackTotalMs: 0,
+    received: 0,
+    reconnects: 0,
+    sent: 0,
+    uploadCount: 0,
+    uploadTotalMs: 0,
+  });
 
   const pagerRef = useRef<ScrollView>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStartedAtRef = useRef<number | null>(null);
+  const uploadStartedAtRef = useRef<number | null>(null);
+  const playbackTerminalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressToTalkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressToTalkActiveRef = useRef(false);
   const pressToTalkTriggeredRef = useRef(false);
@@ -297,10 +351,13 @@ export function RadioScreen() {
   const webChunksRef = useRef<Blob[]>([]);
   const bootstrappedRef = useRef(false);
   const autoPlayedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
+  const receivedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
   const meteringFrameRef = useRef<number | null>(null);
   const meteringCleanupRef = useRef<(() => void) | null>(null);
   const meteringActiveRef = useRef(false);
   const recordingStateRef = useRef<RecordingState>('idle');
+  const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
+  const lastSocketStatusRef = useRef(socketStatus);
   const pulseValue = useSharedValue(1);
   const haloValue = useSharedValue(0);
   const volumeValue = useSharedValue(0);
@@ -476,7 +533,9 @@ export function RadioScreen() {
   const pttBlockReason = !supportsTapToTalk
     ? 'Audio API no disponible'
     : audioPermissionState === 'denied'
-      ? 'Mic bloqueado'
+      ? Platform.OS === 'web'
+        ? 'Mic bloqueado'
+        : 'Toca para reintentar microfono'
       : isBusy
         ? 'Transmision en curso'
         : !activeChannel
@@ -488,11 +547,109 @@ export function RadioScreen() {
               : null;
   const isPttDisabled =
     !supportsTapToTalk ||
-    audioPermissionState === 'denied' ||
+    (Platform.OS === 'web' && audioPermissionState === 'denied') ||
     isBusy ||
     !activeChannel ||
     isRadioReceiving ||
     (!radioConnection.canTransmit && recordingState !== 'recording');
+  const incrementRadioMetrics = useCallback((patch: Partial<RadioMetrics>) => {
+    setRadioMetrics((current) => ({
+      ...current,
+      cancelled: current.cancelled + (patch.cancelled || 0),
+      playbackCount: current.playbackCount + (patch.playbackCount || 0),
+      playbackTotalMs: current.playbackTotalMs + (patch.playbackTotalMs || 0),
+      received: current.received + (patch.received || 0),
+      reconnects: current.reconnects + (patch.reconnects || 0),
+      sent: current.sent + (patch.sent || 0),
+      uploadCount: current.uploadCount + (patch.uploadCount || 0),
+      uploadTotalMs: current.uploadTotalMs + (patch.uploadTotalMs || 0),
+    }));
+  }, []);
+  const resolvedRadioPhase = useMemo<RadioOperationalPhase>(() => {
+    if (networkStatus === 'offline' || radioConnection.state === 'DISCONNECTED') {
+      return 'OFFLINE';
+    }
+
+    if (
+      socketStatus === 'connecting' ||
+      socketStatus === 'reconnecting' ||
+      networkStatus === 'recovering' ||
+      radioConnection.state === 'CONNECTING' ||
+      radioConnection.state === 'AUTHENTICATING' ||
+      radioConnection.state === 'RECONNECTING'
+    ) {
+      return 'CONNECTING';
+    }
+
+    if (recordingState === 'error' || activePlayback?.phase === 'ERROR' || radioConnection.state === 'ERROR') {
+      return 'ERROR';
+    }
+
+    if (recordingState === 'recording') {
+      return 'RECORDING';
+    }
+
+    if (recordingState === 'uploading') {
+      return 'UPLOADING';
+    }
+
+    if (activePlayback?.phase && activePlayback.phase !== 'IDLE') {
+      return activePlayback.phase;
+    }
+
+    if (radioConnection.canTransmit && activeChannel) {
+      return 'READY';
+    }
+
+    return 'IDLE';
+  }, [activeChannel, activePlayback?.phase, networkStatus, radioConnection, recordingState, socketStatus]);
+
+  useEffect(() => {
+    setRadioPhase((current) => {
+      if (current === resolvedRadioPhase) {
+        return current;
+      }
+
+      const valid = isValidRadioPhaseTransition(current, resolvedRadioPhase);
+      radioPhaseRef.current = resolvedRadioPhase;
+      logRadioDevelopmentEvent('radio-state', {
+        activeChannelId: activeChannel?.id || null,
+        next: resolvedRadioPhase,
+        previous: current,
+        reason: 'operation_phase',
+        validTransition: valid,
+      });
+
+      return resolvedRadioPhase;
+    });
+  }, [activeChannel?.id, resolvedRadioPhase]);
+
+  useEffect(() => {
+    const previous = lastSocketStatusRef.current;
+    lastSocketStatusRef.current = socketStatus;
+
+    if ((previous === 'reconnecting' || previous === 'disconnected') && socketStatus === 'connected') {
+      incrementRadioMetrics({ reconnects: 1 });
+    }
+  }, [incrementRadioMetrics, socketStatus]);
+
+  useEffect(() => {
+    const incomingNotes = loadedVoiceNotes.filter((item) => item.message.senderId !== user?.id);
+    let receivedCount = 0;
+
+    incomingNotes.forEach((item) => {
+      if (receivedVoiceNoteIdsRef.current.has(item.message.id)) {
+        return;
+      }
+
+      receivedVoiceNoteIdsRef.current.add(item.message.id);
+      receivedCount += 1;
+    });
+
+    if (receivedCount) {
+      incrementRadioMetrics({ received: receivedCount });
+    }
+  }, [incrementRadioMetrics, loadedVoiceNotes, user?.id]);
 
   useEffect(() => {
     const nextReason = isPttDisabled ? pttBlockReason || 'Bloqueado' : null;
@@ -708,6 +865,34 @@ export function RadioScreen() {
   }, [activePlayback, loadedVoiceNotes, socketStatus]);
 
   useEffect(() => {
+    if (playbackTerminalTimerRef.current) {
+      clearTimeout(playbackTerminalTimerRef.current);
+      playbackTerminalTimerRef.current = null;
+    }
+
+    if (!activePlayback || (activePlayback.phase !== 'FINISHED' && activePlayback.phase !== 'ERROR')) {
+      return undefined;
+    }
+
+    const terminalMessageId = activePlayback.messageId;
+    playbackTerminalTimerRef.current = setTimeout(() => {
+      setActivePlayback((current) =>
+        current?.messageId === terminalMessageId &&
+        (current.phase === 'FINISHED' || current.phase === 'ERROR')
+          ? null
+          : current
+      );
+    }, activePlayback.phase === 'ERROR' ? 3200 : 1400);
+
+    return () => {
+      if (playbackTerminalTimerRef.current) {
+        clearTimeout(playbackTerminalTimerRef.current);
+        playbackTerminalTimerRef.current = null;
+      }
+    };
+  }, [activePlayback]);
+
+  useEffect(() => {
     setActivePlayback(null);
     stopActiveAudioPlaybackAsync().catch(() => undefined);
   }, [activeChannelId]);
@@ -723,8 +908,16 @@ export function RadioScreen() {
       if (idleStatusTimerRef.current) {
         clearTimeout(idleStatusTimerRef.current);
       }
+      if (playbackTerminalTimerRef.current) {
+        clearTimeout(playbackTerminalTimerRef.current);
+      }
 
       stopWebMetering();
+      uploadStartedAtRef.current = null;
+      pendingStopAfterStartRef.current = false;
+      pttBusyRef.current = false;
+      pressToTalkActiveRef.current = false;
+      pressToTalkTriggeredRef.current = false;
       nativeRecorder.stop().catch(() => undefined);
       stopActiveAudioPlaybackAsync().catch(() => undefined);
       setActivePlayback(null);
@@ -917,6 +1110,13 @@ export function RadioScreen() {
     phase: VoicePlaybackPhase,
     meta?: VoicePlaybackChangeMeta
   ) => {
+    if (phase === 'FINISHED') {
+      incrementRadioMetrics({
+        playbackCount: 1,
+        playbackTotalMs: meta?.elapsedMs || 0,
+      });
+    }
+
     setActivePlayback((current) => {
       if (current?.messageId === messageId && current.phase === phase) {
         return current;
@@ -930,7 +1130,7 @@ export function RadioScreen() {
         reason: meta?.reason || 'player_transition',
       });
 
-      if (isLivePlaybackPhase(phase)) {
+      if (phase !== 'IDLE') {
         return {
           messageId,
           phase,
@@ -940,7 +1140,7 @@ export function RadioScreen() {
 
       return current?.messageId === messageId ? null : current;
     });
-  }, []);
+  }, [incrementRadioMetrics]);
 
   const handleAutoPlaybackStart = useCallback((messageId: string) => {
     autoPlayedVoiceNoteIdsRef.current.add(messageId);
@@ -1000,6 +1200,7 @@ export function RadioScreen() {
     }
 
     setRecordingMode('uploading');
+    uploadStartedAtRef.current = Date.now();
     await withRadioTimeout(
       nativeRecorder.stop(),
       7000,
@@ -1028,6 +1229,7 @@ export function RadioScreen() {
     const rawDurationSeconds = Math.round(Number(status.durationMillis || 0) / 1000);
 
     if (rawDurationSeconds < MIN_RADIO_NOTE_SECONDS) {
+      incrementRadioMetrics({ cancelled: 1 });
       setRecorderMessage('Manten presionado al menos 1 segundo');
       setRecordingMode('error');
       scheduleIdleAfterStatus();
@@ -1057,6 +1259,12 @@ export function RadioScreen() {
     if (!result.ok) {
       throw new Error(result.message || 'No fue posible enviar la transmision.');
     }
+    incrementRadioMetrics({
+      sent: 1,
+      uploadCount: 1,
+      uploadTotalMs: uploadStartedAtRef.current ? Date.now() - uploadStartedAtRef.current : 0,
+    });
+    uploadStartedAtRef.current = null;
     setRecorderMessage('Enviado');
     setRecordingMode('sent');
     scheduleIdleAfterStatus();
@@ -1123,6 +1331,7 @@ export function RadioScreen() {
     }
 
     setRecordingMode('uploading');
+    uploadStartedAtRef.current = Date.now();
     const recorder = webRecorderRef.current;
     const mimeType = recorder.mimeType || 'audio/webm';
     const rawDurationSeconds = Math.round(
@@ -1173,12 +1382,19 @@ export function RadioScreen() {
       );
 
       if (isTooShort) {
+        incrementRadioMetrics({ cancelled: 1 });
         setRecorderMessage('Manten presionado al menos 1 segundo');
         setRecordingMode('error');
         scheduleIdleAfterStatus();
         return;
       }
 
+      incrementRadioMetrics({
+        sent: 1,
+        uploadCount: 1,
+        uploadTotalMs: uploadStartedAtRef.current ? Date.now() - uploadStartedAtRef.current : 0,
+      });
+      uploadStartedAtRef.current = null;
       setRecorderMessage('Enviado');
       setRecordingMode('sent');
       scheduleIdleAfterStatus();
@@ -1190,6 +1406,7 @@ export function RadioScreen() {
       stopWebMetering();
       stopRecordingTicker();
       syncRecordingAnimation(false);
+      uploadStartedAtRef.current = null;
       if (recordingStateRef.current === 'uploading') {
         setRecordingMode('idle');
       }
@@ -1252,6 +1469,7 @@ export function RadioScreen() {
       stopWebMetering();
       stopRecordingTicker();
       syncRecordingAnimation(false);
+      uploadStartedAtRef.current = null;
       setRecordingMode('idle');
       const isPermissionError =
         typeof DOMException !== 'undefined' &&
@@ -1337,6 +1555,16 @@ export function RadioScreen() {
 
   const activeInputName = getDeviceDisplayName(audioInputDevices, selectedInputId, 'Mic');
   const activeOutputName = getDeviceDisplayName(audioOutputDevices, selectedOutputId, 'Salida');
+  const averageUploadMs = getAverageDuration(radioMetrics.uploadTotalMs, radioMetrics.uploadCount);
+  const averagePlaybackMs = getAverageDuration(radioMetrics.playbackTotalMs, radioMetrics.playbackCount);
+  const signalLevel =
+    networkStatus === 'offline' || socketStatus === 'disconnected' || socketStatus === 'error'
+      ? 0
+      : socketStatus === 'reconnecting' || networkStatus === 'recovering'
+        ? 2
+        : socketStatus === 'connected'
+          ? 4
+          : 1;
   const permissionTone =
     audioPermissionState === 'denied'
       ? theme.colors.warning
@@ -1344,43 +1572,45 @@ export function RadioScreen() {
         ? theme.colors.success
         : theme.colors.muted;
   const liveStatus = (() => {
-    if (recordingState === 'recording') {
+    switch (radioPhase) {
+      case 'RECORDING':
       return {
         detail: 'Transmitiendo en el canal activo',
         icon: 'microphone' as const,
         label: 'Transmitiendo',
         tone: 'danger' as const,
       };
-    }
-
-    if (recordingState === 'uploading') {
+      case 'UPLOADING':
       return {
         detail: 'Enviando audio al canal',
         icon: 'cloud-upload-outline' as const,
         label: 'Enviando',
         tone: 'info' as const,
       };
-    }
-
-    if (recordingState === 'sent') {
+      case 'FINISHED':
       return {
-        detail: 'Transmision entregada',
+        detail: 'Reproduccion finalizada',
         icon: 'check-circle-outline' as const,
-        label: 'Enviado',
+        label: 'Finalizado',
         tone: 'positive' as const,
       };
-    }
-
-    if (recordingState === 'error') {
+      case 'PAUSED':
+        return {
+          detail: 'Audio pausado',
+          icon: 'pause-circle-outline' as const,
+          label: 'Pausado',
+          tone: 'neutral' as const,
+        };
+      case 'ERROR':
       return {
         detail: recorderMessage || 'Revisa el audio e intenta de nuevo',
         icon: 'alert-circle-outline' as const,
         label: 'Error',
         tone: 'warning' as const,
       };
-    }
-
-    if (isRadioReceiving) {
+      case 'LOADING':
+      case 'BUFFERING':
+      case 'PLAYING':
       return {
         detail: receivingSenderShortName
           ? `Escuchando a ${receivingSenderShortName}`
@@ -1389,23 +1619,30 @@ export function RadioScreen() {
         label: receivingSenderShortName ? `${receivingSenderShortName} transmitiendo` : 'Recibiendo',
         tone: 'info' as const,
       };
-    }
-
-    if (!radioConnection.canTransmit) {
+      case 'CONNECTING':
+      case 'OFFLINE':
       return {
         detail: radioConnection.detail,
         icon: radioConnection.state === 'RECONNECTING' ? 'sync' as const : 'access-point-off' as const,
         label: radioConnection.label,
         tone: radioConnection.tone,
       };
+      case 'READY':
+        return {
+          detail: activeChannel?.title || 'Canal operativo listo',
+          icon: 'check-circle-outline' as const,
+          label: 'Listo',
+          tone: 'positive' as const,
+        };
+      case 'IDLE':
+      default:
+        return {
+          detail: activeChannel?.title || 'Selecciona un canal',
+          icon: 'radio-handheld' as const,
+          label: activeChannel ? 'En espera' : 'Sin canal',
+          tone: activeChannel ? 'neutral' as const : 'warning' as const,
+        };
     }
-
-    return {
-      detail: activeChannel?.title || 'Canal operativo listo',
-      icon: 'check-circle-outline' as const,
-      label: 'Conectado',
-      tone: 'positive' as const,
-    };
   })();
   const liveStatusColor =
     liveStatus.tone === 'danger'
@@ -1417,6 +1654,33 @@ export function RadioScreen() {
           : liveStatus.tone === 'positive'
             ? theme.colors.success
             : theme.colors.muted;
+  const activeOperatorCount = activeChannel?.participants.length || 0;
+  const recentActivity = filteredVoiceNotes.slice(0, 3);
+  const radioActionText =
+    recorderMessage ||
+    (radioPhase === 'OFFLINE'
+      ? 'Verifica Internet antes de transmitir.'
+      : radioPhase === 'CONNECTING'
+        ? 'Espera la reconexion del servidor.'
+        : audioPermissionState === 'denied'
+          ? 'Habilita el microfono para usar PTT.'
+          : null);
+  const pttDisabledText =
+    radioPhase === 'LOADING' || radioPhase === 'BUFFERING' || radioPhase === 'PLAYING'
+      ? liveStatus.label
+      : pttBlockReason || 'No disponible';
+  const pttStateStyle =
+    radioPhase === 'RECORDING'
+      ? styles.pttButtonRecording
+      : radioPhase === 'UPLOADING'
+        ? styles.pttButtonUploading
+        : radioPhase === 'LOADING' || radioPhase === 'BUFFERING' || radioPhase === 'PLAYING'
+          ? styles.pttButtonReceiving
+          : radioPhase === 'ERROR'
+            ? styles.pttButtonError
+            : radioPhase === 'OFFLINE' || radioPhase === 'CONNECTING'
+              ? styles.pttButtonOffline
+              : styles.pttButtonIdle;
   const pageWidth = pagerWidth || width;
   const audioSettingsPanel =
     showSettings && Platform.OS === 'web' ? (
@@ -1495,10 +1759,23 @@ export function RadioScreen() {
       header={
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>Radio operativo</Text>
+            <Text style={styles.title} numberOfLines={1}>
+              {activeChannel?.title || 'Radio operativo'}
+            </Text>
             <View style={styles.headerPills}>
               <StatusPill label={liveStatus.label} tone={liveStatus.tone} />
-              <Text style={styles.headerStatusText} numberOfLines={1}>{liveStatus.detail}</Text>
+              <View style={styles.headerMiniChip}>
+                <MaterialCommunityIcons name="server-network" size={14} color={theme.colors.muted} />
+                <Text style={styles.headerMiniText} numberOfLines={1}>
+                  {socketStatus || 'idle'}
+                </Text>
+              </View>
+              <View style={styles.headerMiniChip}>
+                <MaterialCommunityIcons name="account-group" size={14} color={theme.colors.muted} />
+                <Text style={styles.headerMiniText} numberOfLines={1}>
+                  {activeOperatorCount || '--'} ops
+                </Text>
+              </View>
             </View>
           </View>
           {Platform.OS === 'web' && (
@@ -1676,17 +1953,12 @@ export function RadioScreen() {
           <View style={styles.heroCard}>
             <View style={styles.heroTopRow}>
               <View style={styles.heroCopy}>
-                <Text style={styles.heroEyebrow}>Canal activo</Text>
+                <Text style={styles.heroEyebrow}>Consola PTT</Text>
                 <Text style={styles.heroTitle}>
-                  {activeChannel?.title || 'Radio operativo'}
+                  {liveStatus.label}
                 </Text>
               </View>
               <View style={styles.heroPills}>
-                <StatusPill
-                  label={liveStatus.label}
-                  tone={liveStatus.tone}
-                />
-                <Text style={styles.heroLiveDetail} numberOfLines={1}>{liveStatus.detail}</Text>
                 {Platform.OS === 'web' && isDesktop ? (
                   <View style={styles.heroDeviceBar}>
                     <Pressable
@@ -1716,6 +1988,43 @@ export function RadioScreen() {
 
             {audioSettingsPanel}
 
+            <View
+              style={[
+                styles.operationalBanner,
+                {
+                  backgroundColor: theme.colors.surfaceAlt,
+                  borderColor: liveStatusColor,
+                },
+              ]}>
+              <View style={[styles.operationalIcon, { backgroundColor: liveStatusColor }]}>
+                <MaterialCommunityIcons name={liveStatus.icon} size={19} color="#FFFFFF" />
+              </View>
+              <View style={styles.operationalCopy}>
+                <Text style={styles.operationalTitle} numberOfLines={1}>
+                  {liveStatus.detail}
+                </Text>
+                {radioActionText ? (
+                  <Text style={styles.operationalAction} numberOfLines={1}>
+                    {radioActionText}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.operationalSignal}>
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.signalBar,
+                      {
+                        height: 7 + index * 4,
+                        backgroundColor: index < signalLevel ? liveStatusColor : theme.colors.line,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+
             <View style={styles.pttCenter}>
               <Animated.View style={[styles.pttHalo, haloAnimatedStyle]} />
               <Animated.View style={[styles.pttOuter, pttAnimatedStyle]}>
@@ -1726,9 +2035,7 @@ export function RadioScreen() {
                   disabled={isPttDisabled}
                   style={[
                     styles.pttButton,
-                    recordingState === 'recording'
-                      ? styles.pttButtonRecording
-                      : styles.pttButtonIdle,
+                    pttStateStyle,
                     isPttDisabled
                       ? styles.pttButtonDisabled
                       : undefined,
@@ -1736,7 +2043,7 @@ export function RadioScreen() {
                   {recordingState === 'uploading' ? (
                     <ActivityIndicator color="#FFFFFF" size="large" />
                   ) : (
-                    <MaterialCommunityIcons name="microphone" size={58} color="#FFFFFF" />
+                    <MaterialCommunityIcons name="microphone" size={isPhone ? 42 : 48} color="#FFFFFF" />
                   )}
                   <Text style={styles.pttButtonTitle}>
                     {recordingState === 'recording'
@@ -1747,7 +2054,16 @@ export function RadioScreen() {
                           ? 'Enviado'
                           : recordingState === 'error'
                             ? 'Error'
-                            : 'Tap to Talk'}
+                            : 'PTT'}
+                  </Text>
+                  <Text style={styles.pttButtonSubtitle}>
+                    {recordingState === 'recording'
+                      ? 'Suelta para enviar'
+                      : isPttDisabled
+                        ? pttDisabledText
+                        : Platform.OS === 'web'
+                          ? 'Toca para transmitir'
+                          : 'Mantener o tocar'}
                   </Text>
                 </Pressable>
               </Animated.View>
@@ -1773,8 +2089,30 @@ export function RadioScreen() {
                   color={liveStatusColor}
                 />
                 <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Estado</Text>
-                  <Text style={styles.metricValue}>{liveStatus.label}</Text>
+                  <Text style={styles.metricLabel}>Fase</Text>
+                  <Text style={styles.metricValue}>{radioPhase}</Text>
+                </View>
+              </View>
+              <View style={styles.metricCard}>
+                <MaterialCommunityIcons name="access-point" size={18} color={theme.colors.muted} />
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Socket</Text>
+                  <Text style={styles.metricValue}>{socketStatus || 'idle'}</Text>
+                </View>
+                <View style={styles.signalBars}>
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.signalBar,
+                        {
+                          height: 7 + index * 4,
+                          backgroundColor:
+                            index < signalLevel ? liveStatusColor : theme.colors.line,
+                        },
+                      ]}
+                    />
+                  ))}
                 </View>
               </View>
               <View style={styles.metricCard}>
@@ -1789,16 +2127,32 @@ export function RadioScreen() {
                 </View>
               </View>
               <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="microphone-outline" size={18} color={permissionTone} />
+                <MaterialCommunityIcons name="chart-timeline-variant" size={18} color={theme.colors.muted} />
                 <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Dispositivo</Text>
-                  <Text style={styles.metricValue} numberOfLines={1}>{activeInputName}</Text>
+                  <Text style={styles.metricLabel}>Operacion</Text>
+                  <Text style={styles.metricValue} numberOfLines={1}>
+                    {radioMetrics.sent} env / {radioMetrics.received} rec
+                  </Text>
                 </View>
               </View>
               <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="radio-tower" size={18} color={theme.colors.muted} />
+                <MaterialCommunityIcons name="cloud-clock-outline" size={18} color={theme.colors.muted} />
                 <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Ultima transmision</Text>
+                  <Text style={styles.metricLabel}>Subida media</Text>
+                  <Text style={styles.metricValue}>{averageUploadMs ? `${averageUploadMs} ms` : '--'}</Text>
+                </View>
+              </View>
+              <View style={styles.metricCard}>
+                <MaterialCommunityIcons name="play-circle-outline" size={18} color={theme.colors.muted} />
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Playback medio</Text>
+                  <Text style={styles.metricValue}>{averagePlaybackMs ? `${averagePlaybackMs} ms` : '--'}</Text>
+                </View>
+              </View>
+              <View style={styles.metricCard}>
+                <MaterialCommunityIcons name="history" size={18} color={theme.colors.muted} />
+                <View style={styles.metricCopy}>
+                  <Text style={styles.metricLabel}>Ultima</Text>
                   <Text style={styles.metricValue} numberOfLines={1}>
                     {loadedVoiceNotes[0]
                       ? formatRelativeTime(loadedVoiceNotes[0].message.createdAt)
@@ -1808,8 +2162,29 @@ export function RadioScreen() {
               </View>
             </View>
 
-            {recorderMessage || !radioConnection.canTransmit ? (
-              <Text style={styles.heroNote}>{recorderMessage || liveStatus.detail}</Text>
+            {recentActivity.length ? (
+              <View style={styles.compactActivityPanel}>
+                <View style={styles.compactActivityHeader}>
+                  <Text style={styles.compactActivityTitle}>Ultimas transmisiones</Text>
+                  <Text style={styles.compactActivityMeta}>{filteredVoiceNotes.length} audios</Text>
+                </View>
+                {recentActivity.map((item) => (
+                  <View key={item.id} style={styles.compactActivityRow}>
+                    <View style={styles.compactActivityDot} />
+                    <View style={styles.compactActivityCopy}>
+                      <Text style={styles.compactActivityName} numberOfLines={1}>
+                        {item.message.sender?.name || 'Operacion'}
+                      </Text>
+                      <Text style={styles.compactActivityTime} numberOfLines={1}>
+                        {formatDuration(Number(item.message.durationSeconds || 0))} - {formatRelativeTime(item.message.createdAt)}
+                      </Text>
+                    </View>
+                    <Text style={styles.compactActivityStatus}>
+                      {item.message.senderId === user.id ? 'TX' : 'RX'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             ) : null}
           </View>
 
@@ -2073,6 +2448,7 @@ function VoiceTransmissionCard({
       });
       onPlaybackChange?.(message.id, nextPhase, {
         audioId: message.audioUrl || null,
+        elapsedMs,
         reason,
         uri: resolvedUrl,
       });
@@ -2482,8 +2858,8 @@ function createStyles(
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 28 : 34,
-      lineHeight: isPhone ? 34 : 40,
+      fontSize: isPhone ? 25 : 30,
+      lineHeight: isPhone ? 30 : 36,
     },
     subtitle: {
       color: theme.colors.muted,
@@ -2506,6 +2882,24 @@ function createStyles(
       fontFamily: Typography.body,
       fontSize: 13,
       fontWeight: '700',
+    },
+    headerMiniChip: {
+      minHeight: 28,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 9,
+    },
+    headerMiniText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
     },
     headerControls: {
       flexDirection: 'row',
@@ -2862,8 +3256,8 @@ function createStyles(
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
       justifyContent: 'space-between',
-      padding: isPhone ? 14 : 18,
-      gap: isPhone ? 10 : 12,
+      padding: isPhone ? 12 : 16,
+      gap: isPhone ? 8 : 10,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 16px 34px rgba(4, 16, 27, 0.12)',
@@ -2877,9 +3271,9 @@ function createStyles(
           }),
     },
     heroTopRow: {
-      flexDirection: 'column',
-      justifyContent: 'flex-start',
-      alignItems: 'stretch',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
       gap: 12,
     },
     heroCopy: {
@@ -2899,8 +3293,8 @@ function createStyles(
     heroTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 28 : 34,
-      lineHeight: isPhone ? 34 : 40,
+      fontSize: isPhone ? 24 : 30,
+      lineHeight: isPhone ? 30 : 36,
     },
     heroDescription: {
       color: theme.colors.muted,
@@ -2915,6 +3309,50 @@ function createStyles(
       gap: 8,
       alignItems: 'flex-start',
       justifyContent: 'flex-start',
+    },
+    operationalBanner: {
+      minHeight: 58,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    operationalIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    operationalCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    operationalTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 14,
+      lineHeight: 18,
+      fontWeight: '900',
+    },
+    operationalAction: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 16,
+      fontWeight: '700',
+    },
+    operationalSignal: {
+      width: 30,
+      minHeight: 24,
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'flex-end',
+      gap: 2,
     },
     heroLiveDetail: {
       flexShrink: 1,
@@ -2934,21 +3372,21 @@ function createStyles(
       gap: 8,
     },
     pttCenter: {
-      flexGrow: 1,
+      flexGrow: 0,
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: isPhone ? 238 : 270,
+      minHeight: isPhone ? 174 : 194,
     },
     pttHalo: {
       position: 'absolute',
-      width: isPhone ? 210 : 250,
-      height: isPhone ? 210 : 250,
+      width: isPhone ? 166 : 188,
+      height: isPhone ? 166 : 188,
       borderRadius: 999,
       backgroundColor: theme.colors.accentSoft,
     },
     pttOuter: {
-      width: isPhone ? 214 : 236,
-      height: isPhone ? 214 : 236,
+      width: isPhone ? 166 : 188,
+      height: isPhone ? 166 : 188,
       borderRadius: 999,
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -2970,6 +3408,25 @@ function createStyles(
       backgroundColor: theme.colors.accent,
       opacity: 0.92,
     },
+    pttButtonUploading: {
+      backgroundColor: theme.colors.info,
+    },
+    pttButtonReceiving: {
+      backgroundColor: theme.colors.info,
+      ...(Platform.OS === 'web'
+        ? {
+            boxShadow: `0px 0px 24px ${theme.colors.accentSoft}`,
+          }
+        : {
+            elevation: 8,
+          }),
+    },
+    pttButtonError: {
+      backgroundColor: theme.colors.warning,
+    },
+    pttButtonOffline: {
+      backgroundColor: theme.colors.muted,
+    },
     pttButtonRecording: {
       backgroundColor: theme.colors.danger,
       ...(Platform.OS === 'web'
@@ -2986,7 +3443,7 @@ function createStyles(
     pttButtonTitle: {
       color: '#FFFFFF',
       fontFamily: Typography.display,
-      fontSize: 24,
+      fontSize: isPhone ? 21 : 23,
       fontWeight: '900',
     },
     pttButtonSubtitle: {
@@ -3001,7 +3458,7 @@ function createStyles(
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
-      height: 52,
+      height: 38,
     },
     metricsRow: {
       flexDirection: 'row',
@@ -3010,17 +3467,29 @@ function createStyles(
     },
     metricCard: {
       flexGrow: 1,
-      flexBasis: isPhone ? '47%' : '23%',
-      minWidth: isPhone ? 132 : 148,
-      borderRadius: 16,
+      flexBasis: isPhone ? '47%' : '19%',
+      minWidth: isPhone ? 126 : 136,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
+    },
+    signalBars: {
+      width: 26,
+      minHeight: 22,
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'flex-end',
+      gap: 2,
+    },
+    signalBar: {
+      width: 4,
+      borderRadius: 999,
     },
     metricCopy: {
       flex: 1,
@@ -3030,15 +3499,75 @@ function createStyles(
     metricLabel: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
-      fontSize: 11,
-      lineHeight: 14,
+      fontSize: 10,
+      lineHeight: 13,
       fontWeight: '700',
     },
     metricValue: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 14,
-      lineHeight: 18,
+      fontSize: 13,
+      lineHeight: 16,
+    },
+    compactActivityPanel: {
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      padding: 10,
+      gap: 8,
+    },
+    compactActivityHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    compactActivityTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    compactActivityMeta: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    compactActivityRow: {
+      minHeight: 34,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 9,
+    },
+    compactActivityDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: theme.colors.accent,
+    },
+    compactActivityCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    compactActivityName: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '900',
+    },
+    compactActivityTime: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    compactActivityStatus: {
+      color: theme.colors.accent,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '900',
     },
     heroNote: {
       color: theme.colors.muted,

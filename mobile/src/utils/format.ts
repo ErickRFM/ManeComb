@@ -30,6 +30,14 @@ export function formatDurationFromSeconds(seconds: number) {
   return `${Math.max(1, minutes)} min`;
 }
 
+export function formatClockDurationFromSeconds(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = String(safeSeconds % 60).padStart(2, '0');
+
+  return `${minutes}:${remainingSeconds}`;
+}
+
 export function formatDistanceFromMeters(meters: number) {
   if (meters >= 1000) {
     return `${(meters / 1000).toFixed(1)} km`;

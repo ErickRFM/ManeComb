@@ -206,7 +206,7 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
   strokeWidth = 3,
 }: AppMapPolylineProps) {
   const { map } = useContext(MapContext);
-  const sourceId = `route-source-${id || strokeColor.replace(/[^a-z0-9]/gi, '')}-${coordinates.length}`;
+  const sourceId = `route-source-${id || strokeColor.replace(/[^a-z0-9]/gi, '')}`;
   const layerId = `${sourceId}-line`;
 
   useEffect(() => {

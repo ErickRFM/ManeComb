@@ -1,6 +1,6 @@
 import Mapbox from '@rnmapbox/maps';
 import Config from 'react-native-config';
-import { forwardRef, memo, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type {
   AppMapMarkerProps,
@@ -89,6 +89,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   ref
 ) {
   const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapPaddingRef = useRef(mapPadding);
   const styleURL = showsTraffic
     ? themeMode === 'light'
       ? Mapbox.StyleURL.TrafficDay
@@ -97,12 +98,22 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       ? Mapbox.StyleURL.Light
       : Mapbox.StyleURL.Dark;
 
+  useEffect(() => {
+    mapPaddingRef.current = mapPadding;
+    cameraRef.current?.setCamera({
+      animationDuration: 0,
+      animationMode: 'none',
+      padding: toCameraPadding(mapPadding),
+    });
+  }, [mapPadding]);
+
   useImperativeHandle(ref, () => ({
     animateToRegion(region, duration = 400) {
       cameraRef.current?.setCamera({
         animationDuration: duration,
         animationMode: 'easeTo',
         centerCoordinate: toCoordinate(region),
+        padding: toCameraPadding(mapPaddingRef.current),
         zoomLevel: toZoom(region),
       });
     },
@@ -189,7 +200,7 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
     return null;
   }
 
-  const sourceId = `route-source-${id || strokeColor.replace(/[^a-z0-9]/gi, '')}-${coordinates.length}`;
+  const sourceId = `route-source-${id || strokeColor.replace(/[^a-z0-9]/gi, '')}`;
 
   return (
     <Mapbox.ShapeSource id={sourceId} shape={shape}>

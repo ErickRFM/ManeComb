@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as Location from '@/src/native/location';
+import { distanceInMeters } from '@/src/hooks/point-to-point-tracker-core';
 import type { GeoPoint } from '@/src/types/app';
 import type { UserLocationIssue } from '@/src/utils/location-status';
 
@@ -24,20 +25,6 @@ type UserLocationState = {
 const MAX_ACCEPTED_ACCURACY_METERS = 120;
 const MIN_NATIVE_DISTANCE_METERS = 8;
 const MIN_NATIVE_INTERVAL_MS = 5000;
-
-function distanceInMeters(left: GeoPoint, right: GeoPoint) {
-  const radius = 6371000;
-  const dLat = ((right.latitude - left.latitude) * Math.PI) / 180;
-  const dLon = ((right.longitude - left.longitude) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((left.latitude * Math.PI) / 180) *
-      Math.cos((right.latitude * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function toPermissionState(status: Location.PermissionStatus) {
   if (status === Location.PermissionStatus.GRANTED) {

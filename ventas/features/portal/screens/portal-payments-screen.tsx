@@ -17,6 +17,7 @@ import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import type { PortalInvoice, PortalPaymentMethod } from '@/src/types/app';
+import { formatCurrency, formatDate } from '@/src/utils/format';
 
 type PaymentField = 'brand' | 'cardNumber' | 'expMonth' | 'expYear';
 type FormErrors = Partial<Record<PaymentField, string>>;
@@ -31,25 +32,6 @@ type BillingHistoryItem = {
 };
 
 const cardBrandOptions = ['Visa', 'Mastercard', 'American Express', 'Carnet'] as const;
-
-function formatCurrency(value?: number | null, currency = 'MXN') {
-  return new Intl.NumberFormat('es-MX', {
-    currency,
-    maximumFractionDigits: 0,
-    style: 'currency',
-  }).format(Number(value || 0));
-}
-
-function formatDate(value?: string | null) {
-  if (!value) {
-    return 'Pendiente';
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Pendiente'
-    : date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function isPaidInvoice(invoice: Pick<PortalInvoice, 'status'> | BillingHistoryItem) {
   return ['paid', 'ready', 'completed'].includes(String(invoice.status || '').toLowerCase());

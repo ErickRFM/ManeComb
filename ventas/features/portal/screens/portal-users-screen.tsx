@@ -13,7 +13,7 @@ import { portalButtonGradient } from '../portal-theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
-import { formatRole } from '@/src/utils/format';
+import { formatDate, formatRole } from '@/src/utils/format';
 import { usePortalStore } from '../store/use-portal-store';
 import { canOpenOperationalPanel } from '../utils/access';
 
@@ -39,17 +39,6 @@ function createBlankEditor(): UserEditor {
     phone: '',
     userStatus: 'pending',
   };
-}
-
-function formatDate(value?: string | null) {
-  if (!value) {
-    return 'Sin acceso';
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Sin acceso'
-    : date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export function PortalUsersScreen() {
@@ -260,7 +249,7 @@ export function PortalUsersScreen() {
                 <View style={styles.userBody}>
                   <Text style={[styles.userName, { color: theme.colors.text }]}>{item.name}</Text>
                   <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
-                    {item.email} / {item.accountType === 'company_owner' && item.role === 'owner' ? 'Owner' : formatRole(item.role)} / Ultimo acceso: {formatDate(item.lastAccessAt)}
+                    {item.email} / {item.accountType === 'company_owner' && item.role === 'owner' ? 'Owner' : formatRole(item.role)} / Ultimo acceso: {formatDate(item.lastAccessAt, { fallback: 'Sin acceso' })}
                   </Text>
                 </View>
                 <StatusBadge label={formatPortalStatus(item.userStatus || 'active')} tone={getPortalStatusTone(item.userStatus)} />

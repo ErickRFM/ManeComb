@@ -44,7 +44,12 @@ import type {
   ConversationChannelMode,
   ConversationSummary,
 } from '@/src/types/app';
-import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
+import {
+  formatClockDurationFromSeconds,
+  formatRelativeTime,
+  formatRole,
+  formatStatus,
+} from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
 type DirectoryMode = 'all' | 'priority' | 'unread';
@@ -83,12 +88,7 @@ type MessageListItem =
 const MAX_VOICE_NOTE_SECONDS = 45;
 const MAX_VOICE_SEARCH_SECONDS = 12;
 
-function formatDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.round(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = String(safeSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
-}
+const formatDuration = formatClockDurationFromSeconds;
 
 function getConversationContact(conversation: ConversationSummary, currentUserId?: string | null) {
   const others = conversation.participants.filter((participant) => participant.id !== currentUserId);
