@@ -39,6 +39,13 @@ const vehicleRoutes = require("./modules/vehicles/routes");
 const { getStorageMode } = require("./services/storage");
 const { getOrCreateTraceId, recordAppEventSafely } = require("./services/telemetry");
 const { getRuntimeReadiness } = require("./services/runtime-readiness");
+const logger = require("./services/logger");
+const {
+  getMetricsSnapshot,
+  incrementMetric,
+  observeDuration,
+  setGauge
+} = require("./services/metrics");
 const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
 
@@ -64,7 +71,11 @@ function createApp({ store, getDbState }) {
     })
   );
   app.use(compression());
-  app.use(morgan("dev"));
+  app.use(
+    morgan("dev", {
+      skip: () => NODE_ENV === "production"
+    })
+  );
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use((req, res, next) => {
@@ -75,11 +86,49 @@ function createApp({ store, getDbState }) {
     res.setHeader("x-trace-id", traceId);
 
     res.on("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      const routeScope = req.path.replace(/^\/api\/?/, "").split("/")[0] || "api";
+      const statusFamily = `${Math.floor(res.statusCode / 100)}xx`;
+      incrementMetric("http_requests_total", 1, {
+        method: req.method,
+        scope: routeScope,
+        status: statusFamily
+      });
+      if (res.statusCode < 400) {
+        if (routeScope === "locations" && req.method !== "GET") {
+          incrementMetric("gps_updates_total", 1, { transport: "http" });
+        }
+        if (routeScope === "chat" && req.method !== "GET") {
+          incrementMetric("chat_messages_total", 1, { transport: "http" });
+        }
+        if (routeScope === "radio" && req.method !== "GET") {
+          incrementMetric("radio_transmissions_total", 1, { transport: "http" });
+        }
+        if (routeScope === "incidents" && req.method === "POST") {
+          incrementMetric("incidents_created_total", 1);
+        }
+        if (routeScope === "commercial" && req.method !== "GET") {
+          incrementMetric("payments_events_total", 1);
+        }
+        if (routeScope === "documents" && req.method !== "GET") {
+          incrementMetric("uploads_total", 1, { scope: "documents" });
+        }
+        if (routeScope === "notifications" && req.method !== "GET") {
+          incrementMetric("notifications_events_total", 1);
+        }
+        if (routeScope === "auth" && req.method !== "GET") {
+          incrementMetric("auth_events_total", 1);
+        }
+      }
+      observeDuration("http_request_duration_ms", durationMs, {
+        method: req.method,
+        scope: routeScope
+      });
+
       if (!req.path.startsWith("/api") || req.path === "/api/health") {
         return;
       }
 
-      const durationMs = Date.now() - startedAt;
       const scope = req.path.replace(/^\/api\/?/, "").split("/")[0] || "api";
       const shouldRecord =
         res.statusCode >= 400 ||
@@ -94,6 +143,21 @@ function createApp({ store, getDbState }) {
         res.statusCode >= 500 ? "critical" : res.statusCode >= 400 ? "warning" : "info";
       const type =
         res.statusCode >= 400 ? "api_error" : durationMs >= 900 ? "api_slow" : "api_trace";
+
+      logger.log(level === "critical" ? "error" : level === "warning" ? "warn" : "info", {
+        action: "HttpRequest",
+        durationMs,
+        metadata: {
+          method: req.method,
+          path: req.path,
+          statusCode: res.statusCode
+        },
+        module: scope,
+        organizationId: req.user?.organizationId,
+        requestId: traceId,
+        status: String(res.statusCode),
+        userId: req.user?.id
+      });
 
       recordAppEventSafely(app.locals.store, {
         type,
@@ -137,9 +201,13 @@ function createApp({ store, getDbState }) {
   });
 
   function handleHealth(req, res) {
+    const startedAt = Date.now();
     const db = getDbState();
     const readiness = getRuntimeReadiness(db);
     const commit = String(RUNTIME_COMMIT || "").trim();
+    const socketServer = app.locals.io;
+    const socketCount = socketServer?.engine?.clientsCount || 0;
+    setGauge("socket_clients", socketCount);
 
     return res.json({
       ok: true,
@@ -159,6 +227,20 @@ function createApp({ store, getDbState }) {
       storage: getStorageMode(),
       payments: readiness.payments.mode,
       rtc: readiness.rtc.mode,
+      checks: {
+        api: {
+          ok: true,
+          responseTimeMs: Date.now() - startedAt
+        },
+        database: readiness.database,
+        queues: readiness.queues,
+        redis: readiness.redis,
+        socket: {
+          clients: socketCount,
+          ok: Boolean(socketServer)
+        },
+        storage: readiness.storage
+      },
       readiness,
       timestamp: new Date().toISOString()
     });
@@ -166,6 +248,15 @@ function createApp({ store, getDbState }) {
 
   app.get("/health", handleHealth);
   app.get("/api/health", handleHealth);
+  app.get("/api/health/live", (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
+  app.get("/api/health/ready", handleHealth);
+  app.get("/api/metrics", (req, res) => {
+    setGauge("socket_clients", app.locals.io?.engine?.clientsCount || 0);
+    res.json({
+      ok: true,
+      data: getMetricsSnapshot()
+    });
+  });
 
   app.use("/api/auth", authRoutes);
   app.use("/api/account", accountRoutes);

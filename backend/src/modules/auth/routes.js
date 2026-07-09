@@ -10,6 +10,7 @@ const {
   rotateRefreshToken
 } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
+const logger = require("../../services/logger");
 
 const router = Router();
 const authLimiter = enterpriseRateLimit({ scope: "auth", max: 20, windowMs: 60 * 1000 });
@@ -24,14 +25,21 @@ function logAuthAccessDecision(source, user, authContext) {
     return;
   }
 
-  console.info("[auth-access]", {
-    source,
-    email: user?.email || null,
-    subscriptionStatus: authContext?.subscription?.status || null,
-    subscriptionIsActive: authContext?.subscription?.isActive ?? null,
-    tenantStatus: authContext?.tenant?.status || null,
-    canAccessMobile: authContext?.canAccessMobile ?? null,
-    mobileBlockReason: authContext?.mobileBlockReason || null
+  logger.debug({
+    action: "AuthAccessDecision",
+    metadata: {
+      canAccessMobile: authContext?.canAccessMobile ?? null,
+      email: user?.email || null,
+      mobileBlockReason: authContext?.mobileBlockReason || null,
+      source,
+      subscriptionIsActive: authContext?.subscription?.isActive ?? null,
+      subscriptionStatus: authContext?.subscription?.status || null,
+      tenantStatus: authContext?.tenant?.status || null
+    },
+    module: "Auth",
+    organizationId: user?.organizationId,
+    status: authContext?.canAccessMobile ? "allowed" : "blocked",
+    userId: user?.id
   });
 }
 

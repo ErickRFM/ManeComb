@@ -3,6 +3,9 @@ const { CORS_ORIGIN, CLIENT_ORIGINS } = require("../config/env");
 const { canAccessTenantResource, getOrganizationId } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient } = require("../services/redis");
+const logger = require("../services/logger");
+const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
+const { getOrCreateTraceId } = require("../services/telemetry");
 const { verifyToken } = require("../utils/jwt");
 
 function registerSocketServer(server, store) {
@@ -40,9 +43,15 @@ function registerSocketServer(server, store) {
   }
 
   io.use(async (socket, next) => {
+    socket.data.traceId = getOrCreateTraceId(
+      socket.handshake.auth?.traceId ||
+      socket.handshake.headers?.["x-trace-id"] ||
+      socket.id
+    );
     const token = String(socket.handshake.auth?.token || "").trim();
 
     if (!token) {
+      incrementMetric("socket_auth_failures_total", 1);
       return next(new Error("unauthorized"));
     }
 
@@ -51,12 +60,14 @@ function registerSocketServer(server, store) {
       const user = await store.getUserById(payload.sub);
 
       if (!user) {
+        incrementMetric("socket_auth_failures_total", 1);
         return next(new Error("unauthorized"));
       }
 
       socket.data.user = user;
       return next();
     } catch (error) {
+      incrementMetric("socket_auth_failures_total", 1);
       return next(new Error("unauthorized"));
     }
   });
@@ -147,6 +158,23 @@ function registerSocketServer(server, store) {
     }
   }
 
+  function observeSocketEvent(socket, eventName, startedAt, status, metadata = {}) {
+    const user = socket.data.user || null;
+    const durationMs = Date.now() - startedAt;
+    incrementMetric("socket_events_total", 1, { event: eventName, status });
+    observeDuration("socket_event_duration_ms", durationMs, { event: eventName });
+    logger.info({
+      action: eventName,
+      durationMs,
+      metadata,
+      module: "Socket",
+      organizationId: getOrganizationId(user),
+      requestId: socket.data.traceId,
+      status,
+      userId: user?.id
+    });
+  }
+
   async function canUseOperations(socket) {
     return await canUseOperationalFeatures(store, socket.data.user);
   }
@@ -196,7 +224,19 @@ function registerSocketServer(server, store) {
   }
 
   io.on("connection", (socket) => {
+    incrementMetric("socket_connections_total", 1);
+    setGauge("socket_clients", io.engine.clientsCount || 0);
+    logger.info({
+      action: "Connect",
+      module: "Socket",
+      organizationId: getOrganizationId(socket.data.user),
+      requestId: socket.data.traceId,
+      status: "connected",
+      userId: socket.data.user?.id
+    });
+
     socket.on("presence:join", (payload, ack) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
       const resolvedUserId = authenticatedUser?.id;
       const resolvedRole = authenticatedUser?.role;
@@ -233,9 +273,11 @@ function registerSocketServer(server, store) {
         serverTime: new Date().toISOString(),
         socketId: socket.id
       });
+      observeSocketEvent(socket, "presence:join", startedAt, "success");
     });
 
     socket.on("client:heartbeat", (payload, ack) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
 
       if (!authenticatedUser) {
@@ -245,6 +287,7 @@ function registerSocketServer(server, store) {
           packetId: String(payload?.packetId || ""),
           serverTime: new Date().toISOString()
         });
+        observeSocketEvent(socket, "client:heartbeat", startedAt, "unauthorized");
         return;
       }
 
@@ -258,26 +301,33 @@ function registerSocketServer(server, store) {
 
       acknowledge(ack, response);
       socket.emit("server:pong", response);
+      incrementMetric("socket_heartbeats_total", 1);
+      observeSocketEvent(socket, "client:heartbeat", startedAt, "success");
     });
 
     socket.on("conversation:join", async (conversationId) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user;
 
       if (
         !(await canUseOperations(socket)) ||
         !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId))
       ) {
+        observeSocketEvent(socket, "conversation:join", startedAt, "forbidden");
         return;
       }
 
       socket.join(`conversation:${conversationId}`);
+      observeSocketEvent(socket, "conversation:join", startedAt, "success", { conversationId });
     });
 
     socket.on("chat:send", async ({ conversationId, senderId, text, ...payload } = {}, ack) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
 
       if (!authenticatedUser || authenticatedUser.id !== senderId) {
         acknowledge(ack, { ok: false, error: "unauthorized" });
+        observeSocketEvent(socket, "chat:send", startedAt, "unauthorized");
         return;
       }
 
@@ -289,6 +339,7 @@ function registerSocketServer(server, store) {
         !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId))
       ) {
         acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload" });
+        observeSocketEvent(socket, "chat:send", startedAt, "invalid");
         return;
       }
 
@@ -307,10 +358,16 @@ function registerSocketServer(server, store) {
           messageId: message.id,
           packetId: String(payload.packetId || "")
         });
+        incrementMetric("chat_messages_total", 1, { transport: "socket" });
+        if (payload.kind === "audio") {
+          incrementMetric("radio_transmissions_total", 1, { transport: "socket" });
+        }
+        observeSocketEvent(socket, "chat:send", startedAt, "success", { conversationId });
       }
     });
 
     socket.on("location:update", async ({ vehicleId, coordinates, heading, speed, timestamp, packetId } = {}, ack) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
       const vehicle = vehicleId ? await store.getVehicleById(vehicleId) : null;
       const latitude = Number(coordinates?.latitude);
@@ -330,6 +387,7 @@ function registerSocketServer(server, store) {
         (authenticatedUser.role !== "admin" && authenticatedUser.vehicleId !== vehicleId)
       ) {
         acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload", packetId: String(packetId || "") });
+        observeSocketEvent(socket, "location:update", startedAt, "invalid", { vehicleId });
         return;
       }
 
@@ -348,6 +406,8 @@ function registerSocketServer(server, store) {
           serverTime: new Date().toISOString(),
           vehicleId
         });
+        incrementMetric("gps_updates_total", 1, { transport: "socket" });
+        observeSocketEvent(socket, "location:update", startedAt, "success", { vehicleId });
         const organizationId = String(vehicle.organizationId || "").trim();
 
         if (organizationId) {
@@ -360,6 +420,7 @@ function registerSocketServer(server, store) {
     });
 
     socket.on("rtc:join", async ({ roomId }) => {
+      const startedAt = Date.now();
       const authenticatedUser = socket.data.user;
       const safeRoomId = String(roomId || "").trim();
       const organizationId = getOrganizationId(authenticatedUser);
@@ -370,6 +431,7 @@ function registerSocketServer(server, store) {
         !(await canUseOperations(socket)) ||
         !isRtcRoomCompatible(safeRoomId, organizationId)
       ) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { roomId: safeRoomId });
         return;
       }
 
@@ -385,14 +447,18 @@ function registerSocketServer(server, store) {
       rtcRooms.set(safeRoomId, members);
       socket.join(roomKey);
       broadcastRtcParticipants(safeRoomId);
+      observeSocketEvent(socket, "rtc:join", startedAt, "success", { roomId: safeRoomId });
     });
 
     socket.on("rtc:leave", ({ roomId }) => {
+      const startedAt = Date.now();
       void leaveRtcRoom(socket, String(roomId || "").trim());
+      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { roomId: String(roomId || "").trim() });
     });
 
     ["rtc:offer", "rtc:answer", "rtc:ice-candidate", "rtc:hangup"].forEach((eventName) => {
       socket.on(eventName, async ({ roomId, targetSocketId, ...payload }) => {
+        const startedAt = Date.now();
         const safeRoomId = String(roomId || "").trim();
         const authenticatedUser = socket.data.user;
 
@@ -403,6 +469,7 @@ function registerSocketServer(server, store) {
           !isSocketInRtcRoom(socket, safeRoomId) ||
           (targetSocketId && !rtcRooms.get(safeRoomId)?.has(String(targetSocketId)))
         ) {
+          observeSocketEvent(socket, eventName, startedAt, "forbidden", { roomId: safeRoomId });
           return;
         }
 
@@ -427,14 +494,26 @@ function registerSocketServer(server, store) {
 
         if (targetSocketId) {
           io.to(String(targetSocketId)).emit(eventName, eventPayload);
+          observeSocketEvent(socket, eventName, startedAt, "success", { roomId: safeRoomId });
           return;
         }
 
         socket.to(getRoomKey(safeRoomId)).emit(eventName, eventPayload);
+        observeSocketEvent(socket, eventName, startedAt, "success", { roomId: safeRoomId });
       });
     });
 
     socket.on("disconnect", () => {
+      incrementMetric("socket_disconnects_total", 1);
+      setGauge("socket_clients", io.engine.clientsCount || 0);
+      logger.info({
+        action: "Disconnect",
+        module: "Socket",
+        organizationId: getOrganizationId(socket.data.user),
+        requestId: socket.data.traceId,
+        status: "disconnected",
+        userId: socket.data.user?.id
+      });
       Array.from(rtcRooms.keys()).forEach((roomId) => {
         void leaveRtcRoom(socket, roomId);
       });

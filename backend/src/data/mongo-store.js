@@ -27,6 +27,7 @@ const {
 const { AttachmentRepository } = require("./repositories/attachment-repository");
 const { ChatMessageRepository } = require("./repositories/chat-message-repository");
 const { ConversationRepository } = require("./repositories/conversation-repository");
+const { buildBackendStore } = require("./backend-store");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 
@@ -869,22 +870,6 @@ async function createMongoStore() {
     };
   }
 
-  async function getUserById(userId) {
-    const user = await UserModel.findById(userId).lean();
-    return sanitizeUser(user);
-  }
-
-  async function findUserByEmail(email) {
-    const normalizedEmail = String(email || "").trim().toLowerCase();
-
-    if (!normalizedEmail) {
-      return null;
-    }
-
-    const user = await UserModel.findOne({ email: normalizedEmail }).lean();
-    return sanitizeUser(user);
-  }
-
   async function getVehicleById(vehicleId) {
     if (!vehicleId) {
       return null;
@@ -892,15 +877,6 @@ async function createMongoStore() {
 
     const vehicle = await VehicleModel.findById(vehicleId).lean();
     return serializeVehicle(vehicle);
-  }
-
-  async function getCommercialOrderById(orderId) {
-    if (!orderId) {
-      return null;
-    }
-
-    const order = await CommercialLeadModel.findById(orderId).lean();
-    return serializeCommercialOrder(order);
   }
 
   async function getRouteById(routeId) {
@@ -1133,64 +1109,6 @@ async function createMongoStore() {
     return serializeCommercialOrder(order);
   }
 
-  async function updateCommercialOrder(orderId, payload) {
-    const update = {};
-
-    Object.entries(payload || {}).forEach(([key, value]) => {
-      if (typeof value !== "undefined") {
-        update[key] = value;
-      }
-    });
-
-    const order = await CommercialLeadModel.findByIdAndUpdate(
-      orderId,
-      {
-        $set: update
-      },
-      { returnDocument: "after" }
-    ).lean();
-
-    return serializeCommercialOrder(order);
-  }
-
-  async function listCommercialOrders() {
-    const orders = await CommercialLeadModel.find().sort({ createdAt: -1 }).lean();
-    return orders.map((order) => serializeCommercialOrder(order));
-  }
-
-  async function listCommercialOrdersForUser(user) {
-    if (!user?.id && !user?.email) {
-      return [];
-    }
-
-    const normalizedEmail = String(user.email || "").trim().toLowerCase();
-    const organizationId = getUserOrganizationId(user);
-    const orders = await CommercialLeadModel.find({
-      $or: [
-        { ownerUserId: user.id || null },
-        ...(organizationId ? [{ organizationId }, { organizationSlug: organizationId }] : []),
-        ...(normalizedEmail
-          ? [{ ownerAccountEmail: normalizedEmail }, { email: normalizedEmail }]
-          : [])
-      ]
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return orders.map((order) => serializeCommercialOrder(order));
-  }
-
-  async function findCommercialOrderByExternalReference(externalReference) {
-    const order = await CommercialLeadModel.findOne({
-      $or: [
-        { paymentExternalReference: externalReference },
-        { referenceCode: externalReference }
-      ]
-    }).lean();
-
-    return serializeCommercialOrder(order);
-  }
-
   async function listActivationKeysForCompany(companyId) {
     const safeCompanyId = String(companyId || "").trim();
 
@@ -1279,68 +1197,6 @@ async function createMongoStore() {
     ).lean();
 
     return toPlain(activationKey);
-  }
-
-  async function createRtcSession(payload) {
-    const session = await RtcSessionModel.create({
-      _id: randomUUID(),
-      organizationId: String(payload.organizationId || "").trim(),
-      roomId: String(payload.roomId || "").trim(),
-      initiatedBy: String(payload.initiatedBy || "").trim() || null,
-      participantUserIds: payload.participantUserIds || [],
-      participantNames: payload.participantNames || [],
-      startedAt: new Date(),
-      endedAt: null,
-      durationSeconds: 0,
-      status: "active",
-      sharedScreen: Boolean(payload.sharedScreen),
-      offerCount: Math.max(0, Number(payload.offerCount) || 0),
-      lastEventAt: new Date()
-    });
-
-    return toPlain(session);
-  }
-
-  async function updateRtcSession(sessionId, payload) {
-    const existing = await RtcSessionModel.findById(sessionId).lean();
-
-    if (!existing) {
-      return null;
-    }
-
-    const update = {
-      ...payload,
-      lastEventAt: new Date()
-    };
-    const endedAt = payload.endedAt ? new Date(payload.endedAt) : existing.endedAt;
-    const startedAt = existing.startedAt ? new Date(existing.startedAt) : null;
-
-    if (startedAt && endedAt) {
-      update.durationSeconds = Math.max(
-        0,
-        Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)
-      );
-    }
-
-    const session = await RtcSessionModel.findByIdAndUpdate(
-      sessionId,
-      {
-        $set: update
-      },
-      { returnDocument: "after" }
-    ).lean();
-
-    return toPlain(session);
-  }
-
-  async function listRtcSessions({ roomId, limit = 20 } = {}) {
-    const query = roomId ? { roomId } : {};
-    const sessions = await RtcSessionModel.find(query)
-      .sort({ startedAt: -1 })
-      .limit(Math.max(1, Number(limit) || 20))
-      .lean();
-
-    return sessions.map((session) => toPlain(session));
   }
 
   async function enrichVehicle(vehicleDoc, routeMap = null, userMap = null) {
@@ -1724,14 +1580,6 @@ async function createMongoStore() {
     );
   }
 
-  async function getDocumentByStorageKey(storageKey) {
-    const document = await DocumentModel.findOne({
-      storageKey: String(storageKey || "").trim()
-    }).lean();
-
-    return document ? serializeDocument(document) : null;
-  }
-
   async function listDocuments(filters = {}) {
     const query = {};
 
@@ -2029,32 +1877,6 @@ async function createMongoStore() {
         deviceName: String(subscription.deviceName || "").trim()
       }))
     );
-  }
-
-  async function recordAppEvent(payload) {
-    const type = String(payload?.type || "").trim();
-
-    if (!type) {
-      return null;
-    }
-
-    const event = await AppEventModel.create({
-      _id: randomUUID(),
-      type,
-      scope: String(payload.scope || "system").trim() || "system",
-      level: String(payload.level || "info").trim() || "info",
-      status: String(payload.status || "ok").trim() || "ok",
-      route: String(payload.route || "").trim(),
-      method: String(payload.method || "").trim(),
-      userId: payload.userId ? String(payload.userId).trim() : null,
-      entityId: payload.entityId ? String(payload.entityId).trim() : null,
-      message: String(payload.message || "").trim(),
-      durationMs: Math.max(0, Number(payload.durationMs) || 0),
-      metadata: payload.metadata || null,
-      createdAt: new Date()
-    });
-
-    return toPlain(event);
   }
 
   async function getOperationalInsights({ hours = 24, limit = 10 } = {}) {
@@ -2941,7 +2763,7 @@ async function createMongoStore() {
     return enrichVehicle(vehicle);
   }
 
-  return {
+  return buildBackendStore({
     addMessage,
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
@@ -2952,43 +2774,33 @@ async function createMongoStore() {
     createNotification,
     createCommercialOrder,
     createIncident,
-    createRtcSession,
     createVehicle,
     createUser,
     deleteUser,
     ensureDirectConversation,
     ensureGeneralConversation,
-    findCommercialOrderByExternalReference,
     findActivationKeyByKey,
-    findUserByEmail,
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,
-    getDocumentByStorageKey,
     getDocumentsForUser,
     getLiveLocations,
     getMessages,
     getNotificationsForUser,
     getOperationalInsights,
     getUserE2eeBackup,
-    getUserById,
     getUserProfile,
     getVehicleById,
-    getCommercialOrderById,
     listActivationKeysForCompany,
-    listCommercialOrders,
-    listCommercialOrdersForUser,
     listChatContactsForUser,
     listDocuments,
     listIncidents,
     listPushSubscriptionsForRoles,
     listPushSubscriptionsForUsers,
-    listRtcSessions,
     listTripLogs,
     listUsers,
     markActivationKeyUsed,
     markNotificationAsRead,
-    recordAppEvent,
     registerPushSubscription,
     registerUser,
     reviewDocument,
@@ -3000,9 +2812,15 @@ async function createMongoStore() {
     updateVehicleLocation,
     createDocument,
     createTripLog,
-    updateCommercialOrder,
-    updateRtcSession
-  };
+  }, {
+    models: {
+      AppEventModel,
+      CommercialLeadModel,
+      DocumentModel,
+      RtcSessionModel,
+      UserModel
+    }
+  });
 }
 
 module.exports = {

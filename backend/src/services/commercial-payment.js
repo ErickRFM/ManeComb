@@ -23,6 +23,7 @@ const {
   getManualPaymentInstructions,
   isManualTransferConfigured
 } = require("./commercial-profile");
+const logger = require("./logger");
 
 function isAutomaticPaymentEnabled() {
   return PAYMENT_PROVIDER === "mercado_pago" && Boolean(MERCADO_PAGO_ACCESS_TOKEN);
@@ -212,19 +213,23 @@ function getMercadoPagoRuntimeDiagnostics() {
 function logMercadoPagoRuntimeDiagnostics() {
   const diagnostics = getMercadoPagoRuntimeDiagnostics();
 
-  console.log(`[payments] Mercado Pago access token detected: ${diagnostics.accessTokenDetected ? "yes" : "no"}`);
-  console.log(`[payments] Mercado Pago environment: ${diagnostics.environment}`);
-  console.log(`[payments] Token prefix: ${diagnostics.tokenPrefix}`);
-  console.log(`[payments] Mercado Pago public key detected: ${diagnostics.publicKeyDetected ? "yes" : "no"}`);
-  console.log(`[payments] Success URL detected: ${diagnostics.successUrlDetected ? "yes" : "no"}`);
-  console.log(`[payments] Failure URL detected: ${diagnostics.failureUrlDetected ? "yes" : "no"}`);
-  console.log(`[payments] Pending URL detected: ${diagnostics.pendingUrlDetected ? "yes" : "no"}`);
-  console.log(`[payments] Webhook secret detected: ${diagnostics.webhookSecretDetected ? "yes" : "no"}`);
+  logger.info({
+    action: "RuntimeDiagnostics",
+    metadata: diagnostics,
+    module: "Payments",
+    status: diagnostics.accessTokenDetected || PAYMENT_PROVIDER !== "mercado_pago" ? "ready" : "missing_credentials"
+  });
 
   if (!diagnostics.accessTokenDetected && PAYMENT_PROVIDER === "mercado_pago") {
-    console.warn(
-      `[payments] Mercado Pago access token missing. Tried env names: ${diagnostics.attemptedAccessTokenEnvNames.join(", ")}`
-    );
+    logger.warn({
+      action: "RuntimeDiagnostics",
+      message: "Mercado Pago access token missing",
+      metadata: {
+        attemptedAccessTokenEnvNames: diagnostics.attemptedAccessTokenEnvNames
+      },
+      module: "Payments",
+      status: "missing_credentials"
+    });
   }
 }
 
@@ -355,13 +360,18 @@ async function createMercadoPagoPreference(order) {
 
   const checkout = selectMercadoPagoCheckoutUrl(preferenceResponse, environment);
 
-  console.log("[payments] Mercado Pago preference created", {
-    checkoutUrlType: checkout.checkoutUrlType,
-    environment,
-    externalReference: order.id,
-    metadata,
-    preferenceId: String(preferenceResponse.id || ""),
-    tokenPrefix: credentialDiagnostics.tokenPrefix
+  logger.info({
+    action: "CreatePreference",
+    metadata: {
+      checkoutUrlType: checkout.checkoutUrlType,
+      environment,
+      externalReference: order.id,
+      metadata,
+      preferenceId: String(preferenceResponse.id || ""),
+      tokenPrefix: credentialDiagnostics.tokenPrefix
+    },
+    module: "Payments",
+    status: "success"
   });
 
   return {
@@ -459,10 +469,14 @@ async function fetchMercadoPagoPayment(paymentId) {
 
   const payment = await response.json();
 
-  console.log("[payments] Mercado Pago payment fetched", {
-    environment,
-    externalReference: String(payment.external_reference || ""),
-    paymentId: String(payment.id || paymentId || ""),
+  logger.info({
+    action: "FetchPayment",
+    metadata: {
+      environment,
+      externalReference: String(payment.external_reference || ""),
+      paymentId: String(payment.id || paymentId || "")
+    },
+    module: "Payments",
     status: String(payment.status || "")
   });
 

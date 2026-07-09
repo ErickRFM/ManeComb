@@ -12,6 +12,7 @@ const { initializeQueues } = require("./services/queue");
 const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
 const { migrateLegacyLocalDocumentsToMongo } = require("./services/storage");
 const { registerSocketServer } = require("./sockets");
+const logger = require("./services/logger");
 
 async function startServer() {
   await connectDB();
@@ -29,9 +30,12 @@ async function startServer() {
     const migration = await migrateLegacyLocalDocumentsToMongo();
 
     if (migration.enabled && migration.scanned) {
-      console.log(
-        `[storage] Migracion local->mongo completada. Migrados: ${migration.migrated}, fallidos: ${migration.failed}`
-      );
+      logger.info({
+        action: "LegacyDocumentMigration",
+        metadata: migration,
+        module: "Storage",
+        status: migration.failed ? "partial" : "success"
+      });
     }
   }
 
@@ -48,11 +52,27 @@ async function startServer() {
 
   server.listen(PORT, HOST, () => {
     const currentDb = getDbState();
-    console.log(`[server] API Combis lista en http://${HOST}:${PORT} (${currentDb.mode})`);
+    logger.info({
+      action: "Listen",
+      message: `API Combis lista en http://${HOST}:${PORT}`,
+      metadata: {
+        dbMode: currentDb.mode,
+        host: HOST,
+        port: PORT
+      },
+      module: "Server",
+      status: "ready"
+    });
   });
 }
 
 startServer().catch((error) => {
-  console.error("[server] No fue posible iniciar la API", error);
+  logger.error({
+    action: "Start",
+    error,
+    message: "No fue posible iniciar la API",
+    module: "Server",
+    status: "failed"
+  });
   process.exit(1);
 });

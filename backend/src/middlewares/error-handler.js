@@ -1,5 +1,7 @@
 const { recordAppEventSafely, sendSentryErrorEvent } = require("../services/telemetry");
 const { IS_PRODUCTION_RUNTIME } = require("../config/env");
+const { classifyError } = require("../services/error-classification");
+const logger = require("../services/logger");
 
 function getHttpStatus(error) {
   const statusCode = Number(error?.statusCode || error?.status || 500);
@@ -22,10 +24,24 @@ function getPublicErrorMessage(error, statusCode) {
 }
 
 function errorHandler(error, req, res, next) {
-  console.error("[api:error]", error);
-
   const traceId = req?.traceId || res?.locals?.traceId || null;
   const statusCode = getHttpStatus(error);
+  const category = classifyError(error);
+  logger.error({
+    action: "UnhandledError",
+    error,
+    metadata: {
+      category,
+      method: req?.method || "",
+      path: req?.path || "",
+      statusCode
+    },
+    module: "API",
+    organizationId: req?.user?.organizationId,
+    requestId: traceId,
+    status: String(statusCode),
+    userId: req?.user?.id
+  });
   recordAppEventSafely(req?.app?.locals?.store, {
     type: "api_exception",
     scope: "api",
@@ -36,6 +52,7 @@ function errorHandler(error, req, res, next) {
     userId: req?.user?.id,
     message: error.message || "Error interno del servidor",
     metadata: {
+      category,
       traceId,
       stack: error.stack || ""
     }

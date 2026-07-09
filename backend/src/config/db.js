@@ -5,6 +5,7 @@ const {
   MONGO_URI,
   REQUIRE_MONGO
 } = require("./env");
+const logger = require("../services/logger");
 
 const dbState = {
   connected: false,
@@ -35,7 +36,12 @@ async function connectDB() {
       throw new Error(dbState.message);
     }
 
-    console.warn(`[db] ${dbState.message}`);
+    logger.warn({
+      action: "Connect",
+      message: dbState.message,
+      module: "Database",
+      status: "embedded"
+    });
     return dbState;
   }
 
@@ -60,7 +66,12 @@ async function connectDB() {
     dbState.connected = true;
     dbState.mode = "mongo";
     dbState.message = `MongoDB conectado (${MONGO_DB_NAME})`;
-    console.log("[db] MongoDB conectado");
+    logger.info({
+      action: "Connect",
+      message: dbState.message,
+      module: "Database",
+      status: "connected"
+    });
   } catch (error) {
     dbState.connected = false;
     dbState.mode = REQUIRE_MONGO ? "mongo_required" : "embedded";
@@ -79,7 +90,13 @@ async function connectDB() {
       throw new Error(dbState.message);
     }
 
-    console.warn(`[db] ${dbState.message}. Se mantiene el almacenamiento interno.`);
+    logger.warn({
+      action: "Connect",
+      error,
+      message: `${dbState.message}. Se mantiene el almacenamiento interno.`,
+      module: "Database",
+      status: "embedded"
+    });
   }
 
   return dbState;

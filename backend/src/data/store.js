@@ -6,6 +6,7 @@ const {
 } = require("../config/commercial-plans");
 const { createSeedState } = require("./seedData");
 const { createMongoStore } = require("./mongo-store");
+const { buildBackendStore } = require("./backend-store");
 const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
@@ -2181,7 +2182,7 @@ function createEmbeddedStore() {
     return enrichVehicle(vehicle);
   }
 
-  return {
+  return buildBackendStore({
     authenticate,
     addMessage,
     assignRouteToVehicle,
@@ -2242,7 +2243,7 @@ function createEmbeddedStore() {
     updateCommercialOrder,
     updateActivationKey,
     updateRtcSession
-  };
+  });
 }
 
 module.exports = {

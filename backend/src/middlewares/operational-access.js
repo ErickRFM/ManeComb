@@ -1,4 +1,5 @@
 const { buildAuthContext } = require("../services/auth-context");
+const logger = require("../services/logger");
 
 function getBlockLogPayload(user, authContext) {
   return {
@@ -29,7 +30,15 @@ async function requireOperationalAccess(req, res, next) {
       return next();
     }
 
-    console.warn("[access] operational access blocked", getBlockLogPayload(req.user, authContext));
+    logger.warn({
+      action: "OperationalAccessBlocked",
+      metadata: getBlockLogPayload(req.user, authContext),
+      module: "Access",
+      organizationId: req.user?.organizationId,
+      requestId: req.traceId,
+      status: "blocked",
+      userId: req.user?.id
+    });
 
     return res.status(403).json({
       ok: false,
