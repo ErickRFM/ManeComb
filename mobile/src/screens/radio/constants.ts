@@ -1,0 +1,21 @@
+import type { RadioOperationalPhase, RadioPageIndex } from './types';
+
+export const MIN_RADIO_NOTE_SECONDS = 1;
+export const MAX_RADIO_NOTE_SECONDS = 60;
+export const INITIAL_RADIO_PAGE_INDEX: RadioPageIndex = 1;
+export const RADIO_PAGES = ['Canales', 'Radio', 'Audios'] as const;
+
+export const RADIO_PHASE_TRANSITIONS: Record<RadioOperationalPhase, RadioOperationalPhase[]> = {
+  IDLE: ['CONNECTING', 'READY', 'RECORDING', 'LOADING', 'OFFLINE', 'ERROR'],
+  CONNECTING: ['READY', 'OFFLINE', 'ERROR'],
+  READY: ['RECORDING', 'LOADING', 'BUFFERING', 'PLAYING', 'OFFLINE', 'ERROR'],
+  RECORDING: ['UPLOADING', 'READY', 'ERROR', 'OFFLINE'],
+  UPLOADING: ['READY', 'ERROR', 'OFFLINE'],
+  LOADING: ['BUFFERING', 'PLAYING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  BUFFERING: ['PLAYING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  PLAYING: ['BUFFERING', 'PAUSED', 'FINISHED', 'ERROR', 'READY', 'OFFLINE'],
+  PAUSED: ['PLAYING', 'READY', 'ERROR', 'OFFLINE'],
+  FINISHED: ['READY', 'LOADING', 'OFFLINE'],
+  ERROR: ['READY', 'RECORDING', 'LOADING', 'OFFLINE'],
+  OFFLINE: ['CONNECTING', 'READY', 'ERROR'],
+};

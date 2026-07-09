@@ -120,12 +120,31 @@ router.post("/conversations/direct", authenticate, async (req, res) => {
 });
 
 router.get("/conversations/:conversationId/messages", authenticate, async (req, res) => {
-  const messages = await req.app.locals.store.getMessages(req.params.conversationId, req.user.id);
+  const wantsCursorPage = Boolean(req.query.limit || req.query.before);
+  const messages = await req.app.locals.store.getMessages(
+    req.params.conversationId,
+    req.user.id,
+    wantsCursorPage
+      ? {
+          paginated: true,
+          limit: req.query.limit,
+          before: req.query.before
+        }
+      : undefined
+  );
 
   if (!messages) {
     return res.status(404).json({
       ok: false,
       message: "Conversacion no encontrada"
+    });
+  }
+
+  if (wantsCursorPage) {
+    return res.json({
+      ok: true,
+      data: messages.items,
+      pageInfo: messages.pageInfo
     });
   }
 

@@ -11,6 +11,8 @@ const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const {
   ActivationKeyModel,
   AppEventModel,
+  ChatAttachmentModel,
+  ChatMessageModel,
   CommercialLeadModel,
   ConversationModel,
   DocumentModel,
@@ -22,6 +24,9 @@ const {
   UserModel,
   VehicleModel
 } = require("./models");
+const { AttachmentRepository } = require("./repositories/attachment-repository");
+const { ChatMessageRepository } = require("./repositories/chat-message-repository");
+const { ConversationRepository } = require("./repositories/conversation-repository");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 
@@ -301,14 +306,18 @@ function serializeChatMessageEntry(message, conversationId, userMap = null) {
           : text;
 
   return {
-    id: plainMessage.id,
+    id: plainMessage.id || plainMessage._id,
     senderId: plainMessage.senderId,
     conversationId,
     kind,
     text,
     textPreview,
     audioUrl:
-      typeof decryptedPayload.audioUrl === "string" ? decryptedPayload.audioUrl : null,
+      typeof decryptedPayload.audioUrl === "string"
+        ? decryptedPayload.audioUrl
+        : typeof plainMessage.audioUrl === "string"
+          ? plainMessage.audioUrl
+          : null,
     transcript,
     durationSeconds: Number(
       decryptedPayload.durationSeconds || plainMessage.durationSeconds || 0
@@ -373,9 +382,30 @@ function buildStoredChatMessage(senderId, input) {
     payloadEncrypted: encryptChatPayload(payload),
     isEncrypted: true,
     transcript,
+    audioUrl: payload.audioUrl,
     mimeType: payload.mimeType,
     durationSeconds: payload.durationSeconds,
     createdAt: new Date()
+  };
+}
+
+function buildChatMessageDocument(message, conversation) {
+  return {
+    _id: message.id || message._id || randomUUID(),
+    conversationId: conversation._id || conversation.id,
+    organizationId: String(conversation.organizationId || "").trim(),
+    senderId: message.senderId,
+    kind: message.kind || "text",
+    text: message.text || "",
+    textPreview: message.textPreview || "",
+    payloadEncrypted: message.payloadEncrypted || "",
+    isEncrypted: Boolean(message.isEncrypted || message.payloadEncrypted),
+    transcript: message.transcript || "",
+    audioUrl: message.audioUrl || null,
+    mimeType: message.mimeType || "",
+    durationSeconds: Number(message.durationSeconds || 0),
+    status: message.status || "sent",
+    createdAt: message.createdAt || new Date()
   };
 }
 
@@ -389,7 +419,7 @@ function buildConversationSummary(conversation, currentUserId, userMap) {
     conversationKind === "direct"
       ? participants.find((participant) => participant.id !== currentUserId) || participants[0]
       : null;
-  const lastMessage = plain.messages[plain.messages.length - 1];
+  const lastMessage = plain.lastMessage || plain.messages[plain.messages.length - 1];
 
   return {
     id: plain.id,
@@ -698,14 +728,36 @@ async function ensureMongoSeedData() {
 
   if (counts[4] === 0) {
     await ConversationModel.insertMany(
-      seed.conversations.map((conversation) => ({
-        _id: conversation.id,
-        organizationId: conversation.organizationId,
-        title: conversation.title,
-        participants: conversation.participants,
-        unreadBy: conversation.unreadBy,
-        messages: conversation.messages
-      })),
+      seed.conversations.map((conversation) => {
+        const lastMessage = conversation.messages[conversation.messages.length - 1] || null;
+
+        return {
+          _id: conversation.id,
+          organizationId: conversation.organizationId,
+          title: conversation.title,
+          kind: normalizeConversationKind(conversation.kind, conversation.participants),
+          channelMode: normalizeConversationChannelMode(conversation.channelMode),
+          description: conversation.description || "",
+          encrypted: conversation.encrypted !== false,
+          participants: conversation.participants,
+          unreadBy: conversation.unreadBy,
+          lastMessage,
+          lastActivityAt: lastMessage?.createdAt || null,
+          messageCount: conversation.messages.length,
+          messages: []
+        };
+      }),
+      { ordered: false }
+    );
+    await ChatMessageModel.insertMany(
+      seed.conversations.flatMap((conversation) =>
+        conversation.messages.map((message) =>
+          buildChatMessageDocument(message, {
+            _id: conversation.id,
+            organizationId: conversation.organizationId
+          })
+        )
+      ),
       { ordered: false }
     );
   }
@@ -753,6 +805,69 @@ async function ensureMongoSeedData() {
 
 async function createMongoStore() {
   await ensureMongoSeedData();
+  const attachmentRepository = new AttachmentRepository(ChatAttachmentModel);
+  const messageRepository = new ChatMessageRepository(ChatMessageModel);
+  const conversationRepository = new ConversationRepository(ConversationModel);
+
+  async function migrateEmbeddedMessagesToCollection(conversation) {
+    const plainConversation =
+      typeof conversation?.toObject === "function" ? conversation.toObject() : conversation;
+    const embeddedMessages = Array.isArray(plainConversation?.messages)
+      ? plainConversation.messages
+      : [];
+
+    if (!plainConversation?._id || !embeddedMessages.length) {
+      return;
+    }
+
+    const existingCount = await messageRepository.countByConversation(plainConversation._id);
+    const documents = embeddedMessages.map((message) =>
+      buildChatMessageDocument(message, plainConversation)
+    );
+
+    if (existingCount < embeddedMessages.length) {
+      await messageRepository.upsertMany(documents);
+    }
+    const [storedCount, latestMessage] = await Promise.all([
+      messageRepository.countByConversation(plainConversation._id),
+      ChatMessageModel.findOne({ conversationId: plainConversation._id })
+        .sort({ createdAt: -1, _id: -1 })
+        .lean()
+    ]);
+
+    await ConversationModel.updateOne(
+      { _id: plainConversation._id },
+      {
+        $set: {
+          lastMessage: latestMessage || null,
+          lastActivityAt: latestMessage?.createdAt || null,
+          messageCount: storedCount
+        }
+      }
+    );
+  }
+
+  async function readConversationMessages(conversation, options = {}) {
+    await migrateEmbeddedMessagesToCollection(conversation);
+
+    if (options.paginated) {
+      return messageRepository.listByConversation(conversation._id, options);
+    }
+
+    const messages = await messageRepository.listAllByConversation(conversation._id);
+
+    if (messages.length) {
+      return {
+        messages,
+        pageInfo: null
+      };
+    }
+
+    return {
+      messages: Array.isArray(conversation.messages) ? conversation.messages : [],
+      pageInfo: null
+    };
+  }
 
   async function getUserById(userId) {
     const user = await UserModel.findById(userId).lean();
@@ -2421,8 +2536,14 @@ async function createMongoStore() {
         encrypted: true,
         participants: participantIds,
         unreadBy: unreadSeed,
-        messages: welcomeMessage ? [welcomeMessage] : []
+        lastMessage: welcomeMessage,
+        lastActivityAt: welcomeMessage?.createdAt || null,
+        messageCount: welcomeMessage ? 1 : 0,
+        messages: []
       });
+      if (welcomeMessage) {
+        await messageRepository.create(buildChatMessageDocument(welcomeMessage, { _id: id, organizationId }));
+      }
 
       return;
     }
@@ -2580,6 +2701,13 @@ async function createMongoStore() {
       [safeTargetUserId]: 0
     };
     const titlePrefix = normalizedChannelMode === "radio" ? "Radio directo" : "Directo";
+    const openingMessage = buildStoredChatMessage(userId, {
+      kind: "text",
+      text:
+        normalizedChannelMode === "radio"
+          ? `Canal de radio abierto con ${targetUser.name}.`
+          : `Canal directo abierto con ${targetUser.name}.`
+    });
     const conversation = await ConversationModel.create({
       _id: randomUUID(),
       organizationId,
@@ -2593,16 +2721,12 @@ async function createMongoStore() {
       encrypted: true,
       participants: [userId, safeTargetUserId],
       unreadBy,
-      messages: [
-        buildStoredChatMessage(userId, {
-          kind: "text",
-          text:
-            normalizedChannelMode === "radio"
-              ? `Canal de radio abierto con ${targetUser.name}.`
-              : `Canal directo abierto con ${targetUser.name}.`
-        })
-      ]
+      lastMessage: openingMessage,
+      lastActivityAt: openingMessage.createdAt,
+      messageCount: 1,
+      messages: []
     });
+    await messageRepository.create(buildChatMessageDocument(openingMessage, conversation.toObject()));
     const userMap = new Map([
       [sourceUser._id, sanitizeUser(sourceUser)],
       [targetUser._id, sanitizeUser(targetUser)]
@@ -2626,7 +2750,7 @@ async function createMongoStore() {
     );
   }
 
-  async function getMessages(conversationId, userId) {
+  async function getMessages(conversationId, userId, options = {}) {
     const conversation = await ConversationModel.findById(conversationId);
 
     if (!conversation || !(await canUserAccessConversation(userId, conversation))) {
@@ -2639,14 +2763,21 @@ async function createMongoStore() {
     conversation.markModified("unreadBy");
     await conversation.save();
 
+    const { messages, pageInfo } = await readConversationMessages(conversation.toObject(), options);
     const users = await UserModel.find({
-      _id: { $in: conversation.messages.map((message) => message.senderId) }
+      _id: { $in: messages.map((message) => message.senderId) }
     }).lean();
     const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
-
-    return conversation.messages.map((message) =>
+    const serializedMessages = messages.map((message) =>
       serializeChatMessageEntry(message, conversationId, userMap)
     );
+
+    return options.paginated
+      ? {
+          items: serializedMessages,
+          pageInfo
+        }
+      : serializedMessages;
   }
 
   async function addMessage(conversationId, senderId, input) {
@@ -2658,16 +2789,20 @@ async function createMongoStore() {
 
     const message = buildStoredChatMessage(senderId, input);
 
-    conversation.messages.push(message);
     const unreadBy = toUnreadByObject(conversation.unreadBy);
     conversation.participants
       .filter((participantId) => participantId !== senderId)
       .forEach((participantId) => {
         unreadBy[participantId] = (unreadBy[participantId] || 0) + 1;
       });
-    conversation.unreadBy = new Map(Object.entries(unreadBy));
-    conversation.markModified("unreadBy");
-    await conversation.save();
+    const plainConversation = conversation.toObject();
+    await messageRepository.create(buildChatMessageDocument(message, plainConversation));
+    await attachmentRepository.createForMessage(message, plainConversation);
+    await conversationRepository.updateAggregates(conversationId, {
+      lastMessage: message,
+      unreadBy,
+      incrementMessageCount: 1
+    });
 
     const sender = await UserModel.findById(senderId).lean();
 
@@ -2682,6 +2817,24 @@ async function createMongoStore() {
     const user = await UserModel.findById(userId).lean();
     const organizationId = getUserOrganizationId(user);
     const conversations = await ConversationModel.find({ participants: userId, organizationId }).lean();
+    const conversationIds = conversations.map((conversation) => conversation._id);
+    const storedMessages = await ChatMessageModel.find({
+      conversationId: { $in: conversationIds },
+      $or: [{ audioUrl: mediaPath }, { payloadEncrypted: { $ne: "" } }]
+    }).lean();
+
+    if (
+      storedMessages.some((message) => {
+        if (message.audioUrl === mediaPath) {
+          return true;
+        }
+
+        const payload = decryptChatPayload(message.payloadEncrypted);
+        return payload?.audioUrl === mediaPath;
+      })
+    ) {
+      return true;
+    }
 
     return conversations.some((conversation) =>
       conversation.messages.some((message) => {

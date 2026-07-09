@@ -10,6 +10,11 @@ const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const {
+  decodeCursor,
+  encodeCursor,
+  normalizeLimit
+} = require("./repositories/chat-message-repository");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -19,6 +24,7 @@ function createEmbeddedStore() {
   const state = createSeedState();
   state.appEvents = Array.isArray(state.appEvents) ? state.appEvents : [];
   state.activationKeys = Array.isArray(state.activationKeys) ? state.activationKeys : [];
+  state.chatMessages = Array.isArray(state.chatMessages) ? state.chatMessages : [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -404,6 +410,72 @@ function createEmbeddedStore() {
     };
   }
 
+  function storeConversationMessage(conversation, message) {
+    if (!conversation?.id || !message?.id) {
+      return;
+    }
+
+    const exists = state.chatMessages.some(
+      (entry) => entry.id === message.id && entry.conversationId === conversation.id
+    );
+
+    if (!exists) {
+      state.chatMessages.push({
+        ...message,
+        conversationId: conversation.id,
+        organizationId: String(conversation.organizationId || "").trim(),
+        status: message.status || "sent"
+      });
+    }
+  }
+
+  function getStoredConversationMessages(conversationId) {
+    return state.chatMessages
+      .filter((message) => message.conversationId === conversationId)
+      .sort((left, right) => {
+        const leftDate = new Date(left.createdAt).getTime();
+        const rightDate = new Date(right.createdAt).getTime();
+
+        if (leftDate !== rightDate) {
+          return leftDate - rightDate;
+        }
+
+        return String(left.id).localeCompare(String(right.id));
+      });
+  }
+
+  function paginateConversationMessages(messages, options = {}) {
+    const limit = normalizeLimit(options.limit);
+    const cursor = decodeCursor(options.before);
+    const filteredMessages = cursor
+      ? messages.filter((message) => {
+          const messageDate = new Date(message.createdAt).getTime();
+          const cursorDate = cursor.createdAt.getTime();
+
+          return messageDate < cursorDate || (messageDate === cursorDate && message.id < cursor.id);
+        })
+      : messages;
+    const descending = [...filteredMessages].sort((left, right) => {
+      const leftDate = new Date(left.createdAt).getTime();
+      const rightDate = new Date(right.createdAt).getTime();
+
+      if (leftDate !== rightDate) {
+        return rightDate - leftDate;
+      }
+
+      return String(right.id).localeCompare(String(left.id));
+    });
+    const page = descending.slice(0, limit);
+
+    return {
+      items: page.slice().reverse(),
+      pageInfo: {
+        hasMore: descending.length > limit,
+        nextCursor: descending.length > limit ? encodeCursor(page[page.length - 1]) : null
+      }
+    };
+  }
+
   function ensureConversationRecord(conversation) {
     if (!conversation) {
       return null;
@@ -432,8 +504,8 @@ function createEmbeddedStore() {
     conversation.participants.forEach((participantId) => {
       conversation.unreadBy[participantId] = Number(conversation.unreadBy[participantId] || 0);
     });
-    conversation.messages = Array.isArray(conversation.messages) ? conversation.messages : [];
-    conversation.messages = conversation.messages.map((message) => {
+    const embeddedMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+    embeddedMessages.map((message) => {
       if (message?.id && message?.senderId) {
         return {
           ...buildStoredConversationMessage(message.senderId, {
@@ -445,7 +517,13 @@ function createEmbeddedStore() {
       }
 
       return buildStoredConversationMessage(message?.senderId || "", message || {});
-    });
+    }).forEach((message) => storeConversationMessage(conversation, message));
+    const storedMessages = getStoredConversationMessages(conversation.id);
+    const lastMessage = storedMessages[storedMessages.length - 1] || null;
+    conversation.lastMessage = conversation.lastMessage || lastMessage;
+    conversation.lastActivityAt = conversation.lastActivityAt || lastMessage?.createdAt || null;
+    conversation.messageCount = storedMessages.length;
+    conversation.messages = [];
 
     return conversation;
   }
@@ -470,7 +548,8 @@ function createEmbeddedStore() {
     const participants = safeConversation.participants
       .map((participantId) => sanitizeUser(getUserById(participantId)))
       .filter(Boolean);
-    const lastMessage = safeConversation.messages[safeConversation.messages.length - 1];
+    const messages = getStoredConversationMessages(safeConversation.id);
+    const lastMessage = safeConversation.lastMessage || messages[messages.length - 1];
 
     return {
       id: safeConversation.id,
@@ -1825,7 +1904,7 @@ function createEmbeddedStore() {
     );
   }
 
-  function getMessages(conversationId, userId) {
+  function getMessages(conversationId, userId, options = {}) {
     const conversation = getConversationById(conversationId);
 
     if (!canUserAccessConversation(userId, conversation)) {
@@ -1834,7 +1913,18 @@ function createEmbeddedStore() {
 
     conversation.unreadBy[userId] = 0;
 
-    return clone(conversation.messages.map((message) => serializeConversationMessage(message, conversationId)));
+    const messages = getStoredConversationMessages(conversationId);
+
+    if (options.paginated) {
+      const page = paginateConversationMessages(messages, options);
+
+      return clone({
+        items: page.items.map((message) => serializeConversationMessage(message, conversationId)),
+        pageInfo: page.pageInfo
+      });
+    }
+
+    return clone(messages.map((message) => serializeConversationMessage(message, conversationId)));
   }
 
   function addMessage(conversationId, senderId, text) {
@@ -1846,7 +1936,10 @@ function createEmbeddedStore() {
 
     const message = buildStoredConversationMessage(senderId, text);
 
-    conversation.messages.push(message);
+    storeConversationMessage(conversation, message);
+    conversation.lastMessage = message;
+    conversation.lastActivityAt = message.createdAt;
+    conversation.messageCount = getStoredConversationMessages(conversationId).length;
     conversation.participants
       .filter((participantId) => participantId !== senderId)
       .forEach((participantId) => {
@@ -1864,7 +1957,7 @@ function createEmbeddedStore() {
       .some(
         (conversation) =>
           canUserAccessConversation(userId, conversation) &&
-          conversation.messages.some((message) => message.audioUrl === mediaPath)
+          getStoredConversationMessages(conversation.id).some((message) => message.audioUrl === mediaPath)
       );
   }
 

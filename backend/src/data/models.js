@@ -252,12 +252,67 @@ const messageSchema = new mongoose.Schema(
     payloadEncrypted: { type: String, default: "" },
     isEncrypted: { type: Boolean, default: false },
     transcript: { type: String, default: "" },
+    audioUrl: { type: String, default: null },
     mimeType: { type: String, default: "" },
     durationSeconds: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now }
   },
   { _id: false }
 );
+
+const chatMessageSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    conversationId: { type: String, required: true, index: true },
+    organizationId: { type: String, default: "", index: true },
+    senderId: { type: String, required: true, index: true },
+    kind: { type: String, default: "text" },
+    text: { type: String, default: "" },
+    textPreview: { type: String, default: "" },
+    payloadEncrypted: { type: String, default: "" },
+    isEncrypted: { type: Boolean, default: false },
+    transcript: { type: String, default: "" },
+    audioUrl: { type: String, default: null },
+    mimeType: { type: String, default: "" },
+    durationSeconds: { type: Number, default: 0 },
+    status: { type: String, default: "sent", index: true },
+    createdAt: { type: Date, default: Date.now, index: true }
+  },
+  {
+    collection: "chat_messages",
+    versionKey: false
+  }
+);
+
+chatMessageSchema.index({ conversationId: 1, createdAt: -1, _id: -1 });
+chatMessageSchema.index({ organizationId: 1, conversationId: 1, createdAt: -1 });
+chatMessageSchema.index({ senderId: 1, createdAt: -1 });
+chatMessageSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
+chatMessageSchema.index({ organizationId: 1, kind: 1, createdAt: -1 });
+
+const chatAttachmentSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    conversationId: { type: String, required: true, index: true },
+    messageId: { type: String, required: true, index: true },
+    organizationId: { type: String, default: "", index: true },
+    ownerId: { type: String, required: true, index: true },
+    kind: { type: String, default: "file" },
+    url: { type: String, required: true },
+    mimeType: { type: String, default: "" },
+    durationSeconds: { type: Number, default: 0 },
+    status: { type: String, default: "available", index: true },
+    createdAt: { type: Date, default: Date.now, index: true }
+  },
+  {
+    collection: "chat_attachments",
+    versionKey: false
+  }
+);
+
+chatAttachmentSchema.index({ conversationId: 1, createdAt: -1 });
+chatAttachmentSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
+chatAttachmentSchema.index({ messageId: 1, kind: 1 }, { unique: true });
 
 const conversationSchema = new mongoose.Schema(
   {
@@ -270,6 +325,9 @@ const conversationSchema = new mongoose.Schema(
     encrypted: { type: Boolean, default: true },
     participants: { type: [String], default: [] },
     unreadBy: { type: Map, of: Number, default: {} },
+    lastMessage: { type: mongoose.Schema.Types.Mixed, default: null },
+    lastActivityAt: { type: Date, default: null, index: true },
+    messageCount: { type: Number, default: 0 },
     messages: { type: [messageSchema], default: [] }
   },
   {
@@ -280,6 +338,7 @@ const conversationSchema = new mongoose.Schema(
 
 conversationSchema.index({ participants: 1, channelMode: 1 });
 conversationSchema.index({ organizationId: 1, channelMode: 1 });
+conversationSchema.index({ organizationId: 1, lastActivityAt: -1 });
 
 const documentSchema = new mongoose.Schema(
   {
@@ -632,6 +691,8 @@ module.exports = {
   ActivationKeyModel: getModel("ActivationKey", activationKeySchema),
   AppEventModel: getModel("AppEvent", appEventSchema),
   AuditLogModel: getModel("AuditLog", auditLogSchema),
+  ChatAttachmentModel: getModel("ChatAttachment", chatAttachmentSchema),
+  ChatMessageModel: getModel("ChatMessage", chatMessageSchema),
   CommercialLeadModel: getModel("CommercialLead", commercialLeadSchema),
   ConversationModel: getModel("Conversation", conversationSchema),
   DocumentModel: getModel("Document", documentSchema),
