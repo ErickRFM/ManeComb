@@ -81,6 +81,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
     initialRegion,
     mapPadding,
     onPress,
+    scaleBarPosition,
     scaleEnabled = true,
     showsTraffic = false,
     style,
@@ -153,6 +154,9 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
         onPress?.({ nativeEvent: { coordinate: toPoint(feature.geometry?.coordinates) } });
       }}
       scaleBarEnabled={scaleEnabled}
+      scaleBarPosition={scaleBarPosition}
+      scaleBarUnits="metric"
+      surfaceView={false}
       style={style}
       styleURL={styleURL}>
       <Mapbox.Camera

@@ -1,4 +1,3 @@
-import { connectionReducer, initialConnectionState } from './connection-reducer';
 import { initialRadioEngineState, radioReducer } from './radio-reducer';
 
 describe('radio reducers', () => {
@@ -20,18 +19,18 @@ describe('radio reducers', () => {
     expect(initialRadioEngineState.metrics.sent).toBe(0);
   });
 
-  it('tracks invalid connection phase transitions', () => {
-    const ready = connectionReducer(initialConnectionState, {
-      type: 'RESOLVE_PHASE',
+  it('updates operational phase in the active radio reducer', () => {
+    const ready = radioReducer(initialRadioEngineState, {
+      type: 'SET_PHASE',
       phase: 'READY',
     });
-    const invalid = connectionReducer(ready, {
-      type: 'RESOLVE_PHASE',
+    const uploading = radioReducer(ready, {
+      type: 'SET_PHASE',
       phase: 'UPLOADING',
     });
 
-    expect(ready.invalidTransitions).toBe(0);
-    expect(invalid.phase).toBe('UPLOADING');
-    expect(invalid.invalidTransitions).toBe(1);
+    expect(initialRadioEngineState.phase).toBe('IDLE');
+    expect(ready.phase).toBe('READY');
+    expect(uploading.phase).toBe('UPLOADING');
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import {
   getAppSections,
   getSectionByPathname,
@@ -305,15 +305,15 @@ const styles = StyleSheet.create({
   },
   headerBadge: {
     alignSelf: 'flex-start',
-    borderRadius: AppTheme.radius.pill,
+    borderRadius: DesignSystem.radius.chip,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
   headerBadgeText: {
     fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: DesignSystem.typography.caption.size,
+    fontWeight: DesignSystem.typography.caption.weight,
   },
   drawerScroll: {
     flex: 1,
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
   },
   drawerItem: {
     borderWidth: 1,
-    borderRadius: AppTheme.radius.md,
+    borderRadius: DesignSystem.radius.card,
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
   },
   signOutButton: {
     minHeight: 48,
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: DesignSystem.radius.control,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

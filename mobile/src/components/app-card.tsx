@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { AppTheme } from '@/constants/theme';
+import { DesignSystem } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type AppCardProps = PropsWithChildren<{
@@ -39,9 +39,9 @@ export function AppCard({ children, style }: AppCardProps) {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: AppTheme.radius.md,
-    padding: AppTheme.spacing.md,
-    gap: AppTheme.spacing.sm,
+    borderRadius: DesignSystem.radius.card,
+    padding: DesignSystem.spacing.md,
+    gap: DesignSystem.spacing.sm,
     minWidth: 0,
   },
 });

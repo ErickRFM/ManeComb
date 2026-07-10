@@ -1,5 +1,0 @@
-import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
-
-export default function PortalOnboardingRoute() {
-  return <MobileAccountGateScreen mode="onboarding" />;
-}

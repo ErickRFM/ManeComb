@@ -33,6 +33,11 @@ export type AppMapProps = {
   initialRegion: AppMapRegion;
   mapPadding?: AppMapPadding;
   onPress?: (event: { nativeEvent: { coordinate?: GeoPoint } }) => void;
+  scaleBarPosition?:
+    | { bottom: number; left: number }
+    | { bottom: number; right: number }
+    | { left: number; top: number }
+    | { right: number; top: number };
   scaleEnabled?: boolean;
   showsTraffic?: boolean;
   style?: StyleProp<ViewStyle>;

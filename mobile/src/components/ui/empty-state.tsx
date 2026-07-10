@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type EmptyStateProps = {
@@ -24,22 +24,23 @@ export function EmptyState({ icon = 'inbox-outline', title, description }: Empty
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: DesignSystem.radius.card,
     borderStyle: 'dashed',
     borderWidth: 1,
     gap: 8,
-    padding: AppTheme.spacing.lg,
+    padding: DesignSystem.spacing.lg,
   },
   title: {
     fontFamily: Typography.body,
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: DesignSystem.typography.subtitle.size,
+    fontWeight: DesignSystem.typography.subtitle.weight,
+    lineHeight: DesignSystem.typography.subtitle.lineHeight,
     textAlign: 'center',
   },
   description: {
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: DesignSystem.typography.caption.size,
+    lineHeight: DesignSystem.typography.caption.lineHeight,
     maxWidth: 420,
     textAlign: 'center',
   },

@@ -164,7 +164,6 @@ export function RadioScreen() {
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const bootstrappedRef = useRef(false);
-  const autoPlayedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
   const receivedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
   const meteringFrameRef = useRef<number | null>(null);
   const meteringCleanupRef = useRef<(() => void) | null>(null);
@@ -262,19 +261,6 @@ export function RadioScreen() {
           null
         : null,
     [activePlaybackMessageId, loadedVoiceNotes]
-  );
-  const latestIncomingActiveVoiceNote = useMemo(
-    () =>
-      activeChannel
-        ? loadedVoiceNotes.find(
-            (item) =>
-              item.channelId === activeChannel.id &&
-              item.message.senderId !== user?.id &&
-              Boolean(item.message.audioUrl) &&
-              !autoPlayedVoiceNoteIdsRef.current.has(item.message.id)
-          ) || null
-        : null,
-    [activeChannel, loadedVoiceNotes, user?.id]
   );
   const receivingSenderName = receivingVoiceNote?.sender?.name || null;
   const receivingSenderShortName = getFirstName(receivingSenderName);
@@ -932,10 +918,6 @@ export function RadioScreen() {
       return current?.messageId === messageId ? null : current;
     });
   }, [incrementRadioMetrics]);
-
-  const handleAutoPlaybackStart = useCallback((messageId: string) => {
-    autoPlayedVoiceNoteIdsRef.current.add(messageId);
-  }, []);
 
   const startNativeRecording = async () => {
     if (!activeChannel) {
@@ -2024,11 +2006,9 @@ export function RadioScreen() {
                 <VoiceTransmissionCard
                   message={item.message}
                   channelTitle={item.channelTitle}
-                  autoPlay={latestIncomingActiveVoiceNote?.message.id === item.message.id}
                   isActive={activePlaybackMessageId === item.message.id}
                   token={token}
                   theme={theme}
-                  onAutoPlaybackStart={handleAutoPlaybackStart}
                   onPlaybackChange={handleVoicePlaybackChange}
                 />
               )}

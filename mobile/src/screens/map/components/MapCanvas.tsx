@@ -17,6 +17,11 @@ type MapCanvasProps = {
   onSelectorDragStart: () => void;
   onSelectorPointDragEnd: (role: SelectorPointRole, location: GeoPoint) => void;
   onVehiclePress: (vehicle: Vehicle) => void;
+  scaleBarPosition?:
+    | { bottom: number; left: number }
+    | { bottom: number; right: number }
+    | { left: number; top: number }
+    | { right: number; top: number };
   selectorMode: boolean;
   selectorPoints: SelectorPoints;
   selectorRoute: NavigationRouteOption | null;
@@ -36,6 +41,7 @@ export function MapCanvas({
   onSelectorDragStart,
   onSelectorPointDragEnd,
   onVehiclePress,
+  scaleBarPosition,
   selectorMode,
   selectorPoints,
   selectorRoute,
@@ -59,6 +65,7 @@ export function MapCanvas({
       }}
       mapPadding={mapPadding}
       compassEnabled
+      scaleBarPosition={scaleBarPosition}
       scaleEnabled
       showsTraffic={trafficEnabled}
       themeMode={theme.mode}
@@ -75,7 +82,7 @@ export function MapCanvas({
         selectorRoute={selectorRoute}
       />
       {!selectorMode ? (
-        <VehicleMarkers vehicles={mapData.vehicles} onVehiclePress={onVehiclePress} />
+        <VehicleMarkers vehicles={mapData.vehicles} onVehiclePress={onVehiclePress} selectedVehicle={selectedVehicle} />
       ) : null}
       {!selectorMode ? (
         <IncidentMarkers incidents={visibleIncidents} vehicleById={vehicleById} />
@@ -121,9 +128,11 @@ function RouteLayers({
 
 function VehicleMarkers({
   onVehiclePress,
+  selectedVehicle,
   vehicles,
 }: {
   onVehiclePress: (vehicle: Vehicle) => void;
+  selectedVehicle: Vehicle | null;
   vehicles: Vehicle[];
 }) {
   const { theme } = useAppTheme();
@@ -131,8 +140,11 @@ function VehicleMarkers({
   return (
     <>
       {vehicles.map((vehicle) => {
+        const isSelected = vehicle.id === selectedVehicle?.id;
         const vehicleMarkerStyle = {
           backgroundColor: vehicle.status === 'maintenance' ? theme.colors.danger : theme.colors.accent,
+          borderColor: isSelected ? theme.colors.warning : '#FFF',
+          transform: [{ scale: isSelected ? 1.18 : 1 }],
         };
 
         return (
@@ -168,7 +180,7 @@ function IncidentMarkers({
         return (
           <AppMapMarker key={incident.id} id={`incident-${incident.id}`} coordinate={vehicle.location}>
             <View style={[styles.incidentMarker, { backgroundColor: incident.severity === 'critical' ? theme.colors.danger : theme.colors.warning }]}>
-              <MaterialCommunityIcons name="alert-decagram" size={14} color="#FFF" />
+              <MaterialCommunityIcons name="alert" size={13} color="#FFF" />
             </View>
           </AppMapMarker>
         );

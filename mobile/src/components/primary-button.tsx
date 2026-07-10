@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type PrimaryButtonProps = {
@@ -62,7 +62,7 @@ export function PrimaryButton({
           {icon ? (
             <MaterialCommunityIcons
               name={icon}
-              size={compact ? 17 : 18}
+              size={compact ? DesignSystem.icon.sm - 1 : DesignSystem.icon.sm}
               color={variant === 'ghost' ? theme.colors.text : '#FFFFFF'}
             />
           ) : null}
@@ -84,16 +84,16 @@ const styles = StyleSheet.create({
   button: {
     flexDirection: 'row',
     gap: 8,
-    minHeight: 46,
+    minHeight: DesignSystem.control.md,
     minWidth: 0,
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: DesignSystem.radius.control,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: AppTheme.spacing.md,
+    paddingHorizontal: DesignSystem.spacing.md,
     borderWidth: 1,
   },
   compactButton: {
-    minHeight: 40,
+    minHeight: DesignSystem.control.sm,
     paddingHorizontal: 12,
   },
   webButton: {
@@ -106,13 +106,13 @@ const styles = StyleSheet.create({
     transform: [{ translateY: 1 }],
   },
   disabled: {
-    opacity: 0.55,
+    opacity: DesignSystem.opacity.disabled,
   },
   label: {
     flexShrink: 1,
     fontFamily: Typography.body,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: DesignSystem.typography.body.size,
+    fontWeight: DesignSystem.typography.body.weight,
     minWidth: 0,
     textAlign: 'center',
   },

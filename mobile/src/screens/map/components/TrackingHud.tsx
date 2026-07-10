@@ -29,17 +29,17 @@ export function TrackingHud({
     <View style={[styles.topOverlay, { paddingTop }]}>
       <View style={styles.topBar}>
         <Pressable
-          onPress={() => router.push('/incidencias')}
+          onPress={onOpenMenu}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
-          accessibilityLabel="Abrir incidencias">
-          <MaterialCommunityIcons name="alert-outline" size={24} color={theme.colors.accent} />
+          accessibilityLabel="Abrir menu operativo">
+          <MaterialCommunityIcons name="menu" size={22} color={theme.colors.text} />
         </Pressable>
 
         <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
-          <HUDItem value={`${activeRouteCount}`} icon="bus" color={theme.colors.info} />
-          <HUDItem value={`${incidentCount}`} icon="alert" color={theme.colors.danger} />
-          <HUDItem value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
+          <HUDItem label="Rutas" value={`${activeRouteCount}`} icon="bus" color={theme.colors.info} />
+          <HUDItem label="GPS" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
           <HUDItem
+            label="Trafico"
             value={trafficEnabled ? 'ON' : 'OFF'}
             icon="traffic-light"
             color={trafficEnabled ? theme.colors.warning : theme.colors.muted}
@@ -47,22 +47,35 @@ export function TrackingHud({
         </View>
 
         <Pressable
-          onPress={onOpenMenu}
+          onPress={() => router.push('/incidencias')}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
-          accessibilityLabel="Abrir menu operativo">
-          <MaterialCommunityIcons name="menu" size={24} color={theme.colors.text} />
+          accessibilityLabel="Abrir incidencias">
+          <MaterialCommunityIcons name={incidentCount ? 'alert-decagram' : 'alert-outline'} size={22} color={incidentCount ? theme.colors.danger : theme.colors.text} />
         </Pressable>
       </View>
     </View>
   );
 }
 
-function HUDItem({ value, icon, color }: { value: string; icon: keyof typeof MaterialCommunityIcons.glyphMap; color: string }) {
+function HUDItem({
+  color,
+  icon,
+  label,
+  value,
+}: {
+  color: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  label: string;
+  value: string;
+}) {
   const { theme } = useAppTheme();
   return (
     <View style={styles.hudItem}>
       <MaterialCommunityIcons name={icon} size={14} color={color} />
-      <Text style={[styles.hudValue, { color: theme.colors.text }]}>{value}</Text>
+      <View style={styles.hudTextBlock}>
+        <Text style={[styles.hudLabel, { color: theme.colors.muted }]}>{label}</Text>
+        <Text style={[styles.hudValue, { color: theme.colors.text }]} numberOfLines={1}>{value}</Text>
+      </View>
     </View>
   );
 }

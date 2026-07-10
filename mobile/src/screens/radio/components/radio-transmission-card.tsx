@@ -17,20 +17,16 @@ import type { VoicePlaybackChangeMeta, VoicePlaybackPhase } from '../types';
 import { clampVolume, formatDuration, getVoiceWaveformBars, logRadioDevelopmentEvent } from '../utils/radio-format';
 
 export function VoiceTransmissionCard({
-  autoPlay,
   channelTitle,
   isActive,
   message,
-  onAutoPlaybackStart,
   onPlaybackChange,
   token,
   theme,
 }: {
-  autoPlay?: boolean;
   channelTitle?: string;
   isActive?: boolean;
   message: ChatMessage;
-  onAutoPlaybackStart?: (messageId: string) => void;
   onPlaybackChange?: (
     messageId: string,
     phase: VoicePlaybackPhase,
@@ -178,7 +174,7 @@ export function VoiceTransmissionCard({
   );
 
   const playTransmission = useCallback(
-    async (source: 'manual' | 'auto') => {
+    async () => {
       if (!resolvedUrl) {
         setPlaybackError('URL de audio invalida.');
         transitionPlayback('ERROR', 'ERROR', new Error('URL de audio invalida.'));
@@ -195,11 +191,7 @@ export function VoiceTransmissionCard({
         playbackStartedAtRef.current = Date.now();
         setPlaybackError(null);
         await stopActiveAudioPlaybackAsync().catch(() => undefined);
-        transitionPlayback('LOADING', source === 'auto' ? 'AUTO_LOAD' : 'LOAD');
-
-        if (source === 'auto') {
-          onAutoPlaybackStart?.(message.id);
-        }
+        transitionPlayback('LOADING', 'LOAD');
 
         await player.play();
         if (playbackOperationRef.current !== operationId) {
@@ -245,20 +237,11 @@ export function VoiceTransmissionCard({
       isPlaying,
       message.audioUrl,
       message.id,
-      onAutoPlaybackStart,
       player,
       resolvedUrl,
       transitionPlayback,
     ]
   );
-
-  useEffect(() => {
-    if (!autoPlay) {
-      return;
-    }
-
-    playTransmission('auto');
-  }, [autoPlay, playTransmission]);
 
   const handleTogglePlayback = async () => {
     if (!resolvedUrl) {
@@ -273,7 +256,7 @@ export function VoiceTransmissionCard({
       return;
     }
 
-    await playTransmission('manual');
+    await playTransmission();
   };
 
   return (

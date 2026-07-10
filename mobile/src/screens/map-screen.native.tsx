@@ -205,6 +205,7 @@ export function MapScreen() {
             setSelectedVehicleId(vehicle.id);
             setFollowMode(true);
           }}
+          scaleBarPosition={{ left: 16, top: insets.top + 82 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}
           selectorRoute={selector.selectorRoute}
@@ -249,7 +250,7 @@ export function MapScreen() {
               onRetryLocation={refresh}
               onToggleFollow={() => setFollowMode((current) => !current)}
               onToggleTraffic={() => setTrafficEnabled((current) => !current)}
-              top={insets.top + 80}
+              top={insets.top + 104}
               trafficEnabled={trafficEnabled}
             />
             <BottomTrackingPanel

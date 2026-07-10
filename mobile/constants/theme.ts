@@ -21,6 +21,52 @@ const baseRadius = {
   pill: 999,
 } as const;
 
+export type DesignTone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
+
+export const DesignSystem = {
+  spacing: baseSpacing,
+  radius: {
+    control: baseRadius.sm,
+    card: baseRadius.md,
+    sheet: baseRadius.lg,
+    input: baseRadius.sm,
+    chip: baseRadius.pill,
+    icon: baseRadius.xs,
+  },
+  typography: {
+    hero: { size: 30, lineHeight: 36, weight: '900' as const },
+    title: { size: 22, lineHeight: 28, weight: '900' as const },
+    subtitle: { size: 16, lineHeight: 22, weight: '800' as const },
+    body: { size: 14, lineHeight: 20, weight: '600' as const },
+    caption: { size: 12, lineHeight: 16, weight: '700' as const },
+    overline: { size: 11, lineHeight: 14, weight: '800' as const },
+  },
+  icon: {
+    xs: 14,
+    sm: 18,
+    md: 22,
+    lg: 28,
+    xl: 34,
+  },
+  control: {
+    sm: 40,
+    md: 46,
+    lg: 52,
+    touch: 44,
+  },
+  motion: {
+    fast: 140,
+    normal: 220,
+    slow: 320,
+    easing: 'ease-out',
+  },
+  opacity: {
+    disabled: 0.55,
+    pressed: 0.9,
+    skeleton: 0.75,
+  },
+} as const;
+
 export const Typography = {
   display:
     Platform.select({
@@ -181,6 +227,42 @@ export function getAppTheme(mode: ThemeMode) {
     },
     statusBar: colors.statusBar,
   } as const;
+}
+
+export function getToneColors(theme: ReturnType<typeof getAppTheme>, tone: DesignTone) {
+  const tones = {
+    positive: {
+      background: theme.colors.successSoft,
+      foreground: theme.colors.success,
+      border: theme.colors.success,
+    },
+    warning: {
+      background: theme.colors.warningSoft,
+      foreground: theme.colors.warning,
+      border: theme.colors.warning,
+    },
+    danger: {
+      background: theme.colors.dangerSoft,
+      foreground: theme.colors.danger,
+      border: theme.colors.danger,
+    },
+    info: {
+      background: theme.colors.infoSoft,
+      foreground: theme.colors.info,
+      border: theme.colors.info,
+    },
+    neutral: {
+      background: theme.colors.surfaceAlt,
+      foreground: theme.colors.muted,
+      border: theme.colors.line,
+    },
+  } as const;
+
+  return tones[tone];
+}
+
+export function getSkeletonColor(theme: ReturnType<typeof getAppTheme>) {
+  return theme.mode === 'light' ? theme.colors.surfaceAlt : theme.colors.panelSoft;
 }
 
 export function getNavigationTheme(mode: ThemeMode): Theme {

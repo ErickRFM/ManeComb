@@ -58,11 +58,14 @@ export function BottomTrackingPanel({
       ) : null}
       <View style={[styles.followCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
         <View style={styles.followHeader}>
-          <View>
+          <View style={styles.followIdentity}>
             <Text style={[styles.followTitle, { color: theme.colors.text }]}>{selectedVehicle?.code || 'Flota'}</Text>
             <Text style={[styles.followMeta, { color: theme.colors.muted }]}>{selectedVehicle?.driverName || 'En monitoreo'}</Text>
           </View>
-          <StatusPill label={`${selectedVehicle?.speed || 0} km/h`} tone="info" />
+          <View style={styles.followMetrics}>
+            <StatusPill label={`${selectedVehicle?.speed || 0} km/h`} tone="info" />
+            <StatusPill label={selectedVehicle?.status || 'online'} tone={selectedVehicle?.status === 'maintenance' ? 'danger' : 'positive'} />
+          </View>
         </View>
 
         {activeIncident && activeIncidentVehicle ? (
@@ -90,7 +93,7 @@ export function BottomTrackingPanel({
               <Pressable
                 key={vehicle.id}
                 onPress={() => onSelectTrackingVehicle(vehicle)}
-                style={[styles.trackChip, isSelected ? selectedTrackChipStyle : undefined]}>
+                style={[styles.trackChip, { borderColor: theme.colors.line }, isSelected ? selectedTrackChipStyle : undefined]}>
                 <Text style={[styles.trackChipTitle, trackChipTitleStyle]}>{vehicle.code}</Text>
               </Pressable>
             );

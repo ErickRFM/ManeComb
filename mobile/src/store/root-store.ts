@@ -267,7 +267,7 @@ async function clearTenantCache() {
 }
 
 async function clearSessionState(set: StoreSet, error: string | null = null) {
-  disconnectSocket();
+  cleanupSessionRuntime();
   setAuthToken(null);
   await persistSession(null, null);
   await clearTenantCache();
@@ -647,6 +647,25 @@ function disconnectSocket() {
       reason: 'socket_disconnected',
     },
   }));
+}
+
+function cleanupSessionRuntime() {
+  disconnectSocket();
+
+  if (apiHealthcheckTimer) {
+    clearInterval(apiHealthcheckTimer);
+    apiHealthcheckTimer = null;
+  }
+
+  if (networkUnsubscribe) {
+    networkUnsubscribe();
+    networkUnsubscribe = null;
+  }
+
+  if (appStateSubscription) {
+    appStateSubscription.remove();
+    appStateSubscription = null;
+  }
 }
 
 function createRealtimePacketId(scope: string) {
@@ -1237,7 +1256,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     finally { set({ isSubmitting: false }); }
   },
   signOut: async () => {
-    disconnectSocket();
     await stopBackgroundLocationServiceAsync().catch(() => undefined);
     const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
     await logoutRequest(rt).catch(() => {});

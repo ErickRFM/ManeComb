@@ -21,8 +21,6 @@
   "include": [
     "App.tsx",
     "index.js",
-    "app/**/*.ts",
-    "app/**/*.tsx",
     "constants/**/*.ts",
     "src/**/*.ts",
     "src/**/*.tsx"

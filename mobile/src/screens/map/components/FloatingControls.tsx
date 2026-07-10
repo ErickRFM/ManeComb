@@ -34,39 +34,36 @@ export function FloatingControls({
 
   return (
     <View style={[styles.sideActions, { top }]}>
-      <Pressable
-        onPress={onRefresh}
-        style={[styles.fab, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
-        accessibilityLabel="Actualizar seguimiento">
-        <MaterialCommunityIcons name={isRefreshing ? 'sync' : 'refresh'} size={22} color={theme.colors.text} />
-      </Pressable>
-      <Pressable
-        onPress={onToggleFollow}
-        style={[
-          styles.fab,
-          { backgroundColor: followMode ? theme.colors.accent : theme.colors.headerGlass, borderColor: theme.colors.line },
-        ]}
-        accessibilityLabel={followMode ? 'Desactivar seguimiento de unidad' : 'Activar seguimiento de unidad'}>
-        <MaterialCommunityIcons name={followMode ? 'navigation' : 'map-search'} size={22} color={followMode ? '#FFF' : theme.colors.text} />
-      </Pressable>
-      <Pressable
-        onPress={onToggleTraffic}
-        style={[
-          styles.fab,
-          { backgroundColor: trafficEnabled ? theme.colors.warning : theme.colors.headerGlass, borderColor: theme.colors.line },
-        ]}
-        accessibilityLabel={trafficEnabled ? 'Ocultar trafico' : 'Mostrar trafico'}>
-        <MaterialCommunityIcons name="traffic-light" size={22} color={trafficEnabled ? '#FFF' : theme.colors.text} />
-      </Pressable>
-      <Pressable
-        onPress={onFocusNextAlert}
-        style={[
-          styles.fab,
-          { backgroundColor: incidentCount ? theme.colors.danger : theme.colors.headerGlass, borderColor: theme.colors.line },
-        ]}
-        accessibilityLabel={incidentCount ? 'Ver siguiente alerta en mapa' : 'Abrir incidencias'}>
-        <MaterialCommunityIcons name="alert-decagram" size={22} color={incidentCount ? '#FFF' : theme.colors.text} />
-      </Pressable>
+      <View style={[styles.fabGroup, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
+        <Pressable
+          onPress={onRefresh}
+          style={styles.fabCompact}
+          accessibilityLabel="Actualizar seguimiento">
+          <MaterialCommunityIcons name={isRefreshing ? 'sync' : 'refresh'} size={21} color={theme.colors.text} />
+        </Pressable>
+        <View style={[styles.fabDivider, { backgroundColor: theme.colors.line }]} />
+        <Pressable
+          onPress={onToggleFollow}
+          style={[styles.fabCompact, followMode ? { backgroundColor: theme.colors.accent } : undefined]}
+          accessibilityLabel={followMode ? 'Desactivar seguimiento de unidad' : 'Activar seguimiento de unidad'}>
+          <MaterialCommunityIcons name={followMode ? 'navigation' : 'map-search'} size={21} color={followMode ? '#FFF' : theme.colors.text} />
+        </Pressable>
+        <View style={[styles.fabDivider, { backgroundColor: theme.colors.line }]} />
+        <Pressable
+          onPress={onToggleTraffic}
+          style={[styles.fabCompact, trafficEnabled ? { backgroundColor: theme.colors.warning } : undefined]}
+          accessibilityLabel={trafficEnabled ? 'Ocultar trafico' : 'Mostrar trafico'}>
+          <MaterialCommunityIcons name="traffic-light" size={21} color={trafficEnabled ? '#FFF' : theme.colors.text} />
+        </Pressable>
+      </View>
+      {incidentCount ? (
+        <Pressable
+          onPress={onFocusNextAlert}
+          style={[styles.fab, { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger }]}
+          accessibilityLabel="Ver siguiente alerta en mapa">
+          <MaterialCommunityIcons name="alert-decagram" size={22} color="#FFF" />
+        </Pressable>
+      ) : null}
       {canRetryLocation && (
         <Pressable
           onPress={onRetryLocation}

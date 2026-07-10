@@ -1,10 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, getToneColors, Typography, type DesignTone } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type ToastProps = {
   message: string | null;
-  tone?: 'success' | 'danger' | 'info';
+  tone?: Extract<DesignTone, 'positive' | 'danger' | 'info'> | 'success';
   onDismiss?: () => void;
 };
 
@@ -15,14 +15,12 @@ export function Toast({ message, tone = 'info', onDismiss }: ToastProps) {
     return null;
   }
 
-  const color =
-    tone === 'danger' ? theme.colors.danger : tone === 'success' ? theme.colors.success : theme.colors.info;
-  const background =
-    tone === 'danger' ? theme.colors.dangerSoft : tone === 'success' ? theme.colors.successSoft : theme.colors.infoSoft;
+  const normalizedTone = tone === 'success' ? 'positive' : tone;
+  const colors = getToneColors(theme, normalizedTone);
 
   return (
-    <Pressable onPress={onDismiss} style={[styles.toast, { backgroundColor: background, borderColor: color }]}>
-      <View style={[styles.dot, { backgroundColor: color }]} />
+    <Pressable onPress={onDismiss} style={[styles.toast, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <View style={[styles.dot, { backgroundColor: colors.foreground }]} />
       <Text style={[styles.text, { color: theme.colors.text }]}>{message}</Text>
     </Pressable>
   );
@@ -35,13 +33,13 @@ export function ToastProvider({ message, tone, onDismiss }: ToastProps) {
 const styles = StyleSheet.create({
   toast: {
     alignItems: 'flex-start',
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: DesignSystem.radius.control,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
     minWidth: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingHorizontal: DesignSystem.spacing.md,
+    paddingVertical: DesignSystem.spacing.sm,
   },
   dot: {
     borderRadius: 8,
@@ -54,9 +52,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    fontSize: DesignSystem.typography.caption.size,
+    fontWeight: DesignSystem.typography.caption.weight,
+    lineHeight: DesignSystem.typography.caption.lineHeight,
     minWidth: 0,
   },
 });
