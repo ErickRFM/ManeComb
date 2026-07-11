@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
@@ -14,7 +14,7 @@ export function EmptyState({ icon = 'inbox-outline', title, description }: Empty
 
   return (
     <View style={[styles.container, { borderColor: theme.colors.line, backgroundColor: theme.colors.surfaceAlt }]}>
-      <MaterialCommunityIcons name={icon} size={28} color={theme.colors.muted} />
+      <MaterialCommunityIcons name={icon} size={26} color={theme.colors.muted} />
       <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
       {description ? <Text style={[styles.description, { color: theme.colors.muted }]}>{description}</Text> : null}
     </View>
@@ -24,21 +24,24 @@ export function EmptyState({ icon = 'inbox-outline', title, description }: Empty
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    borderRadius: AppTheme.radius.md,
+    borderRadius: DesignSystem.radius.card,
+    borderStyle: 'dashed',
     borderWidth: 1,
     gap: 8,
-    padding: AppTheme.spacing.lg,
+    padding: DesignSystem.spacing.lg,
   },
   title: {
-    fontFamily: Typography.display,
-    fontSize: 16,
-    fontWeight: '900',
+    fontFamily: Typography.body,
+    fontSize: DesignSystem.typography.subtitle.size,
+    fontWeight: DesignSystem.typography.subtitle.weight,
+    lineHeight: DesignSystem.typography.subtitle.lineHeight,
     textAlign: 'center',
   },
   description: {
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: DesignSystem.typography.caption.size,
+    lineHeight: DesignSystem.typography.caption.lineHeight,
+    maxWidth: 420,
     textAlign: 'center',
   },
 });

@@ -1,155 +1,50 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
-import {
-  AccountSummaryCard,
-  ActivationTimeline,
-  PortalSectionCard,
-} from '../components/portal-cards';
+import { StatusBadge } from '@/src/components/ui/status-badge';
+import { formatCurrency, formatDate } from '@/src/utils/format';
+import type { PortalPaymentMethod } from '@/src/types/app';
+import { CommercialActivityList, useCommercialDashboard } from '@/features/commercial';
+import { AccountSummaryCard, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
-import { usePortalStore } from '../store/use-portal-store';
-import type { PortalInvoice, PortalSubscription } from '@/src/types/app';
-import { useAppStore } from '@/src/store/use-app-store';
-import { formatDate } from '@/src/utils/format';
-import { canOpenOperationalPanel } from '../utils/access';
 
-function getPlanLabel(subscription?: PortalSubscription | null) {
-  const status = String(subscription?.status || '').toLowerCase();
-
-  if (['active', 'trial', 'trial_active'].includes(status)) {
-    return 'Plan activo';
-  }
-
-  if (['pending', 'pending_payment'].includes(status)) {
-    return 'Cuenta pendiente';
-  }
-
-  if (['cancelled', 'canceled', 'suspended'].includes(status)) {
-    return 'Cuenta pendiente';
-  }
-
-  return 'Sin plan';
+function getPaymentMethodLabel(method: PortalPaymentMethod | null) {
+  if (!method) return 'Sin método';
+  if (method.type === 'spei') return 'Transferencia SPEI';
+  return `${method.brand || 'Tarjeta'} ···· ${method.last4 || '----'}`;
 }
 
-function getPaymentLabel(subscription?: PortalSubscription | null) {
-  const status = String(subscription?.status || '').toLowerCase();
-
-  if (['active', 'trial', 'trial_active'].includes(status)) {
-    return 'Pago al dia';
-  }
-
-  if (['pending', 'pending_payment'].includes(status)) {
-    return 'Cuenta pendiente';
-  }
-
-  return 'Por revisar';
-}
-
-function getLatestInvoice(invoices: PortalInvoice[]) {
-  return [...invoices].sort((a, b) => {
-    const aTime = new Date(a.issuedAt || '').getTime() || 0;
-    const bTime = new Date(b.issuedAt || '').getTime() || 0;
-    return bTime - aTime;
-  })[0];
-}
-
-function isPendingInvoice(invoice: PortalInvoice) {
-  return !['paid', 'ready', 'completed'].includes(String(invoice.status || '').toLowerCase());
-}
-
-function getActivationCopy(status: string) {
-  return status === 'completed' ? 'Activacion lista' : 'Activacion pendiente';
+function getStateBackground(tone: 'positive' | 'warning' | 'danger' | 'info' | 'neutral') {
+  if (tone === 'positive') return portalPalette.successSoft;
+  if (tone === 'warning') return portalPalette.warningSoft;
+  if (tone === 'danger') return portalPalette.dangerSoft;
+  return portalPalette.infoSoft;
 }
 
 export function PortalDashboardScreen() {
-  const user = useAppStore((state) => state.user);
-  const { invoices, isLoading, loadAll, onboarding, overview, subscription } = usePortalStore(
-    useShallow((state) => ({
-      invoices: state.invoices,
-      isLoading: state.isLoading,
-      loadAll: state.loadAll,
-      onboarding: state.onboarding,
-      overview: state.overview,
-      subscription: state.subscription,
-    }))
-  );
-
-  const currentSubscription = subscription || overview?.subscription || null;
-  const showOperationalPanel = canOpenOperationalPanel(currentSubscription, user);
-  const latestInvoice = useMemo(() => getLatestInvoice(invoices), [invoices]);
-  const pendingInvoices = useMemo(() => invoices.filter(isPendingInvoice), [invoices]);
-  const activationStatus = onboarding?.status || overview?.onboarding.status || 'pending';
-  const completedSteps = onboarding?.steps.filter((step) => step.status === 'completed').length ||
-    overview?.activationTimeline.filter((event) => event.status === 'completed').length ||
-    0;
-  const totalSteps = onboarding?.steps.length || overview?.activationTimeline.length || 0;
-  const priorityItems = useMemo(() => {
-    const items: string[] = [];
-    const subscriptionStatus = String(currentSubscription?.status || '').toLowerCase();
-
-    if (['pending', 'pending_payment', 'inactive'].includes(subscriptionStatus)) {
-      items.push('Hay pasos comerciales pendientes para activar la cuenta.');
-    }
-
-    if (pendingInvoices.length) {
-      items.push(`${pendingInvoices.length} factura${pendingInvoices.length === 1 ? '' : 's'} requiere${pendingInvoices.length === 1 ? '' : 'n'} seguimiento.`);
-    }
-
-    if (activationStatus !== 'completed') {
-      items.push('La activacion empresarial aun no esta completa.');
-    }
-
-    return items.slice(0, 2);
-  }, [activationStatus, currentSubscription?.status, pendingInvoices.length]);
-  const quickActions = [
-    {
-      label: 'Gestionar plan',
-      icon: 'clipboard-list-outline' as const,
-      onPress: () => router.push('/portal/plan' as never),
-    },
-    {
-      label: 'Ver facturas',
-      icon: 'file-document-outline' as const,
-      onPress: () => router.push('/portal/facturacion' as never),
-    },
-    {
-      label: 'Metodo de pago',
-      icon: 'credit-card-outline' as const,
-      onPress: () => router.push('/portal/pagos' as never),
-    },
-    {
-      label: 'Activacion',
-      icon: 'flag-checkered' as const,
-      onPress: () => router.push('/portal/onboarding' as never),
-    },
-    ...(showOperationalPanel ? [{
-      label: 'Panel operativo',
-      icon: 'map-marker-radius-outline' as const,
-      onPress: () => router.push('/mapa' as never),
-    }] : []),
-  ];
+  const { isLoading, model, reload } = useCommercialDashboard();
 
   return (
     <PortalLayout
       title="Inicio"
-      subtitle="Resumen de cuenta, suscripcion y activacion empresarial."
+      subtitle="El estado comercial de tu cuenta y el siguiente paso recomendado."
       actions={
         <Pressable
-          onPress={() => void loadAll()}
+          accessibilityRole="button"
+          accessibilityLabel="Actualizar resumen comercial"
+          onPress={() => void reload()}
           style={[styles.actionButton, portalButtonGradient()]}>
           <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" />
           <Text style={styles.actionText}>Actualizar</Text>
         </Pressable>
       }>
-      {isLoading && !overview ? (
-        <View style={styles.grid}>
-          {[0, 1, 2, 3].map((item) => (
+      {isLoading && !model ? (
+        <View style={styles.summaryGrid}>
+          {[0, 1, 2].map((item) => (
             <View key={item} style={styles.skeletonCard}>
               <SkeletonBlock height={18} width="45%" />
               <SkeletonBlock height={36} />
@@ -159,72 +54,91 @@ export function PortalDashboardScreen() {
         </View>
       ) : null}
 
-      {overview ? (
+      {model ? (
         <>
-          {priorityItems.length ? (
-            <View style={styles.priorityNotice}>
-              <View style={styles.priorityIcon}>
-                <MaterialCommunityIcons name="alert-circle-outline" size={20} color={portalPalette.warning} />
-              </View>
-              <View style={styles.priorityCopy}>
-                <Text style={styles.priorityTitle}>Atencion requerida</Text>
-                <Text style={styles.priorityText}>{priorityItems.join(' ')}</Text>
-              </View>
-              <Pressable onPress={() => router.push('/portal/onboarding' as never)} style={styles.priorityButton}>
-                <Text style={styles.priorityButtonText}>Revisar</Text>
-              </Pressable>
+          <View style={styles.stateNotice}>
+            <View style={[styles.stateIcon, { backgroundColor: getStateBackground(model.state.tone) }]}>
+              <MaterialCommunityIcons
+                name={model.state.tone === 'danger' ? 'alert-circle-outline' : 'shield-check-outline'}
+                size={22}
+                color={model.state.tone === 'danger' ? portalPalette.danger : portalPalette.info}
+              />
             </View>
-          ) : null}
+            <View style={styles.stateCopy}>
+              <Text style={styles.stateTitle}>{model.state.message}</Text>
+              <Text style={styles.stateText}>
+                {model.state.restrictions[0] || 'Puedes consultar y comparar opciones sin modificar tu suscripción.'}
+              </Text>
+            </View>
+            <StatusBadge label={model.state.label} tone={model.state.tone} />
+          </View>
 
           <View style={styles.summaryGrid}>
             <AccountSummaryCard
-              icon="clipboard-check-outline"
-              label={getPlanLabel(currentSubscription)}
-              value={currentSubscription?.planName || 'Sin plan'}
-              detail="Plan actual"
-              tone={getPlanLabel(currentSubscription) === 'Plan activo' ? 'positive' : 'warning'}
+              icon="shield-check-outline"
+              label="Suscripción"
+              value={model.state.label}
+              detail={model.currentPlan?.displayName || model.subscription?.planName || 'Sin plan contratado'}
+              tone={model.state.tone}
             />
             <AccountSummaryCard
-              icon="account-group-outline"
-              label="Usuarios utilizados"
-              value={String(overview.metrics.activeUsers)}
-              detail={`${overview.metrics.pendingUsers} pendientes`}
-              tone="info"
+              icon="bus-multiple"
+              label="Uso de unidades"
+              value={`${model.activeUnits} de ${model.totalUnits}`}
+              detail={`${model.availableUnits} ${model.availableUnits === 1 ? 'unidad disponible' : 'unidades disponibles'}`}
+              tone={model.availableUnits > 0 ? 'info' : 'warning'}
             />
             <AccountSummaryCard
-              icon="credit-card-check-outline"
-              label={pendingInvoices.length ? 'Facturacion pendiente' : getPaymentLabel(currentSubscription)}
-              value={pendingInvoices.length ? String(pendingInvoices.length) : formatDate(currentSubscription?.currentPeriodEnd, { year: false })}
-              detail={pendingInvoices.length ? 'Documentos por revisar' : 'Proximo pago'}
-              tone={pendingInvoices.length ? 'warning' : getPaymentLabel(currentSubscription) === 'Pago al dia' ? 'positive' : 'warning'}
-            />
-            <AccountSummaryCard
-              icon="flag-checkered"
-              label={activationStatus === 'completed' ? 'Plan activo' : 'Cuenta pendiente'}
-              value={getActivationCopy(activationStatus)}
-              detail={`${completedSteps}/${totalSteps} pasos`}
-              tone={activationStatus === 'completed' ? 'positive' : 'warning'}
+              icon="credit-card-outline"
+              label="Método principal"
+              value={getPaymentMethodLabel(model.defaultPaymentMethod)}
+              detail={model.defaultPaymentMethod ? 'Listo para el siguiente paso' : 'Agrega uno para continuar'}
+              tone={model.defaultPaymentMethod ? 'positive' : 'warning'}
             />
           </View>
 
-          <View style={styles.contentColumns}>
-            <PortalSectionCard
-              title="Actividad reciente"
-              subtitle={latestInvoice ? `Ultima factura: ${latestInvoice.id}` : 'Sin facturas recientes'}>
-              <ActivationTimeline events={overview.activationTimeline.slice(0, 4)} />
+          <PortalSectionCard
+            title="Próximo paso recomendado"
+            subtitle="Una acción clara según las reglas comerciales de tu cuenta."
+            right={<StatusBadge label={model.recommendation.tone === 'positive' ? 'Cuenta al día' : 'Recomendado'} tone={model.recommendation.tone} />}>
+            <View style={styles.recommendation}>
+              <View style={[styles.recommendationIcon, styles[`recommendationIcon_${model.recommendation.tone}`]]}>
+                <MaterialCommunityIcons name={model.recommendation.icon} size={24} color={portalPalette.text} />
+              </View>
+              <View style={styles.recommendationCopy}>
+                <Text style={styles.recommendationTitle}>{model.recommendation.title}</Text>
+                <Text style={styles.recommendationBody}>{model.recommendation.body}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={model.recommendation.label}
+                onPress={() => router.push(model.recommendation.href as never)}
+                style={[styles.recommendationButton, portalButtonGradient()]}>
+                <Text style={styles.recommendationButtonText}>{model.recommendation.label}</Text>
+                <MaterialCommunityIcons name="arrow-right" size={17} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          </PortalSectionCard>
+
+          <View style={styles.activityGrid}>
+            <PortalSectionCard title="Actividad comercial" subtitle="Eventos recientes de la cuenta.">
+              <CommercialActivityList activities={model.activities} limit={5} />
             </PortalSectionCard>
 
-            <PortalSectionCard title="Accesos rapidos" subtitle="Tareas de cuenta frecuentes.">
-              <View style={styles.quickGrid}>
-                {quickActions.map((item) => (
-                  <Pressable key={item.label} onPress={item.onPress} style={styles.quickAction}>
-                    <View style={styles.quickIcon}>
-                      <MaterialCommunityIcons name={item.icon} size={20} color={portalPalette.accent} />
-                    </View>
-                    <Text style={styles.quickText}>{item.label}</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={18} color={portalPalette.muted} />
-                  </Pressable>
-                ))}
+            <PortalSectionCard title="Resumen del periodo" subtitle="Fechas e importes disponibles actualmente.">
+              <View style={styles.periodGrid}>
+                <PeriodFact
+                  label="Próxima renovación"
+                  value={formatDate(model.subscription?.currentPeriodEnd, { fallback: 'Por confirmar' })}
+                />
+                <PeriodFact
+                  label="Mensualidad"
+                  value={formatCurrency(model.subscription?.monthlyPrice, model.subscription?.currency || 'MXN')}
+                />
+                <PeriodFact
+                  label="Último comprobante"
+                  value={model.latestInvoice ? formatDate(model.latestInvoice.issuedAt) : 'No existen facturas todavía'}
+                />
               </View>
             </PortalSectionCard>
           </View>
@@ -232,32 +146,29 @@ export function PortalDashboardScreen() {
       ) : !isLoading ? (
         <EmptyState
           icon="view-dashboard-outline"
-          title="Portal sin datos"
-          description="El resumen aparecera cuando exista un plan activo."
+          title="Aún no hay un resumen disponible"
+          description="Actualiza la vista o completa la contratación para ver el estado comercial de la cuenta."
         />
       ) : null}
     </PortalLayout>
   );
 }
 
+function PeriodFact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.periodFact}>
+      <Text style={styles.periodLabel}>{label}</Text>
+      <Text style={styles.periodValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
-    minWidth: 0,
-  },
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: AppTheme.spacing.md,
     minWidth: 0,
-  },
-  contentColumns: {
-    flexDirection: 'column',
-    gap: AppTheme.spacing.md,
-    minWidth: 0,
-    width: '100%',
   },
   actionButton: {
     alignItems: 'center',
@@ -265,7 +176,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexShrink: 0,
     gap: 8,
-    minHeight: 42,
+    minHeight: 44,
     paddingHorizontal: 14,
   },
   actionText: {
@@ -282,101 +193,131 @@ const styles = StyleSheet.create({
     flex: 1,
     flexBasis: 230,
     gap: 12,
-    minWidth: 0,
     minHeight: 136,
+    minWidth: 0,
     padding: AppTheme.spacing.md,
   },
-  priorityNotice: {
-    alignItems: 'flex-start',
-    backgroundColor: portalPalette.warningSoft,
-    borderColor: 'rgba(255, 209, 102, 0.24)',
-    borderRadius: 14,
+  stateNotice: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
     padding: AppTheme.spacing.md,
   },
-  priorityIcon: {
+  stateIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 209, 102, 0.12)',
-    borderRadius: 10,
-    flexShrink: 0,
-    height: 38,
+    borderRadius: 12,
+    height: 44,
     justifyContent: 'center',
-    width: 38,
+    width: 44,
   },
-  priorityCopy: {
+  stateCopy: {
     flex: 1,
-    flexBasis: 260,
-    gap: 3,
+    flexBasis: 250,
     minWidth: 0,
   },
-  priorityTitle: {
+  stateTitle: {
     color: portalPalette.text,
     fontFamily: Typography.body,
     fontSize: 14,
     fontWeight: '900',
   },
-  priorityText: {
+  stateText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  recommendation: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  recommendationIcon: {
+    alignItems: 'center',
+    borderRadius: 14,
+    flexShrink: 0,
+    height: 50,
+    justifyContent: 'center',
+    width: 50,
+  },
+  recommendationIcon_info: {
+    backgroundColor: portalPalette.infoSoft,
+  },
+  recommendationIcon_warning: {
+    backgroundColor: portalPalette.warningSoft,
+  },
+  recommendationIcon_positive: {
+    backgroundColor: portalPalette.successSoft,
+  },
+  recommendationCopy: {
+    flex: 1,
+    flexBasis: 260,
+    gap: 4,
+    minWidth: 0,
+  },
+  recommendationTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  recommendationBody: {
     color: portalPalette.muted,
     fontFamily: Typography.body,
     fontSize: 13,
     lineHeight: 19,
   },
-  priorityButton: {
+  recommendationButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 209, 102, 0.28)',
-    borderRadius: 10,
-    borderWidth: 1,
-    flexShrink: 0,
-    minHeight: 38,
-    justifyContent: 'center',
-    paddingHorizontal: 13,
-  },
-  priorityButtonText: {
-    color: portalPalette.warning,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  quickGrid: {
+    borderRadius: AppTheme.radius.sm,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    minWidth: 0,
-  },
-  quickAction: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    borderColor: portalPalette.line,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexBasis: 190,
-    flexGrow: 1,
-    gap: 10,
-    minHeight: 52,
-    minWidth: 0,
-    paddingHorizontal: 12,
-  },
-  quickIcon: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.accentSoft,
-    borderRadius: 10,
     flexShrink: 0,
-    height: 34,
+    gap: 8,
     justifyContent: 'center',
-    width: 34,
+    minHeight: 44,
+    paddingHorizontal: 15,
   },
-  quickText: {
-    color: portalPalette.text,
-    flex: 1,
-    flexShrink: 1,
+  recommendationButtonText: {
+    color: '#FFFFFF',
     fontFamily: Typography.body,
     fontSize: 13,
     fontWeight: '900',
+  },
+  activityGrid: {
+    gap: AppTheme.spacing.md,
+  },
+  periodGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  periodFact: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 190,
+    gap: 4,
     minWidth: 0,
+    padding: 12,
+  },
+  periodLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+  },
+  periodValue: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 18,
   },
 });

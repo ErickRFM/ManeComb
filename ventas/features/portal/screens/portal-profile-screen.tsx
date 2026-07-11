@@ -13,12 +13,12 @@ import { usePortalStore } from '../store/use-portal-store';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 
-type ProfileSection = 'resumen' | 'empresa' | 'seguridad' | 'integraciones' | 'soporte';
+type ProfileSection = 'resumen' | 'empresa' | 'seguridad' | 'soporte';
 
 function getParam(value: string | string[] | undefined): ProfileSection {
   const normalized = Array.isArray(value) ? value[0] : value;
 
-  if (['empresa', 'seguridad', 'integraciones', 'soporte'].includes(String(normalized || ''))) {
+  if (['empresa', 'seguridad', 'soporte'].includes(String(normalized || ''))) {
     return normalized as ProfileSection;
   }
 
@@ -101,13 +101,11 @@ export function PortalProfileScreen() {
           ? 'Empresa'
           : activeSection === 'seguridad'
             ? 'Seguridad'
-            : activeSection === 'integraciones'
-              ? 'Integraciones'
-              : activeSection === 'soporte'
+            : activeSection === 'soporte'
                 ? 'Soporte'
                 : 'Perfil'
       }
-      subtitle="Configuracion de cuenta, empresa y acceso administrativo.">
+      subtitle="Configuración de cuenta, empresa y acceso administrativo.">
       {activeSection === 'resumen' ? (
         <PortalSectionCard title="Datos personales" subtitle={message || undefined}>
           <View style={styles.formGrid}>
@@ -127,7 +125,7 @@ export function PortalProfileScreen() {
       ) : null}
 
       {activeSection === 'resumen' || activeSection === 'empresa' ? (
-        <PortalSectionCard title="Datos de empresa" subtitle="Informacion fiscal y de activacion.">
+        <PortalSectionCard title="Datos de empresa" subtitle="Información fiscal y de activación.">
           <View style={styles.formGrid}>
             {(['companyName', 'legalName', 'taxId', 'billingEmail', 'billingAddress'] as const).map((field) => (
               <TextInput
@@ -152,7 +150,7 @@ export function PortalProfileScreen() {
             ))}
           </View>
           <View style={styles.actions}>
-            <Pressable onPress={() => void saveProfile()} style={[styles.primaryButton, portalButtonGradient()]}>
+            <Pressable accessibilityRole="button" onPress={() => void saveProfile()} style={[styles.primaryButton, portalButtonGradient()]}>
               <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
               <Text style={styles.primaryText}>Guardar perfil</Text>
             </Pressable>
@@ -161,7 +159,7 @@ export function PortalProfileScreen() {
       ) : null}
 
       {activeSection === 'resumen' || activeSection === 'seguridad' ? (
-        <PortalSectionCard title="Sesiones activas" subtitle={`${sessions.length} sesiones`}>
+        <PortalSectionCard title="Sesiones activas" subtitle={sessions.length ? `${sessions.length} ${sessions.length === 1 ? 'sesión' : 'sesiones'}` : undefined}>
           {sessions.length ? (
             <View style={styles.sessionList}>
               {sessions.map((session) => (
@@ -170,12 +168,16 @@ export function PortalProfileScreen() {
                   <View style={styles.sessionBody}>
                     <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>{session.deviceName}</Text>
                     <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>
-                      Expira: {session.expiresAt ? new Date(session.expiresAt).toLocaleDateString('es-MX') : 'Sin dato'}
+                      Vence: {session.expiresAt ? new Date(session.expiresAt).toLocaleDateString('es-MX') : 'Sin fecha disponible'}
                     </Text>
                   </View>
                   <StatusBadge label={session.current ? 'actual' : 'activa'} tone="positive" />
                   {!session.current ? (
-                    <Pressable onPress={() => void revokeSession(session.id)} style={[styles.iconButton, { backgroundColor: theme.colors.dangerSoft }]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
+                      onPress={() => void revokeSession(session.id)}
+                      style={[styles.iconButton, { backgroundColor: theme.colors.dangerSoft }]}>
                       <MaterialCommunityIcons name="close" size={18} color={theme.colors.danger} />
                     </Pressable>
                   ) : null}
@@ -186,19 +188,9 @@ export function PortalProfileScreen() {
             <EmptyState
               icon="shield-lock-outline"
               title="Sin sesiones activas"
-              description="Las sesiones administrativas apareceran cuando haya accesos registrados."
+              description="Las sesiones administrativas aparecerán cuando haya accesos registrados."
             />
           )}
-        </PortalSectionCard>
-      ) : null}
-
-      {activeSection === 'integraciones' ? (
-        <PortalSectionCard title="Integraciones" subtitle="Conectores empresariales y webhooks.">
-          <EmptyState
-            icon="connection"
-            title="Sin integraciones configuradas"
-            description="Las integraciones apareceran aqui cuando esten disponibles para la cuenta."
-          />
         </PortalSectionCard>
       ) : null}
 
@@ -209,7 +201,7 @@ export function PortalProfileScreen() {
               <MaterialCommunityIcons name="lifebuoy" size={22} color={theme.colors.info} />
               <View style={styles.supportCopy}>
                 <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>Soporte comercial</Text>
-                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Pagos, facturacion, contrato y activacion.</Text>
+                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Pagos, facturación, contrato y activación.</Text>
               </View>
             </View>
             <View style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>

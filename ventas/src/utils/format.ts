@@ -5,7 +5,7 @@ const roleLabels: Record<string, string> = {
   admin: 'Administrador',
   dispatcher: 'Despachador',
   supervisor: 'Supervisor',
-  billing_manager: 'Facturacion',
+  billing_manager: 'Facturación',
   support: 'Soporte',
   viewer: 'Consulta',
   driver: 'Conductor',

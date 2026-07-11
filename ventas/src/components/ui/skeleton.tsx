@@ -1,5 +1,5 @@
 import { StyleSheet, View } from 'react-native';
-import { AppTheme } from '@/constants/theme';
+import { DesignSystem, getSkeletonColor } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type SkeletonBlockProps = {
@@ -8,7 +8,7 @@ type SkeletonBlockProps = {
   radius?: number;
 };
 
-export function SkeletonBlock({ height = 18, width = '100%', radius = AppTheme.radius.xs }: SkeletonBlockProps) {
+export function SkeletonBlock({ height = 18, width = '100%', radius = DesignSystem.radius.icon }: SkeletonBlockProps) {
   const { theme } = useAppTheme();
 
   return (
@@ -16,7 +16,8 @@ export function SkeletonBlock({ height = 18, width = '100%', radius = AppTheme.r
       style={[
         styles.block,
         {
-          backgroundColor: theme.mode === 'light' ? theme.colors.surfaceAlt : 'rgba(255,255,255,0.08)',
+          backgroundColor: getSkeletonColor(theme),
+          borderColor: theme.colors.line,
           borderRadius: radius,
           height,
           width,
@@ -28,6 +29,8 @@ export function SkeletonBlock({ height = 18, width = '100%', radius = AppTheme.r
 
 const styles = StyleSheet.create({
   block: {
+    borderWidth: 1,
     overflow: 'hidden',
+    opacity: DesignSystem.opacity.skeleton,
   },
 });

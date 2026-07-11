@@ -4,14 +4,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
-import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { portalGlass, portalPalette } from '../portal-theme';
 import type {
   PortalActivationEvent,
   PortalInvoice,
-  PortalOnboardingStep,
-  PortalPaymentMethod,
-  PortalSubscription,
 } from '@/src/types/app';
 
 const portalColors = {
@@ -47,20 +43,21 @@ function getStatusTone(status?: string): StatusBadgeTone {
 export function formatPortalStatus(status?: string) {
   const normalized = String(status || '').toLowerCase();
 
-  if (normalized === 'completed') return 'completado';
-  if (normalized === 'pending') return 'pendiente';
-  if (normalized === 'active') return 'activo';
-  if (normalized === 'inactive') return 'inactivo';
-  if (normalized === 'paid') return 'pagado';
-  if (normalized === 'ready') return 'listo';
-  if (normalized === 'ready_for_activation') return 'listo para activar';
-  if (normalized === 'trial' || normalized === 'trial_active') return 'trial activo';
-  if (normalized === 'pending_payment') return 'pago pendiente';
-  if (normalized === 'cancelled' || normalized === 'canceled') return 'cancelado';
-  if (normalized === 'suspended') return 'suspendido';
-  if (normalized === 'failed') return 'fallido';
+  if (normalized === 'completed') return 'Completado';
+  if (normalized === 'pending') return 'Pendiente';
+  if (normalized === 'active') return 'Activo';
+  if (normalized === 'inactive') return 'Inactivo';
+  if (normalized === 'paid') return 'Pagado';
+  if (normalized === 'ready') return 'Listo';
+  if (normalized === 'ready_for_activation') return 'Listo para activar';
+  if (normalized === 'trial' || normalized === 'trial_active') return 'Prueba activa';
+  if (normalized === 'pending_payment') return 'Pago pendiente';
+  if (normalized === 'cancelled' || normalized === 'canceled') return 'Cancelado';
+  if (normalized === 'suspended') return 'Suspendido';
+  if (normalized === 'failed') return 'Fallido';
 
-  return String(status || 'sin estado').replaceAll('_', ' ');
+  const fallback = String(status || 'Sin estado').replace(/_/g, ' ');
+  return fallback.charAt(0).toUpperCase() + fallback.slice(1);
 }
 
 export function PortalSectionCard({
@@ -104,58 +101,6 @@ export function AccountSummaryCard({ icon, label, value, detail, tone = 'info' }
   );
 }
 
-export function PlanStatusCard({ subscription }: { subscription: PortalSubscription | null }) {
-  const theme = { colors: portalColors };
-
-  if (!subscription) {
-    return (
-      <AppCard style={[styles.summaryCard, { backgroundColor: portalPalette.surfaceStrong, borderColor: portalPalette.line }]}>
-        <SkeletonBlock height={18} width="55%" />
-        <SkeletonBlock height={34} />
-        <SkeletonBlock height={16} width="70%" />
-      </AppCard>
-    );
-  }
-
-  return (
-    <AppCard style={[styles.summaryCard, { backgroundColor: portalPalette.surfaceStrong, borderColor: portalPalette.line }]}>
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.cardKicker, { color: theme.colors.muted }]}>Plan actual</Text>
-        <StatusBadge label={formatPortalStatus(subscription.status || 'inactive')} tone={getStatusTone(subscription.status)} />
-      </View>
-      <Text style={[styles.summaryValue, { color: theme.colors.text }]}>{subscription.planName}</Text>
-      <Text style={[styles.summaryDetail, { color: theme.colors.muted }]}>
-        {subscription.totalUnits} combis incluidas
-      </Text>
-    </AppCard>
-  );
-}
-
-export function UsageUnitsCard({ subscription }: { subscription: PortalSubscription | null }) {
-  const theme = { colors: portalColors };
-  const total = Math.max(1, Number(subscription?.totalUnits || 0));
-  const active = Number(subscription?.activeUnits || 0);
-  const percent = Math.min(100, Math.round((active / total) * 100));
-
-  return (
-    <AppCard style={[styles.summaryCard, { backgroundColor: portalPalette.surfaceStrong, borderColor: portalPalette.line }]}>
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.cardKicker, { color: theme.colors.muted }]}>Unidades</Text>
-        <Text style={[styles.percent, { color: theme.colors.accent }]}>{percent}%</Text>
-      </View>
-      <Text style={[styles.summaryValue, { color: theme.colors.text }]}>
-        {active}/{subscription?.totalUnits || 0}
-      </Text>
-      <View style={[styles.progressTrack, { backgroundColor: theme.colors.surfaceAlt }]}>
-        <View style={[styles.progressFill, { backgroundColor: theme.colors.accent, width: `${percent}%` }]} />
-      </View>
-      <Text style={[styles.summaryDetail, { color: theme.colors.muted }]}>
-        {subscription?.availableUnits || 0} disponibles
-      </Text>
-    </AppCard>
-  );
-}
-
 export function ActivationTimeline({ events }: { events: PortalActivationEvent[] }) {
   const theme = { colors: portalColors };
 
@@ -194,51 +139,6 @@ export function ActivationTimeline({ events }: { events: PortalActivationEvent[]
   );
 }
 
-export function PaymentMethodCard({
-  method,
-  onDelete,
-  onDefault,
-}: {
-  method: PortalPaymentMethod;
-  onDelete?: () => void;
-  onDefault?: () => void;
-}) {
-  const theme = { colors: portalColors };
-  const isCard = method.type === 'card';
-
-  return (
-    <View style={[styles.listItem, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-      <View style={[styles.summaryIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-        <MaterialCommunityIcons
-          name={isCard ? 'credit-card-outline' : 'bank-outline'}
-          size={21}
-          color={theme.colors.accent}
-        />
-      </View>
-      <View style={styles.listBody}>
-        <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={2}>
-          {isCard ? `${method.brand} terminacion ${method.last4}` : 'Transferencia SPEI'}
-        </Text>
-        <Text style={[styles.itemDescription, { color: theme.colors.muted }]} numberOfLines={2}>
-          {method.isDefault ? 'Metodo principal' : 'Disponible para pagos'}
-        </Text>
-      </View>
-      <View style={styles.inlineActions}>
-        {!method.isDefault ? (
-          <Pressable onPress={onDefault} style={[styles.smallButton, { backgroundColor: theme.colors.infoSoft }]}>
-            <MaterialCommunityIcons name="star-outline" size={18} color={theme.colors.info} />
-          </Pressable>
-        ) : null}
-        {isCard ? (
-          <Pressable onPress={onDelete} style={[styles.smallButton, { backgroundColor: theme.colors.dangerSoft }]}>
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
 export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[]; onDownload?: (invoice: PortalInvoice) => void }) {
   const theme = { colors: portalColors };
 
@@ -258,6 +158,8 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
           <View style={styles.statusActionGroup}>
             <StatusBadge label={formatPortalStatus(invoice.status)} tone={getStatusTone(invoice.status)} />
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Descargar factura ${invoice.id}`}
               onPress={() => onDownload?.(invoice)}
               style={[styles.smallButton, { backgroundColor: theme.colors.surfaceAlt }]}>
               <MaterialCommunityIcons name="download-outline" size={18} color={theme.colors.text} />
@@ -265,49 +167,6 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
           </View>
         </View>
       ))}
-    </View>
-  );
-}
-
-export function OnboardingChecklist({
-  steps,
-  onToggle,
-}: {
-  steps: PortalOnboardingStep[];
-  onToggle?: (step: PortalOnboardingStep) => void;
-}) {
-  const theme = { colors: portalColors };
-
-  return (
-    <View style={styles.list}>
-      {steps.map((step) => {
-        const done = step.status === 'completed';
-
-        return (
-          <Pressable
-            key={step.id}
-            onPress={() => onToggle?.(step)}
-            style={[styles.listItem, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-            <View
-              style={[
-                styles.checkBox,
-                {
-                  backgroundColor: done ? theme.colors.success : 'transparent',
-                  borderColor: done ? theme.colors.success : theme.colors.lineStrong,
-                },
-              ]}>
-              {done ? <MaterialCommunityIcons name="check" size={15} color="#FFFFFF" /> : null}
-            </View>
-            <View style={styles.listBody}>
-              <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={2}>{step.title}</Text>
-              {step.description ? <Text style={[styles.itemDescription, { color: theme.colors.muted }]} numberOfLines={3}>{step.description}</Text> : null}
-            </View>
-            <View style={styles.statusActionGroup}>
-              <StatusBadge label={formatPortalStatus(step.status)} tone={getStatusTone(step.status)} />
-            </View>
-          </Pressable>
-        );
-      })}
     </View>
   );
 }
@@ -385,26 +244,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     minWidth: 0,
   },
-  cardKicker: {
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  percent: {
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  progressTrack: {
-    borderRadius: AppTheme.radius.pill,
-    height: 9,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    borderRadius: AppTheme.radius.pill,
-    height: 9,
-  },
   timeline: {
     gap: 12,
   },
@@ -459,13 +298,6 @@ const styles = StyleSheet.create({
     flexBasis: 190,
     minWidth: 0,
   },
-  inlineActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 0,
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   statusActionGroup: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -482,13 +314,5 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
-  },
-  checkBox: {
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
   },
 });

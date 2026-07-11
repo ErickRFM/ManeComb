@@ -1,18 +1,19 @@
-import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { lazy, Suspense, useEffect } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
-import { SalesAuthScreen } from '@/screens/sales-auth-screen';
-import { PlanCheckoutScreen } from '@/screens/plan-checkout-screen';
-import { SalesScreen } from '@/screens/sales-screen';
-import { PortalBillingScreen } from '@/features/portal/screens/portal-billing-screen';
-import { PortalDashboardScreen } from '@/features/portal/screens/portal-dashboard-screen';
-import { PortalOnboardingScreen } from '@/features/portal/screens/portal-onboarding-screen';
-import { PortalPaymentsScreen } from '@/features/portal/screens/portal-payments-screen';
-import { PortalPlanScreen } from '@/features/portal/screens/portal-plan-screen';
-import { PortalProfileScreen } from '@/features/portal/screens/portal-profile-screen';
-import { PortalUsersScreen } from '@/features/portal/screens/portal-users-screen';
 import { Typography } from '@/constants/theme';
+
+const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
+const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
+const PlanCheckoutScreen = lazy(() => import('@/screens/plan-checkout-screen').then((module) => ({ default: module.PlanCheckoutScreen })));
+const PortalBillingScreen = lazy(() => import('@/features/portal/screens/portal-billing-screen').then((module) => ({ default: module.PortalBillingScreen })));
+const PortalDashboardScreen = lazy(() => import('@/features/portal/screens/portal-dashboard-screen').then((module) => ({ default: module.PortalDashboardScreen })));
+const PortalOnboardingScreen = lazy(() => import('@/features/portal/screens/portal-onboarding-screen').then((module) => ({ default: module.PortalOnboardingScreen })));
+const PortalPaymentsScreen = lazy(() => import('@/features/portal/screens/portal-payments-screen').then((module) => ({ default: module.PortalPaymentsScreen })));
+const PortalPlanScreen = lazy(() => import('@/features/portal/screens/portal-plan-screen').then((module) => ({ default: module.PortalPlanScreen })));
+const PortalProfileScreen = lazy(() => import('@/features/portal/screens/portal-profile-screen').then((module) => ({ default: module.PortalProfileScreen })));
+const PortalUsersScreen = lazy(() => import('@/features/portal/screens/portal-users-screen').then((module) => ({ default: module.PortalUsersScreen })));
 
 function BootScreen() {
   return (
@@ -28,9 +29,9 @@ function StaticPage({ title, body }: { title: string; body: string }) {
     <View style={styles.staticPage}>
       <Text style={styles.staticTitle}>{title}</Text>
       <Text style={styles.staticBody}>{body}</Text>
-      <Text style={styles.staticLink} onPress={() => router.push('/ventas')}>
-        Volver a ventas
-      </Text>
+      <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')}>
+        <Text style={styles.staticLink}>Volver a ventas</Text>
+      </Pressable>
     </View>
   );
 }
@@ -39,7 +40,7 @@ function OperationalPlaceholder({ title }: { title: string }) {
   return (
     <StaticPage
       title={title}
-      body="Esta ruta pertenece al panel operativo de ManeComb. El despliegue web de ventas conserva el acceso, pero no incluye la app movil ni las pantallas operativas."
+      body="Esta ruta pertenece al panel operativo de ManeComb. El despliegue web de ventas conserva el acceso, pero no incluye la app móvil ni las pantallas operativas."
     />
   );
 }
@@ -68,8 +69,9 @@ function Routes() {
     case '/portal':
       return <PortalDashboardScreen />;
     case '/portal/usuarios':
-    case '/usuarios':
       return <PortalUsersScreen />;
+    case '/usuarios':
+      return <OperationalPlaceholder title="Usuarios operativos" />;
     case '/portal/plan':
       return <PortalPlanScreen />;
     case '/portal/facturacion':
@@ -85,11 +87,11 @@ function Routes() {
     case '/radio':
       return <OperationalPlaceholder title="Radio operativo" />;
     case '/terminos':
-      return <StaticPage title="Terminos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
+      return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
-      return <StaticPage title="Privacidad" body="Informacion de privacidad y canales de contacto para cuentas ManeComb." />;
+      return <StaticPage title="Privacidad" body="Información de privacidad y canales de contacto para cuentas ManeComb." />;
     default:
-      return <StaticPage title="Pagina no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
+      return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
   }
 }
 
@@ -102,7 +104,9 @@ export function App() {
 
   return (
     <RouterProvider>
-      <Routes />
+      <Suspense fallback={<BootScreen />}>
+        <Routes />
+      </Suspense>
     </RouterProvider>
   );
 }

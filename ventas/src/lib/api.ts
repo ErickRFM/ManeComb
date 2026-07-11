@@ -1,4 +1,4 @@
-import axios, { isAxiosError, type AxiosError } from 'axios';
+import axios, { AxiosHeaders, isAxiosError, type AxiosError } from 'axios';
 
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const REQUEST_TIMEOUT_MS = 20000;
@@ -56,8 +56,8 @@ export const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use((config) => {
-  config.headers = config.headers || {};
-  config.headers['x-client-platform'] = 'ventas-web';
+  config.headers = AxiosHeaders.from(config.headers);
+  config.headers.set('x-client-platform', 'ventas-web');
 
   if (config.url && !/^[a-z][a-z\d+.-]*:\/\//i.test(config.url)) {
     const [pathPart, ...queryParts] = String(config.url).split('?');

@@ -17,25 +17,15 @@ import {
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
-import {
-  confirmCommercialPaymentRequest,
-  getApiErrorMessage,
-  getCommercialPlansRequest,
-} from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { COMMERCIAL_FAQS, FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
+import { usePublicCommercialFlow, type PaymentReturnConfirmation } from '@/features/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
 import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
-type CheckoutConfirmState = {
-  message?: string;
-  status: 'idle' | 'checking' | 'confirmed' | 'error';
-  paymentStatus?: string;
-};
-
 const SUPPORT_EMAIL = 'ventas@manecomb.com';
 const SUPPORT_PHONE = '81812345678';
 const SYSTEM_STATUS_URL = 'https://manecomb.onrender.com/api/health';
@@ -276,7 +266,7 @@ function openExternalUrl(url: string) {
   }
 }
 
-function normalizeMercadoPagoReturnStatus(status?: string) {
+function normalizePaymentReturnStatus(status?: string) {
   const normalized = String(status || '').trim().toLowerCase();
 
   if (['approved', 'success', 'paid', 'accredited'].includes(normalized)) {
@@ -294,12 +284,12 @@ function normalizeMercadoPagoReturnStatus(status?: string) {
   return normalized || undefined;
 }
 
-function getCheckoutReturnCopy(status?: string, confirmation?: CheckoutConfirmState) {
+function getCheckoutReturnCopy(status?: string, confirmation?: PaymentReturnConfirmation) {
   if (confirmation?.status === 'checking') {
     return {
       icon: 'sync' as IconName,
       title: 'Validando pago',
-      body: 'Estamos confirmando el pago con Mercado Pago.',
+      body: 'Estamos confirmando el pago con el proveedor disponible.',
       action: 'Ver portal',
       tone: 'pending' as const,
     };
@@ -331,7 +321,7 @@ function getCheckoutReturnCopy(status?: string, confirmation?: CheckoutConfirmSt
     return {
       icon: 'clock-outline' as IconName,
       title: 'Pago pendiente',
-      body: confirmation?.message || 'Mercado Pago aun no confirma el cobro.',
+      body: confirmation?.message || 'El proveedor aún no confirma el pago.',
       action: 'Ver pagos',
       tone: 'pending' as const,
     };
@@ -341,7 +331,7 @@ function getCheckoutReturnCopy(status?: string, confirmation?: CheckoutConfirmSt
     return {
       icon: 'alert-circle-outline' as IconName,
       title: 'Pago rechazado',
-      body: 'Intenta de nuevo o usa otro metodo de pago.',
+      body: 'Intenta de nuevo o usa otro método de pago.',
       action: 'Reintentar pago',
       tone: 'danger' as const,
     };
@@ -361,8 +351,14 @@ export function SalesScreen() {
     preference_id?: string | string[];
     status?: string | string[];
   }>();
+  const paymentId = getFirstParam(routeParams.payment_id) || getFirstParam(routeParams.collection_id);
+  const externalReference = getFirstParam(routeParams.external_reference);
+  const { confirmation: checkoutConfirm, plans: availablePlans } = usePublicCommercialFlow({
+    externalReference,
+    paymentId,
+  });
+  const plans = availablePlans.length ? availablePlans : FALLBACK_COMMERCIAL_PLANS;
   const isDesktop = width >= 1080;
-  const isTablet = width >= 760;
   const isPhone = width < 640;
   const carouselRef = useRef<ScrollView>(null);
   const { user } = useAppStore(
@@ -370,28 +366,17 @@ export function SalesScreen() {
       user: state.user,
     }))
   );
-  const [plans, setPlans] = useState<CommercialPlan[]>(FALLBACK_COMMERCIAL_PLANS);
   const [activePlanIndex, setActivePlanIndex] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const [scrollY, setScrollY] = useState(0);
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
-  const [checkoutConfirm, setCheckoutConfirm] = useState<CheckoutConfirmState>({ status: 'idle' });
-  const lastConfirmedPaymentRef = useRef<string | null>(null);
-
   useEffect(() => {
-    void getCommercialPlansRequest()
-      .then((response) => {
-        if (response.length) {
-          setPlans(response);
-          const bestValueIndex = Math.max(
-            response.findIndex((plan) => plan.badge.toLowerCase().includes('vendido')),
-            0
-          );
-          setActivePlanIndex(bestValueIndex);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
+    const bestValueIndex = Math.max(
+      plans.findIndex((plan) => plan.badge.toLowerCase().includes('vendido')),
+      0
+    );
+    setActivePlanIndex(bestValueIndex);
+  }, [plans]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -422,48 +407,11 @@ export function SalesScreen() {
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0];
   const headerCompact = scrollY > 36;
-  const paymentId = getFirstParam(routeParams.payment_id) || getFirstParam(routeParams.collection_id);
-  const externalReference = getFirstParam(routeParams.external_reference);
-  const mercadoPagoStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
+  const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
-    normalizeMercadoPagoReturnStatus(checkoutConfirm.paymentStatus) ||
-    normalizeMercadoPagoReturnStatus(getFirstParam(routeParams.checkout)) ||
-    normalizeMercadoPagoReturnStatus(mercadoPagoStatus);
-
-  useEffect(() => {
-    const cleanPaymentId = String(paymentId || '').trim();
-
-    if (!cleanPaymentId) {
-      return;
-    }
-
-    const confirmationKey = `${cleanPaymentId}:${externalReference || ''}`;
-
-    if (lastConfirmedPaymentRef.current === confirmationKey) {
-      return;
-    }
-
-    lastConfirmedPaymentRef.current = confirmationKey;
-    setCheckoutConfirm({ status: 'checking' });
-
-    void confirmCommercialPaymentRequest({
-      externalReference,
-      paymentId: cleanPaymentId,
-    })
-      .then((order) => {
-        setCheckoutConfirm({
-          message: order?.nextStep || undefined,
-          paymentStatus: order?.paymentStatus,
-          status: 'confirmed',
-        });
-      })
-      .catch((error) => {
-        setCheckoutConfirm({
-          message: getApiErrorMessage(error, 'No fue posible confirmar el pago.'),
-          status: 'error',
-        });
-      });
-  }, [externalReference, paymentId]);
+    normalizePaymentReturnStatus(checkoutConfirm.paymentStatus) ||
+    normalizePaymentReturnStatus(getFirstParam(routeParams.checkout)) ||
+    normalizePaymentReturnStatus(providerReturnStatus);
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
     const params = buildPlanParams(plan, requestTrial);
@@ -631,11 +579,13 @@ export function SalesScreen() {
                 </View>
                 <View style={styles.carouselControls}>
                   <RoundIconButton
+                    accessibilityLabel="Plan anterior"
                     icon="chevron-left"
                     onPress={() => jumpToPlan(activePlanIndex - 1)}
                     disabled={activePlanIndex === 0}
                   />
                   <RoundIconButton
+                    accessibilityLabel="Plan siguiente"
                     icon="chevron-right"
                     onPress={() => jumpToPlan(activePlanIndex + 1)}
                     disabled={activePlanIndex === plans.length - 1}
@@ -1570,7 +1520,7 @@ function CheckoutReturnBanner({
   onPrimaryPress,
   status,
 }: {
-  confirmation?: CheckoutConfirmState;
+  confirmation?: PaymentReturnConfirmation;
   onPrimaryPress: () => void;
   status?: string | string[];
 }) {
@@ -1604,10 +1554,12 @@ function CheckoutReturnBanner({
 }
 
 function RoundIconButton({
+  accessibilityLabel,
   icon,
   onPress,
   disabled,
 }: {
+  accessibilityLabel: string;
   icon: IconName;
   onPress: () => void;
   disabled?: boolean;
@@ -1615,6 +1567,8 @@ function RoundIconButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
       onPress={onPress}
       disabled={disabled}
       style={(state) => {

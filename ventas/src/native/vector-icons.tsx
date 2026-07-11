@@ -2,7 +2,7 @@ import { Text, type StyleProp, type TextStyle } from 'react-native';
 import glyphMap from 'react-native-vector-icons/glyphmaps/MaterialCommunityIcons.json';
 
 type IconProps = {
-  name: keyof typeof glyphMap;
+  name: string;
   size?: number;
   color?: string;
   style?: StyleProp<TextStyle>;

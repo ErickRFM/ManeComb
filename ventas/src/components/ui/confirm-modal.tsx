@@ -1,5 +1,5 @@
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type ConfirmModalProps = {
@@ -26,16 +26,17 @@ export function ConfirmModal({
   const { theme } = useAppTheme();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.overlay}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel} accessibilityViewIsModal>
+      <View style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}>
         <View style={[styles.panel, { backgroundColor: theme.colors.card, borderColor: theme.colors.line }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
           {description ? <Text style={[styles.description, { color: theme.colors.muted }]}>{description}</Text> : null}
           <View style={styles.actions}>
-            <Pressable onPress={onCancel} style={[styles.button, { borderColor: theme.colors.line }]}>
+            <Pressable accessibilityRole="button" onPress={onCancel} style={[styles.button, { borderColor: theme.colors.line }]}>
               <Text style={[styles.cancelText, { color: theme.colors.text }]}>{cancelLabel}</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
               onPress={onConfirm}
               style={[
                 styles.button,
@@ -54,28 +55,28 @@ export function ConfirmModal({
 const styles = StyleSheet.create({
   overlay: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.48)',
     flex: 1,
     justifyContent: 'center',
-    padding: 20,
+    padding: DesignSystem.spacing.lg,
   },
   panel: {
-    borderRadius: AppTheme.radius.md,
+    borderRadius: DesignSystem.radius.sheet,
     borderWidth: 1,
     gap: 12,
-    maxWidth: 420,
-    padding: AppTheme.spacing.lg,
+    maxWidth: 440,
+    padding: DesignSystem.spacing.lg,
     width: '100%',
   },
   title: {
     fontFamily: Typography.display,
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: DesignSystem.typography.title.size,
+    fontWeight: DesignSystem.typography.title.weight,
+    lineHeight: DesignSystem.typography.title.lineHeight,
   },
   description: {
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: DesignSystem.typography.body.size,
+    lineHeight: DesignSystem.typography.body.lineHeight,
   },
   actions: {
     flexDirection: 'row',
@@ -84,24 +85,25 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    borderRadius: AppTheme.radius.xs,
+    borderRadius: DesignSystem.radius.control,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 40,
-    paddingHorizontal: 14,
+    minHeight: DesignSystem.control.sm,
+    minWidth: 120,
+    paddingHorizontal: 16,
   },
   confirmButton: {
     borderWidth: 0,
   },
   cancelText: {
     fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: DesignSystem.typography.caption.size,
+    fontWeight: '900',
   },
   confirmText: {
     color: '#FFFFFF',
     fontFamily: Typography.body,
-    fontSize: 13,
+    fontSize: DesignSystem.typography.caption.size,
     fontWeight: '900',
   },
 });

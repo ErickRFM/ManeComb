@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,58 +11,19 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
-import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
+import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
-import type { PortalInvoice, PortalPaymentMethod } from '@/src/types/app';
+import type { PortalPaymentMethod } from '@/src/types/app';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 
 type PaymentField = 'brand' | 'cardNumber' | 'expMonth' | 'expYear';
 type FormErrors = Partial<Record<PaymentField, string>>;
 type FeedbackTone = 'success' | 'danger' | 'info';
 
-type BillingHistoryItem = {
-  id: string;
-  date: string;
-  total: number;
-  currency: string;
-  status: string;
-};
-
 const cardBrandOptions = ['Visa', 'Mastercard', 'American Express', 'Carnet'] as const;
-
-function isPaidInvoice(invoice: Pick<PortalInvoice, 'status'> | BillingHistoryItem) {
-  return ['paid', 'ready', 'completed'].includes(String(invoice.status || '').toLowerCase());
-}
-
-function getLatestInvoice(invoices: PortalInvoice[]) {
-  return [...invoices].sort((a, b) => {
-    const aTime = new Date(a.issuedAt || '').getTime() || 0;
-    const bTime = new Date(b.issuedAt || '').getTime() || 0;
-    return bTime - aTime;
-  })[0];
-}
-
-function getBillingLabel(subscriptionStatus?: string, pendingInvoices = 0) {
-  if (pendingInvoices > 0) {
-    return 'Pendiente';
-  }
-
-  const status = String(subscriptionStatus || '').toLowerCase();
-  if (['active', 'trial', 'trial_active'].includes(status)) {
-    return 'Verificada';
-  }
-
-  return 'Por revisar';
-}
-
-function getBillingTone(label: string): StatusBadgeTone {
-  if (label === 'Verificada') return 'positive';
-  if (label === 'Pendiente') return 'warning';
-  return 'neutral';
-}
 
 function getMethodName(method: PortalPaymentMethod) {
   if (method.type === 'spei') {
@@ -77,38 +38,11 @@ function getMethodDetail(method: PortalPaymentMethod) {
     return 'Cuenta bancaria para pagos por transferencia';
   }
 
-  return `Terminacion ${method.last4 || '----'}${method.expMonth && method.expYear ? ` - ${method.expMonth}/${method.expYear}` : ''}`;
+  return `Terminación ${method.last4 || '----'}${method.expMonth && method.expYear ? ` · ${method.expMonth}/${method.expYear}` : ''}`;
 }
 
 function normalizeDigits(value: string, maxLength: number) {
   return value.replace(/[^\d]/g, '').slice(0, maxLength);
-}
-
-function SummaryMetricCard({
-  detail,
-  icon,
-  label,
-  tone = 'info',
-  value,
-}: {
-  detail: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  tone?: StatusBadgeTone;
-  value: string;
-}) {
-  return (
-    <View style={styles.metricCard}>
-      <View style={styles.metricTop}>
-        <View style={styles.metricIcon}>
-          <MaterialCommunityIcons name={icon} size={20} color={portalPalette.info} />
-        </View>
-        <StatusBadge label={label} tone={tone} />
-      </View>
-      <Text style={styles.metricValue} numberOfLines={2}>{value}</Text>
-      <Text style={styles.metricDetail} numberOfLines={2}>{detail}</Text>
-    </View>
-  );
 }
 
 function PaymentInput({
@@ -172,6 +106,9 @@ function CardBrandCombo({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>Tarjeta</Text>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Seleccionar marca de tarjeta"
+        accessibilityState={{ expanded: open }}
         onPress={() => setOpen((current) => !current)}
         style={[styles.comboButton, open ? styles.inputFocused : undefined, error ? styles.inputError : undefined]}>
         <Text style={[styles.comboValue, !value ? styles.comboPlaceholder : undefined]} numberOfLines={1}>
@@ -191,6 +128,9 @@ function CardBrandCombo({
             return (
               <Pressable
                 key={option}
+                accessibilityRole="button"
+                accessibilityLabel={`Seleccionar ${option}`}
+                accessibilityState={{ selected: active }}
                 onPress={() => {
                   onSelect(option);
                   setOpen(false);
@@ -248,7 +188,7 @@ function PaymentWalletCard({
           </View>
         </View>
         <View style={styles.walletBadges}>
-          <StatusBadge label={method.isDefault ? 'Principal' : 'Activo'} tone={method.isDefault ? 'positive' : 'info'} />
+          {method.isDefault ? <StatusBadge label="Principal" tone="positive" /> : null}
         </View>
       </View>
 
@@ -260,7 +200,7 @@ function PaymentWalletCard({
         <View style={styles.walletActions}>
           {isCard ? (
             <Pressable
-              accessibilityLabel="Editar metodo de pago"
+              accessibilityLabel="Editar método de pago"
               accessibilityRole="button"
               onPress={onEdit}
               style={styles.walletActionButton}>
@@ -270,7 +210,7 @@ function PaymentWalletCard({
           ) : null}
           {!method.isDefault ? (
             <Pressable
-              accessibilityLabel="Marcar metodo de pago como principal"
+              accessibilityLabel="Marcar método de pago como principal"
               accessibilityRole="button"
               onPress={onDefault}
               style={styles.walletActionButton}>
@@ -280,7 +220,7 @@ function PaymentWalletCard({
           ) : null}
           {isCard ? (
             <Pressable
-              accessibilityLabel="Eliminar metodo de pago"
+              accessibilityLabel="Eliminar método de pago"
               accessibilityRole="button"
               onPress={onDelete}
               style={[styles.walletActionButton, styles.walletDangerButton]}>
@@ -294,61 +234,16 @@ function PaymentWalletCard({
   );
 }
 
-function EmptyPaymentMethods({ onAddPress }: { onAddPress: () => void }) {
+function EmptyPaymentMethods() {
   return (
     <View style={styles.emptyWallet}>
       <View style={styles.emptyIcon}>
         <MaterialCommunityIcons name="credit-card-plus-outline" size={30} color={portalPalette.info} />
       </View>
       <View style={styles.emptyCopy}>
-        <Text style={styles.emptyTitle}>No hay metodos de pago registrados</Text>
-        <Text style={styles.emptyText}>Agrega una referencia de pago para continuar.</Text>
+        <Text style={styles.emptyTitle}>No tienes métodos de pago registrados</Text>
+        <Text style={styles.emptyText}>Completa el formulario para agregar tu primera referencia de pago.</Text>
       </View>
-      <Pressable onPress={onAddPress} style={[styles.emptyButton, portalButtonGradient()]}>
-        <MaterialCommunityIcons name="plus" size={17} color="#FFFFFF" />
-        <Text style={styles.emptyButtonText}>Agregar metodo</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function BillingHistoryRow({ item }: { item: BillingHistoryItem }) {
-  const tone: StatusBadgeTone = isPaidInvoice(item) ? 'positive' : 'warning';
-
-  return (
-    <View style={styles.historyRow}>
-      <View style={styles.historyCopy}>
-        <Text style={styles.historyId} numberOfLines={1}>{item.id}</Text>
-        <Text style={styles.historyMeta}>{formatDate(item.date)}</Text>
-      </View>
-      <View style={styles.historyAmount}>
-        <Text style={styles.historyTotal}>{formatCurrency(item.total, item.currency)}</Text>
-        <StatusBadge label={isPaidInvoice(item) ? 'pagado' : 'pendiente'} tone={tone} />
-      </View>
-    </View>
-  );
-}
-
-function BillingStatusRow({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  value: string;
-  tone: StatusBadgeTone;
-}) {
-  return (
-    <View style={styles.statusRow}>
-      <View style={styles.statusIcon}>
-        <MaterialCommunityIcons name={icon} size={18} color={portalPalette.info} />
-      </View>
-      <View style={styles.statusCopy}>
-        <Text style={styles.statusLabel}>{label}</Text>
-      </View>
-      <StatusBadge label={value} tone={tone} />
     </View>
   );
 }
@@ -359,9 +254,7 @@ export function PortalPaymentsScreen() {
   const {
     createPaymentMethod,
     deletePaymentMethod,
-    invoices,
     isSubmitting,
-    loadBilling,
     loadOverview,
     loadPaymentMethods,
     paymentMethods,
@@ -372,9 +265,7 @@ export function PortalPaymentsScreen() {
     useShallow((state) => ({
       createPaymentMethod: state.createPaymentMethod,
       deletePaymentMethod: state.deletePaymentMethod,
-      invoices: state.invoices,
       isSubmitting: state.isSubmitting,
-      loadBilling: state.loadBilling,
       loadOverview: state.loadOverview,
       loadPaymentMethods: state.loadPaymentMethods,
       paymentMethods: state.paymentMethods,
@@ -396,35 +287,11 @@ export function PortalPaymentsScreen() {
 
   useEffect(() => {
     void loadPaymentMethods();
-    void loadBilling();
     void loadOverview();
-  }, [loadBilling, loadOverview, loadPaymentMethods]);
+  }, [loadOverview, loadPaymentMethods]);
 
-  const defaultMethod = useMemo(
-    () => paymentMethods.find((method) => method.isDefault) || null,
-    [paymentMethods]
-  );
-  const latestInvoice = useMemo(() => getLatestInvoice(invoices), [invoices]);
-  const pendingInvoices = useMemo(
-    () => invoices.filter((invoice) => !isPaidInvoice(invoice)).length,
-    [invoices]
-  );
-  const billingLabel = getBillingLabel(subscription?.status, pendingInvoices);
-  const recentPayments = useMemo<BillingHistoryItem[]>(
-    () =>
-      invoices.length
-        ? invoices.slice(0, 4).map((invoice) => ({
-            id: invoice.referenceCode || invoice.id,
-            date: invoice.issuedAt || new Date().toISOString(),
-            total: invoice.total,
-            currency: invoice.currency,
-            status: invoice.status,
-          }))
-        : [],
-    [invoices]
-  );
-  const nextChargeAmount = subscription?.monthlyPrice || latestInvoice?.total || 0;
-  const nextChargeCurrency = subscription?.currency || latestInvoice?.currency || 'MXN';
+  const nextChargeAmount = subscription?.monthlyPrice || 0;
+  const nextChargeCurrency = subscription?.currency || 'MXN';
   const nextChargeDate = subscription?.currentPeriodEnd || null;
 
   const resetForm = () => {
@@ -449,7 +316,7 @@ export function PortalPaymentsScreen() {
     }
 
     if (normalizedCardNumber.length !== 4) {
-      nextErrors.cardNumber = 'Ingresa los ultimos 4 digitos.';
+      nextErrors.cardNumber = 'Ingresa los últimos 4 dígitos.';
     }
 
     if (!normalizedMonth || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
@@ -490,9 +357,9 @@ export function PortalPaymentsScreen() {
     setMessage(
       result.ok
         ? editingId
-          ? 'Metodo actualizado.'
+          ? 'Método actualizado.'
           : 'Tarjeta agregada.'
-        : result.message || 'No fue posible guardar el metodo.'
+        : result.message || 'No fue posible guardar el método.'
     );
     setMessageTone(result.ok ? 'success' : 'danger');
 
@@ -508,58 +375,27 @@ export function PortalPaymentsScreen() {
     setExpMonth(method.expMonth || '');
     setExpYear(method.expYear || '');
     setErrors({});
-    setMessage('Editando metodo guardado. Ingresa solo los ultimos 4 digitos.');
+    setMessage('Editando método guardado. Ingresa solo los últimos 4 dígitos.');
     setMessageTone('info');
   };
 
   const markDefault = async (method: PortalPaymentMethod) => {
     const result = await setDefaultPaymentMethod(method.id);
-    setMessage(result.ok ? 'Metodo principal actualizado.' : result.message || 'No fue posible actualizar el metodo principal.');
+    setMessage(result.ok ? 'Método principal actualizado.' : result.message || 'No fue posible actualizar el método principal.');
     setMessageTone(result.ok ? 'success' : 'danger');
   };
 
   const formSubtitle = editingId
-    ? 'Actualiza marca, terminacion y vigencia de la referencia administrativa.'
-    : 'Registra solo la terminacion de tarjeta. El cobro real se completa desde Mercado Pago.';
+    ? 'Actualiza la marca, terminación y vigencia de la referencia.'
+    : 'Registra solo la terminación. ManeComb no almacena el número completo de tu tarjeta.';
 
   return (
-    <PortalLayout title="Metodos de pago" subtitle="Centro de cobros, referencias de pago y metodo principal.">
-      <View style={styles.summaryGrid}>
-        <SummaryMetricCard
-          icon="credit-card-multiple-outline"
-          label="metodos"
-          value={String(paymentMethods.length)}
-          detail="Metodos activos"
-          tone="info"
-        />
-        <SummaryMetricCard
-          icon="star-circle-outline"
-          label={defaultMethod ? 'principal' : 'pendiente'}
-          value={defaultMethod ? getMethodName(defaultMethod) : 'Sin metodo'}
-          detail={defaultMethod ? getMethodDetail(defaultMethod) : 'Configura uno para cobros automaticos'}
-          tone={defaultMethod ? 'positive' : 'warning'}
-        />
-        <SummaryMetricCard
-          icon="receipt-text-check-outline"
-          label={latestInvoice && isPaidInvoice(latestInvoice) ? 'pagado' : 'sin registro'}
-          value={latestInvoice ? formatCurrency(latestInvoice.total, latestInvoice.currency) : formatCurrency(nextChargeAmount)}
-          detail={latestInvoice ? `Ultimo pago: ${formatDate(latestInvoice.issuedAt)}` : 'Proximo cobro del plan'}
-          tone={latestInvoice && isPaidInvoice(latestInvoice) ? 'positive' : 'neutral'}
-        />
-        <SummaryMetricCard
-          icon="shield-check-outline"
-          label={billingLabel.toLowerCase()}
-          value={billingLabel}
-          detail="Estado de facturacion"
-          tone={getBillingTone(billingLabel)}
-        />
-      </View>
-
+    <PortalLayout title="Métodos de pago" subtitle="Administra las referencias disponibles y define el método principal.">
       <View style={[styles.columns, isTwoColumn ? styles.columnsWide : styles.columnsStack]}>
         <View style={[styles.leftColumn, !isTwoColumn ? styles.fullColumn : undefined]}>
           <PortalSectionCard
-            title="Metodos guardados"
-            subtitle={`${paymentMethods.length} disponibles para cobros SaaS`}>
+            title="Métodos guardados"
+            subtitle={paymentMethods.length ? `${paymentMethods.length} ${paymentMethods.length === 1 ? 'método disponible' : 'métodos disponibles'}` : undefined}>
             {paymentMethods.length ? (
               <View style={styles.walletGrid}>
                 {paymentMethods.map((method) => (
@@ -573,22 +409,17 @@ export function PortalPaymentsScreen() {
                 ))}
               </View>
             ) : (
-              <EmptyPaymentMethods
-                onAddPress={() => {
-                  setMessage('Completa el formulario para agregar tu primer metodo.');
-                  setMessageTone('info');
-                }}
-              />
+              <EmptyPaymentMethods />
             )}
           </PortalSectionCard>
 
           <PortalSectionCard
-            title={editingId ? 'Editar referencia de pago' : 'Agregar referencia de tarjeta'}
+            title={editingId ? 'Editar referencia de pago' : 'Agregar método de pago'}
             subtitle={formSubtitle}
-            right={<StatusBadge label="referencia" tone="info" />}>
+          >
             <View style={styles.securityNote}>
               <MaterialCommunityIcons name="lock-check-outline" size={18} color={portalPalette.success} />
-              <Text style={styles.securityNoteText}>Ingresa solo los ultimos 4 digitos. ManeComb no captura ni guarda el numero completo.</Text>
+              <Text style={styles.securityNoteText}>Ingresa solo los últimos 4 dígitos. ManeComb no captura ni guarda el número completo.</Text>
             </View>
 
             {message ? (
@@ -615,7 +446,7 @@ export function PortalPaymentsScreen() {
               </View>
               <View style={styles.formWide}>
                 <PaymentInput
-                  label="Ultimos 4 digitos"
+                  label="Últimos 4 dígitos"
                   placeholder="1234"
                   value={cardNumber}
                   error={errors.cardNumber}
@@ -668,11 +499,13 @@ export function PortalPaymentsScreen() {
 
             <View style={styles.formActions}>
               {editingId ? (
-                <Pressable onPress={resetForm} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>Cancelar edicion</Text>
+                <Pressable accessibilityRole="button" onPress={resetForm} style={styles.secondaryButton}>
+                  <Text style={styles.secondaryText}>Cancelar edición</Text>
                 </Pressable>
               ) : null}
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={editingId ? 'Guardar cambios del método' : 'Agregar método de pago'}
                 onPress={() => void submit()}
                 disabled={isSubmitting}
                 style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
@@ -684,7 +517,7 @@ export function PortalPaymentsScreen() {
         </View>
 
         <View style={[styles.rightColumn, !isTwoColumn ? styles.fullColumn : undefined]}>
-          <PortalSectionCard title="Proximo cobro" subtitle="Vista previa de facturacion.">
+          <PortalSectionCard title="Próximo cobro" subtitle="Resumen del siguiente periodo.">
             <View style={styles.nextChargeCard}>
               <View style={styles.nextChargeTop}>
                 <View>
@@ -694,45 +527,7 @@ export function PortalPaymentsScreen() {
                 <StatusBadge label={formatPortalStatus(subscription?.status || 'inactive')} tone={getPortalStatusTone(subscription?.status || 'inactive')} />
               </View>
               <Text style={styles.nextAmount}>{formatCurrency(nextChargeAmount, nextChargeCurrency)}</Text>
-              <Text style={styles.nextDate}>Programado para {formatDate(nextChargeDate)}</Text>
-            </View>
-          </PortalSectionCard>
-
-          <PortalSectionCard title="Historial reciente" subtitle="Ultimos movimientos.">
-            {recentPayments.length ? (
-              <View style={styles.historyList}>
-                {recentPayments.map((item) => (
-                  <BillingHistoryRow key={item.id} item={item} />
-                ))}
-              </View>
-            ) : (
-              <View style={styles.emptyHistory}>
-                <MaterialCommunityIcons name="receipt-text-outline" size={24} color={portalPalette.muted} />
-                <Text style={styles.emptyHistoryText}>Sin movimientos reales todavia.</Text>
-              </View>
-            )}
-          </PortalSectionCard>
-
-          <PortalSectionCard title="Estado de facturacion" subtitle="Checklist operativo.">
-            <View style={styles.statusList}>
-              <BillingStatusRow
-                icon="clipboard-check-outline"
-                label="Suscripcion"
-                value={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'inactive').toLowerCase()) ? 'activa' : 'revisar'}
-                tone={['active', 'trial', 'trial_active'].includes(String(subscription?.status || 'inactive').toLowerCase()) ? 'positive' : 'warning'}
-              />
-              <BillingStatusRow
-                icon="file-document-check-outline"
-                label="Facturacion"
-                value={billingLabel.toLowerCase()}
-                tone={getBillingTone(billingLabel)}
-              />
-              <BillingStatusRow
-                icon="credit-card-check-outline"
-                label="Metodo principal"
-                value={defaultMethod ? 'configurado' : 'pendiente'}
-                tone={defaultMethod ? 'positive' : 'warning'}
-              />
+              <Text style={styles.nextDate}>{nextChargeDate ? `Programado para ${formatDate(nextChargeDate)}` : 'Fecha pendiente de confirmación'}</Text>
             </View>
           </PortalSectionCard>
         </View>
@@ -740,9 +535,9 @@ export function PortalPaymentsScreen() {
 
       <ConfirmModal
         visible={Boolean(deleteTarget)}
-        danger
+        destructive
         title="Eliminar tarjeta"
-        description={`Se eliminara ${deleteTarget?.brand || 'esta tarjeta'} como metodo de pago.`}
+        description={`Se eliminará ${deleteTarget?.brand || 'esta tarjeta'} como método de pago.`}
         confirmLabel="Eliminar"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
@@ -750,7 +545,7 @@ export function PortalPaymentsScreen() {
           setDeleteTarget(null);
           if (target) {
             void deletePaymentMethod(target.id).then((result) => {
-              setMessage(result.ok ? 'Metodo eliminado.' : result.message || 'No fue posible eliminar el metodo.');
+              setMessage(result.ok ? 'Método eliminado.' : result.message || 'No fue posible eliminar el método.');
               setMessageTone(result.ok ? 'success' : 'danger');
             });
           }
@@ -761,56 +556,6 @@ export function PortalPaymentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
-    minWidth: 0,
-  },
-  metricCard: {
-    backgroundColor: portalPalette.surfaceStrong,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 210,
-    gap: 10,
-    minHeight: 132,
-    minWidth: 0,
-    overflow: 'hidden',
-    padding: AppTheme.spacing.md,
-  },
-  metricTop: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'space-between',
-    minWidth: 0,
-  },
-  metricIcon: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.infoSoft,
-    borderRadius: AppTheme.radius.xs,
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  metricValue: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 23,
-    fontWeight: '900',
-    lineHeight: 29,
-    minWidth: 0,
-  },
-  metricDetail: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 18,
-    minWidth: 0,
-  },
   columns: {
     gap: AppTheme.spacing.md,
     minWidth: 0,
@@ -997,21 +742,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
-  },
-  emptyButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  emptyButtonText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
   },
   securityNote: {
     alignItems: 'center',
@@ -1270,98 +1000,5 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     lineHeight: 18,
-  },
-  historyList: {
-    gap: 10,
-  },
-  emptyHistory: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.045)',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 104,
-    padding: AppTheme.spacing.md,
-  },
-  emptyHistoryText: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 19,
-    textAlign: 'center',
-  },
-  historyRow: {
-    alignItems: 'flex-start',
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'space-between',
-    minWidth: 0,
-    padding: 12,
-  },
-  historyCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  historyId: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  historyMeta: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  historyAmount: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  historyTotal: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  statusList: {
-    gap: 10,
-  },
-  statusRow: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    padding: 12,
-  },
-  statusIcon: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.infoSoft,
-    borderRadius: 10,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
-  statusCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  statusLabel: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
   },
 });

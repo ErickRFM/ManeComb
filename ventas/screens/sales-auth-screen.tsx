@@ -160,7 +160,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
       const result = await signIn(identity.email, loginPassword, rememberSession);
 
       if (!result.ok) {
-        setHelperMessage(result.message || 'No pudimos iniciar sesion.');
+        setHelperMessage(result.message || 'No pudimos iniciar sesión.');
       }
 
       return;
@@ -236,7 +236,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
               </View>
 
               <View style={styles.headingBlock}>
-                <Text style={styles.title}>{isRegister ? 'Crear cuenta' : 'Iniciar sesion'}</Text>
+                <Text style={styles.title}>{isRegister ? 'Crear cuenta' : 'Iniciar sesión'}</Text>
                 <Text style={styles.subtitle}>
                   {isRegister ? 'Activa tu portal de flotilla.' : 'Entra a ventas y administracion.'}
                 </Text>
@@ -244,7 +244,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
 
               <View style={styles.segmentedControl}>
                 <SegmentButton
-                  label="Iniciar sesion"
+                  label="Iniciar sesión"
                   active={!isRegister}
                   onPress={() => goToMode('login')}
                 />
@@ -378,6 +378,9 @@ function SegmentButton({
 }) {
   return (
     <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.segmentButton,

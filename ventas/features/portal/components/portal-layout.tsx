@@ -43,27 +43,26 @@ type PortalNavItem = {
 
 const navSections: { title: string; items: PortalNavItem[] }[] = [
   {
-    title: 'Portal comercial',
+    title: 'Cuenta',
     items: [
       { label: 'Inicio', href: '/portal', icon: 'view-dashboard-outline' },
-      { label: 'Suscripcion', href: '/portal/plan', icon: 'clipboard-list-outline' },
-      { label: 'Facturacion', href: '/portal/facturacion', icon: 'file-document-outline' },
-      { label: 'Metodos de pago', href: '/portal/pagos', icon: 'credit-card-outline' },
+      { label: 'Mi plan', href: '/portal/plan', icon: 'clipboard-list-outline' },
+      { label: 'Facturación', href: '/portal/facturacion', icon: 'file-document-outline' },
+      { label: 'Métodos de pago', href: '/portal/pagos', icon: 'credit-card-outline' },
     ],
   },
   {
-    title: 'Administracion',
+    title: 'Administración',
     items: [
-      { label: 'Seguridad', href: '/portal/perfil', icon: 'shield-lock-outline', section: 'seguridad' },
-      { label: 'Equipo administrativo', href: '/portal/usuarios', icon: 'account-key-outline', section: 'administracion' },
       { label: 'Empresa', href: '/portal/perfil', icon: 'domain', section: 'empresa' },
-      { label: 'Integraciones', href: '/portal/perfil', icon: 'connection', section: 'integraciones' },
+      { label: 'Equipo', href: '/portal/usuarios', icon: 'account-key-outline', section: 'administracion' },
+      { label: 'Seguridad', href: '/portal/perfil', icon: 'shield-lock-outline', section: 'seguridad' },
     ],
   },
   {
-    title: 'Activacion y ayuda',
+    title: 'Ayuda',
     items: [
-      { label: 'Activacion', href: '/portal/onboarding', icon: 'flag-checkered' },
+      { label: 'Activación', href: '/portal/onboarding', icon: 'flag-checkered' },
       { label: 'Soporte', href: '/portal/perfil', icon: 'lifebuoy', section: 'soporte' },
     ],
   },
@@ -153,6 +152,9 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
       <Pressable
         key={`${item.href}-${item.label}-${item.section || 'root'}`}
         onPress={() => goToItem(item)}
+        accessibilityRole="button"
+        accessibilityLabel={`Abrir ${item.label}`}
+        accessibilityState={{ selected: active }}
         style={[itemStyle, active ? activeStyle : undefined]}>
         <MaterialCommunityIcons
           name={item.icon}
@@ -178,6 +180,9 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
       {!isWide ? (
         <View style={styles.mobileTop}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
+            accessibilityState={{ expanded: mobileMenuOpen }}
             onPress={() => setMobileMenuOpen((current) => !current)}
             style={styles.iconButton}>
             <MaterialCommunityIcons
@@ -186,10 +191,12 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
               color={portalPalette.text}
             />
           </Pressable>
-          <Pressable onPress={() => router.push('/ventas')} style={styles.logoButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Volver a ventas" onPress={() => router.push('/ventas')} style={styles.logoButton}>
             <BrandLogo tone="light" size="sm" plain />
           </Pressable>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar sesión"
             onPress={() => void signOut()}
             style={styles.iconButton}>
             <MaterialCommunityIcons name="logout" size={20} color={portalPalette.danger} />
@@ -206,6 +213,8 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
             </View>
           ))}
           {showOperationalPanel ? <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ir al panel operativo"
             onPress={() => goToItem(operationalPanelItem)}
             style={[styles.mobileNavItem, styles.mobileOperationalItem]}>
             <MaterialCommunityIcons name={operationalPanelItem.icon} size={18} color={portalPalette.info} />
@@ -218,6 +227,11 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
 
       <View style={styles.header}>
         <View style={styles.headerText}>
+          <View accessibilityRole="text" style={styles.breadcrumb}>
+            <Text style={styles.breadcrumbMuted}>Portal</Text>
+            <MaterialCommunityIcons name="chevron-right" size={14} color={portalPalette.mutedSoft} />
+            <Text style={styles.breadcrumbCurrent}>{title}</Text>
+          </View>
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
@@ -239,18 +253,13 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
       <View style={[styles.shell, isWeb ? styles.shellWeb : undefined, isWide ? styles.shellWide : styles.shellStack]}>
         {isWide ? (
           <View style={[styles.sidebar, isWeb ? styles.sidebarWeb : undefined, portalGlass()]}>
-            <Pressable onPress={() => router.push('/ventas')} style={styles.logoButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Volver a ventas" onPress={() => router.push('/ventas')} style={styles.logoButton}>
               <BrandLogo tone="light" size="md" plain />
             </Pressable>
             <ScrollView
               style={styles.sidebarScroll}
               contentContainerStyle={styles.sidebarScrollContent}
               showsVerticalScrollIndicator={false}>
-              <View style={styles.contextBlock}>
-                <Text style={styles.contextKicker}>Cuenta SaaS</Text>
-                <Text style={styles.contextTitle}>Portal comercial</Text>
-                <Text style={styles.contextBody}>Plan, pagos, facturacion y administracion de empresa.</Text>
-              </View>
               <View style={styles.navList}>
                 {navSections.map((section) => (
                   <View key={section.title} style={styles.navSection}>
@@ -267,17 +276,19 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
                   <Text style={styles.operationsTitle}>Panel operativo</Text>
                   <Text style={styles.operationsBody}>Mapa, flotilla, rutas, radio e incidencias.</Text>
                 </View>
-                <Pressable onPress={() => goToItem(operationalPanelItem)} style={styles.operationsButton}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Abrir panel operativo" onPress={() => goToItem(operationalPanelItem)} style={styles.operationsButton}>
                   <Text style={styles.operationsButtonText}>Abrir</Text>
                   <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
                 </Pressable>
               </View> : null}
             </ScrollView>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar sesión"
               onPress={() => void signOut()}
               style={styles.logoutButton}>
               <MaterialCommunityIcons name="logout" size={20} color={portalPalette.danger} />
-              <Text style={styles.logoutText}>Cerrar sesion</Text>
+              <Text style={styles.logoutText}>Cerrar sesión</Text>
             </Pressable>
           </View>
         ) : null}
@@ -621,6 +632,25 @@ const styles = StyleSheet.create({
     flex: 1,
     flexBasis: 260,
     minWidth: 0,
+  },
+  breadcrumb: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 5,
+  },
+  breadcrumbMuted: {
+    color: portalPalette.mutedSoft,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  breadcrumbCurrent: {
+    color: portalPalette.accent,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
   },
   title: {
     color: portalPalette.text,

@@ -1,154 +1,563 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useShallow } from 'zustand/react/shallow';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
-import { getCommercialPlansRequest } from '@/src/api/client';
-import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
-import { StatusBadge } from '@/src/components/ui/status-badge';
+import { SkeletonBlock } from '@/src/components/ui/skeleton';
+import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
+import { formatCurrency, formatDate } from '@/src/utils/format';
+import { router } from '@/src/navigation/router';
+import type { PortalSubscription } from '@/src/types/app';
 import {
-  PlanStatusCard,
-  PortalSectionCard,
-  UsageUnitsCard,
-  formatPortalStatus,
-  getPortalStatusTone,
-} from '../components/portal-cards';
+  CommercialActivityList,
+  useCommercialExperience,
+  type CommercialChangeSummary,
+  type CommercialPlanView,
+  type CommercialStatePresentation,
+} from '@/features/commercial';
+import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
-import { usePortalStore } from '../store/use-portal-store';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
-import type { CommercialPlan } from '@/src/types/app';
+import { portalButtonGradient, portalGlass, portalPalette } from '../portal-theme';
 
-export function PortalPlanScreen() {
-  const { theme } = useAppTheme();
-  const { cancelPlan, changePlan, isSubmitting, loadOverview, subscription } = usePortalStore(
-    useShallow((state) => ({
-      cancelPlan: state.cancelPlan,
-      changePlan: state.changePlan,
-      isSubmitting: state.isSubmitting,
-      loadOverview: state.loadOverview,
-      subscription: state.subscription,
-    }))
-  );
-  const [plans, setPlans] = useState<CommercialPlan[]>([]);
-  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+function CurrentPlanOverview({
+  currentPlan,
+  state,
+  subscription,
+}: {
+  currentPlan: CommercialPlanView | null;
+  state: CommercialStatePresentation;
+  subscription: PortalSubscription | null;
+}) {
+  if (!subscription) {
+    return (
+      <EmptyState
+        icon="clipboard-list-outline"
+        title="Aún no tienes un plan activo"
+        description="Explora las opciones disponibles y compara la que mejor se adapte a tu operación."
+      />
+    );
+  }
 
-  useEffect(() => {
-    void loadOverview();
-    void getCommercialPlansRequest().then(setPlans).catch(() => setPlans([]));
-  }, [loadOverview]);
-
-  const selectedPlan = useMemo(
-    () => plans.find((plan) => plan.id === pendingPlanId) || null,
-    [pendingPlanId, plans]
-  );
+  const totalUnits = Number(subscription.totalUnits || currentPlan?.units || 0);
+  const activeUnits = Number(subscription.activeUnits || 0);
+  const usagePercent = totalUnits ? Math.min(100, Math.round((activeUnits / totalUnits) * 100)) : 0;
+  const monthlyPrice = subscription.monthlyPrice ?? currentPlan?.price ?? 0;
+  const description = currentPlan?.description || 'Cobertura comercial para administrar tu operación desde ManeComb.';
 
   return (
-    <PortalLayout title="Gestion de plan" subtitle="Cambia, cancela y revisa la capacidad contratada.">
-      <View style={styles.grid}>
-        <PlanStatusCard subscription={subscription} />
-        <UsageUnitsCard subscription={subscription} />
+    <View style={[styles.currentPlanCard, portalGlass()]}>
+      <View style={styles.currentPlanHeader}>
+        <View style={styles.currentPlanIdentity}>
+          <Text style={styles.eyebrow}>Plan actual</Text>
+          <Text style={styles.currentPlanName}>{currentPlan?.displayName || subscription.planName || 'Plan ManeComb'}</Text>
+          <Text style={styles.currentPlanDescription}>{description}</Text>
+        </View>
+        <StatusBadge
+          label={state.label}
+          tone={state.tone}
+        />
       </View>
 
-      <PortalSectionCard
-        title="Cambiar plan"
-        subtitle="El cambio actualiza unidades disponibles y el resumen comercial.">
-        {plans.length ? (
-          <View style={styles.planGrid}>
-            {plans.map((plan) => {
-              const active = plan.id === subscription?.planId;
+      <View style={styles.currentMetrics}>
+        <PlanFact label="Precio mensual" value={formatCurrency(monthlyPrice, subscription.currency || 'MXN')} />
+        <PlanFact label="Unidades incluidas" value={String(totalUnits)} />
+        <PlanFact label="Unidades utilizadas" value={`${activeUnits} de ${totalUnits}`} />
+        <PlanFact
+          label="Próxima renovación"
+          value={formatDate(subscription.currentPeriodEnd, { fallback: 'Por confirmar' })}
+        />
+      </View>
 
-              return (
-                <Pressable
-                  key={plan.id}
-                  disabled={active || isSubmitting}
-                  onPress={() => setPendingPlanId(plan.id)}
-                  style={[
-                    styles.planCard,
-                    {
-                      backgroundColor: active ? theme.colors.accentSoft : theme.colors.surface,
-                      borderColor: active ? theme.colors.accent : theme.colors.line,
-                    },
-                    isSubmitting && !active ? styles.disabledButton : undefined,
-                  ]}>
-                  <View style={styles.planHeader}>
-                    <Text style={[styles.planName, { color: theme.colors.text }]}>{plan.name}</Text>
-                    <StatusBadge label={active ? 'actual' : plan.badge} tone={active ? 'positive' : 'info'} />
-                  </View>
-                  <Text style={[styles.planPrice, { color: theme.colors.text }]}>${plan.price} MXN</Text>
-                  <Text style={[styles.planDetail, { color: theme.colors.muted }]}>
-                    {plan.units} combis / ${plan.pricePerVehicle} por unidad
-                  </Text>
-                </Pressable>
-              );
-            })}
+      <View style={styles.usageBlock}>
+        <View style={styles.usageHeader}>
+          <Text style={styles.usageLabel}>Uso del plan</Text>
+          <Text style={styles.usageValue}>{usagePercent}%</Text>
+        </View>
+        <View style={styles.usageTrack}>
+          <View style={[styles.usageFill, { width: `${usagePercent}%` }]} />
+        </View>
+        <Text style={styles.usageHint}>{state.message}</Text>
+      </View>
+    </View>
+  );
+}
+
+function PlanFact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.planFact}>
+      <Text style={styles.planFactLabel}>{label}</Text>
+      <Text style={styles.planFactValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function CommercialPlanCard({
+  active,
+  plan,
+  selected,
+  onSelect,
+}: {
+  active: boolean;
+  plan: CommercialPlanView;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const indicator = active ? 'Plan actual' : plan.indicator;
+  const indicatorTone: StatusBadgeTone = active ? 'positive' : plan.id === 'value-4' ? 'info' : 'neutral';
+
+  return (
+    <View style={[styles.planCard, selected ? styles.planCardSelected : undefined, active ? styles.planCardActive : undefined]}>
+      <View style={styles.planCardHeader}>
+        <View style={styles.planCardTitleWrap}>
+          <Text style={styles.planName}>{plan.displayName}</Text>
+          <Text style={styles.planDescription}>{plan.description}</Text>
+        </View>
+        <StatusBadge label={indicator} tone={indicatorTone} />
+      </View>
+
+      <View style={styles.priceRow}>
+        <Text style={styles.planPrice}>{formatCurrency(plan.price)}</Text>
+        <Text style={styles.pricePeriod}>al mes</Text>
+      </View>
+      <Text style={styles.unitPrice}>
+        {plan.units} unidades incluidas · aprox. {formatCurrency(plan.pricePerVehicle)} por unidad
+      </Text>
+
+      <View style={styles.benefitList}>
+        {plan.benefits.map((benefit) => (
+          <View key={benefit} style={styles.benefitRow}>
+            <MaterialCommunityIcons name="check-circle-outline" size={17} color={portalPalette.success} />
+            <Text style={styles.benefitText}>{benefit}</Text>
           </View>
+        ))}
+      </View>
+
+      {active ? (
+        <View style={styles.currentPlanAction}>
+          <MaterialCommunityIcons name="check" size={17} color={portalPalette.success} />
+          <Text style={styles.currentPlanActionText}>Este es tu plan actual</Text>
+        </View>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Comparar plan ${plan.displayName}`}
+          accessibilityState={{ selected }}
+          onPress={onSelect}
+          style={[styles.compareButton, selected ? portalButtonGradient() : undefined]}>
+          <Text style={[styles.compareButtonText, selected ? styles.compareButtonTextSelected : undefined]}>
+            {selected ? 'Seleccionado' : 'Comparar'}
+          </Text>
+          <MaterialCommunityIcons
+            name={selected ? 'check' : 'arrow-right'}
+            size={17}
+            color={selected ? '#FFFFFF' : portalPalette.text}
+          />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function ChangePreview({
+  action,
+  compact,
+  comparison,
+  ready,
+  onClose,
+  onPrimary,
+}: {
+  action: {
+    kind: 'continue' | 'navigate' | 'select' | 'disabled';
+    label: string;
+    href: '/portal/pagos' | '/portal/perfil?section=soporte' | null;
+  };
+  compact: boolean;
+  comparison: CommercialChangeSummary;
+  ready: boolean;
+  onClose: () => void;
+  onPrimary: () => void;
+}) {
+  const { currentPlan, targetPlan, unitsDelta, priceDelta, validation } = comparison;
+  const actionDisabled = action.kind === 'disabled' || ready;
+
+  return (
+    <PortalSectionCard
+      title="Vista previa del cambio"
+      subtitle="Compara lo que tienes hoy con la opción seleccionada. Nada se modificará todavía."
+      right={
+        <StatusBadge
+          label={validation.allowed ? 'Cambio disponible' : 'Revisión necesaria'}
+          tone={validation.allowed ? 'positive' : 'warning'}
+        />
+      }>
+      <View style={[styles.comparisonFlow, compact ? styles.comparisonFlowCompact : undefined]}>
+        <ComparisonPlan
+          compact={compact}
+          label="Plan actual"
+          name={currentPlan.name}
+          price={currentPlan.monthlyPrice}
+          units={currentPlan.units}
+        />
+        <View style={styles.comparisonArrow}>
+          <MaterialCommunityIcons name={compact ? 'arrow-down' : 'arrow-right'} size={22} color={portalPalette.accent} />
+        </View>
+        <ComparisonPlan
+          compact={compact}
+          featured
+          label="Nuevo plan"
+          name={targetPlan.name}
+          price={targetPlan.monthlyPrice}
+          units={targetPlan.units}
+        />
+      </View>
+
+      <View style={styles.changeGrid}>
+        <ChangeFact
+          icon="bus-multiple"
+          label="Capacidad"
+          value={unitsDelta === 0 ? 'Misma capacidad' : unitsDelta > 0 ? `+${unitsDelta} unidades` : `${Math.abs(unitsDelta)} unidades menos`}
+        />
+        <ChangeFact
+          icon="cash-sync"
+          label="Mensualidad"
+          value={priceDelta === 0 ? 'Sin diferencia' : `${priceDelta > 0 ? '+' : '-'}${formatCurrency(Math.abs(priceDelta))}`}
+        />
+        <ChangeFact
+          icon="calendar-refresh-outline"
+          label="Estado esperado"
+          value={comparison.expectedStateLabel}
+        />
+      </View>
+
+      <View style={styles.newBenefits}>
+        <Text style={styles.newBenefitsTitle}>Lo que obtienes con {targetPlan.name}</Text>
+        {comparison.benefits.map((benefit) => (
+          <View key={benefit} style={styles.benefitRow}>
+            <MaterialCommunityIcons name="check" size={17} color={portalPalette.success} />
+            <Text style={styles.benefitText}>{benefit}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.ruleNotice, validation.allowed ? styles.ruleNoticeAllowed : styles.ruleNoticeBlocked]}>
+        <MaterialCommunityIcons
+          name={validation.allowed ? 'check-decagram-outline' : 'alert-circle-outline'}
+          size={20}
+          color={validation.allowed ? portalPalette.success : portalPalette.warning}
+        />
+        <View style={styles.ruleNoticeCopy}>
+          <Text style={styles.ruleNoticeTitle}>{validation.reason}</Text>
+          <Text style={styles.ruleNoticeText}>{validation.outcome}</Text>
+          {validation.restrictions.map((restriction) => (
+            <Text key={restriction} style={styles.restrictionText}>• {restriction}</Text>
+          ))}
+          <Text style={styles.nextStepText}>Siguiente paso: {comparison.nextStep}</Text>
+        </View>
+      </View>
+
+      {ready ? (
+        <View style={styles.comingSoonNotice}>
+          <MaterialCommunityIcons name="clock-outline" size={20} color={portalPalette.info} />
+          <View style={styles.comingSoonCopy}>
+            <Text style={styles.comingSoonTitle}>Confirmación disponible próximamente</Text>
+            <Text style={styles.comingSoonText}>
+              En el siguiente paso podrás revisar el importe final y confirmar el cambio. Tu plan actual permanece igual.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={[styles.previewActions, compact ? styles.previewActionsCompact : undefined]}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onClose}
+          style={[styles.secondaryButton, compact ? styles.fullWidthButton : undefined]}>
+          <Text style={styles.secondaryButtonText}>Elegir otro plan</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={ready ? 'Confirmación disponible próximamente' : action.label}
+          accessibilityState={{ disabled: actionDisabled }}
+          disabled={actionDisabled}
+          onPress={onPrimary}
+          style={[
+            styles.continueButton,
+            portalButtonGradient(),
+            compact ? styles.fullWidthButton : undefined,
+            actionDisabled ? styles.disabledButton : undefined,
+          ]}>
+          <Text style={styles.continueButtonText}>{ready ? 'Próximamente' : action.label}</Text>
+          <MaterialCommunityIcons
+            name={ready || action.kind === 'disabled' ? 'clock-outline' : 'arrow-right'}
+            size={18}
+            color="#FFFFFF"
+          />
+        </Pressable>
+      </View>
+    </PortalSectionCard>
+  );
+}
+
+function ComparisonPlan({
+  featured = false,
+  compact,
+  label,
+  name,
+  price,
+  units,
+}: {
+  featured?: boolean;
+  compact: boolean;
+  label: string;
+  name: string;
+  price: number;
+  units: number;
+}) {
+  return (
+    <View style={[
+      styles.comparisonPlan,
+      compact ? styles.comparisonPlanCompact : undefined,
+      featured ? styles.comparisonPlanFeatured : undefined,
+    ]}>
+      <Text style={styles.comparisonLabel}>{label}</Text>
+      <Text style={styles.comparisonName}>{name}</Text>
+      <Text style={styles.comparisonMeta}>{units} unidades · {formatCurrency(price)} al mes</Text>
+    </View>
+  );
+}
+
+function ChangeFact({ icon, label, value }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string; value: string }) {
+  return (
+    <View style={styles.changeFact}>
+      <View style={styles.changeFactIcon}>
+        <MaterialCommunityIcons name={icon} size={19} color={portalPalette.info} />
+      </View>
+      <View style={styles.changeFactCopy}>
+        <Text style={styles.changeFactLabel}>{label}</Text>
+        <Text style={styles.changeFactValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+export function PortalPlanScreen() {
+  const { width } = useWindowDimensions();
+  const compact = width < 720;
+  const {
+    clearSelection,
+    comparison,
+    comparisonAction,
+    continuePreview,
+    isLoading,
+    readyForNextStep,
+    selectPlan,
+    selectedPlanId,
+    workspace,
+  } = useCommercialExperience();
+  const plans = workspace?.plans || [];
+  const subscription = workspace?.subscription || null;
+  const currentPlan = workspace?.currentPlan || null;
+  const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
+
+  const runPrimaryAction = () => {
+    if (!comparisonAction) return;
+    if (comparisonAction.kind === 'continue') {
+      void continuePreview();
+      return;
+    }
+    if (comparisonAction.kind === 'navigate' && comparisonAction.href) {
+      router.push(comparisonAction.href as never);
+      return;
+    }
+    if (comparisonAction.kind === 'select') clearSelection();
+  };
+
+  return (
+    <PortalLayout title="Mi plan" subtitle="Conoce tu cobertura actual y compara opciones antes de tomar una decisión.">
+      <PortalSectionCard title="Tu suscripción" subtitle="La información esencial de tu plan, sin cargos ni cambios ocultos.">
+        {workspace ? (
+          <CurrentPlanOverview currentPlan={currentPlan} state={workspace.state} subscription={subscription} />
         ) : (
-          <EmptyState icon="clipboard-list-outline" title="Planes no disponibles" />
+          <View style={styles.currentPlanCard}>
+            <SkeletonBlock height={22} width="35%" />
+            <SkeletonBlock height={38} width="55%" />
+            <SkeletonBlock height={80} />
+          </View>
         )}
       </PortalSectionCard>
 
-      <PortalSectionCard
-        title="Estado de suscripcion"
-        right={<StatusBadge label={formatPortalStatus(subscription?.status || 'inactive')} tone={getPortalStatusTone(subscription?.status)} />}>
-        <View style={styles.dangerRow}>
-          <View style={styles.dangerCopy}>
-            <Text style={[styles.dangerTitle, { color: theme.colors.text }]}>Cancelar plan</Text>
-            <Text style={[styles.dangerText, { color: theme.colors.muted }]}>
-              Requiere confirmacion y queda registrado en auditoria.
-            </Text>
+      <PortalSectionCard title="Compara planes" subtitle="Elige una opción para ver exactamente qué cambiaría.">
+        {isLoading ? (
+          <View style={styles.planGrid}>
+            {[0, 1, 2].map((item) => (
+              <View key={item} style={styles.planSkeleton}>
+                <SkeletonBlock height={24} width="55%" />
+                <SkeletonBlock height={42} width="70%" />
+                <SkeletonBlock height={16} />
+                <SkeletonBlock height={16} width="85%" />
+              </View>
+            ))}
           </View>
-          <Pressable
-            onPress={() => setConfirmCancel(true)}
-            disabled={isSubmitting || !subscription?.id}
-            style={[
-              styles.cancelButton,
-              { backgroundColor: theme.colors.dangerSoft },
-              isSubmitting || !subscription?.id ? styles.disabledButton : undefined,
-            ]}>
-            <MaterialCommunityIcons name="close-circle-outline" size={18} color={theme.colors.danger} />
-            <Text style={[styles.cancelText, { color: theme.colors.danger }]}>Cancelar</Text>
-          </Pressable>
-        </View>
+        ) : plans.length ? (
+          <View style={styles.planGrid}>
+            {plans.map((plan) => (
+              <CommercialPlanCard
+                key={plan.id}
+                active={plan.id === currentPlan?.id}
+                plan={plan}
+                selected={plan.id === selectedPlanId}
+                onSelect={() => void selectPlan(plan.id)}
+              />
+            ))}
+          </View>
+        ) : (
+          <EmptyState
+            icon="clipboard-list-outline"
+            title="No hay planes disponibles por ahora"
+            description="Vuelve a intentarlo más tarde. Tu suscripción actual no sufrirá cambios."
+          />
+        )}
       </PortalSectionCard>
 
-      <ConfirmModal
-        visible={Boolean(selectedPlan)}
-        title="Cambiar plan"
-        description={`Se cambiara la suscripcion a ${selectedPlan?.name || 'este plan'}.`}
-        confirmLabel="Cambiar"
-        onCancel={() => setPendingPlanId(null)}
-        onConfirm={() => {
-          const planId = pendingPlanId;
-          setPendingPlanId(null);
-          if (planId) {
-            void changePlan(planId);
-          }
-        }}
-      />
-      <ConfirmModal
-        visible={confirmCancel}
-        danger
-        title="Cancelar plan"
-        description="La suscripcion quedara cancelada y se notificara al dashboard en tiempo real."
-        confirmLabel="Cancelar plan"
-        onCancel={() => setConfirmCancel(false)}
-        onConfirm={() => {
-          setConfirmCancel(false);
-          void cancelPlan('Cancelado desde portal web');
-        }}
-      />
+      {selectedPlan && comparison && comparisonAction ? (
+        <ChangePreview
+          action={comparisonAction}
+          compact={compact}
+          comparison={comparison}
+          ready={readyForNextStep}
+          onClose={clearSelection}
+          onPrimary={runPrimaryAction}
+        />
+      ) : (
+        <View style={styles.comparisonEmpty}>
+          <View style={styles.comparisonEmptyIcon}>
+            <MaterialCommunityIcons name="compare-horizontal" size={24} color={portalPalette.info} />
+          </View>
+          <View style={styles.comparisonEmptyCopy}>
+            <Text style={styles.comparisonEmptyTitle}>Selecciona un plan para compararlo</Text>
+            <Text style={styles.comparisonEmptyText}>
+              Verás capacidad, mensualidad y beneficios antes de continuar. No aplicaremos ningún cambio.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      <PortalSectionCard
+        title="Historial comercial"
+        subtitle="Eventos preparados para conectarse al historial real de la cuenta.">
+        <CommercialActivityList activities={workspace?.activities || []} />
+      </PortalSectionCard>
     </PortalLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  grid: {
+  currentPlanCard: {
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    gap: AppTheme.spacing.md,
+    padding: AppTheme.spacing.lg,
+  },
+  currentPlanHeader: {
+    alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  currentPlanIdentity: {
+    flex: 1,
+    flexBasis: 280,
+    gap: 4,
     minWidth: 0,
+  },
+  eyebrow: {
+    color: portalPalette.accent,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  currentPlanName: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 28,
+    fontWeight: '900',
+    lineHeight: 34,
+  },
+  currentPlanDescription: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    lineHeight: 20,
+    maxWidth: 620,
+  },
+  currentMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  planFact: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 170,
+    gap: 4,
+    minHeight: 82,
+    minWidth: 0,
+    padding: 12,
+  },
+  planFactLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  planFactValue: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 23,
+  },
+  usageBlock: {
+    gap: 8,
+  },
+  usageHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  usageLabel: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  usageValue: {
+    color: portalPalette.accent,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  usageTrack: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderRadius: AppTheme.radius.pill,
+    height: 10,
+    overflow: 'hidden',
+  },
+  usageFill: {
+    backgroundColor: portalPalette.accent,
+    borderRadius: AppTheme.radius.pill,
+    height: 10,
+  },
+  usageHint: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
   },
   planGrid: {
     flexDirection: 'row',
@@ -157,80 +566,407 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   planCard: {
-    borderRadius: AppTheme.radius.sm,
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
     flex: 1,
-    flexBasis: 240,
-    gap: 8,
-    minHeight: 136,
-    minWidth: 0,
+    flexBasis: 260,
+    gap: 12,
+    minWidth: 240,
     padding: AppTheme.spacing.md,
   },
-  planHeader: {
+  planCardSelected: {
+    backgroundColor: portalPalette.accentSoft,
+    borderColor: portalPalette.accent,
+  },
+  planCardActive: {
+    borderColor: 'rgba(82, 242, 167, 0.45)',
+  },
+  planCardHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     justifyContent: 'space-between',
+  },
+  planCardTitleWrap: {
+    flex: 1,
+    flexBasis: 150,
+    gap: 3,
     minWidth: 0,
   },
   planName: {
-    flex: 1,
-    flexShrink: 1,
-    fontFamily: Typography.body,
-    fontSize: 15,
-    fontWeight: '900',
-    minWidth: 0,
-  },
-  planPrice: {
+    color: portalPalette.text,
     fontFamily: Typography.display,
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: '900',
-    minWidth: 0,
   },
-  planDetail: {
+  planDescription: {
+    color: portalPalette.muted,
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 19,
-    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 18,
   },
-  dangerRow: {
-    alignItems: 'flex-start',
+  priceRow: {
+    alignItems: 'baseline',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
-    justifyContent: 'space-between',
+    gap: 6,
   },
-  dangerCopy: {
-    flex: 1,
-    flexBasis: 260,
-    minWidth: 0,
-  },
-  dangerTitle: {
-    fontFamily: Typography.body,
-    fontSize: 15,
+  planPrice: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 30,
     fontWeight: '900',
+    lineHeight: 36,
   },
-  dangerText: {
+  pricePeriod: {
+    color: portalPalette.muted,
     fontFamily: Typography.body,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
   },
-  cancelButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
-    flexShrink: 0,
+  unitPrice: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  benefitList: {
+    flex: 1,
+    gap: 7,
+  },
+  benefitRow: {
+    alignItems: 'flex-start',
     flexDirection: 'row',
     gap: 8,
-    minHeight: 42,
+  },
+  benefitText: {
+    color: portalPalette.text,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+    minWidth: 0,
+  },
+  compareButton: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
     paddingHorizontal: 14,
   },
-  cancelText: {
+  compareButtonText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  compareButtonTextSelected: {
+    color: '#FFFFFF',
+  },
+  currentPlanAction: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.successSoft,
+    borderRadius: AppTheme.radius.sm,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  currentPlanActionText: {
+    color: portalPalette.success,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  planSkeleton: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 260,
+    gap: 13,
+    minHeight: 230,
+    minWidth: 240,
+    padding: AppTheme.spacing.md,
+  },
+  comparisonFlow: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  comparisonFlowCompact: {
+    flexDirection: 'column',
+  },
+  comparisonPlan: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 250,
+    gap: 5,
+    minWidth: 0,
+    padding: AppTheme.spacing.md,
+  },
+  comparisonPlanFeatured: {
+    backgroundColor: portalPalette.accentSoft,
+    borderColor: portalPalette.accent,
+  },
+  comparisonPlanCompact: {
+    flexBasis: 'auto',
+    width: '100%',
+  },
+  comparisonArrow: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: portalPalette.accentSoft,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  comparisonLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  comparisonName: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  comparisonMeta: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  changeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  changeFact: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 210,
+    flexDirection: 'row',
+    gap: 10,
+    minWidth: 0,
+    padding: 12,
+  },
+  changeFactIcon: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.infoSoft,
+    borderRadius: 10,
+    flexShrink: 0,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  changeFactCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  changeFactLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+  },
+  changeFactValue: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  newBenefits: {
+    backgroundColor: portalPalette.successSoft,
+    borderColor: 'rgba(82, 242, 167, 0.22)',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    gap: 8,
+    padding: AppTheme.spacing.md,
+  },
+  newBenefitsTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  ruleNotice: {
+    alignItems: 'flex-start',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: AppTheme.spacing.md,
+  },
+  ruleNoticeAllowed: {
+    backgroundColor: portalPalette.successSoft,
+    borderColor: 'rgba(82, 242, 167, 0.24)',
+  },
+  ruleNoticeBlocked: {
+    backgroundColor: portalPalette.warningSoft,
+    borderColor: 'rgba(255, 209, 102, 0.28)',
+  },
+  ruleNoticeCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  ruleNoticeTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  ruleNoticeText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  restrictionText: {
+    color: portalPalette.warning,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  nextStepText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  comingSoonNotice: {
+    alignItems: 'flex-start',
+    backgroundColor: portalPalette.infoSoft,
+    borderColor: 'rgba(35, 213, 255, 0.24)',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: AppTheme.spacing.md,
+  },
+  comingSoonCopy: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  comingSoonTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  comingSoonText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'flex-end',
+  },
+  previewActionsCompact: {
+    flexDirection: 'column',
+  },
+  fullWidthButton: {
+    width: '100%',
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  secondaryButtonText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  continueButton: {
+    alignItems: 'center',
+    borderRadius: AppTheme.radius.sm,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 150,
+    paddingHorizontal: 16,
+  },
+  continueButtonText: {
+    color: '#FFFFFF',
     fontFamily: Typography.body,
     fontSize: 13,
     fontWeight: '900',
   },
   disabledButton: {
-    opacity: 0.55,
+    opacity: 0.58,
+  },
+  comparisonEmpty: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.md,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    padding: AppTheme.spacing.md,
+  },
+  comparisonEmptyIcon: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.infoSoft,
+    borderRadius: 12,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  comparisonEmptyCopy: {
+    flex: 1,
+    flexBasis: 240,
+    gap: 3,
+    minWidth: 0,
+  },
+  comparisonEmptyTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  comparisonEmptyText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
   },
 });

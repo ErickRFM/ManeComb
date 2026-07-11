@@ -154,7 +154,7 @@ export function Link({
   style?: StyleProp<TextStyle>;
 }) {
   return (
-    <Pressable onPress={() => router.push(href)}>
+    <Pressable accessibilityRole="link" onPress={() => router.push(href)}>
       <Text style={style}>{children}</Text>
     </Pressable>
   );

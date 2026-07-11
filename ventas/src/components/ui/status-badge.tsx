@@ -1,8 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, getToneColors, Typography, type DesignTone } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
-export type StatusBadgeTone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
+export type StatusBadgeTone = DesignTone;
 
 type StatusBadgeProps = {
   label: string;
@@ -11,17 +11,11 @@ type StatusBadgeProps = {
 
 export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
   const { theme } = useAppTheme();
-  const colors = {
-    positive: [theme.colors.successSoft, theme.colors.success],
-    warning: [theme.colors.warningSoft, theme.colors.warning],
-    danger: [theme.colors.dangerSoft, theme.colors.danger],
-    info: [theme.colors.infoSoft, theme.colors.info],
-    neutral: [theme.colors.surfaceAlt, theme.colors.muted],
-  } as const;
+  const colors = getToneColors(theme, tone);
 
   return (
-    <View style={[styles.badge, { backgroundColor: colors[tone][0] }]}>
-      <Text style={[styles.label, { color: colors[tone][1] }]} numberOfLines={2}>
+    <View style={[styles.badge, { backgroundColor: colors.background }]}>
+      <Text style={[styles.label, { color: colors.foreground }]} numberOfLines={2}>
         {label}
       </Text>
     </View>
@@ -31,7 +25,7 @@ export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    borderRadius: AppTheme.radius.pill,
+    borderRadius: DesignSystem.radius.chip,
     flexShrink: 1,
     maxWidth: '100%',
     paddingHorizontal: 10,

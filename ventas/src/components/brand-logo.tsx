@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { AppTheme, Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 type BrandLogoProps = {
@@ -59,7 +59,7 @@ export function BrandLogo({ size = 'md', subtitle, align = 'left', tone = 'light
 
 const styles = StyleSheet.create({
   container: {
-    gap: AppTheme.spacing.xs,
+    gap: DesignSystem.spacing.xs,
   },
   centered: {
     alignItems: 'center',
@@ -68,9 +68,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   markShell: {
-    borderRadius: AppTheme.radius.md,
-    paddingHorizontal: AppTheme.spacing.sm,
-    paddingVertical: AppTheme.spacing.xs,
+    borderRadius: DesignSystem.radius.card,
+    paddingHorizontal: DesignSystem.spacing.sm,
+    paddingVertical: DesignSystem.spacing.xs,
   },
   plainMark: {
     paddingHorizontal: 0,
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: DesignSystem.typography.caption.size,
+    lineHeight: DesignSystem.typography.caption.lineHeight,
   },
 });

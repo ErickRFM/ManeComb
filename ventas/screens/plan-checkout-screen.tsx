@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -15,16 +15,10 @@ import {
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
-import {
-  createCommercialCheckoutRequest,
-  getApiErrorMessage,
-  getCommercialPlansRequest,
-  getRuntimeHealthRequest,
-} from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
+import { useCheckoutExperience, type TestCardInput } from '@/features/commercial';
 import {
   buildCheckoutParams,
   clearCheckoutContext,
@@ -36,16 +30,6 @@ import { usePortalStore } from '@/features/portal/store/use-portal-store';
 
 type PaymentMethod = 'card' | 'spei';
 type CheckoutStep = 'payment' | 'confirmation' | 'done';
-type PaymentMode = 'mercado_pago' | 'test' | 'unknown';
-
-type TestCardForm = {
-  cardholderName: string;
-  cardNumber: string;
-  cvv: string;
-  expiry: string;
-  postalCode: string;
-};
-
 const palette = {
   background: '#050816',
   panel: 'rgba(12, 18, 36, 0.92)',
@@ -65,7 +49,7 @@ const palette = {
 const checkoutBenefits = [
   'Acceso para administradores y choferes',
   'Dashboard en tiempo real',
-  'Activacion por unidades',
+  'Activación por unidades',
   'Soporte operativo',
   'Actualizaciones incluidas',
 ];
@@ -82,91 +66,10 @@ function formatCurrency(value?: number | null) {
   }).format(Number(value || 0));
 }
 
-function getPlanById(plans: CommercialPlan[], planId?: string | null) {
-  return plans.find((plan) => plan.id === planId) || FALLBACK_COMMERCIAL_PLANS.find((plan) => plan.id === planId) || null;
-}
-
-function getContactPhone(phone?: string | null) {
-  const cleanPhone = String(phone || '').trim();
-  return cleanPhone || 'Por confirmar';
-}
-
 function openCheckoutUrl(url: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     window.location.assign(url);
   }
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function onlyDigits(value: string) {
-  return String(value || '').replace(/\D/g, '');
-}
-
-function passesLuhn(value: string) {
-  const digits = onlyDigits(value);
-  let sum = 0;
-  let doubleDigit = false;
-
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    let digit = Number(digits[index]);
-
-    if (doubleDigit) {
-      digit *= 2;
-      if (digit > 9) {
-        digit -= 9;
-      }
-    }
-
-    sum += digit;
-    doubleDigit = !doubleDigit;
-  }
-
-  return digits.length >= 13 && digits.length <= 19 && sum % 10 === 0;
-}
-
-function isValidExpiry(value: string) {
-  const match = String(value || '').trim().match(/^(\d{2})\s*\/\s*(\d{2}|\d{4})$/);
-
-  if (!match) {
-    return false;
-  }
-
-  const month = Number(match[1]);
-  const year = Number(match[2].length === 2 ? `20${match[2]}` : match[2]);
-
-  if (month < 1 || month > 12) {
-    return false;
-  }
-
-  const expiresAt = new Date(year, month, 0, 23, 59, 59, 999);
-  return expiresAt.getTime() >= Date.now();
-}
-
-function validateTestCard(form: TestCardForm) {
-  if (String(form.cardholderName || '').trim().length < 3) {
-    return 'Ingresa el nombre del titular.';
-  }
-
-  if (!passesLuhn(form.cardNumber)) {
-    return 'El numero de tarjeta de prueba no tiene un formato valido.';
-  }
-
-  if (!isValidExpiry(form.expiry)) {
-    return 'La fecha de expiracion debe tener formato MM/AA y estar vigente.';
-  }
-
-  if (!/^\d{3,4}$/.test(onlyDigits(form.cvv))) {
-    return 'El CVV debe tener 3 o 4 digitos.';
-  }
-
-  if (form.postalCode.trim() && !/^[a-zA-Z0-9 -]{4,10}$/.test(form.postalCode.trim())) {
-    return 'El codigo postal no tiene un formato valido.';
-  }
-
-  return null;
 }
 
 export function PlanCheckoutScreen() {
@@ -182,20 +85,14 @@ export function PlanCheckoutScreen() {
       ? routeTrialParam === '1'
       : Boolean(storedCheckout?.requestTrial && storedCheckout.planId === planId);
   const user = useAppStore((state) => state.user);
-  const { loadAll, portalSubmitting } = usePortalStore(
+  const { loadAll } = usePortalStore(
     useShallow((state) => ({
       loadAll: state.loadAll,
-      portalSubmitting: state.isSubmitting,
     }))
   );
-  const [plans, setPlans] = useState<CommercialPlan[]>(FALLBACK_COMMERCIAL_PLANS);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [step, setStep] = useState<CheckoutStep>('payment');
-  const [message, setMessage] = useState<string | null>(null);
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>('unknown');
-  const [receipt, setReceipt] = useState<any>(null);
-  const [processing, setProcessing] = useState(false);
-  const [testCard, setTestCard] = useState<TestCardForm>({
+  const [testCard, setTestCard] = useState<TestCardInput>({
     cardholderName: '',
     cardNumber: '',
     cvv: '',
@@ -203,29 +100,19 @@ export function PlanCheckoutScreen() {
     postalCode: '',
   });
 
-  const selectedPlan = useMemo(() => getPlanById(plans, planId), [planId, plans]);
+  const {
+    isCompleted: receiptIsActive,
+    isPending: receiptIsPending,
+    message,
+    processing,
+    providerMode,
+    result: receipt,
+    selectedPlan,
+    submit,
+  } = useCheckoutExperience({ planId, requestTrial, user });
   const buttonAmount = `${formatCurrency(selectedPlan?.price)} MXN`;
-  const canSubmit = Boolean(selectedPlan && user && !processing && !portalSubmitting);
-  const isTestPaymentMode = paymentMode === 'test';
-
-  useEffect(() => {
-    void getCommercialPlansRequest()
-      .then((response) => {
-        if (response.length) {
-          setPlans(response);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    void getRuntimeHealthRequest()
-      .then((health) => {
-        const provider = String(health?.readiness?.payments?.provider || health?.payments || '').trim();
-        setPaymentMode(provider === 'test' ? 'test' : 'mercado_pago');
-      })
-      .catch(() => setPaymentMode('mercado_pago'));
-  }, []);
+  const canSubmit = Boolean(selectedPlan && user && !processing && providerMode !== 'unavailable');
+  const isTestPaymentMode = providerMode === 'test';
 
   useEffect(() => {
     if (planId) {
@@ -255,69 +142,29 @@ export function PlanCheckoutScreen() {
   }
 
   const submitPayment = async () => {
-    if (!canSubmit) {
+    if (!canSubmit) return;
+    setStep('confirmation');
+    const nextResult = await submit({ method: selectedMethod, testCard });
+    if (!nextResult) {
+      setStep('payment');
       return;
     }
-
-    if (!requestTrial && isTestPaymentMode) {
-      const validationMessage = validateTestCard(testCard);
-
-      if (validationMessage) {
-        setMessage(validationMessage);
-        return;
-      }
-    }
-
-    setProcessing(true);
-    setStep('confirmation');
-    setMessage(null);
-
-    try {
-      if (!requestTrial && isTestPaymentMode) {
-        await wait(2000);
-      }
-
-      const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
-      const checkout = await createCommercialCheckoutRequest({
-        companyName,
-        contactName: user.name || companyName,
-        email: user.email,
-        phone: getContactPhone(user.phone),
-        planId: selectedPlan.id,
-        paymentMethod: requestTrial ? 'trial' : selectedMethod,
-        requestTrial,
-        selectedAddOns: [],
-      });
-
-      if (!requestTrial && !isTestPaymentMode && checkout.checkoutUrl) {
-        setReceipt(checkout);
-        setMessage('Te estamos llevando al checkout seguro de Mercado Pago.');
-        openCheckoutUrl(checkout.checkoutUrl);
-        return;
-      }
-
-      await loadAll().catch(() => undefined);
-      clearCheckoutContext();
-      setReceipt(checkout);
-      setStep('done');
-    } catch (error) {
-      const readableMessage = getApiErrorMessage(error, 'No fue posible completar la compra.');
-      setMessage(readableMessage);
+    if (!nextResult.ok) {
       setStep('payment');
-    } finally {
-      setProcessing(false);
+      return;
     }
+    if (nextResult.session?.checkoutUrl) {
+      openCheckoutUrl(nextResult.session.checkoutUrl);
+      return;
+    }
+    await loadAll().catch(() => undefined);
+    clearCheckoutContext();
+    setStep('done');
   };
 
   const goToPortal = () => {
     router.replace({ pathname: '/portal', params: { compra: 'lista' } } as never);
   };
-  const receiptPaymentStatus = String(receipt?.paymentStatus || '').toLowerCase();
-  const receiptAccountStatus = String(receipt?.status || '').toLowerCase();
-  const receiptIsActive =
-    ['paid', 'trial_active'].includes(receiptPaymentStatus) ||
-    ['active', 'trial'].includes(receiptAccountStatus);
-  const receiptIsPending = receiptPaymentStatus.includes('pending') || receiptPaymentStatus === 'pending';
   const doneTitle = receiptIsActive
     ? 'Plan activado en tu cuenta.'
     : receiptIsPending
@@ -325,9 +172,8 @@ export function PlanCheckoutScreen() {
       : 'Orden registrada.';
   const doneText =
     receipt?.nextStep ||
-    receipt?.paymentInstructions?.summary ||
     (receiptIsActive
-      ? `${receipt?.planName || selectedPlan.name} quedo ligado a tu portal ManeComb.`
+      ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
       : 'Revisa el estado del pago desde tu portal ManeComb.');
   const doneButtonLabel = receiptIsActive ? 'Acceder al dashboard' : 'Ver estado en portal';
 
@@ -346,7 +192,11 @@ export function PlanCheckoutScreen() {
         showsVerticalScrollIndicator={Platform.OS === 'web'}>
         <View style={styles.header}>
           <BrandLogo size={isPhone ? 'sm' : 'md'} tone="light" plain />
-          <Pressable onPress={() => router.push('/ventas' as never)} style={styles.backButton}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Volver y cambiar plan"
+            onPress={() => router.push('/ventas' as never)}
+            style={styles.backButton}>
             <MaterialCommunityIcons name="arrow-left" size={18} color={palette.text} />
             <Text style={styles.backText}>Cambiar plan</Text>
           </Pressable>
@@ -366,7 +216,7 @@ export function PlanCheckoutScreen() {
               </View>
               <Text style={styles.doneTitle}>{doneTitle}</Text>
               <Text style={styles.doneText}>{doneText}</Text>
-              <Pressable onPress={goToPortal} style={[styles.payButton, styles.doneButton]}>
+                <Pressable accessibilityRole="button" onPress={goToPortal} style={[styles.payButton, styles.doneButton]}>
                 <MaterialCommunityIcons name="view-dashboard-outline" size={22} color="#FFFFFF" />
                 <Text style={styles.payButtonText}>{doneButtonLabel}</Text>
                 <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
@@ -381,8 +231,8 @@ export function PlanCheckoutScreen() {
                       <MaterialCommunityIcons name="credit-card-check-outline" size={24} color={palette.violet} />
                     </View>
                     <View style={styles.panelTitleCopy}>
-                      <Text style={styles.panelTitle}>Informacion de pago</Text>
-                      <Text style={styles.panelSubtitle}>Elige tu metodo y completa la transaccion.</Text>
+                      <Text style={styles.panelTitle}>Información de pago</Text>
+                      <Text style={styles.panelSubtitle}>Elige tu método y completa la transacción.</Text>
                     </View>
                   </View>
 
@@ -460,9 +310,9 @@ export function PlanCheckoutScreen() {
                     <View style={styles.speiPanel}>
                       <MaterialCommunityIcons name="shield-lock-outline" size={32} color={palette.cyan} />
                       <View style={styles.speiCopy}>
-                        <Text style={styles.speiTitle}>Checkout seguro Mercado Pago</Text>
+                        <Text style={styles.speiTitle}>Checkout seguro</Text>
                         <Text style={styles.speiText}>
-                          Al continuar te llevaremos a Mercado Pago para completar el cobro. ManeComb no captura ni guarda datos de tarjeta.
+                          Al continuar te llevaremos al proveedor disponible para completar el pago. ManeComb no captura ni guarda datos de tarjeta.
                         </Text>
                       </View>
                     </View>
@@ -484,7 +334,7 @@ export function PlanCheckoutScreen() {
                     <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
                     <Text style={styles.securityText}>
                       {isTestPaymentMode && !requestTrial
-                        ? 'Pago simulado para desarrollo. No se guardan CVV ni numero completo de tarjeta.'
+                        ? 'Pago simulado para desarrollo. No se guardan el CVV ni el número completo de la tarjeta.'
                         : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
                     </Text>
                   </View>
@@ -495,7 +345,17 @@ export function PlanCheckoutScreen() {
                     </View>
                   ) : null}
 
+                  {providerMode === 'unavailable' ? (
+                    <View style={styles.messageBox}>
+                      <Text style={styles.messageText}>
+                        El servicio de pago no está disponible en este momento. Tu selección permanece guardada.
+                      </Text>
+                    </View>
+                  ) : null}
+
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={requestTrial ? 'Activar prueba' : 'Continuar al pago seguro'}
                     disabled={!canSubmit}
                     onPress={() => void submitPayment()}
                     style={({ pressed }) => [
@@ -514,7 +374,7 @@ export function PlanCheckoutScreen() {
                             : isTestPaymentMode
                               ? `Pagar en modo de pruebas ${buttonAmount}`
                               : selectedMethod === 'card'
-                              ? 'Continuar a Mercado Pago'
+                              ? 'Continuar al pago seguro'
                               : `Continuar pago SPEI ${buttonAmount}`}
                         </Text>
                         <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
@@ -528,8 +388,8 @@ export function PlanCheckoutScreen() {
 
               <View style={styles.trustStrip}>
                 <TrustItem icon="shield-lock-outline" title="Pago 100% seguro" body="Tus datos estan protegidos con encriptacion SSL." />
-                <TrustItem icon="file-document-outline" title="Facturacion automatica" body="El portal conserva tu comprobante comercial." />
-                <TrustItem icon="calendar-refresh-outline" title="Cobro mensual" body={`Renovacion por ${buttonAmount}.`} />
+                <TrustItem icon="file-document-outline" title="Comprobante comercial" body="Consulta el resultado de tu orden desde el portal." />
+                <TrustItem icon="calendar-refresh-outline" title="Periodo mensual" body={`Renovación estimada por ${buttonAmount}.`} />
               </View>
             </>
           )}
@@ -579,7 +439,12 @@ function MethodTab({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.methodTab, active ? styles.methodTabActive : undefined]}>
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[styles.methodTab, active ? styles.methodTabActive : undefined]}>
       <MaterialCommunityIcons name={icon} size={23} color={active ? palette.violet : palette.text} />
       <Text style={[styles.methodLabel, active ? styles.methodLabelActive : undefined]}>{label}</Text>
     </Pressable>
@@ -667,9 +532,11 @@ function OrderSummary({ plan, requestTrial }: { plan: CommercialPlan; requestTri
       <View style={styles.cancelBox}>
         <MaterialCommunityIcons name={requestTrial ? 'flask-outline' : 'shield-check-outline'} size={28} color={palette.violet} />
         <View style={styles.cancelCopy}>
-          <Text style={styles.cancelTitle}>{requestTrial ? 'Demo 7 dias' : 'Cancelacion sin complicaciones'}</Text>
+          <Text style={styles.cancelTitle}>{requestTrial ? 'Demo 7 días' : 'Control de tu suscripción'}</Text>
           <Text style={styles.cancelText}>
-            {requestTrial ? 'Prueba primero y conserva el plan seleccionado.' : 'Puedes cancelar cuando quieras. Sin cargos ocultos.'}
+            {requestTrial
+              ? 'Prueba primero y conserva el plan seleccionado.'
+              : 'La administración del ciclo de vida estará disponible desde tu portal.'}
           </Text>
         </View>
       </View>

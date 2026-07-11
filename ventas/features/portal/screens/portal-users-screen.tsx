@@ -130,7 +130,7 @@ export function PortalUsersScreen() {
   };
 
   return (
-    <PortalLayout title="Equipo administrativo" subtitle="Owners, administradores, facturacion y soporte de la cuenta SaaS.">
+    <PortalLayout title="Equipo" subtitle="Personas con acceso administrativo, de facturación o soporte.">
       {canManageUsers ? <PortalSectionCard
         title={editingId ? 'Editar usuario administrativo' : 'Invitar usuario administrativo'}
         subtitle={message || 'Los usuarios operativos viven en el panel operativo.'}>
@@ -209,11 +209,13 @@ export function PortalUsersScreen() {
         </View>
         <View style={styles.actions}>
           {editingId ? (
-            <Pressable onPress={resetEditor} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
+            <Pressable accessibilityRole="button" onPress={resetEditor} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
               <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Cancelar</Text>
             </Pressable>
           ) : null}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={editingId ? 'Guardar usuario administrativo' : 'Invitar usuario administrativo'}
             onPress={() => void saveUser()}
             disabled={isSubmitting}
             style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
@@ -256,10 +258,10 @@ export function PortalUsersScreen() {
                 <View style={styles.rowActions}>
                   {canManageUsers && item.role !== 'owner' ? (
                     <>
-                      <Pressable onPress={() => startEdit(item)} style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => startEdit(item)} style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
                       </Pressable>
-                      <Pressable onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: theme.colors.dangerSoft }]}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: theme.colors.dangerSoft }]}>
                         <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
                       </Pressable>
                     </>
@@ -272,14 +274,14 @@ export function PortalUsersScreen() {
           <EmptyState
             icon="account-group-outline"
             title="Sin usuarios administrativos"
-            description="Invita a facturacion o soporte para delegar tareas de cuenta."
+            description="Invita a responsables de facturación o soporte para delegar tareas de la cuenta."
           />
         )}
       </PortalSectionCard>
 
       <ConfirmModal
         visible={Boolean(deleteTarget)}
-        danger
+        destructive
         title="Eliminar usuario"
         description={`Se eliminara ${deleteTarget?.name || 'este usuario'} de la cuenta.`}
         confirmLabel="Eliminar"

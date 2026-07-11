@@ -1,4 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { DesignSystem, getAppPalette, Typography } from '@/constants/theme';
+
+const errorTheme = getAppPalette('dark');
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -30,8 +33,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       <div
         style={{
           alignItems: 'center',
-          background: '#050816',
-          color: '#F8FAFC',
+          background: errorTheme.background,
+          color: errorTheme.text,
           display: 'flex',
           minHeight: '100vh',
           padding: 24,
@@ -39,11 +42,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div style={{ maxWidth: 680 }}>
           <p
             style={{
-              color: '#FF4D7D',
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: 12,
+              color: errorTheme.accent,
+              fontFamily: Typography.body,
+              fontSize: DesignSystem.typography.caption.size,
               fontWeight: 900,
-              letterSpacing: 1,
               margin: '0 0 8px',
               textTransform: 'uppercase',
             }}>
@@ -51,19 +53,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </p>
           <h1
             style={{
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: 30,
-              lineHeight: 1.15,
+              fontFamily: Typography.display,
+              fontSize: DesignSystem.typography.hero.size,
+              lineHeight: `${DesignSystem.typography.hero.lineHeight}px`,
               margin: '0 0 10px',
             }}>
             No pudimos cargar esta pantalla.
           </h1>
           <p
             style={{
-              color: '#A8B1C2',
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: 15,
-              lineHeight: 1.5,
+              color: errorTheme.muted,
+              fontFamily: Typography.body,
+              fontSize: DesignSystem.typography.body.size,
+              lineHeight: `${DesignSystem.typography.body.lineHeight}px`,
               margin: '0 0 18px',
             }}>
             La app encontro un error de runtime. Recarga la pagina o vuelve al inicio de ventas.
@@ -73,15 +75,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               window.location.assign('/ventas');
             }}
             style={{
-              background: '#FF245C',
+              background: errorTheme.accent,
               border: 0,
-              borderRadius: 10,
+              borderRadius: DesignSystem.radius.control,
               color: '#FFFFFF',
               cursor: 'pointer',
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: 14,
+              fontFamily: Typography.body,
+              fontSize: DesignSystem.typography.body.size,
               fontWeight: 900,
-              minHeight: 42,
+              minHeight: DesignSystem.control.sm,
               padding: '0 16px',
             }}>
             Volver a ventas
@@ -89,9 +91,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           {import.meta.env.DEV ? (
             <pre
               style={{
-                background: 'rgba(255,255,255,0.08)',
-                borderRadius: 8,
-                color: '#FFB4C8',
+                background: errorTheme.surfaceAlt,
+                borderRadius: DesignSystem.radius.icon,
+                color: errorTheme.danger,
                 marginTop: 20,
                 overflow: 'auto',
                 padding: 12,

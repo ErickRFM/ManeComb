@@ -382,7 +382,7 @@ export function PortalOnboardingScreen() {
         return;
       }
 
-      await Share.share({ message: `Key de activación MancComb: ${activationKey.key}` });
+      await Share.share({ message: `Clave de activación ManeComb: ${activationKey.key}` });
       setFeedback('Key lista para compartir.');
     } catch {
       setFeedback('No fue posible copiar la key. Intenta compartirla manualmente.');
@@ -394,7 +394,7 @@ export function PortalOnboardingScreen() {
 
     try {
       await Share.share({
-        message: `Soy conductor MancComb. Usa esta key para activar tu cuenta: ${activationKey.key}`,
+        message: `Soy conductor ManeComb. Usa esta clave para activar tu cuenta: ${activationKey.key}`,
       });
       setFeedback('Key compartida.');
     } catch {
