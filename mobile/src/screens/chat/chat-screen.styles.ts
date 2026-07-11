@@ -1,5 +1,5 @@
 import { Platform, StyleSheet } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import type { useAppTheme } from '@/src/hooks/use-app-theme';
 
 export function createStyles(
@@ -1298,6 +1298,10 @@ export function createStyles(
       borderColor: theme.colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    controlPressed: {
+      opacity: DesignSystem.opacity.pressed,
+      transform: [{ scale: 0.96 }],
     },
     voiceButtonRecording: {
       backgroundColor: theme.colors.danger,

@@ -44,7 +44,7 @@ async function persistTransmission(store, transmission) {
     originalname: `radio-${transmission.id}.wav`,
     size: wav.length
   });
-  const durationSeconds = Math.max(1, Math.round(pcm.length / (SAMPLE_RATE * 2)));
+  const durationSeconds = Math.max(0.02, Number((pcm.length / (SAMPLE_RATE * 2)).toFixed(3)));
   return store.addMessage(transmission.channelId, transmission.userId, {
     kind: "audio",
     text: "",

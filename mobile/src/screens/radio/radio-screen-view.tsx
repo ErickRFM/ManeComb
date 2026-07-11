@@ -60,7 +60,11 @@ import {
 import { initialRadioEngineState, radioReducer } from './reducers/radio-reducer';
 import { getDeviceDisplayName, getTimeDomainVolume, normalizeMeteringDecibels, withRadioTimeout } from './services/radio-audio-service';
 import { useRadioLifecycle } from './hooks/use-radio-lifecycle';
-import { RadioRealtimeService, type RadioLiveIdentity } from './services/radio-realtime-service';
+import {
+  RadioRealtimeService,
+  type RadioLiveIdentity,
+  type RadioRealtimeConnectionState,
+} from './services/radio-realtime-service';
 import type {
   ActivePlaybackState,
   AudioFilter,
@@ -139,6 +143,9 @@ export function RadioScreen() {
   const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
   const [liveOperator, setLiveOperator] = useState<RadioLiveIdentity | null>(null);
   const [isReceivingLive, setIsReceivingLive] = useState(false);
+  const [isChannelBusy, setIsChannelBusy] = useState(false);
+  const [realtimeConnectionState, setRealtimeConnectionState] =
+    useState<RadioRealtimeConnectionState>('idle');
 
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
@@ -343,7 +350,7 @@ export function RadioScreen() {
       ? Platform.OS === 'web'
         ? 'Mic bloqueado'
         : 'Toca para reintentar microfono'
-      : isReceivingLive
+      : isReceivingLive || isChannelBusy
         ? `Canal ocupado por ${liveOperator?.name || 'otro operador'}`
       : isBusy
         ? 'Transmision en curso'
@@ -357,6 +364,7 @@ export function RadioScreen() {
     (Platform.OS === 'web' && audioPermissionState === 'denied') ||
     isBusy ||
     isReceivingLive ||
+    isChannelBusy ||
     !activeChannel ||
     (!radioConnection.canTransmit && recordingState !== 'recording');
   const incrementRadioMetrics = useCallback((patch: Partial<RadioMetrics>) => {
@@ -367,7 +375,12 @@ export function RadioScreen() {
       return 'OFFLINE';
     }
 
+    if (realtimeConnectionState === 'unauthorized') {
+      return 'UNAUTHORIZED';
+    }
+
     if (
+      realtimeConnectionState === 'reconnecting' ||
       socketStatus === 'connecting' ||
       socketStatus === 'reconnecting' ||
       networkStatus === 'recovering' ||
@@ -375,7 +388,7 @@ export function RadioScreen() {
       radioConnection.state === 'AUTHENTICATING' ||
       radioConnection.state === 'RECONNECTING'
     ) {
-      return 'CONNECTING';
+      return realtimeConnectionState === 'reconnecting' ? 'RECONNECTING' : 'CONNECTING';
     }
 
     if (recordingState === 'error' || radioConnection.state === 'ERROR') {
@@ -383,11 +396,15 @@ export function RadioScreen() {
     }
 
     if (recordingState === 'recording') {
-      return 'RECORDING';
+      return 'TRANSMITTING';
     }
 
     if (isReceivingLive) {
-      return 'PLAYING';
+      return 'RECEIVING';
+    }
+
+    if (isChannelBusy) {
+      return 'CHANNEL_BUSY';
     }
 
     if (recordingState === 'uploading') {
@@ -399,18 +416,25 @@ export function RadioScreen() {
     }
 
     return 'IDLE';
-  }, [activeChannel, isReceivingLive, networkStatus, radioConnection, recordingState, socketStatus]);
+  }, [activeChannel, isChannelBusy, isReceivingLive, networkStatus, radioConnection, realtimeConnectionState, recordingState, socketStatus]);
 
   useEffect(() => {
     const service = new RadioRealtimeService({
       onBusy: ({ transmitter }) => {
         setLiveOperator(transmitter || null);
+        setIsChannelBusy(true);
         setRecorderMessage('Canal ocupado');
       },
       onEnd: ({ transmissionId }) => {
-        if (liveTransmissionIdRef.current !== transmissionId) return;
+        setIsChannelBusy(false);
+        if (liveTransmissionIdRef.current !== transmissionId) {
+          setLiveOperator(null);
+          setRecorderMessage(null);
+          return;
+        }
         liveTransmissionIdRef.current = null;
         setIsReceivingLive(false);
+        setIsChannelBusy(false);
         setLiveOperator(null);
         volumeValue.value = 0;
         stopPttAudioPlayback().catch(() => undefined);
@@ -435,7 +459,9 @@ export function RadioScreen() {
       onReady: () => {
         if (recordingStateRef.current === 'idle') setRecorderMessage(null);
       },
+      onStateChange: setRealtimeConnectionState,
       onStart: ({ transmissionId, transmitter }) => {
+        setIsChannelBusy(false);
         liveTransmissionIdRef.current = transmissionId;
         setLiveOperator(transmitter);
         if (transmitter.id === user?.id) return;
@@ -514,8 +540,11 @@ export function RadioScreen() {
 
     if ((previous === 'reconnecting' || previous === 'disconnected') && socketStatus === 'connected') {
       incrementRadioMetrics({ reconnects: 1 });
+      if (activeChannel?.id) {
+        loadConversation(activeChannel.id).catch(() => undefined);
+      }
     }
-  }, [incrementRadioMetrics, socketStatus]);
+  }, [activeChannel?.id, incrementRadioMetrics, loadConversation, socketStatus]);
 
   useEffect(() => {
     const incomingNotes = loadedVoiceNotes.filter((item) => item.message.senderId !== user?.id);
@@ -1379,7 +1408,7 @@ export function RadioScreen() {
         : theme.colors.muted;
   const liveStatus = (() => {
     switch (radioPhase) {
-      case 'RECORDING':
+      case 'TRANSMITTING':
       return {
         detail: 'Transmitiendo en el canal activo',
         icon: 'microphone' as const,
@@ -1393,12 +1422,33 @@ export function RadioScreen() {
         label: 'Enviando',
         tone: 'info' as const,
       };
-      case 'PLAYING':
+      case 'RECEIVING':
         return {
           detail: `Recibiendo: ${liveOperator?.name || 'Operador'}`,
           icon: 'volume-high' as const,
           label: 'Recibiendo',
           tone: 'info' as const,
+        };
+      case 'CHANNEL_BUSY':
+        return {
+          detail: `Transmitiendo: ${liveOperator?.name || 'Otro operador'}`,
+          icon: 'account-voice' as const,
+          label: 'Canal ocupado',
+          tone: 'warning' as const,
+        };
+      case 'RECONNECTING':
+        return {
+          detail: 'Recuperando conexion de Radio',
+          icon: 'sync' as const,
+          label: 'Reconectando',
+          tone: 'info' as const,
+        };
+      case 'UNAUTHORIZED':
+        return {
+          detail: 'Vuelve a iniciar sesion',
+          icon: 'lock-alert-outline' as const,
+          label: 'Sesion expirada',
+          tone: 'warning' as const,
         };
       case 'ERROR':
       return {
@@ -1454,15 +1504,15 @@ export function RadioScreen() {
           ? 'Habilita el microfono para usar PTT.'
           : null);
   const pttDisabledText =
-    radioPhase === 'LOADING' || radioPhase === 'BUFFERING' || radioPhase === 'PLAYING'
+    radioPhase === 'RECEIVING' || radioPhase === 'CHANNEL_BUSY'
       ? liveStatus.label
       : pttBlockReason || 'No disponible';
   const pttStateStyle =
-    radioPhase === 'RECORDING'
+    radioPhase === 'TRANSMITTING'
       ? styles.pttButtonRecording
       : radioPhase === 'UPLOADING'
         ? styles.pttButtonUploading
-        : radioPhase === 'LOADING' || radioPhase === 'BUFFERING' || radioPhase === 'PLAYING'
+        : radioPhase === 'RECEIVING' || radioPhase === 'CHANNEL_BUSY'
           ? styles.pttButtonReceiving
           : radioPhase === 'ERROR'
             ? styles.pttButtonError

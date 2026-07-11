@@ -1,5 +1,5 @@
 import { Link, Redirect, router } from '@/src/navigation/router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type Ref } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
-import { Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
   API_URL,
@@ -94,6 +94,12 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const [helperTone, setHelperTone] = useState<'error' | 'success'>('error');
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isValidatingDriverKey, setIsValidatingDriverKey] = useState(false);
+  const driverNameInputRef = useRef<TextInput>(null);
+  const identityInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const confirmPasswordInputRef = useRef<TextInput>(null);
+  const unitCodeInputRef = useRef<TextInput>(null);
+  const unitPlateInputRef = useRef<TextInput>(null);
 
   const isRegister = mode === 'register';
   const isDriverRegister = isRegister && registerProfile === 'driver';
@@ -322,6 +328,8 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                       value={driverActivationKey}
                       onChangeText={setDriverActivationKey}
                       autoCapitalize="characters"
+                      returnKeyType="next"
+                      onSubmitEditing={() => driverNameInputRef.current?.focus()}
                     />
                     <AuthField
                       label="Nombre"
@@ -329,6 +337,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                       value={driverName}
                       onChangeText={setDriverName}
                       autoCapitalize="words"
+                      inputRef={driverNameInputRef}
+                      returnKeyType="next"
+                      onSubmitEditing={() => identityInputRef.current?.focus()}
                     />
                   </>
                 ) : null}
@@ -342,6 +353,8 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   autoComplete="email"
                   returnKeyType="next"
                   textContentType="username"
+                  inputRef={identityInputRef}
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
                 />
                 <AuthField
                   label="Contraseña"
@@ -353,6 +366,14 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   autoComplete={isRegister ? 'new-password' : 'current-password'}
                   returnKeyType={isRegister ? 'next' : 'done'}
                   textContentType={isRegister ? 'newPassword' : 'password'}
+                  inputRef={passwordInputRef}
+                  onSubmitEditing={() => {
+                    if (isRegister) {
+                      confirmPasswordInputRef.current?.focus();
+                    } else {
+                      handleSubmit();
+                    }
+                  }}
                 />
                 {isRegister ? (
                   <AuthField
@@ -363,8 +384,16 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     secureTextEntry
                     autoCapitalize="none"
                     autoComplete="new-password"
-                    returnKeyType="done"
+                    returnKeyType={isDriverRegister ? 'next' : 'done'}
                     textContentType="newPassword"
+                    inputRef={confirmPasswordInputRef}
+                    onSubmitEditing={() => {
+                      if (isDriverRegister) {
+                        unitCodeInputRef.current?.focus();
+                      } else {
+                        handleSubmit();
+                      }
+                    }}
                   />
                 ) : null}
                 {isDriverRegister ? (
@@ -375,6 +404,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                       value={driverUnitCode}
                       onChangeText={setDriverUnitCode}
                       autoCapitalize="characters"
+                      inputRef={unitCodeInputRef}
+                      returnKeyType="next"
+                      onSubmitEditing={() => unitPlateInputRef.current?.focus()}
                     />
                     <AuthField
                       label="Placa"
@@ -382,6 +414,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                       value={driverUnitPlate}
                       onChangeText={setDriverUnitPlate}
                       autoCapitalize="characters"
+                      inputRef={unitPlateInputRef}
+                      returnKeyType="done"
+                      onSubmitEditing={() => { handleSubmit(); }}
                     />
                   </>
                 ) : null}
@@ -498,9 +533,11 @@ function SegmentButton({
 function AuthField({
   autoComplete,
   autoCapitalize = 'sentences',
+  inputRef,
   keyboardType = 'default',
   label,
   onChangeText,
+  onSubmitEditing,
   placeholder,
   returnKeyType,
   secureTextEntry = false,
@@ -509,9 +546,11 @@ function AuthField({
 }: {
   autoComplete?: TextInputProps['autoComplete'];
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  inputRef?: Ref<TextInput>;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   label: string;
   onChangeText: (value: string) => void;
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
   placeholder: string;
   returnKeyType?: TextInputProps['returnKeyType'];
   secureTextEntry?: boolean;
@@ -519,6 +558,7 @@ function AuthField({
   value: string;
 }) {
   const { theme } = useAppTheme();
+  const [focused, setFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const inputProps = getTextInputProps(theme, { autoComplete, returnKeyType, textContentType });
   const showPasswordToggle = secureTextEntry;
@@ -534,11 +574,19 @@ function AuthField({
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={styles.inputShell}>
+      <View
+        style={[
+          styles.inputShell,
+          focused ? { borderColor: theme.colors.accent } : undefined,
+        ]}>
         <TextInput
+          ref={inputRef}
           {...inputProps}
           value={value}
           onChangeText={onChangeText}
+          onBlur={() => setFocused(false)}
+          onFocus={() => setFocused(true)}
+          onSubmitEditing={onSubmitEditing}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           secureTextEntry={secureTextEntry && !passwordVisible}
@@ -640,8 +688,8 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   inputShell: {
-    minHeight: 44,
-    borderRadius: 22,
+    minHeight: DesignSystem.control.md,
+    borderRadius: DesignSystem.radius.input,
     borderWidth: 1.5,
     borderColor: '#2F2F2F',
     backgroundColor: '#FFFFFF',
@@ -649,7 +697,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   input: {
-    minHeight: 44,
+    minHeight: DesignSystem.control.md,
     flex: 1,
     color: '#333333',
     fontFamily: Typography.body,

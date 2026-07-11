@@ -38,6 +38,8 @@ type PlayerStatus = {
   isLoaded: boolean;
   localUri?: string | null;
   playing: boolean;
+  level: number;
+  didJustFinish: boolean;
   uri?: string | null;
 };
 
@@ -66,6 +68,12 @@ type NativeAudioModule = {
   stopPttPlayback: () => Promise<void>;
   startRadioForegroundService: () => Promise<void>;
   stopRadioForegroundService: () => Promise<void>;
+  startRadioHistoryPlayer: (playerId: string, source: { uri: string; headers?: Record<string, string> }) => Promise<PlayerStatus>;
+  pauseRadioHistoryPlayer: (playerId: string) => Promise<PlayerStatus>;
+  stopRadioHistoryPlayer: (playerId: string) => Promise<PlayerStatus>;
+  seekRadioHistoryPlayer: (playerId: string, positionMillis: number) => Promise<PlayerStatus>;
+  getRadioHistoryPlayerStatus: (playerId: string) => Promise<PlayerStatus>;
+  stopAllRadioHistoryPlayers: () => Promise<void>;
 };
 
 type NativeAudioError = Error & {
@@ -141,6 +149,8 @@ const idlePlayerStatus: PlayerStatus = {
   isBuffering: false,
   isLoaded: false,
   playing: false,
+  level: 0,
+  didJustFinish: false,
   uri: null,
 };
 
@@ -182,6 +192,8 @@ function normalizePlayerStatus(status?: PlayerStatus | null): PlayerStatus {
     isLoaded: Boolean(status?.isLoaded),
     localUri: status?.localUri || null,
     playing: Boolean(status?.playing),
+    level: Math.max(0, Math.min(1, Number(status?.level || 0))),
+    didJustFinish: Boolean(status?.didJustFinish),
     uri: status?.uri || null,
   };
 }
@@ -257,7 +269,10 @@ export async function stopActiveAudioPlaybackAsync() {
   }
 
   await NativeAudio.stopPlayer();
+  await NativeAudio.stopAllRadioHistoryPlayers();
 }
+
+let audioPlayerSequence = 0;
 
 export function useAudioRecorder(
   preset?: Record<string, unknown>,
@@ -359,22 +374,28 @@ export function useAudioPlayer(
   options?: {
     updateInterval?: number;
     keepAudioSessionActive?: boolean;
+    independent?: boolean;
   }
 ) {
   const [status, setStatus] = useState<PlayerStatus>(idlePlayerStatus);
   const sourceRef = useRef<AudioSource>(source || null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const updateInterval = Math.max(100, Number(options?.updateInterval || 250));
+  const independent = Boolean(options?.independent);
+  const playerIdRef = useRef(`radio-history-${++audioPlayerSequence}`);
   const sourceUri = source?.uri || null;
   const sourceHeadersKey = JSON.stringify(source?.headers || {});
   sourceRef.current = source || null;
 
   useEffect(() => {
+    if (independent && NativeAudio) {
+      NativeAudio.stopRadioHistoryPlayer(playerIdRef.current).catch(() => undefined);
+    }
     setStatus((current) => ({
       ...idlePlayerStatus,
       uri: sourceUri || current.uri || null,
     }));
-  }, [sourceHeadersKey, sourceUri]);
+  }, [independent, sourceHeadersKey, sourceUri]);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -404,7 +425,10 @@ export function useAudioPlayer(
       return;
     }
 
-    NativeAudio.getPlayerStatus()
+    const statusRequest = independent
+      ? NativeAudio.getRadioHistoryPlayerStatus(playerIdRef.current)
+      : NativeAudio.getPlayerStatus();
+    statusRequest
       .then((nextStatus) => {
         const normalized = updateStatus(nextStatus);
 
@@ -416,7 +440,7 @@ export function useAudioPlayer(
         console.warn('[audio] player status failed', error);
         stopPolling();
       });
-  }, [stopPolling, updateStatus]);
+  }, [independent, stopPolling, updateStatus]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -426,8 +450,11 @@ export function useAudioPlayer(
   useEffect(
     () => () => {
       stopPolling();
+      if (independent && NativeAudio) {
+        NativeAudio.stopRadioHistoryPlayer(playerIdRef.current).catch(() => undefined);
+      }
     },
-    [stopPolling]
+    [independent, stopPolling]
   );
 
   const play = useCallback(async () => {
@@ -450,33 +477,37 @@ export function useAudioPlayer(
     };
     const requestHeaders = Object.keys(headers).length ? headers : undefined;
 
-    const nextStatus = await NativeAudio.startPlayer({
-      uri: currentSource.uri,
-      headers: requestHeaders,
-    });
+    const playerSource = { uri: currentSource.uri, headers: requestHeaders };
+    const nextStatus = independent
+      ? await NativeAudio.startRadioHistoryPlayer(playerIdRef.current, playerSource)
+      : await NativeAudio.startPlayer(playerSource);
     updateStatus(nextStatus);
     startPolling();
-  }, [startPolling, updateStatus]);
+  }, [independent, startPolling, updateStatus]);
 
   const pause = useCallback(async () => {
     if (!NativeAudio) {
       return;
     }
 
-    const nextStatus = await NativeAudio.pausePlayer();
+    const nextStatus = independent
+      ? await NativeAudio.pauseRadioHistoryPlayer(playerIdRef.current)
+      : await NativeAudio.pausePlayer();
     updateStatus(nextStatus);
     stopPolling();
-  }, [stopPolling, updateStatus]);
+  }, [independent, stopPolling, updateStatus]);
 
   const stop = useCallback(async () => {
     if (!NativeAudio) {
       return;
     }
 
-    const nextStatus = await NativeAudio.stopPlayer();
+    const nextStatus = independent
+      ? await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current)
+      : await NativeAudio.stopPlayer();
     updateStatus(nextStatus);
     stopPolling();
-  }, [stopPolling, updateStatus]);
+  }, [independent, stopPolling, updateStatus]);
 
   const seekTo = useCallback(
     async (positionSeconds = 0) => {
@@ -484,10 +515,13 @@ export function useAudioPlayer(
         return;
       }
 
-      const nextStatus = await NativeAudio.seekTo(Math.max(0, positionSeconds) * 1000);
+      const positionMillis = Math.max(0, positionSeconds) * 1000;
+      const nextStatus = independent
+        ? await NativeAudio.seekRadioHistoryPlayer(playerIdRef.current, positionMillis)
+        : await NativeAudio.seekTo(positionMillis);
       updateStatus(nextStatus);
     },
-    [updateStatus]
+    [independent, updateStatus]
   );
 
   return useMemo<AudioPlayer>(

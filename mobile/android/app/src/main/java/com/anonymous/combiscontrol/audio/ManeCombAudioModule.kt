@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
+import android.media.audiofx.Visualizer
 import android.content.Intent
 import android.media.MediaPlayer
 import android.media.MediaRecorder
@@ -26,6 +27,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.concurrent.thread
@@ -42,6 +44,10 @@ class ManeCombAudioModule(
   private var playerLocalUri: String? = null
   private var playerPrepared = false
   private var audioFocusRequest: AudioFocusRequest? = null
+  private var playerVisualizer: Visualizer? = null
+  @Volatile private var playerLevel = 0.0
+  private val radioPlayers = ConcurrentHashMap<String, RadioPlayerSession>()
+  private var focusedRadioPlayerId: String? = null
   @Volatile private var pttCapturing = false
   private var pttRecorder: AudioRecord? = null
   private var pttCaptureThread: Thread? = null
@@ -338,6 +344,20 @@ class ManeCombAudioModule(
     }
 
     try {
+      val activePlayer = player
+      if (activePlayer != null && playerPrepared && playerUri == uri) {
+        if (!requestPlaybackFocus()) {
+          promise.reject("audio_focus_denied", "Android no concedio Audio Focus para reproducir.")
+          return
+        }
+        if (activePlayer.duration > 0 && activePlayer.currentPosition >= activePlayer.duration - 100) {
+          activePlayer.seekTo(0)
+        }
+        activePlayer.start()
+        promise.resolve(playerStatusMap())
+        return
+      }
+
       stopPlayerInternal()
       val headers = extractHeaders(source)
       val playbackSource = resolvePlaybackSource(uri, headers)
@@ -370,6 +390,7 @@ class ManeCombAudioModule(
       nextPlayer.setOnPreparedListener {
         playerPrepared = true
         Log.i(TAG, "player prepared source=$uri duration=${it.duration}")
+        startPlayerVisualizer(it.audioSessionId)
         it.start()
         promise.resolve(playerStatusMap())
       }
@@ -434,9 +455,117 @@ class ManeCombAudioModule(
     promise.resolve(playerStatusMap())
   }
 
+  @ReactMethod
+  fun startRadioHistoryPlayer(playerId: String, source: ReadableMap, promise: Promise) {
+    val uri = source.getString("uri")
+    if (uri.isNullOrBlank()) {
+      promise.reject("audio_url_missing", "URL de audio invalida.")
+      return
+    }
+    try {
+      val current = radioPlayers[playerId]
+      if (current != null && current.prepared && current.uri == uri) {
+        if (!requestPlaybackFocus()) {
+          promise.reject("audio_focus_denied", "Android no concedio Audio Focus para reproducir.")
+          return
+        }
+        focusedRadioPlayerId = playerId
+        if (current.completed && current.player.duration > 0) current.player.seekTo(0)
+        current.completed = false
+        current.player.start()
+        promise.resolve(radioPlayerStatusMap(current))
+        return
+      }
+
+      releaseRadioPlayer(playerId)
+      val playbackSource = resolvePlaybackSource(uri, extractHeaders(source))
+      if (!requestPlaybackFocus()) {
+        promise.reject("audio_focus_denied", "Android no concedio Audio Focus para reproducir.")
+        return
+      }
+      focusedRadioPlayerId = playerId
+      val nextPlayer = MediaPlayer()
+      val session = RadioPlayerSession(player = nextPlayer, uri = uri)
+      radioPlayers[playerId] = session
+      nextPlayer.setAudioAttributes(
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+          .build()
+      )
+      nextPlayer.setDataSource(reactContext, Uri.parse(playbackSource.localUri))
+      nextPlayer.setOnPreparedListener {
+        session.prepared = true
+        session.visualizer = createRadioVisualizer(it.audioSessionId) { level -> session.level = level }
+        it.start()
+        promise.resolve(radioPlayerStatusMap(session))
+      }
+      nextPlayer.setOnCompletionListener {
+        session.completed = true
+        session.level = 0.0
+        abandonRadioPlaybackFocus(playerId)
+      }
+      nextPlayer.setOnErrorListener { _, what, extra ->
+        releaseRadioPlayer(playerId)
+        if (!session.prepared) {
+          promise.reject("audio_playback_failed", "Error del reproductor Android ($what/$extra).")
+        }
+        true
+      }
+      nextPlayer.prepareAsync()
+    } catch (error: Exception) {
+      releaseRadioPlayer(playerId)
+      promise.reject("audio_playback_failed", error.message ?: "Error del reproductor Android.", error)
+    }
+  }
+
+  @ReactMethod
+  fun pauseRadioHistoryPlayer(playerId: String, promise: Promise) {
+    val session = radioPlayers[playerId]
+    try {
+      if (session?.prepared == true && session.player.isPlaying) session.player.pause()
+      abandonRadioPlaybackFocus(playerId)
+      promise.resolve(radioPlayerStatusMap(session))
+    } catch (error: Exception) {
+      promise.reject("audio_pause_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun stopRadioHistoryPlayer(playerId: String, promise: Promise) {
+    releaseRadioPlayer(playerId)
+    promise.resolve(radioPlayerStatusMap(null))
+  }
+
+  @ReactMethod
+  fun seekRadioHistoryPlayer(playerId: String, positionMillis: Double, promise: Promise) {
+    val session = radioPlayers[playerId]
+    try {
+      if (session?.prepared == true) {
+        session.completed = false
+        session.player.seekTo(max(0, positionMillis.toInt()))
+      }
+      promise.resolve(radioPlayerStatusMap(session))
+    } catch (error: Exception) {
+      promise.reject("audio_seek_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun getRadioHistoryPlayerStatus(playerId: String, promise: Promise) {
+    promise.resolve(radioPlayerStatusMap(radioPlayers[playerId]))
+  }
+
+  @ReactMethod
+  fun stopAllRadioHistoryPlayers(promise: Promise) {
+    radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
+    promise.resolve(null)
+  }
+
   override fun invalidate() {
     releaseRecorder()
     stopPlayerInternal()
+    radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
     super.invalidate()
   }
 
@@ -485,6 +614,7 @@ class ManeCombAudioModule(
       putBoolean("isLoaded", activePlayer != null && playerPrepared)
       putBoolean("isBuffering", activePlayer != null && !playerPrepared)
       putBoolean("playing", isPlaying)
+      putDouble("level", if (isPlaying) playerLevel else 0.0)
       putDouble("currentTime", currentPosition / 1000.0)
       putDouble("duration", duration / 1000.0)
       putDouble("currentMillis", currentPosition.toDouble())
@@ -742,6 +872,14 @@ class ManeCombAudioModule(
 
   private fun stopPlayerInternal() {
     try {
+      playerVisualizer?.enabled = false
+      playerVisualizer?.release()
+    } catch (_: Exception) {
+      // Visualizer is optional and may already be released by Android.
+    }
+    playerVisualizer = null
+    playerLevel = 0.0
+    try {
       player?.stop()
     } catch (_: Exception) {
       // Player may not be prepared yet.
@@ -759,6 +897,120 @@ class ManeCombAudioModule(
     playerPrepared = false
     abandonPlaybackFocus()
   }
+
+  private fun startPlayerVisualizer(audioSessionId: Int) {
+    try {
+      playerVisualizer?.release()
+      playerVisualizer = Visualizer(audioSessionId).apply {
+        captureSize = Visualizer.getCaptureSizeRange()[0]
+        setDataCaptureListener(
+          object : Visualizer.OnDataCaptureListener {
+            override fun onWaveFormDataCapture(
+              visualizer: Visualizer?,
+              waveform: ByteArray?,
+              samplingRate: Int
+            ) {
+              val samples = waveform
+              if (samples == null || samples.isEmpty()) {
+                playerLevel = 0.0
+                return
+              }
+              var peak = 0
+              samples.forEach { sample -> peak = max(peak, kotlin.math.abs(sample.toInt())) }
+              playerLevel = (peak / 128.0).coerceIn(0.0, 1.0)
+            }
+
+            override fun onFftDataCapture(
+              visualizer: Visualizer?,
+              fft: ByteArray?,
+              samplingRate: Int
+            ) = Unit
+          },
+          Visualizer.getMaxCaptureRate() / 2,
+          true,
+          false
+        )
+        enabled = true
+      }
+    } catch (error: Exception) {
+      playerVisualizer = null
+      playerLevel = 0.0
+      Log.w(TAG, "Visualizer no disponible para el reproductor de Radio", error)
+    }
+  }
+
+  private fun createRadioVisualizer(audioSessionId: Int, onLevel: (Double) -> Unit): Visualizer? {
+    return try {
+      Visualizer(audioSessionId).apply {
+        captureSize = Visualizer.getCaptureSizeRange()[0]
+        setDataCaptureListener(
+          object : Visualizer.OnDataCaptureListener {
+            override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) {
+              val samples = waveform
+              if (samples == null || samples.isEmpty()) {
+                onLevel(0.0)
+                return
+              }
+              var peak = 0
+              samples.forEach { sample -> peak = max(peak, kotlin.math.abs(sample.toInt())) }
+              onLevel((peak / 128.0).coerceIn(0.0, 1.0))
+            }
+            override fun onFftDataCapture(visualizer: Visualizer?, fft: ByteArray?, samplingRate: Int) = Unit
+          },
+          Visualizer.getMaxCaptureRate() / 2,
+          true,
+          false
+        )
+        enabled = true
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Visualizer no disponible para historial de Radio", error)
+      null
+    }
+  }
+
+  private fun radioPlayerStatusMap(session: RadioPlayerSession?) = Arguments.createMap().apply {
+    val prepared = session?.prepared == true
+    val duration = try { if (prepared) session!!.player.duration else 0 } catch (_: Exception) { 0 }
+    val position = try {
+      if (session?.completed == true) duration else if (prepared) session!!.player.currentPosition else 0
+    } catch (_: Exception) { 0 }
+    val playing = try { prepared && session!!.player.isPlaying } catch (_: Exception) { false }
+    putBoolean("isLoaded", prepared)
+    putBoolean("isBuffering", session != null && !prepared)
+    putBoolean("playing", playing)
+    putBoolean("didJustFinish", session?.completed == true)
+    putDouble("level", if (playing) session?.level ?: 0.0 else 0.0)
+    putDouble("currentMillis", position.toDouble())
+    putDouble("durationMillis", duration.toDouble())
+    putDouble("currentTime", position / 1000.0)
+    putDouble("duration", duration / 1000.0)
+    putString("uri", session?.uri)
+  }
+
+  private fun releaseRadioPlayer(playerId: String) {
+    val session = radioPlayers.remove(playerId) ?: return
+    try { session.visualizer?.enabled = false } catch (_: Exception) {}
+    try { session.visualizer?.release() } catch (_: Exception) {}
+    try { session.player.stop() } catch (_: Exception) {}
+    try { session.player.release() } catch (_: Exception) {}
+    abandonRadioPlaybackFocus(playerId)
+  }
+
+  private fun abandonRadioPlaybackFocus(playerId: String) {
+    if (focusedRadioPlayerId != playerId) return
+    focusedRadioPlayerId = null
+    abandonPlaybackFocus()
+  }
+
+  private data class RadioPlayerSession(
+    val player: MediaPlayer,
+    val uri: String,
+    var prepared: Boolean = false,
+    var completed: Boolean = false,
+    @Volatile var level: Double = 0.0,
+    var visualizer: Visualizer? = null
+  )
 
   private data class PlaybackSource(
     val sourceUri: String,

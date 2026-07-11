@@ -14,7 +14,7 @@ import type { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
 import type { VoicePlaybackChangeMeta, VoicePlaybackPhase } from '../types';
-import { clampVolume, formatDuration, getVoiceWaveformBars, logRadioDevelopmentEvent } from '../utils/radio-format';
+import { clampVolume, formatDuration, logRadioDevelopmentEvent } from '../utils/radio-format';
 
 export function VoiceTransmissionCard({
   channelTitle,
@@ -43,7 +43,8 @@ export function VoiceTransmissionCard({
           uri: resolvedUrl,
           getHeaders: () => getAuthHeaderSnapshot(token),
         }
-      : null
+      : null,
+    { independent: true, updateInterval: 80 }
   );
   const playerStatus = useAudioPlayerStatus(player);
   const playerStatusRef = useRef(playerStatus);
@@ -54,29 +55,28 @@ export function VoiceTransmissionCard({
   const isPlaying = Boolean(playerStatus.playing);
   const isBuffering = Boolean(playerStatus.isBuffering);
   const fallbackDurationSeconds = Math.max(0, Number(message.durationSeconds || 0));
-  const durationSeconds = Math.max(
-    fallbackDurationSeconds,
-    Number(playerStatus.duration || 0),
-    Number(playerStatus.durationMillis || 0) / 1000
-  );
-  const currentSeconds = Math.min(
-    durationSeconds || Number(playerStatus.currentTime || 0),
-    Math.max(
-      0,
-      Number(playerStatus.currentTime || 0) ||
-        Number(playerStatus.currentMillis || 0) / 1000
-    )
-  );
-  const progress = durationSeconds > 0 ? clampVolume(currentSeconds / durationSeconds) : 0;
+  const nativeDurationSeconds =
+    Number(playerStatus.durationMillis || 0) / 1000 || Number(playerStatus.duration || 0);
+  const nativeCurrentSeconds =
+    Number(playerStatus.currentMillis || 0) / 1000 || Number(playerStatus.currentTime || 0);
+  const hasPreparedMedia = Boolean(playerStatus.isLoaded && nativeDurationSeconds > 0);
+  const durationSeconds = hasPreparedMedia ? nativeDurationSeconds : fallbackDurationSeconds;
+  const currentSeconds = hasPreparedMedia ? nativeCurrentSeconds : 0;
+  const progress = hasPreparedMedia ? currentSeconds / nativeDurationSeconds : 0;
   const showProgress = durationSeconds > 0 && (isActive || isPlaying || playerStatus.isLoaded);
   const isPlaybackActive = isPlaying || isBuffering;
   const hasReachedEnd =
     durationSeconds > 0 && currentSeconds >= Math.max(0, durationSeconds - 0.25);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const waveformBars = useMemo(
-    () => getVoiceWaveformBars(message),
-    [message]
-  );
+  const playbackLevel = clampVolume(Number(playerStatus.level || 0));
+  const waveformBars = useMemo(() => {
+    const barCount = 18;
+    return Array.from({ length: barCount }, (_, index) => {
+      if (!isPlaying) return 4;
+      const envelope = 0.55 + Math.sin((index / (barCount - 1)) * Math.PI) * 0.45;
+      return Math.max(4, Math.round(4 + playbackLevel * 24 * envelope));
+    });
+  }, [isPlaying, playbackLevel]);
   const cardActive = Boolean(isActive || isPlaybackActive);
   const playbackPhase: VoicePlaybackPhase = playbackError
     ? 'ERROR'
@@ -162,6 +162,15 @@ export function VoiceTransmissionCard({
     transitionPlayback(playbackPhase, 'STATUS');
   }, [playbackPhase, transitionPlayback]);
 
+  useEffect(() => {
+    if (!playerStatus.didJustFinish) return;
+    transitionPlayback('FINISHED', 'NATIVE_COMPLETION');
+    player.seekTo(0).catch((error) => {
+      setPlaybackError(getAudioPlaybackErrorMessage(error));
+      transitionPlayback('ERROR', 'RESET_AFTER_COMPLETION', error);
+    });
+  }, [player, playerStatus.didJustFinish, transitionPlayback]);
+
   useEffect(
     () => () => {
       if (playbackGuardTimerRef.current) {
@@ -190,8 +199,11 @@ export function VoiceTransmissionCard({
         playbackOperationRef.current = operationId;
         playbackStartedAtRef.current = Date.now();
         setPlaybackError(null);
-        await stopActiveAudioPlaybackAsync().catch(() => undefined);
-        transitionPlayback('LOADING', 'LOAD');
+        const isResumingPreparedMedia = hasPreparedMedia && currentSeconds > 0;
+        if (!isResumingPreparedMedia) {
+          await stopActiveAudioPlaybackAsync().catch(() => undefined);
+        }
+        transitionPlayback(isResumingPreparedMedia ? 'PLAYING' : 'LOADING', isResumingPreparedMedia ? 'RESUME' : 'LOAD');
 
         await player.play();
         if (playbackOperationRef.current !== operationId) {
@@ -235,6 +247,8 @@ export function VoiceTransmissionCard({
     [
       isBuffering,
       isPlaying,
+      currentSeconds,
+      hasPreparedMedia,
       message.audioUrl,
       message.id,
       player,

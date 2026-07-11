@@ -6,6 +6,7 @@ import { mapStyles as styles } from '../map-styles';
 
 type TrackingHudProps = {
   activeRouteCount: number;
+  compassReserved?: boolean;
   incidentCount: number;
   locationStatusColor: string;
   locationStatusLabel: string;
@@ -16,6 +17,7 @@ type TrackingHudProps = {
 
 export function TrackingHud({
   activeRouteCount,
+  compassReserved = false,
   incidentCount,
   locationStatusColor,
   locationStatusLabel,
@@ -29,6 +31,7 @@ export function TrackingHud({
     <View style={[styles.topOverlay, { paddingTop }]}>
       <View style={styles.topBar}>
         <Pressable
+          hitSlop={10}
           onPress={onOpenMenu}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
           accessibilityLabel="Abrir menu operativo">
@@ -38,15 +41,20 @@ export function TrackingHud({
         <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
           <HUDItem label="Rutas" value={`${activeRouteCount}`} icon="bus" color={theme.colors.info} />
           <HUDItem label="GPS" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
-          <HUDItem
-            label="Trafico"
-            value={trafficEnabled ? 'ON' : 'OFF'}
-            icon="traffic-light"
-            color={trafficEnabled ? theme.colors.warning : theme.colors.muted}
-          />
+          {!compassReserved ? (
+            <HUDItem
+              label="Trafico"
+              value={trafficEnabled ? 'ON' : 'OFF'}
+              icon="traffic-light"
+              color={trafficEnabled ? theme.colors.warning : theme.colors.muted}
+            />
+          ) : null}
         </View>
 
+        {compassReserved ? <View style={styles.compassSlot} pointerEvents="none" /> : null}
+
         <Pressable
+          hitSlop={10}
           onPress={() => router.push('/incidencias')}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
           accessibilityLabel="Abrir incidencias">

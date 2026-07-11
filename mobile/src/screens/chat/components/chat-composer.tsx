@@ -79,13 +79,17 @@ export function ChatComposer({
             setActionCategory('root');
             setAttachmentMenuOpen(true);
           }}
-          style={styles.attachButton}>
+          style={({ pressed }) => [styles.attachButton, pressed ? styles.controlPressed : undefined]}>
           <MaterialCommunityIcons name="plus" size={24} color={theme.colors.text} />
         </Pressable>
 
         <View style={styles.composerInputShell}>
           <TextInput
-            {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'send' })}
+            {...getTextInputProps(theme, {
+              autoComplete: 'off',
+              returnKeyType: 'send',
+              submitBehavior: 'newline',
+            })}
             value={draft}
             onChangeText={setDraft}
             placeholder={composerPlaceholder}
@@ -106,7 +110,11 @@ export function ChatComposer({
             accessibilityRole="button"
             onPress={() => { handleSendText(); }}
             disabled={!canSendText}
-            style={[styles.sendIconButton, !canSendText ? styles.voiceButtonDisabled : undefined]}>
+            style={({ pressed }) => [
+              styles.sendIconButton,
+              pressed && canSendText ? styles.controlPressed : undefined,
+              !canSendText ? styles.voiceButtonDisabled : undefined,
+            ]}>
             {isSubmitting && recordingState !== 'uploading' ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
@@ -119,13 +127,14 @@ export function ChatComposer({
             accessibilityRole="button"
             onPress={() => { handleVoiceAction(); }}
             disabled={!canRecord || isSubmitting}
-            style={[
+            style={({ pressed }) => [
               styles.voiceButton,
               recordingState === 'recording'
                 ? styles.voiceButtonRecording
                 : recordingState === 'uploading'
                   ? styles.voiceButtonLoading
                   : undefined,
+              pressed && canRecord && !isSubmitting ? styles.controlPressed : undefined,
               (!canRecord || isSubmitting) ? styles.voiceButtonDisabled : undefined,
             ]}>
             {recordingState === 'uploading' ? (

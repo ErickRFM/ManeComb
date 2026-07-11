@@ -30,6 +30,11 @@ export type AppMapRef = {
 export type AppMapProps = {
   children?: ReactNode;
   compassEnabled?: boolean;
+  compassPosition?:
+    | { bottom: number; left: number }
+    | { bottom: number; right: number }
+    | { left: number; top: number }
+    | { right: number; top: number };
   initialRegion: AppMapRegion;
   mapPadding?: AppMapPadding;
   onPress?: (event: { nativeEvent: { coordinate?: GeoPoint } }) => void;

@@ -7,8 +7,8 @@ export function useMapCamera(insets: { top: number; bottom: number }) {
   const mapRef = useRef<AppMapRef | null>(null);
   const mapPadding = useMemo(
     () => ({
-      top: insets.top + 92,
-      right: 76,
+      top: insets.top + 112,
+      right: 72,
       bottom: insets.bottom + 166,
       left: 16,
     }),
@@ -17,8 +17,8 @@ export function useMapCamera(insets: { top: number; bottom: number }) {
 
   const routeFitPadding = useMemo(
     () => ({
-      top: insets.top + 108,
-      right: 86,
+      top: insets.top + 122,
+      right: 82,
       bottom: insets.bottom + 196,
       left: 24,
     }),

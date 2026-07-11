@@ -74,10 +74,19 @@ function getBounds(points: GeoPoint[]) {
   };
 }
 
+type PendingCameraAction =
+  | { type: 'region'; region: AppMapRegion; duration: number }
+  | {
+      type: 'fit';
+      coordinates: GeoPoint[];
+      options?: { animated?: boolean; edgePadding?: AppMapPadding };
+    };
+
 export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   {
     children,
     compassEnabled = true,
+    compassPosition,
     initialRegion,
     mapPadding,
     onPress,
@@ -90,7 +99,11 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   ref
 ) {
   const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapReadyRef = useRef(false);
   const mapPaddingRef = useRef(mapPadding);
+  const initialRegionRef = useRef(initialRegion);
+  const pendingCameraActionRef = useRef<PendingCameraAction | null>(null);
+  initialRegionRef.current = initialRegion;
   const styleURL = showsTraffic
     ? themeMode === 'light'
       ? Mapbox.StyleURL.TrafficDay
@@ -101,6 +114,11 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
 
   useEffect(() => {
     mapPaddingRef.current = mapPadding;
+
+    if (!mapReadyRef.current) {
+      return;
+    }
+
     cameraRef.current?.setCamera({
       animationDuration: 0,
       animationMode: 'none',
@@ -108,40 +126,63 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
     });
   }, [mapPadding]);
 
+  const executeCameraAction = (action: PendingCameraAction) => {
+    if (action.type === 'region') {
+      cameraRef.current?.setCamera({
+        animationDuration: action.duration,
+        animationMode: action.duration > 0 ? 'easeTo' : 'none',
+        centerCoordinate: toCoordinate(action.region),
+        padding: toCameraPadding(mapPaddingRef.current),
+        zoomLevel: toZoom(action.region),
+      });
+      return;
+    }
+
+    if (action.coordinates.length < 2) {
+      const point = action.coordinates[0];
+      if (point) {
+        cameraRef.current?.setCamera({
+          animationDuration: action.options?.animated === false ? 0 : 400,
+          animationMode: action.options?.animated === false ? 'none' : 'easeTo',
+          centerCoordinate: toCoordinate(point),
+          padding: toCameraPadding(action.options?.edgePadding),
+          zoomLevel: 14,
+        });
+      }
+      return;
+    }
+
+    const bounds = getBounds(action.coordinates);
+    cameraRef.current?.fitBounds(
+      bounds.ne,
+      bounds.sw,
+      action.options?.edgePadding
+        ? [
+            action.options.edgePadding.top,
+            action.options.edgePadding.right,
+            action.options.edgePadding.bottom,
+            action.options.edgePadding.left,
+          ]
+        : undefined,
+      action.options?.animated === false ? 0 : 400
+    );
+  };
+
+  const runOrQueueCameraAction = (action: PendingCameraAction) => {
+    if (!mapReadyRef.current) {
+      pendingCameraActionRef.current = action;
+      return;
+    }
+
+    executeCameraAction(action);
+  };
+
   useImperativeHandle(ref, () => ({
     animateToRegion(region, duration = 400) {
-      cameraRef.current?.setCamera({
-        animationDuration: duration,
-        animationMode: 'easeTo',
-        centerCoordinate: toCoordinate(region),
-        padding: toCameraPadding(mapPaddingRef.current),
-        zoomLevel: toZoom(region),
-      });
+      runOrQueueCameraAction({ type: 'region', region, duration });
     },
     fitToCoordinates(coordinates, options) {
-      if (coordinates.length < 2) {
-        const point = coordinates[0];
-        if (point) {
-          cameraRef.current?.setCamera({
-            animationDuration: options?.animated === false ? 0 : 400,
-            animationMode: options?.animated === false ? 'none' : 'easeTo',
-            centerCoordinate: toCoordinate(point),
-            padding: toCameraPadding(options?.edgePadding),
-            zoomLevel: 14,
-          });
-        }
-        return;
-      }
-
-      const bounds = getBounds(coordinates);
-      cameraRef.current?.fitBounds(
-        bounds.ne,
-        bounds.sw,
-        options?.edgePadding
-          ? [options.edgePadding.top, options.edgePadding.right, options.edgePadding.bottom, options.edgePadding.left]
-          : undefined,
-        options?.animated === false ? 0 : 400
-      );
+      runOrQueueCameraAction({ type: 'fit', coordinates, options });
     },
   }));
 
@@ -149,7 +190,24 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
     <Mapbox.MapView
       attributionEnabled={false}
       compassEnabled={compassEnabled}
+      compassFadeWhenNorth
+      compassPosition={compassPosition}
       logoEnabled={false}
+      onDidFinishLoadingMap={() => {
+        mapReadyRef.current = true;
+        const pendingAction = pendingCameraActionRef.current;
+        pendingCameraActionRef.current = null;
+        executeCameraAction(
+          pendingAction || {
+            type: 'region',
+            region: initialRegionRef.current,
+            duration: 0,
+          }
+        );
+      }}
+      onWillStartLoadingMap={() => {
+        mapReadyRef.current = false;
+      }}
       onPress={(feature) => {
         onPress?.({ nativeEvent: { coordinate: toPoint(feature.geometry?.coordinates) } });
       }}

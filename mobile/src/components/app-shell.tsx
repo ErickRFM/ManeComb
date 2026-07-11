@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import type { AppSectionKey } from '@/src/desktop/desktop-navigation';
 import { getSectionByPathname } from '@/src/desktop/desktop-navigation';
 import { useDesktopMode } from '@/src/desktop/use-desktop-mode';
@@ -148,23 +148,25 @@ export function AppShell({
     <View style={styles.mobileToolbar}>
       <Pressable
         onPress={() => router.push('/incidencias')}
-        style={[
+        style={({ pressed }) => [
           styles.iconButton,
           {
             backgroundColor: theme.colors.surfaceAlt,
             borderColor: theme.colors.line,
           },
+          pressed ? styles.iconButtonPressed : undefined,
         ]}>
         <MaterialCommunityIcons name="alert-outline" size={22} color={theme.colors.accent} />
       </Pressable>
       <Pressable
         onPress={() => setMenuOpen((current) => !current)}
-        style={[
+        style={({ pressed }) => [
           styles.iconButton,
           {
             backgroundColor: theme.colors.surfaceAlt,
             borderColor: theme.colors.line,
           },
+          pressed ? styles.iconButtonPressed : undefined,
         ]}>
         <MaterialCommunityIcons name="menu" size={22} color={theme.colors.text} />
       </Pressable>
@@ -186,8 +188,10 @@ export function AppShell({
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={contentStyles}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
           showsVerticalScrollIndicator={false}
           refreshControl={refreshControl}
           {...scrollProps}>
@@ -261,6 +265,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconButtonPressed: {
+    opacity: DesignSystem.opacity.pressed,
+    transform: [{ scale: 0.96 }],
   },
   mobileHeaderRow: {
     width: '100%',

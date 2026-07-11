@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useLocalSearchParams } from '@/src/navigation/router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { Typography } from '@/constants/theme';
+import { DesignSystem, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
@@ -407,9 +407,9 @@ function createStyles(theme: any, isCompact: boolean, isPhone: boolean) {
       letterSpacing: 0.5,
     },
     input: {
-      minHeight: 42,
+      minHeight: DesignSystem.control.md,
       backgroundColor: theme.colors.input,
-      borderRadius: 12,
+      borderRadius: DesignSystem.radius.input,
       paddingHorizontal: 12,
       paddingVertical: 10,
       color: theme.colors.text,
@@ -754,6 +754,7 @@ export function IncidentsScreen() {
   const [activeFilter, setActiveFilter] = useState<IncidentFilterKey>('all');
   const [search, setSearch] = useState('');
   const [showAllEvents, setShowAllEvents] = useState(false);
+  const descriptionInputRef = useRef<TextInput>(null);
 
   const summary = useMemo(() => {
     const activeIncidents = incidents.filter(isIncidentActive);
@@ -886,6 +887,7 @@ export function IncidentsScreen() {
               style={screenStyles.input}
               value={title}
               onChangeText={setTitle}
+              onSubmitEditing={() => descriptionInputRef.current?.focus()}
             />
           </View>
 
@@ -962,7 +964,12 @@ export function IncidentsScreen() {
           <View style={screenStyles.fieldGroup}>
             <Text style={screenStyles.fieldLabel}>Descripcion</Text>
             <TextInput
-              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'done' })}
+              ref={descriptionInputRef}
+              {...getTextInputProps(theme, {
+                autoComplete: 'off',
+                returnKeyType: 'done',
+                submitBehavior: 'blurAndSubmit',
+              })}
               maxLength={420}
               multiline
               numberOfLines={4}
@@ -971,6 +978,7 @@ export function IncidentsScreen() {
               style={[screenStyles.input, screenStyles.textArea]}
               value={description}
               onChangeText={setDescription}
+              onSubmitEditing={() => { handleCreate(); }}
             />
           </View>
 

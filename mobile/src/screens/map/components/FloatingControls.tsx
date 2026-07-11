@@ -37,21 +37,29 @@ export function FloatingControls({
       <View style={[styles.fabGroup, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
         <Pressable
           onPress={onRefresh}
-          style={styles.fabCompact}
+          style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
           accessibilityLabel="Actualizar seguimiento">
           <MaterialCommunityIcons name={isRefreshing ? 'sync' : 'refresh'} size={21} color={theme.colors.text} />
         </Pressable>
         <View style={[styles.fabDivider, { backgroundColor: theme.colors.line }]} />
         <Pressable
           onPress={onToggleFollow}
-          style={[styles.fabCompact, followMode ? { backgroundColor: theme.colors.accent } : undefined]}
+          style={({ pressed }) => [
+            styles.fabCompact,
+            followMode ? { backgroundColor: theme.colors.accent } : undefined,
+            pressed ? styles.controlPressed : undefined,
+          ]}
           accessibilityLabel={followMode ? 'Desactivar seguimiento de unidad' : 'Activar seguimiento de unidad'}>
           <MaterialCommunityIcons name={followMode ? 'navigation' : 'map-search'} size={21} color={followMode ? '#FFF' : theme.colors.text} />
         </Pressable>
         <View style={[styles.fabDivider, { backgroundColor: theme.colors.line }]} />
         <Pressable
           onPress={onToggleTraffic}
-          style={[styles.fabCompact, trafficEnabled ? { backgroundColor: theme.colors.warning } : undefined]}
+          style={({ pressed }) => [
+            styles.fabCompact,
+            trafficEnabled ? { backgroundColor: theme.colors.warning } : undefined,
+            pressed ? styles.controlPressed : undefined,
+          ]}
           accessibilityLabel={trafficEnabled ? 'Ocultar trafico' : 'Mostrar trafico'}>
           <MaterialCommunityIcons name="traffic-light" size={21} color={trafficEnabled ? '#FFF' : theme.colors.text} />
         </Pressable>
@@ -59,7 +67,11 @@ export function FloatingControls({
       {incidentCount ? (
         <Pressable
           onPress={onFocusNextAlert}
-          style={[styles.fab, { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger }]}
+          style={({ pressed }) => [
+            styles.fab,
+            { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger },
+            pressed ? styles.controlPressed : undefined,
+          ]}
           accessibilityLabel="Ver siguiente alerta en mapa">
           <MaterialCommunityIcons name="alert-decagram" size={22} color="#FFF" />
         </Pressable>
@@ -67,7 +79,11 @@ export function FloatingControls({
       {canRetryLocation && (
         <Pressable
           onPress={onRetryLocation}
-          style={[styles.fab, { backgroundColor: theme.colors.warning, borderColor: theme.colors.line }]}
+          style={({ pressed }) => [
+            styles.fab,
+            { backgroundColor: theme.colors.warning, borderColor: theme.colors.line },
+            pressed ? styles.controlPressed : undefined,
+          ]}
           accessibilityLabel="Reintentar ubicacion GPS">
           <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#FFF" />
         </Pressable>

@@ -194,6 +194,7 @@ export function MapScreen() {
       <StatusBar style={theme.statusBar} />
       <View style={styles.root}>
         <MapCanvas
+          compassPosition={{ right: 66, top: insets.top + 10 }}
           coordinates={coordinates}
           mapData={mapData}
           mapPadding={mapPadding}
@@ -205,7 +206,7 @@ export function MapScreen() {
             setSelectedVehicleId(vehicle.id);
             setFollowMode(true);
           }}
-          scaleBarPosition={{ left: 16, top: insets.top + 82 }}
+          scaleBarPosition={{ left: 24, top: insets.top + 62 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}
           selectorRoute={selector.selectorRoute}
@@ -233,6 +234,7 @@ export function MapScreen() {
           <>
             <TrackingHud
               activeRouteCount={activeRouteCount}
+              compassReserved
               incidentCount={visibleIncidents.length}
               locationStatusColor={locationStatusColor}
               locationStatusLabel={locationStatus.hudLabel}
@@ -250,7 +252,7 @@ export function MapScreen() {
               onRetryLocation={refresh}
               onToggleFollow={() => setFollowMode((current) => !current)}
               onToggleTraffic={() => setTrafficEnabled((current) => !current)}
-              top={insets.top + 104}
+              top={insets.top + 118}
               trafficEnabled={trafficEnabled}
             />
             <BottomTrackingPanel

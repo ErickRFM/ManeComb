@@ -212,12 +212,13 @@ export function OperationalMenuDrawer({
               <Pressable
                 key={section.key}
                 onPress={() => handleSectionPress(section.href)}
-                style={[
+                style={({ pressed }) => [
                   styles.drawerItem,
                   {
                     backgroundColor: isActive ? theme.colors.accentSoft : theme.colors.surfaceAlt,
                     borderColor: isActive ? theme.colors.accent : theme.colors.line,
                   },
+                  pressed ? styles.itemPressed : undefined,
                 ]}>
                 <View
                   style={[
@@ -266,12 +267,13 @@ export function OperationalMenuDrawer({
             onClose();
             signOut();
           }}
-          style={[
+          style={({ pressed }) => [
             styles.signOutButton,
             {
               backgroundColor: theme.colors.surfaceAlt,
               borderColor: theme.colors.line,
             },
+            pressed ? styles.itemPressed : undefined,
           ]}>
           <MaterialCommunityIcons name="logout" size={18} color={theme.colors.accent} />
           <Text style={[styles.signOutText, { color: theme.colors.accent }]}>Cerrar sesión</Text>
@@ -329,6 +331,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  itemPressed: {
+    opacity: DesignSystem.opacity.pressed,
+    transform: [{ scale: 0.985 }],
   },
   drawerItemIcon: {
     width: 40,

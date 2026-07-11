@@ -50,7 +50,11 @@ export function BottomTrackingPanel({
           </View>
           <Pressable
             onPress={onRetryLocation}
-            style={[styles.locationRetry, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line }]}
+            style={({ pressed }) => [
+              styles.locationRetry,
+              { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line },
+              pressed ? styles.controlPressed : undefined,
+            ]}
             accessibilityLabel="Reintentar ubicacion">
             <MaterialCommunityIcons name="refresh" size={18} color={theme.colors.text} />
           </Pressable>
@@ -71,7 +75,11 @@ export function BottomTrackingPanel({
         {activeIncident && activeIncidentVehicle ? (
           <Pressable
             onPress={() => onSelectIncidentVehicle(activeIncidentVehicle)}
-            style={[styles.alertStrip, { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger }]}>
+            style={({ pressed }) => [
+              styles.alertStrip,
+              { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger },
+              pressed ? styles.controlPressed : undefined,
+            ]}>
             <MaterialCommunityIcons name="alert-decagram" size={18} color="#FFF" />
             <View style={styles.alertCopy}>
               <Text style={styles.alertTitle}>{activeIncident.title}</Text>
@@ -93,11 +101,22 @@ export function BottomTrackingPanel({
               <Pressable
                 key={vehicle.id}
                 onPress={() => onSelectTrackingVehicle(vehicle)}
-                style={[styles.trackChip, { borderColor: theme.colors.line }, isSelected ? selectedTrackChipStyle : undefined]}>
+                style={({ pressed }) => [
+                  styles.trackChip,
+                  { borderColor: theme.colors.line },
+                  isSelected ? selectedTrackChipStyle : undefined,
+                  pressed ? styles.controlPressed : undefined,
+                ]}>
                 <Text style={[styles.trackChipTitle, trackChipTitleStyle]}>{vehicle.code}</Text>
               </Pressable>
             );
           })}
+          {!trackingVehicles.length && !selectedVehicle ? (
+            <View style={styles.emptyTrackState}>
+              <MaterialCommunityIcons name="bus-clock" size={18} color={theme.colors.muted} />
+              <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>Sin unidades disponibles</Text>
+            </View>
+          ) : null}
         </ScrollView>
       </View>
     </View>

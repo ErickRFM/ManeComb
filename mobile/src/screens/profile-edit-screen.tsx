@@ -4,7 +4,7 @@ import * as ImagePicker from '@/src/native/image-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
@@ -704,7 +704,11 @@ function Field({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        {...getTextInputProps(theme, { autoComplete: secureTextEntry ? 'current-password' : 'off' })}
+        {...getTextInputProps(theme, {
+          autoComplete: secureTextEntry ? 'current-password' : 'off',
+          returnKeyType: 'done',
+          submitBehavior: 'blurAndSubmit',
+        })}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -871,8 +875,8 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       letterSpacing: 0.3,
     },
     input: {
-      minHeight: 56,
-      borderRadius: AppTheme.radius.md,
+      minHeight: DesignSystem.control.md,
+      borderRadius: DesignSystem.radius.input,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.input,

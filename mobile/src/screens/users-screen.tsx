@@ -587,7 +587,11 @@ function Field({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        {...getTextInputProps(theme, { autoComplete: secureTextEntry ? 'new-password' : 'off' })}
+        {...getTextInputProps(theme, {
+          autoComplete: secureTextEntry ? 'new-password' : 'off',
+          returnKeyType: 'done',
+          submitBehavior: 'blurAndSubmit',
+        })}
         value={value}
         onChangeText={onChangeText}
         placeholder={label}

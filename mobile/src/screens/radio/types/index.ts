@@ -6,7 +6,12 @@ export type RadioPageIndex = 0 | 1 | 2;
 export type RadioOperationalPhase =
   | 'IDLE'
   | 'CONNECTING'
+  | 'RECONNECTING'
   | 'READY'
+  | 'TRANSMITTING'
+  | 'RECEIVING'
+  | 'CHANNEL_BUSY'
+  | 'UNAUTHORIZED'
   | 'RECORDING'
   | 'UPLOADING'
   | 'LOADING'

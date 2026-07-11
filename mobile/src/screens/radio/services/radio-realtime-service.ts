@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '@/src/config/api_config';
+import { getRadioRealtimeErrorMessage } from './radio-audio-service';
 
 export type RadioLiveIdentity = {
   id: string;
@@ -20,6 +21,7 @@ type RadioLiveHandlers = {
   onError: (message: string) => void;
   onFrame: (payload: RadioLiveFrame) => void;
   onReady: () => void;
+  onStateChange: (state: RadioRealtimeConnectionState) => void;
   onStart: (payload: {
     channelId: string;
     startedAt: number;
@@ -27,6 +29,14 @@ type RadioLiveHandlers = {
     transmitter: RadioLiveIdentity;
   }) => void;
 };
+
+export type RadioRealtimeConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'ready'
+  | 'reconnecting'
+  | 'unauthorized'
+  | 'error';
 
 type Ack = {
   error?: string;
@@ -57,6 +67,7 @@ export class RadioRealtimeService {
       this.joinChannel();
       return;
     }
+    this.handlers.onStateChange('connecting');
     this.socket.connect();
   }
 
@@ -102,16 +113,29 @@ export class RadioRealtimeService {
 
     socket.on('connect', () => {
       this.joinChannel();
+      this.handlers.onStateChange('ready');
       this.handlers.onReady();
     });
-    socket.on('connect_error', (error) => this.handlers.onError(error.message));
-    socket.on('disconnect', () => this.handlers.onError('Conexion de Radio interrumpida.'));
+    socket.io.on('reconnect_attempt', () => this.handlers.onStateChange('reconnecting'));
+    socket.on('connect_error', (error) => {
+      const message = getRadioRealtimeErrorMessage(error.message);
+      this.handlers.onStateChange(message === 'Sesion expirada' ? 'unauthorized' : 'reconnecting');
+      this.handlers.onError(message);
+    });
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io client disconnect') {
+        this.handlers.onStateChange('idle');
+        return;
+      }
+      this.handlers.onStateChange('reconnecting');
+      this.handlers.onError('Reconectando...');
+    });
     socket.on('radio:busy', this.handlers.onBusy);
     socket.on('radio:start', this.handlers.onStart);
     socket.on('radio:frame', this.handlers.onFrame);
     socket.on('radio:end', this.handlers.onEnd);
     socket.on('radio:error', (payload?: { message?: string }) =>
-      this.handlers.onError(payload?.message || 'Error de Radio en tiempo real.')
+      this.handlers.onError(getRadioRealtimeErrorMessage(payload?.message))
     );
     return socket;
   }

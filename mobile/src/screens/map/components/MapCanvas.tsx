@@ -9,6 +9,11 @@ import { mapStyles as styles } from '../map-styles';
 type SelectorPoints = Record<SelectorPointRole, NavigationPlaceResult | null>;
 
 type MapCanvasProps = {
+  compassPosition?:
+    | { bottom: number; left: number }
+    | { bottom: number; right: number }
+    | { left: number; top: number }
+    | { right: number; top: number };
   coordinates: GeoPoint | null;
   mapData: LiveLocationsData;
   mapPadding: AppMapPadding;
@@ -33,6 +38,7 @@ type MapCanvasProps = {
 };
 
 export function MapCanvas({
+  compassPosition,
   coordinates,
   mapData,
   mapPadding,
@@ -65,6 +71,7 @@ export function MapCanvas({
       }}
       mapPadding={mapPadding}
       compassEnabled
+      compassPosition={compassPosition}
       scaleBarPosition={scaleBarPosition}
       scaleEnabled
       showsTraffic={trafficEnabled}

@@ -1,4 +1,4 @@
-import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
+import type { ChatDirectoryContact, ConversationSummary } from '@/src/types/app';
 import { formatClockDurationFromSeconds } from '@/src/utils/format';
 import { RADIO_PHASE_TRANSITIONS } from '../constants';
 import type { RadioMetrics, RadioOperationalPhase, VoicePlaybackPhase } from '../types';
@@ -72,22 +72,6 @@ export function isValidRadioPhaseTransition(
 
 export function getAverageDuration(totalMs: number, count: number) {
   return count > 0 ? Math.round(totalMs / count) : 0;
-}
-
-export function getVoiceWaveformBars(message: ChatMessage, barCount = 18) {
-  const seedText = `${message.id}:${message.durationSeconds || 0}:${message.createdAt}`;
-  let seed = 0;
-
-  for (let index = 0; index < seedText.length; index += 1) {
-    seed = (seed * 31 + seedText.charCodeAt(index)) % 9973;
-  }
-
-  return Array.from({ length: barCount }, (_, index) => {
-    const wave = Math.sin((seed + index * 19) * 0.37);
-    const secondary = Math.cos((seed + index * 11) * 0.21);
-    const envelope = 0.42 + Math.sin((index / Math.max(1, barCount - 1)) * Math.PI) * 0.58;
-    return 7 + Math.round((10 + wave * 5 + secondary * 3) * envelope);
-  });
 }
 
 export function createInitialRadioMetrics(): RadioMetrics {

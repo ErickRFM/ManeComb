@@ -44,6 +44,7 @@ export function useChatController() {
     sendVoiceMessage,
     setActiveConversationId,
     sendMediaMessage,
+    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -61,6 +62,7 @@ export function useChatController() {
       sendVoiceMessage: state.sendVoiceMessage,
       setActiveConversationId: state.setActiveConversationId,
       sendMediaMessage: state.sendMediaMessage,
+      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -88,6 +90,7 @@ export function useChatController() {
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [pendingTextMessages, setPendingTextMessages] = useState<LocalTextMessage[]>([]);
   const [activeAudioMessageId, setActiveAudioMessageId] = useState<string | null>(null);
+  const [isRtcSocketConnected, setIsRtcSocketConnected] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -109,6 +112,11 @@ export function useChatController() {
       randomizationFactor: 0.45,
     });
     socketRef.current = socket;
+    setIsRtcSocketConnected(socket.connected);
+
+    socket.on('connect', () => {
+      setIsRtcSocketConnected(true);
+    });
 
     const resetPeerConnection = () => {
       if (peerRef.current) {
@@ -345,6 +353,7 @@ export function useChatController() {
     });
 
     socket.on('disconnect', () => {
+      setIsRtcSocketConnected(false);
       setCallParticipants([]);
       setCallNotice('Reconectando senal de llamada...');
     });
@@ -364,6 +373,7 @@ export function useChatController() {
     });
 
     return () => {
+      setIsRtcSocketConnected(false);
       resetPeerConnection();
       socket.removeAllListeners();
       socket.io.removeAllListeners();
@@ -552,7 +562,11 @@ export function useChatController() {
     [chatContacts]
   );
   const activeStatusChips = useMemo(
-    () => [
+    () => {
+      const isChatSocketConnected =
+        Platform.OS === 'web' ? isRtcSocketConnected : socketStatus === 'connected';
+
+      return [
       {
         icon: 'circle',
         label: activeConversation ? getConversationPresenceLabel(activeConversation, activeContact) : 'Sin canal',
@@ -564,12 +578,13 @@ export function useChatController() {
         tone: 'positive',
       },
       {
-        icon: socketRef.current?.connected ? 'access-point' : 'access-point-off',
-        label: socketRef.current?.connected ? 'Socket activo' : 'Reconectando',
-        tone: socketRef.current?.connected ? 'positive' : 'warning',
+        icon: isChatSocketConnected ? 'access-point' : 'access-point-off',
+        label: isChatSocketConnected ? 'Socket activo' : 'Reconectando',
+        tone: isChatSocketConnected ? 'positive' : 'warning',
       },
-    ],
-    [activeContact, activeConversation]
+      ];
+    },
+    [activeContact, activeConversation, isRtcSocketConnected, socketStatus]
   );
 
   const {
