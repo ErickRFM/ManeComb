@@ -2,8 +2,17 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
-  setAudioModeAsync,
   stopActiveAudioPlaybackAsync,
+  enqueuePttAudioFrame,
+  startPttAudioCapture,
+  startPttAudioPlayback,
+  startRadioForegroundService,
+  stopPttAudioCapture,
+  stopPttAudioPlayback,
+  stopRadioForegroundService,
+  subscribeToPttAudioErrors,
+  subscribeToPttAudioFrames,
+  subscribeToPttAudioLevel,
   useAudioRecorder,
 } from '@/src/native/audio';
 import * as Haptics from '@/src/native/haptics';
@@ -51,6 +60,7 @@ import {
 import { initialRadioEngineState, radioReducer } from './reducers/radio-reducer';
 import { getDeviceDisplayName, getTimeDomainVolume, normalizeMeteringDecibels, withRadioTimeout } from './services/radio-audio-service';
 import { useRadioLifecycle } from './hooks/use-radio-lifecycle';
+import { RadioRealtimeService, type RadioLiveIdentity } from './services/radio-realtime-service';
 import type {
   ActivePlaybackState,
   AudioFilter,
@@ -68,7 +78,6 @@ import {
   getContactSearchText,
   getConversationContact,
   getConversationPreview,
-  getFirstName,
   isDevelopmentRuntime,
   isLivePlaybackPhase,
   isValidRadioPhaseTransition,
@@ -128,6 +137,8 @@ export function RadioScreen() {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
+  const [liveOperator, setLiveOperator] = useState<RadioLiveIdentity | null>(null);
+  const [isReceivingLive, setIsReceivingLive] = useState(false);
 
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
@@ -171,9 +182,16 @@ export function RadioScreen() {
   const recordingStateRef = useRef<RecordingState>('idle');
   const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
   const lastSocketStatusRef = useRef(socketStatus);
+  const realtimeServiceRef = useRef<RadioRealtimeService | null>(null);
+  const liveTransmissionIdRef = useRef<string | null>(null);
+  const liveSequenceRef = useRef(0);
   const pulseValue = useSharedValue(1);
   const haloValue = useSharedValue(0);
   const volumeValue = useSharedValue(0);
+  const setRecordingMode = useCallback((nextState: RecordingState) => {
+    recordingStateRef.current = nextState;
+    setRecordingState(nextState);
+  }, []);
 
   const nativeRecorder = useAudioRecorder(
     { ...RecordingPresets.LOW_QUALITY, isMeteringEnabled: true },
@@ -254,16 +272,6 @@ export function RadioScreen() {
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
   const activePlaybackMessageId = activePlayback?.messageId || null;
-  const receivingVoiceNote = useMemo(
-    () =>
-      activePlaybackMessageId
-        ? loadedVoiceNotes.find((item) => item.message.id === activePlaybackMessageId)?.message ||
-          null
-        : null,
-    [activePlaybackMessageId, loadedVoiceNotes]
-  );
-  const receivingSenderName = receivingVoiceNote?.sender?.name || null;
-  const receivingSenderShortName = getFirstName(receivingSenderName);
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -308,12 +316,12 @@ export function RadioScreen() {
       Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
       typeof (globalThis as any).MediaRecorder !== 'undefined');
   const isRadioTransmitting = recordingState === 'recording' || recordingState === 'uploading';
-  const isRadioReceiving = Boolean(activePlayback && isLivePlaybackPhase(activePlayback.phase));
+  const isHistoryPlaybackActive = Boolean(activePlayback && isLivePlaybackPhase(activePlayback.phase));
   const radioConnection = useMemo(
     () =>
       getRadioConnectionStatus(socketStatus, {
         hasUser: Boolean(user),
-        isReceiving: isRadioReceiving,
+        isReceiving: false,
         isTransmitting: isRadioTransmitting,
         networkStatus,
         pendingSyncCount,
@@ -321,7 +329,6 @@ export function RadioScreen() {
       }),
     [
       activeChannel,
-      isRadioReceiving,
       isRadioTransmitting,
       networkStatus,
       pendingSyncCount,
@@ -336,21 +343,21 @@ export function RadioScreen() {
       ? Platform.OS === 'web'
         ? 'Mic bloqueado'
         : 'Toca para reintentar microfono'
+      : isReceivingLive
+        ? `Canal ocupado por ${liveOperator?.name || 'otro operador'}`
       : isBusy
         ? 'Transmision en curso'
         : !activeChannel
           ? 'Sin canal activo'
-          : isRadioReceiving
-            ? 'Recibiendo audio'
-            : !radioConnection.canTransmit
+          : !radioConnection.canTransmit
               ? radioConnection.detail
               : null;
   const isPttDisabled =
     !supportsTapToTalk ||
     (Platform.OS === 'web' && audioPermissionState === 'denied') ||
     isBusy ||
+    isReceivingLive ||
     !activeChannel ||
-    isRadioReceiving ||
     (!radioConnection.canTransmit && recordingState !== 'recording');
   const incrementRadioMetrics = useCallback((patch: Partial<RadioMetrics>) => {
     dispatchRadioEngine({ type: 'INCREMENT_METRICS', patch });
@@ -371,7 +378,7 @@ export function RadioScreen() {
       return 'CONNECTING';
     }
 
-    if (recordingState === 'error' || activePlayback?.phase === 'ERROR' || radioConnection.state === 'ERROR') {
+    if (recordingState === 'error' || radioConnection.state === 'ERROR') {
       return 'ERROR';
     }
 
@@ -379,12 +386,12 @@ export function RadioScreen() {
       return 'RECORDING';
     }
 
-    if (recordingState === 'uploading') {
-      return 'UPLOADING';
+    if (isReceivingLive) {
+      return 'PLAYING';
     }
 
-    if (activePlayback?.phase && activePlayback.phase !== 'IDLE') {
-      return activePlayback.phase;
+    if (recordingState === 'uploading') {
+      return 'UPLOADING';
     }
 
     if (radioConnection.canTransmit && activeChannel) {
@@ -392,7 +399,95 @@ export function RadioScreen() {
     }
 
     return 'IDLE';
-  }, [activeChannel, activePlayback?.phase, networkStatus, radioConnection, recordingState, socketStatus]);
+  }, [activeChannel, isReceivingLive, networkStatus, radioConnection, recordingState, socketStatus]);
+
+  useEffect(() => {
+    const service = new RadioRealtimeService({
+      onBusy: ({ transmitter }) => {
+        setLiveOperator(transmitter || null);
+        setRecorderMessage('Canal ocupado');
+      },
+      onEnd: ({ transmissionId }) => {
+        if (liveTransmissionIdRef.current !== transmissionId) return;
+        liveTransmissionIdRef.current = null;
+        setIsReceivingLive(false);
+        setLiveOperator(null);
+        volumeValue.value = 0;
+        stopPttAudioPlayback().catch(() => undefined);
+        if (recordingStateRef.current !== 'recording') setRecorderMessage(null);
+      },
+      onError: (message) => {
+        const transmissionId = liveTransmissionIdRef.current;
+        if (transmissionId && recordingStateRef.current === 'recording') {
+          realtimeServiceRef.current?.endTransmission(transmissionId).catch(() => undefined);
+        }
+        stopPttAudioCapture().catch(() => undefined);
+        stopPttAudioPlayback().catch(() => undefined);
+        liveTransmissionIdRef.current = null;
+        setIsReceivingLive(false);
+        if (recordingStateRef.current === 'recording') setRecordingMode('idle');
+        setRecorderMessage(message);
+      },
+      onFrame: (frame) => {
+        if (frame.transmissionId !== liveTransmissionIdRef.current) return;
+        enqueuePttAudioFrame(frame.data).catch(() => undefined);
+      },
+      onReady: () => {
+        if (recordingStateRef.current === 'idle') setRecorderMessage(null);
+      },
+      onStart: ({ transmissionId, transmitter }) => {
+        liveTransmissionIdRef.current = transmissionId;
+        setLiveOperator(transmitter);
+        if (transmitter.id === user?.id) return;
+        setIsReceivingLive(true);
+        setRecorderMessage(`Recibiendo: ${transmitter.name}`);
+        stopActiveAudioPlaybackAsync()
+          .then(() => startPttAudioPlayback())
+          .catch((error) => setRecorderMessage(error instanceof Error ? error.message : 'Audio no disponible'));
+      },
+    });
+    realtimeServiceRef.current = service;
+    return () => {
+      service.disconnect();
+      realtimeServiceRef.current = null;
+      stopPttAudioCapture().catch(() => undefined);
+      stopPttAudioPlayback().catch(() => undefined);
+    };
+  }, [setRecordingMode, user?.id, volumeValue]);
+
+  useEffect(() => {
+    if (!token || !activeChannel?.id) return;
+    realtimeServiceRef.current?.connect(token, activeChannel.id);
+    startRadioForegroundService().catch(() => undefined);
+    return () => {
+      stopRadioForegroundService().catch(() => undefined);
+    };
+  }, [activeChannel?.id, token]);
+
+  useEffect(() => {
+    const removeFrames = subscribeToPttAudioFrames((frame) => {
+      const transmissionId = liveTransmissionIdRef.current;
+      if (!transmissionId || recordingStateRef.current !== 'recording') return;
+      realtimeServiceRef.current?.sendFrame({
+        data: frame.data,
+        sequence: liveSequenceRef.current++,
+        sentAt: frame.capturedAt,
+        transmissionId,
+      });
+    });
+    const removeErrors = subscribeToPttAudioErrors(() => {
+      setRecorderMessage('Error al capturar audio PTT.');
+      setRecordingMode('error');
+    });
+    const removeLevel = subscribeToPttAudioLevel(({ level }) => {
+      volumeValue.value = volumeValue.value * 0.3 + Math.max(0, Math.min(1, level)) * 0.7;
+    });
+    return () => {
+      removeFrames();
+      removeErrors();
+      removeLevel();
+    };
+  }, [setRecordingMode, volumeValue]);
 
   useEffect(() => {
     dispatchRadioEngine({ type: 'SET_PHASE', phase: resolvedRadioPhase });
@@ -457,7 +552,7 @@ export function RadioScreen() {
         networkStatus,
         permission: audioPermissionState,
         reason: nextReason,
-        receiving: isRadioReceiving,
+        historyPlaybackActive: isHistoryPlaybackActive,
         recordingState,
         socketStatus,
         state: radioConnection.state,
@@ -477,7 +572,7 @@ export function RadioScreen() {
     activeChannel,
     audioPermissionState,
     isPttDisabled,
-    isRadioReceiving,
+    isHistoryPlaybackActive,
     isSubmitting,
     networkStatus,
     pttBlockReason,
@@ -494,11 +589,6 @@ export function RadioScreen() {
     opacity: haloValue.value,
     transform: [{ scale: 1 + haloValue.value * 0.18 }],
   }));
-
-  const setRecordingMode = useCallback((nextState: RecordingState) => {
-    recordingStateRef.current = nextState;
-    setRecordingState(nextState);
-  }, []);
 
   const stopWebMetering = useCallback(() => {
     meteringActiveRef.current = false;
@@ -942,27 +1032,28 @@ export function RadioScreen() {
       return;
     }
 
-    await setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-      shouldRouteThroughEarpiece: false,
-      interruptionMode: 'duckOthers',
-      shouldPlayInBackground: false,
-    });
-
     if (Platform.OS !== 'web') {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
 
-    await withRadioTimeout(
-      nativeRecorder.prepareToRecordAsync(),
-      7000,
-      'No se pudo iniciar el microfono a tiempo.'
-    );
-    nativeRecorder.record();
+    const ack = await realtimeServiceRef.current?.requestTransmission();
+    if (!ack?.ok || !ack.transmissionId) {
+      setRecorderMessage(ack?.error === 'channel_busy' ? 'Canal ocupado' : 'Radio no disponible');
+      return;
+    }
+    liveTransmissionIdRef.current = ack.transmissionId;
+    liveSequenceRef.current = 0;
+    try {
+      await startPttAudioCapture();
+    } catch (error) {
+      await realtimeServiceRef.current?.endTransmission(ack.transmissionId);
+      liveTransmissionIdRef.current = null;
+      throw error;
+    }
     startRecordingTicker();
     syncRecordingAnimation(true);
-    setRecorderMessage('Grabando');
+    setLiveOperator(user ? { id: user.id, name: user.name || 'Operador' } : null);
+    setRecorderMessage(`Transmitiendo: ${user?.name || 'Operador'}`);
     setAudioPermissionState('granted');
     setRecordingMode('recording');
   };
@@ -972,73 +1063,15 @@ export function RadioScreen() {
       return;
     }
 
-    setRecordingMode('uploading');
-    uploadStartedAtRef.current = Date.now();
-    await withRadioTimeout(
-      nativeRecorder.stop(),
-      7000,
-      'No se pudo cerrar la grabacion a tiempo.'
-    );
-    const status = nativeRecorder.getStatus();
-    const uri = status.url || nativeRecorder.uri;
+    const transmissionId = liveTransmissionIdRef.current;
+    await stopPttAudioCapture();
     stopRecordingTicker();
     syncRecordingAnimation(false);
-
-    await setAudioModeAsync({
-      allowsRecording: false,
-      playsInSilentMode: true,
-      shouldRouteThroughEarpiece: false,
-      interruptionMode: 'duckOthers',
-      shouldPlayInBackground: false,
-    });
-
-    if (!uri) {
-      setRecorderMessage('Audio no disponible');
-      setRecordingMode('error');
-      scheduleIdleAfterStatus();
-      return;
-    }
-
-    const rawDurationSeconds = Math.round(Number(status.durationMillis || 0) / 1000);
-
-    if (rawDurationSeconds < MIN_RADIO_NOTE_SECONDS) {
-      incrementRadioMetrics({ cancelled: 1 });
-      setRecorderMessage('Manten presionado al menos 1 segundo');
-      setRecordingMode('error');
-      scheduleIdleAfterStatus();
-      return;
-    }
-
-    const durationSeconds = Math.min(MAX_RADIO_NOTE_SECONDS, rawDurationSeconds);
-
-    const formData = new FormData();
-    formData.append('channelId', activeChannel.id);
-    formData.append('durationSeconds', String(durationSeconds));
-    formData.append('createdAt', new Date().toISOString());
-    if (user?.id) {
-      formData.append('userId', user.id);
-    }
-    formData.append('file', {
-      uri,
-      name: `radio-note-${Date.now()}.m4a`,
-      type: 'audio/mp4',
-    } as any);
-
-    const result = await withRadioTimeout(
-      sendVoiceMessage(activeChannel.id, formData),
-      50000,
-      'Tiempo de espera agotado al enviar la transmision.'
-    );
-    if (!result.ok) {
-      throw new Error(result.message || 'No fue posible enviar la transmision.');
-    }
-    incrementRadioMetrics({
-      sent: 1,
-      uploadCount: 1,
-      uploadTotalMs: uploadStartedAtRef.current ? Date.now() - uploadStartedAtRef.current : 0,
-    });
-    uploadStartedAtRef.current = null;
-    setRecorderMessage('Enviado');
+    if (transmissionId) await realtimeServiceRef.current?.endTransmission(transmissionId);
+    liveTransmissionIdRef.current = null;
+    setLiveOperator(null);
+    incrementRadioMetrics({ sent: 1 });
+    setRecorderMessage('Transmision finalizada');
     setRecordingMode('sent');
     scheduleIdleAfterStatus();
   };
@@ -1360,19 +1393,12 @@ export function RadioScreen() {
         label: 'Enviando',
         tone: 'info' as const,
       };
-      case 'FINISHED':
-      return {
-        detail: 'Reproduccion finalizada',
-        icon: 'check-circle-outline' as const,
-        label: 'Finalizado',
-        tone: 'positive' as const,
-      };
-      case 'PAUSED':
+      case 'PLAYING':
         return {
-          detail: 'Audio pausado',
-          icon: 'pause-circle-outline' as const,
-          label: 'Pausado',
-          tone: 'neutral' as const,
+          detail: `Recibiendo: ${liveOperator?.name || 'Operador'}`,
+          icon: 'volume-high' as const,
+          label: 'Recibiendo',
+          tone: 'info' as const,
         };
       case 'ERROR':
       return {
@@ -1380,17 +1406,6 @@ export function RadioScreen() {
         icon: 'alert-circle-outline' as const,
         label: 'Error',
         tone: 'warning' as const,
-      };
-      case 'LOADING':
-      case 'BUFFERING':
-      case 'PLAYING':
-      return {
-        detail: receivingSenderShortName
-          ? `Escuchando a ${receivingSenderShortName}`
-          : 'Audio entrante activo',
-        icon: 'volume-high' as const,
-        label: receivingSenderShortName ? `${receivingSenderShortName} transmitiendo` : 'Recibiendo',
-        tone: 'info' as const,
       };
       case 'CONNECTING':
       case 'OFFLINE':
@@ -1846,7 +1861,7 @@ export function RadioScreen() {
               {Array.from({ length: 18 }).map((_, index) => (
                 <WaveBar
                   key={index}
-                  active={recordingState === 'recording'}
+                  active={recordingState === 'recording' || isReceivingLive}
                   theme={theme}
                   index={index}
                   volumeValue={volumeValue}

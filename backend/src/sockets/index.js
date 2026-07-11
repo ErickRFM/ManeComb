@@ -7,11 +7,13 @@ const logger = require("../services/logger");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { verifyToken } = require("../utils/jwt");
+const { appendFrame, persistTransmission } = require("../modules/radio/live-stream");
 
 function registerSocketServer(server, store) {
   const allowCredentials = !CLIENT_ORIGINS.includes("*");
   const rtcRooms = new Map();
   const activeRtcSessions = new Map();
+  const activeRadioTransmissions = new Map();
   const io = new Server(server, {
     cors: {
       origin: CORS_ORIGIN,
@@ -321,6 +323,121 @@ function registerSocketServer(server, store) {
       observeSocketEvent(socket, "conversation:join", startedAt, "success", { conversationId });
     });
 
+    socket.on("radio:join", async ({ channelId } = {}, ack) => {
+      const safeChannelId = String(channelId || "").trim();
+      const allowed = safeChannelId &&
+        (await canUseOperations(socket)) &&
+        (await store.canUserAccessConversation?.(socket.data.user.id, safeChannelId));
+      if (!allowed) {
+        acknowledge(ack, { ok: false, error: "forbidden" });
+        return;
+      }
+      socket.join(`conversation:${safeChannelId}`);
+      acknowledge(ack, { ok: true });
+    });
+
+    socket.on("radio:leave", ({ channelId } = {}) => {
+      const safeChannelId = String(channelId || "").trim();
+      if (safeChannelId) socket.leave(`conversation:${safeChannelId}`);
+    });
+
+    socket.on("radio:start", async ({ channelId } = {}, ack) => {
+      const safeChannelId = String(channelId || "").trim();
+      const user = socket.data.user;
+      const allowed = safeChannelId && user &&
+        (await canUseOperations(socket)) &&
+        (await store.canUserAccessConversation?.(user.id, safeChannelId));
+      if (!allowed) {
+        acknowledge(ack, { ok: false, error: "forbidden" });
+        return;
+      }
+
+      const current = activeRadioTransmissions.get(safeChannelId);
+      if (current) {
+        const busyPayload = {
+          channelId: safeChannelId,
+          transmitter: { id: current.userId, name: current.userName }
+        };
+        socket.emit("radio:busy", busyPayload);
+        acknowledge(ack, { ok: false, error: "channel_busy", ...busyPayload });
+        return;
+      }
+
+      const transmission = {
+        id: `${Date.now()}-${socket.id}`,
+        channelId: safeChannelId,
+        socketId: socket.id,
+        userId: user.id,
+        userName: user.name || "Operador",
+        startedAt: Date.now(),
+        byteLength: 0,
+        frames: [],
+        lastSequence: -1
+      };
+      activeRadioTransmissions.set(safeChannelId, transmission);
+      const payload = {
+        channelId: safeChannelId,
+        transmissionId: transmission.id,
+        startedAt: transmission.startedAt,
+        transmitter: { id: transmission.userId, name: transmission.userName }
+      };
+      io.to(`conversation:${safeChannelId}`).emit("radio:start", payload);
+      acknowledge(ack, { ok: true, transmissionId: transmission.id });
+    });
+
+    socket.on("radio:frame", (payload = {}) => {
+      const channelId = String(payload.channelId || "").trim();
+      const transmission = activeRadioTransmissions.get(channelId);
+      const sequence = Number(payload.sequence);
+      if (!transmission || transmission.socketId !== socket.id ||
+          transmission.id !== payload.transmissionId || !Number.isInteger(sequence) ||
+          sequence <= transmission.lastSequence || !appendFrame(transmission, payload.data)) {
+        return;
+      }
+      transmission.lastSequence = sequence;
+      socket.to(`conversation:${channelId}`).emit("radio:frame", {
+        channelId,
+        data: payload.data,
+        sequence,
+        sentAt: Number(payload.sentAt || Date.now()),
+        transmissionId: transmission.id
+      });
+    });
+
+    async function finishRadioTransmission(channelId, reason = "completed") {
+      const transmission = activeRadioTransmissions.get(channelId);
+      if (!transmission || transmission.socketId !== socket.id) return null;
+      activeRadioTransmissions.delete(channelId);
+      io.to(`conversation:${channelId}`).emit("radio:end", {
+        channelId,
+        reason,
+        transmissionId: transmission.id
+      });
+      try {
+        const message = await persistTransmission(store, transmission);
+        if (message) {
+          io.to(`conversation:${channelId}`).emit("radio:message:new", { channelId, message });
+          incrementMetric("radio_transmissions_total", 1, { transport: "live_socket" });
+        }
+        return message;
+      } catch (error) {
+        logger.error({ action: "PersistLiveTransmission", module: "Radio", status: "error", error });
+        socket.emit("radio:error", { message: "La transmision termino, pero no pudo guardarse." });
+        return null;
+      }
+    }
+
+    socket.on("radio:end", async ({ channelId, transmissionId } = {}, ack) => {
+      const safeChannelId = String(channelId || "").trim();
+      const transmission = activeRadioTransmissions.get(safeChannelId);
+      if (!transmission || transmission.id !== transmissionId || transmission.socketId !== socket.id) {
+        acknowledge(ack, { ok: false, error: "transmission_not_active" });
+        return;
+      }
+      await finishRadioTransmission(safeChannelId);
+      acknowledge(ack, { ok: true });
+    });
+
     socket.on("chat:send", async ({ conversationId, senderId, text, ...payload } = {}, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
@@ -516,6 +633,9 @@ function registerSocketServer(server, store) {
       });
       Array.from(rtcRooms.keys()).forEach((roomId) => {
         void leaveRtcRoom(socket, roomId);
+      });
+      Array.from(activeRadioTransmissions.entries()).forEach(([channelId, transmission]) => {
+        if (transmission.socketId === socket.id) void finishRadioTransmission(channelId, "disconnected");
       });
     });
   });

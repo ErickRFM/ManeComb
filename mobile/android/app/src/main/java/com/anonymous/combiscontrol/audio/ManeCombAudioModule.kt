@@ -3,17 +3,23 @@ package com.anonymous.combiscontrol.audio
 import android.media.AudioFocusRequest
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.content.Intent
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.FileOutputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -22,6 +28,7 @@ import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.max
+import kotlin.concurrent.thread
 
 class ManeCombAudioModule(
   private val reactContext: ReactApplicationContext
@@ -35,6 +42,194 @@ class ManeCombAudioModule(
   private var playerLocalUri: String? = null
   private var playerPrepared = false
   private var audioFocusRequest: AudioFocusRequest? = null
+  @Volatile private var pttCapturing = false
+  private var pttRecorder: AudioRecord? = null
+  private var pttCaptureThread: Thread? = null
+  private var pttTrack: AudioTrack? = null
+
+  private fun emitPttEvent(name: String, payload: com.facebook.react.bridge.WritableMap) {
+    if (reactContext.hasActiveReactInstance()) {
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit(name, payload)
+    }
+  }
+
+  @ReactMethod
+  fun startPttCapture(promise: Promise) {
+    if (pttCapturing) {
+      promise.reject("ptt_capture_active", "La captura PTT ya esta activa.")
+      return
+    }
+
+    try {
+      val sampleRate = 16000
+      val frameSamples = 320 // 20 ms, mono PCM16.
+      val minBuffer = AudioRecord.getMinBufferSize(
+        sampleRate,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT
+      )
+      val bufferSize = max(minBuffer, frameSamples * 2 * 4)
+      val audioRecord = AudioRecord(
+        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+        sampleRate,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT,
+        bufferSize
+      )
+
+      if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
+        audioRecord.release()
+        promise.reject("ptt_capture_init_failed", "Android no pudo inicializar AudioRecord.")
+        return
+      }
+
+      stopPlayerInternal()
+      pttRecorder = audioRecord
+      pttCapturing = true
+      audioRecord.startRecording()
+      pttCaptureThread = thread(name = "ManeCombPttCapture", start = true) {
+        val frame = ByteArray(frameSamples * 2)
+        while (pttCapturing) {
+          val bytesRead = audioRecord.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+          if (bytesRead > 0) {
+            val encoded = Base64.encodeToString(frame, 0, bytesRead, Base64.NO_WRAP)
+            emitPttEvent("ManeCombPttFrame", Arguments.createMap().apply {
+              putString("data", encoded)
+              putInt("bytes", bytesRead)
+              putDouble("capturedAt", System.currentTimeMillis().toDouble())
+            })
+          } else if (bytesRead < 0) {
+            emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
+              putString("code", "ptt_capture_read_failed")
+              putInt("nativeCode", bytesRead)
+            })
+            break
+          }
+        }
+      }
+      promise.resolve(Arguments.createMap().apply {
+        putInt("sampleRate", sampleRate)
+        putInt("frameDurationMs", 20)
+      })
+    } catch (error: Exception) {
+      stopPttCaptureInternal()
+      promise.reject("ptt_capture_start_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun stopPttCapture(promise: Promise) {
+    stopPttCaptureInternal()
+    promise.resolve(null)
+  }
+
+  private fun stopPttCaptureInternal() {
+    pttCapturing = false
+    try { pttRecorder?.stop() } catch (_: Exception) {}
+    try { pttCaptureThread?.join(500) } catch (_: InterruptedException) {}
+    pttCaptureThread = null
+    pttRecorder?.release()
+    pttRecorder = null
+  }
+
+  @ReactMethod
+  fun startPttPlayback(promise: Promise) {
+    try {
+      if (pttTrack == null) {
+        val sampleRate = 16000
+        val minBuffer = AudioTrack.getMinBufferSize(
+          sampleRate,
+          AudioFormat.CHANNEL_OUT_MONO,
+          AudioFormat.ENCODING_PCM_16BIT
+        )
+        pttTrack = AudioTrack.Builder()
+          .setAudioAttributes(
+            AudioAttributes.Builder()
+              .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+              .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+              .build()
+          )
+          .setAudioFormat(
+            AudioFormat.Builder()
+              .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+              .setSampleRate(sampleRate)
+              .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+              .build()
+          )
+          .setBufferSizeInBytes(max(minBuffer, 640 * 8))
+          .setTransferMode(AudioTrack.MODE_STREAM)
+          .build()
+      }
+      if (pttTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) pttTrack?.play()
+      promise.resolve(null)
+    } catch (error: Exception) {
+      stopPttPlaybackInternal()
+      promise.reject("ptt_playback_start_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun enqueuePttFrame(base64Data: String, promise: Promise) {
+    val track = pttTrack
+    if (track == null) {
+      promise.reject("ptt_playback_inactive", "La reproduccion PTT no esta activa.")
+      return
+    }
+    try {
+      val bytes = Base64.decode(base64Data, Base64.NO_WRAP)
+      val written = track.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING)
+      var peak = 0
+      var index = 0
+      while (index + 1 < bytes.size) {
+        val sample = ((bytes[index + 1].toInt() shl 8) or (bytes[index].toInt() and 0xff)).toShort().toInt()
+        peak = max(peak, kotlin.math.abs(sample))
+        index += 2
+      }
+      emitPttEvent("ManeCombPttLevel", Arguments.createMap().apply {
+        putDouble("level", (peak / 32768.0).coerceIn(0.0, 1.0))
+      })
+      promise.resolve(written)
+    } catch (error: Exception) {
+      promise.reject("ptt_playback_write_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun stopPttPlayback(promise: Promise) {
+    stopPttPlaybackInternal()
+    promise.resolve(null)
+  }
+
+  private fun stopPttPlaybackInternal() {
+    try { pttTrack?.pause() } catch (_: Exception) {}
+    try { pttTrack?.flush() } catch (_: Exception) {}
+    try { pttTrack?.stop() } catch (_: Exception) {}
+    pttTrack?.release()
+    pttTrack = null
+  }
+
+  @ReactMethod fun addListener(eventName: String) = Unit
+  @ReactMethod fun removeListeners(count: Int) = Unit
+
+  @ReactMethod
+  fun startRadioForegroundService(promise: Promise) {
+    try {
+      val intent = Intent(reactContext, ManeCombRadioService::class.java)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) reactContext.startForegroundService(intent)
+      else reactContext.startService(intent)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("radio_service_start_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun stopRadioForegroundService(promise: Promise) {
+    reactContext.stopService(Intent(reactContext, ManeCombRadioService::class.java))
+    promise.resolve(null)
+  }
 
   override fun getName(): String = "ManeCombAudio"
 

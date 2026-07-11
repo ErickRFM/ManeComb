@@ -1,4 +1,4 @@
-import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export const RecordingPresets = {
@@ -59,6 +59,13 @@ type NativeAudioModule = {
   stopPlayer: () => Promise<PlayerStatus>;
   seekTo: (positionMillis: number) => Promise<PlayerStatus>;
   getPlayerStatus: () => Promise<PlayerStatus>;
+  startPttCapture: () => Promise<{ frameDurationMs: number; sampleRate: number }>;
+  stopPttCapture: () => Promise<void>;
+  startPttPlayback: () => Promise<void>;
+  enqueuePttFrame: (base64Data: string) => Promise<number>;
+  stopPttPlayback: () => Promise<void>;
+  startRadioForegroundService: () => Promise<void>;
+  stopRadioForegroundService: () => Promise<void>;
 };
 
 type NativeAudioError = Error & {
@@ -70,6 +77,61 @@ const NativeAudio =
   Platform.OS === 'android'
     ? (NativeModules.ManeCombAudio as NativeAudioModule | undefined)
     : undefined;
+const pttEventEmitter = NativeAudio ? new NativeEventEmitter(NativeModules.ManeCombAudio) : null;
+
+export type PttAudioFrame = {
+  bytes: number;
+  capturedAt: number;
+  data: string;
+};
+
+export function subscribeToPttAudioFrames(listener: (frame: PttAudioFrame) => void) {
+  const subscription = pttEventEmitter?.addListener('ManeCombPttFrame', listener);
+  return () => subscription?.remove();
+}
+
+export function subscribeToPttAudioErrors(
+  listener: (error: { code?: string; nativeCode?: number }) => void
+) {
+  const subscription = pttEventEmitter?.addListener('ManeCombPttError', listener);
+  return () => subscription?.remove();
+}
+
+export function subscribeToPttAudioLevel(listener: (event: { level: number }) => void) {
+  const subscription = pttEventEmitter?.addListener('ManeCombPttLevel', listener);
+  return () => subscription?.remove();
+}
+
+export async function startPttAudioCapture() {
+  if (!NativeAudio) throw new Error('PTT nativo no disponible.');
+  return NativeAudio.startPttCapture();
+}
+
+export async function stopPttAudioCapture() {
+  await NativeAudio?.stopPttCapture();
+}
+
+export async function startPttAudioPlayback() {
+  if (!NativeAudio) throw new Error('PTT nativo no disponible.');
+  await NativeAudio.startPttPlayback();
+}
+
+export async function enqueuePttAudioFrame(base64Data: string) {
+  if (!NativeAudio) return 0;
+  return NativeAudio.enqueuePttFrame(base64Data);
+}
+
+export async function stopPttAudioPlayback() {
+  await NativeAudio?.stopPttPlayback();
+}
+
+export async function startRadioForegroundService() {
+  await NativeAudio?.startRadioForegroundService();
+}
+
+export async function stopRadioForegroundService() {
+  await NativeAudio?.stopRadioForegroundService();
+}
 
 const idlePlayerStatus: PlayerStatus = {
   currentTime: 0,
