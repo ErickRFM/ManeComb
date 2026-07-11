@@ -82,10 +82,10 @@ La consola muestra dos avisos no bloqueantes emitidos por la compatibilidad web 
 ## Versionado y publicación
 
 - Rama: `codex/ptt-radio-realtime`
-- Commit de implementación: `PENDIENTE_RC04_COMMIT`
-- Push: pendiente de confirmación tras crear el commit.
+- Commit de implementación: `cc2cfb8`
+- Push: confirmado en `origin/codex/ptt-radio-realtime`.
 - Cambios ajenos existentes en `mobile/`: excluidos del stage y del commit.
 
 ## Certificación
 
-La certificación final queda condicionada únicamente a registrar y publicar el commit. El código de `ventas` compila, supera TypeScript, no contiene errores de formato y cumple la validación responsive definida para RC-04. No se avanzó a una integración real de pagos.
+**RC-04 CERTIFICADA.** El código de `ventas` compila, supera TypeScript, no contiene errores de formato, cumple la validación responsive definida y el commit de implementación fue publicado. No se avanzó a una integración real de pagos.
