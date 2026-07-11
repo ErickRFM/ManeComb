@@ -1,39 +1,32 @@
-import { initialRadioEngineState, radioReducer } from './radio-reducer';
 import { isValidRadioPhaseTransition } from '../utils/radio-format';
 import { getRadioRealtimeErrorMessage } from '../services/radio-audio-service';
+import { initialRadioSessionState, radioSessionReducer } from './radio-session-reducer';
 
-describe('radio reducers', () => {
-  it('accumulates radio metrics without mutating state', () => {
-    const next = radioReducer(initialRadioEngineState, {
-      type: 'INCREMENT_METRICS',
-      patch: {
-        received: 2,
-        sent: 1,
-        uploadCount: 1,
-        uploadTotalMs: 420,
-      },
+describe('radio state', () => {
+  it('stores phase, authorization, operator and transmission in one session', () => {
+    const joining = radioSessionReducer(initialRadioSessionState, {
+      type: 'TRANSITION',
+      phase: 'JOIN_SENT',
     });
-
-    expect(next.metrics.received).toBe(2);
-    expect(next.metrics.sent).toBe(1);
-    expect(next.metrics.uploadCount).toBe(1);
-    expect(next.metrics.uploadTotalMs).toBe(420);
-    expect(initialRadioEngineState.metrics.sent).toBe(0);
-  });
-
-  it('updates operational phase in the active radio reducer', () => {
-    const ready = radioReducer(initialRadioEngineState, {
-      type: 'SET_PHASE',
+    const ready = radioSessionReducer(joining, {
+      type: 'TRANSITION',
       phase: 'READY',
+      message: null,
     });
-    const uploading = radioReducer(ready, {
-      type: 'SET_PHASE',
-      phase: 'UPLOADING',
+    const transmitting = radioSessionReducer(ready, {
+      type: 'TRANSITION',
+      phase: 'TRANSMITTING',
+      operator: { id: 'operator-1', name: 'Pepe' },
+      transmissionId: 'tx-1',
     });
 
-    expect(initialRadioEngineState.phase).toBe('IDLE');
+    expect(joining.phase).toBe('JOIN_SENT');
     expect(ready.phase).toBe('READY');
-    expect(uploading.phase).toBe('UPLOADING');
+    expect(transmitting).toMatchObject({
+      phase: 'TRANSMITTING',
+      transmissionId: 'tx-1',
+      operator: { id: 'operator-1' },
+    });
   });
 
   it('keeps live PTT transitions independent from history playback', () => {

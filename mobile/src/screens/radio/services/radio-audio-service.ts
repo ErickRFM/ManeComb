@@ -21,14 +21,6 @@ export async function withRadioTimeout<T>(
   }
 }
 
-export function normalizeMeteringDecibels(metering?: number) {
-  if (typeof metering !== 'number' || Number.isNaN(metering)) {
-    return 0;
-  }
-
-  return clampVolume((metering + 62) / 52);
-}
-
 export function getRadioRealtimeErrorMessage(error?: string) {
   const value = String(error || '').toLowerCase();
   if (value.includes('unauthorized') || value.includes('invalid token') || value.includes('jwt')) {

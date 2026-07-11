@@ -560,14 +560,6 @@ export function createStyles(
       lineHeight: 16,
       fontWeight: '700',
     },
-    operationalSignal: {
-      width: 30,
-      minHeight: 24,
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      justifyContent: 'flex-end',
-      gap: 2,
-    },
     heroLiveDetail: {
       flexShrink: 1,
       minWidth: 0,
@@ -692,18 +684,6 @@ export function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-    },
-    signalBars: {
-      width: 26,
-      minHeight: 22,
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      justifyContent: 'flex-end',
-      gap: 2,
-    },
-    signalBar: {
-      width: 4,
-      borderRadius: 999,
     },
     metricCopy: {
       flex: 1,

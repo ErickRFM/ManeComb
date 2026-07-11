@@ -1,6 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
-  RecordingPresets,
   requestRecordingPermissionsAsync,
   stopActiveAudioPlaybackAsync,
   enqueuePttAudioFrame,
@@ -13,7 +12,6 @@ import {
   subscribeToPttAudioErrors,
   subscribeToPttAudioFrames,
   subscribeToPttAudioLevel,
-  useAudioRecorder,
 } from '@/src/native/audio';
 import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -47,43 +45,38 @@ import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRelativeTime, formatRole } from '@/src/utils/format';
-import { getRadioConnectionStatus } from '@/src/utils/radio-status';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 import { createStyles } from './radio-screen.styles';
 import { VoiceTransmissionCard } from './components/radio-transmission-card';
+import {
+  initialRadioSessionState,
+  radioSessionReducer,
+  type RadioSessionAction,
+} from './reducers/radio-session-reducer';
 import {
   INITIAL_RADIO_PAGE_INDEX,
   MAX_RADIO_NOTE_SECONDS,
   MIN_RADIO_NOTE_SECONDS,
   RADIO_PAGES,
 } from './constants';
-import { initialRadioEngineState, radioReducer } from './reducers/radio-reducer';
-import { getDeviceDisplayName, getTimeDomainVolume, normalizeMeteringDecibels, withRadioTimeout } from './services/radio-audio-service';
+import { getDeviceDisplayName, getTimeDomainVolume, withRadioTimeout } from './services/radio-audio-service';
 import { useRadioLifecycle } from './hooks/use-radio-lifecycle';
 import {
   RadioRealtimeService,
-  type RadioLiveIdentity,
-  type RadioRealtimeConnectionState,
 } from './services/radio-realtime-service';
 import type {
-  ActivePlaybackState,
   AudioFilter,
   AudioPermissionState,
-  RadioMetrics,
   RadioOperationalPhase,
   RadioPageIndex,
   RecordingState,
-  VoicePlaybackChangeMeta,
-  VoicePlaybackPhase,
 } from './types';
 import {
   formatDuration,
-  getAverageDuration,
   getContactSearchText,
   getConversationContact,
   getConversationPreview,
   isDevelopmentRuntime,
-  isLivePlaybackPhase,
   isValidRadioPhaseTransition,
   logRadioDevelopmentEvent,
 } from './utils/radio-format';
@@ -107,9 +100,8 @@ export function RadioScreen() {
     networkStatus,
     openDirectConversation,
     openGeneralConversation,
-    pendingSyncCount,
     sendVoiceMessage,
-    socketStatus,
+    setActiveConversationId,
     token,
     user,
   } = useAppStore(
@@ -124,9 +116,8 @@ export function RadioScreen() {
       networkStatus: state.networkStatus,
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
-      pendingSyncCount: state.pendingSyncCount,
       sendVoiceMessage: state.sendVoiceMessage,
-      socketStatus: state.socketStatus,
+      setActiveConversationId: state.setActiveConversationId,
       token: state.token,
       user: state.user,
     }))
@@ -136,16 +127,13 @@ export function RadioScreen() {
     () => createStyles(theme, isDesktop, isPhone, isWideRadioLayout),
     [theme, isDesktop, isPhone, isWideRadioLayout]
   );
-  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
-  const [liveOperator, setLiveOperator] = useState<RadioLiveIdentity | null>(null);
-  const [isReceivingLive, setIsReceivingLive] = useState(false);
-  const [isChannelBusy, setIsChannelBusy] = useState(false);
-  const [realtimeConnectionState, setRealtimeConnectionState] =
-    useState<RadioRealtimeConnectionState>('idle');
+  const [radioSession, dispatchRadioSession] = useReducer(
+    radioSessionReducer,
+    initialRadioSessionState
+  );
+  const radioSessionRef = useRef(radioSession);
 
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
@@ -157,19 +145,11 @@ export function RadioScreen() {
   const [activePageIndex, setActivePageIndex] = useState<RadioPageIndex>(INITIAL_RADIO_PAGE_INDEX);
   const [pagerWidth, setPagerWidth] = useState(0);
   const [audioFilter, setAudioFilter] = useState<AudioFilter>('all');
-  const [activePlayback, setActivePlayback] = useState<ActivePlaybackState>(null);
-  const [radioEngineState, dispatchRadioEngine] = useReducer(
-    radioReducer,
-    initialRadioEngineState
-  );
-  const radioPhase = radioEngineState.phase;
-  const radioMetrics = radioEngineState.metrics;
 
   const pagerRef = useRef<ScrollView>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStartedAtRef = useRef<number | null>(null);
   const uploadStartedAtRef = useRef<number | null>(null);
-  const playbackTerminalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressToTalkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressToTalkActiveRef = useRef(false);
   const pressToTalkTriggeredRef = useRef(false);
@@ -182,44 +162,44 @@ export function RadioScreen() {
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const bootstrappedRef = useRef(false);
-  const receivedVoiceNoteIdsRef = useRef<Set<string>>(new Set());
   const meteringFrameRef = useRef<number | null>(null);
   const meteringCleanupRef = useRef<(() => void) | null>(null);
   const meteringActiveRef = useRef(false);
-  const recordingStateRef = useRef<RecordingState>('idle');
   const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
-  const lastSocketStatusRef = useRef(socketStatus);
   const realtimeServiceRef = useRef<RadioRealtimeService | null>(null);
-  const liveTransmissionIdRef = useRef<string | null>(null);
   const liveSequenceRef = useRef(0);
   const pulseValue = useSharedValue(1);
   const haloValue = useSharedValue(0);
   const volumeValue = useSharedValue(0);
-  const setRecordingMode = useCallback((nextState: RecordingState) => {
-    recordingStateRef.current = nextState;
-    setRecordingState(nextState);
+  const transitionSession = useCallback((action: Omit<RadioSessionAction, 'type'>) => {
+    const next = radioSessionReducer(radioSessionRef.current, { type: 'TRANSITION', ...action });
+    radioSessionRef.current = next;
+    dispatchRadioSession({ type: 'TRANSITION', ...action });
   }, []);
+  const recorderMessage = radioSession.message;
+  const liveOperator = radioSession.operator;
+  const setRecorderMessage = useCallback((message: string | null) => {
+    transitionSession({ phase: radioSessionRef.current.phase, message });
+  }, [transitionSession]);
+  const setRecordingMode = useCallback((nextState: RecordingState) => {
+    const phase: RadioOperationalPhase =
+      nextState === 'recording'
+        ? 'TRANSMITTING'
+        : nextState === 'uploading'
+          ? 'UPLOADING'
+          : nextState === 'error'
+            ? 'ERROR'
+            : 'READY';
+    transitionSession({ phase });
+  }, [transitionSession]);
 
-  const nativeRecorder = useAudioRecorder(
-    { ...RecordingPresets.LOW_QUALITY, isMeteringEnabled: true },
-    (status) => {
-      const recordingStatus = status as { isRecording?: boolean; metering?: number };
-
-      if (recordingStatus.isRecording) {
-        const normalized = normalizeMeteringDecibels(recordingStatus.metering);
-        volumeValue.value = volumeValue.value * 0.28 + normalized * 0.72;
-      } else if (!recordingStatus.isRecording) {
-        volumeValue.value = 0;
-      }
-    }
-  );
 
   const radioChannels = useMemo(
     () => conversations.filter((conversation) => conversation.channelMode === 'radio'),
     [conversations]
   );
   const activeChannel =
-    radioChannels.find((conversation) => conversation.id === activeChannelId) ||
+    radioChannels.find((conversation) => conversation.id === activeConversationId) ||
     radioChannels[0] ||
     null;
   const loadedVoiceNotes = useMemo(
@@ -278,7 +258,6 @@ export function RadioScreen() {
 
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
-  const activePlaybackMessageId = activePlayback?.messageId || null;
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -322,151 +301,106 @@ export function RadioScreen() {
     (typeof globalThis !== 'undefined' &&
       Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
       typeof (globalThis as any).MediaRecorder !== 'undefined');
-  const isRadioTransmitting = recordingState === 'recording' || recordingState === 'uploading';
-  const isHistoryPlaybackActive = Boolean(activePlayback && isLivePlaybackPhase(activePlayback.phase));
-  const radioConnection = useMemo(
-    () =>
-      getRadioConnectionStatus(socketStatus, {
-        hasUser: Boolean(user),
-        isReceiving: false,
-        isTransmitting: isRadioTransmitting,
-        networkStatus,
-        pendingSyncCount,
-        radioChannelReady: Boolean(activeChannel),
-      }),
-    [
-      activeChannel,
-      isRadioTransmitting,
-      networkStatus,
-      pendingSyncCount,
-      socketStatus,
-      user,
-    ]
-  );
-  const isBusy = isSubmitting || recordingState === 'uploading';
+  const pttConnectionReady =
+    ['READY', 'TRANSMITTING', 'RECEIVING', 'CHANNEL_BUSY'].includes(radioSession.phase) &&
+    networkStatus !== 'offline' && Boolean(activeChannel && user);
+  const pttConnectionDetail =
+    networkStatus === 'offline'
+      ? 'Sin conexion de red'
+      : radioSession.phase === 'UNAUTHORIZED'
+        ? 'Sesion expirada'
+        : radioSession.phase === 'RECONNECTING' || radioSession.phase === 'CONNECTING' || radioSession.phase === 'JOIN_SENT'
+          ? 'Reconectando canal de Radio'
+          : radioSession.phase === 'ERROR'
+            ? 'Canal de Radio no disponible'
+            : !activeChannel
+              ? 'Sin canal activo'
+              : 'Canal conectado';
+  const isBusy = isSubmitting || radioSession.phase === 'UPLOADING';
   const pttBlockReason = !supportsTapToTalk
     ? 'Audio API no disponible'
     : audioPermissionState === 'denied'
       ? Platform.OS === 'web'
         ? 'Mic bloqueado'
         : 'Toca para reintentar microfono'
-      : isReceivingLive || isChannelBusy
+      : radioSession.phase === 'RECEIVING' || radioSession.phase === 'CHANNEL_BUSY'
         ? `Canal ocupado por ${liveOperator?.name || 'otro operador'}`
       : isBusy
         ? 'Transmision en curso'
         : !activeChannel
           ? 'Sin canal activo'
-          : !radioConnection.canTransmit
-              ? radioConnection.detail
+          : !pttConnectionReady
+              ? pttConnectionDetail
               : null;
   const isPttDisabled =
     !supportsTapToTalk ||
     (Platform.OS === 'web' && audioPermissionState === 'denied') ||
     isBusy ||
-    isReceivingLive ||
-    isChannelBusy ||
+    radioSession.phase === 'RECEIVING' ||
+    radioSession.phase === 'CHANNEL_BUSY' ||
     !activeChannel ||
-    (!radioConnection.canTransmit && recordingState !== 'recording');
-  const incrementRadioMetrics = useCallback((patch: Partial<RadioMetrics>) => {
-    dispatchRadioEngine({ type: 'INCREMENT_METRICS', patch });
-  }, []);
-  const resolvedRadioPhase = useMemo<RadioOperationalPhase>(() => {
-    if (networkStatus === 'offline' || radioConnection.state === 'DISCONNECTED') {
-      return 'OFFLINE';
-    }
-
-    if (realtimeConnectionState === 'unauthorized') {
-      return 'UNAUTHORIZED';
-    }
-
-    if (
-      realtimeConnectionState === 'reconnecting' ||
-      socketStatus === 'connecting' ||
-      socketStatus === 'reconnecting' ||
-      networkStatus === 'recovering' ||
-      radioConnection.state === 'CONNECTING' ||
-      radioConnection.state === 'AUTHENTICATING' ||
-      radioConnection.state === 'RECONNECTING'
-    ) {
-      return realtimeConnectionState === 'reconnecting' ? 'RECONNECTING' : 'CONNECTING';
-    }
-
-    if (recordingState === 'error' || radioConnection.state === 'ERROR') {
-      return 'ERROR';
-    }
-
-    if (recordingState === 'recording') {
-      return 'TRANSMITTING';
-    }
-
-    if (isReceivingLive) {
-      return 'RECEIVING';
-    }
-
-    if (isChannelBusy) {
-      return 'CHANNEL_BUSY';
-    }
-
-    if (recordingState === 'uploading') {
-      return 'UPLOADING';
-    }
-
-    if (radioConnection.canTransmit && activeChannel) {
-      return 'READY';
-    }
-
-    return 'IDLE';
-  }, [activeChannel, isChannelBusy, isReceivingLive, networkStatus, radioConnection, realtimeConnectionState, recordingState, socketStatus]);
+    (!pttConnectionReady && radioSession.phase !== 'TRANSMITTING');
+  const radioPhase = radioSession.phase;
 
   useEffect(() => {
     const service = new RadioRealtimeService({
       onBusy: ({ transmitter }) => {
-        setLiveOperator(transmitter || null);
-        setIsChannelBusy(true);
-        setRecorderMessage('Canal ocupado');
+        transitionSession({
+          phase: 'CHANNEL_BUSY',
+          operator: transmitter || null,
+          message: 'Canal ocupado',
+          transmissionId: null,
+        });
       },
       onEnd: ({ transmissionId }) => {
-        setIsChannelBusy(false);
-        if (liveTransmissionIdRef.current !== transmissionId) {
-          setLiveOperator(null);
-          setRecorderMessage(null);
+        if (radioSessionRef.current.phase === 'CHANNEL_BUSY') {
+          transitionSession({ phase: 'READY', operator: null, message: null, transmissionId: null });
           return;
         }
-        liveTransmissionIdRef.current = null;
-        setIsReceivingLive(false);
-        setIsChannelBusy(false);
-        setLiveOperator(null);
+        if (radioSessionRef.current.transmissionId !== transmissionId) return;
+        transitionSession({ phase: 'READY', operator: null, message: null, transmissionId: null });
         volumeValue.value = 0;
         stopPttAudioPlayback().catch(() => undefined);
-        if (recordingStateRef.current !== 'recording') setRecorderMessage(null);
       },
       onError: (message) => {
-        const transmissionId = liveTransmissionIdRef.current;
-        if (transmissionId && recordingStateRef.current === 'recording') {
+        const { transmissionId, phase } = radioSessionRef.current;
+        if (transmissionId && phase === 'TRANSMITTING') {
           realtimeServiceRef.current?.endTransmission(transmissionId).catch(() => undefined);
         }
         stopPttAudioCapture().catch(() => undefined);
         stopPttAudioPlayback().catch(() => undefined);
-        liveTransmissionIdRef.current = null;
-        setIsReceivingLive(false);
-        if (recordingStateRef.current === 'recording') setRecordingMode('idle');
-        setRecorderMessage(message);
+        transitionSession({ phase: 'ERROR', message, operator: null, transmissionId: null });
       },
       onFrame: (frame) => {
-        if (frame.transmissionId !== liveTransmissionIdRef.current) return;
+        if (frame.transmissionId !== radioSessionRef.current.transmissionId) return;
         enqueuePttAudioFrame(frame.data).catch(() => undefined);
       },
-      onReady: () => {
-        if (recordingStateRef.current === 'idle') setRecorderMessage(null);
+      onStateChange: (state) => {
+        const phase: RadioOperationalPhase =
+          state === 'connecting'
+            ? 'CONNECTING'
+            : state === 'join_sent'
+              ? 'JOIN_SENT'
+              : state === 'reconnecting'
+                ? 'RECONNECTING'
+                : state === 'unauthorized'
+                  ? 'UNAUTHORIZED'
+                  : state === 'error'
+                    ? 'ERROR'
+                    : state === 'idle'
+                      ? 'IDLE'
+                      : 'READY';
+        transitionSession({ phase, message: null, operator: null, transmissionId: null });
       },
-      onStateChange: setRealtimeConnectionState,
       onStart: ({ transmissionId, transmitter }) => {
-        setIsChannelBusy(false);
-        liveTransmissionIdRef.current = transmissionId;
-        setLiveOperator(transmitter);
-        if (transmitter.id === user?.id) return;
-        setIsReceivingLive(true);
-        setRecorderMessage(`Recibiendo: ${transmitter.name}`);
+        const ownTransmission = transmitter.id === user?.id;
+        transitionSession({
+          phase: ownTransmission ? 'TRANSMITTING' : 'RECEIVING',
+          operator: transmitter,
+          message: ownTransmission ? `Transmitiendo: ${transmitter.name}` : `Recibiendo: ${transmitter.name}`,
+          transmissionId,
+        });
+        if (ownTransmission) return;
         stopActiveAudioPlaybackAsync()
           .then(() => startPttAudioPlayback())
           .catch((error) => setRecorderMessage(error instanceof Error ? error.message : 'Audio no disponible'));
@@ -479,7 +413,7 @@ export function RadioScreen() {
       stopPttAudioCapture().catch(() => undefined);
       stopPttAudioPlayback().catch(() => undefined);
     };
-  }, [setRecordingMode, user?.id, volumeValue]);
+  }, [setRecorderMessage, transitionSession, user?.id, volumeValue]);
 
   useEffect(() => {
     if (!token || !activeChannel?.id) return;
@@ -491,9 +425,17 @@ export function RadioScreen() {
   }, [activeChannel?.id, token]);
 
   useEffect(() => {
+    if (networkStatus === 'offline') {
+      transitionSession({ phase: 'OFFLINE', message: 'Sin conexion de red', operator: null, transmissionId: null });
+    } else if (networkStatus === 'recovering' && radioSessionRef.current.phase === 'OFFLINE') {
+      transitionSession({ phase: 'RECONNECTING', message: 'Reconectando canal de Radio' });
+    }
+  }, [networkStatus, transitionSession]);
+
+  useEffect(() => {
     const removeFrames = subscribeToPttAudioFrames((frame) => {
-      const transmissionId = liveTransmissionIdRef.current;
-      if (!transmissionId || recordingStateRef.current !== 'recording') return;
+      const { transmissionId, phase } = radioSessionRef.current;
+      if (!transmissionId || phase !== 'TRANSMITTING') return;
       realtimeServiceRef.current?.sendFrame({
         data: frame.data,
         sequence: liveSequenceRef.current++,
@@ -513,56 +455,30 @@ export function RadioScreen() {
       removeErrors();
       removeLevel();
     };
-  }, [setRecordingMode, volumeValue]);
+  }, [setRecorderMessage, setRecordingMode, volumeValue]);
 
   useEffect(() => {
-    dispatchRadioEngine({ type: 'SET_PHASE', phase: resolvedRadioPhase });
-
     const current = radioPhaseRef.current;
-    if (current === resolvedRadioPhase) {
+    if (current === radioPhase) {
       return;
     }
 
-    const valid = isValidRadioPhaseTransition(current, resolvedRadioPhase);
-    radioPhaseRef.current = resolvedRadioPhase;
+    const valid = isValidRadioPhaseTransition(current, radioPhase);
+    radioPhaseRef.current = radioPhase;
     logRadioDevelopmentEvent('radio-state', {
       activeChannelId: activeChannel?.id || null,
-      next: resolvedRadioPhase,
+      next: radioPhase,
       previous: current,
       reason: 'operation_phase',
       validTransition: valid,
     });
-  }, [activeChannel?.id, resolvedRadioPhase]);
+  }, [activeChannel?.id, radioPhase]);
 
   useEffect(() => {
-    const previous = lastSocketStatusRef.current;
-    lastSocketStatusRef.current = socketStatus;
-
-    if ((previous === 'reconnecting' || previous === 'disconnected') && socketStatus === 'connected') {
-      incrementRadioMetrics({ reconnects: 1 });
-      if (activeChannel?.id) {
-        loadConversation(activeChannel.id).catch(() => undefined);
-      }
+    if (radioSession.phase === 'READY' && activeChannel?.id) {
+      loadConversation(activeChannel.id).catch(() => undefined);
     }
-  }, [activeChannel?.id, incrementRadioMetrics, loadConversation, socketStatus]);
-
-  useEffect(() => {
-    const incomingNotes = loadedVoiceNotes.filter((item) => item.message.senderId !== user?.id);
-    let receivedCount = 0;
-
-    incomingNotes.forEach((item) => {
-      if (receivedVoiceNoteIdsRef.current.has(item.message.id)) {
-        return;
-      }
-
-      receivedVoiceNoteIdsRef.current.add(item.message.id);
-      receivedCount += 1;
-    });
-
-    if (receivedCount) {
-      incrementRadioMetrics({ received: receivedCount });
-    }
-  }, [incrementRadioMetrics, loadedVoiceNotes, user?.id]);
+  }, [activeChannel?.id, loadConversation, radioSession.phase]);
 
   useEffect(() => {
     const nextReason = isPttDisabled ? pttBlockReason || 'Bloqueado' : null;
@@ -577,14 +493,11 @@ export function RadioScreen() {
       }
       console.info('[radio:ptt] disabled', {
         activeChannel: Boolean(activeChannel),
-        canTransmit: radioConnection.canTransmit,
+        canTransmit: pttConnectionReady,
         networkStatus,
         permission: audioPermissionState,
         reason: nextReason,
-        historyPlaybackActive: isHistoryPlaybackActive,
-        recordingState,
-        socketStatus,
-        state: radioConnection.state,
+        phase: radioSession.phase,
         submitting: isSubmitting,
       });
     } else {
@@ -593,21 +506,18 @@ export function RadioScreen() {
       }
       console.info('[radio:ptt] enabled', {
         activeChannel: Boolean(activeChannel),
-        socketStatus,
-        state: radioConnection.state,
+        phase: radioSession.phase,
       });
     }
   }, [
     activeChannel,
     audioPermissionState,
     isPttDisabled,
-    isHistoryPlaybackActive,
     isSubmitting,
     networkStatus,
     pttBlockReason,
-    radioConnection,
-    recordingState,
-    socketStatus,
+    pttConnectionReady,
+    radioSession.phase,
   ]);
 
   const pttAnimatedStyle = useAnimatedStyle(() => ({
@@ -631,10 +541,6 @@ export function RadioScreen() {
     meteringCleanupRef.current = null;
     volumeValue.value = 0;
   }, [volumeValue]);
-
-  useEffect(() => {
-    recordingStateRef.current = recordingState;
-  }, [recordingState]);
 
   useEffect(() => {
     loadChatContacts();
@@ -674,7 +580,7 @@ export function RadioScreen() {
     }
 
     return undefined;
-  }, [loadChatContacts]);
+  }, [loadChatContacts, setRecorderMessage]);
 
   // Global output sync for Web
   useEffect(() => {
@@ -710,7 +616,7 @@ export function RadioScreen() {
           : radioChannels[0].id;
 
       bootstrappedRef.current = true;
-      setActiveChannelId(preferredChannelId);
+      setActiveConversationId(preferredChannelId);
       loadConversation(preferredChannelId);
       return;
     }
@@ -718,104 +624,38 @@ export function RadioScreen() {
     bootstrappedRef.current = true;
     openGeneralConversation('radio').then((conversation) => {
       if (conversation?.id) {
-        setActiveChannelId(conversation.id);
+        setActiveConversationId(conversation.id);
       }
     });
-  }, [activeConversationId, loadConversation, openGeneralConversation, radioChannels]);
-
-  useEffect(() => {
-    if (!activeConversationId) {
-      return;
-    }
-
-    const matchingChannel = radioChannels.find(
-      (conversation) => conversation.id === activeConversationId
-    );
-
-    if (!matchingChannel || matchingChannel.id === activeChannelId) {
-      return;
-    }
-
-    setActiveChannelId(matchingChannel.id);
-  }, [activeChannelId, activeConversationId, radioChannels]);
+  }, [activeConversationId, loadConversation, openGeneralConversation, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
     if (!radioChannels.length) {
       return;
     }
 
-    const exists = radioChannels.some((conversation) => conversation.id === activeChannelId);
+    const exists = radioChannels.some((conversation) => conversation.id === activeConversationId);
 
     if (exists) {
       return;
     }
 
-    setActiveChannelId(radioChannels[0].id);
+    setActiveConversationId(radioChannels[0].id);
     loadConversation(radioChannels[0].id);
-  }, [activeChannelId, loadConversation, radioChannels]);
+  }, [activeConversationId, loadConversation, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
-    if (!activePlayback) {
-      return;
-    }
-
-    const messageStillLoaded = loadedVoiceNotes.some(
-      (item) => item.message.id === activePlayback.messageId
-    );
-    const transportHealthy = socketStatus === 'connected';
-
-    if (messageStillLoaded && transportHealthy) {
-      return;
-    }
-
-    setActivePlayback(null);
     stopActiveAudioPlaybackAsync().catch(() => undefined);
-  }, [activePlayback, loadedVoiceNotes, socketStatus]);
-
-  useEffect(() => {
-    if (playbackTerminalTimerRef.current) {
-      clearTimeout(playbackTerminalTimerRef.current);
-      playbackTerminalTimerRef.current = null;
-    }
-
-    if (!activePlayback || (activePlayback.phase !== 'FINISHED' && activePlayback.phase !== 'ERROR')) {
-      return undefined;
-    }
-
-    const terminalMessageId = activePlayback.messageId;
-    playbackTerminalTimerRef.current = setTimeout(() => {
-      setActivePlayback((current) =>
-        current?.messageId === terminalMessageId &&
-        (current.phase === 'FINISHED' || current.phase === 'ERROR')
-          ? null
-          : current
-      );
-    }, activePlayback.phase === 'ERROR' ? 3200 : 1400);
-
-    return () => {
-      if (playbackTerminalTimerRef.current) {
-        clearTimeout(playbackTerminalTimerRef.current);
-        playbackTerminalTimerRef.current = null;
-      }
-    };
-  }, [activePlayback]);
-
-  useEffect(() => {
-    setActivePlayback(null);
-    stopActiveAudioPlaybackAsync().catch(() => undefined);
-  }, [activeChannelId]);
+  }, [activeConversationId]);
 
   useRadioLifecycle({
     idleStatusTimerRef,
-    nativeRecorder,
     pendingStopAfterStartRef,
-    playbackTerminalTimerRef,
     pressToTalkActiveRef,
     pressToTalkTimerRef,
     pressToTalkTriggeredRef,
     pttBusyRef,
     recordTimerRef,
-    setActivePlayback,
     stopWebMetering,
     uploadStartedAtRef,
     webRecorderRef,
@@ -867,8 +707,11 @@ export function RadioScreen() {
     }
 
     idleStatusTimerRef.current = setTimeout(() => {
-      if (recordingStateRef.current === 'sent' || recordingStateRef.current === 'error') {
-        setRecordingMode('idle');
+      if (
+        radioSessionRef.current.phase === 'ERROR' ||
+        (radioSessionRef.current.phase === 'READY' && radioSessionRef.current.message)
+      ) {
+        transitionSession({ phase: 'READY', message: null, operator: null, transmissionId: null });
       }
     }, delayMs);
   };
@@ -935,7 +778,7 @@ export function RadioScreen() {
   };
 
   const handleSelectChannel = async (channelId: string) => {
-    setActiveChannelId(channelId);
+    setActiveConversationId(channelId);
     await loadConversation(channelId);
   };
 
@@ -943,7 +786,7 @@ export function RadioScreen() {
     const conversation = await openGeneralConversation('radio');
 
     if (conversation?.id) {
-      setActiveChannelId(conversation.id);
+      setActiveConversationId(conversation.id);
     }
   };
 
@@ -951,7 +794,7 @@ export function RadioScreen() {
     const conversation = await openDirectConversation(contactId, 'radio');
 
     if (conversation?.id) {
-      setActiveChannelId(conversation.id);
+      setActiveConversationId(conversation.id);
     }
   };
 
@@ -1001,55 +844,17 @@ export function RadioScreen() {
     [pagerWidth]
   );
 
-  const handleVoicePlaybackChange = useCallback((
-    messageId: string,
-    phase: VoicePlaybackPhase,
-    meta?: VoicePlaybackChangeMeta
-  ) => {
-    if (phase === 'FINISHED') {
-      incrementRadioMetrics({
-        playbackCount: 1,
-        playbackTotalMs: meta?.elapsedMs || 0,
-      });
-    }
-
-    setActivePlayback((current) => {
-      if (current?.messageId === messageId && current.phase === phase) {
-        return current;
-      }
-
-      logRadioDevelopmentEvent('radio-state', {
-        audioId: meta?.audioId || null,
-        messageId,
-        next: phase,
-        previous: current?.messageId === messageId ? current.phase : current ? `${current.messageId}:${current.phase}` : 'IDLE',
-        reason: meta?.reason || 'player_transition',
-      });
-
-      if (phase !== 'IDLE') {
-        return {
-          messageId,
-          phase,
-          updatedAt: Date.now(),
-        };
-      }
-
-      return current?.messageId === messageId ? null : current;
-    });
-  }, [incrementRadioMetrics]);
-
   const startNativeRecording = async () => {
     if (!activeChannel) {
       return;
     }
 
-    if (!radioConnection.canTransmit) {
-      setRecorderMessage(radioConnection.detail);
+    if (!pttConnectionReady) {
+      setRecorderMessage(pttConnectionDetail);
       return;
     }
 
     await stopActiveAudioPlaybackAsync().catch(() => undefined);
-    setActivePlayback(null);
 
     const permission = await requestRecordingPermissionsAsync();
 
@@ -1067,24 +872,32 @@ export function RadioScreen() {
 
     const ack = await realtimeServiceRef.current?.requestTransmission();
     if (!ack?.ok || !ack.transmissionId) {
-      setRecorderMessage(ack?.error === 'channel_busy' ? 'Canal ocupado' : 'Radio no disponible');
+      transitionSession({
+        phase: ack?.error === 'channel_busy' ? 'CHANNEL_BUSY' : 'ERROR',
+        message: ack?.error === 'channel_busy' ? 'Canal ocupado' : 'Radio no disponible',
+        operator: ack?.transmitter || null,
+        transmissionId: null,
+      });
+      scheduleIdleAfterStatus(2200);
       return;
     }
-    liveTransmissionIdRef.current = ack.transmissionId;
+    transitionSession({
+      phase: 'TRANSMITTING',
+      transmissionId: ack.transmissionId,
+      operator: user ? { id: user.id, name: user.name || 'Operador' } : null,
+      message: `Transmitiendo: ${user?.name || 'Operador'}`,
+    });
     liveSequenceRef.current = 0;
     try {
       await startPttAudioCapture();
     } catch (error) {
       await realtimeServiceRef.current?.endTransmission(ack.transmissionId);
-      liveTransmissionIdRef.current = null;
+      transitionSession({ phase: 'ERROR', transmissionId: null, operator: null });
       throw error;
     }
     startRecordingTicker();
     syncRecordingAnimation(true);
-    setLiveOperator(user ? { id: user.id, name: user.name || 'Operador' } : null);
-    setRecorderMessage(`Transmitiendo: ${user?.name || 'Operador'}`);
     setAudioPermissionState('granted');
-    setRecordingMode('recording');
   };
 
   const stopNativeRecording = async () => {
@@ -1092,16 +905,12 @@ export function RadioScreen() {
       return;
     }
 
-    const transmissionId = liveTransmissionIdRef.current;
+    const transmissionId = radioSessionRef.current.transmissionId;
     await stopPttAudioCapture();
     stopRecordingTicker();
     syncRecordingAnimation(false);
     if (transmissionId) await realtimeServiceRef.current?.endTransmission(transmissionId);
-    liveTransmissionIdRef.current = null;
-    setLiveOperator(null);
-    incrementRadioMetrics({ sent: 1 });
-    setRecorderMessage('Transmision finalizada');
-    setRecordingMode('sent');
+    transitionSession({ phase: 'READY', transmissionId: null, operator: null, message: 'Transmision finalizada' });
     scheduleIdleAfterStatus();
   };
 
@@ -1110,13 +919,12 @@ export function RadioScreen() {
       return;
     }
 
-    if (!radioConnection.canTransmit) {
-      setRecorderMessage(radioConnection.detail);
+    if (!pttConnectionReady) {
+      setRecorderMessage(pttConnectionDetail);
       return;
     }
 
     await stopActiveAudioPlaybackAsync().catch(() => undefined);
-    setActivePlayback(null);
 
     const mediaDevices = (globalThis as any).navigator?.mediaDevices;
     const MediaRecorderCtor = (globalThis as any).MediaRecorder;
@@ -1217,18 +1025,12 @@ export function RadioScreen() {
       );
 
       if (isTooShort) {
-        incrementRadioMetrics({ cancelled: 1 });
         setRecorderMessage('Manten presionado al menos 1 segundo');
         setRecordingMode('error');
         scheduleIdleAfterStatus();
         return;
       }
 
-      incrementRadioMetrics({
-        sent: 1,
-        uploadCount: 1,
-        uploadTotalMs: uploadStartedAtRef.current ? Date.now() - uploadStartedAtRef.current : 0,
-      });
       uploadStartedAtRef.current = null;
       setRecorderMessage('Enviado');
       setRecordingMode('sent');
@@ -1242,7 +1044,7 @@ export function RadioScreen() {
       stopRecordingTicker();
       syncRecordingAnimation(false);
       uploadStartedAtRef.current = null;
-      if (recordingStateRef.current === 'uploading') {
+      if (radioSessionRef.current.phase === 'UPLOADING') {
         setRecordingMode('idle');
       }
     }
@@ -1270,14 +1072,19 @@ export function RadioScreen() {
   };
 
   const handleTapToTalk = async () => {
-    const currentRecordingState = recordingStateRef.current;
+    const currentRecordingState: RecordingState =
+      radioSessionRef.current.phase === 'TRANSMITTING'
+        ? 'recording'
+        : radioSessionRef.current.phase === 'UPLOADING'
+          ? 'uploading'
+          : 'idle';
 
     if (!activeChannel || !supportsTapToTalk || isSubmitting || currentRecordingState === 'uploading' || pttBusyRef.current) {
       return;
     }
 
-    if (currentRecordingState !== 'recording' && !radioConnection.canTransmit) {
-      setRecorderMessage(radioConnection.detail);
+    if (currentRecordingState !== 'recording' && !pttConnectionReady) {
+      setRecorderMessage(pttConnectionDetail);
       return;
     }
 
@@ -1320,20 +1127,20 @@ export function RadioScreen() {
     } finally {
       pttBusyRef.current = false;
 
-      if (pendingStopAfterStartRef.current && recordingStateRef.current === 'recording') {
+      if (pendingStopAfterStartRef.current && radioSessionRef.current.phase === 'TRANSMITTING') {
         pendingStopAfterStartRef.current = false;
         handleTapToTalk();
         return;
       }
 
-      if (recordingStateRef.current !== 'recording') {
+      if (radioSessionRef.current.phase !== 'TRANSMITTING') {
         pendingStopAfterStartRef.current = false;
       }
     }
   };
 
   const handlePttPressIn = () => {
-    if (Platform.OS === 'web' || recordingStateRef.current !== 'idle') {
+    if (Platform.OS === 'web' || radioSessionRef.current.phase !== 'READY') {
       return;
     }
 
@@ -1360,7 +1167,7 @@ export function RadioScreen() {
 
     pressToTalkActiveRef.current = false;
 
-    if (recordingStateRef.current === 'recording') {
+    if (radioSessionRef.current.phase === 'TRANSMITTING') {
       if (pttBusyRef.current) {
         pendingStopAfterStartRef.current = true;
         return;
@@ -1390,16 +1197,6 @@ export function RadioScreen() {
 
   const activeInputName = getDeviceDisplayName(audioInputDevices, selectedInputId, 'Mic');
   const activeOutputName = getDeviceDisplayName(audioOutputDevices, selectedOutputId, 'Salida');
-  const averageUploadMs = getAverageDuration(radioMetrics.uploadTotalMs, radioMetrics.uploadCount);
-  const averagePlaybackMs = getAverageDuration(radioMetrics.playbackTotalMs, radioMetrics.playbackCount);
-  const signalLevel =
-    networkStatus === 'offline' || socketStatus === 'disconnected' || socketStatus === 'error'
-      ? 0
-      : socketStatus === 'reconnecting' || networkStatus === 'recovering'
-        ? 2
-        : socketStatus === 'connected'
-          ? 4
-          : 1;
   const permissionTone =
     audioPermissionState === 'denied'
       ? theme.colors.warning
@@ -1458,12 +1255,13 @@ export function RadioScreen() {
         tone: 'warning' as const,
       };
       case 'CONNECTING':
+      case 'JOIN_SENT':
       case 'OFFLINE':
       return {
-        detail: radioConnection.detail,
-        icon: radioConnection.state === 'RECONNECTING' ? 'sync' as const : 'access-point-off' as const,
-        label: radioConnection.label,
-        tone: radioConnection.tone,
+        detail: pttConnectionDetail,
+        icon: radioSession.phase === 'RECONNECTING' ? 'sync' as const : 'access-point-off' as const,
+        label: radioSession.phase === 'RECONNECTING' ? 'Reconectando' : 'Sin conexion',
+        tone: radioSession.phase === 'RECONNECTING' ? 'info' as const : 'warning' as const,
       };
       case 'READY':
         return {
@@ -1605,7 +1403,7 @@ export function RadioScreen() {
               <View style={styles.headerMiniChip}>
                 <MaterialCommunityIcons name="server-network" size={14} color={theme.colors.muted} />
                 <Text style={styles.headerMiniText} numberOfLines={1}>
-                  {socketStatus || 'idle'}
+                  {radioSession.phase.toLowerCase()}
                 </Text>
               </View>
               <View style={styles.headerMiniChip}>
@@ -1847,20 +1645,6 @@ export function RadioScreen() {
                   </Text>
                 ) : null}
               </View>
-              <View style={styles.operationalSignal}>
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.signalBar,
-                      {
-                        height: 7 + index * 4,
-                        backgroundColor: index < signalLevel ? liveStatusColor : theme.colors.line,
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
             </View>
 
             <View style={styles.pttCenter}>
@@ -1878,24 +1662,22 @@ export function RadioScreen() {
                       ? styles.pttButtonDisabled
                       : undefined,
                   ]}>
-                  {recordingState === 'uploading' ? (
+                  {radioSession.phase === 'UPLOADING' ? (
                     <ActivityIndicator color="#FFFFFF" size="large" />
                   ) : (
                     <MaterialCommunityIcons name="microphone" size={isPhone ? 42 : 48} color="#FFFFFF" />
                   )}
                   <Text style={styles.pttButtonTitle}>
-                    {recordingState === 'recording'
+                    {radioSession.phase === 'TRANSMITTING'
                       ? formatDuration(recordingSeconds)
-                      : recordingState === 'uploading'
+                      : radioSession.phase === 'UPLOADING'
                         ? 'Enviando'
-                        : recordingState === 'sent'
-                          ? 'Enviado'
-                          : recordingState === 'error'
-                            ? 'Error'
-                            : 'PTT'}
+                        : radioSession.phase === 'ERROR'
+                          ? 'Error'
+                          : 'PTT'}
                   </Text>
                   <Text style={styles.pttButtonSubtitle}>
-                    {recordingState === 'recording'
+                    {radioSession.phase === 'TRANSMITTING'
                       ? 'Suelta para enviar'
                       : isPttDisabled
                         ? pttDisabledText
@@ -1911,7 +1693,7 @@ export function RadioScreen() {
               {Array.from({ length: 18 }).map((_, index) => (
                 <WaveBar
                   key={index}
-                  active={recordingState === 'recording' || isReceivingLive}
+                  active={radioSession.phase === 'TRANSMITTING' || radioSession.phase === 'RECEIVING'}
                   theme={theme}
                   index={index}
                   volumeValue={volumeValue}
@@ -1934,23 +1716,8 @@ export function RadioScreen() {
               <View style={styles.metricCard}>
                 <MaterialCommunityIcons name="access-point" size={18} color={theme.colors.muted} />
                 <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Socket</Text>
-                  <Text style={styles.metricValue}>{socketStatus || 'idle'}</Text>
-                </View>
-                <View style={styles.signalBars}>
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.signalBar,
-                        {
-                          height: 7 + index * 4,
-                          backgroundColor:
-                            index < signalLevel ? liveStatusColor : theme.colors.line,
-                        },
-                      ]}
-                    />
-                  ))}
+                  <Text style={styles.metricLabel}>Canal</Text>
+                  <Text style={styles.metricValue}>{radioSession.phase.toLowerCase()}</Text>
                 </View>
               </View>
               <View style={styles.metricCard}>
@@ -1958,33 +1725,10 @@ export function RadioScreen() {
                 <View style={styles.metricCopy}>
                   <Text style={styles.metricLabel}>Duracion</Text>
                   <Text style={styles.metricValue}>
-                    {recordingState === 'recording'
+                    {radioSession.phase === 'TRANSMITTING'
                       ? formatDuration(recordingSeconds)
                       : `max ${formatDuration(MAX_RADIO_NOTE_SECONDS)}`}
                   </Text>
-                </View>
-              </View>
-              <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="chart-timeline-variant" size={18} color={theme.colors.muted} />
-                <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Operacion</Text>
-                  <Text style={styles.metricValue} numberOfLines={1}>
-                    {radioMetrics.sent} env / {radioMetrics.received} rec
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="cloud-clock-outline" size={18} color={theme.colors.muted} />
-                <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Subida media</Text>
-                  <Text style={styles.metricValue}>{averageUploadMs ? `${averageUploadMs} ms` : '--'}</Text>
-                </View>
-              </View>
-              <View style={styles.metricCard}>
-                <MaterialCommunityIcons name="play-circle-outline" size={18} color={theme.colors.muted} />
-                <View style={styles.metricCopy}>
-                  <Text style={styles.metricLabel}>Playback medio</Text>
-                  <Text style={styles.metricValue}>{averagePlaybackMs ? `${averagePlaybackMs} ms` : '--'}</Text>
                 </View>
               </View>
               <View style={styles.metricCard}>
@@ -2071,10 +1815,8 @@ export function RadioScreen() {
                 <VoiceTransmissionCard
                   message={item.message}
                   channelTitle={item.channelTitle}
-                  isActive={activePlaybackMessageId === item.message.id}
                   token={token}
                   theme={theme}
-                  onPlaybackChange={handleVoicePlaybackChange}
                 />
               )}
               ListEmptyComponent={

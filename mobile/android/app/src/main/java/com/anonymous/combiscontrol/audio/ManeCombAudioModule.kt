@@ -44,6 +44,36 @@ class ManeCombAudioModule(
   private var playerLocalUri: String? = null
   private var playerPrepared = false
   private var audioFocusRequest: AudioFocusRequest? = null
+  private val playbackFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+    val session = focusedRadioPlayerId?.let(radioPlayers::get) ?: return@OnAudioFocusChangeListener
+    when (change) {
+      AudioManager.AUDIOFOCUS_LOSS,
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+        try {
+          if (session.player.isPlaying) session.player.pause()
+        } catch (_: Exception) {}
+        session.pausedByFocus = true
+        session.audioFocus = "lost"
+        session.phase = "PAUSED"
+        session.level = 0.0
+      }
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+        try { session.player.setVolume(0.2f, 0.2f) } catch (_: Exception) {}
+        session.audioFocus = "ducked"
+      }
+      AudioManager.AUDIOFOCUS_GAIN -> {
+        try { session.player.setVolume(1.0f, 1.0f) } catch (_: Exception) {}
+        session.audioFocus = "granted"
+        if (session.pausedByFocus) {
+          try {
+            session.player.start()
+            session.phase = "PLAYING"
+          } catch (_: Exception) {}
+          session.pausedByFocus = false
+        }
+      }
+    }
+  }
   private var playerVisualizer: Visualizer? = null
   @Volatile private var playerLevel = 0.0
   private val radioPlayers = ConcurrentHashMap<String, RadioPlayerSession>()
@@ -101,10 +131,20 @@ class ManeCombAudioModule(
           val bytesRead = audioRecord.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
           if (bytesRead > 0) {
             val encoded = Base64.encodeToString(frame, 0, bytesRead, Base64.NO_WRAP)
+            var peak = 0
+            var index = 0
+            while (index + 1 < bytesRead) {
+              val sample = ((frame[index + 1].toInt() shl 8) or (frame[index].toInt() and 0xff)).toShort().toInt()
+              peak = max(peak, kotlin.math.abs(sample))
+              index += 2
+            }
             emitPttEvent("ManeCombPttFrame", Arguments.createMap().apply {
               putString("data", encoded)
               putInt("bytes", bytesRead)
               putDouble("capturedAt", System.currentTimeMillis().toDouble())
+            })
+            emitPttEvent("ManeCombPttLevel", Arguments.createMap().apply {
+              putDouble("level", (peak / 32768.0).coerceIn(0.0, 1.0))
             })
           } else if (bytesRead < 0) {
             emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
@@ -463,15 +503,19 @@ class ManeCombAudioModule(
       return
     }
     try {
+      radioPlayers.keys.filter { it != playerId }.forEach(::releaseRadioPlayer)
       val current = radioPlayers[playerId]
-      if (current != null && current.prepared && current.uri == uri) {
+      if (current != null && current.prepared && current.phase != "ERROR" && current.uri == uri) {
         if (!requestPlaybackFocus()) {
           promise.reject("audio_focus_denied", "Android no concedio Audio Focus para reproducir.")
           return
         }
         focusedRadioPlayerId = playerId
+        current.audioFocus = "granted"
         if (current.completed && current.player.duration > 0) current.player.seekTo(0)
         current.completed = false
+        current.phase = "PLAYING"
+        current.error = null
         current.player.start()
         promise.resolve(radioPlayerStatusMap(current))
         return
@@ -485,7 +529,8 @@ class ManeCombAudioModule(
       }
       focusedRadioPlayerId = playerId
       val nextPlayer = MediaPlayer()
-      val session = RadioPlayerSession(player = nextPlayer, uri = uri)
+      val session = RadioPlayerSession(playerId = playerId, player = nextPlayer, uri = uri, phase = "PREPARING")
+      session.audioFocus = "granted"
       radioPlayers[playerId] = session
       nextPlayer.setAudioAttributes(
         AudioAttributes.Builder()
@@ -497,16 +542,31 @@ class ManeCombAudioModule(
       nextPlayer.setOnPreparedListener {
         session.prepared = true
         session.visualizer = createRadioVisualizer(it.audioSessionId) { level -> session.level = level }
+        session.phase = "READY"
         it.start()
+        session.phase = "PLAYING"
         promise.resolve(radioPlayerStatusMap(session))
+      }
+      nextPlayer.setOnBufferingUpdateListener { _, percent -> session.bufferedPercent = percent.coerceIn(0, 100) }
+      nextPlayer.setOnSeekCompleteListener {
+        session.phase = if (session.completed) "IDLE" else if (it.isPlaying) "PLAYING" else "PAUSED"
       }
       nextPlayer.setOnCompletionListener {
         session.completed = true
         session.level = 0.0
+        try { it.seekTo(0) } catch (_: Exception) {}
+        session.phase = "IDLE"
         abandonRadioPlaybackFocus(playerId)
       }
       nextPlayer.setOnErrorListener { _, what, extra ->
-        releaseRadioPlayer(playerId)
+        session.phase = "ERROR"
+        session.error = "MediaPlayer error $what/$extra"
+        session.prepared = false
+        try { session.visualizer?.enabled = false } catch (_: Exception) {}
+        try { session.visualizer?.release() } catch (_: Exception) {}
+        session.visualizer = null
+        session.level = 0.0
+        abandonRadioPlaybackFocus(playerId)
         if (!session.prepared) {
           promise.reject("audio_playback_failed", "Error del reproductor Android ($what/$extra).")
         }
@@ -524,6 +584,8 @@ class ManeCombAudioModule(
     val session = radioPlayers[playerId]
     try {
       if (session?.prepared == true && session.player.isPlaying) session.player.pause()
+      if (session?.prepared == true) session.phase = "PAUSED"
+      if (session?.prepared == true) session.audioFocus = "none"
       abandonRadioPlaybackFocus(playerId)
       promise.resolve(radioPlayerStatusMap(session))
     } catch (error: Exception) {
@@ -543,6 +605,7 @@ class ManeCombAudioModule(
     try {
       if (session?.prepared == true) {
         session.completed = false
+        session.phase = "SEEKING"
         session.player.seekTo(max(0, positionMillis.toInt()))
       }
       promise.resolve(radioPlayerStatusMap(session))
@@ -807,13 +870,14 @@ class ManeCombAudioModule(
               .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
               .build()
           )
+          .setOnAudioFocusChangeListener(playbackFocusListener)
           .build()
         audioFocusRequest = request
         audioManager.requestAudioFocus(request)
       } else {
         @Suppress("DEPRECATION")
         audioManager.requestAudioFocus(
-          null,
+          playbackFocusListener,
           AudioManager.STREAM_MUSIC,
           AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
         )
@@ -972,10 +1036,21 @@ class ManeCombAudioModule(
   private fun radioPlayerStatusMap(session: RadioPlayerSession?) = Arguments.createMap().apply {
     val prepared = session?.prepared == true
     val duration = try { if (prepared) session!!.player.duration else 0 } catch (_: Exception) { 0 }
-    val position = try {
-      if (session?.completed == true) duration else if (prepared) session!!.player.currentPosition else 0
-    } catch (_: Exception) { 0 }
+    val position = try { if (prepared) session!!.player.currentPosition else 0 } catch (_: Exception) { 0 }
     val playing = try { prepared && session!!.player.isPlaying } catch (_: Exception) { false }
+    val bufferPosition = if (duration > 0) duration * (session?.bufferedPercent ?: 0) / 100 else 0
+    val outputDevice = try { session?.player?.routedDevice?.productName?.toString() } catch (_: Exception) { null }
+    putString("playerId", session?.playerId)
+    putString("messageId", session?.playerId)
+    putString("phase", session?.phase ?: "RELEASED")
+    putBoolean("isPrepared", prepared)
+    putBoolean("isPlaying", playing)
+    putDouble("currentPosition", position.toDouble())
+    putDouble("bufferPosition", bufferPosition.toDouble())
+    putBoolean("didFinish", session?.completed == true)
+    putString("audioFocus", session?.audioFocus ?: "none")
+    putString("outputDevice", outputDevice)
+    putString("error", session?.error)
     putBoolean("isLoaded", prepared)
     putBoolean("isBuffering", session != null && !prepared)
     putBoolean("playing", playing)
@@ -999,15 +1074,22 @@ class ManeCombAudioModule(
 
   private fun abandonRadioPlaybackFocus(playerId: String) {
     if (focusedRadioPlayerId != playerId) return
+    radioPlayers[playerId]?.audioFocus = "none"
     focusedRadioPlayerId = null
     abandonPlaybackFocus()
   }
 
   private data class RadioPlayerSession(
+    val playerId: String,
     val player: MediaPlayer,
     val uri: String,
+    @Volatile var phase: String = "IDLE",
     var prepared: Boolean = false,
     var completed: Boolean = false,
+    @Volatile var bufferedPercent: Int = 0,
+    @Volatile var error: String? = null,
+    @Volatile var audioFocus: String = "none",
+    @Volatile var pausedByFocus: Boolean = false,
     @Volatile var level: Double = 0.0,
     var visualizer: Visualizer? = null
   )

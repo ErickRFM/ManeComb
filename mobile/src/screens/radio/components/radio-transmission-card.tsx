@@ -1,11 +1,10 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
   getAudioPlaybackErrorMessage,
-  stopActiveAudioPlaybackAsync,
   useAudioPlayer,
   useAudioPlayerStatus,
 } from '@/src/native/audio';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Typography } from '@/constants/theme';
 import { getAuthHeaderSnapshot, resolveAssetUrl } from '@/src/api/client';
@@ -13,28 +12,18 @@ import { UserAvatar } from '@/src/components/user-avatar';
 import type { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
-import type { VoicePlaybackChangeMeta, VoicePlaybackPhase } from '../types';
-import { clampVolume, formatDuration, logRadioDevelopmentEvent } from '../utils/radio-format';
+import { clampVolume, formatDuration } from '../utils/radio-format';
 
 export function VoiceTransmissionCard({
   channelTitle,
-  isActive,
   message,
-  onPlaybackChange,
   token,
   theme,
 }: {
   channelTitle?: string;
-  isActive?: boolean;
   message: ChatMessage;
-  onPlaybackChange?: (
-    messageId: string,
-    phase: VoicePlaybackPhase,
-    meta?: VoicePlaybackChangeMeta
-  ) => void;
   token: string | null;
   theme: ReturnType<typeof useAppTheme>['theme'];
-  outputDeviceId?: string;
 }) {
   const resolvedUrl = resolveAssetUrl(message.audioUrl);
   const player = useAudioPlayer(
@@ -44,149 +33,53 @@ export function VoiceTransmissionCard({
           getHeaders: () => getAuthHeaderSnapshot(token),
         }
       : null,
-    { independent: true, updateInterval: 80 }
+    { independent: true, playerId: message.id, updateInterval: 80 }
   );
   const playerStatus = useAudioPlayerStatus(player);
-  const playerStatusRef = useRef(playerStatus);
-  const playbackGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const playbackPhaseRef = useRef<VoicePlaybackPhase>('IDLE');
-  const playbackStartedAtRef = useRef<number | null>(null);
-  const playbackOperationRef = useRef(0);
-  const isPlaying = Boolean(playerStatus.playing);
-  const isBuffering = Boolean(playerStatus.isBuffering);
+  const isPlaying = Boolean(playerStatus.isPlaying);
+  const isBuffering = playerStatus.phase === 'LOADING' || playerStatus.phase === 'PREPARING';
   const fallbackDurationSeconds = Math.max(0, Number(message.durationSeconds || 0));
   const nativeDurationSeconds =
-    Number(playerStatus.durationMillis || 0) / 1000 || Number(playerStatus.duration || 0);
-  const nativeCurrentSeconds =
-    Number(playerStatus.currentMillis || 0) / 1000 || Number(playerStatus.currentTime || 0);
-  const hasPreparedMedia = Boolean(playerStatus.isLoaded && nativeDurationSeconds > 0);
+    Number(playerStatus.durationMillis || 0) / 1000;
+  const nativeCurrentSeconds = Number(playerStatus.currentPosition || 0) / 1000;
+  const hasPreparedMedia = Boolean(playerStatus.isPrepared && nativeDurationSeconds > 0);
   const durationSeconds = hasPreparedMedia ? nativeDurationSeconds : fallbackDurationSeconds;
   const currentSeconds = hasPreparedMedia ? nativeCurrentSeconds : 0;
   const progress = hasPreparedMedia ? currentSeconds / nativeDurationSeconds : 0;
-  const showProgress = durationSeconds > 0 && (isActive || isPlaying || playerStatus.isLoaded);
+  const showProgress = durationSeconds > 0 && playerStatus.isPrepared;
   const isPlaybackActive = isPlaying || isBuffering;
-  const hasReachedEnd =
-    durationSeconds > 0 && currentSeconds >= Math.max(0, durationSeconds - 0.25);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const playbackLevel = clampVolume(Number(playerStatus.level || 0));
   const waveformBars = useMemo(() => {
     const barCount = 18;
-    return Array.from({ length: barCount }, (_, index) => {
+    return Array.from({ length: barCount }, () => {
       if (!isPlaying) return 4;
-      const envelope = 0.55 + Math.sin((index / (barCount - 1)) * Math.PI) * 0.45;
-      return Math.max(4, Math.round(4 + playbackLevel * 24 * envelope));
+      return Math.max(4, Math.round(4 + playbackLevel * 24));
     });
   }, [isPlaying, playbackLevel]);
-  const cardActive = Boolean(isActive || isPlaybackActive);
-  const playbackPhase: VoicePlaybackPhase = playbackError
-    ? 'ERROR'
-    : isBuffering
-      ? 'BUFFERING'
-      : isPlaying
-        ? 'PLAYING'
-        : hasReachedEnd
-          ? 'FINISHED'
-          : playerStatus.isLoaded && currentSeconds > 0
-            ? 'PAUSED'
-            : 'IDLE';
+  const cardActive = isPlaybackActive;
   const playbackStateLabel = playbackError
     ? 'Error de audio'
     : isBuffering
       ? 'Cargando'
       : isPlaying
         ? 'Reproduciendo'
-        : hasReachedEnd
-          ? 'Reproducido'
-          : playerStatus.isLoaded && currentSeconds > 0
+        : playerStatus.phase === 'FINISHED'
+          ? 'Finalizado'
+          : playerStatus.phase === 'PAUSED' && currentSeconds > 0
           ? 'Pausado'
           : resolvedUrl
             ? 'Listo'
             : 'Sin audio';
 
   useEffect(() => {
-    playerStatusRef.current = playerStatus;
-  }, [playerStatus]);
-
-  useEffect(() => {
     setPlaybackError(null);
-    playbackPhaseRef.current = 'IDLE';
   }, [resolvedUrl]);
-
-  const transitionPlayback = useCallback(
-    (nextPhase: VoicePlaybackPhase, reason: string, error?: unknown) => {
-      const previousPhase = playbackPhaseRef.current;
-
-      if (previousPhase === nextPhase) {
-        return false;
-      }
-
-      playbackPhaseRef.current = nextPhase;
-      const elapsedMs = playbackStartedAtRef.current ? Date.now() - playbackStartedAtRef.current : 0;
-
-      if (nextPhase === 'LOADING' || nextPhase === 'BUFFERING' || nextPhase === 'PLAYING') {
-        playbackStartedAtRef.current = playbackStartedAtRef.current || Date.now();
-      }
-
-      if (nextPhase === 'IDLE' || nextPhase === 'FINISHED' || nextPhase === 'ERROR') {
-        playbackStartedAtRef.current = null;
-      }
-
-      const nativeError = error as (Error & { code?: string }) | undefined;
-
-      logRadioDevelopmentEvent('radio-player', {
-        audioId: message.audioUrl || null,
-        elapsedMs,
-        errorCode: nativeError?.code,
-        errorMessage: nativeError?.message,
-        errorName: nativeError?.name,
-        event: reason,
-        messageId: message.id,
-        next: nextPhase,
-        previous: previousPhase,
-        stack: nativeError?.stack,
-        uri: resolvedUrl,
-      });
-      onPlaybackChange?.(message.id, nextPhase, {
-        audioId: message.audioUrl || null,
-        elapsedMs,
-        reason,
-        uri: resolvedUrl,
-      });
-
-      return true;
-    },
-    [message.audioUrl, message.id, onPlaybackChange, resolvedUrl]
-  );
-
-  useEffect(() => {
-    transitionPlayback(playbackPhase, 'STATUS');
-  }, [playbackPhase, transitionPlayback]);
-
-  useEffect(() => {
-    if (!playerStatus.didJustFinish) return;
-    transitionPlayback('FINISHED', 'NATIVE_COMPLETION');
-    player.seekTo(0).catch((error) => {
-      setPlaybackError(getAudioPlaybackErrorMessage(error));
-      transitionPlayback('ERROR', 'RESET_AFTER_COMPLETION', error);
-    });
-  }, [player, playerStatus.didJustFinish, transitionPlayback]);
-
-  useEffect(
-    () => () => {
-      if (playbackGuardTimerRef.current) {
-        clearTimeout(playbackGuardTimerRef.current);
-      }
-      playbackOperationRef.current += 1;
-      transitionPlayback('IDLE', 'UNMOUNT');
-    },
-    [transitionPlayback]
-  );
 
   const playTransmission = useCallback(
     async () => {
       if (!resolvedUrl) {
         setPlaybackError('URL de audio invalida.');
-        transitionPlayback('ERROR', 'ERROR', new Error('URL de audio invalida.'));
         return;
       }
 
@@ -195,78 +88,29 @@ export function VoiceTransmissionCard({
       }
 
       try {
-        const operationId = playbackOperationRef.current + 1;
-        playbackOperationRef.current = operationId;
-        playbackStartedAtRef.current = Date.now();
         setPlaybackError(null);
-        const isResumingPreparedMedia = hasPreparedMedia && currentSeconds > 0;
-        if (!isResumingPreparedMedia) {
-          await stopActiveAudioPlaybackAsync().catch(() => undefined);
-        }
-        transitionPlayback(isResumingPreparedMedia ? 'PLAYING' : 'LOADING', isResumingPreparedMedia ? 'RESUME' : 'LOAD');
-
         await player.play();
-        if (playbackOperationRef.current !== operationId) {
-          return;
-        }
-
-        if (playbackGuardTimerRef.current) {
-          clearTimeout(playbackGuardTimerRef.current);
-        }
-        playbackGuardTimerRef.current = setTimeout(() => {
-          if (playbackOperationRef.current !== operationId) {
-            return;
-          }
-
-          const latestStatus = playerStatusRef.current;
-
-          if (!latestStatus.playing && !latestStatus.isBuffering) {
-            transitionPlayback('IDLE', 'GUARD_IDLE');
-          }
-        }, 1200);
       } catch (error) {
         const playbackMessage = getAudioPlaybackErrorMessage(error);
-        const nativeError = error as Error & { code?: string };
-        console.warn('[radio] playback failed', {
-          audioId: message.audioUrl || null,
-          elapsedMs: playbackStartedAtRef.current ? Date.now() - playbackStartedAtRef.current : 0,
-          errorCode: nativeError?.code,
-          errorMessage: nativeError?.message,
-          errorName: nativeError?.name,
-          messageId: message.id,
-          next: 'ERROR',
-          playbackMessage,
-          previous: playbackPhaseRef.current,
-          stack: nativeError?.stack,
-          uri: resolvedUrl,
-        });
-        transitionPlayback('ERROR', 'ERROR', error);
         setPlaybackError(playbackMessage);
       }
     },
     [
       isBuffering,
       isPlaying,
-      currentSeconds,
-      hasPreparedMedia,
-      message.audioUrl,
-      message.id,
       player,
       resolvedUrl,
-      transitionPlayback,
     ]
   );
 
   const handleTogglePlayback = async () => {
     if (!resolvedUrl) {
       setPlaybackError('URL de audio invalida.');
-      transitionPlayback('ERROR', 'ERROR', new Error('URL de audio invalida.'));
       return;
     }
 
     if (isPlaying) {
       await player.pause();
-      transitionPlayback('PAUSED', 'PAUSE');
       return;
     }
 

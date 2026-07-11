@@ -20,7 +20,6 @@ type RadioLiveHandlers = {
   onEnd: (payload: { channelId: string; reason?: string; transmissionId: string }) => void;
   onError: (message: string) => void;
   onFrame: (payload: RadioLiveFrame) => void;
-  onReady: () => void;
   onStateChange: (state: RadioRealtimeConnectionState) => void;
   onStart: (payload: {
     channelId: string;
@@ -33,6 +32,7 @@ type RadioLiveHandlers = {
 export type RadioRealtimeConnectionState =
   | 'idle'
   | 'connecting'
+  | 'join_sent'
   | 'ready'
   | 'reconnecting'
   | 'unauthorized'
@@ -50,6 +50,7 @@ export class RadioRealtimeService {
   private handlers: RadioLiveHandlers;
   private socket: Socket | null = null;
   private token: string | null = null;
+  private joinGeneration = 0;
 
   constructor(handlers: RadioLiveHandlers) {
     this.handlers = handlers;
@@ -64,7 +65,7 @@ export class RadioRealtimeService {
     if (!this.socket) this.socket = this.createSocket(token);
 
     if (this.socket.connected) {
-      this.joinChannel();
+      this.joinChannel().catch(() => undefined);
       return;
     }
     this.handlers.onStateChange('connecting');
@@ -77,7 +78,7 @@ export class RadioRealtimeService {
       this.socket.emit('radio:leave', { channelId: this.channelId });
     }
     this.channelId = channelId;
-    this.joinChannel();
+    this.joinChannel().catch(() => undefined);
   }
 
   async requestTransmission(): Promise<Ack> {
@@ -98,6 +99,7 @@ export class RadioRealtimeService {
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
+    this.joinGeneration += 1;
   }
 
   private createSocket(token: string) {
@@ -111,16 +113,13 @@ export class RadioRealtimeService {
       transports: ['websocket'],
     });
 
-    socket.on('connect', () => {
-      this.joinChannel();
-      this.handlers.onStateChange('ready');
-      this.handlers.onReady();
+    socket.on('connect', async () => {
+      await this.joinChannel();
     });
     socket.io.on('reconnect_attempt', () => this.handlers.onStateChange('reconnecting'));
     socket.on('connect_error', (error) => {
       const message = getRadioRealtimeErrorMessage(error.message);
       this.handlers.onStateChange(message === 'Sesion expirada' ? 'unauthorized' : 'reconnecting');
-      this.handlers.onError(message);
     });
     socket.on('disconnect', (reason) => {
       if (reason === 'io client disconnect') {
@@ -128,7 +127,6 @@ export class RadioRealtimeService {
         return;
       }
       this.handlers.onStateChange('reconnecting');
-      this.handlers.onError('Reconectando...');
     });
     socket.on('radio:busy', this.handlers.onBusy);
     socket.on('radio:start', this.handlers.onStart);
@@ -140,11 +138,20 @@ export class RadioRealtimeService {
     return socket;
   }
 
-  private joinChannel() {
-    if (this.socket?.connected && this.channelId) {
-      this.socket.emit('conversation:join', this.channelId);
-      this.socket.emit('radio:join', { channelId: this.channelId });
+  private async joinChannel() {
+    if (!this.socket?.connected || !this.channelId) return;
+    const generation = ++this.joinGeneration;
+    const channelId = this.channelId;
+    this.handlers.onStateChange('join_sent');
+    this.socket.emit('conversation:join', channelId);
+    const ack = await this.emitWithAck('radio:join', { channelId });
+    if (generation !== this.joinGeneration || channelId !== this.channelId) return;
+    if (ack.ok) {
+      this.handlers.onStateChange('ready');
+      return;
     }
+    const unauthorized = ack.error === 'forbidden' || ack.error === 'unauthorized';
+    this.handlers.onStateChange(unauthorized ? 'unauthorized' : 'error');
   }
 
   private emitWithAck(event: string, payload: Record<string, unknown>): Promise<Ack> {

@@ -30,6 +30,17 @@ type AudioSource = {
 } | null;
 
 type PlayerStatus = {
+  playerId?: string | null;
+  messageId?: string | null;
+  phase?: 'IDLE' | 'LOADING' | 'PREPARING' | 'READY' | 'PLAYING' | 'PAUSED' | 'SEEKING' | 'FINISHED' | 'RELEASED' | 'ERROR';
+  isPrepared?: boolean;
+  isPlaying?: boolean;
+  currentPosition?: number;
+  bufferPosition?: number;
+  didFinish?: boolean;
+  audioFocus?: string | null;
+  outputDevice?: string | null;
+  error?: string | null;
   currentTime: number;
   duration: number;
   currentMillis: number;
@@ -142,6 +153,17 @@ export async function stopRadioForegroundService() {
 }
 
 const idlePlayerStatus: PlayerStatus = {
+  playerId: null,
+  messageId: null,
+  phase: 'IDLE',
+  isPrepared: false,
+  isPlaying: false,
+  currentPosition: 0,
+  bufferPosition: 0,
+  didFinish: false,
+  audioFocus: 'none',
+  outputDevice: null,
+  error: null,
   currentTime: 0,
   duration: 0,
   currentMillis: 0,
@@ -183,6 +205,17 @@ function normalizePlayerStatus(status?: PlayerStatus | null): PlayerStatus {
   return {
     ...idlePlayerStatus,
     ...(status || {}),
+    playerId: status?.playerId || null,
+    messageId: status?.messageId || null,
+    phase: status?.phase || (status?.playing ? 'PLAYING' : status?.isLoaded ? 'READY' : 'IDLE'),
+    isPrepared: Boolean(status?.isPrepared ?? status?.isLoaded),
+    isPlaying: Boolean(status?.isPlaying ?? status?.playing),
+    currentPosition: Number(status?.currentPosition ?? currentMillis),
+    bufferPosition: Number(status?.bufferPosition || 0),
+    didFinish: Boolean(status?.didFinish ?? status?.didJustFinish),
+    audioFocus: status?.audioFocus || 'none',
+    outputDevice: status?.outputDevice || null,
+    error: status?.error || null,
     currentMillis,
     durationMillis,
     currentTime:
@@ -269,10 +302,28 @@ export async function stopActiveAudioPlaybackAsync() {
   }
 
   await NativeAudio.stopPlayer();
-  await NativeAudio.stopAllRadioHistoryPlayers();
+  await serializeRadioPlayerOperation(async () => {
+    await NativeAudio.stopAllRadioHistoryPlayers();
+    resetManagedRadioPlayer(activeRadioPlayerId);
+    activeRadioPlayerId = null;
+  });
 }
 
 let audioPlayerSequence = 0;
+let activeRadioPlayerId: string | null = null;
+let radioPlayerOperation: Promise<unknown> = Promise.resolve();
+const radioPlayerResetters = new Map<string, () => void>();
+
+function serializeRadioPlayerOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const next = radioPlayerOperation.then(operation, operation);
+  radioPlayerOperation = next.catch(() => undefined);
+  return next;
+}
+
+function resetManagedRadioPlayer(playerId: string | null) {
+  if (!playerId) return;
+  radioPlayerResetters.get(playerId)?.();
+}
 
 export function useAudioRecorder(
   preset?: Record<string, unknown>,
@@ -290,7 +341,7 @@ export function useAudioRecorder(
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
+      clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
   }, []);
@@ -375,21 +426,26 @@ export function useAudioPlayer(
     updateInterval?: number;
     keepAudioSessionActive?: boolean;
     independent?: boolean;
+    playerId?: string;
   }
 ) {
   const [status, setStatus] = useState<PlayerStatus>(idlePlayerStatus);
   const sourceRef = useRef<AudioSource>(source || null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollGenerationRef = useRef(0);
   const updateInterval = Math.max(100, Number(options?.updateInterval || 250));
   const independent = Boolean(options?.independent);
-  const playerIdRef = useRef(`radio-history-${++audioPlayerSequence}`);
+  const playerIdRef = useRef(options?.playerId || `radio-history-${++audioPlayerSequence}`);
   const sourceUri = source?.uri || null;
   const sourceHeadersKey = JSON.stringify(source?.headers || {});
   sourceRef.current = source || null;
 
   useEffect(() => {
     if (independent && NativeAudio) {
-      NativeAudio.stopRadioHistoryPlayer(playerIdRef.current).catch(() => undefined);
+      serializeRadioPlayerOperation(async () => {
+        await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current);
+        if (activeRadioPlayerId === playerIdRef.current) activeRadioPlayerId = null;
+      }).catch(() => undefined);
     }
     setStatus((current) => ({
       ...idlePlayerStatus,
@@ -397,11 +453,27 @@ export function useAudioPlayer(
     }));
   }, [independent, sourceHeadersKey, sourceUri]);
 
+  useEffect(() => {
+    if (!independent) return undefined;
+    const playerId = playerIdRef.current;
+    radioPlayerResetters.set(playerId, () => {
+      pollGenerationRef.current += 1;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+      setStatus({ ...idlePlayerStatus, playerId, messageId: playerId, phase: 'RELEASED' });
+    });
+    return () => {
+      radioPlayerResetters.delete(playerId);
+      if (activeRadioPlayerId === playerId) activeRadioPlayerId = null;
+    };
+  }, [independent]);
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    pollGenerationRef.current += 1;
   }, []);
 
   const updateStatus = useCallback((nextStatus?: PlayerStatus | null) => {
@@ -420,38 +492,34 @@ export function useAudioPlayer(
     return effectiveStatus;
   }, []);
 
-  const pollStatus = useCallback(() => {
-    if (!NativeAudio) {
-      return;
-    }
-
-    const statusRequest = independent
-      ? NativeAudio.getRadioHistoryPlayerStatus(playerIdRef.current)
-      : NativeAudio.getPlayerStatus();
-    statusRequest
-      .then((nextStatus) => {
-        const normalized = updateStatus(nextStatus);
-
-        if (!normalized.playing && !normalized.isBuffering) {
-          stopPolling();
-        }
-      })
-      .catch((error) => {
-        console.warn('[audio] player status failed', error);
-        stopPolling();
-      });
-  }, [independent, stopPolling, updateStatus]);
-
   const startPolling = useCallback(() => {
     stopPolling();
-    pollTimerRef.current = setInterval(pollStatus, updateInterval);
-  }, [pollStatus, stopPolling, updateInterval]);
+    const generation = pollGenerationRef.current;
+    const poll = async () => {
+      if (!NativeAudio || generation !== pollGenerationRef.current) return;
+      try {
+        const nextStatus = independent
+          ? await NativeAudio.getRadioHistoryPlayerStatus(playerIdRef.current)
+          : await NativeAudio.getPlayerStatus();
+        if (generation !== pollGenerationRef.current) return;
+        const normalized = updateStatus(nextStatus);
+        const active = normalized.playing || normalized.isBuffering || normalized.phase === 'SEEKING';
+        if (active) pollTimerRef.current = setTimeout(poll, updateInterval);
+      } catch (error) {
+        console.warn('[audio] player status failed', error);
+      }
+    };
+    pollTimerRef.current = setTimeout(poll, updateInterval);
+  }, [independent, stopPolling, updateInterval, updateStatus]);
 
   useEffect(
     () => () => {
       stopPolling();
       if (independent && NativeAudio) {
-        NativeAudio.stopRadioHistoryPlayer(playerIdRef.current).catch(() => undefined);
+        serializeRadioPlayerOperation(async () => {
+          await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current);
+          if (activeRadioPlayerId === playerIdRef.current) activeRadioPlayerId = null;
+        }).catch(() => undefined);
       }
     },
     [independent, stopPolling]
@@ -479,7 +547,15 @@ export function useAudioPlayer(
 
     const playerSource = { uri: currentSource.uri, headers: requestHeaders };
     const nextStatus = independent
-      ? await NativeAudio.startRadioHistoryPlayer(playerIdRef.current, playerSource)
+      ? await serializeRadioPlayerOperation(async () => {
+          const previousPlayerId = activeRadioPlayerId;
+          if (previousPlayerId && previousPlayerId !== playerIdRef.current) {
+            await NativeAudio.stopAllRadioHistoryPlayers();
+            resetManagedRadioPlayer(previousPlayerId);
+          }
+          activeRadioPlayerId = playerIdRef.current;
+          return NativeAudio.startRadioHistoryPlayer(playerIdRef.current, playerSource);
+        })
       : await NativeAudio.startPlayer(playerSource);
     updateStatus(nextStatus);
     startPolling();
@@ -491,7 +567,7 @@ export function useAudioPlayer(
     }
 
     const nextStatus = independent
-      ? await NativeAudio.pauseRadioHistoryPlayer(playerIdRef.current)
+      ? await serializeRadioPlayerOperation(() => NativeAudio.pauseRadioHistoryPlayer(playerIdRef.current))
       : await NativeAudio.pausePlayer();
     updateStatus(nextStatus);
     stopPolling();
@@ -503,7 +579,11 @@ export function useAudioPlayer(
     }
 
     const nextStatus = independent
-      ? await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current)
+      ? await serializeRadioPlayerOperation(async () => {
+          const result = await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current);
+          if (activeRadioPlayerId === playerIdRef.current) activeRadioPlayerId = null;
+          return result;
+        })
       : await NativeAudio.stopPlayer();
     updateStatus(nextStatus);
     stopPolling();
@@ -517,7 +597,7 @@ export function useAudioPlayer(
 
       const positionMillis = Math.max(0, positionSeconds) * 1000;
       const nextStatus = independent
-        ? await NativeAudio.seekRadioHistoryPlayer(playerIdRef.current, positionMillis)
+        ? await serializeRadioPlayerOperation(() => NativeAudio.seekRadioHistoryPlayer(playerIdRef.current, positionMillis))
         : await NativeAudio.seekTo(positionMillis);
       updateStatus(nextStatus);
     },
