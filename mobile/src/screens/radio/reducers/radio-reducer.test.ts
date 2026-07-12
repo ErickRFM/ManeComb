@@ -49,6 +49,11 @@ describe('radio state', () => {
     expect(rootStoreSource).toMatch(
       /const messagesById = new Map\(current\.map\(\(message\) => \[message\.id, message\]\)\);[\s\S]*incoming\.forEach\(\(message\) => messagesById\.set\(message\.id, message\)\)/
     );
+    expect(rootStoreSource).toContain('function joinCurrentConversationRooms');
+    expect(rootStoreSource).toMatch(
+      /if \(socket && socketSessionKey === nextSessionKey\) \{[\s\S]*joinCurrentConversationRooms\(get\);[\s\S]*return;/
+    );
+    expect(rootStoreSource).not.toContain('refreshMissingConversation');
     expect(radioScreenSource).toContain(
       'return byDate || right.message.id.localeCompare(left.message.id);'
     );

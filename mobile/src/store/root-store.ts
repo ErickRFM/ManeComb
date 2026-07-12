@@ -673,6 +673,15 @@ function disconnectSocket() {
   }));
 }
 
+function joinCurrentConversationRooms(get: () => AppState) {
+  const activeSocket = socket;
+  if (!activeSocket?.connected) {
+    return;
+  }
+
+  get().conversations.forEach((conversation) => activeSocket.emit('conversation:join', conversation.id));
+}
+
 function cleanupSessionRuntime() {
   disconnectSocket();
 
@@ -732,6 +741,8 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     if (!socket.connected) {
       socket.connect();
       setSocketTransition(set, 'connecting', 'socket_reconnect_requested');
+    } else {
+      joinCurrentConversationRooms(get);
     }
     return;
   }
@@ -754,15 +765,6 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     randomizationFactor: 0.45,
     autoConnect: false,
   });
-
-  const joinCurrentConversations = () => {
-    const activeSocket = socket;
-    if (!activeSocket?.connected) {
-      return;
-    }
-
-    get().conversations.forEach((c) => activeSocket.emit('conversation:join', c.id));
-  };
 
   const emitPresence = () => {
     const current = get();
@@ -866,7 +868,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     mobileLog('socket', `connected ${socket?.id || ''}`);
     emitPresence();
     emitHeartbeat();
-    joinCurrentConversations();
+    joinCurrentConversationRooms(get);
   });
 
   socket.io.on('reconnect_attempt', () => {
@@ -884,7 +886,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       reconnectAttempts: socketReconnectAttempts,
     });
     set({ networkStatus: 'online' });
-    joinCurrentConversations();
+    joinCurrentConversationRooms(get);
     get().flushPendingSync();
   });
 
