@@ -1,6 +1,5 @@
 import type {
   AssignedRoute,
-  DashboardData,
   GeoPoint,
   LiveLocationsData,
   NavigationRouteOption,
@@ -152,16 +151,5 @@ export function normalizeLiveLocationsData(value: LiveLocationsData | null | und
   return {
     ...value,
     vehicles: Array.isArray(value.vehicles) ? value.vehicles.map(normalizeVehicle) : [],
-  };
-}
-
-export function normalizeDashboardData(value: DashboardData | null | undefined): DashboardData | null {
-  if (!value) {
-    return null;
-  }
-
-  return {
-    ...value,
-    fleet: Array.isArray(value.fleet) ? value.fleet.map(normalizeVehicle) : [],
   };
 }

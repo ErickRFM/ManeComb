@@ -18,7 +18,6 @@ import {
   revokeAdminActivationKeyRequest,
   setDefaultAccountPaymentMethodRequest,
   updateAccountPaymentMethodRequest,
-  updatePortalOnboardingStepRequest,
 } from '../api';
 import type {
   PortalInvoice,
@@ -58,7 +57,6 @@ type PortalStore = {
   loadPaymentMethods: () => Promise<void>;
   loadSessions: () => Promise<void>;
   loadAll: () => Promise<void>;
-  patchOnboardingStep: (stepId: string, status: string) => Promise<PortalActionResult>;
   generateActivationKey: () => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
@@ -213,19 +211,6 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       });
     } catch (error) {
       set({ error: getMessage(error, 'No fue posible cargar los datos de cuenta.'), isLoading: false });
-    }
-  },
-  patchOnboardingStep: async (stepId, status) => {
-    set({ isSubmitting: true, error: null });
-    try {
-      const onboarding = await updatePortalOnboardingStepRequest(stepId, status);
-      set({ onboarding, isSubmitting: false });
-      void get().loadOverview();
-      return { ok: true };
-    } catch (error) {
-      const message = getMessage(error, 'No fue posible actualizar onboarding.');
-      set({ error: message, isSubmitting: false });
-      return { ok: false, message };
     }
   },
   generateActivationKey: async () => {

@@ -17,11 +17,7 @@ function normalizePath(pathname: string) {
 
 function isSectionActive(pathname: string, href: string) {
   const normalizedPathname = normalizePath(pathname);
-  const normalizedHref = href === '/(tabs)' ? '/dashboard' : normalizePath(href);
-
-  if (normalizedHref === '/dashboard') {
-    return normalizedPathname === '/dashboard' || normalizedPathname === '/(tabs)' || normalizedPathname === '/index';
-  }
+  const normalizedHref = href === '/(tabs)' ? '/mapa' : normalizePath(href);
 
   return normalizedPathname === normalizedHref || normalizedPathname.startsWith(`${normalizedHref}/`);
 }

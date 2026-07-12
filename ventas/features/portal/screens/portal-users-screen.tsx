@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,8 +13,6 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
 import { formatDate, formatRole } from '@/src/utils/format';
-import { usePortalStore } from '../store/use-portal-store';
-import { canOpenOperationalPanel } from '../utils/access';
 
 type UserEditor = {
   name: string;
@@ -27,8 +24,13 @@ type UserEditor = {
 };
 
 const administrativeRoles: Role[] = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
-const editableRoles: Role[] = ['admin', 'billing_manager', 'support', 'viewer'];
+const editableRoles: Role[] = ['admin', 'supervisor', 'billing_manager', 'support', 'viewer'];
 const statuses: UserAccountStatus[] = ['active', 'pending', 'suspended'];
+const statusLabels: Record<UserAccountStatus, string> = {
+  active: 'Activo',
+  pending: 'Pendiente',
+  suspended: 'Suspendido',
+};
 
 function createBlankEditor(): UserEditor {
   return {
@@ -43,20 +45,20 @@ function createBlankEditor(): UserEditor {
 
 export function PortalUsersScreen() {
   const { theme } = useAppTheme();
-  const { createUser, deleteUser, isSubmitting, loadUsers, updateUser, user, users } = useAppStore(
+  const { createUser, deleteUser, isSubmitting, loadUsers, loadVehicles, updateUser, user, users, vehicles } = useAppStore(
     useShallow((state) => ({
       createUser: state.createUser,
       deleteUser: state.deleteUser,
       isSubmitting: state.isSubmitting,
       loadUsers: state.loadUsers,
+      loadVehicles: state.loadVehicles,
       updateUser: state.updateUser,
       user: state.user,
       users: state.users,
+      vehicles: state.vehicles,
     }))
   );
-  const subscription = usePortalStore((state) => state.subscription);
   const canManageUsers = Boolean(user && ['owner', 'admin'].includes(user.role));
-  const showOperationalPanel = canOpenOperationalPanel(subscription, user);
   const [editor, setEditor] = useState<UserEditor>(createBlankEditor);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -64,15 +66,20 @@ export function PortalUsersScreen() {
 
   useEffect(() => {
     void loadUsers();
-  }, [loadUsers]);
+    void loadVehicles();
+  }, [loadUsers, loadVehicles]);
 
   const administrativeUsers = useMemo(
-    () => users.filter((entry) => entry.accountType === 'company_owner' || administrativeRoles.includes(entry.role)),
+    () => users.filter((entry) => entry.role !== 'driver' && (entry.accountType === 'company_owner' || administrativeRoles.includes(entry.role) || entry.role === 'supervisor')),
     [users]
   );
-  const operationalUsersCount = useMemo(
-    () => users.filter((entry) => !administrativeRoles.includes(entry.role) && entry.accountType !== 'company_owner').length,
+  const driverUsers = useMemo(
+    () => users.filter((entry) => entry.role === 'driver'),
     [users]
+  );
+  const availableVehicles = useMemo(
+    () => vehicles.filter((vehicle) => vehicle.status !== 'maintenance'),
+    [vehicles]
   );
 
   const setField = <T extends keyof UserEditor>(field: T, value: UserEditor[T]) => {
@@ -129,11 +136,23 @@ export function PortalUsersScreen() {
     setMessage(editingId ? 'Usuario actualizado.' : 'Usuario invitado.');
   };
 
+  const assignVehicleToDriver = async (driverId: string, vehicleId: string | null) => {
+    setMessage(null);
+    const result = await updateUser(driverId, { vehicleId });
+
+    if (!result.ok) {
+      setMessage(result.message || 'No fue posible actualizar la asignacion.');
+      return;
+    }
+
+    setMessage(vehicleId ? 'Unidad asignada.' : 'Unidad liberada.');
+  };
+
   return (
-    <PortalLayout title="Equipo" subtitle="Personas con acceso administrativo, de facturación o soporte.">
+    <PortalLayout title="Equipo" subtitle="Administradores, supervisores, responsables de facturación, soporte y conductores.">
       {canManageUsers ? <PortalSectionCard
-        title={editingId ? 'Editar usuario administrativo' : 'Invitar usuario administrativo'}
-        subtitle={message || 'Los usuarios operativos viven en el panel operativo.'}>
+        title={editingId ? 'Editar usuario de gestión' : 'Invitar usuario de gestión'}
+        subtitle={message || 'Crea administradores y supervisores; los conductores se activan con key.'}>
         <View style={styles.formGrid}>
           <TextInput
             value={editor.name}
@@ -171,6 +190,9 @@ export function PortalUsersScreen() {
           {editableRoles.map((role) => (
             <Pressable
               key={role}
+              accessibilityRole="button"
+              accessibilityLabel={`Seleccionar rol ${formatRole(role)}`}
+              accessibilityState={{ selected: editor.role === role }}
               onPress={() => setField('role', role)}
               style={[
                 styles.segment,
@@ -189,6 +211,9 @@ export function PortalUsersScreen() {
           {statuses.map((status) => (
             <Pressable
               key={status}
+              accessibilityRole="button"
+              accessibilityLabel={`Seleccionar estado ${statusLabels[status]}`}
+              accessibilityState={{ selected: editor.userStatus === status }}
               onPress={() => setField('userStatus', status)}
               style={[
                 styles.segment,
@@ -202,7 +227,7 @@ export function PortalUsersScreen() {
                   styles.segmentText,
                   { color: editor.userStatus === status ? theme.colors.info : theme.colors.text },
                 ]}>
-                {status}
+                {statusLabels[status]}
               </Text>
             </Pressable>
           ))}
@@ -215,12 +240,12 @@ export function PortalUsersScreen() {
           ) : null}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={editingId ? 'Guardar usuario administrativo' : 'Invitar usuario administrativo'}
+            accessibilityLabel={editingId ? 'Guardar usuario de gestión' : 'Invitar usuario de gestión'}
             onPress={() => void saveUser()}
             disabled={isSubmitting}
             style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
             <MaterialCommunityIcons name={editingId ? 'content-save-outline' : 'account-plus-outline'} size={18} color="#FFFFFF" />
-            <Text style={styles.primaryText}>{editingId ? 'Guardar' : 'Crear usuario'}</Text>
+            <Text style={styles.primaryText}>{editingId ? 'Guardar' : 'Invitar usuario'}</Text>
           </Pressable>
         </View>
       </PortalSectionCard> : null}
@@ -230,17 +255,85 @@ export function PortalUsersScreen() {
           <MaterialCommunityIcons name="account-hard-hat-outline" size={20} color={theme.colors.info} />
         </View>
         <View style={styles.contextCopy}>
-          <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Usuarios operativos separados</Text>
+          <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Conductores activados</Text>
           <Text style={[styles.contextText, { color: theme.colors.muted }]}>
-            {operationalUsersCount} choferes, supervisores o dispatchers se administran desde el panel operativo.
+            Los conductores se activan con keys. Desde aqui se asigna o libera su unidad real.
           </Text>
         </View>
-        {showOperationalPanel ? <Pressable onPress={() => router.push('/usuarios' as never)} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
-          <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Abrir operativo</Text>
-        </Pressable> : null}
       </View>
 
-      <PortalSectionCard title="Administradores de cuenta" subtitle={`${administrativeUsers.length} usuarios administrativos`}>
+      <PortalSectionCard title="Asignacion de unidades" subtitle={`${driverUsers.length} conductores activados`}>
+        {driverUsers.length ? (
+          <View style={styles.list}>
+            {driverUsers.map((driver) => {
+              const driverVehicleOptions = availableVehicles.filter(
+                (vehicle) => !vehicle.driverId || vehicle.driverId === driver.id || vehicle.id === driver.vehicleId
+              );
+              const assignedVehicle = vehicles.find((vehicle) => vehicle.id === driver.vehicleId);
+
+              return (
+                <View key={driver.id} style={[styles.assignmentRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
+                  <View style={styles.userBody}>
+                    <Text style={[styles.userName, { color: theme.colors.text }]}>{driver.name}</Text>
+                    <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
+                      {driver.email} / Unidad: {assignedVehicle?.code || 'Sin unidad'}
+                    </Text>
+                  </View>
+                  <View style={styles.assignmentOptions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void assignVehicleToDriver(driver.id, null)}
+                      disabled={isSubmitting}
+                      style={[
+                        styles.assignmentChip,
+                        {
+                          backgroundColor: !driver.vehicleId ? theme.colors.infoSoft : theme.colors.surfaceAlt,
+                          borderColor: !driver.vehicleId ? theme.colors.info : theme.colors.line,
+                        },
+                      ]}>
+                      <Text style={[styles.assignmentText, { color: !driver.vehicleId ? theme.colors.info : theme.colors.text }]}>
+                        Sin unidad
+                      </Text>
+                    </Pressable>
+                    {driverVehicleOptions.map((vehicle) => (
+                      <Pressable
+                        key={vehicle.id}
+                        accessibilityRole="button"
+                        onPress={() => void assignVehicleToDriver(driver.id, vehicle.id)}
+                        disabled={isSubmitting}
+                        style={[
+                          styles.assignmentChip,
+                          {
+                            backgroundColor: driver.vehicleId === vehicle.id ? theme.colors.successSoft : theme.colors.surfaceAlt,
+                            borderColor: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.line,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.assignmentText,
+                            { color: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.text },
+                          ]}>
+                          {vehicle.code}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <EmptyState
+            icon="account-hard-hat-outline"
+            title="Sin conductores activados"
+            description="Genera una key de activacion para que el conductor cree su cuenta antes de asignarle unidad."
+          />
+        )}
+      </PortalSectionCard>
+
+      <PortalSectionCard
+        title="Usuarios de gestión"
+        subtitle={`${administrativeUsers.length} ${administrativeUsers.length === 1 ? 'usuario de gestión' : 'usuarios de gestión'}`}>
         {administrativeUsers.length ? (
           <View style={styles.list}>
             {administrativeUsers.map((item) => (
@@ -273,7 +366,7 @@ export function PortalUsersScreen() {
         ) : (
           <EmptyState
             icon="account-group-outline"
-            title="Sin usuarios administrativos"
+            title="Sin usuarios de gestión"
             description="Invita a responsables de facturación o soporte para delegar tareas de la cuenta."
           />
         )}
@@ -418,6 +511,39 @@ const styles = StyleSheet.create({
     gap: 12,
     minWidth: 0,
     padding: 12,
+  },
+  assignmentRow: {
+    alignItems: 'flex-start',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    minWidth: 0,
+    padding: 12,
+  },
+  assignmentOptions: {
+    flexDirection: 'row',
+    flexBasis: 280,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
+    minWidth: 0,
+  },
+  assignmentChip: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexShrink: 1,
+    minHeight: 36,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  assignmentText: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
   },
   avatar: {
     alignItems: 'center',

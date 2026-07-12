@@ -1,18 +1,25 @@
-import type { PortalSubscription, User } from '@/src/types/app';
+import type { User } from '@/src/types/app';
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
-const OPERATIONAL_SUBSCRIPTION_STATUSES = new Set(['active', 'trial', 'trial_active']);
+const ROLE_PERMISSIONS = {
+  owner: new Set(['users', 'billing', 'vehicles', 'routes']),
+  admin: new Set(['users', 'billing', 'vehicles', 'routes']),
+  billing_manager: new Set(['billing']),
+  support: new Set<string>(),
+  viewer: new Set<string>(),
+} as const;
 
 export function canAccessPortal(user: Pick<User, 'accountType' | 'role'> | null | undefined) {
-  return user?.accountType === 'company_owner' || PORTAL_ROLES.has(String(user?.role || ''));
+  return user?.accountType === 'company_owner' && PORTAL_ROLES.has(String(user?.role || ''));
 }
 
-export function canOpenOperationalPanel(
-  subscription: PortalSubscription | null | undefined,
-  user: Pick<User, 'organizationId' | 'role'> | null | undefined
-) {
-  const isPlatformAdmin = user?.role === 'admin' && !String(user.organizationId || '').trim();
-  const status = String(subscription?.status || '').trim().toLowerCase();
+export type PortalPermission = 'users' | 'billing' | 'vehicles' | 'routes';
 
-  return isPlatformAdmin || OPERATIONAL_SUBSCRIPTION_STATUSES.has(status);
+export function hasPortalPermission(
+  user: Pick<User, 'accountType' | 'role'> | null | undefined,
+  permission: PortalPermission
+) {
+  if (!canAccessPortal(user)) return false;
+  const role = String(user?.role || '');
+  return ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS]?.has(permission) || false;
 }

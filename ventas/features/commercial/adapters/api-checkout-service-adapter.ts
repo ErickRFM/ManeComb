@@ -5,7 +5,6 @@ import {
   getCommercialPlansRequest,
   getRuntimeHealthRequest,
 } from '@/src/api/client';
-import { FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
 import type { CheckoutService } from '../contracts';
 import { validateTestCard } from '../services/checkout-validation';
 import {
@@ -46,7 +45,7 @@ function resolveResultStatus(response: LegacyCheckoutResponse) {
 export class ApiCheckoutServiceAdapter implements CheckoutService {
   async listPlans() {
     const plans = await getCommercialPlansRequest().catch(() => []);
-    return plans.length ? plans : FALLBACK_COMMERCIAL_PLANS.map((plan) => ({ ...plan }));
+    return plans.map((plan) => ({ ...plan }));
   }
 
   async getProviderMode(): Promise<PaymentProviderMode> {

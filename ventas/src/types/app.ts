@@ -83,6 +83,214 @@ export type User = {
   paymentProfile?: PaymentProfile;
 };
 
+export type VehicleStatus = 'available' | 'assigned' | 'maintenance';
+
+export type GeoPoint = {
+  latitude: number;
+  longitude: number;
+};
+
+export type AssignedRoute = {
+  originLabel?: string;
+  origin?: GeoPoint | null;
+  destinationLabel?: string;
+  destination?: GeoPoint | null;
+  assignedAt?: string | null;
+  route?: {
+    label?: string;
+    distanceMeters?: number;
+    durationSeconds?: number;
+  } | null;
+};
+
+export type Vehicle = {
+  id: string;
+  organizationId?: string;
+  code: string;
+  plate: string;
+  status: VehicleStatus | string;
+  currentKilometers?: number;
+  driverId?: string | null;
+  driverName?: string;
+  driver?: User | null;
+  assignedRoute?: AssignedRoute | null;
+  updatedAt?: string | null;
+};
+
+export type VehicleMutationPayload = {
+  code?: string;
+  plate?: string;
+  status?: VehicleStatus;
+  currentKilometers?: number;
+};
+
+export type RouteAssignmentPayload = {
+  vehicleId: string;
+  originLabel: string;
+  destinationLabel: string;
+  origin: GeoPoint;
+  destination: GeoPoint;
+};
+
+export type RouteSessionStatus = 'ASSIGNED' | 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED';
+export type RouteSessionProcessingStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type RouteEventType =
+  | 'SESSION_STARTED'
+  | 'SESSION_PAUSED'
+  | 'SESSION_RESUMED'
+  | 'SESSION_FINISHED'
+  | 'GPS_LOST'
+  | 'GPS_RECOVERED'
+  | 'CHECKPOINT_REACHED'
+  | 'OFF_ROUTE'
+  | 'ON_ROUTE'
+  | 'VEHICLE_STOPPED'
+  | 'VEHICLE_MOVING';
+
+export type RouteSessionComputedMetrics = {
+  averageGpsAccuracy?: number | null;
+  averageSpeed?: number | null;
+  completedCheckpoints?: number;
+  completedLaps?: number;
+  compliancePercent?: number;
+  effectiveTimePercent?: number;
+  gpsCoveragePercent?: number;
+  gpsQuality?: {
+    badPercent: number;
+    goodPercent: number;
+    normalPercent: number;
+    counts: {
+      GOOD: number;
+      NORMAL: number;
+      BAD: number;
+    };
+  };
+  incompleteLaps?: number;
+  longestOffRouteSeconds?: number;
+  longestStopSeconds?: number;
+  maxSpeed?: number | null;
+  minSpeed?: number | null;
+  p95Speed?: number | null;
+  positionCount?: number;
+  stoppedSpeedThresholdMetersPerSecond?: number;
+  totalDistance?: number | null;
+  totalDuration?: number;
+};
+
+export type RouteSession = {
+  id: string;
+  organizationId: string;
+  routeId: string;
+  vehicleId: string;
+  driverId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: RouteSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  statisticsReady?: boolean;
+  processingStatus?: RouteSessionProcessingStatus;
+  processingCompletedAt?: string | null;
+  processingError?: string | null;
+  totalDistance?: number | null;
+  totalDuration?: number | null;
+  movingTime?: number | null;
+  stoppedTime?: number | null;
+  gpsLostTime?: number | null;
+  offRouteTime?: number | null;
+  checkpointCount?: number | null;
+  completedCheckpoints?: number | null;
+  completedLaps?: number | null;
+  averageSpeed?: number | null;
+  maxSpeed?: number | null;
+  averageGpsAccuracy?: number | null;
+  gpsLostEvents?: number | null;
+  offRouteEvents?: number | null;
+  stopEvents?: number | null;
+  metrics?: RouteSessionComputedMetrics | null;
+};
+
+export type RouteSessionMetrics = Pick<
+  RouteSession,
+  | 'id'
+  | 'status'
+  | 'statisticsReady'
+  | 'processingStatus'
+  | 'processingError'
+  | 'processingCompletedAt'
+  | 'metrics'
+  | 'totalDistance'
+  | 'totalDuration'
+  | 'movingTime'
+  | 'stoppedTime'
+  | 'gpsLostTime'
+  | 'offRouteTime'
+  | 'checkpointCount'
+  | 'completedCheckpoints'
+  | 'completedLaps'
+  | 'averageSpeed'
+  | 'maxSpeed'
+  | 'averageGpsAccuracy'
+  | 'gpsLostEvents'
+  | 'offRouteEvents'
+  | 'stopEvents'
+> & {
+  sessionId: string;
+};
+
+export type RouteSessionHistoryFilters = {
+  vehicleId?: string;
+  driverId?: string;
+  routeId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: RouteSessionStatus;
+  limit?: number;
+};
+
+export type RouteEvent = {
+  id: string;
+  organizationId?: string;
+  sessionId: string;
+  vehicleId: string;
+  routeId: string;
+  driverId: string;
+  eventType: RouteEventType;
+  timestamp: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string;
+};
+
+export type CheckpointVisit = {
+  id: string;
+  organizationId?: string;
+  sessionId: string;
+  checkpointId: string;
+  timestamp: string;
+  distance?: number | null;
+  visitOrder: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  createdAt?: string;
+};
+
+export type RouteSessionPosition = {
+  id: string;
+  organizationId?: string;
+  sessionId: string;
+  vehicleId: string;
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  heading?: number | null;
+  speed?: number | null;
+  accuracy?: number | null;
+  gpsQuality?: 'GOOD' | 'NORMAL' | 'BAD';
+  createdAt?: string;
+};
+
 export type CommercialPlan = {
   id: string;
   name: string;

@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -19,7 +20,7 @@ import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Role, User } from '@/src/types/app';
+import type { Role, User, Vehicle } from '@/src/types/app';
 import { formatRole, formatStatus } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
@@ -34,10 +35,18 @@ type EditorState = {
   vehicleId: string | null;
 };
 
+type VehicleEditorState = {
+  code: string;
+  plate: string;
+  currentKilometers: string;
+  status: 'available' | 'maintenance';
+};
+
 type Tone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
 
 const roleOptions: Role[] = ['admin', 'supervisor'];
 const statusOptions = ['online', 'offline', 'patrolling', 'on-route'];
+const vehicleStatusOptions: VehicleEditorState['status'][] = ['available', 'maintenance'];
 
 function createBlankEditor(): EditorState {
   return {
@@ -49,6 +58,15 @@ function createBlankEditor(): EditorState {
     status: 'online',
     shift: '',
     vehicleId: null,
+  };
+}
+
+function createBlankVehicleEditor(): VehicleEditorState {
+  return {
+    code: '',
+    plate: '',
+    currentKilometers: '',
+    status: 'available',
   };
 }
 
@@ -77,27 +95,49 @@ function statusTone(status: string): Tone {
   return 'positive';
 }
 
+function vehicleStatusLabel(vehicle: Vehicle) {
+  if (vehicle.driverId || vehicle.status === 'assigned') {
+    return 'Asignada';
+  }
+
+  if (vehicle.status === 'maintenance') {
+    return 'Mantenimiento';
+  }
+
+  return 'Disponible';
+}
+
+function vehicleStatusTone(vehicle: Vehicle): Tone {
+  if (vehicle.status === 'maintenance') return 'warning';
+  if (vehicle.driverId || vehicle.status === 'assigned') return 'positive';
+  return 'info';
+}
+
 export function UsersScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 980;
   const isPhone = width < 640;
   const { theme } = useAppTheme();
   const {
+    createVehicle,
     createUser,
-    dashboard,
+    mapData,
     deleteUser,
     isSubmitting,
     loadUsers,
+    refreshAll,
     updateUser,
     user,
     users,
   } = useAppStore(
     useShallow((state) => ({
       createUser: state.createUser,
-      dashboard: state.dashboard,
+      createVehicle: state.createVehicle,
+      mapData: state.mapData,
       deleteUser: state.deleteUser,
       isSubmitting: state.isSubmitting,
       loadUsers: state.loadUsers,
+      refreshAll: state.refreshAll,
       updateUser: state.updateUser,
       user: state.user,
       users: state.users,
@@ -106,6 +146,7 @@ export function UsersScreen() {
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState>(createBlankEditor);
+  const [vehicleEditor, setVehicleEditor] = useState<VehicleEditorState>(createBlankVehicleEditor);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
   const [helperTone, setHelperTone] = useState<'danger' | 'success'>('danger');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -154,7 +195,16 @@ export function UsersScreen() {
     [operationalUsers]
   );
 
-  const availableVehicles = dashboard?.fleet || [];
+  const availableVehicles = useMemo(() => mapData?.vehicles || [], [mapData?.vehicles]);
+  const assignableVehicles = useMemo(
+    () =>
+      availableVehicles.filter((vehicle) =>
+        (!vehicle.driverId && vehicle.status === 'available') ||
+        (editingUserId && vehicle.driverId === editingUserId) ||
+        vehicle.id === editor.vehicleId
+      ),
+    [availableVehicles, editingUserId, editor.vehicleId]
+  );
 
   const setMessage = (message: string | null, tone: 'danger' | 'success' = 'danger') => {
     setHelperMessage(message);
@@ -164,7 +214,7 @@ export function UsersScreen() {
   const refreshUsers = async () => {
     setIsRefreshing(true);
     try {
-      await loadUsers();
+      await Promise.all([loadUsers(), refreshAll()]);
     } finally {
       setIsRefreshing(false);
     }
@@ -172,6 +222,13 @@ export function UsersScreen() {
 
   const updateEditor = <T extends keyof EditorState>(field: T, value: EditorState[T]) => {
     setEditor((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const updateVehicleEditor = <T extends keyof VehicleEditorState>(field: T, value: VehicleEditorState[T]) => {
+    setVehicleEditor((current) => ({
       ...current,
       [field]: value,
     }));
@@ -228,6 +285,34 @@ export function UsersScreen() {
 
     resetEditor(false);
     setMessage(editingUserId ? 'Usuario actualizado correctamente.' : 'Usuario creado correctamente.', 'success');
+  };
+
+  const handleCreateVehicle = async () => {
+    if (!vehicleEditor.code.trim() || !vehicleEditor.plate.trim()) {
+      setMessage('Nombre y placas de unidad son obligatorios.');
+      return;
+    }
+
+    const currentKilometers = Number(vehicleEditor.currentKilometers || 0);
+    if (!Number.isFinite(currentKilometers) || currentKilometers < 0) {
+      setMessage('Los kilometros actuales deben ser un numero valido.');
+      return;
+    }
+
+    const result = await createVehicle({
+      code: vehicleEditor.code.trim(),
+      plate: vehicleEditor.plate.trim().toUpperCase(),
+      currentKilometers,
+      status: vehicleEditor.status,
+    });
+
+    if (!result.ok) {
+      setMessage(result.message || 'No fue posible crear la unidad.');
+      return;
+    }
+
+    setVehicleEditor(createBlankVehicleEditor());
+    setMessage('Unidad creada correctamente.', 'success');
   };
 
   const performDelete = async (targetUser: User) => {
@@ -408,11 +493,11 @@ export function UsersScreen() {
               <Text style={styles.choiceLabel}>Unidad asignada</Text>
               <View style={styles.choiceRow}>
                 <ChoiceChip active={!editor.vehicleId} label="Sin unidad" onPress={() => updateEditor('vehicleId', null)} />
-                {availableVehicles.map((vehicle) => (
+                {assignableVehicles.map((vehicle) => (
                   <ChoiceChip
                     key={vehicle.id}
                     active={editor.vehicleId === vehicle.id}
-                    label={vehicle.code}
+                    label={`${vehicle.code} · ${vehicle.plate}`}
                     onPress={() => updateEditor('vehicleId', vehicle.id)}
                   />
                 ))}
@@ -446,6 +531,102 @@ export function UsersScreen() {
             onPress={() => { handleSubmit(); }}
             disabled={isSubmitting}
           />
+        </AppCard>
+
+        <AppCard style={styles.unitsCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionCopy}>
+              <Text style={styles.sectionTitle}>Unidades</Text>
+              <Text style={styles.sectionSubtitle}>
+                Alta simple de unidades disponibles para asignacion.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.formGrid}>
+            <Field
+              label="Nombre"
+              value={vehicleEditor.code}
+              onChangeText={(value) => updateVehicleEditor('code', value)}
+              autoCapitalize="characters"
+            />
+            <Field
+              label="Placas"
+              value={vehicleEditor.plate}
+              onChangeText={(value) => updateVehicleEditor('plate', value)}
+              autoCapitalize="characters"
+            />
+            <Field
+              label="Kilometros actuales"
+              value={vehicleEditor.currentKilometers}
+              onChangeText={(value) => updateVehicleEditor('currentKilometers', value.replace(/[^\d.]/g, ''))}
+              keyboardType="number-pad"
+            />
+          </View>
+
+          <View style={styles.choiceGroup}>
+            <Text style={styles.choiceLabel}>Estado</Text>
+            <View style={styles.choiceRow}>
+              {vehicleStatusOptions.map((status) => (
+                <ChoiceChip
+                  key={status}
+                  active={vehicleEditor.status === status}
+                  label={status === 'maintenance' ? 'Mantenimiento' : 'Disponible'}
+                  onPress={() => updateVehicleEditor('status', status)}
+                />
+              ))}
+            </View>
+          </View>
+
+          <PrimaryButton
+            label={isSubmitting ? 'Guardando...' : 'Crear unidad'}
+            icon="bus"
+            onPress={() => { handleCreateVehicle(); }}
+            disabled={isSubmitting}
+          />
+
+          <View style={styles.unitsList}>
+            {availableVehicles.length ? (
+              availableVehicles.map((vehicle) => (
+                <View key={vehicle.id} style={styles.unitRow}>
+                  <View style={styles.unitCopy}>
+                    <Text style={styles.unitTitle}>{vehicle.code}</Text>
+                    <Text style={styles.unitMeta}>
+                      Placas {vehicle.plate} · {vehicle.currentKilometers ?? 0} km
+                    </Text>
+                  </View>
+                  <StatusPill label={vehicleStatusLabel(vehicle)} tone={vehicleStatusTone(vehicle)} />
+                  <View style={styles.actionsRow}>
+                    <PrimaryButton
+                      label="Ver ruta"
+                      icon="map-outline"
+                      compact
+                      variant="ghost"
+                      onPress={() => router.push({ pathname: '/mapa', params: { vehicleId: vehicle.id, follow: 'true' } } as never)}
+                    />
+                    <PrimaryButton
+                      label="Cambiar chofer"
+                      icon="account-switch-outline"
+                      compact
+                      variant="ghost"
+                      onPress={() => {
+                        const driver = operationalUsers.find((entry) => entry.id === vehicle.driverId);
+                        if (driver) startEditing(driver);
+                        else setMessage('Selecciona un chofer y asignale esta unidad desde el editor.');
+                      }}
+                    />
+                  </View>
+                </View>
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons name="bus-clock" size={26} color={theme.colors.muted} />
+                <Text style={styles.sectionSubtitle}>
+                  Aun no hay unidades registradas.
+                </Text>
+              </View>
+            )}
+          </View>
         </AppCard>
 
         <AppCard style={styles.listCard}>
@@ -576,7 +757,7 @@ function Field({
   label: string;
   value: string;
   onChangeText: (value: string) => void;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   secureTextEntry?: boolean;
 }) {
@@ -727,6 +908,12 @@ function createStyles(
       width: isCompact ? '100%' : undefined,
       minWidth: isPhone ? 0 : 420,
     },
+    unitsCard: {
+      flex: 0.9,
+      width: isCompact ? '100%' : undefined,
+      minWidth: isPhone ? 0 : 330,
+      maxWidth: isCompact ? undefined : 520,
+    },
     sectionHeader: {
       alignItems: 'flex-start',
       flexDirection: 'row',
@@ -818,6 +1005,37 @@ function createStyles(
     },
     usersList: {
       gap: AppTheme.spacing.md,
+    },
+    unitsList: {
+      gap: 10,
+    },
+    unitRow: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.line,
+      borderRadius: AppTheme.radius.md,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: 10,
+      justifyContent: 'space-between',
+      padding: AppTheme.spacing.sm,
+    },
+    unitCopy: {
+      flex: 1,
+      gap: 4,
+      minWidth: 0,
+    },
+    unitTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.display,
+      fontSize: 16,
+      fontWeight: '900',
+    },
+    unitMeta: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '700',
     },
     userRow: {
       backgroundColor: theme.colors.surfaceAlt,

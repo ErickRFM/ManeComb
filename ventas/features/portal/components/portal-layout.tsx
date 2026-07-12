@@ -18,7 +18,7 @@ import { ToastProvider } from '@/src/components/ui/toast';
 import { portalGlass, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
-import { canAccessPortal, canOpenOperationalPanel } from '../utils/access';
+import { canAccessPortal, hasPortalPermission, type PortalPermission } from '../utils/access';
 
 type PortalLayoutProps = PropsWithChildren<{
   title: string;
@@ -31,31 +31,35 @@ type PortalNavItem = {
   href:
     | '/portal'
     | '/portal/usuarios'
+    | '/portal/unidades'
+    | '/portal/rutas'
     | '/portal/plan'
     | '/portal/facturacion'
     | '/portal/pagos'
     | '/portal/perfil'
-    | '/portal/onboarding'
-    | '/mapa';
+    | '/portal/onboarding';
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   section?: string;
+  permission?: PortalPermission;
 };
 
 const navSections: { title: string; items: PortalNavItem[] }[] = [
   {
     title: 'Cuenta',
     items: [
-      { label: 'Inicio', href: '/portal', icon: 'view-dashboard-outline' },
-      { label: 'Mi plan', href: '/portal/plan', icon: 'clipboard-list-outline' },
-      { label: 'Facturación', href: '/portal/facturacion', icon: 'file-document-outline' },
-      { label: 'Métodos de pago', href: '/portal/pagos', icon: 'credit-card-outline' },
+      { label: 'Operaciones', href: '/portal', icon: 'view-dashboard-outline' },
+      { label: 'Mi plan', href: '/portal/plan', icon: 'clipboard-list-outline', permission: 'billing' },
+      { label: 'Facturación', href: '/portal/facturacion', icon: 'file-document-outline', permission: 'billing' },
+      { label: 'Métodos de pago', href: '/portal/pagos', icon: 'credit-card-outline', permission: 'billing' },
     ],
   },
   {
     title: 'Administración',
     items: [
       { label: 'Empresa', href: '/portal/perfil', icon: 'domain', section: 'empresa' },
-      { label: 'Equipo', href: '/portal/usuarios', icon: 'account-key-outline', section: 'administracion' },
+      { label: 'Equipo', href: '/portal/usuarios', icon: 'account-key-outline', section: 'administracion', permission: 'users' },
+      { label: 'Unidades', href: '/portal/unidades', icon: 'bus-multiple', permission: 'vehicles' },
+      { label: 'Rutas', href: '/portal/rutas', icon: 'routes', permission: 'routes' },
       { label: 'Seguridad', href: '/portal/perfil', icon: 'shield-lock-outline', section: 'seguridad' },
     ],
   },
@@ -67,12 +71,6 @@ const navSections: { title: string; items: PortalNavItem[] }[] = [
     ],
   },
 ];
-
-const operationalPanelItem: PortalNavItem = {
-  label: 'Ir al panel operativo',
-  href: '/mapa',
-  icon: 'map-marker-radius-outline',
-};
 
 function getParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -105,15 +103,13 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
       user: state.user,
     }))
   );
-  const { clearError, error, loadAll, subscription } = usePortalStore(
+  const { clearError, error, loadAll } = usePortalStore(
     useShallow((state) => ({
       clearError: state.clearError,
       error: state.error,
       loadAll: state.loadAll,
-      subscription: state.subscription,
     }))
   );
-  const showOperationalPanel = canOpenOperationalPanel(subscription, user);
 
   useEffect(() => {
     if (user) {
@@ -127,7 +123,7 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
   }
 
   if (!canAccessPortal(user)) {
-    return <Redirect href={'/mapa' as never} />;
+    return <Redirect href={'/ventas' as never} />;
   }
 
   const goToItem = (item: PortalNavItem) => {
@@ -209,19 +205,9 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
           {navSections.map((section) => (
             <View key={section.title} style={styles.mobileNavSection}>
               <Text style={styles.navSectionTitle}>{section.title}</Text>
-              <View style={styles.mobileNavGrid}>{section.items.map((item) => renderNavItem(item, 'mobile'))}</View>
+              <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
             </View>
           ))}
-          {showOperationalPanel ? <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Ir al panel operativo"
-            onPress={() => goToItem(operationalPanelItem)}
-            style={[styles.mobileNavItem, styles.mobileOperationalItem]}>
-            <MaterialCommunityIcons name={operationalPanelItem.icon} size={18} color={portalPalette.info} />
-            <Text style={[styles.mobileNavText, { color: portalPalette.text }]}>
-              {operationalPanelItem.label}
-            </Text>
-          </Pressable> : null}
         </View>
       ) : null}
 
@@ -264,23 +250,10 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
                 {navSections.map((section) => (
                   <View key={section.title} style={styles.navSection}>
                     <Text style={styles.navSectionTitle}>{section.title}</Text>
-                    {section.items.map((item) => renderNavItem(item))}
+                    {section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item))}
                   </View>
                 ))}
               </View>
-              {showOperationalPanel ? <View style={styles.operationsCard}>
-                <View style={styles.operationsIcon}>
-                  <MaterialCommunityIcons name="bus-marker" size={20} color={portalPalette.info} />
-                </View>
-                <View style={styles.operationsCopy}>
-                  <Text style={styles.operationsTitle}>Panel operativo</Text>
-                  <Text style={styles.operationsBody}>Mapa, flotilla, rutas, radio e incidencias.</Text>
-                </View>
-                <Pressable accessibilityRole="button" accessibilityLabel="Abrir panel operativo" onPress={() => goToItem(operationalPanelItem)} style={styles.operationsButton}>
-                  <Text style={styles.operationsButtonText}>Abrir</Text>
-                  <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
-                </Pressable>
-              </View> : null}
             </ScrollView>
             <Pressable
               accessibilityRole="button"
@@ -461,56 +434,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     minWidth: 0,
   },
-  operationsCard: {
-    backgroundColor: 'rgba(35, 213, 255, 0.075)',
-    borderColor: 'rgba(35, 213, 255, 0.18)',
-    borderRadius: 14,
-    borderWidth: 1,
-    flexShrink: 0,
-    gap: 10,
-    padding: 12,
-  },
-  operationsIcon: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.infoSoft,
-    borderRadius: 10,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  operationsCopy: {
-    gap: 3,
-    minWidth: 0,
-  },
-  operationsTitle: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  operationsBody: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  operationsButton: {
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    backgroundColor: portalPalette.info,
-    borderRadius: 10,
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'center',
-    minHeight: 34,
-    paddingHorizontal: 11,
-  },
-  operationsButtonText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
   logoutButton: {
     alignItems: 'center',
     backgroundColor: portalPalette.dangerSoft,
@@ -613,12 +536,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     lineHeight: 16,
     minWidth: 0,
-  },
-  mobileOperationalItem: {
-    backgroundColor: 'rgba(35, 213, 255, 0.08)',
-    borderColor: 'rgba(35, 213, 255, 0.2)',
-    flexBasis: '100%',
-    width: '100%',
   },
   header: {
     alignItems: 'flex-start',

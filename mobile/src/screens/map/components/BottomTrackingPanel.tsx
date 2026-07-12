@@ -32,6 +32,7 @@ export function BottomTrackingPanel({
   trackingVehicles,
 }: BottomTrackingPanelProps) {
   const { theme } = useAppTheme();
+  const hasSelectedVehicleLocation = Boolean(selectedVehicle?.locationTimestamp);
 
   return (
     <View style={[styles.bottomOverlay, { paddingBottom: bottomPadding }]}>
@@ -63,13 +64,27 @@ export function BottomTrackingPanel({
       <View style={[styles.followCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
         <View style={styles.followHeader}>
           <View style={styles.followIdentity}>
-            <Text style={[styles.followTitle, { color: theme.colors.text }]}>{selectedVehicle?.code || 'Flota'}</Text>
-            <Text style={[styles.followMeta, { color: theme.colors.muted }]}>{selectedVehicle?.driverName || 'En monitoreo'}</Text>
+            <Text style={[styles.followTitle, { color: theme.colors.text }]}>
+              {selectedVehicle?.code || 'Tu ubicación actual'}
+            </Text>
+            <Text style={[styles.followMeta, { color: theme.colors.muted }]}>
+              {selectedVehicle
+                ? `Placas ${selectedVehicle.plate} · Ruta ${selectedVehicle.assignedRoute ? 'asignada' : 'No asignada'}`
+                : 'No tienes una unidad asignada. Contacta al administrador.'}
+            </Text>
           </View>
-          <View style={styles.followMetrics}>
-            <StatusPill label={`${selectedVehicle?.speed || 0} km/h`} tone="info" />
-            <StatusPill label={selectedVehicle?.status || 'online'} tone={selectedVehicle?.status === 'maintenance' ? 'danger' : 'positive'} />
-          </View>
+          {selectedVehicle?.assignedRoute ? (
+            <View style={styles.followMetrics}>
+              <StatusPill
+                label={hasSelectedVehicleLocation ? `${selectedVehicle.speed} km/h` : 'GPS pendiente'}
+                tone={hasSelectedVehicleLocation ? 'info' : 'warning'}
+              />
+              <StatusPill
+                label={selectedVehicle.status}
+                tone={selectedVehicle.status === 'maintenance' ? 'danger' : 'positive'}
+              />
+            </View>
+          ) : null}
         </View>
 
         {activeIncident && activeIncidentVehicle ? (

@@ -3,6 +3,7 @@ import type { LiveLocationsData } from '@/src/types/app';
 import {
   getActiveIncident,
   getActiveRouteCount,
+  hasVehicleLiveLocation,
   getPrioritizedVehicles,
   getSelectedVehicle,
   getTrackingVehicles,
@@ -20,9 +21,14 @@ export function useTrackingData(
     [mapData?.vehicles]
   );
   const vehicleById = useMemo(() => getVehicleById(prioritizedVehicles), [prioritizedVehicles]);
+  const liveVehicles = useMemo(
+    () => prioritizedVehicles.filter(hasVehicleLiveLocation),
+    [prioritizedVehicles]
+  );
+  const liveVehicleById = useMemo(() => getVehicleById(liveVehicles), [liveVehicles]);
   const selectedVehicle = useMemo(
-    () => getSelectedVehicle(selectedVehicleId, prioritizedVehicles, vehicleById),
-    [prioritizedVehicles, selectedVehicleId, vehicleById]
+    () => getSelectedVehicle(selectedVehicleId, liveVehicles.length ? liveVehicles : prioritizedVehicles, vehicleById),
+    [liveVehicles, prioritizedVehicles, selectedVehicleId, vehicleById]
   );
   const trackingVehicles = useMemo(
     () => getTrackingVehicles(prioritizedVehicles),
@@ -33,8 +39,8 @@ export function useTrackingData(
     [prioritizedVehicles]
   );
   const visibleIncidents = useMemo(
-    () => getVisibleIncidents(mapData, vehicleById),
-    [mapData, vehicleById]
+    () => getVisibleIncidents(mapData, liveVehicleById),
+    [mapData, liveVehicleById]
   );
   const activeIncident = useMemo(
     () => getActiveIncident(visibleIncidents, activeAlertIndex),
@@ -48,6 +54,7 @@ export function useTrackingData(
     activeIncident,
     activeIncidentVehicle,
     activeRouteCount,
+    liveVehicles,
     prioritizedVehicles,
     selectedVehicle,
     trackingVehicles,

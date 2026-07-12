@@ -93,6 +93,13 @@ export type UserMutationPayload = {
   operationalSchedule?: Partial<OperationalSchedule> | null;
 };
 
+export type VehicleMutationPayload = {
+  code: string;
+  plate: string;
+  currentKilometers?: number;
+  status?: 'available' | 'maintenance';
+};
+
 export type ProfileMutationPayload = {
   name?: string;
   email?: string;
@@ -654,6 +661,7 @@ export type Vehicle = {
   heading?: number | null;
   speed: number;
   fuel: number;
+  currentKilometers?: number;
   updatedAt: string;
   location: GeoPoint;
   locationTimestamp?: string | null;
@@ -665,22 +673,6 @@ export type Vehicle = {
   driverName?: string;
   route?: RouteShape | null;
   driver?: User | null;
-};
-
-export type DashboardMetric = {
-  id: string;
-  label: string;
-  value: string;
-  trend: string;
-  tone: 'positive' | 'warning' | 'danger' | 'info';
-};
-
-export type DashboardAlert = {
-  id: string;
-  label: string;
-  tone: string;
-  subtitle: string;
-  status: string;
 };
 
 export type NotificationItem = {
@@ -695,23 +687,6 @@ export type NotificationItem = {
   createdAt: string;
   readBy: string[];
   isRead?: boolean;
-};
-
-export type DashboardData = {
-  hero: {
-    eyebrow: string;
-    title: string;
-    description: string;
-  };
-  metrics: DashboardMetric[];
-  fleet: Vehicle[];
-  alerts: DashboardAlert[];
-  notifications: NotificationItem[];
-  shift: {
-    label: string;
-    startedAt: string;
-    nextCheckpointInMinutes: number;
-  };
 };
 
 export type Incident = {
@@ -765,6 +740,161 @@ export type ChatMessage = {
   sender?: User | null;
   conversationId?: string;
   transmissionId?: string | null;
+};
+
+export type RouteSessionStatus = 'ASSIGNED' | 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED';
+export type RouteSessionProcessingStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type RouteEventType =
+  | 'SESSION_STARTED'
+  | 'SESSION_PAUSED'
+  | 'SESSION_RESUMED'
+  | 'SESSION_FINISHED'
+  | 'GPS_LOST'
+  | 'GPS_RECOVERED'
+  | 'CHECKPOINT_REACHED'
+  | 'OFF_ROUTE'
+  | 'ON_ROUTE'
+  | 'VEHICLE_STOPPED'
+  | 'VEHICLE_MOVING';
+export type GpsQuality = 'GOOD' | 'NORMAL' | 'BAD';
+
+export type RouteSession = {
+  id: string;
+  organizationId: string;
+  routeId: string;
+  vehicleId: string;
+  driverId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: RouteSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  statisticsReady?: boolean;
+  processingStatus?: RouteSessionProcessingStatus;
+  processingCompletedAt?: string | null;
+  processingError?: string | null;
+  totalDistance?: number | null;
+  totalDuration?: number | null;
+  movingTime?: number | null;
+  stoppedTime?: number | null;
+  gpsLostTime?: number | null;
+  offRouteTime?: number | null;
+  checkpointCount?: number | null;
+  completedCheckpoints?: number | null;
+  completedLaps?: number | null;
+  averageSpeed?: number | null;
+  maxSpeed?: number | null;
+  averageGpsAccuracy?: number | null;
+  gpsLostEvents?: number | null;
+  offRouteEvents?: number | null;
+  stopEvents?: number | null;
+  metrics?: RouteSessionComputedMetrics | null;
+  startedOdometer?: number | null;
+  finishedOdometer?: number | null;
+  startBattery?: number | null;
+  endBattery?: number | null;
+  startGpsAccuracy?: number | null;
+  endGpsAccuracy?: number | null;
+  finishReason?: string | null;
+  deviceInfo?: Record<string, unknown> | null;
+  assignedBy?: string | null;
+  startedBy?: string | null;
+  finishedBy?: string | null;
+  updatedBy?: string | null;
+};
+
+export type RouteSessionComputedMetrics = {
+  averageGpsAccuracy?: number | null;
+  averageSpeed?: number | null;
+  completedCheckpoints?: number;
+  completedLaps?: number;
+  compliancePercent?: number;
+  effectiveTimePercent?: number;
+  gpsCoveragePercent?: number;
+  gpsQuality?: {
+    badPercent: number;
+    goodPercent: number;
+    normalPercent: number;
+    counts: {
+      GOOD: number;
+      NORMAL: number;
+      BAD: number;
+    };
+  };
+  incompleteLaps?: number;
+  longestOffRouteSeconds?: number;
+  longestStopSeconds?: number;
+  maxSpeed?: number | null;
+  minSpeed?: number | null;
+  p95Speed?: number | null;
+  positionCount?: number;
+  stoppedSpeedThresholdMetersPerSecond?: number;
+  totalDistance?: number | null;
+  totalDuration?: number;
+};
+
+export type RouteSessionMetrics = Pick<
+  RouteSession,
+  | 'id'
+  | 'status'
+  | 'statisticsReady'
+  | 'processingStatus'
+  | 'processingError'
+  | 'processingCompletedAt'
+  | 'metrics'
+  | 'totalDistance'
+  | 'totalDuration'
+  | 'movingTime'
+  | 'stoppedTime'
+  | 'gpsLostTime'
+  | 'offRouteTime'
+  | 'checkpointCount'
+  | 'completedCheckpoints'
+  | 'completedLaps'
+  | 'averageSpeed'
+  | 'maxSpeed'
+  | 'averageGpsAccuracy'
+  | 'gpsLostEvents'
+  | 'offRouteEvents'
+  | 'stopEvents'
+> & {
+  sessionId: string;
+};
+
+export type RouteSessionHistoryFilters = {
+  vehicleId?: string;
+  driverId?: string;
+  routeId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: RouteSessionStatus;
+  limit?: number;
+};
+
+export type RouteEvent = {
+  id: string;
+  sessionId: string;
+  vehicleId: string;
+  routeId: string;
+  driverId: string;
+  eventType: RouteEventType;
+  timestamp: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type CheckpointVisit = {
+  id: string;
+  sessionId: string;
+  checkpointId: string;
+  timestamp: string;
+  distance?: number | null;
+  visitOrder: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  createdAt: string;
 };
 
 export type ChatDirectoryContact = User & {
@@ -885,7 +1015,6 @@ export type LoginResult = {
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;
   tenant?: AuthTenantContext | null;
-  dashboard: DashboardData | null;
 };
 
 export type SessionResult = {
@@ -902,7 +1031,6 @@ export type SessionResult = {
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;
   tenant?: AuthTenantContext | null;
-  dashboard: DashboardData | null;
 };
 
 export type IncidentDraft = {

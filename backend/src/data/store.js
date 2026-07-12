@@ -26,6 +26,10 @@ function createEmbeddedStore() {
   state.appEvents = Array.isArray(state.appEvents) ? state.appEvents : [];
   state.activationKeys = Array.isArray(state.activationKeys) ? state.activationKeys : [];
   state.chatMessages = Array.isArray(state.chatMessages) ? state.chatMessages : [];
+  state.routeSessions = Array.isArray(state.routeSessions) ? state.routeSessions : [];
+  state.routeSessionPositions = Array.isArray(state.routeSessionPositions) ? state.routeSessionPositions : [];
+  state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
+  state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -126,6 +130,37 @@ function createEmbeddedStore() {
       route: route ? clone(route) : null,
       driver: driver ? sanitizeUser(driver) : null
     };
+  }
+
+  function syncDriverVehicleAssignment(userId, nextVehicleId = null) {
+    state.vehicles.forEach((vehicle) => {
+      if (vehicle.driverId === userId && vehicle.id !== nextVehicleId) {
+        vehicle.driverId = null;
+        vehicle.status = vehicle.status === "assigned" ? "available" : vehicle.status;
+        vehicle.updatedAt = new Date().toISOString();
+      }
+    });
+
+    if (!nextVehicleId) {
+      return;
+    }
+
+    const targetVehicle = getVehicleById(nextVehicleId);
+
+    if (!targetVehicle) {
+      return;
+    }
+
+    if (targetVehicle.driverId && targetVehicle.driverId !== userId) {
+      const previousDriver = getUserById(targetVehicle.driverId);
+      if (previousDriver) {
+        previousDriver.vehicleId = null;
+      }
+    }
+
+    targetVehicle.driverId = userId;
+    targetVehicle.status = "assigned";
+    targetVehicle.updatedAt = new Date().toISOString();
   }
 
   function buildAlert(label, tone, meta) {
@@ -669,6 +704,7 @@ function createEmbeddedStore() {
     };
 
     state.users.unshift(user);
+    syncDriverVehicleAssignment(user.id, user.vehicleId);
 
     return sanitizeUser(user);
   }
@@ -768,11 +804,14 @@ function createEmbeddedStore() {
     }
     user.status = normalizeStatus(payload.status || user.status, nextRole);
 
+    let nextVehicleId = user.vehicleId;
     if (typeof payload.vehicleId !== "undefined") {
-      user.vehicleId = nextRole === "driver" ? payload.vehicleId || null : null;
+      nextVehicleId = nextRole === "driver" ? payload.vehicleId || null : null;
     } else if (nextRole !== "driver") {
-      user.vehicleId = null;
+      nextVehicleId = null;
     }
+
+    user.vehicleId = nextVehicleId;
 
     if (typeof payload.activationKeyId !== "undefined") {
       user.activationKeyId = String(payload.activationKeyId || "").trim() || null;
@@ -792,6 +831,8 @@ function createEmbeddedStore() {
 
       user.passwordHash = bcrypt.hashSync(nextPassword, 10);
     }
+
+    syncDriverVehicleAssignment(user.id, nextVehicleId);
 
     return sanitizeUser(user);
   }
@@ -1822,12 +1863,19 @@ function createEmbeddedStore() {
   }
 
   function createVehicle(payload) {
+    const organizationId = String(payload.organizationId || "").trim();
+    const code = String(payload.code || "").trim();
+    const plate = String(payload.plate || "").trim().toUpperCase();
+    if (state.vehicles.some((entry) => entry.organizationId === organizationId &&
+      (entry.code.toLowerCase() === code.toLowerCase() || entry.plate.toUpperCase() === plate))) {
+      throw new Error("Ya existe una unidad con ese nombre o placas");
+    }
     const vehicle = {
       id: String(payload.id || "").trim() || randomUUID(),
-      organizationId: String(payload.organizationId || "").trim(),
-      code: String(payload.code || "").trim(),
-      plate: String(payload.plate || "").trim(),
-      routeId: String(payload.routeId || "route-1").trim() || "route-1",
+      organizationId,
+      code,
+      plate,
+      routeId: String(payload.routeId || "").trim() || null,
       driverId: String(payload.driverId || "").trim() || null,
       supervisorId: String(payload.supervisorId || "").trim() || null,
       status: String(payload.status || "available").trim() || "available",
@@ -1837,11 +1885,9 @@ function createEmbeddedStore() {
       delayMinutes: 0,
       speed: 0,
       fuel: Math.max(0, Math.min(100, Number(payload.fuel) || 100)),
+      currentKilometers: Math.max(0, Number(payload.currentKilometers) || 0),
       updatedAt: new Date().toISOString(),
-      location: payload.location || {
-        latitude: 19.4326,
-        longitude: -99.1332
-      },
+      location: payload.location || null,
       assignedRoute: null
     };
 
@@ -1858,6 +1904,53 @@ function createEmbeddedStore() {
         driver.vehicleId = vehicle.id;
       }
     }
+
+    return enrichVehicle(vehicle);
+  }
+
+  function updateVehicle(vehicleId, payload) {
+    const vehicle = getVehicleById(vehicleId);
+
+    if (!vehicle) {
+      return null;
+    }
+
+    const nextCode = typeof payload.code !== "undefined" ? String(payload.code || "").trim() : vehicle.code;
+    const nextPlate = typeof payload.plate !== "undefined" ? String(payload.plate || "").trim().toUpperCase() : vehicle.plate;
+    if (state.vehicles.some((entry) => entry.id !== vehicleId && entry.organizationId === vehicle.organizationId &&
+      (entry.code.toLowerCase() === nextCode.toLowerCase() || entry.plate.toUpperCase() === nextPlate.toUpperCase()))) {
+      throw new Error("Ya existe una unidad con ese nombre o placas");
+    }
+
+    if (typeof payload.code !== "undefined") {
+      vehicle.code = String(payload.code || "").trim();
+    }
+
+    if (typeof payload.plate !== "undefined") {
+      vehicle.plate = String(payload.plate || "").trim().toUpperCase();
+    }
+
+    if (typeof payload.status !== "undefined") {
+      vehicle.status = String(payload.status || "available").trim() || "available";
+    }
+
+    if (typeof payload.currentKilometers !== "undefined") {
+      vehicle.currentKilometers = Math.max(0, Number(payload.currentKilometers) || 0);
+    }
+
+    if (!vehicle.code || !vehicle.plate) {
+      throw new Error("Codigo y placa de unidad son obligatorios");
+    }
+
+    if (vehicle.status === "maintenance" && vehicle.driverId) {
+      const driver = getUserById(vehicle.driverId);
+      if (driver) {
+        driver.vehicleId = null;
+      }
+      vehicle.driverId = null;
+    }
+
+    vehicle.updatedAt = new Date().toISOString();
 
     return enrichVehicle(vehicle);
   }
@@ -2189,6 +2282,167 @@ function createEmbeddedStore() {
     return enrichVehicle(vehicle);
   }
 
+  function getActiveRouteSession(vehicleId) {
+    const session = state.routeSessions.find(
+      (entry) => entry.vehicleId === vehicleId && ["RUNNING", "PAUSED"].includes(entry.status)
+    );
+    return session ? clone(session) : null;
+  }
+
+  function getRouteSessionById(sessionId) {
+    const session = state.routeSessions.find((entry) => entry.id === sessionId);
+    return session ? clone(session) : null;
+  }
+
+  function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50 } = {}) {
+    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
+    const toTime = dateTo ? new Date(dateTo).getTime() : null;
+    const normalizedStatus = status ? String(status).trim().toUpperCase() : "";
+
+    return clone(
+      state.routeSessions
+        .filter((entry) => {
+          const startedAt = new Date(entry.startedAt).getTime();
+          if (organizationId && entry.organizationId !== organizationId) return false;
+          if (vehicleId && entry.vehicleId !== vehicleId) return false;
+          if (driverId && entry.driverId !== driverId) return false;
+          if (routeId && entry.routeId !== routeId) return false;
+          if (normalizedStatus && entry.status !== normalizedStatus) return false;
+          if (fromTime && startedAt < fromTime) return false;
+          if (toTime && startedAt > toTime) return false;
+          return true;
+        })
+        .sort((left, right) => new Date(right.startedAt) - new Date(left.startedAt))
+        .slice(0, Math.max(1, Math.min(5000, Number(limit) || 50)))
+    );
+  }
+
+  function createRouteSession(payload) {
+    const active = getActiveRouteSession(payload.vehicleId);
+    if (active) return { ...active, creationApplied: false };
+    const now = new Date().toISOString();
+    const session = { id: randomUUID(), ...clone(payload), activeKey: payload.vehicleId, status: "RUNNING", startedAt: payload.startedAt || now,
+      finishedAt: null, statisticsReady: false, processingStatus: "PENDING", createdAt: now, updatedAt: now };
+    state.routeSessions.push(session);
+    return { ...clone(session), creationApplied: true };
+  }
+
+  function updateRouteSession(sessionId, payload) {
+    const session = state.routeSessions.find((entry) => entry.id === sessionId);
+    if (!session) return null;
+    if (payload.expectedStatus && session.status !== payload.expectedStatus) return { ...clone(session), transitionApplied: false };
+    const { expectedStatus, ...updates } = payload;
+    Object.assign(session, clone(updates));
+    if (["FINISHED", "CANCELLED"].includes(session.status)) session.activeKey = null;
+    session.finishedAt = updates.finishedAt || session.finishedAt || null;
+    session.updatedAt = new Date().toISOString();
+    return { ...clone(session), transitionApplied: true };
+  }
+
+  function createRouteSessionPosition(payload) {
+    const position = { id: randomUUID(), ...clone(payload), createdAt: new Date().toISOString() };
+    state.routeSessionPositions.push(position);
+    return clone(position);
+  }
+
+  function listRouteSessionPositions({ sessionId, limit = 50 }) {
+    return clone(
+      state.routeSessionPositions
+        .filter((entry) => !sessionId || entry.sessionId === sessionId)
+        .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))
+        .slice(0, Math.max(1, Math.min(50000, Number(limit) || 50)))
+    );
+  }
+
+  function getLastRouteEvent(sessionId, eventType = null) {
+    return clone(
+      state.routeEvents
+        .filter((entry) => entry.sessionId === sessionId && (!eventType || entry.eventType === eventType))
+        .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0] || null
+    );
+  }
+
+  function createRouteEvent(payload) {
+    const lastEvent = getLastRouteEvent(payload.sessionId);
+    if (lastEvent?.eventType === payload.eventType) {
+      return { ...lastEvent, duplicateSkipped: true };
+    }
+
+    const event = {
+      id: String(payload.id || "").trim() || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      sessionId: String(payload.sessionId || "").trim(),
+      vehicleId: String(payload.vehicleId || "").trim(),
+      routeId: String(payload.routeId || "").trim(),
+      driverId: String(payload.driverId || "").trim(),
+      eventType: String(payload.eventType || "").trim(),
+      timestamp: payload.timestamp || new Date().toISOString(),
+      latitude: Number.isFinite(Number(payload.latitude)) ? Number(payload.latitude) : null,
+      longitude: Number.isFinite(Number(payload.longitude)) ? Number(payload.longitude) : null,
+      metadata: payload.metadata ? clone(payload.metadata) : null,
+      createdAt: new Date().toISOString()
+    };
+
+    state.routeEvents.push(event);
+    return clone(event);
+  }
+
+  function listRouteEvents({ sessionId, eventType, limit = 500 }) {
+    return clone(
+      state.routeEvents
+        .filter((entry) => (!sessionId || entry.sessionId === sessionId) && (!eventType || entry.eventType === eventType))
+        .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp))
+        .slice(0, Math.max(1, Math.min(50000, Number(limit) || 500)))
+    );
+  }
+
+  function createCheckpointVisit(payload) {
+    const sessionId = String(payload.sessionId || "").trim();
+    const checkpointId = String(payload.checkpointId || "").trim();
+    const previousVisit = state.checkpointVisits
+      .filter((entry) => entry.sessionId === sessionId)
+      .sort((left, right) => right.visitOrder - left.visitOrder || new Date(right.timestamp) - new Date(left.timestamp))[0];
+
+    if (previousVisit?.checkpointId === checkpointId) {
+      return { ...clone(previousVisit), duplicateSkipped: true };
+    }
+
+    const visitOrder = Math.max(
+      Math.max(
+        0,
+        ...state.checkpointVisits
+          .filter((entry) => entry.sessionId === sessionId)
+          .map((entry) => Number(entry.visitOrder) || 0)
+      ) + 1,
+      Number(payload.visitOrder) || 1
+    );
+
+    const visit = {
+      id: String(payload.id || "").trim() || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      sessionId,
+      checkpointId,
+      timestamp: payload.timestamp || new Date().toISOString(),
+      distance: Number.isFinite(Number(payload.distance)) ? Number(payload.distance) : null,
+      visitOrder,
+      latitude: Number.isFinite(Number(payload.latitude)) ? Number(payload.latitude) : null,
+      longitude: Number.isFinite(Number(payload.longitude)) ? Number(payload.longitude) : null,
+      createdAt: new Date().toISOString()
+    };
+
+    state.checkpointVisits.push(visit);
+    return clone(visit);
+  }
+
+  function listCheckpointVisits({ sessionId, limit = 500 }) {
+    return clone(
+      state.checkpointVisits
+        .filter((entry) => !sessionId || entry.sessionId === sessionId)
+        .sort((left, right) => left.visitOrder - right.visitOrder || new Date(left.timestamp) - new Date(right.timestamp))
+        .slice(0, Math.max(1, Math.min(50000, Number(limit) || 500)))
+    );
+  }
+
   return buildBackendStore({
     authenticate,
     addMessage,
@@ -2246,7 +2500,20 @@ function createEmbeddedStore() {
     updateUser,
     updateIncidentStatus,
     updateVehicleLocation,
+    updateVehicle,
     createTripLog,
+    createRouteSession,
+    createRouteSessionPosition,
+    createRouteEvent,
+    createCheckpointVisit,
+    getActiveRouteSession,
+    getLastRouteEvent,
+    getRouteSessionById,
+    listCheckpointVisits,
+    listRouteEvents,
+    listRouteSessions,
+    listRouteSessionPositions,
+    updateRouteSession,
     updateCommercialOrder,
     updateActivationKey,
     updateRtcSession

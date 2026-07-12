@@ -11,6 +11,7 @@ import {
 import type {
   DriverActivationRegisterPayload,
   DriverActivationValidation,
+  CheckpointVisit,
   DocumentReviewPayload,
   E2eeBackupRecord,
   GeoPoint,
@@ -18,7 +19,6 @@ import type {
   ChatMessage,
   ConversationChannelMode,
   ConversationSummary,
-  DashboardData,
   DocumentItem,
   Incident,
   IncidentStatus,
@@ -32,12 +32,18 @@ import type {
   OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   RegisterPayload,
+  RouteEvent,
+  RouteSessionHistoryFilters,
+  RouteSessionMetrics,
+  RouteSession,
+  RouteSessionStatus,
   RtcIceConfig,
   RtcSessionRecord,
   SessionResult,
   User,
   UserMutationPayload,
   Vehicle,
+  VehicleMutationPayload,
 } from '@/src/types/app';
 
 const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
@@ -586,11 +592,6 @@ export async function upsertE2eeBackupRequest(payload: {
   return response.data.data;
 }
 
-export async function getDashboardRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: DashboardData }>('/dashboard/overview');
-  return response.data.data;
-}
-
 export async function getLocationsRequest() {
   const response = await apiClient.get<{ ok: boolean; data: LiveLocationsData }>('/locations/live');
   return response.data.data;
@@ -797,11 +798,17 @@ export async function getVehiclesRequest() {
   return response.data.data;
 }
 
+export async function createVehicleRequest(payload: VehicleMutationPayload) {
+  const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/vehicles', payload);
+  return response.data.data;
+}
+
 export async function updateVehicleLocationRequest(payload: {
   vehicleId: string;
   coordinates: GeoPoint;
   heading?: number | null;
   speed?: number | null;
+  accuracy?: number | null;
   timestamp?: string | null;
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/locations/update', payload);
@@ -867,6 +874,70 @@ export async function assignVehicleRouteRequest(payload: {
 export async function clearAssignedVehicleRouteRequest(vehicleId: string) {
   const response = await apiClient.delete<{ ok: boolean; data: Vehicle }>(
     `/navigation/assign/${encodeURIComponent(vehicleId)}`
+  );
+  return response.data.data;
+}
+
+export async function getActiveRouteSessionRequest(vehicleId: string) {
+  const response = await apiClient.get<{ ok: boolean; data: RouteSession | null }>('/navigation/sessions/active', {
+    params: { vehicleId },
+  });
+  return response.data.data;
+}
+
+export async function startRouteSessionRequest(vehicleId: string) {
+  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>('/navigation/sessions/start', { vehicleId });
+  return response.data.data;
+}
+
+export async function updateRouteSessionStatusRequest(
+  sessionId: string,
+  vehicleId: string,
+  status: Extract<RouteSessionStatus, 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED'>,
+) {
+  const response = await apiClient.patch<{ ok: boolean; data: RouteSession }>(
+    `/navigation/sessions/${encodeURIComponent(sessionId)}/status`,
+    { vehicleId, status },
+  );
+  return response.data.data;
+}
+
+export async function getRouteSessionMetricsRequest(sessionId: string) {
+  const response = await apiClient.get<{ ok: boolean; data: RouteSessionMetrics }>(
+    `/navigation/sessions/${encodeURIComponent(sessionId)}/metrics`,
+  );
+  return response.data.data;
+}
+
+export async function getRouteSessionHistoryRequest(params?: RouteSessionHistoryFilters) {
+  const response = await apiClient.get<{ ok: boolean; data: RouteSession[] }>('/navigation/sessions/history', {
+    params,
+  });
+  return response.data.data;
+}
+
+export async function recalculateRouteSessionMetricsRequest(sessionId: string) {
+  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>(
+    `/navigation/sessions/${encodeURIComponent(sessionId)}/recalculate`,
+  );
+  return response.data.data;
+}
+
+export async function getRouteSessionEventsRequest(
+  sessionId: string,
+  params?: { type?: RouteEvent['eventType']; limit?: number },
+) {
+  const response = await apiClient.get<{ ok: boolean; data: RouteEvent[] }>(
+    `/navigation/sessions/${encodeURIComponent(sessionId)}/events`,
+    { params },
+  );
+  return response.data.data;
+}
+
+export async function getRouteSessionCheckpointVisitsRequest(sessionId: string, limit?: number) {
+  const response = await apiClient.get<{ ok: boolean; data: CheckpointVisit[] }>(
+    `/navigation/sessions/${encodeURIComponent(sessionId)}/checkpoint-visits`,
+    { params: { limit } },
   );
   return response.data.data;
 }

@@ -20,16 +20,17 @@ import {
   SOCKET_URL,
   configureApiSessionRecovery,
   createIncidentRequest,
+  createVehicleRequest,
   createUserRequest,
   deleteUserRequest,
   registerDriverActivationRequest,
   getChatContactsRequest,
   getConversationsRequest,
-  getDashboardRequest,
   getDocumentsRequest,
   getIncidentsRequest,
   getLastApiTraceId,
   getLocationsRequest,
+  getActiveRouteSessionRequest,
   getMessagesRequest,
   getNotificationsRequest,
   getOperationalObservabilityRequest,
@@ -71,7 +72,6 @@ import type {
   ConnectionMode,
   ConversationChannelMode,
   ConversationSummary,
-  DashboardData,
   DocumentItem,
   GeoPoint,
   Incident,
@@ -87,8 +87,10 @@ import type {
   RegisterPayload,
   User,
   UserMutationPayload,
+  VehicleMutationPayload,
   Vehicle,
   SessionResult,
+  RouteSession,
 } from '@/src/types/app';
 import {
   decryptDirectChatText,
@@ -102,7 +104,7 @@ import {
   showInAppNotification,
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
-import { normalizeDashboardData, normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
+import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -178,7 +180,6 @@ export type AppState = {
   isSubmitting: boolean;
   authContext: AuthRoutingContext | null;
   user: User | null;
-  dashboard: DashboardData | null;
   mapData: LiveLocationsData | null;
   incidents: Incident[];
   conversations: ConversationSummary[];
@@ -188,6 +189,7 @@ export type AppState = {
   notifications: NotificationItem[];
   observability: OperationalObservabilitySnapshot | null;
   users: User[];
+  activeRouteSession: RouteSession | null;
   activeConversationId: string | null;
   focusedIncidentId: string | null;
   error: string | null;
@@ -214,6 +216,7 @@ export type AppState = {
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
   createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
+  createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
   updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
   deleteUser: (userId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
@@ -246,7 +249,6 @@ type StoreSet = (
 
 function getEmptyOperationalState(): Partial<AppState> {
   return {
-    dashboard: null,
     mapData: null,
     incidents: [],
     conversations: [],
@@ -256,6 +258,7 @@ function getEmptyOperationalState(): Partial<AppState> {
     notifications: [],
     observability: null,
     users: [],
+    activeRouteSession: null,
     activeConversationId: null,
     focusedIncidentId: null,
     pendingSyncCount: 0,
@@ -431,7 +434,6 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
   return {
     authContext: state.authContext,
     user: state.user,
-    dashboard: normalizeDashboardData(state.dashboard),
     mapData: normalizeLiveLocationsData(state.mapData),
     incidents: state.incidents,
     conversations: state.conversations,
@@ -441,6 +443,7 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
     notifications: state.notifications,
     observability: state.observability,
     users: state.users,
+    activeRouteSession: state.activeRouteSession,
   };
 }
 
@@ -452,7 +455,6 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
   return {
     authContext: snapshot.authContext || null,
     user: snapshot.user,
-    dashboard: normalizeDashboardData(snapshot.dashboard),
     mapData: normalizeLiveLocationsData(snapshot.mapData),
     incidents: snapshot.incidents || [],
     conversations: sortConversations(snapshot.conversations || []),
@@ -462,6 +464,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     notifications: snapshot.notifications || [],
     observability: snapshot.observability || null,
     users: snapshot.users || [],
+    activeRouteSession: snapshot.activeRouteSession || null,
     lastCacheAt: snapshot.savedAt,
   };
 }
@@ -539,7 +542,6 @@ async function refreshAuthSession(set: StoreSet) {
 
   set({
     authContext,
-    dashboard: normalizeDashboardData(session.dashboard),
     documents: session.profile.documents,
     user: session.profile.user,
   });
@@ -571,7 +573,6 @@ async function replaceSessionFromBackend(
   set({
     ...getEmptyOperationalState(),
     authContext,
-    dashboard: normalizeDashboardData(session.dashboard),
     documents: session.profile.documents,
     networkStatus: 'online',
     refreshToken: refreshToken || null,
@@ -973,15 +974,18 @@ function connectSocket(set: StoreSet, get: () => AppState) {
             updatedAt: new Date().toISOString(),
           }
         : s.mapData,
-      dashboard: s.dashboard
-        ? {
-            ...s.dashboard,
-            fleet: s.dashboard.fleet.map(ev =>
-              ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
-            ),
-          }
-        : s.dashboard
     }));
+  });
+
+  socket.on('route-session:updated', (session: RouteSession) => {
+    set({ activeRouteSession: ['RUNNING', 'PAUSED'].includes(session.status) ? session : null });
+    persistOfflineSnapshot(get);
+  });
+
+  socket.on('user:updated', (payload: { user?: User }) => {
+    if (payload.user?.id === get().user?.id) set({ user: payload.user });
+    get().loadUsers().catch(() => undefined);
+    get().refreshAll().catch(() => undefined);
   });
 
   socket.on('incident:created', (i: Incident) => set(s => ({ incidents: [i, ...s.incidents] })));
@@ -1170,7 +1174,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
-  authContext: null, user: null, dashboard: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [],
+  authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null,
   activeConversationId: null, focusedIncidentId: null, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },
@@ -1250,13 +1254,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         )
       );
 
-      if (!s.dashboard || cachedIdentityChanged) {
+      if (cachedIdentityChanged) {
         await clearTenantCache();
         set(getEmptyOperationalState());
       }
 
       const authContext = getAuthContextFromPayload(s);
-      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, dashboard: normalizeDashboardData(s.dashboard), documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
+      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -1309,21 +1313,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const curr = get();
       const res = await Promise.allSettled([
-        getDashboardRequest(), getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
+        getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
-        user.role === 'admin' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([])
+        user.role === 'admin' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
+        user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null)
       ]);
       const data: any = {};
-      const keys = ['dashboard', 'mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users'];
+      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
           data[keys[i]] =
             keys[i] === 'mapData'
               ? normalizeLiveLocationsData(r.value as LiveLocationsData)
-              : keys[i] === 'dashboard'
-                ? normalizeDashboardData(r.value as DashboardData)
-                : r.value;
+              : r.value;
           fulfilledCount += 1;
         }
       });
@@ -1560,8 +1563,44 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error;
     }
   },
-  createUser: async (p) => { try { const u = await createUserRequest(p); set(s => ({ users: [u, ...s.users] })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible crear el usuario.'); logStoreError('createUser', error); return { ok: false, message }; } },
-  updateUser: async (id, p) => { try { const u = await updateUserRequest(id, p); set(s => ({ users: s.users.map(eu => eu.id === id ? u : eu) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible actualizar el usuario.'); logStoreError('updateUser', error); return { ok: false, message }; } },
+  createUser: async (p) => {
+    try {
+      const u = await createUserRequest(p);
+      set(s => ({ users: [u, ...s.users] }));
+      await get().refreshAll();
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableErrorMessage(error, 'No fue posible crear el usuario.');
+      logStoreError('createUser', error);
+      return { ok: false, message };
+    }
+  },
+  createVehicle: async (p) => {
+    set({ isSubmitting: true });
+    try {
+      await createVehicleRequest(p);
+      await get().refreshAll();
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableErrorMessage(error, 'No fue posible crear la unidad.');
+      logStoreError('createVehicle', error);
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  updateUser: async (id, p) => {
+    try {
+      const u = await updateUserRequest(id, p);
+      set(s => ({ users: s.users.map(eu => eu.id === id ? u : eu) }));
+      await get().refreshAll();
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableErrorMessage(error, 'No fue posible actualizar el usuario.');
+      logStoreError('updateUser', error);
+      return { ok: false, message };
+    }
+  },
   deleteUser: async (id) => { try { await deleteUserRequest(id); set(s => ({ users: s.users.filter(eu => eu.id !== id) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible eliminar el usuario.'); logStoreError('deleteUser', error); return { ok: false, message }; } },
   uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {

@@ -2,7 +2,6 @@ import { useAppStore } from '../root-store';
 import type { AppState } from '../root-store';
 
 export const selectFleetState = (state: AppState) => ({
-  dashboard: state.dashboard,
   mapData: state.mapData,
   refreshAll: state.refreshAll,
 });

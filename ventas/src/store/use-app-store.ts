@@ -2,22 +2,36 @@ import { isAxiosError } from 'axios';
 import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
+import { hasPortalPermission } from '@/features/portal/utils/access';
 import type { ThemeMode } from '@/constants/theme';
-import type { ProfileMutationPayload, RegisterPayload, User, UserMutationPayload } from '@/src/types/app';
+import type {
+  ProfileMutationPayload,
+  RegisterPayload,
+  RouteAssignmentPayload,
+  User,
+  UserMutationPayload,
+  Vehicle,
+  VehicleMutationPayload,
+} from '@/src/types/app';
 import {
   API_URL,
   SOCKET_URL,
+  assignRouteRequest,
+  clearRouteAssignmentRequest,
+  createVehicleRequest,
   createUserRequest,
   deleteUserRequest,
   getApiErrorMessage,
   getSessionRequest,
   getUsersRequest,
+  getVehiclesRequest,
   loginRequest,
   logoutRequest,
   registerRequest,
   setAuthToken,
   updateProfileRequest,
   updateUserRequest,
+  updateVehicleRequest,
 } from '@/src/api/client';
 
 const TOKEN_KEY = 'manecomb-ventas-token';
@@ -42,6 +56,7 @@ type AppState = {
   isSubmitting: boolean;
   user: User | null;
   users: User[];
+  vehicles: Vehicle[];
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
@@ -49,9 +64,14 @@ type AppState = {
   signOut: () => Promise<void>;
   refreshAll: () => Promise<void>;
   loadUsers: () => Promise<void>;
+  loadVehicles: () => Promise<void>;
   createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
   updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
   deleteUser: (userId: string) => Promise<ActionResult>;
+  createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
+  updateVehicle: (vehicleId: string, payload: VehicleMutationPayload) => Promise<ActionResult>;
+  assignRoute: (payload: RouteAssignmentPayload) => Promise<ActionResult>;
+  clearRouteAssignment: (vehicleId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
   clearError: () => void;
@@ -201,12 +221,20 @@ function connectSocket(get: () => AppState) {
     'subscription:updated',
     'onboarding:updated',
     'activation-keys:updated',
+    'vehicle:created',
+    'vehicle:updated',
+    'location:updated',
   ].forEach((eventName) => {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
 
       if (eventName === 'users:invited' || eventName === 'user:first-login') {
         void useAppStore.getState().loadUsers();
+        void useAppStore.getState().loadVehicles();
+      }
+
+      if (eventName === 'vehicle:created' || eventName === 'vehicle:updated' || eventName === 'location:updated') {
+        void useAppStore.getState().loadVehicles();
       }
     });
   });
@@ -224,6 +252,7 @@ async function clearSession(set: (partial: Partial<AppState>) => void) {
     refreshToken: null,
     user: null,
     users: [],
+    vehicles: [],
   });
 }
 
@@ -238,6 +267,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isSubmitting: false,
   user: null,
   users: [],
+  vehicles: [],
   error: null,
   clearError: () => set({ error: null }),
   initialize: async () => {
@@ -361,8 +391,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    if (['owner', 'admin', 'billing_manager', 'support', 'viewer'].includes(user.role)) {
+    if (hasPortalPermission(user, 'users')) {
       await get().loadUsers().catch(() => undefined);
+    }
+    if (hasPortalPermission(user, 'vehicles') || hasPortalPermission(user, 'routes')) {
+      await get().loadVehicles().catch(() => undefined);
     }
 
     connectSocket(get);
@@ -379,6 +412,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ users, error: null });
     } catch (error) {
       set({ error: getReadableError(error, 'No fue posible cargar usuarios.') });
+    }
+  },
+  loadVehicles: async () => {
+    const user = get().user;
+
+    if (!user) {
+      return;
+    }
+
+    try {
+      const vehicles = await getVehiclesRequest();
+      set({ vehicles, error: null });
+    } catch (error) {
+      set({ error: getReadableError(error, 'No fue posible cargar unidades.') });
     }
   },
   createUser: async (payload) => {
@@ -404,6 +451,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         users: state.users.map((entry) => (entry.id === userId ? user : entry)),
       }));
+      if (typeof payload.vehicleId !== 'undefined') {
+        void get().loadVehicles();
+      }
       return { ok: true };
     } catch (error) {
       const message = getReadableError(error, 'No fue posible actualizar el usuario.');
@@ -422,6 +472,72 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { ok: true };
     } catch (error) {
       const message = getReadableError(error, 'No fue posible eliminar el usuario.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  createVehicle: async (payload) => {
+    set({ isSubmitting: true, error: null });
+
+    try {
+      const vehicle = await createVehicleRequest(payload);
+      set((state) => ({ vehicles: [vehicle, ...state.vehicles] }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible crear la unidad.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  updateVehicle: async (vehicleId, payload) => {
+    set({ isSubmitting: true, error: null });
+
+    try {
+      const vehicle = await updateVehicleRequest(vehicleId, payload);
+      set((state) => ({
+        vehicles: state.vehicles.map((entry) => (entry.id === vehicleId ? vehicle : entry)),
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible actualizar la unidad.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  assignRoute: async (payload) => {
+    set({ isSubmitting: true, error: null });
+
+    try {
+      const vehicle = await assignRouteRequest(payload);
+      set((state) => ({
+        vehicles: state.vehicles.map((entry) => (entry.id === vehicle.id ? vehicle : entry)),
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible asignar la ruta.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  clearRouteAssignment: async (vehicleId) => {
+    set({ isSubmitting: true, error: null });
+
+    try {
+      const vehicle = await clearRouteAssignmentRequest(vehicleId);
+      set((state) => ({
+        vehicles: state.vehicles.map((entry) => (entry.id === vehicleId ? vehicle : entry)),
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible liberar la ruta.');
       set({ error: message });
       return { ok: false, message };
     } finally {

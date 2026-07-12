@@ -3,7 +3,7 @@ import { LOCATION_SYNC_INTERVAL_MS } from '../constants/tracking';
 
 export type TrackingSyncCandidate = {
   connectionMode: string;
-  coordinates: (GeoPoint & { heading?: number | null; speed?: number | null }) | null;
+  coordinates: (GeoPoint & { heading?: number | null; speed?: number | null; accuracy?: number | null }) | null;
   isWithinSchedule: boolean;
   lastSyncAt: number;
   now: number;
@@ -32,7 +32,7 @@ export function buildVehicleLocationPayload({
   lastUpdatedAt,
   vehicleId,
 }: {
-  coordinates: GeoPoint & { heading?: number | null; speed?: number | null };
+  coordinates: GeoPoint & { heading?: number | null; speed?: number | null; accuracy?: number | null };
   lastUpdatedAt?: string | null;
   vehicleId: string;
 }) {
@@ -41,6 +41,7 @@ export function buildVehicleLocationPayload({
     coordinates,
     heading: coordinates.heading,
     speed: coordinates.speed,
+    accuracy: coordinates.accuracy,
     timestamp: lastUpdatedAt || new Date().toISOString(),
   };
 }

@@ -81,58 +81,51 @@ function expectedStateLabel(state: string) {
   return labels[state] || 'Sin cambios';
 }
 
-function dateOrFallback(value: string | null | undefined, daysAgo: number) {
-  if (value && !Number.isNaN(new Date(value).getTime())) return new Date(value).toISOString();
-  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+function toValidIsoDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function createInitialActivities(snapshot: CommercialContextSnapshot): CommercialActivity[] {
-  const events: CommercialActivity[] = [
-    {
-      id: 'sim-account-created',
+  const events: CommercialActivity[] = [];
+  const organizationCreatedAt = toValidIsoDate(snapshot.organizationCreatedAt);
+  const subscriptionStartedAt = toValidIsoDate(snapshot.subscription?.currentPeriodStart);
+
+  if (organizationCreatedAt) {
+    events.push({
+      id: 'api-account-created',
       type: COMMERCIAL_ACTIVITY_TYPES.ACCOUNT_CREATED,
       title: 'Empresa creada',
       description: 'La cuenta comercial de ManeComb quedó registrada.',
-      occurredAt: dateOrFallback(snapshot.organizationCreatedAt, 20),
+      occurredAt: organizationCreatedAt,
       status: 'completed',
-      source: 'simulated',
-    },
-  ];
+      source: 'api',
+    });
+  }
 
-  if (snapshot.subscription) {
+  if (snapshot.subscription && subscriptionStartedAt) {
     events.push({
-      id: 'sim-plan-contracted',
+      id: `api-plan-${snapshot.subscription.id || snapshot.subscription.planId || subscriptionStartedAt}`,
       type: COMMERCIAL_ACTIVITY_TYPES.PLAN_CONTRACTED,
       title: 'Plan contratado',
       description: `${snapshot.subscription.totalUnits} unidades incluidas en la suscripción.`,
-      occurredAt: dateOrFallback(snapshot.subscription.currentPeriodStart, 8),
+      occurredAt: subscriptionStartedAt,
       status: 'completed',
-      source: 'simulated',
+      source: 'api',
       metadata: { planId: snapshot.subscription.planId },
     });
   }
 
-  const method = snapshot.paymentMethods.find((item) => item.isDefault) || snapshot.paymentMethods[0];
-  if (method) {
-    events.push({
-      id: `sim-payment-method-${method.id}`,
-      type: COMMERCIAL_ACTIVITY_TYPES.PAYMENT_METHOD_ADDED,
-      title: 'Método de pago agregado',
-      description: method.type === 'spei' ? 'Transferencia SPEI disponible.' : `${method.brand} terminación ${method.last4}.`,
-      occurredAt: dateOrFallback(null, 2),
-      status: 'completed',
-      source: 'simulated',
-    });
-  }
-
   const latestInvoice = getLatestInvoice(snapshot.invoices);
-  if (latestInvoice) {
+  const latestInvoiceIssuedAt = toValidIsoDate(latestInvoice?.issuedAt);
+  if (latestInvoice && latestInvoiceIssuedAt) {
     events.push({
       id: `api-invoice-${latestInvoice.id}`,
       type: COMMERCIAL_ACTIVITY_TYPES.INVOICE_ISSUED,
       title: latestInvoice.label || 'Comprobante emitido',
       description: `Referencia ${latestInvoice.referenceCode}.`,
-      occurredAt: dateOrFallback(latestInvoice.issuedAt, 1),
+      occurredAt: latestInvoiceIssuedAt,
       status: 'completed',
       source: 'api',
       metadata: { invoiceId: latestInvoice.id, total: latestInvoice.total },
@@ -141,7 +134,6 @@ function createInitialActivities(snapshot: CommercialContextSnapshot): Commercia
 
   return events;
 }
-
 function getLatestInvoice(invoices: PortalInvoice[]) {
   return [...invoices].sort((a, b) =>
     new Date(b.issuedAt || '').getTime() - new Date(a.issuedAt || '').getTime()
@@ -311,22 +303,6 @@ export class DefaultSubscriptionService implements SubscriptionService {
       expectedStateLabel: expectedStateLabel(validation.expectedState),
       nextStep: validation.nextStep,
     };
-  }
-
-  async registerPreview(planId: string) {
-    const plan = await this.plans.findById(planId);
-    const event: CommercialActivity = {
-      id: `preview-${planId}`,
-      type: COMMERCIAL_ACTIVITY_TYPES.CHANGE_PREVIEWED,
-      title: 'Comparación preparada',
-      description: plan ? `Se revisó la opción de ${plan.units} unidades.` : 'Se revisó una opción de plan.',
-      occurredAt: new Date().toISOString(),
-      status: 'informative',
-      source: 'simulated',
-      metadata: { planId },
-    };
-    await this.timeline.append(event);
-    return event;
   }
 
   async getDashboardModel({ activationComplete }: { activationComplete: boolean }) {

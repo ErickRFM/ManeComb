@@ -1,4 +1,4 @@
-const { getEffectiveRole } = require("./access-control");
+const { getEffectiveRole, getOrganizationId } = require("./access-control");
 
 const PORTAL_ROLES = new Set([
   "owner",
@@ -9,7 +9,11 @@ const PORTAL_ROLES = new Set([
 ]);
 
 function requirePortalAccess(req, res, next) {
-  if (PORTAL_ROLES.has(getEffectiveRole(req.user))) {
+  if (
+    req.user?.accountType === "company_owner" &&
+    getOrganizationId(req.user) &&
+    PORTAL_ROLES.has(getEffectiveRole(req.user))
+  ) {
     return next();
   }
 

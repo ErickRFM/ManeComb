@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { Role } from '@/src/types/app';
 
 export type AppSectionKey =
-  | 'index'
   | 'mapa'
   | 'incidencias'
   | 'usuarios'
@@ -11,13 +10,12 @@ export type AppSectionKey =
   | 'checklist'
   | 'perfil';
 
-export type OperationalSectionKey = Exclude<AppSectionKey, 'index'>;
+export type OperationalSectionKey = AppSectionKey;
 
 export type AppSection = {
   key: AppSectionKey;
   href:
     | '/'
-    | '/dashboard'
     | '/(tabs)'
     | '/mapa'
     | '/incidencias'
@@ -35,15 +33,6 @@ export type AppSection = {
 };
 
 const appSections: AppSection[] = [
-  {
-    key: 'index',
-    href: '/dashboard',
-    label: 'Panel',
-    eyebrow: 'Centro de control',
-    title: 'Operación general',
-    description: 'Resumen de unidades, alertas y actividad en tiempo real.',
-    icon: 'view-dashboard',
-  },
   {
     key: 'mapa',
     href: '/mapa',
@@ -112,7 +101,7 @@ const appSections: AppSection[] = [
 
 function normalizePathname(pathname: string) {
   if (!pathname || pathname === '/(tabs)' || pathname === '/index') {
-    return '/dashboard';
+    return '/mapa';
   }
 
   const normalized = pathname.replace(/\/+$/, '');
@@ -124,9 +113,7 @@ export function getAppSections(role: Role) {
 }
 
 export function getOperationalMenuSections(role: Role) {
-  return getAppSections(role).filter(
-    (section): section is AppSection & { key: OperationalSectionKey } => section.key !== 'index'
-  );
+  return getAppSections(role) as (AppSection & { key: OperationalSectionKey })[];
 }
 
 export function getSectionByPathname(pathname: string, role: Role) {

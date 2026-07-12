@@ -1,12 +1,14 @@
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
+import type { User, Vehicle } from '@/src/types/app';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { BottomTrackingPanel } from './map/components/BottomTrackingPanel';
 import { FloatingControls } from './map/components/FloatingControls';
@@ -24,6 +26,120 @@ import { mapStyles as styles } from './map/map-styles';
 import type { MapSelectorParams } from './map/types';
 import { isSelectorMode } from './map/utils/selector-route';
 
+type MapGateState = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  message: string;
+  title: string;
+};
+
+function getMapGateState({
+  hasCoordinates,
+  liveVehicleCount,
+  totalVehicleCount,
+  user,
+  userVehicle,
+}: {
+  hasCoordinates: boolean;
+  liveVehicleCount: number;
+  totalVehicleCount: number;
+  user: User;
+  userVehicle: Vehicle | null;
+}): MapGateState | null {
+  const hasOrganization = Boolean(String(user.organizationId || '').trim());
+  const isDriver = user.role === 'driver';
+
+  if (!hasOrganization) {
+    return {
+      icon: 'domain-off',
+      title: 'No perteneces a una organización.',
+      message: 'Tu cuenta necesita una organización activa antes de mostrar operación, unidades o seguimiento.',
+    };
+  }
+
+  if (isDriver && !user.vehicleId && !hasCoordinates) {
+    return {
+      icon: 'bus-alert',
+      title: 'No tienes una unidad asignada.',
+      message: 'Contacta al administrador. Mientras tanto esperamos tu ubicación actual.',
+    };
+  }
+
+  if ((totalVehicleCount === 0 && !hasCoordinates) || (isDriver && user.vehicleId && !userVehicle && !hasCoordinates)) {
+    return {
+      icon: 'bus-clock',
+      title: 'No tienes una unidad asignada.',
+      message: 'No hay unidades disponibles para tu cuenta en este momento.',
+    };
+  }
+
+  if (isDriver && userVehicle && !userVehicle.assignedRoute && !hasCoordinates) {
+    return {
+      icon: 'routes',
+      title: 'No tienes una ruta asignada.',
+      message: 'El mapa operativo se habilitará cuando tu unidad tenga una ruta real.',
+    };
+  }
+
+  if (!hasCoordinates && liveVehicleCount === 0) {
+    return {
+      icon: 'crosshairs-question',
+      title: 'Esperando ubicación GPS.',
+      message: 'Aún no hay una posición real para mostrar en el mapa.',
+    };
+  }
+
+  return null;
+}
+
+function MapEmptyGate({
+  icon,
+  isRefreshing,
+  message,
+  onRefresh,
+  title,
+}: MapGateState & {
+  isRefreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const { theme } = useAppTheme();
+
+  return (
+    <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+      <StatusBar style={theme.statusBar} />
+      <View style={styles.recoveryRoot}>
+        <View
+          style={[
+            styles.recoveryIcon,
+            {
+              backgroundColor: theme.colors.accentSoft,
+              borderColor: theme.colors.line,
+            },
+          ]}>
+          <MaterialCommunityIcons name={icon} size={30} color={theme.colors.accent} />
+        </View>
+        <Text style={[styles.recoveryTitle, { color: theme.colors.text }]}>{title}</Text>
+        <Text style={[styles.recoveryMessage, { color: theme.colors.muted }]}>{message}</Text>
+        <View style={styles.recoveryActions}>
+          <Pressable
+            onPress={onRefresh}
+            disabled={isRefreshing}
+            style={({ pressed }) => [
+              styles.recoverySecondaryButton,
+              { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+              pressed && !isRefreshing ? styles.recoveryPressed : undefined,
+              isRefreshing ? styles.recoveryDisabled : undefined,
+            ]}>
+            <MaterialCommunityIcons name="sync" size={18} color={theme.colors.accent} />
+            <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
+              {isRefreshing ? 'Sincronizando...' : 'Sincronizar'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export function MapScreen() {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -39,6 +155,7 @@ export function MapScreen() {
   } = useLocationEngine();
   const {
     connectionMode,
+    activeRouteSession,
     authContext,
     error,
     isRefreshing,
@@ -50,6 +167,7 @@ export function MapScreen() {
   } = useAppStore(
     useShallow((state) => ({
       connectionMode: state.connectionMode,
+      activeRouteSession: state.activeRouteSession,
       authContext: state.authContext,
       error: state.error,
       isRefreshing: state.isRefreshing,
@@ -95,6 +213,8 @@ export function MapScreen() {
     activeIncident,
     activeIncidentVehicle,
     activeRouteCount,
+    liveVehicles,
+    prioritizedVehicles,
     selectedVehicle,
     trackingVehicles,
     vehicleById,
@@ -136,6 +256,7 @@ export function MapScreen() {
   }, [focusPoint, selectorMode, selectedVehicle]);
 
   useLocationSync({
+    enabled: user?.role !== 'driver' || activeRouteSession?.status === 'RUNNING',
     connectionMode,
     coordinates,
     isWithinSchedule: operationalScheduleState.isWithinSchedule,
@@ -189,6 +310,42 @@ export function MapScreen() {
     );
   }
 
+  const driverVehicle = user.vehicleId ? vehicleById.get(user.vehicleId) || null : null;
+  const mapGate = getMapGateState({
+    hasCoordinates: Boolean(coordinates),
+    liveVehicleCount: liveVehicles.length,
+    totalVehicleCount: prioritizedVehicles.length,
+    user,
+    userVehicle: driverVehicle,
+  });
+
+  if (mapGate) {
+    return (
+      <MapEmptyGate
+        icon={mapGate.icon}
+        isRefreshing={isRefreshing}
+        message={mapGate.message}
+        onRefresh={handleRefresh}
+        title={mapGate.title}
+      />
+    );
+  }
+
+  const driverWithoutUnit = user.role === 'driver' && !driverVehicle;
+  const driverWithoutRoute = user.role === 'driver' && driverVehicle && !driverVehicle.assignedRoute;
+  const mapDataForDisplay =
+    driverWithoutUnit || driverWithoutRoute
+      ? {
+          ...mapData,
+          routes: [],
+          vehicles: driverWithoutUnit ? [] : mapData.vehicles,
+          incidents: driverWithoutUnit ? [] : visibleIncidents,
+        }
+      : mapData;
+  const visibleMapVehicles = driverWithoutUnit ? [] : liveVehicles;
+  const visiblePanelVehicles = driverWithoutUnit ? [] : trackingVehicles;
+  const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
+
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <StatusBar style={theme.statusBar} />
@@ -196,9 +353,10 @@ export function MapScreen() {
         <MapCanvas
           compassPosition={{ right: 66, top: insets.top + 10 }}
           coordinates={coordinates}
-          mapData={mapData}
+          mapData={mapDataForDisplay}
           mapPadding={mapPadding}
           mapRef={mapRef}
+          mapVehicles={visibleMapVehicles}
           onMapSelectorPress={selector.handleSelectorPress}
           onSelectorDragStart={() => selector.setSelectorPlan(null)}
           onSelectorPointDragEnd={selector.updateSelectorPoint}
@@ -213,7 +371,7 @@ export function MapScreen() {
           selectorStops={selector.selectorStops}
           selectedVehicle={selectedVehicle}
           trafficEnabled={trafficEnabled}
-          visibleIncidents={visibleIncidents}
+          visibleIncidents={visibleMapIncidents}
           vehicleById={vehicleById}
         />
 
@@ -256,8 +414,8 @@ export function MapScreen() {
               trafficEnabled={trafficEnabled}
             />
             <BottomTrackingPanel
-              activeIncident={activeIncident}
-              activeIncidentVehicle={activeIncidentVehicle}
+              activeIncident={driverWithoutUnit ? null : activeIncident}
+              activeIncidentVehicle={driverWithoutUnit ? null : activeIncidentVehicle}
               bottomPadding={insets.bottom + 10}
               locationStatus={locationStatus}
               locationStatusColor={locationStatusColor}
@@ -272,7 +430,7 @@ export function MapScreen() {
                 setFollowMode(true);
               }}
               selectedVehicle={selectedVehicle}
-              trackingVehicles={trackingVehicles}
+              trackingVehicles={visiblePanelVehicles}
             />
           </>
         )}

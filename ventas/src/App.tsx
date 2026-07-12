@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
+import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
 const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
@@ -13,6 +14,8 @@ const PortalOnboardingScreen = lazy(() => import('@/features/portal/screens/port
 const PortalPaymentsScreen = lazy(() => import('@/features/portal/screens/portal-payments-screen').then((module) => ({ default: module.PortalPaymentsScreen })));
 const PortalPlanScreen = lazy(() => import('@/features/portal/screens/portal-plan-screen').then((module) => ({ default: module.PortalPlanScreen })));
 const PortalProfileScreen = lazy(() => import('@/features/portal/screens/portal-profile-screen').then((module) => ({ default: module.PortalProfileScreen })));
+const PortalRoutesScreen = lazy(() => import('@/features/portal/screens/portal-routes-screen').then((module) => ({ default: module.PortalRoutesScreen })));
+const PortalUnitsScreen = lazy(() => import('@/features/portal/screens/portal-units-screen').then((module) => ({ default: module.PortalUnitsScreen })));
 const PortalUsersScreen = lazy(() => import('@/features/portal/screens/portal-users-screen').then((module) => ({ default: module.PortalUsersScreen })));
 
 function BootScreen() {
@@ -49,9 +52,23 @@ function Routes() {
   const pathname = usePathname().replace(/\/+$/, '') || '/';
   const isHydrated = useAppStore((state) => state.isHydrated);
   const isBootstrapping = useAppStore((state) => state.isBootstrapping);
+  const user = useAppStore((state) => state.user);
 
   if (!isHydrated && isBootstrapping) {
     return <BootScreen />;
+  }
+
+  const protectedPortalRoutes: Partial<Record<string, PortalPermission>> = {
+    '/portal/usuarios': 'users',
+    '/portal/unidades': 'vehicles',
+    '/portal/rutas': 'routes',
+    '/portal/plan': 'billing',
+    '/portal/facturacion': 'billing',
+    '/portal/pagos': 'billing',
+  };
+  const requiredPermission = protectedPortalRoutes[pathname];
+  if (requiredPermission && !hasPortalPermission(user, requiredPermission)) {
+    return <PortalDashboardScreen />;
   }
 
   switch (pathname) {
@@ -70,8 +87,10 @@ function Routes() {
       return <PortalDashboardScreen />;
     case '/portal/usuarios':
       return <PortalUsersScreen />;
-    case '/usuarios':
-      return <OperationalPlaceholder title="Usuarios operativos" />;
+    case '/portal/unidades':
+      return <PortalUnitsScreen />;
+    case '/portal/rutas':
+      return <PortalRoutesScreen />;
     case '/portal/plan':
       return <PortalPlanScreen />;
     case '/portal/facturacion':

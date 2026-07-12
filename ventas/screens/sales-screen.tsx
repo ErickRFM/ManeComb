@@ -18,7 +18,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { COMMERCIAL_FAQS, FALLBACK_COMMERCIAL_PLANS } from '@/src/constants/commercial';
+import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
 import { usePublicCommercialFlow, type PaymentReturnConfirmation } from '@/features/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
@@ -357,7 +357,7 @@ export function SalesScreen() {
     externalReference,
     paymentId,
   });
-  const plans = availablePlans.length ? availablePlans : FALLBACK_COMMERCIAL_PLANS;
+  const plans = availablePlans;
   const isDesktop = width >= 1080;
   const isPhone = width < 640;
   const carouselRef = useRef<ScrollView>(null);
@@ -405,7 +405,7 @@ export function SalesScreen() {
 
   const cardWidth = isPhone ? Math.max(268, width - 42) : isDesktop ? 336 : 306;
   const cardStep = cardWidth + 14;
-  const activePlan = plans[activePlanIndex] || plans[0];
+  const activePlan = plans[activePlanIndex] || plans[0] || null;
   const headerCompact = scrollY > 36;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
@@ -457,6 +457,11 @@ export function SalesScreen() {
   };
 
   const jumpToPlan = (nextIndex: number) => {
+    if (!plans.length) {
+      setActivePlanIndex(0);
+      return;
+    }
+
     const boundedIndex = Math.max(0, Math.min(plans.length - 1, nextIndex));
     setActivePlanIndex(boundedIndex);
     carouselRef.current?.scrollTo({
@@ -466,6 +471,11 @@ export function SalesScreen() {
   };
 
   const handlePlansScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!plans.length) {
+      setActivePlanIndex(0);
+      return;
+    }
+
     const nextIndex = Math.max(
       0,
       Math.min(plans.length - 1, Math.round(event.nativeEvent.contentOffset.x / cardStep))
@@ -485,7 +495,7 @@ export function SalesScreen() {
         compact={headerCompact}
         isPhone={isPhone}
         loginLabel={loginLabel}
-        onBuy={() => goToPlanCheckout(activePlan)}
+        onBuy={() => (activePlan ? goToPlanCheckout(activePlan) : scrollToSection('planes'))}
         onLogin={loginAction}
         onNavigate={scrollToSection}
       />
@@ -582,17 +592,19 @@ export function SalesScreen() {
                     accessibilityLabel="Plan anterior"
                     icon="chevron-left"
                     onPress={() => jumpToPlan(activePlanIndex - 1)}
-                    disabled={activePlanIndex === 0}
+                    disabled={!plans.length || activePlanIndex === 0}
                   />
                   <RoundIconButton
                     accessibilityLabel="Plan siguiente"
                     icon="chevron-right"
                     onPress={() => jumpToPlan(activePlanIndex + 1)}
-                    disabled={activePlanIndex === plans.length - 1}
+                    disabled={!plans.length || activePlanIndex === plans.length - 1}
                   />
                 </View>
               </View>
 
+              {plans.length ? (
+                <>
               <ScrollView
                 ref={carouselRef}
                 horizontal
@@ -636,6 +648,16 @@ export function SalesScreen() {
                   />
                 ))}
               </View>
+                </>
+              ) : (
+                <View style={styles.plansEmpty}>
+                  <MaterialCommunityIcons name="clipboard-list-outline" size={28} color={neonPalette.muted} />
+                  <Text style={styles.plansEmptyTitle}>No hay planes publicados</Text>
+                  <Text style={styles.plansEmptyText}>
+                    El catalogo aparecera aqui cuando el backend tenga planes disponibles.
+                  </Text>
+                </View>
+              )}
             </View>
           </RevealView>
 
@@ -2496,6 +2518,31 @@ const styles = StyleSheet.create({
     paddingRight: 30,
     paddingTop: 18,
     paddingBottom: 34,
+  },
+  plansEmpty: {
+    alignItems: 'center',
+    borderColor: neonPalette.line,
+    borderRadius: 16,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 8,
+    padding: 28,
+  },
+  plansEmptyTitle: {
+    color: neonPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  plansEmptyText: {
+    color: neonPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    lineHeight: 19,
+    maxWidth: 420,
+    textAlign: 'center',
   },
   planCard: {
     minHeight: 382,

@@ -57,6 +57,9 @@ jest.mock('@/src/api/client', () => {
     ...actual,
     assignVehicleRouteRequest: jest.fn(),
     clearAssignedVehicleRouteRequest: jest.fn(),
+    getActiveRouteSessionRequest: jest.fn(() => Promise.resolve(null)),
+    startRouteSessionRequest: jest.fn(),
+    updateRouteSessionStatusRequest: jest.fn(),
     getNavigationTripLogsRequest: jest.fn(() => Promise.resolve({ logs: [] })),
   };
 });
@@ -105,6 +108,7 @@ describe('ChecklistScreen', () => {
   afterEach(() => {
     useAppStore.setState({
       mapData: null,
+      activeRouteSession: null,
       themeMode: 'light',
       user: null,
     });

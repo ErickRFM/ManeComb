@@ -112,6 +112,9 @@ router.get("/", authenticate, requireOrganization, requirePermission("canManageU
 router.post("/", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res) => {
   try {
     const organizationId = getOrganizationId(req.user);
+    if (!organizationId) {
+      return res.status(400).json({ ok: false, message: "La organizacion es obligatoria" });
+    }
     const requestedRole = String(req.body?.role || "").trim();
 
     if (requestedRole === "driver") {
@@ -176,6 +179,18 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
     const targetUser = scopedUsers.find((entry) => entry.id === req.params.userId);
     const payload = pickFields(req.body, MANAGED_USER_FIELDS);
 
+    if (Object.prototype.hasOwnProperty.call(payload, "vehicleId") && payload.vehicleId !== targetUser.vehicleId) {
+      const affectedVehicleIds = [...new Set([targetUser.vehicleId, payload.vehicleId].filter(Boolean))];
+      for (const vehicleId of affectedVehicleIds) {
+        if (await req.app.locals.store.getActiveRouteSession(vehicleId)) {
+          return res.status(409).json({
+            ok: false,
+            message: "Finaliza la jornada activa antes de cambiar el chofer"
+          });
+        }
+      }
+    }
+
     if (payload.role === "driver" && targetUser.role !== "driver") {
       return res.status(409).json({
         ok: false,
@@ -194,6 +209,20 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
         return res.status(404).json({
           ok: false,
           message: "Unidad no encontrada"
+        });
+      }
+
+      if (vehicle.status === "maintenance") {
+        return res.status(409).json({
+          ok: false,
+          message: "La unidad esta en mantenimiento"
+        });
+      }
+
+      if (vehicle.driverId && vehicle.driverId !== targetUser.id) {
+        return res.status(409).json({
+          ok: false,
+          message: "La unidad ya esta asignada"
         });
       }
     }

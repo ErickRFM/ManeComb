@@ -1,4 +1,12 @@
 import axios, { AxiosHeaders, isAxiosError, type AxiosError } from 'axios';
+import type {
+  CheckpointVisit,
+  RouteEvent,
+  RouteSession,
+  RouteSessionHistoryFilters,
+  RouteSessionMetrics,
+  RouteSessionPosition,
+} from '@/src/types/app';
 
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const REQUEST_TIMEOUT_MS = 20000;
@@ -189,18 +197,66 @@ export async function updateProfileRequest(payload: any) {
   return await unwrapData<any>(apiClient.patch('/users/me', payload));
 }
 
+export async function getVehiclesRequest() {
+  return await unwrapData<any[]>(apiClient.get('/vehicles'));
+}
+
+export async function createVehicleRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/vehicles', payload));
+}
+
+export async function updateVehicleRequest(vehicleId: string, payload: any) {
+  return await unwrapData<any>(apiClient.patch(`/vehicles/${encodeURIComponent(vehicleId)}`, payload));
+}
+
+export async function assignRouteRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/navigation/assign', payload));
+}
+
+export async function clearRouteAssignmentRequest(vehicleId: string) {
+  return await unwrapData<any>(apiClient.delete(`/navigation/assign/${encodeURIComponent(vehicleId)}`));
+}
+
+export async function getRouteSessionHistoryRequest(params?: RouteSessionHistoryFilters) {
+  return await unwrapData<RouteSession[]>(apiClient.get('/navigation/sessions/history', { params }));
+}
+
+export async function getRouteSessionMetricsRequest(sessionId: string) {
+  return await unwrapData<RouteSessionMetrics>(
+    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/metrics`)
+  );
+}
+
+export async function recalculateRouteSessionMetricsRequest(sessionId: string) {
+  return await unwrapData<RouteSession>(
+    apiClient.post(`/navigation/sessions/${encodeURIComponent(sessionId)}/recalculate`)
+  );
+}
+
+export async function getRouteSessionEventsRequest(sessionId: string, params?: { type?: RouteEvent['eventType']; limit?: number }) {
+  return await unwrapData<RouteEvent[]>(
+    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/events`, { params })
+  );
+}
+
+export async function getRouteSessionCheckpointVisitsRequest(sessionId: string, limit?: number) {
+  return await unwrapData<CheckpointVisit[]>(
+    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/checkpoint-visits`, { params: { limit } })
+  );
+}
+
+export async function getRouteSessionPositionsRequest(sessionId: string, limit?: number) {
+  return await unwrapData<RouteSessionPosition[]>(
+    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/positions`, { params: { limit } })
+  );
+}
+
 export async function getPortalOverviewRequest() {
   return await unwrapData<any>(apiClient.get('/portal/overview'));
 }
 
 export async function getPortalOnboardingRequest() {
   return await unwrapData<any>(apiClient.get('/portal/onboarding'));
-}
-
-export async function updatePortalOnboardingStepRequest(stepId: string, status: string) {
-  return await unwrapData<any>(
-    apiClient.patch(`/portal/onboarding/${encodeURIComponent(stepId)}`, { status })
-  );
 }
 
 export async function getAdminActivationKeysRequest() {

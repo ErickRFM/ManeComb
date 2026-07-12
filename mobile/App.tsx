@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,7 +10,6 @@ import { ModalScreen } from '@/src/screens/modal-screen';
 import { CustomerAuthScreen } from '@/src/screens/customer-auth-screen';
 import { ChecklistScreen } from '@/src/screens/checklist-screen';
 import { ChatScreen } from '@/src/screens/chat-screen';
-import { DashboardScreen } from '@/src/screens/dashboard-screen';
 import { IncidentsScreen } from '@/src/screens/incidents-screen';
 import { LegalScreen } from '@/src/screens/legal-screen';
 import { MapScreen } from '@/src/screens/map-screen';
@@ -27,6 +26,12 @@ import {
   stopBackgroundLocationServiceAsync,
 } from '@/src/native/background-location';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
+import { MODULE_ROUTE_NAMES } from '@/src/navigation/route-registry';
+import { linking } from '@/src/navigation/linking';
+import {
+  LatestNavigationRequest,
+  shouldReturnToMapOnAndroidBack,
+} from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome, getOperationalHome } from '@/src/utils/account-routing';
 import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
@@ -35,6 +40,13 @@ import { openSalesPortal } from '@/src/utils/sales-portal';
 import { StatusBar } from '@/src/native/status-bar';
 
 const Stack = createNativeStackNavigator();
+const MapStack = createNativeStackNavigator();
+const IncidentsStack = createNativeStackNavigator();
+const UsersStack = createNativeStackNavigator();
+const ChatStack = createNativeStackNavigator();
+const RadioStack = createNativeStackNavigator();
+const ChecklistStack = createNativeStackNavigator();
+const ProfileStack = createNativeStackNavigator();
 const BOOT_SYNC_TIMEOUT_MS = 16000;
 
 type AppStyles = ReturnType<typeof createStyles>;
@@ -343,6 +355,74 @@ function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
 
+const moduleScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: AppTheme.colors.background },
+};
+
+function MapModule() {
+  return (
+    <MapStack.Navigator initialRouteName="/mapa" screenOptions={moduleScreenOptions}>
+      <MapStack.Screen name="/mapa">{() => withOperationalScreen(<MapScreen />)}</MapStack.Screen>
+    </MapStack.Navigator>
+  );
+}
+
+function IncidentsModule() {
+  return (
+    <IncidentsStack.Navigator initialRouteName="/incidencias" screenOptions={moduleScreenOptions}>
+      <IncidentsStack.Screen name="/incidencias">
+        {() => withOperationalScreen(<IncidentsScreen />)}
+      </IncidentsStack.Screen>
+    </IncidentsStack.Navigator>
+  );
+}
+
+function UsersModule() {
+  return (
+    <UsersStack.Navigator initialRouteName="/usuarios" screenOptions={moduleScreenOptions}>
+      <UsersStack.Screen name="/usuarios">{() => withOperationalScreen(<UsersScreen />)}</UsersStack.Screen>
+    </UsersStack.Navigator>
+  );
+}
+
+function ChatModule() {
+  return (
+    <ChatStack.Navigator initialRouteName="/chat" screenOptions={moduleScreenOptions}>
+      <ChatStack.Screen name="/chat">{() => withOperationalScreen(<ChatScreen />)}</ChatStack.Screen>
+    </ChatStack.Navigator>
+  );
+}
+
+function RadioModule() {
+  return (
+    <RadioStack.Navigator initialRouteName="/radio" screenOptions={moduleScreenOptions}>
+      <RadioStack.Screen name="/radio">{() => withOperationalScreen(<RadioScreen />)}</RadioStack.Screen>
+    </RadioStack.Navigator>
+  );
+}
+
+function ChecklistModule() {
+  return (
+    <ChecklistStack.Navigator initialRouteName="/checklist" screenOptions={moduleScreenOptions}>
+      <ChecklistStack.Screen name="/checklist">
+        {() => withOperationalScreen(<ChecklistScreen />)}
+      </ChecklistStack.Screen>
+    </ChecklistStack.Navigator>
+  );
+}
+
+function ProfileModule() {
+  return (
+    <ProfileStack.Navigator initialRouteName="/perfil" screenOptions={moduleScreenOptions}>
+      <ProfileStack.Screen name="/perfil">{() => withOperationalScreen(<ProfileScreen />)}</ProfileStack.Screen>
+      <ProfileStack.Screen name="/perfil-editar">
+        {() => withOperationalScreen(<ProfileEditScreen />)}
+      </ProfileStack.Screen>
+    </ProfileStack.Navigator>
+  );
+}
+
 function AppStack() {
   return (
     <Stack.Navigator
@@ -375,15 +455,13 @@ function AppStack() {
       <Stack.Screen name="/perfil-comprador" component={PlanBlockedRoute} />
       <Stack.Screen name="/terminos" component={TermsRoute} />
       <Stack.Screen name="/privacidad" component={PrivacyRoute} />
-      <Stack.Screen name="/dashboard">{() => withOperationalScreen(<DashboardScreen />)}</Stack.Screen>
-      <Stack.Screen name="/mapa">{() => withOperationalScreen(<MapScreen />)}</Stack.Screen>
-      <Stack.Screen name="/incidencias">{() => withOperationalScreen(<IncidentsScreen />)}</Stack.Screen>
-      <Stack.Screen name="/usuarios">{() => withOperationalScreen(<UsersScreen />)}</Stack.Screen>
-      <Stack.Screen name="/chat">{() => withOperationalScreen(<ChatScreen />)}</Stack.Screen>
-      <Stack.Screen name="/radio">{() => withOperationalScreen(<RadioScreen />)}</Stack.Screen>
-      <Stack.Screen name="/checklist">{() => withOperationalScreen(<ChecklistScreen />)}</Stack.Screen>
-      <Stack.Screen name="/perfil">{() => withOperationalScreen(<ProfileScreen />)}</Stack.Screen>
-      <Stack.Screen name="/perfil-editar">{() => withOperationalScreen(<ProfileEditScreen />)}</Stack.Screen>
+      <Stack.Screen name={MODULE_ROUTE_NAMES.map} component={MapModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.incidents} component={IncidentsModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.users} component={UsersModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.chat} component={ChatModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.radio} component={RadioModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.checklist} component={ChecklistModule} />
+      <Stack.Screen name={MODULE_ROUTE_NAMES.profile} component={ProfileModule} />
       <Stack.Screen
         name="/modal"
         component={ModalScreen}
@@ -398,6 +476,7 @@ function AppStack() {
 export default function App() {
   const { navigationTheme, theme } = useAppTheme();
   const splashHiddenRef = useRef(false);
+  const pushNavigationRequestRef = useRef(new LatestNavigationRequest());
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
     useShallow((state) => ({
@@ -479,12 +558,20 @@ export default function App() {
 
   useEffect(() => {
     return addPushResponseListener(async (intent) => {
+      const sequence = pushNavigationRequestRef.current.begin();
+
       if (!user) {
-        router.push('/login');
+        router.replace('/login');
         return;
       }
 
       await handlePushIntent(intent);
+
+      if (!pushNavigationRequestRef.current.isLatest(sequence)) {
+        return;
+      }
+
+      router.clearPendingNavigation();
 
       if (intent.target === 'chat') {
         router.push('/chat');
@@ -505,6 +592,25 @@ export default function App() {
     });
   }, [authContext, handlePushIntent, user]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      const currentRoute = navigationRef.getCurrentRoute()?.name;
+
+      if (shouldReturnToMapOnAndroidBack(currentRoute)) {
+        router.replace('/mapa');
+        return true;
+      }
+
+      return false;
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   return (
     <GestureHandlerRootView
       onLayout={() => {
@@ -514,7 +620,7 @@ export default function App() {
       }}
       style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <SafeAreaProvider>
-        <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+        <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
           <ThemeProvider value={navigationTheme}>
             <OperationalBackgroundServices />
             <MobileErrorBoundary styles={styles} theme={theme}>

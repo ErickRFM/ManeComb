@@ -18,6 +18,7 @@ type MapCanvasProps = {
   mapData: LiveLocationsData;
   mapPadding: AppMapPadding;
   mapRef: React.RefObject<AppMapRef | null>;
+  mapVehicles: Vehicle[];
   onMapSelectorPress: (location: GeoPoint) => void;
   onSelectorDragStart: () => void;
   onSelectorPointDragEnd: (role: SelectorPointRole, location: GeoPoint) => void;
@@ -43,6 +44,7 @@ export function MapCanvas({
   mapData,
   mapPadding,
   mapRef,
+  mapVehicles,
   onMapSelectorPress,
   onSelectorDragStart,
   onSelectorPointDragEnd,
@@ -58,14 +60,16 @@ export function MapCanvas({
   vehicleById,
 }: MapCanvasProps) {
   const { theme } = useAppTheme();
+  const initialVehicle = selectedVehicle?.locationTimestamp ? selectedVehicle : mapVehicles[0] || null;
+  const initialPoint = initialVehicle?.location || coordinates || mapData.center;
 
   return (
     <AppMap
       ref={mapRef}
       style={StyleSheet.absoluteFill}
       initialRegion={{
-        latitude: selectedVehicle?.location.latitude || mapData.center.latitude,
-        longitude: selectedVehicle?.location.longitude || mapData.center.longitude,
+        latitude: initialPoint.latitude,
+        longitude: initialPoint.longitude,
         latitudeDelta: 0.08,
         longitudeDelta: 0.08,
       }}
@@ -89,7 +93,7 @@ export function MapCanvas({
         selectorRoute={selectorRoute}
       />
       {!selectorMode ? (
-        <VehicleMarkers vehicles={mapData.vehicles} onVehiclePress={onVehiclePress} selectedVehicle={selectedVehicle} />
+        <VehicleMarkers vehicles={mapVehicles} onVehiclePress={onVehiclePress} selectedVehicle={selectedVehicle} />
       ) : null}
       {!selectorMode ? (
         <IncidentMarkers incidents={visibleIncidents} vehicleById={vehicleById} />

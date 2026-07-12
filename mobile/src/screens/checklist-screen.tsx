@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  PanResponder,
   Modal,
   Pressable,
   ScrollView,
@@ -18,7 +19,7 @@ import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest } from '@/src/api/client';
+import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest, getActiveRouteSessionRequest, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
@@ -31,6 +32,7 @@ import type {
   NavigationPlaceResult,
   NavigationRouteOption,
   NavigationStop,
+  RouteSession,
   Vehicle,
 } from '@/src/types/app';
 import { formatTime } from '@/src/utils/format';
@@ -67,6 +69,32 @@ type FinalizedRouteSummary = {
 
 const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
 const MANECOMB_ROUTE_COLOR = '#E31E24';
+
+function RouteSlider({ label, disabled, onComplete }: { label: string; disabled?: boolean; onComplete: () => void }) {
+  const offset = useRef(new Animated.Value(0)).current;
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => !disabled,
+    onMoveShouldSetPanResponder: (_, gesture) => !disabled && Math.abs(gesture.dx) > 4,
+    onPanResponderMove: (_, gesture) => offset.setValue(Math.max(0, Math.min(230, gesture.dx))),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dx >= 180) Animated.timing(offset, { toValue: 230, duration: 120, useNativeDriver: true }).start(() => { onComplete(); offset.setValue(0); });
+      else Animated.spring(offset, { toValue: 0, useNativeDriver: true }).start();
+    },
+  }), [disabled, offset, onComplete]);
+  return <View style={[routeSliderStyles.track, disabled && routeSliderStyles.disabled]}>
+    <Text style={routeSliderStyles.label}>{label}</Text>
+    <Animated.View {...responder.panHandlers} style={[routeSliderStyles.thumb, { transform: [{ translateX: offset }] }]}>
+      <MaterialCommunityIcons name="chevron-double-right" size={24} color="#FFFFFF" />
+    </Animated.View>
+  </View>;
+}
+
+const routeSliderStyles = StyleSheet.create({
+  track: { height: 58, borderRadius: 29, backgroundColor: '#1F2937', justifyContent: 'center', paddingHorizontal: 6, overflow: 'hidden' },
+  disabled: { opacity: 0.55 },
+  label: { color: '#FFFFFF', textAlign: 'center', fontWeight: '700' },
+  thumb: { position: 'absolute', left: 6, width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: MANECOMB_ROUTE_COLOR },
+});
 
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
@@ -1178,9 +1206,10 @@ export function ChecklistScreen() {
   const isCompact = width < 1120;
   const isPhone = width < 640;
   const { coordinates } = useUserLocation();
-  const { mapData, refreshAll, user } = useAppStore(
+  const { activeRouteSession: syncedActiveSession, mapData, refreshAll, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
+      activeRouteSession: state.activeRouteSession,
       refreshAll: state.refreshAll,
       user: state.user,
     }))
@@ -1191,6 +1220,8 @@ export function ChecklistScreen() {
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
+  const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
+  const [isChangingSession, setIsChangingSession] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
@@ -1216,6 +1247,27 @@ export function ChecklistScreen() {
   const syncedVehicleRouteRef = useRef<string | null>(null);
   const pendingStopPersistRef = useRef(false);
   const processedMapSelectionRef = useRef<string | null>(null);
+  const restoredSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedVehicle?.id) { setActiveSession(null); return; }
+    restoredSessionIdRef.current = null;
+    getActiveRouteSessionRequest(selectedVehicle.id).then(setActiveSession).catch(() => setActiveSession(null));
+  }, [selectedVehicle?.id]);
+
+  useEffect(() => {
+    if (syncedActiveSession?.vehicleId === selectedVehicle?.id) setActiveSession(syncedActiveSession);
+  }, [selectedVehicle?.id, syncedActiveSession]);
+
+  useEffect(() => {
+    if (!activeSession || !selectedAssignedRoute || restoredSessionIdRef.current === activeSession.id) return;
+    restoredSessionIdRef.current = activeSession.id;
+    tracker.restoreTrackerSession({
+      startedAt: activeSession.startedAt,
+      status: activeSession.status === 'PAUSED' ? 'PAUSED' : 'RUNNING',
+      vehicleId: activeSession.vehicleId,
+    });
+  }, [activeSession, selectedAssignedRoute, tracker, tracker.restoreTrackerSession]);
 
   useEffect(() => {
     trackerRef.current = tracker;
@@ -1407,16 +1459,47 @@ export function ChecklistScreen() {
     }
 
     try {
-      await clearAssignedVehicleRouteRequest(vehicle.id);
+      if (activeSession) {
+        await updateRouteSessionStatusRequest(activeSession.id, vehicle.id, 'FINISHED');
+      }
+      setActiveSession(null);
       await refreshAll();
 
       if (selectedVehicle?.id === vehicle.id) {
-        syncedVehicleRouteRef.current = `${vehicle.id}:empty`;
         tracker.resetPointToPointSession();
         setFinalizedRouteSummary(summary);
       }
     } catch {
-      tracker.setPointMessage('No fue posible limpiar la ruta asignada.');
+      tracker.setPointMessage('No fue posible finalizar la jornada.');
+    }
+  };
+
+  const startTrip = async () => {
+    if (!selectedVehicle || activeSession || isChangingSession) return;
+    setIsChangingSession(true);
+    try {
+      const session = await startRouteSessionRequest(selectedVehicle.id);
+      setActiveSession(session);
+      restoredSessionIdRef.current = session.id;
+      tracker.restoreTrackerSession({ startedAt: session.startedAt, status: 'RUNNING', vehicleId: session.vehicleId });
+    } catch {
+      tracker.setPointMessage('No fue posible iniciar la jornada.');
+    } finally {
+      setIsChangingSession(false);
+    }
+  };
+
+  const toggleSessionPause = async () => {
+    if (!selectedVehicle || !activeSession || isChangingSession) return;
+    setIsChangingSession(true);
+    try {
+      const nextStatus = activeSession.status === 'PAUSED' ? 'RUNNING' : 'PAUSED';
+      setActiveSession(await updateRouteSessionStatusRequest(activeSession.id, selectedVehicle.id, nextStatus));
+      tracker.toggleTracker();
+    } catch {
+      tracker.setPointMessage('No fue posible cambiar el estado de la jornada.');
+    } finally {
+      setIsChangingSession(false);
     }
   };
 
@@ -1753,24 +1836,6 @@ export function ChecklistScreen() {
     tracker.pointPlan,
   ]);
 
-  const deleteAssignedRoute = useCallback(async () => {
-    if (!selectedVehicle?.id) {
-      return;
-    }
-
-    pendingStopPersistRef.current = false;
-    setFinalizedRouteSummary(null);
-
-    try {
-      await clearAssignedVehicleRouteRequest(selectedVehicle.id);
-      await refreshAll();
-      syncedVehicleRouteRef.current = `${selectedVehicle.id}:empty`;
-      tracker.resetPointToPointSession();
-    } catch {
-      tracker.setPointMessage('No fue posible eliminar la ruta.');
-    }
-  }, [refreshAll, selectedVehicle?.id, tracker]);
-
   const editAssignedRoute = useCallback(async () => {
     if (!selectedVehicle?.id) {
       return;
@@ -2106,17 +2171,14 @@ export function ChecklistScreen() {
                     <View style={styles.routeActionRow}>
                       <Pressable style={styles.secondaryWide} onPress={editAssignedRoute}>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
-                        <Text style={styles.secondaryWideText}>Editar</Text>
-                      </Pressable>
-                      <Pressable style={styles.secondaryWide} onPress={deleteAssignedRoute}>
-                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.text} />
-                        <Text style={styles.secondaryWideText}>Eliminar</Text>
+                        <Text style={styles.secondaryWideText}>Cambiar ruta</Text>
                       </Pressable>
                     </View>
-                    <Pressable style={styles.primaryWide} onPress={tracker.toggleTracker}>
-                      <MaterialCommunityIcons name="navigation" size={18} color="#FFFFFF" />
-                      <Text style={styles.primaryWideText}>Iniciar ruta</Text>
-                    </Pressable>
+                    <RouteSlider
+                      label="Deslizar para iniciar ruta"
+                      disabled={isChangingSession || Boolean(activeSession)}
+                      onComplete={startTrip}
+                    />
                   </View>
                 </>
               ) : null}
@@ -2181,7 +2243,7 @@ export function ChecklistScreen() {
                       <StatusPill label={routeStateLabel} tone={routeUiState === 'paused' || isRouteOffRoute ? 'warning' : 'info'} />
                     </View>
                     <View style={styles.routeActionRow}>
-                      <Pressable style={styles.secondaryWide} onPress={tracker.toggleTracker}>
+                      <Pressable style={styles.secondaryWide} onPress={toggleSessionPause} disabled={isChangingSession}>
                         <MaterialCommunityIcons
                           name={routeUiState === 'paused' ? 'play' : 'pause'}
                           size={18}
@@ -2191,19 +2253,12 @@ export function ChecklistScreen() {
                           {routeUiState === 'paused' ? 'Continuar' : 'Pausar'}
                         </Text>
                       </Pressable>
-                      <Pressable
-                        style={styles.primaryWide}
-                        onPress={() => selectedVehicle && finishTrip(selectedVehicle)}>
-                        <MaterialCommunityIcons name="flag-checkered" size={18} color="#FFFFFF" />
-                        <Text style={styles.primaryWideText}>Finalizar</Text>
-                      </Pressable>
                     </View>
-                    {routeUiState === 'paused' ? (
-                      <Pressable style={styles.secondaryWide} onPress={deleteAssignedRoute}>
-                        <MaterialCommunityIcons name="close-circle-outline" size={18} color={theme.colors.text} />
-                        <Text style={styles.secondaryWideText}>Cancelar</Text>
-                      </Pressable>
-                    ) : null}
+                    <RouteSlider
+                      label="Deslizar para finalizar"
+                      disabled={isChangingSession || !activeSession}
+                      onComplete={() => selectedVehicle && finishTrip(selectedVehicle)}
+                    />
                   </View>
                 </>
               ) : null}

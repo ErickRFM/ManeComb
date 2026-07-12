@@ -7,12 +7,14 @@ type SendVehicleLocation = (payload: {
   coordinates: GeoPoint;
   heading?: number | null;
   speed?: number | null;
+  accuracy?: number | null;
   timestamp: string;
 }) => Promise<unknown>;
 
 type UseLocationSyncParams = {
+  enabled?: boolean;
   connectionMode: string;
-  coordinates: (GeoPoint & { heading?: number | null; speed?: number | null }) | null;
+  coordinates: (GeoPoint & { heading?: number | null; speed?: number | null; accuracy?: number | null }) | null;
   isWithinSchedule: boolean;
   lastUpdatedAt?: string | null;
   sendVehicleLocation: SendVehicleLocation;
@@ -20,6 +22,7 @@ type UseLocationSyncParams = {
 };
 
 export function useLocationSync({
+  enabled = true,
   connectionMode,
   coordinates,
   isWithinSchedule,
@@ -32,6 +35,7 @@ export function useLocationSync({
   useEffect(() => {
     const now = Date.now();
     if (
+      !enabled ||
       !shouldSyncVehicleLocation({
         connectionMode,
         coordinates,
@@ -52,5 +56,5 @@ export function useLocationSync({
         vehicleId: vehicleId!,
       })
     ).catch(() => undefined);
-  }, [connectionMode, coordinates, isWithinSchedule, lastUpdatedAt, sendVehicleLocation, vehicleId]);
+  }, [connectionMode, coordinates, enabled, isWithinSchedule, lastUpdatedAt, sendVehicleLocation, vehicleId]);
 }

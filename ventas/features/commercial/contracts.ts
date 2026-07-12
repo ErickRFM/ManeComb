@@ -10,7 +10,6 @@ import type {
   PaymentProviderMode,
   PaymentResult,
   PaymentReturnRequest,
-  PaymentSession,
   PaymentSessionRequest,
   TestCardInput,
 } from './types';
@@ -45,22 +44,7 @@ export interface SubscriptionService {
   synchronize(snapshot: CommercialContextSnapshot): Promise<void>;
   getWorkspace(): Promise<CommercialWorkspace>;
   evaluateChange(planId: string): Promise<CommercialChangeSummary>;
-  registerPreview(planId: string): Promise<CommercialActivity>;
   getDashboardModel(input: { activationComplete: boolean }): Promise<CommercialDashboardModel>;
-}
-
-export interface BillingService {
-  getStatus(): Promise<{ available: boolean; message: string }>;
-}
-
-export interface PaymentProvider {
-  readonly id: string;
-  getCapabilities(): Promise<{
-    available: boolean;
-    supportsRecurringPayments: boolean;
-    supportsProration: boolean;
-  }>;
-  createSession(request: PaymentSessionRequest): Promise<PaymentSession>;
 }
 
 export interface CheckoutService {

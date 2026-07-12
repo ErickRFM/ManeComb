@@ -13,13 +13,17 @@ const {
   AppEventModel,
   ChatAttachmentModel,
   ChatMessageModel,
+  CheckpointVisitModel,
   CommercialLeadModel,
   ConversationModel,
   DocumentModel,
   IncidentModel,
   NotificationModel,
   RtcSessionModel,
+  RouteEventModel,
   RouteModel,
+  RouteSessionModel,
+  RouteSessionPositionModel,
   TripLogModel,
   UserModel,
   VehicleModel
@@ -632,6 +636,19 @@ async function syncDriverVehicleAssignment(userId, nextVehicleId = null) {
   await VehicleModel.updateMany(
     {
       driverId: userId,
+      ...(nextVehicleId ? { _id: { $ne: nextVehicleId } } : {}),
+      status: "assigned"
+    },
+    {
+      $set: {
+        status: "available",
+        updatedAt: now
+      }
+    }
+  );
+  await VehicleModel.updateMany(
+    {
+      driverId: userId,
       ...(nextVehicleId ? { _id: { $ne: nextVehicleId } } : {})
     },
     {
@@ -664,6 +681,7 @@ async function syncDriverVehicleAssignment(userId, nextVehicleId = null) {
     {
       $set: {
         driverId: userId,
+        status: "assigned",
         updatedAt: now
       }
     }
@@ -2250,16 +2268,14 @@ async function createMongoStore() {
   }
 
   async function createVehicle(payload) {
-    const routeId =
-      String(payload.routeId || "").trim() ||
-      (await RouteModel.findOne().lean())?._id ||
-      "route-1";
-    const vehicle = await VehicleModel.create({
+    let vehicle;
+    try {
+      vehicle = await VehicleModel.create({
       _id: String(payload.id || "").trim() || randomUUID(),
       organizationId: String(payload.organizationId || "").trim(),
       code: String(payload.code || "").trim(),
       plate: String(payload.plate || "").trim(),
-      routeId,
+      routeId: String(payload.routeId || "").trim() || null,
       driverId: String(payload.driverId || "").trim() || null,
       supervisorId: String(payload.supervisorId || "").trim() || null,
       status: String(payload.status || "available").trim() || "available",
@@ -2269,15 +2285,69 @@ async function createMongoStore() {
       delayMinutes: 0,
       speed: 0,
       fuel: Math.max(0, Math.min(100, Number(payload.fuel) || 100)),
+      currentKilometers: Math.max(0, Number(payload.currentKilometers) || 0),
       updatedAt: new Date(),
-      location: payload.location || {
-        latitude: 19.4326,
-        longitude: -99.1332
-      },
+      location: payload.location || null,
       assignedRoute: null
-    });
+      });
+    } catch (error) {
+      if (error?.code === 11000) throw new Error("Ya existe una unidad con ese nombre o placas");
+      throw error;
+    }
 
     return enrichVehicle(vehicle.toObject());
+  }
+
+  async function updateVehicle(vehicleId, payload) {
+    const updates = {};
+
+    if (typeof payload.code !== "undefined") {
+      updates.code = String(payload.code || "").trim();
+    }
+
+    if (typeof payload.plate !== "undefined") {
+      updates.plate = String(payload.plate || "").trim().toUpperCase();
+    }
+
+    if (typeof payload.status !== "undefined") {
+      updates.status = String(payload.status || "available").trim() || "available";
+    }
+
+    if (typeof payload.currentKilometers !== "undefined") {
+      updates.currentKilometers = Math.max(0, Number(payload.currentKilometers) || 0);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "code") && !updates.code) {
+      throw new Error("Codigo y placa de unidad son obligatorios");
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "plate") && !updates.plate) {
+      throw new Error("Codigo y placa de unidad son obligatorios");
+    }
+
+    updates.updatedAt = new Date();
+
+    if (updates.status === "maintenance") {
+      const currentVehicle = await VehicleModel.findById(vehicleId).lean();
+      if (currentVehicle?.driverId) {
+        await UserModel.updateOne({ _id: currentVehicle.driverId }, { $set: { vehicleId: null } });
+      }
+      updates.driverId = null;
+    }
+
+    let vehicle;
+    try {
+      vehicle = await VehicleModel.findByIdAndUpdate(
+        vehicleId,
+        { $set: updates },
+        { returnDocument: "after" }
+      ).lean();
+    } catch (error) {
+      if (error?.code === 11000) throw new Error("Ya existe una unidad con ese nombre o placas");
+      throw error;
+    }
+
+    return enrichVehicle(vehicle);
   }
 
   async function updateIncidentStatus(incidentId, status) {
@@ -2785,6 +2855,165 @@ async function createMongoStore() {
     return enrichVehicle(vehicle);
   }
 
+  async function getActiveRouteSession(vehicleId) {
+    const doc = await RouteSessionModel.findOne({ vehicleId, status: { $in: ["RUNNING", "PAUSED"] } }).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
+  }
+
+  async function getRouteSessionById(sessionId) {
+    const doc = await RouteSessionModel.findById(sessionId).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
+  }
+
+  async function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50 } = {}) {
+    const query = {
+      ...(organizationId ? { organizationId } : {}),
+      ...(vehicleId ? { vehicleId } : {}),
+      ...(driverId ? { driverId } : {}),
+      ...(routeId ? { routeId } : {}),
+      ...(status ? { status: String(status).trim().toUpperCase() } : {})
+    };
+    const startedAt = {};
+
+    if (dateFrom && !Number.isNaN(new Date(dateFrom).getTime())) {
+      startedAt.$gte = new Date(dateFrom);
+    }
+
+    if (dateTo && !Number.isNaN(new Date(dateTo).getTime())) {
+      startedAt.$lte = new Date(dateTo);
+    }
+
+    if (Object.keys(startedAt).length) {
+      query.startedAt = startedAt;
+    }
+
+    const docs = await RouteSessionModel.find(query)
+      .sort({ startedAt: -1 })
+      .limit(Math.max(1, Math.min(5000, Number(limit) || 50)))
+      .lean();
+    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+  }
+
+  async function createRouteSession(payload) {
+    const active = await getActiveRouteSession(payload.vehicleId);
+    if (active) return { ...active, creationApplied: false };
+    const now = new Date();
+    let doc;
+    try {
+      doc = await RouteSessionModel.create({ _id: randomUUID(), ...payload, activeKey: payload.vehicleId, status: "RUNNING",
+        startedAt: payload.startedAt || now, finishedAt: null, statisticsReady: false, processingStatus: "PENDING", createdAt: now, updatedAt: now });
+    } catch (error) {
+      if (error?.code === 11000) {
+        const existing = await getActiveRouteSession(payload.vehicleId);
+        return existing ? { ...existing, creationApplied: false } : null;
+      }
+      throw error;
+    }
+    const plain = doc.toObject();
+    return { ...plain, id: String(plain._id), _id: undefined, creationApplied: true };
+  }
+
+  async function updateRouteSession(sessionId, payload) {
+    const { expectedStatus, ...updates } = payload;
+    const doc = await RouteSessionModel.findOneAndUpdate(
+      { _id: sessionId, ...(expectedStatus ? { status: expectedStatus } : {}) },
+      { $set: { ...updates, ...(["FINISHED", "CANCELLED"].includes(updates.status) ? { activeKey: null } : {}), updatedAt: new Date() } },
+      { returnDocument: "after" }).lean();
+    if (doc) return { ...doc, id: String(doc._id), _id: undefined, transitionApplied: true };
+    const existing = await getRouteSessionById(sessionId);
+    return existing ? { ...existing, transitionApplied: false } : null;
+  }
+
+  async function createRouteSessionPosition(payload) {
+    const doc = await RouteSessionPositionModel.create({ _id: randomUUID(), ...payload });
+    const plain = doc.toObject();
+    return { ...plain, id: String(plain._id), _id: undefined };
+  }
+
+  async function listRouteSessionPositions({ sessionId, limit = 50 }) {
+    const docs = await RouteSessionPositionModel.find(sessionId ? { sessionId } : {})
+      .sort({ timestamp: -1 })
+      .limit(Math.max(1, Math.min(50000, Number(limit) || 50)))
+      .lean();
+    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+  }
+
+  async function getLastRouteEvent(sessionId, eventType = null) {
+    const doc = await RouteEventModel.findOne({
+      sessionId,
+      ...(eventType ? { eventType } : {})
+    }).sort({ timestamp: -1 }).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
+  }
+
+  async function createRouteEvent(payload) {
+    const lastEvent = await getLastRouteEvent(payload.sessionId);
+    if (lastEvent?.eventType === payload.eventType) {
+      return { ...lastEvent, duplicateSkipped: true };
+    }
+
+    const doc = await RouteEventModel.create({
+      _id: String(payload.id || "").trim() || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      sessionId: String(payload.sessionId || "").trim(),
+      vehicleId: String(payload.vehicleId || "").trim(),
+      routeId: String(payload.routeId || "").trim(),
+      driverId: String(payload.driverId || "").trim(),
+      eventType: String(payload.eventType || "").trim(),
+      timestamp: payload.timestamp || new Date(),
+      latitude: Number.isFinite(Number(payload.latitude)) ? Number(payload.latitude) : null,
+      longitude: Number.isFinite(Number(payload.longitude)) ? Number(payload.longitude) : null,
+      metadata: payload.metadata || null
+    });
+    const plain = doc.toObject();
+    return { ...plain, id: String(plain._id), _id: undefined };
+  }
+
+  async function listRouteEvents({ sessionId, eventType, limit = 500 }) {
+    const docs = await RouteEventModel.find({
+      ...(sessionId ? { sessionId } : {}),
+      ...(eventType ? { eventType } : {})
+    })
+      .sort({ timestamp: 1 })
+      .limit(Math.max(1, Math.min(50000, Number(limit) || 500)))
+      .lean();
+    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+  }
+
+  async function createCheckpointVisit(payload) {
+    const sessionId = String(payload.sessionId || "").trim();
+    const checkpointId = String(payload.checkpointId || "").trim();
+    const previousVisit = await CheckpointVisitModel.findOne({ sessionId }).sort({ visitOrder: -1, timestamp: -1 }).lean();
+
+    if (previousVisit?.checkpointId === checkpointId) {
+      return { ...previousVisit, id: String(previousVisit._id), _id: undefined, duplicateSkipped: true };
+    }
+
+    const lastVisitOrder = Math.max(0, Number(previousVisit?.visitOrder) || 0);
+
+    const doc = await CheckpointVisitModel.create({
+      _id: String(payload.id || "").trim() || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim(),
+      sessionId,
+      checkpointId,
+      timestamp: payload.timestamp || new Date(),
+      distance: Number.isFinite(Number(payload.distance)) ? Number(payload.distance) : null,
+      visitOrder: Math.max(lastVisitOrder + 1, Number(payload.visitOrder) || 1),
+      latitude: Number.isFinite(Number(payload.latitude)) ? Number(payload.latitude) : null,
+      longitude: Number.isFinite(Number(payload.longitude)) ? Number(payload.longitude) : null
+    });
+    const plain = doc.toObject();
+    return { ...plain, id: String(plain._id), _id: undefined };
+  }
+
+  async function listCheckpointVisits({ sessionId, limit = 500 }) {
+    const docs = await CheckpointVisitModel.find(sessionId ? { sessionId } : {})
+      .sort({ visitOrder: 1, timestamp: 1 })
+      .limit(Math.max(1, Math.min(50000, Number(limit) || 500)))
+      .lean();
+    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+  }
+
   return buildBackendStore({
     addMessage,
     assignRouteToVehicle,
@@ -2832,7 +3061,20 @@ async function createMongoStore() {
     updateActivationKey,
     updateUser,
     updateVehicleLocation,
+    updateVehicle,
     createDocument,
+    createRouteSession,
+    createRouteSessionPosition,
+    createRouteEvent,
+    createCheckpointVisit,
+    getActiveRouteSession,
+    getLastRouteEvent,
+    getRouteSessionById,
+    listCheckpointVisits,
+    listRouteEvents,
+    listRouteSessions,
+    listRouteSessionPositions,
+    updateRouteSession,
     createTripLog,
   }, {
     models: {

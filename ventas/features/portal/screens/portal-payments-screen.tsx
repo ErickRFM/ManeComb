@@ -394,7 +394,7 @@ export function PortalPaymentsScreen() {
       <View style={[styles.columns, isTwoColumn ? styles.columnsWide : styles.columnsStack]}>
         <View style={[styles.leftColumn, !isTwoColumn ? styles.fullColumn : undefined]}>
           <PortalSectionCard
-            title="Métodos guardados"
+            title="Métodos disponibles"
             subtitle={paymentMethods.length ? `${paymentMethods.length} ${paymentMethods.length === 1 ? 'método disponible' : 'métodos disponibles'}` : undefined}>
             {paymentMethods.length ? (
               <View style={styles.walletGrid}>
@@ -518,17 +518,24 @@ export function PortalPaymentsScreen() {
 
         <View style={[styles.rightColumn, !isTwoColumn ? styles.fullColumn : undefined]}>
           <PortalSectionCard title="Próximo cobro" subtitle="Resumen del siguiente periodo.">
-            <View style={styles.nextChargeCard}>
-              <View style={styles.nextChargeTop}>
-                <View>
-                  <Text style={styles.sideKicker}>Plan actual</Text>
-                  <Text style={styles.nextPlan} numberOfLines={2}>{subscription?.planName || 'Plan comercial'}</Text>
+            {subscription && nextChargeAmount > 0 ? (
+              <View style={styles.nextChargeCard}>
+                <View style={styles.nextChargeTop}>
+                  <View>
+                    <Text style={styles.sideKicker}>Plan actual</Text>
+                    <Text style={styles.nextPlan} numberOfLines={2}>{subscription.planName}</Text>
+                  </View>
+                  <StatusBadge label={formatPortalStatus(subscription.status)} tone={getPortalStatusTone(subscription.status)} />
                 </View>
-                <StatusBadge label={formatPortalStatus(subscription?.status || 'inactive')} tone={getPortalStatusTone(subscription?.status || 'inactive')} />
+                <Text style={styles.nextAmount}>{formatCurrency(nextChargeAmount, nextChargeCurrency)}</Text>
+                <Text style={styles.nextDate}>{nextChargeDate ? `Programado para ${formatDate(nextChargeDate)}` : 'Fecha pendiente de confirmación'}</Text>
               </View>
-              <Text style={styles.nextAmount}>{formatCurrency(nextChargeAmount, nextChargeCurrency)}</Text>
-              <Text style={styles.nextDate}>{nextChargeDate ? `Programado para ${formatDate(nextChargeDate)}` : 'Fecha pendiente de confirmación'}</Text>
-            </View>
+            ) : (
+              <View style={styles.nextChargeCard}>
+                <Text style={styles.nextPlan}>Sin próximo cobro disponible</Text>
+                <Text style={styles.nextDate}>Contrata o activa un plan para ver el siguiente periodo.</Text>
+              </View>
+            )}
           </PortalSectionCard>
         </View>
       </View>

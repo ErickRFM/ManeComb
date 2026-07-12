@@ -91,7 +91,7 @@ function buildSubscription(order) {
 
   const totalUnits = Number(order.fleetSize || 0);
   const activeUnits = Array.isArray(order.starterFleet)
-    ? order.starterFleet.filter((entry) => entry.status !== "pending").length
+    ? order.starterFleet.filter((entry) => entry.status === "active").length
     : 0;
   const status = getSubscriptionStatus(order);
   const expiresAt = toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil);
@@ -166,16 +166,6 @@ function buildActivationTimeline(user, order, users = []) {
   ];
 }
 
-const ONBOARDING_STEP_ALIASES = {
-  "company-profile": ["create-account", "select-use-type"],
-  "plan-active": ["select-plan", "finish-activation", "confirm-activation"],
-  payment: ["payment-method", "payment-confirmed"],
-  "activation-keys": ["activate-drivers", "invite-users"],
-  "activated-drivers": ["activate-drivers", "invite-users"],
-  "register-units": ["create-first-units"],
-  "gps-radio": ["gps-setup", "radio-setup", "download-app"]
-};
-
 function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) {
   const subscription = buildSubscription(order);
   const teamUsers = users.filter((entry) => entry.id !== user?.id);
@@ -242,27 +232,7 @@ function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) 
 }
 
 function buildOnboarding({ user, order, users = [], activationKeys = [] }) {
-  const defaults = getDefaultOnboardingSteps({ user, order, users, activationKeys });
-  const saved = Array.isArray(order?.onboardingChecklist) ? order.onboardingChecklist : [];
-  const savedById = new Map(saved.map((entry) => [entry.id, entry]));
-  const getSavedStep = (stepId) => {
-    if (savedById.has(stepId)) {
-      return savedById.get(stepId);
-    }
-
-    const aliases = ONBOARDING_STEP_ALIASES[stepId] || [];
-    return aliases.map((alias) => savedById.get(alias)).find(Boolean);
-  };
-  const steps = defaults.map((step) => ({
-    ...step,
-    ...(getSavedStep(step.id) || {}),
-    id: step.id,
-    title: step.title,
-    status:
-      getSavedStep(step.id)?.status === "completed" || step.status === "completed"
-        ? "completed"
-        : getSavedStep(step.id)?.status || step.status
-  }));
+  const steps = getDefaultOnboardingSteps({ user, order, users, activationKeys });
 
   return {
     status: steps.every((step) => step.status === "completed") ? "completed" : "pending",

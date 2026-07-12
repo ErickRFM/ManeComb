@@ -190,7 +190,7 @@ const vehicleSchema = new mongoose.Schema(
     organizationId: { type: String, default: "", index: true },
     code: { type: String, required: true },
     plate: { type: String, required: true },
-    routeId: { type: String, required: true },
+    routeId: { type: String, default: null },
     driverId: { type: String, default: null },
     supervisorId: { type: String, default: null },
     status: { type: String, required: true },
@@ -201,8 +201,9 @@ const vehicleSchema = new mongoose.Schema(
     heading: { type: Number, default: null },
     speed: { type: Number, default: 0 },
     fuel: { type: Number, default: 0 },
+    currentKilometers: { type: Number, default: 0 },
     updatedAt: { type: Date, default: Date.now },
-    location: { type: pointSchema, required: true },
+    location: { type: pointSchema, default: null },
     locationTimestamp: { type: Date, default: null },
     activeRouteProgress: { type: mongoose.Schema.Types.Mixed, default: null },
     assignedRoute: { type: assignedRouteSchema, default: null }
@@ -215,6 +216,149 @@ const vehicleSchema = new mongoose.Schema(
 
 vehicleSchema.index({ organizationId: 1, status: 1, updatedAt: -1 });
 vehicleSchema.index({ organizationId: 1, routeId: 1 });
+vehicleSchema.index({ organizationId: 1, code: 1 }, { unique: true });
+vehicleSchema.index({ organizationId: 1, plate: 1 }, { unique: true });
+
+const routeSessionSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    routeId: { type: String, required: true, index: true },
+    vehicleId: { type: String, required: true, index: true },
+    activeKey: { type: String, default: null },
+    driverId: { type: String, required: true, index: true },
+    status: {
+      type: String,
+      enum: ["ASSIGNED", "READY", "RUNNING", "PAUSED", "FINISHED", "CANCELLED"],
+      default: "RUNNING",
+      index: true
+    },
+    startedAt: { type: Date, required: true },
+    finishedAt: { type: Date, default: null },
+    startedOdometer: { type: Number, default: null },
+    finishedOdometer: { type: Number, default: null },
+    startBattery: { type: Number, default: null },
+    endBattery: { type: Number, default: null },
+    startGpsAccuracy: { type: Number, default: null },
+    endGpsAccuracy: { type: Number, default: null },
+    finishReason: { type: String, default: null },
+    totalDistance: { type: Number, default: null },
+    totalDuration: { type: Number, default: null },
+    movingTime: { type: Number, default: null },
+    stoppedTime: { type: Number, default: null },
+    gpsLostTime: { type: Number, default: null },
+    offRouteTime: { type: Number, default: null },
+    checkpointCount: { type: Number, default: null },
+    completedCheckpoints: { type: Number, default: null },
+    completedLaps: { type: Number, default: null },
+    averageSpeed: { type: Number, default: null },
+    maxSpeed: { type: Number, default: null },
+    averageGpsAccuracy: { type: Number, default: null },
+    gpsLostEvents: { type: Number, default: null },
+    offRouteEvents: { type: Number, default: null },
+    stopEvents: { type: Number, default: null },
+    processingCompletedAt: { type: Date, default: null },
+    processingError: { type: String, default: null },
+    metrics: { type: mongoose.Schema.Types.Mixed, default: null },
+    statisticsReady: { type: Boolean, default: false },
+    processingStatus: {
+      type: String,
+      enum: ["PENDING", "PROCESSING", "COMPLETED", "FAILED"],
+      default: "PENDING",
+      index: true
+    },
+    deviceInfo: { type: mongoose.Schema.Types.Mixed, default: null },
+    assignedBy: { type: String, default: null },
+    startedBy: { type: String, default: null },
+    finishedBy: { type: String, default: null },
+    updatedBy: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "route_sessions", versionKey: false }
+);
+
+routeSessionSchema.index({ organizationId: 1, vehicleId: 1, startedAt: -1 });
+routeSessionSchema.index(
+  { activeKey: 1 },
+  { unique: true, partialFilterExpression: { activeKey: { $type: "string" } } }
+);
+
+const routeSessionPositionSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    sessionId: { type: String, required: true, index: true },
+    vehicleId: { type: String, required: true, index: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    timestamp: { type: Date, required: true },
+    heading: { type: Number, default: null },
+    speed: { type: Number, default: null },
+    accuracy: { type: Number, default: null },
+    gpsQuality: { type: String, enum: ["GOOD", "NORMAL", "BAD"], default: "NORMAL", index: true },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { collection: "route_session_positions", versionKey: false }
+);
+
+routeSessionPositionSchema.index({ sessionId: 1, timestamp: 1 });
+
+const routeEventSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    sessionId: { type: String, required: true, index: true },
+    vehicleId: { type: String, required: true, index: true },
+    routeId: { type: String, required: true, index: true },
+    driverId: { type: String, required: true, index: true },
+    eventType: {
+      type: String,
+      enum: [
+        "SESSION_STARTED",
+        "SESSION_PAUSED",
+        "SESSION_RESUMED",
+        "SESSION_FINISHED",
+        "GPS_LOST",
+        "GPS_RECOVERED",
+        "CHECKPOINT_REACHED",
+        "OFF_ROUTE",
+        "ON_ROUTE",
+        "VEHICLE_STOPPED",
+        "VEHICLE_MOVING"
+      ],
+      required: true,
+      index: true
+    },
+    timestamp: { type: Date, required: true, index: true },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: null },
+    createdAt: { type: Date, default: Date.now, index: true }
+  },
+  { collection: "route_events", versionKey: false }
+);
+
+routeEventSchema.index({ sessionId: 1, timestamp: 1 });
+routeEventSchema.index({ sessionId: 1, eventType: 1, timestamp: -1 });
+
+const checkpointVisitSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    sessionId: { type: String, required: true, index: true },
+    checkpointId: { type: String, required: true, index: true },
+    timestamp: { type: Date, required: true, index: true },
+    distance: { type: Number, default: null },
+    visitOrder: { type: Number, required: true },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { collection: "checkpoint_visits", versionKey: false }
+);
+
+checkpointVisitSchema.index({ sessionId: 1, visitOrder: 1 });
 
 const incidentSchema = new mongoose.Schema(
   {
@@ -699,6 +843,7 @@ module.exports = {
   AuditLogModel: getModel("AuditLog", auditLogSchema),
   ChatAttachmentModel: getModel("ChatAttachment", chatAttachmentSchema),
   ChatMessageModel: getModel("ChatMessage", chatMessageSchema),
+  CheckpointVisitModel: getModel("CheckpointVisit", checkpointVisitSchema),
   CommercialLeadModel: getModel("CommercialLead", commercialLeadSchema),
   ConversationModel: getModel("Conversation", conversationSchema),
   DocumentModel: getModel("Document", documentSchema),
@@ -706,6 +851,9 @@ module.exports = {
   NotificationModel: getModel("Notification", notificationSchema),
   RtcSessionModel: getModel("RtcSession", rtcSessionSchema),
   RouteModel: getModel("Route", routeSchema),
+  RouteEventModel: getModel("RouteEvent", routeEventSchema),
+  RouteSessionModel: getModel("RouteSession", routeSessionSchema),
+  RouteSessionPositionModel: getModel("RouteSessionPosition", routeSessionPositionSchema),
   TripLogModel: getModel("TripLog", tripLogSchema),
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),

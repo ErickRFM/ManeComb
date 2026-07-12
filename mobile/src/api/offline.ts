@@ -2,7 +2,6 @@ import type {
   AccountType,
   ChatMessage,
   ConversationSummary,
-  DashboardData,
   DocumentItem,
   Incident,
   IncidentDraft,
@@ -482,115 +481,6 @@ function buildDocuments(user: User) {
   );
 }
 
-function buildDashboard(user: User): DashboardData {
-  const vehicles =
-    user.role === 'driver'
-      ? offlineState.vehicles.filter((vehicle) => vehicle.id === user.vehicleId)
-      : offlineState.vehicles;
-  const incidents =
-    user.role === 'driver'
-      ? offlineState.incidents.filter((incident) => incident.vehicleId === user.vehicleId)
-      : offlineState.incidents;
-  const occupancyAverage = vehicles.length
-    ? Math.round(
-        vehicles.reduce((sum, vehicle) => sum + vehicle.occupancy / vehicle.capacity, 0) *
-          100 /
-          vehicles.length
-      )
-    : 0;
-
-  const heroByRole: Partial<Record<Role, DashboardData['hero']>> = {
-    owner: {
-      eyebrow: 'Direccion',
-      title: 'Control ejecutivo de tu flotilla',
-      description: 'Ventas, operacion y activacion conectadas en una sola vista.',
-    },
-    admin: {
-      eyebrow: 'Centro de control',
-      title: 'Operacion completa de tu flotilla',
-      description: 'Monitorea unidades, incidencias y documentos desde una sola pantalla.',
-    },
-    dispatcher: {
-      eyebrow: 'Despacho',
-      title: 'Coordina rutas y alertas en tiempo real',
-      description: 'Mantén visibilidad de unidades, radio e incidencias por prioridad.',
-    },
-    supervisor: {
-      eyebrow: 'Supervision',
-      title: 'Prioriza retrasos y bloqueos en tiempo real',
-      description: 'Detecta cuellos de botella y coordina respuesta inmediata.',
-    },
-    billing_manager: {
-      eyebrow: 'Facturacion',
-      title: 'Gestiona cuenta, facturas y pagos',
-      description: 'Da seguimiento comercial sin perder contexto operativo.',
-    },
-    support: {
-      eyebrow: 'Soporte',
-      title: 'Acompaña activaciones y casos críticos',
-      description: 'Revisa alertas, eventos y estado de cuenta con trazabilidad.',
-    },
-    viewer: {
-      eyebrow: 'Consulta',
-      title: 'Visibilidad segura de la operacion',
-      description: 'Observa indicadores clave sin modificar recursos sensibles.',
-    },
-    driver: {
-      eyebrow: 'Cabina',
-      title: 'Conduce con todo tu turno bajo control',
-      description: 'Ubicacion, reportes y comunicacion sin perder velocidad de operacion.',
-    },
-  };
-
-  return {
-    hero: heroByRole[user.role] || heroByRole.viewer!,
-    metrics: [
-      {
-        id: 'active',
-        label: 'Unidades activas',
-        value: `${vehicles.length}/${offlineState.vehicles.length}`,
-        trend: 'Operacion en marcha',
-        tone: 'positive',
-      },
-      {
-        id: 'incidents',
-        label: 'Incidencias abiertas',
-        value: `${incidents.filter((incident) => incident.status !== 'resolved').length}`,
-        trend: incidents.length ? 'Requieren seguimiento' : 'Sin bloqueos',
-        tone: incidents.length ? 'warning' : 'positive',
-      },
-      {
-        id: 'occupancy',
-        label: 'Aforo promedio',
-        value: `${occupancyAverage}%`,
-        trend: occupancyAverage > 75 ? 'Hora pico activa' : 'Carga estable',
-        tone: occupancyAverage > 75 ? 'warning' : 'info',
-      },
-      {
-        id: 'docs',
-        label: 'Documentos atentos',
-        value: `${buildDocuments(user).length}`,
-        trend: 'Control administrativo',
-        tone: 'info',
-      },
-    ],
-    fleet: vehicles,
-    alerts: incidents.map((incident) => ({
-      id: incident.id,
-      label: incident.title,
-      tone: incident.severity,
-      subtitle: incident.description,
-      status: incident.status,
-    })),
-    notifications: buildNotifications(user),
-    shift: {
-      label: user.shift,
-      startedAt: minutesAgo(180),
-      nextCheckpointInMinutes: user.role === 'driver' ? 12 : 18,
-    },
-  };
-}
-
 export const ACCESS_ACCOUNTS: AccessAccount[] = [
   {
     role: 'Administrador',
@@ -627,7 +517,6 @@ export function offlineLogin(email: string, password: string) {
     mode: 'local' as const,
     token: `local-token:${user.email}`,
     user: stripUser(user),
-    dashboard: buildDashboard(stripUser(user)),
   };
 }
 
@@ -638,7 +527,6 @@ export function offlineRegister(payload: RegisterPayload) {
     mode: 'local' as const,
     token: `local-token:${user.email}`,
     user,
-    dashboard: buildDashboard(user),
   };
 }
 
@@ -655,18 +543,7 @@ export function offlineGetSession(token: string) {
       vehicle: user.vehicleId ? getVehicle(user.vehicleId) : null,
       documents: buildDocuments(stripUser(user)),
     },
-    dashboard: buildDashboard(stripUser(user)),
   };
-}
-
-export function offlineGetDashboard(token: string) {
-  const user = findUserByToken(token);
-
-  if (!user) {
-    throw new Error('Sesión local inválida');
-  }
-
-  return buildDashboard(stripUser(user));
 }
 
 export function offlineGetLocations() {

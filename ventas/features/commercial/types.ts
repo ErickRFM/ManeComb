@@ -107,7 +107,6 @@ export type CommercialChangeSummary = {
 export const COMMERCIAL_ACTIVITY_TYPES = {
   ACCOUNT_CREATED: 'ACCOUNT_CREATED',
   PLAN_CONTRACTED: 'PLAN_CONTRACTED',
-  CHANGE_PREVIEWED: 'CHANGE_PREVIEWED',
   CHANGE_REQUESTED: 'CHANGE_REQUESTED',
   CHANGE_CONFIRMED: 'CHANGE_CONFIRMED',
   RENEWAL: 'RENEWAL',
@@ -127,7 +126,7 @@ export type CommercialActivity = {
   description: string;
   occurredAt: string;
   status: 'completed' | 'pending' | 'informative';
-  source: 'simulated' | 'api';
+  source: 'api';
   metadata?: Record<string, string | number | boolean | null>;
 };
 

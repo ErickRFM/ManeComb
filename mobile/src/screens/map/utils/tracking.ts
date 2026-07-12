@@ -2,6 +2,14 @@ import type { Incident, LiveLocationsData, Vehicle } from '@/src/types/app';
 
 const ACTIVE_TRACKING_STATUSES = new Set(['online', 'patrolling', 'on-route']);
 
+export function hasVehicleLiveLocation(vehicle: Vehicle | null | undefined) {
+  return Boolean(
+    vehicle?.locationTimestamp &&
+    Number.isFinite(Number(vehicle.location?.latitude)) &&
+    Number.isFinite(Number(vehicle.location?.longitude))
+  );
+}
+
 export function getPrioritizedVehicles(vehicles: Vehicle[] = []) {
   return [...vehicles].sort((left, right) => {
     return right.delayMinutes - left.delayMinutes || left.code.localeCompare(right.code);
@@ -23,7 +31,7 @@ export function getSelectedVehicle(
 }
 
 export function getTrackingVehicles(vehicles: Vehicle[]) {
-  return vehicles.filter((vehicle) => ACTIVE_TRACKING_STATUSES.has(vehicle.status));
+  return vehicles.filter((vehicle) => ACTIVE_TRACKING_STATUSES.has(vehicle.status) && hasVehicleLiveLocation(vehicle));
 }
 
 export function getActiveRouteCount(vehicles: Vehicle[]) {

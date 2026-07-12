@@ -265,7 +265,7 @@ export function OperationalMenuDrawer({
         <Pressable
           onPress={() => {
             onClose();
-            signOut();
+            signOut().finally(() => router.replace('/login'));
           }}
           style={({ pressed }) => [
             styles.signOutButton,

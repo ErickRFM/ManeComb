@@ -55,6 +55,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="mobile"/>
+        <data android:scheme="manecomb"/>
       </intent-filter>
     </activity>
   </application>

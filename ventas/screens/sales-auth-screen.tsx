@@ -278,7 +278,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
                 ) : null}
                 <AuthField
                   icon="email-outline"
-                  label="Correo o telefono"
+                  label="Correo"
                   placeholder="correo@empresa.com"
                   value={isRegister ? registerIdentity : loginIdentity}
                   onChangeText={isRegister ? setRegisterIdentity : setLoginIdentity}
@@ -310,6 +310,9 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
               {!isRegister ? (
                 <View style={styles.sessionRow}>
                   <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityLabel="Recordarme"
+                    accessibilityState={{ checked: rememberSession }}
                     onPress={() => setRememberSession((current) => !current)}
                     style={styles.rememberButton}>
                     <View style={[styles.checkbox, rememberSession ? styles.checkboxActive : undefined]}>
@@ -318,6 +321,8 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
                     <Text style={styles.smallActionText}>Recordarme</Text>
                   </Pressable>
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Recuperar acceso"
                     onPress={() =>
                       setHelperMessage('Contacta al administrador para recuperar tu acceso.')
                     }>
@@ -333,6 +338,8 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
               ) : null}
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={isRegister ? 'Crear cuenta' : 'Entrar'}
                 onPress={() => void handleSubmit()}
                 disabled={isSubmitting}
                 style={({ pressed }) => [

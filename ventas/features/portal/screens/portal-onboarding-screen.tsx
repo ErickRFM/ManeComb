@@ -33,50 +33,39 @@ function getStepIcon(stepId: string): keyof typeof MaterialCommunityIcons.glyphM
   return icons[stepId] || 'flag-checkered';
 }
 
-function openStep(stepId: string) {
+function getStepTarget(stepId: string) {
   if (stepId === 'company-profile') {
-    router.push({ pathname: '/portal/perfil', params: { section: 'empresa' } } as never);
-    return;
+    return { pathname: '/portal/perfil', params: { section: 'empresa' } };
   }
 
   if (stepId === 'select-plan' || stepId === 'plan-active') {
-    router.push('/portal/plan' as never);
-    return;
+    return '/portal/plan';
   }
 
   if (stepId === 'payment-method' || stepId === 'payment') {
-    router.push('/portal/pagos' as never);
-    return;
+    return '/portal/pagos';
   }
 
-  if (stepId === 'register-units' || stepId === 'gps-setup') {
-    router.push('/mapa' as never);
-    return;
+  if (stepId === 'activated-drivers') {
+    return '/portal/usuarios';
   }
 
-  if (stepId === 'invite-supervisors' || stepId === 'activate-drivers' || stepId === 'activated-drivers') {
-    router.push('/usuarios' as never);
-    return;
+  if (stepId === 'register-units') {
+    return '/portal/unidades';
   }
 
-  if (stepId === 'radio-setup' || stepId === 'gps-radio') {
-    router.push('/radio' as never);
-    return;
-  }
-
-  router.push('/portal' as never);
+  return null;
 }
 
 function ActivationWizardStep({
   index,
-  onToggle,
   step,
 }: {
   index: number;
-  onToggle: (step: PortalOnboardingStep) => void;
   step: PortalOnboardingStep;
 }) {
   const done = step.status === 'completed';
+  const stepTarget = getStepTarget(step.id);
 
   return (
     <View style={[styles.stepCard, done ? styles.stepCardDone : undefined]}>
@@ -100,13 +89,12 @@ function ActivationWizardStep({
         {step.description ? <Text style={styles.stepDescription}>{step.description}</Text> : null}
       </View>
       <View style={styles.stepActions}>
-        <Pressable onPress={() => openStep(step.id)} style={styles.stepActionButton}>
-          <Text style={styles.stepActionText}>Abrir</Text>
-          <MaterialCommunityIcons name="arrow-right" size={15} color={portalPalette.text} />
-        </Pressable>
-        <Pressable onPress={() => onToggle(step)} style={styles.stepToggleButton}>
-          <MaterialCommunityIcons name={done ? 'restore' : 'check'} size={16} color={done ? portalPalette.warning : portalPalette.success} />
-        </Pressable>
+        {stepTarget ? (
+          <Pressable onPress={() => router.push(stepTarget as never)} style={styles.stepActionButton}>
+            <Text style={styles.stepActionText}>Abrir</Text>
+            <MaterialCommunityIcons name="arrow-right" size={15} color={portalPalette.text} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -153,19 +141,15 @@ function ActivationKeysSummary({
 }: {
   summary: PortalActivationKeysSummary | null;
 }) {
-  const safeSummary = summary || {
-    activeDrivers: 0,
-    activeUnits: 0,
-    availableSlots: 0,
-    keysAvailable: 0,
-    keysGenerated: 0,
-    keysUsed: 0,
-    maxDrivers: 0,
-    maxUnits: 0,
-    planName: 'Sin plan activo',
-    planStatus: 'inactive',
-    remainingDriverSlots: 0,
-  };
+  if (!summary) {
+    return (
+      <EmptyState
+        icon="clipboard-list-outline"
+        title="Sin resumen de activación"
+        description="El resumen aparecerá cuando el backend entregue el estado del plan y los cupos disponibles."
+      />
+    );
+  }
 
   return (
     <View style={styles.metricGrid}>
@@ -173,32 +157,31 @@ function ActivationKeysSummary({
         <View style={styles.metricHeader}>
           <Text style={styles.metricLabel}>Plan actual</Text>
           <StatusBadge
-            label={formatPortalStatus(safeSummary.planStatus)}
-            tone={getPortalStatusTone(safeSummary.planStatus)}
+            label={formatPortalStatus(summary.planStatus)}
+            tone={getPortalStatusTone(summary.planStatus)}
           />
         </View>
-        <Text style={styles.metricValue}>{safeSummary.planName}</Text>
-        <Text style={styles.metricDetail}>{safeSummary.maxUnits} combis incluidas</Text>
+        <Text style={styles.metricValue}>{summary.planName}</Text>
+        <Text style={styles.metricDetail}>{summary.maxUnits} combis incluidas</Text>
       </View>
       <ActivationMetric
-        label="Limite"
-        value={`${safeSummary.maxDrivers}`}
+        label="Límite"
+        value={`${summary.maxDrivers}`}
         detail="conductores / unidades activas"
       />
       <ActivationMetric
         label="Keys"
-        value={`${safeSummary.keysGenerated}`}
-        detail={`${safeSummary.keysUsed} usadas · ${safeSummary.keysAvailable} disponibles`}
+        value={`${summary.keysGenerated}`}
+        detail={`${summary.keysUsed} usadas / ${summary.keysAvailable} disponibles`}
       />
       <ActivationMetric
         label="Cupos disponibles"
-        value={`${safeSummary.availableSlots}`}
-        detail={`${safeSummary.activeDrivers} conductores activados`}
+        value={`${summary.availableSlots}`}
+        detail={`${summary.activeDrivers} conductores activados`}
       />
     </View>
   );
 }
-
 function KeyActionButton({
   accessibilityLabel,
   disabled,
@@ -251,14 +234,12 @@ function ActivationKeyRow({
   onCopy,
   onRevoke,
   onShare,
-  onViewDriver,
 }: {
   activationKey: PortalActivationKey;
   isSubmitting: boolean;
   onCopy: (activationKey: PortalActivationKey) => void;
   onRevoke: (activationKey: PortalActivationKey) => void;
   onShare: (activationKey: PortalActivationKey) => void;
-  onViewDriver: (activationKey: PortalActivationKey) => void;
 }) {
   const canRevoke = activationKey.status === 'available';
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
@@ -304,14 +285,7 @@ function ActivationKeyRow({
           disabled={activationKey.status !== 'available'}
           tone="info"
         />
-        {activationKey.status === 'used' ? (
-          <KeyActionButton
-            icon="account-arrow-right-outline"
-            label="Ver"
-            accessibilityLabel="Ver conductor activado"
-            onPress={() => onViewDriver(activationKey)}
-          />
-        ) : (
+        {activationKey.status !== 'used' ? (
           <KeyActionButton
             icon="block-helper"
             label="Revocar"
@@ -320,7 +294,7 @@ function ActivationKeyRow({
             disabled={!canRevoke || isSubmitting}
             tone="danger"
           />
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -335,7 +309,6 @@ export function PortalOnboardingScreen() {
     isSubmitting,
     loadOverview,
     onboarding,
-    patchOnboardingStep,
     revokeActivationKey,
   } = usePortalStore(
     useShallow((state) => ({
@@ -346,7 +319,6 @@ export function PortalOnboardingScreen() {
       isSubmitting: state.isSubmitting,
       loadOverview: state.loadOverview,
       onboarding: state.onboarding,
-      patchOnboardingStep: state.patchOnboardingStep,
       revokeActivationKey: state.revokeActivationKey,
     }))
   );
@@ -434,6 +406,8 @@ export function PortalOnboardingScreen() {
         subtitle="Genera, comparte y revoca códigos respetando el límite del plan activo."
         right={
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Generar key de activación"
             disabled={!canGenerate}
             onPress={() => void handleGenerateKey()}
             style={[styles.actionButton, portalButtonGradient(), !canGenerate ? styles.disabledButton : undefined]}>
@@ -469,7 +443,6 @@ export function PortalOnboardingScreen() {
                     onCopy={(currentKey) => void handleCopyKey(currentKey)}
                     onShare={(currentKey) => void handleShareKey(currentKey)}
                     onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
-                    onViewDriver={() => router.push('/usuarios' as never)}
                   />
                 ))}
               </View>
@@ -494,12 +467,6 @@ export function PortalOnboardingScreen() {
                 key={step.id}
                 index={index}
                 step={step}
-                onToggle={(currentStep) =>
-                  void patchOnboardingStep(
-                    currentStep.id,
-                    currentStep.status === 'completed' ? 'pending' : 'completed'
-                  )
-                }
               />
             ))}
           </View>
@@ -835,16 +802,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     flexShrink: 1,
-  },
-  stepToggleButton: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexShrink: 0,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
   },
 });

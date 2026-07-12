@@ -72,6 +72,14 @@ function openCheckoutUrl(url: string) {
   }
 }
 
+function getCheckoutMessage(message: string | null) {
+  if (!message) return null;
+  if (/MERCADO_PAGO|MERCADOPAGO|\bMP_|variables? (le[ií]das?|obligatorias?)/i.test(message)) {
+    return 'El servicio de pago no está disponible en este momento. Intenta de nuevo más tarde o elige otra forma de pago.';
+  }
+  return message;
+}
+
 export function PlanCheckoutScreen() {
   const { width } = useWindowDimensions();
   const isTwoColumn = width >= 980;
@@ -163,7 +171,7 @@ export function PlanCheckoutScreen() {
   };
 
   const goToPortal = () => {
-    router.replace({ pathname: '/portal', params: { compra: 'lista' } } as never);
+    router.replace((receiptIsActive ? '/portal/activacion' : '/portal/plan') as never);
   };
   const doneTitle = receiptIsActive
     ? 'Plan activado en tu cuenta.'
@@ -175,7 +183,8 @@ export function PlanCheckoutScreen() {
     (receiptIsActive
       ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
       : 'Revisa el estado del pago desde tu portal ManeComb.');
-  const doneButtonLabel = receiptIsActive ? 'Acceder al dashboard' : 'Ver estado en portal';
+  const doneButtonLabel = receiptIsActive ? 'Continuar configuración' : 'Ver estado en portal';
+  const checkoutMessage = getCheckoutMessage(message);
 
   return (
     <View style={styles.screen}>
@@ -339,9 +348,9 @@ export function PlanCheckoutScreen() {
                     </Text>
                   </View>
 
-                  {message ? (
+                  {checkoutMessage ? (
                     <View style={styles.messageBox}>
-                      <Text style={styles.messageText}>{message}</Text>
+                      <Text style={styles.messageText}>{checkoutMessage}</Text>
                     </View>
                   ) : null}
 

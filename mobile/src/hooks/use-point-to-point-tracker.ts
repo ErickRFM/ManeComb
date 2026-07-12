@@ -516,6 +516,25 @@ export function usePointToPointTracker({
     setPointMessage('Seguimiento pausado. Puedes reanudarlo cuando la unidad continue.');
   };
 
+  const restoreTrackerSession = useCallback((session: {
+    startedAt: string;
+    status: 'RUNNING' | 'PAUSED';
+    vehicleId: string;
+  }) => {
+    const restoredState = {
+      startedAt: session.startedAt,
+      status: 'in_progress' as const,
+      trackedVehicleId: session.vehicleId,
+      zone: 'none' as const,
+    };
+    setTrackerStartedAt(session.startedAt);
+    setTrackedVehicleId(session.vehicleId);
+    setTrackerZone('none');
+    setPausedTrackerState(session.status === 'PAUSED' ? restoredState : null);
+    setTrackerStatus(session.status === 'PAUSED' ? 'paused' : 'in_progress');
+    setPointMessage(session.status === 'PAUSED' ? 'Jornada pausada recuperada.' : 'Jornada activa recuperada.');
+  }, []);
+
   const resetTrackerLog = () => {
     setTrackerStartedAt(null);
     setTrackerZone('none');
@@ -754,6 +773,7 @@ export function usePointToPointTracker({
     removeStop,
     resetPointToPointSession,
     resetTrackerLog,
+    restoreTrackerSession,
     routeProgress,
     searchPoint,
     selectPoint,

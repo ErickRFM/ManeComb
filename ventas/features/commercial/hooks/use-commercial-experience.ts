@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
+import { getCommercialPlansRequest } from '@/src/api/client';
+import type { CommercialPlan } from '@/src/types/app';
 import { createCommercialService } from '../create-commercial-service';
 import type {
   CommercialChangeSummary,
@@ -10,6 +12,8 @@ import type {
 
 function useCommercialRuntime() {
   const [runtime] = useState(() => createCommercialService());
+  const [plans, setPlans] = useState<CommercialPlan[]>([]);
+  const [plansLoaded, setPlansLoaded] = useState(false);
   const { invoices, isLoading, loadAll, onboarding, overview, paymentMethods, subscription } = usePortalStore(
     useShallow((state) => ({
       invoices: state.invoices,
@@ -25,20 +29,39 @@ function useCommercialRuntime() {
   const synchronize = useCallback(async () => {
     await runtime.service.synchronize({
       subscription: subscription || overview?.subscription || null,
-      plans: runtime.plans,
+      plans,
       invoices,
       paymentMethods,
       organizationCreatedAt: null,
     });
-  }, [invoices, overview?.subscription, paymentMethods, runtime, subscription]);
+  }, [invoices, overview?.subscription, paymentMethods, plans, runtime, subscription]);
 
   useEffect(() => {
     if (!overview && !isLoading) void loadAll();
   }, [isLoading, loadAll, overview]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    void getCommercialPlansRequest()
+      .then((nextPlans) => {
+        if (mounted) setPlans(Array.isArray(nextPlans) ? nextPlans : []);
+      })
+      .catch(() => {
+        if (mounted) setPlans([]);
+      })
+      .finally(() => {
+        if (mounted) setPlansLoaded(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return {
     activationComplete: (onboarding?.status || overview?.onboarding.status) === 'completed',
-    isLoading,
+    isLoading: isLoading || !plansLoaded,
     reload: loadAll,
     runtime,
     synchronize,
@@ -69,7 +92,6 @@ export function useCommercialExperience() {
 
   const continuePreview = useCallback(async () => {
     if (!selectedPlanId || !comparison?.validation.allowed) return;
-    await runtime.service.registerPreview(selectedPlanId);
     setReadyForNextStep(true);
     setWorkspace(await runtime.service.getWorkspace());
   }, [comparison?.validation.allowed, runtime.service, selectedPlanId]);

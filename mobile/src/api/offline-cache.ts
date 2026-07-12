@@ -3,7 +3,6 @@ import type {
   ChatDirectoryContact,
   ChatMessage,
   ConversationSummary,
-  DashboardData,
   DocumentItem,
   GeoPoint,
   Incident,
@@ -11,18 +10,18 @@ import type {
   NotificationItem,
   OperationalObservabilitySnapshot,
   AuthRoutingContext,
+  RouteSession,
   User,
 } from '@/src/types/app';
 
 const CACHE_KEY = 'manecomb:offline-cache:v1';
 const QUEUE_KEY = 'manecomb:pending-sync:v1';
-const MAX_QUEUE_ITEMS = 80;
+const MAX_QUEUE_ITEMS = 2000;
 
 export type OfflineCacheSnapshot = {
   savedAt: string;
   authContext: AuthRoutingContext | null;
   user: User | null;
-  dashboard: DashboardData | null;
   mapData: LiveLocationsData | null;
   incidents: Incident[];
   conversations: ConversationSummary[];
@@ -32,6 +31,7 @@ export type OfflineCacheSnapshot = {
   notifications: NotificationItem[];
   observability: OperationalObservabilitySnapshot | null;
   users: User[];
+  activeRouteSession: RouteSession | null;
 };
 
 export type PendingSyncOperation =
@@ -80,6 +80,9 @@ export type PendingSyncOperation =
           speed?: number | null;
         };
         speed?: number | null;
+        heading?: number | null;
+        accuracy?: number | null;
+        timestamp?: string | null;
       };
     };
 

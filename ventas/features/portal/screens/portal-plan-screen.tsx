@@ -27,7 +27,7 @@ function CurrentPlanOverview({
   state: CommercialStatePresentation;
   subscription: PortalSubscription | null;
 }) {
-  if (!subscription) {
+  if (!subscription || !currentPlan) {
     return (
       <EmptyState
         icon="clipboard-list-outline"
@@ -441,11 +441,11 @@ export function PortalPlanScreen() {
         </View>
       )}
 
-      <PortalSectionCard
-        title="Historial comercial"
-        subtitle="Eventos preparados para conectarse al historial real de la cuenta.">
-        <CommercialActivityList activities={workspace?.activities || []} />
-      </PortalSectionCard>
+      {workspace?.activities.length ? (
+        <PortalSectionCard title="Historial comercial" subtitle="Movimientos recientes de tu suscripción.">
+          <CommercialActivityList activities={workspace.activities} />
+        </PortalSectionCard>
+      ) : null}
     </PortalLayout>
   );
 }

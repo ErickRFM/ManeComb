@@ -1,12 +1,18 @@
 import React, { useEffect, type PropsWithChildren } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View, type TextProps } from 'react-native';
 import {
+  CommonActions,
   StackActions,
   createNavigationContainerRef,
-  useNavigation,
   useRoute,
-  type NavigationProp,
+  type ParamListBase,
 } from '@react-navigation/native';
+import {
+  getModuleRouteName,
+  getRouteDefinition,
+  isModuleRoot,
+} from '@/src/navigation/route-registry';
+import { NavigationRequestGuard } from '@/src/navigation/navigation-policy';
 
 type RouteParamValue = string | string[] | number | boolean | null | undefined;
 type RouteParams = Record<string, RouteParamValue>;
@@ -21,7 +27,8 @@ export type ErrorBoundaryProps = {
   retry: () => void;
 };
 
-export const navigationRef = createNavigationContainerRef<Record<string, RouteParams | undefined>>();
+export const navigationRef = createNavigationContainerRef<ParamListBase>();
+const navigationGuard = new NavigationRequestGuard();
 
 function decodeQueryParams(search: string) {
   const params: RouteParams = {};
@@ -52,7 +59,7 @@ export function normalizeRouteName(pathname: string | undefined | null) {
   const withoutTrailingSlash = normalized.replace(/\/+$/, '') || '/';
 
   if (withoutTrailingSlash === '/(tabs)' || withoutTrailingSlash === '/index') {
-    return '/dashboard';
+    return '/mapa';
   }
 
   return withoutTrailingSlash;
@@ -80,6 +87,42 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
     return;
   }
 
+  const currentRoute = navigationRef.getCurrentRoute();
+
+  if (
+    navigationGuard.shouldIgnore({
+      currentName: currentRoute?.name,
+      currentParams: currentRoute?.params as RouteParams | undefined,
+      destinationName: name,
+      destinationParams: params,
+    })
+  ) {
+    return;
+  }
+
+  const destination = getRouteDefinition(name);
+
+  if (destination) {
+    const currentName = currentRoute?.name;
+    const currentModule = getRouteDefinition(currentName)?.module;
+    const moduleRouteName = getModuleRouteName(destination.module);
+    const nestedRoute = { screen: name, params };
+
+    // Entering or reopening a module always creates one clean module instance.
+    if (currentModule !== destination.module || isModuleRoot(name)) {
+      navigationRef.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: moduleRouteName, params: nestedRoute }],
+        })
+      );
+      return;
+    }
+
+    navigationRef.navigate(moduleRouteName, nestedRoute as never);
+    return;
+  }
+
   if (method === 'replace') {
     navigationRef.dispatch(StackActions.replace(name, params));
     return;
@@ -101,8 +144,9 @@ export const router = {
       return;
     }
 
-    navigationRef.navigate('/mapa');
+    navigateWith('replace', '/mapa');
   },
+  clearPendingNavigation: () => navigationGuard.clear(),
 };
 
 export function useRouter() {
@@ -120,12 +164,9 @@ export function useLocalSearchParams<T extends RouteParams = RouteParams>() {
 }
 
 export function Redirect({ href }: { href: Href }) {
-  const navigation = useNavigation<NavigationProp<Record<string, RouteParams | undefined>>>();
-
   useEffect(() => {
-    const { name, params } = resolveHref(href);
-    navigation.dispatch(StackActions.replace(name, params));
-  }, [href, navigation]);
+    router.replace(href);
+  }, [href]);
 
   return (
     <View style={redirectStyles.container}>

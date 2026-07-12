@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon",
     "start": "node src/server.js",
-    "test": "node test/backend-architecture.test.js && node test/proxy.test.js && node test/observability.test.js && node test/env.test.js && node test/error-handler.test.js && node test/chat-data-model.test.js && node test/mercado-pago.test.js && node test/auth-context.test.js && node test/cors.test.js && node test/telemetry.test.js && node test/navigation-trips.test.js && node test/activation-keys.test.js && node test/tenant-isolation.test.js && node test/app-smoke.test.js",
+    "test": "node test/backend-architecture.test.js && node test/proxy.test.js && node test/observability.test.js && node test/env.test.js && node test/error-handler.test.js && node test/chat-data-model.test.js && node test/mercado-pago.test.js && node test/auth-context.test.js && node test/cors.test.js && node test/telemetry.test.js && node test/navigation-trips.test.js && node test/route-sessions.test.js && node test/activation-keys.test.js && node test/tenant-isolation.test.js && node test/app-smoke.test.js",
     "diagnose:auth": "node scripts/diagnose-auth-account.js",
     "migrate:chat-messages": "node scripts/migrate-chat-messages.js"
   },
