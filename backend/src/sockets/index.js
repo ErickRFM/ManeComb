@@ -35,6 +35,20 @@ function registerSocketServer(server, store) {
   const redisReadiness = getRedisReadiness();
   let radioClusterReady = !redisReadiness.enabled;
 
+  function getLocalRoomDiagnostics(room, sourceSocketId = null) {
+    const socketIds = [...(io.sockets.adapter.rooms.get(room) || [])];
+    const clients = socketIds.map((socketId) => ({
+      socketId,
+      userId: io.sockets.sockets.get(socketId)?.data.user?.id || null
+    }));
+    return {
+      localDestinationClients: sourceSocketId
+        ? clients.filter((client) => client.socketId !== sourceSocketId)
+        : clients,
+      localRoomClients: clients.length
+    };
+  }
+
   async function acquireRadioChannel(channelId, owner) {
     if (!redisReadiness.enabled) return { acquired: true, owner: null };
     if (!redisClient?.isReady || !radioClusterReady) {
@@ -371,14 +385,34 @@ function registerSocketServer(server, store) {
 
     socket.on("radio:join", async ({ channelId } = {}, ack) => {
       const safeChannelId = String(channelId || "").trim();
+      const room = `conversation:${safeChannelId}`;
       const allowed = safeChannelId &&
         (await canUseOperations(socket)) &&
         (await store.canUserAccessConversation?.(socket.data.user.id, safeChannelId));
       if (!allowed) {
+        logger.warn({
+          action: "JoinChannel",
+          module: "Radio",
+          status: "forbidden",
+          userId: socket.data.user?.id,
+          metadata: { channelId: safeChannelId, socketId: socket.id }
+        });
         acknowledge(ack, { ok: false, error: "forbidden" });
         return;
       }
-      socket.join(`conversation:${safeChannelId}`);
+      await socket.join(room);
+      logger.info({
+        action: "JoinChannel",
+        module: "Radio",
+        status: "success",
+        userId: socket.data.user.id,
+        metadata: {
+          channelId: safeChannelId,
+          room,
+          ...getLocalRoomDiagnostics(room),
+          socketId: socket.id
+        }
+      });
       acknowledge(ack, { ok: true });
     });
 
@@ -417,6 +451,12 @@ function registerSocketServer(server, store) {
         byteLength: 0,
         frames: [],
         lastSequence: -1,
+        receivedFrames: 0,
+        forwardedFrames: 0,
+        latencyTotalMs: 0,
+        latencyMaxMs: 0,
+        minDestinationClients: Number.POSITIVE_INFINITY,
+        maxDestinationClients: 0,
         timeoutId: null,
         lockKey: null,
         lockValue: null
@@ -459,6 +499,19 @@ function registerSocketServer(server, store) {
         startedAt: transmission.startedAt,
         transmitter: { id: transmission.userId, name: transmission.userName }
       };
+      logger.info({
+        action: "StartTransmission",
+        module: "Radio",
+        status: "success",
+        userId: transmission.userId,
+        metadata: {
+          channelId: safeChannelId,
+          ...getLocalRoomDiagnostics(`conversation:${safeChannelId}`, socket.id),
+          socketId: socket.id,
+          startedAt: transmission.startedAt,
+          transmissionId: transmission.id
+        }
+      });
       io.to(`conversation:${safeChannelId}`).emit("radio:start", payload);
       acknowledge(ack, { ok: true, transmissionId: transmission.id });
     });
@@ -470,16 +523,74 @@ function registerSocketServer(server, store) {
       const sentAt = Number(payload.sentAt);
       if (!transmission || transmission.socketId !== socket.id ||
           transmission.id !== payload.transmissionId || !Number.isInteger(sequence)) {
+        logger.warn({
+          action: "RejectFrame",
+          module: "Radio",
+          status: "invalid_owner",
+          userId: socket.data.user?.id,
+          metadata: {
+            channelId,
+            sequence,
+            socketId: socket.id,
+            transmissionId: payload.transmissionId || null
+          }
+        });
         return;
       }
-      if (sequence <= transmission.lastSequence) return;
+      if (sequence <= transmission.lastSequence) {
+        logger.warn({
+          action: "RejectFrame",
+          module: "Radio",
+          status: "duplicate",
+          userId: transmission.userId,
+          metadata: {
+            channelId,
+            expectedSequence: transmission.lastSequence + 1,
+            sequence,
+            socketId: socket.id,
+            transmissionId: transmission.id
+          }
+        });
+        return;
+      }
       if (sequence !== transmission.lastSequence + 1 || !Number.isFinite(sentAt) || sentAt <= 0 ||
           !appendFrame(transmission, payload.data)) {
+        logger.warn({
+          action: "RejectFrame",
+          module: "Radio",
+          status: "invalid_frame",
+          userId: transmission.userId,
+          metadata: {
+            base64Length: String(payload.data || "").length,
+            channelId,
+            expectedSequence: transmission.lastSequence + 1,
+            sequence,
+            sentAt,
+            socketId: socket.id,
+            transmissionId: transmission.id
+          }
+        });
         socket.emit("radio:error", { message: "El flujo de audio PTT se interrumpio." });
         void finishRadioTransmission(channelId, "invalid_frame");
         return;
       }
       transmission.lastSequence = sequence;
+      transmission.receivedFrames += 1;
+      const frameLatencyMs = Math.max(0, Date.now() - sentAt);
+      transmission.latencyTotalMs += frameLatencyMs;
+      transmission.latencyMaxMs = Math.max(transmission.latencyMaxMs, frameLatencyMs);
+      const destinationClients = Math.max(
+        0,
+        (io.sockets.adapter.rooms.get(`conversation:${channelId}`)?.size || 0) - 1
+      );
+      transmission.minDestinationClients = Math.min(
+        transmission.minDestinationClients,
+        destinationClients
+      );
+      transmission.maxDestinationClients = Math.max(
+        transmission.maxDestinationClients,
+        destinationClients
+      );
       socket.to(`conversation:${channelId}`).emit("radio:frame", {
         channelId,
         data: payload.data,
@@ -487,6 +598,7 @@ function registerSocketServer(server, store) {
         sentAt,
         transmissionId: transmission.id
       });
+      transmission.forwardedFrames += 1;
     });
 
     async function finishRadioTransmission(channelId, reason = "completed") {
@@ -504,10 +616,46 @@ function registerSocketServer(server, store) {
         reason,
         transmissionId: transmission.id
       });
+      logger.info({
+        action: "EndTransmission",
+        module: "Radio",
+        status: reason,
+        userId: transmission.userId,
+        metadata: {
+          averageFrameLatencyMs: transmission.receivedFrames
+            ? Math.round(transmission.latencyTotalMs / transmission.receivedFrames)
+            : null,
+          bytes: transmission.byteLength,
+          channelId,
+          firstSequence: transmission.receivedFrames ? 0 : null,
+          forwardedFrames: transmission.forwardedFrames,
+          frames: transmission.receivedFrames,
+          lastSequence: transmission.lastSequence,
+          ...getLocalRoomDiagnostics(`conversation:${channelId}`, transmission.socketId),
+          maxDestinationClients: transmission.maxDestinationClients,
+          maxFrameLatencyMs: transmission.latencyMaxMs,
+          minDestinationClients: Number.isFinite(transmission.minDestinationClients)
+            ? transmission.minDestinationClients
+            : 0,
+          socketId: transmission.socketId,
+          transmissionId: transmission.id
+        }
+      });
       try {
         const message = await persistTransmission(store, transmission);
         if (message) {
           io.to(`conversation:${channelId}`).emit("radio:message:new", { channelId, message });
+          logger.info({
+            action: "PersistTransmission",
+            module: "Radio",
+            status: "success",
+            userId: transmission.userId,
+            metadata: {
+              channelId,
+              messageId: message.id,
+              transmissionId: transmission.id
+            }
+          });
           incrementMetric("radio_transmissions_total", 1, { transport: "live_socket" });
         }
         return message;

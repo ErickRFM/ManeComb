@@ -72,10 +72,10 @@ type NativeAudioModule = {
   stopPlayer: () => Promise<PlayerStatus>;
   seekTo: (positionMillis: number) => Promise<PlayerStatus>;
   getPlayerStatus: () => Promise<PlayerStatus>;
-  startPttCapture: () => Promise<{ frameDurationMs: number; sampleRate: number }>;
+  startPttCapture: (transmissionId: string) => Promise<{ frameDurationMs: number; sampleRate: number }>;
   stopPttCapture: () => Promise<void>;
-  startPttPlayback: () => Promise<void>;
-  enqueuePttFrame: (base64Data: string) => Promise<number>;
+  startPttPlayback: (transmissionId: string) => Promise<void>;
+  enqueuePttFrame: (base64Data: string, sequence: number, transmissionId: string) => Promise<number>;
   stopPttPlayback: () => Promise<void>;
   startRadioForegroundService: () => Promise<void>;
   stopRadioForegroundService: () => Promise<void>;
@@ -85,6 +85,7 @@ type NativeAudioModule = {
   seekRadioHistoryPlayer: (playerId: string, positionMillis: number) => Promise<PlayerStatus>;
   getRadioHistoryPlayerStatus: (playerId: string) => Promise<PlayerStatus>;
   stopAllRadioHistoryPlayers: () => Promise<void>;
+  traceRadioE2e: (stage: string, details: string) => Promise<void>;
 };
 
 type NativeAudioError = Error & {
@@ -102,6 +103,7 @@ export type PttAudioFrame = {
   bytes: number;
   capturedAt: number;
   data: string;
+  sequence: number;
 };
 
 export function subscribeToPttAudioFrames(listener: (frame: PttAudioFrame) => void) {
@@ -121,23 +123,27 @@ export function subscribeToPttAudioLevel(listener: (event: { level: number }) =>
   return () => subscription?.remove();
 }
 
-export async function startPttAudioCapture() {
+export async function startPttAudioCapture(transmissionId: string) {
   if (!NativeAudio) throw new Error('PTT nativo no disponible.');
-  return NativeAudio.startPttCapture();
+  return NativeAudio.startPttCapture(transmissionId);
 }
 
 export async function stopPttAudioCapture() {
   await NativeAudio?.stopPttCapture();
 }
 
-export async function startPttAudioPlayback() {
+export async function startPttAudioPlayback(transmissionId: string) {
   if (!NativeAudio) throw new Error('PTT nativo no disponible.');
-  await NativeAudio.startPttPlayback();
+  await NativeAudio.startPttPlayback(transmissionId);
 }
 
-export async function enqueuePttAudioFrame(base64Data: string) {
+export async function enqueuePttAudioFrame(
+  base64Data: string,
+  sequence: number,
+  transmissionId: string
+) {
   if (!NativeAudio) return 0;
-  return NativeAudio.enqueuePttFrame(base64Data);
+  return NativeAudio.enqueuePttFrame(base64Data, sequence, transmissionId);
 }
 
 export async function stopPttAudioPlayback() {
@@ -150,6 +156,10 @@ export async function startRadioForegroundService() {
 
 export async function stopRadioForegroundService() {
   await NativeAudio?.stopRadioForegroundService();
+}
+
+export async function traceRadioE2e(stage: string, details: Record<string, unknown>) {
+  await NativeAudio?.traceRadioE2e(stage, JSON.stringify(details));
 }
 
 const idlePlayerStatus: PlayerStatus = {

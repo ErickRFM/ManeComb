@@ -12,6 +12,7 @@ import {
   subscribeToPttAudioErrors,
   subscribeToPttAudioFrames,
   subscribeToPttAudioLevel,
+  traceRadioE2e,
 } from '@/src/native/audio';
 import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -170,7 +171,8 @@ export function RadioScreen() {
   const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
   const realtimeServiceRef = useRef<RadioRealtimeService | null>(null);
   const previousChannelIdRef = useRef<string | null>(null);
-  const liveSequenceRef = useRef(0);
+  const receivedFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
+  const sentFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
   const pulseValue = useSharedValue(1);
   const haloValue = useSharedValue(0);
   const waveformLevels = useSharedValue<number[]>(Array(18).fill(0));
@@ -335,7 +337,16 @@ export function RadioScreen() {
 
   useEffect(() => {
     const service = new RadioRealtimeService({
-      onEnd: ({ transmissionId }) => {
+      onEnd: ({ channelId, reason, transmissionId }) => {
+        const received = receivedFrameTraceRef.current;
+        const sent = sentFrameTraceRef.current;
+        traceRadioE2e('socket_end', {
+          channelId,
+          reason: reason || 'completed',
+          received: received.transmissionId === transmissionId ? received : null,
+          sent: sent.transmissionId === transmissionId ? sent : null,
+          transmissionId,
+        }).catch(() => undefined);
         const current = radioSessionRef.current;
         if (current.phase === 'CHANNEL_BUSY') {
           transitionSession({ phase: 'READY', operator: null, message: null, transmissionId: null });
@@ -373,7 +384,30 @@ export function RadioScreen() {
       },
       onFrame: (frame) => {
         if (frame.transmissionId !== radioSessionRef.current.transmissionId) return;
-        enqueuePttAudioFrame(frame.data).catch(() => {
+        const trace = receivedFrameTraceRef.current;
+        if (trace.transmissionId !== frame.transmissionId) {
+          receivedFrameTraceRef.current = {
+            transmissionId: frame.transmissionId,
+            frames: 0,
+            bytes: 0,
+            lastSequence: -1,
+          };
+        }
+        const nextTrace = receivedFrameTraceRef.current;
+        nextTrace.frames += 1;
+        nextTrace.bytes += 640;
+        nextTrace.lastSequence = frame.sequence;
+        if (nextTrace.frames === 1 || nextTrace.frames % 50 === 0) {
+          traceRadioE2e('socket_receive', {
+            bytes: nextTrace.bytes,
+            channelId: frame.channelId,
+            frames: nextTrace.frames,
+            lastSequence: frame.sequence,
+            sentAt: frame.sentAt,
+            transmissionId: frame.transmissionId,
+          }).catch(() => undefined);
+        }
+        enqueuePttAudioFrame(frame.data, frame.sequence, frame.transmissionId).catch(() => {
           stopPttAudioPlayback().catch(() => undefined);
           transitionSession({
             phase: 'ERROR',
@@ -409,9 +443,17 @@ export function RadioScreen() {
                     : 'READY';
         transitionSession({ phase, message: null, operator: null, transmissionId: null });
       },
-      onStart: ({ transmissionId, transmitter }) => {
+      onStart: ({ channelId, startedAt, transmissionId, transmitter }) => {
         const ownTransmission = transmitter.id === user?.id;
         if (ownTransmission) return;
+        receivedFrameTraceRef.current = { transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
+        traceRadioE2e('socket_start', {
+          channelId,
+          receivedAt: Date.now(),
+          startedAt,
+          transmissionId,
+          transmitterId: transmitter.id,
+        }).catch(() => undefined);
         transitionSession({
           phase: 'RECEIVING',
           operator: transmitter,
@@ -422,7 +464,7 @@ export function RadioScreen() {
           .then(async () => {
             const beforeStart = radioSessionRef.current;
             if (beforeStart.phase !== 'RECEIVING' || beforeStart.transmissionId !== transmissionId) return;
-            await startPttAudioPlayback();
+            await startPttAudioPlayback(transmissionId);
             const afterStart = radioSessionRef.current;
             if (afterStart.phase !== 'RECEIVING' || afterStart.transmissionId !== transmissionId) {
               await stopPttAudioPlayback();
@@ -488,13 +530,31 @@ export function RadioScreen() {
       if (!transmissionId || phase !== 'TRANSMITTING' || frame.bytes !== 640) return;
       const sent = realtimeServiceRef.current?.sendFrame({
         data: frame.data,
-        sequence: liveSequenceRef.current++,
+        sequence: frame.sequence,
         sentAt: frame.capturedAt,
         transmissionId,
       });
       if (sent === false) {
         stopPttAudioCapture().catch(() => undefined);
         transitionSession({ phase: 'OFFLINE', message: 'Conexion PTT interrumpida', operator: null, transmissionId: null });
+        return;
+      }
+      const trace = sentFrameTraceRef.current;
+      if (trace.transmissionId !== transmissionId) {
+        sentFrameTraceRef.current = { transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
+      }
+      const nextTrace = sentFrameTraceRef.current;
+      nextTrace.frames += 1;
+      nextTrace.bytes += frame.bytes;
+      nextTrace.lastSequence = frame.sequence;
+      if (nextTrace.frames === 1 || nextTrace.frames % 50 === 0) {
+        traceRadioE2e('socket_emit', {
+          bytes: nextTrace.bytes,
+          frames: nextTrace.frames,
+          lastSequence: frame.sequence,
+          sentAt: frame.capturedAt,
+          transmissionId,
+        }).catch(() => undefined);
       }
     });
     const removeErrors = subscribeToPttAudioErrors(() => {
@@ -960,6 +1020,13 @@ export function RadioScreen() {
       });
       return;
     }
+    sentFrameTraceRef.current = { transmissionId: ack.transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
+    traceRadioE2e('start_ack', {
+      channelId: activeChannel.id,
+      receivedAt: Date.now(),
+      transmissionId: ack.transmissionId,
+      userId: user?.id || null,
+    }).catch(() => undefined);
     if (pendingStopAfterStartRef.current) {
       pendingStopAfterStartRef.current = false;
       transitionSession({
@@ -986,9 +1053,8 @@ export function RadioScreen() {
       message: `Transmitiendo: ${user?.name || 'Operador'}`,
     });
     waveformLevels.value = Array(18).fill(0);
-    liveSequenceRef.current = 0;
     try {
-      await startPttAudioCapture();
+      await startPttAudioCapture(ack.transmissionId);
       const activeSession = radioSessionRef.current;
       if (activeSession.phase !== 'TRANSMITTING' || activeSession.transmissionId !== ack.transmissionId) {
         await stopPttAudioCapture();
