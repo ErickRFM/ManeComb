@@ -35,6 +35,10 @@ const mongoStoreSource = fs.readFileSync(
   path.join(__dirname, "../src/data/mongo-store.js"),
   "utf8"
 );
+const socketSource = fs.readFileSync(
+  path.join(__dirname, "../src/sockets/index.js"),
+  "utf8"
+);
 const extractedMongoMethods = [
   "getUserById",
   "findUserByEmail",
@@ -57,5 +61,16 @@ for (const methodName of extractedMongoMethods) {
     `${methodName} should live outside mongo-store.js`
   );
 }
+
+assert.match(
+  socketSource,
+  /socket\.on\("radio:join"[\s\S]*socket\.join\(liveRoom\)[\s\S]*socket\.join\(historyRoom\)[\s\S]*acknowledge\(ack, \{[\s\S]*ok: true/,
+  "radio:join must join live and history rooms before acknowledging READY"
+);
+assert.match(
+  socketSource,
+  /const historyRoom = `conversation:\$\{channelId\}`;[\s\S]*io\.to\(historyRoom\)\.emit\("radio:message:new"/,
+  "persisted radio messages must use the history room guaranteed by radio:join"
+);
 
 console.log("backend architecture tests passed");

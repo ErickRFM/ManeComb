@@ -398,7 +398,8 @@ function registerSocketServer(server, store) {
 
     socket.on("radio:join", async ({ channelId } = {}, ack) => {
       const safeChannelId = String(channelId || "").trim();
-      const room = getRadioRoom(safeChannelId);
+      const liveRoom = getRadioRoom(safeChannelId);
+      const historyRoom = `conversation:${safeChannelId}`;
       const allowed = safeChannelId &&
         (await canUseOperations(socket)) &&
         (await store.canUserAccessConversation?.(socket.data.user.id, safeChannelId));
@@ -414,7 +415,7 @@ function registerSocketServer(server, store) {
         return;
       }
       const previousRadioRooms = [...socket.rooms].filter(
-        (joinedRoom) => joinedRoom.startsWith("radio:") && joinedRoom !== room
+        (joinedRoom) => joinedRoom.startsWith("radio:") && joinedRoom !== liveRoom
       );
       for (const previousRoom of previousRadioRooms) {
         const previousChannelId = previousRoom.slice("radio:".length);
@@ -424,20 +425,32 @@ function registerSocketServer(server, store) {
         }
         await socket.leave(previousRoom);
       }
-      await socket.join(room);
+      await Promise.all([
+        socket.join(liveRoom),
+        socket.join(historyRoom)
+      ]);
       logger.info({
         action: "JoinChannel",
         module: "Radio",
         status: "success",
+        organizationId: getOrganizationId(socket.data.user),
         userId: socket.data.user.id,
         metadata: {
           channelId: safeChannelId,
-          room,
-          ...getLocalRoomDiagnostics(room),
+          historyRoom,
+          historyRoomDiagnostics: getLocalRoomDiagnostics(historyRoom),
+          liveRoom,
+          liveRoomDiagnostics: getLocalRoomDiagnostics(liveRoom),
           socketId: socket.id
         }
       });
-      acknowledge(ack, { ok: true });
+      acknowledge(ack, {
+        ok: true,
+        channelId: safeChannelId,
+        historyRoom,
+        liveRoom,
+        socketId: socket.id
+      });
     });
 
     socket.on("radio:leave", async ({ channelId } = {}, ack) => {
@@ -498,6 +511,7 @@ function registerSocketServer(server, store) {
         socketId: socket.id,
         userId: user.id,
         userName: user.name || "Operador",
+        organizationId: getOrganizationId(user),
         startedAt: Date.now(),
         byteLength: 0,
         frames: [],
@@ -738,14 +752,20 @@ function registerSocketServer(server, store) {
         const shouldPersist = !["invalid_frame", "rate_exceeded"].includes(reason);
         const message = shouldPersist ? await persistTransmission(store, transmission) : null;
         if (message) {
-          io.to(`conversation:${channelId}`).emit("radio:message:new", { channelId, message });
+          const historyRoom = `conversation:${channelId}`;
+          const historyRoomDiagnostics = getLocalRoomDiagnostics(historyRoom);
+          io.to(historyRoom).emit("radio:message:new", { channelId, message });
           logger.info({
             action: "PersistTransmission",
             module: "Radio",
             status: "success",
+            organizationId: transmission.organizationId,
             userId: transmission.userId,
             metadata: {
               channelId,
+              conversationId: message.conversationId,
+              historyRoom,
+              historyRoomDiagnostics,
               messageId: message.id,
               transmissionId: transmission.id
             }

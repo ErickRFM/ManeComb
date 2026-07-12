@@ -1,4 +1,5 @@
 import type { Socket } from 'socket.io-client';
+import { traceRadioE2e } from '@/src/native/audio';
 import { getRadioRealtimeErrorMessage } from './radio-audio-service';
 
 export type RadioLiveIdentity = {
@@ -37,8 +38,12 @@ export type RadioRealtimeConnectionState =
   | 'error';
 
 type Ack = {
+  channelId?: string;
   error?: string;
+  historyRoom?: string;
+  liveRoom?: string;
   ok: boolean;
+  socketId?: string;
   transmissionId?: string;
   transmitter?: RadioLiveIdentity;
 };
@@ -186,6 +191,14 @@ export class RadioRealtimeService {
       ack = await this.emitWithAck('radio:join', { channelId });
     }
     if (generation !== this.joinGeneration || channelId !== this.channelId) return;
+    traceRadioE2e('join_ack', {
+      channelId: ack.channelId || channelId,
+      error: ack.error || null,
+      historyRoom: ack.historyRoom || null,
+      liveRoom: ack.liveRoom || null,
+      ok: ack.ok,
+      socketId: ack.socketId || this.socket?.id || null,
+    }).catch(() => undefined);
     if (ack.ok) {
       this.handlers.onStateChange('ready');
       return;
