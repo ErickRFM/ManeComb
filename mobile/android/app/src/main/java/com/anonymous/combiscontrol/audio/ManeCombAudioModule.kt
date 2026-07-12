@@ -89,11 +89,13 @@ class ManeCombAudioModule(
   private var pttPlaybackFrames = 0
   private var pttPlaybackBytes = 0
   private var pttPlaybackExpectedSequence = 0
+  @Volatile private var pttPlaybackFocusLost = false
   private val pttPlaybackFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
     when (change) {
       AudioManager.AUDIOFOCUS_LOSS,
       AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-        try { pttTrack?.pause() } catch (_: Exception) {}
+        pttPlaybackFocusLost = true
+        stopPttPlaybackInternal(preserveFocusLoss = true)
         emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
           putString("code", "ptt_audio_focus_lost")
         })
@@ -263,6 +265,7 @@ class ManeCombAudioModule(
     try {
       stopPlayerInternal()
       radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
+      pttPlaybackFocusLost = false
       ensurePttPlayback(transmissionId)
       promise.resolve(null)
     } catch (error: Exception) {
@@ -334,7 +337,7 @@ class ManeCombAudioModule(
   }
 
   @Synchronized
-  private fun stopPttPlaybackInternal() {
+  private fun stopPttPlaybackInternal(preserveFocusLoss: Boolean = false) {
     val transmissionId = pttPlaybackTransmissionId
     val playedFrames = pttPlaybackFrames
     val playedBytes = pttPlaybackBytes
@@ -354,10 +357,14 @@ class ManeCombAudioModule(
     pttPlaybackFrames = 0
     pttPlaybackBytes = 0
     pttPlaybackExpectedSequence = 0
+    if (!preserveFocusLoss) pttPlaybackFocusLost = false
   }
 
   @Synchronized
   private fun ensurePttPlayback(transmissionId: String): AudioTrack {
+    if (pttPlaybackFocusLost) {
+      throw IllegalStateException("AudioFocus de Radio PTT no esta disponible.")
+    }
     val current = pttTrack
     if (current != null) {
       if (pttPlaybackTransmissionId != transmissionId) {

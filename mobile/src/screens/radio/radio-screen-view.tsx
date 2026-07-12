@@ -171,6 +171,7 @@ export function RadioScreen() {
   const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
   const realtimeServiceRef = useRef<RadioRealtimeService | null>(null);
   const previousChannelIdRef = useRef<string | null>(null);
+  const previousRadioSocketStatusRef = useRef(socketStatus);
   const receivedFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
   const sentFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
   const pulseValue = useSharedValue(1);
@@ -358,6 +359,15 @@ export function RadioScreen() {
         }
         if (current.phase === 'RECEIVING') {
           stopPttAudioPlayback().catch(() => undefined);
+        }
+        if (current.phase === 'ERROR') {
+          transitionSession({
+            phase: 'ERROR',
+            operator: null,
+            transmissionId: null,
+          });
+          waveformLevels.value = Array(18).fill(0);
+          return;
         }
         transitionSession({
           phase: 'READY',
@@ -615,6 +625,18 @@ export function RadioScreen() {
       cancelled = true;
     };
   }, [loadConversation, messagesByConversation, radioChannels]);
+
+  useEffect(() => {
+    const previousStatus = previousRadioSocketStatusRef.current;
+    previousRadioSocketStatusRef.current = socketStatus;
+    const recovered =
+      socketStatus === 'connected' &&
+      ['disconnected', 'error', 'reconnecting'].includes(previousStatus);
+    if (!recovered) return;
+    radioChannels.forEach((channel) => {
+      loadConversation(channel.id).catch(() => undefined);
+    });
+  }, [loadConversation, radioChannels, socketStatus]);
 
   useEffect(() => {
     const nextReason = isPttDisabled ? pttBlockReason || 'Bloqueado' : null;
@@ -1009,6 +1031,12 @@ export function RadioScreen() {
     transitionSession({ phase: 'REQUESTING', message: 'Solicitando canal', operator: null, transmissionId: null });
     const ack = await realtimeServiceRef.current?.requestTransmission();
     if (ack?.error === 'radio_request_stale') return;
+    if (radioSessionRef.current.phase === 'RECEIVING') {
+      if (ack?.ok && ack.transmissionId) {
+        realtimeServiceRef.current?.endTransmission(ack.transmissionId).catch(() => undefined);
+      }
+      return;
+    }
     if (!ack?.ok || !ack.transmissionId) {
       const unauthorized = ack?.error === 'forbidden' || ack?.error === 'unauthorized';
       const disconnected = ack?.error === 'radio_disconnected' || ack?.error === 'radio_ack_timeout';

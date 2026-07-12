@@ -50,6 +50,8 @@ async function persistTransmission(store, transmission) {
   });
   const durationSeconds = Math.max(0.02, Number((pcm.length / (SAMPLE_RATE * 2)).toFixed(3)));
   return store.addMessage(transmission.channelId, transmission.userId, {
+    messageId: `radio:${transmission.id}`,
+    transmissionId: transmission.id,
     kind: "audio",
     text: "",
     audioUrl: uploadedAsset.fileUrl,
@@ -61,6 +63,7 @@ async function persistTransmission(store, transmission) {
 module.exports = {
   FRAME_BYTES,
   FRAME_BASE64_LENGTH,
+  MAX_TRANSMISSION_BYTES,
   appendFrame,
   createWavBuffer,
   persistTransmission

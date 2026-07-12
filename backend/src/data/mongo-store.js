@@ -325,6 +325,7 @@ function serializeChatMessageEntry(message, conversationId, userMap = null) {
     ),
     mimeType:
       String(decryptedPayload.mimeType || plainMessage.mimeType || "").trim() || "",
+    transmissionId: String(plainMessage.transmissionId || "").trim() || null,
     e2eeEnvelope,
     encrypted: Boolean(plainMessage.isEncrypted || plainMessage.payloadEncrypted),
     createdAt: plainMessage.createdAt,
@@ -364,7 +365,7 @@ function buildStoredChatMessage(senderId, input) {
   };
 
   return {
-    id: randomUUID(),
+    id: String(safeInput.messageId || "").trim() || randomUUID(),
     senderId,
     kind,
     text: kind === "text" && !e2eeEnvelope ? text : "",
@@ -386,6 +387,7 @@ function buildStoredChatMessage(senderId, input) {
     audioUrl: payload.audioUrl,
     mimeType: payload.mimeType,
     durationSeconds: payload.durationSeconds,
+    transmissionId: String(safeInput.transmissionId || "").trim() || undefined,
     createdAt: new Date()
   };
 }
@@ -405,6 +407,7 @@ function buildChatMessageDocument(message, conversation) {
     audioUrl: message.audioUrl || null,
     mimeType: message.mimeType || "",
     durationSeconds: Number(message.durationSeconds || 0),
+    transmissionId: message.transmissionId || undefined,
     status: message.status || "sent",
     createdAt: message.createdAt || new Date()
   };
@@ -2610,15 +2613,37 @@ async function createMongoStore() {
     }
 
     const message = buildStoredChatMessage(senderId, input);
+    const existingMessage = await ChatMessageModel.findById(message.id).lean();
+    if (existingMessage) {
+      if (String(existingMessage.conversationId) !== String(conversationId)) {
+        throw new Error("El messageId ya pertenece a otra conversacion");
+      }
+      const existingSender = await UserModel.findById(existingMessage.senderId).lean();
+      return {
+        ...serializeChatMessageEntry(existingMessage, conversationId),
+        sender: sanitizeUser(existingSender)
+      };
+    }
 
     const unreadBy = toUnreadByObject(conversation.unreadBy);
     conversation.participants
       .filter((participantId) => participantId !== senderId)
       .forEach((participantId) => {
         unreadBy[participantId] = (unreadBy[participantId] || 0) + 1;
-      });
+    });
     const plainConversation = conversation.toObject();
-    await messageRepository.create(buildChatMessageDocument(message, plainConversation));
+    try {
+      await messageRepository.create(buildChatMessageDocument(message, plainConversation));
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const duplicate = await ChatMessageModel.findById(message.id).lean();
+      if (!duplicate || String(duplicate.conversationId) !== String(conversationId)) throw error;
+      const duplicateSender = await UserModel.findById(duplicate.senderId).lean();
+      return {
+        ...serializeChatMessageEntry(duplicate, conversationId),
+        sender: sanitizeUser(duplicateSender)
+      };
+    }
     await attachmentRepository.createForMessage(message, plainConversation);
     await conversationRepository.updateAggregates(conversationId, {
       lastMessage: message,

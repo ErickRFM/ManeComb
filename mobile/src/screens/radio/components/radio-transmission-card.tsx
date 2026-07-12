@@ -88,8 +88,9 @@ export function VoiceTransmissionCard({
       createdAt: message.createdAt,
       messageId: message.id,
       resolvedAudio: Boolean(resolvedUrl),
+      transmissionId: message.transmissionId || null,
     }).catch(() => undefined);
-  }, [message.conversationId, message.createdAt, message.id, resolvedUrl]);
+  }, [message.conversationId, message.createdAt, message.id, message.transmissionId, resolvedUrl]);
 
   useEffect(() => {
     if (!isPlaying) return;

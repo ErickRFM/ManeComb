@@ -26,10 +26,12 @@ async function run() {
   assert.ok(ChatMessageModel.schema.path("organizationId"), "message stores organizationId");
   assert.ok(ChatMessageModel.schema.path("senderId"), "message stores senderId");
   assert.ok(ChatMessageModel.schema.path("status"), "message stores delivery status");
+  assert.ok(ChatMessageModel.schema.path("transmissionId"), "radio message stores transmissionId");
   assert.ok(hasIndex(chatMessageIndexes, { conversationId: 1, createdAt: -1, _id: -1 }));
   assert.ok(hasIndex(chatMessageIndexes, { organizationId: 1, conversationId: 1, createdAt: -1 }));
   assert.ok(hasIndex(chatMessageIndexes, { senderId: 1, createdAt: -1 }));
   assert.ok(hasIndex(chatMessageIndexes, { organizationId: 1, status: 1, createdAt: -1 }));
+  assert.ok(hasIndex(chatMessageIndexes, { organizationId: 1, transmissionId: 1 }));
   assert.ok(ChatAttachmentModel.schema.path("messageId"), "attachment references messageId");
   assert.ok(ChatAttachmentModel.schema.path("conversationId"), "attachment references conversationId");
   assert.ok(hasIndex(attachmentIndexes, { conversationId: 1, createdAt: -1 }));
@@ -54,6 +56,27 @@ async function run() {
   assert.strictEqual(storedConversation.messages.length, 0, "conversation keeps no embedded messages");
   assert.strictEqual(page.items.length, 1, "cursor pagination returns requested page size");
   assert.strictEqual(typeof page.pageInfo.hasMore, "boolean");
+
+  const radioConversation = store.ensureGeneralConversation(userId, "radio");
+  const radioInput = {
+    messageId: "radio:transmission-test-1",
+    transmissionId: "transmission-test-1",
+    kind: "audio",
+    audioUrl: "/api/chat/media/radio-test.wav",
+    mimeType: "audio/wav",
+    durationSeconds: 1
+  };
+  const firstRadioMessage = store.addMessage(radioConversation.id, userId, radioInput);
+  const repeatedRadioMessage = store.addMessage(radioConversation.id, userId, radioInput);
+  const radioMessages = store.getMessages(radioConversation.id, userId);
+
+  assert.strictEqual(firstRadioMessage.id, repeatedRadioMessage.id, "same transmission keeps one messageId");
+  assert.strictEqual(firstRadioMessage.transmissionId, radioInput.transmissionId);
+  assert.strictEqual(
+    radioMessages.filter((message) => message.id === firstRadioMessage.id).length,
+    1,
+    "same transmission is persisted once"
+  );
 }
 
 run()

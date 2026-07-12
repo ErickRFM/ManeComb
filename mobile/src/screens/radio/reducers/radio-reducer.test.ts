@@ -92,6 +92,7 @@ describe('radio state', () => {
 
     service.disconnect();
     expect(disconnect).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('radio:leave', { channelId: 'channel-1' });
   });
 
   it('translates transport failures before they reach the operator', () => {

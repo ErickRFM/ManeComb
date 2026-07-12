@@ -383,7 +383,7 @@ function createEmbeddedStore() {
     const textPreview = String(safeInput.textPreview || "").trim();
 
     return {
-      id: randomUUID(),
+      id: String(safeInput.messageId || "").trim() || String(safeInput.id || "").trim() || randomUUID(),
       senderId,
       kind,
       text,
@@ -402,6 +402,7 @@ function createEmbeddedStore() {
       transcript: String(safeInput.transcript || "").trim(),
       durationSeconds: Math.max(0, Number(safeInput.durationSeconds) || 0),
       mimeType: String(safeInput.mimeType || "").trim(),
+      transmissionId: String(safeInput.transmissionId || "").trim() || null,
       e2eeEnvelope:
         safeInput.e2eeEnvelope && typeof safeInput.e2eeEnvelope === "object"
           ? clone(safeInput.e2eeEnvelope)
@@ -1936,6 +1937,12 @@ function createEmbeddedStore() {
     }
 
     const message = buildStoredConversationMessage(senderId, text);
+    const existingMessage = getStoredConversationMessages(conversationId).find(
+      (entry) => entry.id === message.id
+    );
+    if (existingMessage) {
+      return clone(serializeConversationMessage(existingMessage, conversationId));
+    }
 
     storeConversationMessage(conversation, message);
     conversation.lastMessage = message;

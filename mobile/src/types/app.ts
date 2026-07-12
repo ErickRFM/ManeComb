@@ -764,6 +764,7 @@ export type ChatMessage = {
   createdAt: string;
   sender?: User | null;
   conversationId?: string;
+  transmissionId?: string | null;
 };
 
 export type ChatDirectoryContact = User & {

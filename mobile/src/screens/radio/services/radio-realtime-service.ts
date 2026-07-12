@@ -55,7 +55,12 @@ export class RadioRealtimeService {
 
   connect(socket: Socket | null, channelId: string) {
     if (this.socket === socket && this.channelId === channelId) return;
+    const previousSocket = this.socket;
+    const previousChannelId = this.channelId;
     this.joinGeneration += 1;
+    if (previousSocket?.connected && previousChannelId) {
+      previousSocket.emit('radio:leave', { channelId: previousChannelId });
+    }
     if (this.socket !== socket) {
       this.detachSocket();
       this.socket = socket;
@@ -105,6 +110,9 @@ export class RadioRealtimeService {
   }
 
   disconnect() {
+    if (this.socket?.connected && this.channelId) {
+      this.socket.emit('radio:leave', { channelId: this.channelId });
+    }
     this.detachSocket();
     this.socket = null;
     this.channelId = null;

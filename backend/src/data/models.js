@@ -255,6 +255,7 @@ const messageSchema = new mongoose.Schema(
     audioUrl: { type: String, default: null },
     mimeType: { type: String, default: "" },
     durationSeconds: { type: Number, default: 0 },
+    transmissionId: { type: String },
     createdAt: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -275,6 +276,7 @@ const chatMessageSchema = new mongoose.Schema(
     audioUrl: { type: String, default: null },
     mimeType: { type: String, default: "" },
     durationSeconds: { type: Number, default: 0 },
+    transmissionId: { type: String },
     status: { type: String, default: "sent", index: true },
     createdAt: { type: Date, default: Date.now, index: true }
   },
@@ -289,6 +291,10 @@ chatMessageSchema.index({ organizationId: 1, conversationId: 1, createdAt: -1 })
 chatMessageSchema.index({ senderId: 1, createdAt: -1 });
 chatMessageSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
 chatMessageSchema.index({ organizationId: 1, kind: 1, createdAt: -1 });
+chatMessageSchema.index(
+  { organizationId: 1, transmissionId: 1 },
+  { unique: true, partialFilterExpression: { transmissionId: { $type: "string" } } }
+);
 
 const chatAttachmentSchema = new mongoose.Schema(
   {
