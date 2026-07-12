@@ -7,7 +7,7 @@ IDLE
 -> CONNECTING
 -> JOIN_SENT
 -> READY
--> TRANSMITTING -> READY
+-> REQUESTING -> TRANSMITTING -> UPLOADING -> READY
 -> RECEIVING -> READY
 -> CHANNEL_BUSY -> READY
 -> OFFLINE
@@ -26,9 +26,10 @@ Alternative join outcomes are UNAUTHORIZED and ERROR. Capture, playback and serv
 | `radio:join` emitted | JOIN_SENT |
 | join ACK success | READY |
 | join ACK forbidden | UNAUTHORIZED |
-| local start/server self start | TRANSMITTING |
+| pulsar PTT | REQUESTING |
+| `radio:start` ACK exitoso | TRANSMITTING |
 | remote `radio:start` | RECEIVING |
-| `radio:busy` | CHANNEL_BUSY |
+| `radio:start` ACK ocupado | CHANNEL_BUSY |
 | matching `radio:end` | READY |
 | network offline | OFFLINE |
 | reconnect attempt/recovery | RECONNECTING |

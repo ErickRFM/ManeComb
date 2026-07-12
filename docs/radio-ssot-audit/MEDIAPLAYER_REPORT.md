@@ -4,7 +4,7 @@
 
 Cada `RadioPlayerSession` nativa posee un MediaPlayer. `startRadioHistoryPlayer` reutiliza la instancia solo para el mismo `playerId` y URI cuando esta preparada; antes de iniciar libera todas las sesiones con otro id. Pause y resume operan sobre esa misma instancia.
 
-Prepare obtiene la duracion nativa. El estado consulta `MediaPlayer.currentPosition` y `MediaPlayer.duration`. Completion marca `didFinish`, posiciona en cero, publica `IDLE` y libera foco. Error publica `ERROR`; stop/cambio de fuente/desmontaje ejecutan release.
+Prepare obtiene la duracion nativa. El estado consulta `MediaPlayer.currentPosition` y `MediaPlayer.duration`. Completion marca `didFinish`, posiciona en cero, publica `FINISHED`, libera Visualizer y abandona foco. Error publica `ERROR`; stop/cambio de fuente/desmontaje ejecutan release.
 
 ## Evidencia fisica
 

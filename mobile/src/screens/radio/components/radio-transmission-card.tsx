@@ -1,10 +1,9 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
-  getAudioPlaybackErrorMessage,
   useAudioPlayer,
   useAudioPlayerStatus,
 } from '@/src/native/audio';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Typography } from '@/constants/theme';
 import { getAuthHeaderSnapshot, resolveAssetUrl } from '@/src/api/client';
@@ -13,6 +12,7 @@ import type { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
 import { clampVolume, formatDuration } from '../utils/radio-format';
+import { RadioWaveform } from './radio-waveform';
 
 export function VoiceTransmissionCard({
   channelTitle,
@@ -48,16 +48,21 @@ export function VoiceTransmissionCard({
   const progress = hasPreparedMedia ? currentSeconds / nativeDurationSeconds : 0;
   const showProgress = durationSeconds > 0 && playerStatus.isPrepared;
   const isPlaybackActive = isPlaying || isBuffering;
-  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const playbackError = playerStatus.phase === 'ERROR'
+    ? playerStatus.error || 'No se pudo reproducir el audio.'
+    : null;
   const playbackLevel = clampVolume(Number(playerStatus.level || 0));
-  const waveformBars = useMemo(() => {
-    const barCount = 18;
-    return Array.from({ length: barCount }, () => {
-      if (!isPlaying) return 4;
-      return Math.max(4, Math.round(4 + playbackLevel * 24));
-    });
-  }, [isPlaying, playbackLevel]);
+  const [waveformBars, setWaveformBars] = useState<number[]>(() => Array(18).fill(0));
   const cardActive = isPlaybackActive;
+  const playbackStateColor = playbackError
+    ? theme.colors.danger
+    : isBuffering || isPlaying
+      ? theme.colors.info
+      : playerStatus.phase === 'FINISHED'
+        ? theme.colors.success
+        : playerStatus.phase === 'PAUSED' && currentSeconds > 0
+          ? theme.colors.warning
+          : theme.colors.muted;
   const playbackStateLabel = playbackError
     ? 'Error de audio'
     : isBuffering
@@ -73,13 +78,26 @@ export function VoiceTransmissionCard({
             : 'Sin audio';
 
   useEffect(() => {
-    setPlaybackError(null);
+    setWaveformBars(Array(18).fill(0));
   }, [resolvedUrl]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    setWaveformBars((current) => {
+      const sampleIndex = current.findIndex(
+        (_, index) => progress <= (index + 1) / current.length
+      );
+      const targetIndex = sampleIndex < 0 ? current.length - 1 : sampleIndex;
+      if (playbackLevel <= current[targetIndex]) return current;
+      const next = [...current];
+      next[targetIndex] = playbackLevel;
+      return next;
+    });
+  }, [isPlaying, playbackLevel, playerStatus.currentPosition, progress]);
 
   const playTransmission = useCallback(
     async () => {
       if (!resolvedUrl) {
-        setPlaybackError('URL de audio invalida.');
         return;
       }
 
@@ -88,12 +106,8 @@ export function VoiceTransmissionCard({
       }
 
       try {
-        setPlaybackError(null);
         await player.play();
-      } catch (error) {
-        const playbackMessage = getAudioPlaybackErrorMessage(error);
-        setPlaybackError(playbackMessage);
-      }
+      } catch {}
     },
     [
       isBuffering,
@@ -105,7 +119,6 @@ export function VoiceTransmissionCard({
 
   const handleTogglePlayback = async () => {
     if (!resolvedUrl) {
-      setPlaybackError('URL de audio invalida.');
       return;
     }
 
@@ -122,13 +135,14 @@ export function VoiceTransmissionCard({
       accessibilityRole="button"
       accessibilityLabel={`${isPlaying ? 'Pausar' : 'Reproducir'} audio de radio`}
       onPress={handleTogglePlayback}
-      style={[
+      style={({ pressed }) => [
         styles.voiceCard,
+        pressed ? styles.voiceCardPressed : undefined,
         {
           backgroundColor: theme.colors.surfaceAlt,
-          borderColor: cardActive ? theme.colors.accent : theme.colors.line,
+          borderColor: cardActive || playbackError ? playbackStateColor : theme.colors.line,
           ...(Platform.OS === 'web' && cardActive
-            ? { boxShadow: `0px 0px 18px ${theme.colors.accentSoft}` }
+            ? { boxShadow: `0px 0px 18px ${theme.colors.infoSoft}` }
             : {}),
         },
       ]}>
@@ -149,7 +163,7 @@ export function VoiceTransmissionCard({
           <MaterialCommunityIcons
             name={isBuffering ? 'progress-clock' : 'clock-outline'}
             size={13}
-            color={cardActive ? theme.colors.accent : theme.colors.muted}
+            color={cardActive ? playbackStateColor : theme.colors.muted}
           />
           <Text style={[styles.voiceMetaText, { color: theme.colors.muted }]}>
             {showProgress
@@ -161,8 +175,8 @@ export function VoiceTransmissionCard({
           style={[
             styles.voicePlayShell,
             {
-              backgroundColor: cardActive ? theme.colors.accent : theme.colors.surface,
-              borderColor: cardActive ? theme.colors.accent : theme.colors.line,
+              backgroundColor: cardActive ? playbackStateColor : theme.colors.surface,
+              borderColor: cardActive ? playbackStateColor : theme.colors.line,
             },
           ]}>
           {isBuffering ? (
@@ -171,46 +185,27 @@ export function VoiceTransmissionCard({
             <MaterialCommunityIcons
               name={isPlaying ? 'pause' : 'play'}
               size={18}
-              color={cardActive ? '#FFFFFF' : theme.colors.text}
+              color={cardActive ? '#FFFFFF' : playbackStateColor}
             />
           )}
         </View>
       </View>
 
-      <View style={styles.voiceWaveRow}>
-        {waveformBars.map((height, index) => {
-          const isBarPassed = progress > 0 && index / waveformBars.length <= progress;
-          const voiceWaveBarStyle = {
-            height,
-            backgroundColor:
-              cardActive || isBarPassed ? theme.colors.accent : theme.colors.line,
-          };
-
-          return (
-            <View
-              key={index}
-              style={[
-                styles.voiceWaveBar,
-                voiceWaveBarStyle,
-                cardActive || isBarPassed
-                  ? styles.voiceWaveBarPlaying
-                  : styles.voiceWaveBarIdle,
-              ]}
-            />
-          );
-        })}
-      </View>
+      <RadioWaveform
+        samples={waveformBars}
+        progress={progress}
+        mode="compact"
+        playing={isPlaying || isBuffering}
+        recording={false}
+        disabled={!resolvedUrl || Boolean(playbackError)}
+      />
 
       <View style={styles.voiceStatusRow}>
         <View
           style={[
             styles.voiceStatusDot,
             {
-              backgroundColor: playbackError
-                ? theme.colors.warning
-                : cardActive
-                  ? theme.colors.accent
-                  : theme.colors.muted,
+              backgroundColor: playbackStateColor,
             },
           ]}
         />
@@ -218,11 +213,7 @@ export function VoiceTransmissionCard({
           style={[
             styles.voiceStatusText,
             {
-              color: playbackError
-                ? theme.colors.warning
-                : cardActive
-                  ? theme.colors.accent
-                  : theme.colors.muted,
+              color: playbackStateColor,
             },
           ]}>
           {playbackStateLabel}
@@ -230,7 +221,7 @@ export function VoiceTransmissionCard({
       </View>
 
       {playbackError ? (
-        <Text style={[styles.voiceErrorText, { color: theme.colors.warning }]}>
+        <Text style={[styles.voiceErrorText, { color: theme.colors.danger }]}>
           {playbackError}
         </Text>
       ) : null}
@@ -239,24 +230,25 @@ export function VoiceTransmissionCard({
 }
 
 const styles = StyleSheet.create({
-  waveBar: {
-    width: 8,
-    borderRadius: 999,
-  },
   voiceCard: {
     borderRadius: 18,
     borderWidth: 1,
     padding: 12,
     gap: 10,
   },
+  voiceCardPressed: {
+    opacity: 0.9,
+  },
   voiceCardHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
   },
   voiceCardLead: {
     flex: 1,
+    minWidth: 160,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -293,23 +285,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '800',
-  },
-  voiceWaveRow: {
-    height: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    overflow: 'hidden',
-  },
-  voiceWaveBar: {
-    width: 4,
-    borderRadius: 999,
-  },
-  voiceWaveBarPlaying: {
-    opacity: 0.75,
-  },
-  voiceWaveBarIdle: {
-    opacity: 0.34,
   },
   voiceStatusRow: {
     flexDirection: 'row',

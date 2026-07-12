@@ -129,6 +129,10 @@ let recoveryConfigured = false;
 let missedHeartbeatAcks = 0;
 let socketReconnectAttempts = 0;
 
+export function getSharedRealtimeSocket() {
+  return socket;
+}
+
 type ActionResult = {
   ok: boolean;
   message?: string;
@@ -356,6 +360,15 @@ function upsertConversationMessage(messagesByConversation: Record<string, ChatMe
   const current = messagesByConversation[conversationId] || [];
   if (current.some((m) => m.id === message.id)) return messagesByConversation;
   return { ...messagesByConversation, [conversationId]: [...current, message] };
+}
+
+function mergeConversationMessages(current: ChatMessage[], incoming: ChatMessage[]) {
+  const messagesById = new Map(incoming.map((message) => [message.id, message]));
+  current.forEach((message) => messagesById.set(message.id, message));
+  return [...messagesById.values()].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+  );
 }
 
 function sortConversations(conversations: ConversationSummary[]) {
@@ -1341,6 +1354,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           logStoreError('refreshAll:messages', error);
         }
       }
+      if (aid && data.messagesByConversation?.[aid]) {
+        const latestMessages = get().messagesByConversation;
+        data.messagesByConversation = {
+          ...latestMessages,
+          [aid]: mergeConversationMessages(latestMessages[aid] || [], data.messagesByConversation[aid]),
+        };
+      }
       set({ ...data, isRefreshing: false, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -1524,11 +1544,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteUser: async (id) => { try { await deleteUserRequest(id); set(s => ({ users: s.users.filter(eu => eu.id !== id) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible eliminar el usuario.'); logStoreError('deleteUser', error); return { ok: false, message }; } },
   uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {
-    set({ activeConversationId: id });
     try {
       const ms = await getMessagesRequest(id);
       const hms = await hydrateMessages(ms, get().conversations, get().user, id);
-      set(s => ({ messagesByConversation: { ...s.messagesByConversation, [id]: hms } }));
+      set(s => ({
+        messagesByConversation: {
+          ...s.messagesByConversation,
+          [id]: mergeConversationMessages(s.messagesByConversation[id] || [], hms),
+        },
+      }));
       socket?.emit('conversation:join', id);
     } catch (error) { logStoreError('loadConversation', error); }
   },
@@ -1546,7 +1570,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const [ms, cc] = await Promise.all([getMessagesRequest(c.id), getChatContactsRequest()]);
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, chatContacts: cc, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: hms } }));
+      set(s => ({ conversations: ncs, chatContacts: cc, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openDirectConversation', error); return null; }
   },
@@ -1556,7 +1580,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ms = await getMessagesRequest(c.id);
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: hms } }));
+      set(s => ({ conversations: ncs, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openGeneralConversation', error); return null; }
   },

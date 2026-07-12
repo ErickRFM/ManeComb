@@ -5,8 +5,7 @@ import type { useAppTheme } from '@/src/hooks/use-app-theme';
 export function createStyles(
   theme: ReturnType<typeof useAppTheme>['theme'],
   isDesktop: boolean,
-  isPhone: boolean,
-  isWideRadioLayout: boolean
+  isPhone: boolean
 ) {
   return StyleSheet.create({
     container: {
@@ -75,27 +74,12 @@ export function createStyles(
       fontSize: isPhone ? 25 : 30,
       lineHeight: isPhone ? 30 : 36,
     },
-    subtitle: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 22,
-      maxWidth: 780,
-    },
     headerPills: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       alignItems: 'center',
       gap: 8,
       marginTop: 8,
-    },
-    headerStatusText: {
-      flexShrink: 1,
-      minWidth: 0,
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '700',
     },
     headerMiniChip: {
       minHeight: 28,
@@ -222,19 +206,6 @@ export function createStyles(
       width: 34,
       height: 34,
       borderRadius: 12,
-    },
-    refreshButtonText: {
-      color: theme.colors.accent,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '700',
-    },
-    layout: {
-      flex: 1,
-      flexDirection: isWideRadioLayout ? 'row' : 'column',
-      gap: AppTheme.spacing.md,
-      alignItems: 'stretch',
-      minHeight: isDesktop ? 760 : undefined,
     },
     directoryPanel: {
       flex: 1,
@@ -439,12 +410,6 @@ export function createStyles(
       fontSize: 14,
       fontWeight: '800',
     },
-    contactMeta: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 18,
-    },
     contactActionButton: {
       width: 40,
       height: 40,
@@ -454,13 +419,6 @@ export function createStyles(
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
-    },
-    stagePanel: {
-      flex: 1,
-      flexDirection: isWideRadioLayout ? 'row' : 'column',
-      minWidth: 0,
-      width: '100%',
-      gap: AppTheme.spacing.md,
     },
     heroCard: {
       flex: 1,
@@ -510,13 +468,6 @@ export function createStyles(
       fontSize: isPhone ? 24 : 30,
       lineHeight: isPhone ? 30 : 36,
     },
-    heroDescription: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 22,
-      maxWidth: 720,
-    },
     heroPills: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -559,16 +510,6 @@ export function createStyles(
       fontSize: 12,
       lineHeight: 16,
       fontWeight: '700',
-    },
-    heroLiveDetail: {
-      flexShrink: 1,
-      minWidth: 0,
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '800',
-      lineHeight: 22,
-      paddingVertical: 3,
     },
     heroDeviceBar: {
       width: '100%',
@@ -617,18 +558,11 @@ export function createStyles(
     pttButtonUploading: {
       backgroundColor: theme.colors.info,
     },
-    pttButtonReceiving: {
-      backgroundColor: theme.colors.info,
-      ...(Platform.OS === 'web'
-        ? {
-            boxShadow: `0px 0px 24px ${theme.colors.accentSoft}`,
-          }
-        : {
-            elevation: 8,
-          }),
+    pttButtonBusy: {
+      backgroundColor: theme.colors.warning,
     },
     pttButtonError: {
-      backgroundColor: theme.colors.warning,
+      backgroundColor: theme.colors.danger,
     },
     pttButtonOffline: {
       backgroundColor: theme.colors.muted,
@@ -659,115 +593,42 @@ export function createStyles(
       fontWeight: '700',
       textAlign: 'center',
     },
-    waveRow: {
+    consoleMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 6,
-      height: 38,
+      minWidth: 0,
+      gap: 12,
+      paddingVertical: 2,
     },
-    metricsRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    metricCard: {
-      flexGrow: 1,
-      flexBasis: isPhone ? '47%' : '19%',
-      minWidth: isPhone ? 126 : 136,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
+    consoleMetaItem: {
+      flex: 1,
+      minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
-    metricCopy: {
+    consoleMetaCopy: {
       flex: 1,
       minWidth: 0,
       gap: 2,
     },
-    metricLabel: {
+    consoleMetaLabel: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
       fontSize: 10,
       lineHeight: 13,
       fontWeight: '700',
     },
-    metricValue: {
+    consoleMetaValue: {
       color: theme.colors.text,
       fontFamily: Typography.display,
       fontSize: 13,
       lineHeight: 16,
     },
-    compactActivityPanel: {
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-      padding: 10,
-      gap: 8,
-    },
-    compactActivityHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 8,
-    },
-    compactActivityTitle: {
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '900',
-    },
-    compactActivityMeta: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 11,
-      fontWeight: '800',
-    },
-    compactActivityRow: {
-      minHeight: 34,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 9,
-    },
-    compactActivityDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      backgroundColor: theme.colors.accent,
-    },
-    compactActivityCopy: {
-      flex: 1,
-      minWidth: 0,
-    },
-    compactActivityName: {
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '900',
-    },
-    compactActivityTime: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 11,
-      fontWeight: '700',
-    },
-    compactActivityStatus: {
-      color: theme.colors.accent,
-      fontFamily: Typography.body,
-      fontSize: 11,
-      fontWeight: '900',
-    },
-    heroNote: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      lineHeight: 20,
+    consoleMetaDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: theme.colors.line,
     },
     historyPanel: {
       flex: 1,
@@ -790,10 +651,6 @@ export function createStyles(
             shadowOffset: { width: 0, height: 8 },
             elevation: 4,
           }),
-    },
-    historyScroll: {
-      flex: 1,
-      minHeight: 0,
     },
     historyContent: {
       gap: 10,
@@ -845,18 +702,6 @@ export function createStyles(
       backgroundColor: theme.colors.surfaceAlt,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    emptyWaveRow: {
-      height: 28,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-    },
-    emptyWaveBar: {
-      width: 5,
-      borderRadius: 999,
-      backgroundColor: theme.colors.line,
-      opacity: 0.6,
     },
     emptyTitle: {
       color: theme.colors.muted,

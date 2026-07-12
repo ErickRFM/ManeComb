@@ -5,7 +5,7 @@ type TimerRef<T extends ReturnType<typeof setTimeout> | ReturnType<typeof setInt
   MutableRefObject<T | null>;
 
 type UseRadioLifecycleParams = {
-  idleStatusTimerRef: TimerRef<ReturnType<typeof setTimeout>>;
+  messageStatusTimerRef: TimerRef<ReturnType<typeof setTimeout>>;
   pendingStopAfterStartRef: MutableRefObject<boolean>;
   pressToTalkActiveRef: MutableRefObject<boolean>;
   pressToTalkTimerRef: TimerRef<ReturnType<typeof setTimeout>>;
@@ -19,7 +19,7 @@ type UseRadioLifecycleParams = {
 };
 
 export function useRadioLifecycle({
-  idleStatusTimerRef,
+  messageStatusTimerRef,
   pendingStopAfterStartRef,
   pressToTalkActiveRef,
   pressToTalkTimerRef,
@@ -39,8 +39,8 @@ export function useRadioLifecycle({
       if (pressToTalkTimerRef.current) {
         clearTimeout(pressToTalkTimerRef.current);
       }
-      if (idleStatusTimerRef.current) {
-        clearTimeout(idleStatusTimerRef.current);
+      if (messageStatusTimerRef.current) {
+        clearTimeout(messageStatusTimerRef.current);
       }
       stopWebMetering();
       uploadStartedAtRef.current = null;
@@ -53,7 +53,7 @@ export function useRadioLifecycle({
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
     },
     [
-      idleStatusTimerRef,
+      messageStatusTimerRef,
       pendingStopAfterStartRef,
       pressToTalkActiveRef,
       pressToTalkTimerRef,

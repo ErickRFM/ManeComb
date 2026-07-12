@@ -8,7 +8,7 @@ Flujo: tarjeta -> `useAudioPlayer` -> cola serial -> bridge -> `RadioPlayerSessi
 
 ## Estados
 
-El productor nativo publica `PREPARING`, `READY`, `PLAYING`, `PAUSED`, `SEEKING`, `IDLE`, `ERROR` y `RELEASED`. Loading es la espera de la promesa de inicio en el hook; no calcula posicion, duracion ni completion. `IDLE` es el estado estable despues de completion.
+El productor nativo publica `PREPARING`, `READY`, `PLAYING`, `PAUSED`, `SEEKING`, `FINISHED`, `ERROR` y `RELEASED`. Loading es la espera de la promesa de inicio en el hook; no calcula posicion, duracion ni completion. `FINISHED` es el estado estable despues de completion.
 
 ## Garantias
 

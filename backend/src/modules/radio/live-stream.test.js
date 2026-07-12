@@ -7,6 +7,10 @@ assert.equal(appendFrame(transmission, frame.toString("base64")), true);
 assert.equal(transmission.byteLength, 640);
 assert.equal(transmission.frames.length, 1);
 assert.equal(appendFrame(transmission, ""), false);
+assert.equal(appendFrame(transmission, Buffer.alloc(638).toString("base64")), false);
+assert.equal(appendFrame(transmission, "not-base64"), false);
+assert.equal(appendFrame(transmission, `${frame.toString("base64")}extra`), false);
+assert.equal(appendFrame(transmission, Buffer.alloc(4096).toString("base64")), false);
 
 const wav = createWavBuffer(frame);
 assert.equal(wav.subarray(0, 4).toString(), "RIFF");

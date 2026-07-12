@@ -1,17 +1,10 @@
-# Waveform
+# WAVEFORM_REPORT
 
-## Auditoria
+C) Ambas
 
-Se elimino la generacion basada en seno/envelope y cualquier patron derivado de hash, duracion o historial. Las 18 barras consumen exclusivamente el nivel actual publicado por el Visualizer nativo. No existe una animacion autonoma.
-
-## Semantica
-
-Las barras representan una muestra instantanea agregada del nivel real, no 18 bandas de frecuencia independientes. Todas reciben la misma amplitud porque el bridge publica un unico `level` normalizado.
-
-## Ciclo
-
-PLAYING: nivel del Visualizer. PAUSED/IDLE/ERROR/RELEASED: cero. El Visualizer se destruye con la sesion MediaPlayer.
-
-## Resultado
-
-No queda waveform decorativa en la tarjeta de historial. La captura fisica mostro actividad durante Play e inactividad durante Pause/Completion.
+- Altura del historial: maximo nivel real de Visualizer observado dentro de cada uno de 18 segmentos temporales de la reproduccion actual.
+- Altura PTT: historial rodante de niveles reales producidos por AudioRecord/AudioTrack o Web Audio durante la fase activa.
+- Color: progreso real `currentPosition / duration` exclusivamente en las tarjetas del historial.
+- No quedan senos, hashes, alturas por indice ni un unico nivel replicado en todas las barras activas.
+- PTT e historial comparten `RadioWaveform`; el ancho se distribuye con flex y no depende de pixeles fijos.
+- El estado vacio no muestra barras simuladas.

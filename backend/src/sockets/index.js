@@ -2,12 +2,16 @@ const { Server } = require("socket.io");
 const { CORS_ORIGIN, CLIENT_ORIGINS } = require("../config/env");
 const { canAccessTenantResource, getOrganizationId } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
-const { getRedisClient } = require("../services/redis");
+const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const logger = require("../services/logger");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { verifyToken } = require("../utils/jwt");
 const { appendFrame, persistTransmission } = require("../modules/radio/live-stream");
+
+const RADIO_TRANSMISSION_TIMEOUT_MS = 65000;
+const RADIO_LOCK_TTL_MS = RADIO_TRANSMISSION_TIMEOUT_MS + 5000;
+const RADIO_LOCK_PREFIX = "manecomb:radio:channel:";
 
 function registerSocketServer(server, store) {
   const allowCredentials = !CLIENT_ORIGINS.includes("*");
@@ -28,19 +32,61 @@ function registerSocketServer(server, store) {
     }
   });
   const redisClient = getRedisClient();
+  const redisReadiness = getRedisReadiness();
+  let radioClusterReady = !redisReadiness.enabled;
+
+  async function acquireRadioChannel(channelId, owner) {
+    if (!redisReadiness.enabled) return { acquired: true, owner: null };
+    if (!redisClient?.isReady || !radioClusterReady) {
+      throw new Error("Redis no esta disponible para arbitrar Radio");
+    }
+    const key = `${RADIO_LOCK_PREFIX}${channelId}`;
+    const value = JSON.stringify(owner);
+    const acquired = await redisClient.set(key, value, { NX: true, PX: RADIO_LOCK_TTL_MS });
+    if (acquired === "OK") return { acquired: true, key, value, owner: null };
+    const currentValue = await redisClient.get(key);
+    try {
+      return { acquired: false, key, value, owner: currentValue ? JSON.parse(currentValue) : null };
+    } catch {
+      return { acquired: false, key, value, owner: null };
+    }
+  }
+
+  async function releaseRadioChannel(transmission) {
+    if (!redisClient || !transmission.lockKey || !transmission.lockValue) return;
+    await redisClient.eval(
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+      { keys: [transmission.lockKey], arguments: [transmission.lockValue] }
+    );
+  }
 
   if (redisClient) {
     try {
       const { createAdapter } = require("@socket.io/redis-adapter");
       const subClient = redisClient.duplicate();
+      let adapterConfigured = false;
+      subClient.on("ready", () => {
+        if (adapterConfigured) radioClusterReady = true;
+      });
+      subClient.on("end", () => {
+        radioClusterReady = false;
+      });
+      subClient.on("error", (error) => {
+        radioClusterReady = false;
+        logger.error({ action: "RedisAdapter", module: "Radio", status: "error", error });
+      });
       subClient
         .connect()
         .then(() => {
           io.adapter(createAdapter(redisClient, subClient));
+          adapterConfigured = true;
+          radioClusterReady = true;
         })
-        .catch(() => undefined);
-    } catch {
-      // Redis adapter is optional; single-node realtime remains available.
+        .catch((error) => {
+          logger.error({ action: "ConnectRedisAdapter", module: "Radio", status: "error", error });
+        });
+    } catch (error) {
+      logger.error({ action: "ConfigureRedisAdapter", module: "Radio", status: "error", error });
     }
   }
 
@@ -336,11 +382,6 @@ function registerSocketServer(server, store) {
       acknowledge(ack, { ok: true });
     });
 
-    socket.on("radio:leave", ({ channelId } = {}) => {
-      const safeChannelId = String(channelId || "").trim();
-      if (safeChannelId) socket.leave(`conversation:${safeChannelId}`);
-    });
-
     socket.on("radio:start", async ({ channelId } = {}, ack) => {
       const safeChannelId = String(channelId || "").trim();
       const user = socket.data.user;
@@ -354,11 +395,14 @@ function registerSocketServer(server, store) {
 
       const current = activeRadioTransmissions.get(safeChannelId);
       if (current) {
+        if (current.socketId === socket.id) {
+          acknowledge(ack, { ok: true, transmissionId: current.id });
+          return;
+        }
         const busyPayload = {
           channelId: safeChannelId,
           transmitter: { id: current.userId, name: current.userName }
         };
-        socket.emit("radio:busy", busyPayload);
         acknowledge(ack, { ok: false, error: "channel_busy", ...busyPayload });
         return;
       }
@@ -372,9 +416,43 @@ function registerSocketServer(server, store) {
         startedAt: Date.now(),
         byteLength: 0,
         frames: [],
-        lastSequence: -1
+        lastSequence: -1,
+        timeoutId: null,
+        lockKey: null,
+        lockValue: null
       };
+      try {
+        const lock = await acquireRadioChannel(safeChannelId, {
+          socketId: socket.id,
+          transmissionId: transmission.id,
+          userId: transmission.userId,
+          userName: transmission.userName
+        });
+        if (!lock.acquired) {
+          acknowledge(ack, {
+            ok: false,
+            error: "channel_busy",
+            channelId: safeChannelId,
+            transmitter: lock.owner
+              ? { id: lock.owner.userId, name: lock.owner.userName }
+              : undefined
+          });
+          return;
+        }
+        transmission.lockKey = lock.key || null;
+        transmission.lockValue = lock.value || null;
+      } catch (error) {
+        logger.error({ action: "AcquireRadioChannel", module: "Radio", status: "error", error });
+        acknowledge(ack, { ok: false, error: "radio_unavailable" });
+        return;
+      }
       activeRadioTransmissions.set(safeChannelId, transmission);
+      transmission.timeoutId = setTimeout(() => {
+        const current = activeRadioTransmissions.get(safeChannelId);
+        if (current?.id === transmission.id) {
+          void finishRadioTransmission(safeChannelId, "timeout");
+        }
+      }, RADIO_TRANSMISSION_TIMEOUT_MS);
       const payload = {
         channelId: safeChannelId,
         transmissionId: transmission.id,
@@ -389,9 +467,16 @@ function registerSocketServer(server, store) {
       const channelId = String(payload.channelId || "").trim();
       const transmission = activeRadioTransmissions.get(channelId);
       const sequence = Number(payload.sequence);
+      const sentAt = Number(payload.sentAt);
       if (!transmission || transmission.socketId !== socket.id ||
-          transmission.id !== payload.transmissionId || !Number.isInteger(sequence) ||
-          sequence <= transmission.lastSequence || !appendFrame(transmission, payload.data)) {
+          transmission.id !== payload.transmissionId || !Number.isInteger(sequence)) {
+        return;
+      }
+      if (sequence <= transmission.lastSequence) return;
+      if (sequence !== transmission.lastSequence + 1 || !Number.isFinite(sentAt) || sentAt <= 0 ||
+          !appendFrame(transmission, payload.data)) {
+        socket.emit("radio:error", { message: "El flujo de audio PTT se interrumpio." });
+        void finishRadioTransmission(channelId, "invalid_frame");
         return;
       }
       transmission.lastSequence = sequence;
@@ -399,7 +484,7 @@ function registerSocketServer(server, store) {
         channelId,
         data: payload.data,
         sequence,
-        sentAt: Number(payload.sentAt || Date.now()),
+        sentAt,
         transmissionId: transmission.id
       });
     });
@@ -408,6 +493,12 @@ function registerSocketServer(server, store) {
       const transmission = activeRadioTransmissions.get(channelId);
       if (!transmission || transmission.socketId !== socket.id) return null;
       activeRadioTransmissions.delete(channelId);
+      if (transmission.timeoutId) clearTimeout(transmission.timeoutId);
+      try {
+        await releaseRadioChannel(transmission);
+      } catch (error) {
+        logger.error({ action: "ReleaseRadioChannel", module: "Radio", status: "error", error });
+      }
       io.to(`conversation:${channelId}`).emit("radio:end", {
         channelId,
         reason,

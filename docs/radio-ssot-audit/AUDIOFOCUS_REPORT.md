@@ -2,12 +2,13 @@
 
 ## Autoridad
 
-El modulo Android es el unico productor de AudioFocus del historial. Solicita `USAGE_MEDIA`/`CONTENT_TYPE_SPEECH`, registra un listener y publica `granted`, `lost`, `ducked` o `none` en `PlayerStatus.audioFocus`.
+El modulo Android es el unico productor de AudioFocus. Historial solicita `USAGE_MEDIA`/`CONTENT_TYPE_SPEECH`; recepcion PTT solicita `USAGE_VOICE_COMMUNICATION`/`CONTENT_TYPE_SPEECH`. Cada ruta conserva y abandona su propio `AudioFocusRequest`.
 
 - LOSS y LOSS_TRANSIENT pausan la misma sesion.
 - DUCK reduce volumen a 0.2.
 - GAIN restaura volumen y reanuda solo si la pausa fue causada por foco.
 - Pause, completion y release abandonan el foco.
+- PTT LOSS detiene la salida mediante error nativo, DUCK reduce AudioTrack a 0.2 y GAIN restaura volumen.
 
 ## Evidencia
 

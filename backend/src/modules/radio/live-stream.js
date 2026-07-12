@@ -3,6 +3,8 @@ const { uploadChatAudioAsset } = require("../../services/chat-media");
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
+const FRAME_BYTES = 640;
+const FRAME_BASE64_LENGTH = Math.ceil(FRAME_BYTES / 3) * 4;
 const MAX_TRANSMISSION_BYTES = SAMPLE_RATE * 2 * 60;
 
 function createWavBuffer(pcmBuffer) {
@@ -26,8 +28,10 @@ function createWavBuffer(pcmBuffer) {
 }
 
 function appendFrame(transmission, base64Data) {
-  const frame = Buffer.from(String(base64Data || ""), "base64");
-  if (!frame.length || frame.length > 4096) return false;
+  const encoded = String(base64Data || "").trim();
+  if (encoded.length !== FRAME_BASE64_LENGTH || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return false;
+  const frame = Buffer.from(encoded, "base64");
+  if (frame.length !== FRAME_BYTES || frame.toString("base64") !== encoded) return false;
   if (transmission.byteLength + frame.length > MAX_TRANSMISSION_BYTES) return false;
   transmission.frames.push(frame);
   transmission.byteLength += frame.length;
@@ -55,6 +59,8 @@ async function persistTransmission(store, transmission) {
 }
 
 module.exports = {
+  FRAME_BYTES,
+  FRAME_BASE64_LENGTH,
   appendFrame,
   createWavBuffer,
   persistTransmission

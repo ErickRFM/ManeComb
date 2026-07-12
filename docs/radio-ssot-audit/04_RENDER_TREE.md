@@ -2,31 +2,20 @@
 
 ```text
 RadioScreen
-|- AppShell header
-|  |- StatusPill: liveStatus
-|  |- channel connection: realtimeConnectionState
-|  `- operator count: activeChannel.participants.length
-|- horizontal pager
-|  |- Channels
-|  |  |- search: local search
-|  |  `- cards: Store conversations
-|  |- Console PTT
-|  |  |- title/banner: liveStatus
-|  |  |- PTT Pressable: recordingState + pttAvailability
-|  |  |- WaveBar x18: volumeValue
-|  |  |- phase: radioPhase
-|  |  |- channel: realtimeConnectionState
-|  |  |- duration: recordingSeconds/MAX
-|  |  `- latest: loadedVoiceNotes[0]
-|  `- Audios
-|     |- filters: local audioFilter + derived availability
-|     `- FlatList
-|        `- VoiceTransmissionCard
-|           |- Play/Pause: native playing/buffering
-|           |- time: native current/duration after prepare
-|           |- waveform: native Visualizer level
-|           `- status: native PlayerStatus + local operation error
-`- page indicators: activePageIndex
+|- cabecera: canal activo + RadioSession.phase
+|- canales: conversations + activeConversationId del Store
+|- consola PTT
+|  |- etiqueta/color/bloqueo: RadioSession.phase
+|  |- operador/id: RadioSession
+|  |- duracion TX: timer activo solo en TRANSMITTING
+|  `- waveform: niveles PCM reales TX/RX
+`- historial: messagesByConversation
+   `- VoiceTransmissionCard
+      |- controles/estado: PlayerStatus
+      |- tiempo: MediaPlayer.currentPosition
+      |- duracion preparada: MediaPlayer.duration
+      |- progreso: currentPosition / duration
+      `- alturas: picos Visualizer por segmento temporal
 ```
 
-No visible signal-strength bars or unverifiable local operation averages remain in the current tree.
+No se renderizan barras de senal, RSSI, latencia ni promedios inventados. El color de progreso y la altura de waveform representan magnitudes distintas y tienen productores distintos.

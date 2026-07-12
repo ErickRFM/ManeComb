@@ -28,9 +28,6 @@ function emitRadioMessage(req, conversation, message) {
 
   req.app.locals.io
     ?.to(`conversation:${conversationId}`)
-    .emit("chat:message", message);
-  req.app.locals.io
-    ?.to(`conversation:${conversationId}`)
     .emit("radio:message:new", {
       conversationId,
       message

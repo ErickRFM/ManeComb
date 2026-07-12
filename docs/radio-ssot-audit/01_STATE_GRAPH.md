@@ -1,37 +1,19 @@
 # Radio State Graph
 
-Audit target: current working tree. This document describes behavior; it does not certify it.
+Estado vigente del working tree. No constituye evidencia fisica.
 
-## Operational state
-
-`radioPhase` is calculated in `radio-screen-view.tsx` from `networkStatus`, `realtimeConnectionState`, `recordingState`, `isReceivingLive`, `isChannelBusy`, and `activeChannel`.
+`RadioSessionState` es la unica maquina de estado operacional visible. Contiene `phase`, `operator`, `transmissionId` y `message`; todos sus cambios pasan por `radioSessionReducer`.
 
 ```text
-IDLE -> CONNECTING -> READY
-READY -> TRANSMITTING -> READY
+IDLE -> CONNECTING -> JOIN_SENT -> READY
+READY -> REQUESTING -> TRANSMITTING -> UPLOADING -> READY
 READY -> RECEIVING -> READY
-READY -> CHANNEL_BUSY -> READY
-READY/CONNECTING -> RECONNECTING -> READY
-* -> OFFLINE
-CONNECTING/RECONNECTING -> UNAUTHORIZED
-recording error / transport error -> ERROR
-TRANSMITTING(web) -> UPLOADING -> READY
+REQUESTING -> CHANNEL_BUSY -> READY
+* -> OFFLINE -> RECONNECTING -> JOIN_SENT -> READY
+JOIN_SENT -> UNAUTHORIZED | ERROR
+captura/reproduccion/transporte -> ERROR
 ```
 
-The transition table in `mobile/src/screens/radio/constants.ts` only validates development logs. It does not prevent transitions.
+`READY` solo procede del ACK exitoso de `radio:join` o del cierre valido de una sesion ya autorizada. `radioSessionRef` es una referencia de lectura para callbacks asincronos y se actualiza en la misma funcion que despacha el reducer; no es un productor alterno.
 
-## Producers and mirrors
-
-| State | Producer | Mirror or duplicate | Destruction |
-|---|---|---|---|
-| `realtimeConnectionState` | `RadioRealtimeService.onStateChange` | none in Radio UI | service disconnect/unmount |
-| `recordingState` | `setRecordingMode` | `recordingStateRef` | idle transition/unmount |
-| `radioPhase` | React calculation | `radioPhaseRef` for logging | component unmount |
-| `activeChannel` | derived from `activeChannelId` and Store conversations | Store `activeConversationId` | channel change/session reset |
-| `isReceivingLive` | PTT `radio:start/end/error` handlers | `liveTransmissionIdRef` partially overlaps | end/error/unmount |
-| `isChannelBusy` | `radio:busy/start/end` handlers | `liveOperator` carries related ownership | end/start/unmount |
-| player state | native `RadioPlayerSession` | React `PlayerStatus` polling snapshot | card unmount/stop |
-
-## Proven divergence
-
-`ready` means Socket.IO transport connected, not channel authorization confirmed. `radio:join` has no acknowledged result. A physical run displayed READY and then received `forbidden`/`Radio no disponible` from `radio:start`.
+Las animaciones TX y su timer dependen de `phase === TRANSMITTING`; cualquier otra fase cancela y reinicia sus recursos.

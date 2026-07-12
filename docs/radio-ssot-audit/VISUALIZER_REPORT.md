@@ -4,7 +4,7 @@
 
 `MediaPlayer.audioSessionId` -> `createRadioVisualizer` -> captura de waveform nativa -> nivel normalizado -> `RadioPlayerSession.level` -> `radioPlayerStatusMap` -> bridge -> `useAudioPlayer` -> `radio-transmission-card`.
 
-Existe un Visualizer por sesion nativa. Se crea despues de prepare y se libera en `releaseRadioPlayer`. Cambiar de tarjeta libera primero la sesion anterior. Pause y completion publican nivel cero; resume conserva la misma sesion.
+Existe un Visualizer por sesion nativa. Se crea despues de prepare y se libera en completion o `releaseRadioPlayer`; resume lo vuelve a crear si fuese necesario. Cambiar de tarjeta libera primero la sesion anterior. Pause publica nivel cero y conserva la sesion.
 
 ## Evidencia
 

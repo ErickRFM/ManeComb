@@ -37,8 +37,9 @@ export function clampVolume(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
-export function getFirstName(name?: string | null) {
-  return String(name || '').trim().split(/\s+/)[0] || null;
+export function getProgressBarFill(progress: number, index: number, barCount: number) {
+  const rawFill = progress * barCount - index;
+  return rawFill <= 0 ? 0 : rawFill >= 1 ? 1 : rawFill;
 }
 
 export function isDevelopmentRuntime() {

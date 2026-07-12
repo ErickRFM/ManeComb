@@ -1,19 +1,9 @@
-# Progress
+# RADIO - Progress Report
 
-## Fuentes
+## Flujo vigente
 
-Despues de prepare:
+`MediaPlayer.currentPosition` -> bridge `currentPosition` -> `PlayerStatus` -> estado React -> `progress = currentPosition / duration` -> `getProgressBarFill` -> ancho de relleno.
 
-- `currentPosition`: `MediaPlayer.currentPosition`.
-- `durationMillis`: `MediaPlayer.duration`.
-- barra: `currentPosition / durationMillis`.
+Cada barra recibe `fill = clamp(progress * barCount - index, 0, 1)`. La suma de los 18 rellenos es exactamente `progress * 18`; la barra fronteriza admite relleno parcial. La altura se calcula por separado desde muestras reales del Visualizer.
 
-La duracion persistida se usa solo antes de prepare. La tarjeta no usa `Math.max`, `Math.min`, timers de progreso, completion React ni posiciones persistidas.
-
-## Evidencia
-
-La prueba fisica mostro reproduccion en 0:02/0:05, pausa estable en 0:03/0:05, resume desde la misma sesion y completion en 0:00/0:05. El polling es serial y no agenda la siguiente consulta hasta resolver la anterior.
-
-## Pendiente
-
-Seek fisico y comparacion cronometrada con una referencia externa no fueron ejecutados.
+No existe porcentaje paralelo, completion artificial ni duracion persistida despues de prepare.

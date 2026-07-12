@@ -20,7 +20,7 @@ El historial tiene como maximo un timeout de polling activo. El `setInterval` re
 
 ## Evidencia
 
-TypeScript, ESLint, 8 suites/34 tests Mobile, Backend tests, Android Release y `git diff --check` pasaron. Logcat mostro una sola session AudioTrack durante Play/Pause/Resume.
+TypeScript, ESLint, 8 suites/43 tests Mobile, Backend tests, Android Release y `git diff --check` pasaron. Logcat previo mostro una sola sesion AudioTrack durante Play/Pause/Resume.
 
 ## Riesgo residual
 

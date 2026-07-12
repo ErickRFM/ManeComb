@@ -264,6 +264,10 @@ export function getAudioPlaybackErrorMessage(error: unknown) {
     return 'Android no permitio reproducir audio en este momento.';
   }
 
+  if (code === 'radio_channel_active') {
+    return 'Finaliza la transmision PTT antes de reproducir el historial.';
+  }
+
   if (code === 'audio_playback_failed') {
     return message || 'Error del reproductor Android.';
   }
@@ -441,19 +445,6 @@ export function useAudioPlayer(
   sourceRef.current = source || null;
 
   useEffect(() => {
-    if (independent && NativeAudio) {
-      serializeRadioPlayerOperation(async () => {
-        await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current);
-        if (activeRadioPlayerId === playerIdRef.current) activeRadioPlayerId = null;
-      }).catch(() => undefined);
-    }
-    setStatus((current) => ({
-      ...idlePlayerStatus,
-      uri: sourceUri || current.uri || null,
-    }));
-  }, [independent, sourceHeadersKey, sourceUri]);
-
-  useEffect(() => {
     if (!independent) return undefined;
     const playerId = playerIdRef.current;
     radioPlayerResetters.set(playerId, () => {
@@ -470,11 +461,25 @@ export function useAudioPlayer(
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
+      clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
     pollGenerationRef.current += 1;
   }, []);
+
+  useEffect(() => {
+    stopPolling();
+    if (independent && NativeAudio) {
+      serializeRadioPlayerOperation(async () => {
+        await NativeAudio.stopRadioHistoryPlayer(playerIdRef.current);
+        if (activeRadioPlayerId === playerIdRef.current) activeRadioPlayerId = null;
+      }).catch(() => undefined);
+    }
+    setStatus((current) => ({
+      ...idlePlayerStatus,
+      uri: sourceUri || current.uri || null,
+    }));
+  }, [independent, sourceHeadersKey, sourceUri, stopPolling]);
 
   const updateStatus = useCallback((nextStatus?: PlayerStatus | null) => {
     const normalized = normalizePlayerStatus(nextStatus);
@@ -503,7 +508,7 @@ export function useAudioPlayer(
           : await NativeAudio.getPlayerStatus();
         if (generation !== pollGenerationRef.current) return;
         const normalized = updateStatus(nextStatus);
-        const active = normalized.playing || normalized.isBuffering || normalized.phase === 'SEEKING';
+        const active = normalized.isPlaying || normalized.isBuffering || normalized.phase === 'SEEKING';
         if (active) pollTimerRef.current = setTimeout(poll, updateInterval);
       } catch (error) {
         console.warn('[audio] player status failed', error);
@@ -532,11 +537,13 @@ export function useAudioPlayer(
       return;
     }
 
-    setStatus((current) => ({
-      ...current,
-      isBuffering: true,
-      uri: currentSource.uri,
-    }));
+    try {
+      setStatus((current) => ({
+        ...current,
+        phase: 'LOADING',
+        isBuffering: true,
+        uri: currentSource.uri,
+      }));
 
     const dynamicHeaders = currentSource.getHeaders?.() || undefined;
     const headers = {
@@ -557,9 +564,21 @@ export function useAudioPlayer(
           return NativeAudio.startRadioHistoryPlayer(playerIdRef.current, playerSource);
         })
       : await NativeAudio.startPlayer(playerSource);
-    updateStatus(nextStatus);
-    startPolling();
-  }, [independent, startPolling, updateStatus]);
+      updateStatus(nextStatus);
+      startPolling();
+    } catch (error) {
+      stopPolling();
+      setStatus((current) => ({
+        ...current,
+        phase: 'ERROR',
+        isBuffering: false,
+        isPlaying: false,
+        playing: false,
+        error: getAudioPlaybackErrorMessage(error),
+      }));
+      throw error;
+    }
+  }, [independent, startPolling, stopPolling, updateStatus]);
 
   const pause = useCallback(async () => {
     if (!NativeAudio) {
@@ -599,9 +618,10 @@ export function useAudioPlayer(
       const nextStatus = independent
         ? await serializeRadioPlayerOperation(() => NativeAudio.seekRadioHistoryPlayer(playerIdRef.current, positionMillis))
         : await NativeAudio.seekTo(positionMillis);
-      updateStatus(nextStatus);
+      const normalized = updateStatus(nextStatus);
+      if (normalized.phase === 'SEEKING') startPolling();
     },
-    [independent, updateStatus]
+    [independent, startPolling, updateStatus]
   );
 
   return useMemo<AudioPlayer>(

@@ -1,6 +1,7 @@
-import { isValidRadioPhaseTransition } from '../utils/radio-format';
+import { getProgressBarFill, isValidRadioPhaseTransition } from '../utils/radio-format';
 import { getRadioRealtimeErrorMessage } from '../services/radio-audio-service';
 import { initialRadioSessionState, radioSessionReducer } from './radio-session-reducer';
+import { RadioRealtimeService } from '../services/radio-realtime-service';
 
 describe('radio state', () => {
   it('stores phase, authorization, operator and transmission in one session', () => {
@@ -30,10 +31,67 @@ describe('radio state', () => {
   });
 
   it('keeps live PTT transitions independent from history playback', () => {
-    expect(isValidRadioPhaseTransition('READY', 'TRANSMITTING')).toBe(true);
+    expect(isValidRadioPhaseTransition('CONNECTING', 'READY')).toBe(false);
+    expect(isValidRadioPhaseTransition('CONNECTING', 'JOIN_SENT')).toBe(true);
+    expect(isValidRadioPhaseTransition('JOIN_SENT', 'READY')).toBe(true);
+    expect(isValidRadioPhaseTransition('READY', 'TRANSMITTING')).toBe(false);
+    expect(isValidRadioPhaseTransition('READY', 'REQUESTING')).toBe(true);
+    expect(isValidRadioPhaseTransition('REQUESTING', 'TRANSMITTING')).toBe(true);
     expect(isValidRadioPhaseTransition('TRANSMITTING', 'READY')).toBe(true);
     expect(isValidRadioPhaseTransition('READY', 'RECEIVING')).toBe(true);
     expect(isValidRadioPhaseTransition('CHANNEL_BUSY', 'READY')).toBe(true);
+  });
+
+  it('uses the shared socket and publishes READY only after radio:join ACK', async () => {
+    const listeners = new Map<string, (...args: any[]) => void>();
+    const managerListeners = new Map<string, (...args: any[]) => void>();
+    const emitted: string[] = [];
+    const states: string[] = [];
+    const disconnect = jest.fn();
+    const socket = {
+      connected: true,
+      disconnect,
+      emit: jest.fn(),
+      io: {
+        on: (event: string, listener: (...args: any[]) => void) => managerListeners.set(event, listener),
+        off: (event: string) => managerListeners.delete(event),
+      },
+      on: (event: string, listener: (...args: any[]) => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+      timeout: () => ({
+        emit: (event: string, _payload: unknown, ack: (error: null, response: { ok: boolean }) => void) => {
+          emitted.push(event);
+          ack(null, { ok: true });
+        },
+      }),
+    };
+    const onStart = jest.fn();
+    const service = new RadioRealtimeService({
+      onEnd: jest.fn(),
+      onError: jest.fn(),
+      onFrame: jest.fn(),
+      onStart,
+      onStateChange: (state) => states.push(state),
+    });
+
+    service.connect(socket as any, 'channel-1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(states).toEqual(['connecting', 'join_sent', 'ready']);
+    expect(emitted).toEqual(['radio:join']);
+    expect(emitted).not.toContain('conversation:join');
+
+    listeners.get('radio:start')?.({
+      channelId: 'channel-2',
+      startedAt: 1,
+      transmissionId: 'tx-other',
+      transmitter: { id: 'user-2', name: 'Otro' },
+    });
+    expect(onStart).not.toHaveBeenCalled();
+
+    service.disconnect();
+    expect(disconnect).not.toHaveBeenCalled();
   });
 
   it('translates transport failures before they reach the operator', () => {
@@ -41,4 +99,135 @@ describe('radio state', () => {
     expect(getRadioRealtimeErrorMessage('forbidden')).toBe('Sin permisos para transmitir');
     expect(getRadioRealtimeErrorMessage('transport close')).toBe('Error de conexion');
   });
+
+  it('releases a late radio:start ACK after the active channel changes', async () => {
+    const listeners = new Map<string, (...args: any[]) => void>();
+    let resolveStart!: (error: null, ack: { ok: boolean; transmissionId: string }) => void;
+    const emitted: Array<{ event: string; payload: any }> = [];
+    const socket = {
+      connected: true,
+      emit: jest.fn(),
+      io: { on: jest.fn(), off: jest.fn() },
+      on: (event: string, listener: (...args: any[]) => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+      timeout: () => ({
+        emit: (event: string, payload: any, ack: (error: null, response: any) => void) => {
+          emitted.push({ event, payload });
+          if (event === 'radio:start') {
+            resolveStart = ack;
+            return;
+          }
+          ack(null, { ok: true });
+        },
+      }),
+    };
+    const service = new RadioRealtimeService({
+      onEnd: jest.fn(),
+      onError: jest.fn(),
+      onFrame: jest.fn(),
+      onStart: jest.fn(),
+      onStateChange: jest.fn(),
+    });
+
+    service.connect(socket as any, 'channel-1');
+    await Promise.resolve();
+    const request = service.requestTransmission();
+    service.connect(socket as any, 'channel-2');
+    await Promise.resolve();
+    expect(resolveStart).toBeDefined();
+    resolveStart(null, { ok: true, transmissionId: 'late-tx' });
+
+    await expect(request).resolves.toEqual({ ok: false, error: 'radio_request_stale' });
+    expect(emitted).toContainEqual({
+      event: 'radio:end',
+      payload: { channelId: 'channel-1', transmissionId: 'late-tx' },
+    });
+  });
+
+  it('retries radio:start once when only its ACK times out', async () => {
+    let startAttempts = 0;
+    const socket = {
+      connected: true,
+      emit: jest.fn(),
+      io: { on: jest.fn(), off: jest.fn() },
+      on: jest.fn(),
+      off: jest.fn(),
+      timeout: () => ({
+        emit: (event: string, _payload: any, ack: (error: unknown, response?: any) => void) => {
+          if (event === 'radio:join') {
+            ack(null, { ok: true });
+            return;
+          }
+          if (event === 'radio:start') {
+            startAttempts += 1;
+            if (startAttempts === 1) ack(new Error('timeout'));
+            else ack(null, { ok: true, transmissionId: 'tx-recovered' });
+          }
+        },
+      }),
+    };
+    const service = new RadioRealtimeService({
+      onEnd: jest.fn(),
+      onError: jest.fn(),
+      onFrame: jest.fn(),
+      onStart: jest.fn(),
+      onStateChange: jest.fn(),
+    });
+
+    service.connect(socket as any, 'channel-1');
+    await Promise.resolve();
+
+    await expect(service.requestTransmission()).resolves.toEqual({
+      ok: true,
+      transmissionId: 'tx-recovered',
+    });
+    expect(startAttempts).toBe(2);
+  });
+
+  it('retries radio:join once and never publishes READY before a successful ACK', async () => {
+    let joinAttempts = 0;
+    const states: string[] = [];
+    const socket = {
+      connected: true,
+      emit: jest.fn(),
+      io: { on: jest.fn(), off: jest.fn() },
+      on: jest.fn(),
+      off: jest.fn(),
+      timeout: () => ({
+        emit: (event: string, _payload: any, ack: (error: unknown, response?: any) => void) => {
+          if (event !== 'radio:join') return;
+          joinAttempts += 1;
+          if (joinAttempts === 1) ack(new Error('timeout'));
+          else ack(null, { ok: true });
+        },
+      }),
+    };
+    const service = new RadioRealtimeService({
+      onEnd: jest.fn(),
+      onError: jest.fn(),
+      onFrame: jest.fn(),
+      onStart: jest.fn(),
+      onStateChange: (state) => states.push(state),
+    });
+
+    service.connect(socket as any, 'channel-1');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(joinAttempts).toBe(2);
+    expect(states).toEqual(['connecting', 'join_sent', 'ready']);
+  });
+
+  it.each([0, 0.01, 0.125, 0.5, 0.731, 1])(
+    'illuminates waveform bars in exact proportion to progress %s',
+    (progress) => {
+      const barCount = 18;
+      const illuminatedArea = Array.from({ length: barCount }, (_, index) =>
+        getProgressBarFill(progress, index, barCount)
+      ).reduce((sum, fill) => sum + fill, 0);
+
+      expect(illuminatedArea).toBeCloseTo(progress * barCount, 10);
+    }
+  );
 });

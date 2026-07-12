@@ -1,16 +1,28 @@
 # Radio Race Conditions
 
-| ID | Race | Impact | Evidence |
-|---|---|---|---|
-| R1 | socket connect marks ready before room authorization | READY but start forbidden | physically reproduced |
-| R2 | Store channel and local channel synchronize through multiple effects | history/PTT room mismatch window | two writable ids |
-| R3 | async status polling uses `setInterval` without in-flight exclusion | older response may overwrite newer PlayerStatus | 100 ms polling promises can overlap |
-| R4 | rapid play on two cards calls global stop and independent start concurrently | two preparation operations can race for shared AudioFocus | global stop is not serialized with starts |
-| R5 | `radio:end` is broadcast before persistence | console READY before history appears | backend order is explicit |
-| R6 | socket error/end can execute while local stop is awaiting ACK | sequential setters can restore stale message/operator | separate local facts and refs |
-| R7 | `onStart` starts AudioTrack asynchronously while frames may arrive | early frames can call enqueue before track exists | start promise and frame events are independent |
-| R8 | frame writes use nonblocking AudioTrack with no retry/jitter queue | partial writes/drop under pressure | returned byte count is ignored by JS |
-| R9 | process-local backend arbitration | multi-instance deployment can allow simultaneous transmitters | `activeRadioTransmissions` is in-memory per process |
-| R10 | foreground service alive while JS socket is suspended | notification/service can imply availability without frame delivery | service does not own the Socket.IO transport |
+## Cerradas por construccion
 
-Highest priority: R1, R2, R7, R8, R9. R9 cannot be solved only in Mobile and conflicts with a strict no-Backend-change implementation phase.
+| Carrera anterior | Control vigente |
+|---|---|
+| READY antes de autorizacion | ACK de join + `joinGeneration` |
+| canal Store/local divergente | un solo `activeConversationId` |
+| polls solapados | polling recursivo despues de resolver + generacion |
+| dos tarjetas iniciando | cola serial + `activeRadioPlayerId` + release nativo |
+| frame antes de AudioTrack | `enqueuePttFrame` llama `ensurePttPlayback` |
+| escritura PCM parcial | `WRITE_BLOCKING` y rechazo de write incompleto |
+| animacion TX persistente | efecto gobernado por `RadioSession.phase` |
+| error RX cerrando TX ajena | cleanup condicionado por TRANSMITTING/RECEIVING |
+| ACK start perdido o tardio | retry idempotente + generacion + liberacion del canal anterior |
+| soltar antes del ACK | cancelacion y `radio:end` sin iniciar AudioRecord |
+| desconexion durante start nativo | revalidacion de fase/id despues del await |
+| end durante prepare RX | revalidacion antes/despues de AudioTrack |
+| salir/logout con socket global vivo | `radio:end` antes de retirar listeners |
+| cliente conectado sin `radio:end` | timeout Backend de 65 segundos |
+
+## Riesgos abiertos
+
+- `activeRadioTransmissions` es memoria local del proceso; dos instancias backend no comparten arbitraje.
+- El foreground service no demuestra por si solo que React Native y Socket.IO entreguen frames con JS suspendido.
+- Web graba y sube al final; no ofrece el mismo streaming PTT nativo.
+- La red real puede introducir jitter; no existe una cola adaptativa de jitter medida fisicamente.
+- El arbitraje sigue siendo local al proceso aun cuando Socket.IO use adaptador Redis.

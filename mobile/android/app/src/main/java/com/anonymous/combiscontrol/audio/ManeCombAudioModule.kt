@@ -44,6 +44,7 @@ class ManeCombAudioModule(
   private var playerLocalUri: String? = null
   private var playerPrepared = false
   private var audioFocusRequest: AudioFocusRequest? = null
+  private var pttAudioFocusRequest: AudioFocusRequest? = null
   private val playbackFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
     val session = focusedRadioPlayerId?.let(radioPlayers::get) ?: return@OnAudioFocusChangeListener
     when (change) {
@@ -82,6 +83,21 @@ class ManeCombAudioModule(
   private var pttRecorder: AudioRecord? = null
   private var pttCaptureThread: Thread? = null
   private var pttTrack: AudioTrack? = null
+  private val pttPlaybackFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+    when (change) {
+      AudioManager.AUDIOFOCUS_LOSS,
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+        try { pttTrack?.pause() } catch (_: Exception) {}
+        emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
+          putString("code", "ptt_audio_focus_lost")
+        })
+      }
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
+        try { pttTrack?.setVolume(0.2f) } catch (_: Exception) {}
+      AudioManager.AUDIOFOCUS_GAIN ->
+        try { pttTrack?.setVolume(1.0f) } catch (_: Exception) {}
+    }
+  }
 
   private fun emitPttEvent(name: String, payload: com.facebook.react.bridge.WritableMap) {
     if (reactContext.hasActiveReactInstance()) {
@@ -92,6 +108,7 @@ class ManeCombAudioModule(
   }
 
   @ReactMethod
+  @Synchronized
   fun startPttCapture(promise: Promise) {
     if (pttCapturing) {
       promise.reject("ptt_capture_active", "La captura PTT ya esta activa.")
@@ -122,38 +139,65 @@ class ManeCombAudioModule(
       }
 
       stopPlayerInternal()
+      radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
+      stopPttPlaybackInternal()
       pttRecorder = audioRecord
       pttCapturing = true
       audioRecord.startRecording()
+      if (audioRecord.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+        throw IllegalStateException("Android no inicio AudioRecord para PTT.")
+      }
       pttCaptureThread = thread(name = "ManeCombPttCapture", start = true) {
         val frame = ByteArray(frameSamples * 2)
-        while (pttCapturing) {
-          val bytesRead = audioRecord.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+        var frameOffset = 0
+        var captureFailed = false
+        try {
+          while (pttCapturing) {
+          val bytesRead = audioRecord.read(
+            frame,
+            frameOffset,
+            frame.size - frameOffset,
+            AudioRecord.READ_BLOCKING
+          )
           if (bytesRead > 0) {
-            val encoded = Base64.encodeToString(frame, 0, bytesRead, Base64.NO_WRAP)
+            frameOffset += bytesRead
+            if (frameOffset < frame.size) continue
+            if (!pttCapturing) break
+            val encoded = Base64.encodeToString(frame, Base64.NO_WRAP)
             var peak = 0
             var index = 0
-            while (index + 1 < bytesRead) {
+            while (index + 1 < frame.size) {
               val sample = ((frame[index + 1].toInt() shl 8) or (frame[index].toInt() and 0xff)).toShort().toInt()
               peak = max(peak, kotlin.math.abs(sample))
               index += 2
             }
             emitPttEvent("ManeCombPttFrame", Arguments.createMap().apply {
               putString("data", encoded)
-              putInt("bytes", bytesRead)
+              putInt("bytes", frame.size)
               putDouble("capturedAt", System.currentTimeMillis().toDouble())
             })
             emitPttEvent("ManeCombPttLevel", Arguments.createMap().apply {
               putDouble("level", (peak / 32768.0).coerceIn(0.0, 1.0))
             })
+            frameOffset = 0
           } else if (bytesRead < 0) {
             emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
               putString("code", "ptt_capture_read_failed")
               putInt("nativeCode", bytesRead)
             })
+            captureFailed = true
             break
           }
+          }
+        } catch (error: Exception) {
+          if (pttCapturing) {
+            emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
+              putString("code", "ptt_capture_read_failed")
+            })
+            captureFailed = true
+          }
         }
+        if (captureFailed) stopPttCaptureInternal()
       }
       promise.resolve(Arguments.createMap().apply {
         putInt("sampleRate", sampleRate)
@@ -174,41 +218,20 @@ class ManeCombAudioModule(
   private fun stopPttCaptureInternal() {
     pttCapturing = false
     try { pttRecorder?.stop() } catch (_: Exception) {}
-    try { pttCaptureThread?.join(500) } catch (_: InterruptedException) {}
+    if (pttCaptureThread !== Thread.currentThread()) {
+      try { pttCaptureThread?.join(500) } catch (_: InterruptedException) {}
+    }
     pttCaptureThread = null
-    pttRecorder?.release()
+    try { pttRecorder?.release() } catch (_: Exception) {}
     pttRecorder = null
   }
 
   @ReactMethod
   fun startPttPlayback(promise: Promise) {
     try {
-      if (pttTrack == null) {
-        val sampleRate = 16000
-        val minBuffer = AudioTrack.getMinBufferSize(
-          sampleRate,
-          AudioFormat.CHANNEL_OUT_MONO,
-          AudioFormat.ENCODING_PCM_16BIT
-        )
-        pttTrack = AudioTrack.Builder()
-          .setAudioAttributes(
-            AudioAttributes.Builder()
-              .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-              .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-              .build()
-          )
-          .setAudioFormat(
-            AudioFormat.Builder()
-              .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-              .setSampleRate(sampleRate)
-              .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-              .build()
-          )
-          .setBufferSizeInBytes(max(minBuffer, 640 * 8))
-          .setTransferMode(AudioTrack.MODE_STREAM)
-          .build()
-      }
-      if (pttTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) pttTrack?.play()
+      stopPlayerInternal()
+      radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
+      ensurePttPlayback()
       promise.resolve(null)
     } catch (error: Exception) {
       stopPttPlaybackInternal()
@@ -218,14 +241,22 @@ class ManeCombAudioModule(
 
   @ReactMethod
   fun enqueuePttFrame(base64Data: String, promise: Promise) {
-    val track = pttTrack
-    if (track == null) {
-      promise.reject("ptt_playback_inactive", "La reproduccion PTT no esta activa.")
-      return
-    }
     try {
+      if (base64Data.length != 856) {
+        promise.reject("ptt_playback_invalid_frame", "El frame PTT no contiene 20 ms de PCM16.")
+        return
+      }
       val bytes = Base64.decode(base64Data, Base64.NO_WRAP)
-      val written = track.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING)
+      if (bytes.size != 640 || Base64.encodeToString(bytes, Base64.NO_WRAP) != base64Data) {
+        promise.reject("ptt_playback_invalid_frame", "El frame PTT no contiene 20 ms de PCM16.")
+        return
+      }
+      val track = ensurePttPlayback()
+      val written = track.write(bytes, 0, bytes.size, AudioTrack.WRITE_BLOCKING)
+      if (written != bytes.size) {
+        promise.reject("ptt_playback_partial_write", "Android no pudo reproducir el frame PTT completo.")
+        return
+      }
       var peak = 0
       var index = 0
       while (index + 1 < bytes.size) {
@@ -248,12 +279,55 @@ class ManeCombAudioModule(
     promise.resolve(null)
   }
 
+  @Synchronized
   private fun stopPttPlaybackInternal() {
     try { pttTrack?.pause() } catch (_: Exception) {}
     try { pttTrack?.flush() } catch (_: Exception) {}
     try { pttTrack?.stop() } catch (_: Exception) {}
     pttTrack?.release()
     pttTrack = null
+    abandonPttPlaybackFocus()
+  }
+
+  @Synchronized
+  private fun ensurePttPlayback(): AudioTrack {
+    val current = pttTrack
+    if (current != null) {
+      if (current.playState != AudioTrack.PLAYSTATE_PLAYING) current.play()
+      return current
+    }
+    if (!requestPttPlaybackFocus()) throw IllegalStateException("Android no concedio Audio Focus para Radio PTT.")
+    val sampleRate = 16000
+    val minBuffer = AudioTrack.getMinBufferSize(
+      sampleRate,
+      AudioFormat.CHANNEL_OUT_MONO,
+      AudioFormat.ENCODING_PCM_16BIT
+    )
+    val next = AudioTrack.Builder()
+      .setAudioAttributes(
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+          .build()
+      )
+      .setAudioFormat(
+        AudioFormat.Builder()
+          .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+          .setSampleRate(sampleRate)
+          .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+          .build()
+      )
+      .setBufferSizeInBytes(max(minBuffer, 640 * 8))
+      .setTransferMode(AudioTrack.MODE_STREAM)
+      .build()
+    if (next.state != AudioTrack.STATE_INITIALIZED) {
+      next.release()
+      abandonPttPlaybackFocus()
+      throw IllegalStateException("Android no inicializo AudioTrack para Radio PTT.")
+    }
+    next.play()
+    pttTrack = next
+    return next
   }
 
   @ReactMethod fun addListener(eventName: String) = Unit
@@ -440,8 +514,9 @@ class ManeCombAudioModule(
       }
       nextPlayer.setOnErrorListener { _, what, extra ->
         Log.e(TAG, "player error source=$uri what=$what extra=$extra")
+        val wasPrepared = playerPrepared
         stopPlayerInternal()
-        if (!playerPrepared) {
+        if (!wasPrepared) {
           promise.reject("audio_playback_failed", "Error del reproductor Android ($what/$extra).")
         }
         true
@@ -502,7 +577,12 @@ class ManeCombAudioModule(
       promise.reject("audio_url_missing", "URL de audio invalida.")
       return
     }
+    if (pttCapturing || pttTrack != null) {
+      promise.reject("radio_channel_active", "No puedes reproducir el historial durante una transmision PTT.")
+      return
+    }
     try {
+      stopPlayerInternal()
       radioPlayers.keys.filter { it != playerId }.forEach(::releaseRadioPlayer)
       val current = radioPlayers[playerId]
       if (current != null && current.prepared && current.phase != "ERROR" && current.uri == uri) {
@@ -512,6 +592,9 @@ class ManeCombAudioModule(
         }
         focusedRadioPlayerId = playerId
         current.audioFocus = "granted"
+        if (current.visualizer == null) {
+          current.visualizer = createRadioVisualizer(current.player.audioSessionId) { level -> current.level = level }
+        }
         if (current.completed && current.player.duration > 0) current.player.seekTo(0)
         current.completed = false
         current.phase = "PLAYING"
@@ -549,16 +632,20 @@ class ManeCombAudioModule(
       }
       nextPlayer.setOnBufferingUpdateListener { _, percent -> session.bufferedPercent = percent.coerceIn(0, 100) }
       nextPlayer.setOnSeekCompleteListener {
-        session.phase = if (session.completed) "IDLE" else if (it.isPlaying) "PLAYING" else "PAUSED"
+        session.phase = if (session.completed) "FINISHED" else if (it.isPlaying) "PLAYING" else "PAUSED"
       }
       nextPlayer.setOnCompletionListener {
         session.completed = true
         session.level = 0.0
+        try { session.visualizer?.enabled = false } catch (_: Exception) {}
+        try { session.visualizer?.release() } catch (_: Exception) {}
+        session.visualizer = null
         try { it.seekTo(0) } catch (_: Exception) {}
-        session.phase = "IDLE"
+        session.phase = "FINISHED"
         abandonRadioPlaybackFocus(playerId)
       }
       nextPlayer.setOnErrorListener { _, what, extra ->
+        val wasPrepared = session.prepared
         session.phase = "ERROR"
         session.error = "MediaPlayer error $what/$extra"
         session.prepared = false
@@ -567,7 +654,8 @@ class ManeCombAudioModule(
         session.visualizer = null
         session.level = 0.0
         abandonRadioPlaybackFocus(playerId)
-        if (!session.prepared) {
+        try { session.player.release() } catch (_: Exception) {}
+        if (!wasPrepared) {
           promise.reject("audio_playback_failed", "Error del reproductor Android ($what/$extra).")
         }
         true
@@ -626,6 +714,9 @@ class ManeCombAudioModule(
   }
 
   override fun invalidate() {
+    stopPttCaptureInternal()
+    stopPttPlaybackInternal()
+    reactContext.stopService(Intent(reactContext, ManeCombRadioService::class.java))
     releaseRecorder()
     stopPlayerInternal()
     radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
@@ -886,6 +977,44 @@ class ManeCombAudioModule(
     return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
   }
 
+  private fun requestPttPlaybackFocus(): Boolean {
+    val audioManager = reactContext.getSystemService(AudioManager::class.java) ?: return true
+    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        .setAudioAttributes(
+          AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        )
+        .setOnAudioFocusChangeListener(pttPlaybackFocusListener)
+        .build()
+      pttAudioFocusRequest = request
+      audioManager.requestAudioFocus(request)
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager.requestAudioFocus(
+        pttPlaybackFocusListener,
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+      )
+    }
+    val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    if (!granted) pttAudioFocusRequest = null
+    return granted
+  }
+
+  private fun abandonPttPlaybackFocus() {
+    val audioManager = reactContext.getSystemService(AudioManager::class.java) ?: return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      pttAudioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
+      pttAudioFocusRequest = null
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager.abandonAudioFocus(pttPlaybackFocusListener)
+    }
+  }
+
   private fun abandonPlaybackFocus() {
     val audioManager = reactContext.getSystemService(AudioManager::class.java) ?: return
 
@@ -898,7 +1027,7 @@ class ManeCombAudioModule(
     }
 
     @Suppress("DEPRECATION")
-    audioManager.abandonAudioFocus(null)
+    audioManager.abandonAudioFocus(playbackFocusListener)
   }
 
   private fun readMetering(activeRecorder: MediaRecorder?): Double {
@@ -1051,15 +1180,8 @@ class ManeCombAudioModule(
     putString("audioFocus", session?.audioFocus ?: "none")
     putString("outputDevice", outputDevice)
     putString("error", session?.error)
-    putBoolean("isLoaded", prepared)
-    putBoolean("isBuffering", session != null && !prepared)
-    putBoolean("playing", playing)
-    putBoolean("didJustFinish", session?.completed == true)
     putDouble("level", if (playing) session?.level ?: 0.0 else 0.0)
-    putDouble("currentMillis", position.toDouble())
     putDouble("durationMillis", duration.toDouble())
-    putDouble("currentTime", position / 1000.0)
-    putDouble("duration", duration / 1000.0)
     putString("uri", session?.uri)
   }
 
