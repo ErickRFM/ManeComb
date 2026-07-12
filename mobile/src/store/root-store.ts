@@ -64,7 +64,6 @@ import {
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
 import { stopBackgroundLocationServiceAsync } from '@/src/native/background-location';
-import { traceRadioE2e } from '@/src/native/audio';
 import { usePortalStore } from '@/src/store/portal-store-bridge';
 import type {
   ChatMessage,
@@ -357,19 +356,30 @@ async function deleteStoredItem(key: string) {
   try { await withStorageTimeout(SecureStore.deleteItemAsync(key), undefined); } catch { }
 }
 
+function getMessageCreatedAtTime(message: ChatMessage) {
+  const timestamp = new Date(message.createdAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortConversationMessages(messages: ChatMessage[]) {
+  return [...messages].sort((left, right) => {
+    const byDate = getMessageCreatedAtTime(left) - getMessageCreatedAtTime(right);
+    return byDate || left.id.localeCompare(right.id);
+  });
+}
+
 function upsertConversationMessage(messagesByConversation: Record<string, ChatMessage[]>, conversationId: string, message: ChatMessage) {
   const current = messagesByConversation[conversationId] || [];
-  if (current.some((m) => m.id === message.id)) return messagesByConversation;
-  return { ...messagesByConversation, [conversationId]: [...current, message] };
+  return {
+    ...messagesByConversation,
+    [conversationId]: mergeConversationMessages(current, [message]),
+  };
 }
 
 function mergeConversationMessages(current: ChatMessage[], incoming: ChatMessage[]) {
-  const messagesById = new Map(incoming.map((message) => [message.id, message]));
-  current.forEach((message) => messagesById.set(message.id, message));
-  return [...messagesById.values()].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-  );
+  const messagesById = new Map(current.map((message) => [message.id, message]));
+  incoming.forEach((message) => messagesById.set(message.id, message));
+  return sortConversationMessages([...messagesById.values()]);
 }
 
 function sortConversations(conversations: ConversationSummary[]) {
@@ -893,30 +903,11 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   const handleIncomingConversationMessage = async (
-    payload: ChatMessage | { message?: ChatMessage; conversationId?: string },
-    source: 'chat:message' | 'radio:message:new'
+    payload: ChatMessage | { message?: ChatMessage; conversationId?: string }
   ) => {
     const m = 'message' in payload && payload.message ? payload.message : payload as ChatMessage;
 
-    if (source === 'radio:message:new') {
-      traceRadioE2e('history_event_received', {
-        conversationId: m.conversationId || null,
-        messageId: m.id || null,
-        socketId: socket?.id || null,
-        transmissionId: m.transmissionId || null,
-        userId: get().user?.id || null,
-      }).catch(() => undefined);
-    }
     if (!m.conversationId) {
-      if (source === 'radio:message:new') {
-        traceRadioE2e('history_event_discarded', {
-          messageId: m.id || null,
-          reason: 'conversation_id_missing',
-          socketId: socket?.id || null,
-          transmissionId: m.transmissionId || null,
-          userId: get().user?.id || null,
-        }).catch(() => undefined);
-      }
       return;
     }
     const hydrated = await hydrateConversationMessage(m, get().conversations.find(c => c.id === m.conversationId) || null, get().user);
@@ -931,9 +922,11 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       insertedMessage = !alreadyExists;
 
       return {
-        messagesByConversation: alreadyExists
-          ? s.messagesByConversation
-          : upsertConversationMessage(s.messagesByConversation, conversationId, hydrated),
+        messagesByConversation: upsertConversationMessage(
+          s.messagesByConversation,
+          conversationId,
+          hydrated
+        ),
         conversations: sortConversations(s.conversations.map(c => c.id === conversationId ? {
           ...c,
           lastMessage: hydrated,
@@ -941,19 +934,6 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         } : c))
       };
     });
-
-    if (source === 'radio:message:new') {
-      const conversationMessages = get().messagesByConversation[conversationId] || [];
-      traceRadioE2e('history_store_result', {
-        conversationId,
-        decision: insertedMessage ? 'inserted' : 'deduplicated',
-        messageCount: conversationMessages.length,
-        messageId: hydrated.id,
-        socketId: socket?.id || null,
-        transmissionId: hydrated.transmissionId || null,
-        userId: get().user?.id || null,
-      }).catch(() => undefined);
-    }
 
     if (insertedMessage && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
       const isRadio =
@@ -973,10 +953,10 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   };
 
   socket.on('chat:message', (payload) => {
-    handleIncomingConversationMessage(payload, 'chat:message').catch(() => undefined);
+    handleIncomingConversationMessage(payload).catch(() => undefined);
   });
   socket.on('radio:message:new', (payload) => {
-    handleIncomingConversationMessage(payload, 'radio:message:new').catch(() => undefined);
+    handleIncomingConversationMessage(payload).catch(() => undefined);
   });
 
   socket.on('location:updated', (v: Vehicle) => {

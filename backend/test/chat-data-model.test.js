@@ -1,4 +1,6 @@
 const assert = require("assert");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   ChatAttachmentModel,
@@ -15,6 +17,10 @@ function hasIndex(indexes, expectedFields) {
 }
 
 async function run() {
+  const mongoStoreSource = fs.readFileSync(
+    path.join(__dirname, "../src/data/mongo-store.js"),
+    "utf8"
+  );
   const chatMessageIndexes = ChatMessageModel.schema.indexes();
   const attachmentIndexes = ChatAttachmentModel.schema.indexes();
   const conversationPaths = ConversationModel.schema.paths;
@@ -27,6 +33,16 @@ async function run() {
   assert.ok(ChatMessageModel.schema.path("senderId"), "message stores senderId");
   assert.ok(ChatMessageModel.schema.path("status"), "message stores delivery status");
   assert.ok(ChatMessageModel.schema.path("transmissionId"), "radio message stores transmissionId");
+  assert.equal(
+    mongoStoreSource.includes("existingCount < embeddedMessages.length"),
+    false,
+    "embedded history migration must compare message identities, never collection counts"
+  );
+  assert.match(
+    mongoStoreSource,
+    /const documents = embeddedMessages\.map\([\s\S]*await messageRepository\.upsertMany\(documents\)/,
+    "every embedded message must pass through the idempotent messageId upsert"
+  );
   assert.ok(hasIndex(chatMessageIndexes, { conversationId: 1, createdAt: -1, _id: -1 }));
   assert.ok(hasIndex(chatMessageIndexes, { organizationId: 1, conversationId: 1, createdAt: -1 }));
   assert.ok(hasIndex(chatMessageIndexes, { senderId: 1, createdAt: -1 }));

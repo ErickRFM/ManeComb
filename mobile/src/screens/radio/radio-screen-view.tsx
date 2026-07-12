@@ -12,7 +12,6 @@ import {
   subscribeToPttAudioErrors,
   subscribeToPttAudioFrames,
   subscribeToPttAudioLevel,
-  traceRadioE2e,
 } from '@/src/native/audio';
 import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -79,9 +78,6 @@ import {
   getContactSearchText,
   getConversationContact,
   getConversationPreview,
-  isDevelopmentRuntime,
-  isValidRadioPhaseTransition,
-  logRadioDevelopmentEvent,
 } from './utils/radio-format';
 
 const RADIO_MOTION = {
@@ -159,7 +155,6 @@ export function RadioScreen() {
   const pttBusyRef = useRef(false);
   const pendingStopAfterStartRef = useRef(false);
   const messageStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPttBlockReasonRef = useRef<string | null>(null);
   const maxRecordingStopRequestedRef = useRef(false);
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
@@ -168,12 +163,11 @@ export function RadioScreen() {
   const meteringFrameRef = useRef<number | null>(null);
   const meteringCleanupRef = useRef<(() => void) | null>(null);
   const meteringActiveRef = useRef(false);
-  const radioPhaseRef = useRef<RadioOperationalPhase>('IDLE');
   const realtimeServiceRef = useRef<RadioRealtimeService | null>(null);
   const previousChannelIdRef = useRef<string | null>(null);
   const previousRadioSocketStatusRef = useRef(socketStatus);
-  const receivedFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
-  const sentFrameTraceRef = useRef({ transmissionId: null as string | null, frames: 0, bytes: 0, lastSequence: -1 });
+  const previousUserIdRef = useRef<string | null>(user?.id || null);
+  const historyLoadInFlightRef = useRef<Set<string>>(new Set());
   const pulseValue = useSharedValue(1);
   const haloValue = useSharedValue(0);
   const waveformLevels = useSharedValue<number[]>(Array(18).fill(0));
@@ -210,11 +204,14 @@ export function RadioScreen() {
               message,
             }))
         )
-        .sort(
-          (left, right) =>
-            new Date(right.message.createdAt).getTime() -
-            new Date(left.message.createdAt).getTime()
-        ),
+        .sort((left, right) => {
+          const rightTimestamp = new Date(right.message.createdAt).getTime();
+          const leftTimestamp = new Date(left.message.createdAt).getTime();
+          const byDate =
+            (Number.isFinite(rightTimestamp) ? rightTimestamp : 0) -
+            (Number.isFinite(leftTimestamp) ? leftTimestamp : 0);
+          return byDate || right.message.id.localeCompare(left.message.id);
+        }),
     [messagesByConversation, radioChannels]
   );
   const hasCurrentChannelAudio = useMemo(
@@ -253,6 +250,28 @@ export function RadioScreen() {
 
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
+
+  const ensureRadioHistoryLoaded = useCallback(async (channelId: string, options?: { force?: boolean }) => {
+    if (!channelId) {
+      return;
+    }
+
+    const hasHistoryState = messagesByConversation[channelId] !== undefined;
+    if (!options?.force && hasHistoryState) {
+      return;
+    }
+
+    if (historyLoadInFlightRef.current.has(channelId)) {
+      return;
+    }
+
+    historyLoadInFlightRef.current.add(channelId);
+    try {
+      await loadConversation(channelId);
+    } finally {
+      historyLoadInFlightRef.current.delete(channelId);
+    }
+  }, [loadConversation, messagesByConversation]);
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -338,16 +357,7 @@ export function RadioScreen() {
 
   useEffect(() => {
     const service = new RadioRealtimeService({
-      onEnd: ({ channelId, reason, transmissionId }) => {
-        const received = receivedFrameTraceRef.current;
-        const sent = sentFrameTraceRef.current;
-        traceRadioE2e('socket_end', {
-          channelId,
-          reason: reason || 'completed',
-          received: received.transmissionId === transmissionId ? received : null,
-          sent: sent.transmissionId === transmissionId ? sent : null,
-          transmissionId,
-        }).catch(() => undefined);
+      onEnd: ({ transmissionId }) => {
         const current = radioSessionRef.current;
         if (current.phase === 'CHANNEL_BUSY') {
           transitionSession({ phase: 'READY', operator: null, message: null, transmissionId: null });
@@ -394,29 +404,6 @@ export function RadioScreen() {
       },
       onFrame: (frame) => {
         if (frame.transmissionId !== radioSessionRef.current.transmissionId) return;
-        const trace = receivedFrameTraceRef.current;
-        if (trace.transmissionId !== frame.transmissionId) {
-          receivedFrameTraceRef.current = {
-            transmissionId: frame.transmissionId,
-            frames: 0,
-            bytes: 0,
-            lastSequence: -1,
-          };
-        }
-        const nextTrace = receivedFrameTraceRef.current;
-        nextTrace.frames += 1;
-        nextTrace.bytes += 640;
-        nextTrace.lastSequence = frame.sequence;
-        if (nextTrace.frames === 1 || nextTrace.frames % 50 === 0) {
-          traceRadioE2e('socket_receive', {
-            bytes: nextTrace.bytes,
-            channelId: frame.channelId,
-            frames: nextTrace.frames,
-            lastSequence: frame.sequence,
-            sentAt: frame.sentAt,
-            transmissionId: frame.transmissionId,
-          }).catch(() => undefined);
-        }
         enqueuePttAudioFrame(frame.data, frame.sequence, frame.transmissionId).catch(() => {
           stopPttAudioPlayback().catch(() => undefined);
           transitionSession({
@@ -453,17 +440,9 @@ export function RadioScreen() {
                     : 'READY';
         transitionSession({ phase, message: null, operator: null, transmissionId: null });
       },
-      onStart: ({ channelId, startedAt, transmissionId, transmitter }) => {
+      onStart: ({ transmissionId, transmitter }) => {
         const ownTransmission = transmitter.id === user?.id;
         if (ownTransmission) return;
-        receivedFrameTraceRef.current = { transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
-        traceRadioE2e('socket_start', {
-          channelId,
-          receivedAt: Date.now(),
-          startedAt,
-          transmissionId,
-          transmitterId: transmitter.id,
-        }).catch(() => undefined);
         transitionSession({
           phase: 'RECEIVING',
           operator: transmitter,
@@ -549,23 +528,6 @@ export function RadioScreen() {
         transitionSession({ phase: 'OFFLINE', message: 'Conexion PTT interrumpida', operator: null, transmissionId: null });
         return;
       }
-      const trace = sentFrameTraceRef.current;
-      if (trace.transmissionId !== transmissionId) {
-        sentFrameTraceRef.current = { transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
-      }
-      const nextTrace = sentFrameTraceRef.current;
-      nextTrace.frames += 1;
-      nextTrace.bytes += frame.bytes;
-      nextTrace.lastSequence = frame.sequence;
-      if (nextTrace.frames === 1 || nextTrace.frames % 50 === 0) {
-        traceRadioE2e('socket_emit', {
-          bytes: nextTrace.bytes,
-          frames: nextTrace.frames,
-          lastSequence: frame.sequence,
-          sentAt: frame.capturedAt,
-          transmissionId,
-        }).catch(() => undefined);
-      }
     });
     const removeErrors = subscribeToPttAudioErrors(() => {
       const current = radioSessionRef.current;
@@ -594,37 +556,31 @@ export function RadioScreen() {
   }, [pushWaveformLevel, transitionSession]);
 
   useEffect(() => {
-    const current = radioPhaseRef.current;
-    if (current === radioPhase) {
+    const nextUserId = user?.id || null;
+    if (previousUserIdRef.current === nextUserId) {
       return;
     }
 
-    const valid = isValidRadioPhaseTransition(current, radioPhase);
-    radioPhaseRef.current = radioPhase;
-    logRadioDevelopmentEvent('radio-state', {
-      activeChannelId: activeChannel?.id || null,
-      next: radioPhase,
-      previous: current,
-      reason: 'operation_phase',
-      validTransition: valid,
-    });
-  }, [activeChannel?.id, radioPhase]);
+    previousUserIdRef.current = nextUserId;
+    bootstrappedRef.current = false;
+    previousChannelIdRef.current = null;
+    previousRadioSocketStatusRef.current = socketStatus;
+    historyLoadInFlightRef.current.clear();
+  }, [socketStatus, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
-    const loadMissingHistory = async () => {
+    const loadRadioHistory = async () => {
       for (const channel of radioChannels) {
         if (cancelled) return;
-        if (messagesByConversation[channel.id] === undefined) {
-          await loadConversation(channel.id).catch(() => undefined);
-        }
+        await ensureRadioHistoryLoaded(channel.id).catch(() => undefined);
       }
     };
-    loadMissingHistory().catch(() => undefined);
+    loadRadioHistory().catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [loadConversation, messagesByConversation, radioChannels]);
+  }, [ensureRadioHistoryLoaded, radioChannels]);
 
   useEffect(() => {
     const previousStatus = previousRadioSocketStatusRef.current;
@@ -634,47 +590,9 @@ export function RadioScreen() {
       ['disconnected', 'error', 'reconnecting'].includes(previousStatus);
     if (!recovered) return;
     radioChannels.forEach((channel) => {
-      loadConversation(channel.id).catch(() => undefined);
+      ensureRadioHistoryLoaded(channel.id, { force: true }).catch(() => undefined);
     });
-  }, [loadConversation, radioChannels, socketStatus]);
-
-  useEffect(() => {
-    const nextReason = isPttDisabled ? pttBlockReason || 'Bloqueado' : null;
-    if (lastPttBlockReasonRef.current === nextReason) {
-      return;
-    }
-
-    lastPttBlockReasonRef.current = nextReason;
-    if (nextReason) {
-      if (!isDevelopmentRuntime()) {
-        return;
-      }
-      console.info('[radio:ptt] disabled', {
-        activeChannel: Boolean(activeChannel),
-        canTransmit: pttConnectionReady,
-        socketStatus,
-        permission: audioPermissionState,
-        reason: nextReason,
-        phase: radioSession.phase,
-      });
-    } else {
-      if (!isDevelopmentRuntime()) {
-        return;
-      }
-      console.info('[radio:ptt] enabled', {
-        activeChannel: Boolean(activeChannel),
-        phase: radioSession.phase,
-      });
-    }
-  }, [
-    activeChannel,
-    audioPermissionState,
-    isPttDisabled,
-    socketStatus,
-    pttBlockReason,
-    pttConnectionReady,
-    radioSession.phase,
-  ]);
+  }, [ensureRadioHistoryLoaded, radioChannels, socketStatus]);
 
   const pttAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseValue.value }],
@@ -938,7 +856,7 @@ export function RadioScreen() {
 
   const handleSelectChannel = async (channelId: string) => {
     setActiveConversationId(channelId);
-    await loadConversation(channelId);
+    await ensureRadioHistoryLoaded(channelId);
   };
 
   const handleOpenGeneralRadio = async () => {
@@ -1048,13 +966,6 @@ export function RadioScreen() {
       });
       return;
     }
-    sentFrameTraceRef.current = { transmissionId: ack.transmissionId, frames: 0, bytes: 0, lastSequence: -1 };
-    traceRadioE2e('start_ack', {
-      channelId: activeChannel.id,
-      receivedAt: Date.now(),
-      transmissionId: ack.transmissionId,
-      userId: user?.id || null,
-    }).catch(() => undefined);
     if (pendingStopAfterStartRef.current) {
       pendingStopAfterStartRef.current = false;
       transitionSession({

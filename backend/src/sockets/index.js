@@ -505,6 +505,20 @@ function registerSocketServer(server, store) {
         return;
       }
 
+      const activeForSocket = [...activeRadioTransmissions.values()].find(
+        (transmission) => transmission.socketId === socket.id
+      );
+      if (activeForSocket) {
+        acknowledge(ack, {
+          ok: false,
+          error: "channel_busy",
+          channelId: activeForSocket.channelId,
+          transmissionId: activeForSocket.id,
+          transmitter: { id: activeForSocket.userId, name: activeForSocket.userName }
+        });
+        return;
+      }
+
       const transmission = {
         id: `${Date.now()}-${socket.id}`,
         channelId: safeChannelId,
@@ -549,19 +563,6 @@ function registerSocketServer(server, store) {
       } catch (error) {
         logger.error({ action: "AcquireRadioChannel", module: "Radio", status: "error", error });
         acknowledge(ack, { ok: false, error: "radio_unavailable" });
-        return;
-      }
-      const activeForSocket = [...activeRadioTransmissions.values()].find(
-        (transmission) => transmission.socketId === socket.id
-      );
-      if (activeForSocket) {
-        acknowledge(ack, {
-          ok: false,
-          error: "channel_busy",
-          channelId: activeForSocket.channelId,
-          transmissionId: activeForSocket.id,
-          transmitter: { id: activeForSocket.userId, name: activeForSocket.userName }
-        });
         return;
       }
       activeRadioTransmissions.set(safeChannelId, transmission);

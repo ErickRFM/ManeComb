@@ -824,14 +824,11 @@ async function createMongoStore() {
       return;
     }
 
-    const existingCount = await messageRepository.countByConversation(plainConversation._id);
     const documents = embeddedMessages.map((message) =>
       buildChatMessageDocument(message, plainConversation)
     );
 
-    if (existingCount < embeddedMessages.length) {
-      await messageRepository.upsertMany(documents);
-    }
+    await messageRepository.upsertMany(documents);
     const [storedCount, latestMessage] = await Promise.all([
       messageRepository.countByConversation(plainConversation._id),
       ChatMessageModel.findOne({ conversationId: plainConversation._id })

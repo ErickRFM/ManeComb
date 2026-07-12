@@ -1,6 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import {
-  traceRadioE2e,
   useAudioPlayer,
   useAudioPlayerStatus,
 } from '@/src/native/audio';
@@ -81,16 +80,6 @@ export function VoiceTransmissionCard({
   useEffect(() => {
     setWaveformBars(Array(18).fill(0));
   }, [resolvedUrl]);
-
-  useEffect(() => {
-    traceRadioE2e('history_card_render', {
-      channelId: message.conversationId || null,
-      createdAt: message.createdAt,
-      messageId: message.id,
-      resolvedAudio: Boolean(resolvedUrl),
-      transmissionId: message.transmissionId || null,
-    }).catch(() => undefined);
-  }, [message.conversationId, message.createdAt, message.id, message.transmissionId, resolvedUrl]);
 
   useEffect(() => {
     if (!isPlaying) return;

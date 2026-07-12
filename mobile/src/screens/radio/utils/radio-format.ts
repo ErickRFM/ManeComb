@@ -1,7 +1,5 @@
 import type { ChatDirectoryContact, ConversationSummary } from '@/src/types/app';
 import { formatClockDurationFromSeconds } from '@/src/utils/format';
-import { RADIO_PHASE_TRANSITIONS } from '../constants';
-import type { RadioOperationalPhase } from '../types';
 
 export const formatDuration = formatClockDurationFromSeconds;
 
@@ -40,29 +38,4 @@ export function clampVolume(value: number) {
 export function getProgressBarFill(progress: number, index: number, barCount: number) {
   const rawFill = progress * barCount - index;
   return rawFill <= 0 ? 0 : rawFill >= 1 ? 1 : rawFill;
-}
-
-export function isDevelopmentRuntime() {
-  return typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
-}
-
-export function logRadioDevelopmentEvent(
-  scope: 'radio-state' | 'radio-player',
-  event: Record<string, unknown>
-) {
-  if (!isDevelopmentRuntime()) {
-    return;
-  }
-
-  console.info(`[${scope}]`, {
-    ...event,
-    timestamp: new Date().toISOString(),
-  });
-}
-
-export function isValidRadioPhaseTransition(
-  previous: RadioOperationalPhase,
-  next: RadioOperationalPhase
-) {
-  return previous === next || RADIO_PHASE_TRANSITIONS[previous]?.includes(next);
 }

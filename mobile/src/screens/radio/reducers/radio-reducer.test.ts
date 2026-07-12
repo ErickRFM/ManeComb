@@ -1,4 +1,4 @@
-import { getProgressBarFill, isValidRadioPhaseTransition } from '../utils/radio-format';
+import { getProgressBarFill } from '../utils/radio-format';
 import { getRadioRealtimeErrorMessage } from '../services/radio-audio-service';
 import { initialRadioSessionState, radioSessionReducer } from './radio-session-reducer';
 import { RadioRealtimeService } from '../services/radio-realtime-service';
@@ -30,16 +30,31 @@ describe('radio state', () => {
     });
   });
 
-  it('keeps live PTT transitions independent from history playback', () => {
-    expect(isValidRadioPhaseTransition('CONNECTING', 'READY')).toBe(false);
-    expect(isValidRadioPhaseTransition('CONNECTING', 'JOIN_SENT')).toBe(true);
-    expect(isValidRadioPhaseTransition('JOIN_SENT', 'READY')).toBe(true);
-    expect(isValidRadioPhaseTransition('READY', 'TRANSMITTING')).toBe(false);
-    expect(isValidRadioPhaseTransition('READY', 'REQUESTING')).toBe(true);
-    expect(isValidRadioPhaseTransition('REQUESTING', 'TRANSMITTING')).toBe(true);
-    expect(isValidRadioPhaseTransition('TRANSMITTING', 'READY')).toBe(true);
-    expect(isValidRadioPhaseTransition('READY', 'RECEIVING')).toBe(true);
-    expect(isValidRadioPhaseTransition('CHANNEL_BUSY', 'READY')).toBe(true);
+  it('keeps REST and Socket radio history on the same merge path', () => {
+    const fs = jest.requireActual('fs') as {
+      readFileSync: (filePath: string, encoding: string) => string;
+    };
+    const rootStoreSource = fs.readFileSync(
+      'src/store/root-store.ts',
+      'utf8'
+    );
+    const radioScreenSource = fs.readFileSync(
+      'src/screens/radio/radio-screen-view.tsx',
+      'utf8'
+    );
+
+    expect(rootStoreSource).toContain(
+      '[conversationId]: mergeConversationMessages(current, [message])'
+    );
+    expect(rootStoreSource).toMatch(
+      /const messagesById = new Map\(current\.map\(\(message\) => \[message\.id, message\]\)\);[\s\S]*incoming\.forEach\(\(message\) => messagesById\.set\(message\.id, message\)\)/
+    );
+    expect(radioScreenSource).toContain(
+      'return byDate || right.message.id.localeCompare(left.message.id);'
+    );
+    expect(radioScreenSource).toContain('const ensureRadioHistoryLoaded = useCallback');
+    expect(radioScreenSource).toContain('historyLoadInFlightRef.current.has(channelId)');
+    expect(radioScreenSource).toContain('bootstrappedRef.current = false;');
   });
 
   it('uses the shared socket and publishes READY only after radio:join ACK', async () => {

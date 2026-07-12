@@ -85,7 +85,6 @@ type NativeAudioModule = {
   seekRadioHistoryPlayer: (playerId: string, positionMillis: number) => Promise<PlayerStatus>;
   getRadioHistoryPlayerStatus: (playerId: string) => Promise<PlayerStatus>;
   stopAllRadioHistoryPlayers: () => Promise<void>;
-  traceRadioE2e: (stage: string, details: string) => Promise<void>;
 };
 
 type NativeAudioError = Error & {
@@ -156,10 +155,6 @@ export async function startRadioForegroundService() {
 
 export async function stopRadioForegroundService() {
   await NativeAudio?.stopRadioForegroundService();
-}
-
-export async function traceRadioE2e(stage: string, details: Record<string, unknown>) {
-  await NativeAudio?.traceRadioE2e(stage, JSON.stringify(details));
 }
 
 const idlePlayerStatus: PlayerStatus = {

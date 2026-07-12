@@ -83,11 +83,8 @@ class ManeCombAudioModule(
   private var pttRecorder: AudioRecord? = null
   private var pttCaptureThread: Thread? = null
   private var pttTrack: AudioTrack? = null
-  private var pttCaptureTransmissionId: String? = null
   private var pttCaptureFrames = 0
   private var pttPlaybackTransmissionId: String? = null
-  private var pttPlaybackFrames = 0
-  private var pttPlaybackBytes = 0
   private var pttPlaybackExpectedSequence = 0
   @Volatile private var pttPlaybackFocusLost = false
   private val pttPlaybackFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -150,7 +147,6 @@ class ManeCombAudioModule(
       radioPlayers.keys.toList().forEach(::releaseRadioPlayer)
       stopPttPlaybackInternal()
       pttRecorder = audioRecord
-      pttCaptureTransmissionId = transmissionId
       pttCaptureFrames = 0
       pttCapturing = true
       audioRecord.startRecording()
@@ -191,12 +187,6 @@ class ManeCombAudioModule(
               putDouble("level", (peak / 32768.0).coerceIn(0.0, 1.0))
             })
             pttCaptureFrames += 1
-            if (pttCaptureFrames == 1 || pttCaptureFrames % 50 == 0) {
-              Log.i(
-                TAG,
-                "radio_e2e stage=capture transmissionId=$transmissionId frames=$pttCaptureFrames bytes=${pttCaptureFrames * frame.size} lastSequence=${pttCaptureFrames - 1} frameBytes=${frame.size}"
-              )
-            }
             frameOffset = 0
           } else if (bytesRead < 0) {
             emitPttEvent("ManeCombPttError", Arguments.createMap().apply {
@@ -234,8 +224,6 @@ class ManeCombAudioModule(
   }
 
   private fun stopPttCaptureInternal() {
-    val transmissionId = pttCaptureTransmissionId
-    val capturedFrames = pttCaptureFrames
     pttCapturing = false
     try { pttRecorder?.stop() } catch (_: Exception) {}
     if (pttCaptureThread !== Thread.currentThread()) {
@@ -244,20 +232,7 @@ class ManeCombAudioModule(
     pttCaptureThread = null
     try { pttRecorder?.release() } catch (_: Exception) {}
     pttRecorder = null
-    if (transmissionId != null) {
-      Log.i(
-        TAG,
-        "radio_e2e stage=capture_end transmissionId=$transmissionId frames=$capturedFrames bytes=${capturedFrames * 640} lastSequence=${capturedFrames - 1}"
-      )
-    }
-    pttCaptureTransmissionId = null
     pttCaptureFrames = 0
-  }
-
-  @ReactMethod
-  fun traceRadioE2e(stage: String, details: String, promise: Promise) {
-    Log.i(TAG, "radio_e2e stage=$stage details=$details")
-    promise.resolve(null)
   }
 
   @ReactMethod
@@ -310,20 +285,7 @@ class ManeCombAudioModule(
       emitPttEvent("ManeCombPttLevel", Arguments.createMap().apply {
         putDouble("level", (peak / 32768.0).coerceIn(0.0, 1.0))
       })
-      pttPlaybackFrames += 1
-      pttPlaybackBytes += written
       pttPlaybackExpectedSequence += 1
-      if (pttPlaybackFrames == 1 || pttPlaybackFrames % 50 == 0) {
-        val route = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          track.routedDevice?.productName?.toString() ?: "unknown"
-        } else {
-          "legacy"
-        }
-        Log.i(
-          TAG,
-          "radio_e2e stage=playback transmissionId=$transmissionId frames=$pttPlaybackFrames bytes=$pttPlaybackBytes lastSequence=$safeSequence frameBytes=$written playState=${track.playState} route=$route"
-        )
-      }
       promise.resolve(written)
     } catch (error: Exception) {
       promise.reject("ptt_playback_write_failed", error.message, error)
@@ -338,24 +300,13 @@ class ManeCombAudioModule(
 
   @Synchronized
   private fun stopPttPlaybackInternal(preserveFocusLoss: Boolean = false) {
-    val transmissionId = pttPlaybackTransmissionId
-    val playedFrames = pttPlaybackFrames
-    val playedBytes = pttPlaybackBytes
     try { pttTrack?.pause() } catch (_: Exception) {}
     try { pttTrack?.flush() } catch (_: Exception) {}
     try { pttTrack?.stop() } catch (_: Exception) {}
     pttTrack?.release()
     pttTrack = null
     abandonPttPlaybackFocus()
-    if (transmissionId != null) {
-      Log.i(
-        TAG,
-        "radio_e2e stage=playback_end transmissionId=$transmissionId frames=$playedFrames bytes=$playedBytes lastSequence=${playedFrames - 1}"
-      )
-    }
     pttPlaybackTransmissionId = null
-    pttPlaybackFrames = 0
-    pttPlaybackBytes = 0
     pttPlaybackExpectedSequence = 0
     if (!preserveFocusLoss) pttPlaybackFocusLost = false
   }
@@ -404,8 +355,6 @@ class ManeCombAudioModule(
     }
     next.play()
     pttPlaybackTransmissionId = transmissionId
-    pttPlaybackFrames = 0
-    pttPlaybackBytes = 0
     pttPlaybackExpectedSequence = 0
     pttTrack = next
     return next

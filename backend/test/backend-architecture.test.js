@@ -73,4 +73,13 @@ assert.match(
   "persisted radio messages must use the history room guaranteed by radio:join"
 );
 
+const activeSocketGuardIndex = socketSource.indexOf(
+  "const activeForSocket = [...activeRadioTransmissions.values()].find"
+);
+const radioLockAcquireIndex = socketSource.indexOf("const lock = await acquireRadioChannel");
+assert.ok(
+  activeSocketGuardIndex > 0 && activeSocketGuardIndex < radioLockAcquireIndex,
+  "radio:start must reject sockets that already transmit before acquiring a channel lock"
+);
+
 console.log("backend architecture tests passed");
