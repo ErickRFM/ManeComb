@@ -251,13 +251,8 @@ export function RadioScreen() {
     return loadedVoiceNotes;
   }, [activeChannel, audioFilter, loadedVoiceNotes, user?.id]);
 
-  const ensureRadioHistoryLoaded = useCallback(async (channelId: string, options?: { force?: boolean }) => {
+  const ensureRadioHistoryLoaded = useCallback(async (channelId: string) => {
     if (!channelId) {
-      return;
-    }
-
-    const hasHistoryState = messagesByConversation[channelId] !== undefined;
-    if (!options?.force && hasHistoryState) {
       return;
     }
 
@@ -271,7 +266,7 @@ export function RadioScreen() {
     } finally {
       historyLoadInFlightRef.current.delete(channelId);
     }
-  }, [loadConversation, messagesByConversation]);
+  }, [loadConversation]);
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -590,7 +585,7 @@ export function RadioScreen() {
       ['disconnected', 'error', 'reconnecting'].includes(previousStatus);
     if (!recovered) return;
     radioChannels.forEach((channel) => {
-      ensureRadioHistoryLoaded(channel.id, { force: true }).catch(() => undefined);
+      ensureRadioHistoryLoaded(channel.id).catch(() => undefined);
     });
   }, [ensureRadioHistoryLoaded, radioChannels, socketStatus]);
 
