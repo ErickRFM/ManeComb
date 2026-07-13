@@ -177,12 +177,7 @@ function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[])
     vehicleId: vehicle.id,
     vehicleCode: vehicle.code,
     driverName: vehicle.driverName || 'Operador sin asignar',
-    routeName:
-      activeRoute?.name ||
-      getAssignedRouteLabel(normalizeAssignedRoute(vehicle.assignedRoute)) ||
-      vehicle.routeName ||
-      vehicle.routeCode ||
-      'Ruta sin asignar',
+    routeName: activeRoute?.name || getAssignedRouteLabel(normalizeAssignedRoute(vehicle.assignedRoute)) || 'Ruta sin asignar',
     departureAt,
     arrivalAt: latestLog?.arrivalAt || null,
     etaAt,
@@ -1408,7 +1403,7 @@ export function ChecklistScreen() {
           filterMode === 'all' ||
           (filterMode === 'active' && ['active', 'delayed'].includes(record.status)) ||
           (filterMode === 'completed' && record.status === 'completed') ||
-          (filterMode === 'routes' && Boolean(record.routeName || normalizeAssignedRoute(record.vehicle.assignedRoute)));
+          (filterMode === 'routes' && Boolean(normalizeAssignedRoute(record.vehicle.assignedRoute)));
 
         return matchesFilter;
       }),
@@ -1957,7 +1952,7 @@ export function ChecklistScreen() {
                     <View style={styles.timeBlock}>
                       <Text style={styles.timeLabel}>RUTA</Text>
                       <Text style={styles.timeValue} numberOfLines={1}>
-                        {record.vehicle.routeCode || record.routeName}
+                        {record.routeName}
                       </Text>
                     </View>
                   </View>

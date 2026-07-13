@@ -4,6 +4,8 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusPill } from '@/src/components/status-pill';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, Vehicle } from '@/src/types/app';
+import { getAssignedRouteLabel } from '@/src/utils/active-route';
+import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 import type { LocationStatusSnapshot } from '../types';
 import { mapStyles as styles } from '../map-styles';
 
@@ -33,13 +35,8 @@ function formatVehicleStatus(status?: string | null) {
 
 function formatRouteLabel(vehicle: Vehicle | null) {
   if (!vehicle) return 'Sin unidad';
-  if (vehicle.routeName && vehicle.routeCode) return `${vehicle.routeCode} - ${vehicle.routeName}`;
-  if (vehicle.routeName) return vehicle.routeName;
-  if (vehicle.routeCode) return vehicle.routeCode;
-  if (vehicle.assignedRoute?.originLabel && vehicle.assignedRoute?.destinationLabel) {
-    return `${vehicle.assignedRoute.originLabel} -> ${vehicle.assignedRoute.destinationLabel}`;
-  }
-  if (vehicle.assignedRoute?.destinationLabel) return vehicle.assignedRoute.destinationLabel;
+  const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
+  if (assignedRoute) return getAssignedRouteLabel(assignedRoute) || 'Ruta asignada';
   return 'Ruta no asignada';
 }
 

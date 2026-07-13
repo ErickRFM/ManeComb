@@ -10,6 +10,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
 import { getLocationStatus } from '@/src/utils/location-status';
+import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 import { BottomTrackingPanel } from './map/components/BottomTrackingPanel';
 import { FloatingControls } from './map/components/FloatingControls';
 import { MapCanvas } from './map/components/MapCanvas';
@@ -36,24 +37,24 @@ type MapGateState = {
 function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[]) {
   if (!vehicle) return [];
 
-  const routeKeys = new Set(
-    [vehicle.routeId, vehicle.route?.id, vehicle.routeCode].filter((value): value is string => Boolean(value))
-  );
-  const matchedRoutes = routes.filter((route) => routeKeys.has(route.id) || routeKeys.has(route.code));
-  if (matchedRoutes.length) return matchedRoutes;
+  const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
+  const routeId = String(vehicle.routeId || '').trim();
+  const matchedRoute = routeId ? routes.find((route) => route.id === routeId) : null;
 
-  if (vehicle.route?.polyline?.length) {
+  if (matchedRoute) return [matchedRoute];
+
+  if (routeId && vehicle.route?.id === routeId && vehicle.route.polyline?.length) {
     return [vehicle.route];
   }
 
-  if (vehicle.assignedRoute?.route?.polyline?.length) {
+  if (assignedRoute?.route?.polyline?.length) {
     return [
       {
-        id: vehicle.routeId || `assigned-route-${vehicle.id}`,
-        name: vehicle.routeName || vehicle.assignedRoute.route.label || 'Ruta asignada',
-        code: vehicle.routeCode || vehicle.code,
+        id: routeId || `assigned-route-${vehicle.id}`,
+        name: assignedRoute.route.label || 'Ruta asignada',
+        code: routeId || `assigned-${vehicle.id}`,
         color: vehicle.routeColor || '#1473E6',
-        polyline: vehicle.assignedRoute.route.polyline,
+        polyline: assignedRoute.route.polyline,
       },
     ];
   }
