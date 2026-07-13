@@ -2007,24 +2007,41 @@ async function createMongoStore() {
       UserModel.find().lean()
     ]);
 
-    const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
-    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+ const assignedRoute =
+  plain.assignedRoute &&
+  typeof plain.assignedRoute === "object"
+    ? plain.assignedRoute
+    : null;
 
-    return vehicles.map((vehicle) => {
-      const plain = serializeVehicle(vehicle);
-      const route = routeMap.get(plain.routeId);
-      const driver = userMap.get(plain.driverId);
+const route =
+  assignedRoute?.route ||
+  routeMap.get(plain.routeId) ||
+  null;
 
-      return {
-        ...plain,
-        routeName: route?.name || "Sin ruta",
-        routeCode: route?.code || "N/A",
-        routeColor: route?.color || "#8892b0",
-        driverName: driver?.name || "Pendiente asignacion"
-      };
-    });
-  }
+const driver = userMap.get(plain.driverId);
 
+return {
+  ...plain,
+  route,
+
+  routeName:
+    route?.name ||
+    assignedRoute?.route?.label ||
+    "Sin ruta",
+
+  routeCode:
+    route?.code ||
+    assignedRoute?.route?.name ||
+    "N/A",
+
+  routeColor:
+    route?.color ||
+    "#1473E6",
+
+  driverName:
+    driver?.name ||
+    "Pendiente asignacion"
+};
   async function getLiveLocations() {
     const [fleet, routes, incidents] = await Promise.all([
       getFleetSummary(),

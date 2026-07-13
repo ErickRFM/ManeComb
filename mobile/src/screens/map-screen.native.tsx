@@ -39,15 +39,39 @@ function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[])
 
   const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
   const routeId = String(vehicle.routeId || '').trim();
-  const matchedRoute = routeId ? routes.find((route) => route.id === routeId) : null;
 
-  if (matchedRoute) return [matchedRoute];
+  console.log('========== ROUTE DEBUG ==========');
+  console.log('Vehicle ID:', vehicle.id);
+  console.log('Vehicle routeId:', routeId);
+  console.log('Vehicle.route:', vehicle.route);
+  console.log('AssignedRoute:', assignedRoute);
+  console.log(
+    'Routes disponibles:',
+    routes.map((r) => ({
+      id: r.id,
+      name: r.name,
+      polyline: r.polyline?.length ?? 0,
+    })),
+  );
+
+  const matchedRoute = routeId
+    ? routes.find((route) => String(route.id).trim() === routeId)
+    : null;
+
+  console.log('Matched Route:', matchedRoute);
+
+  if (matchedRoute) {
+    console.log('>>> Se usó la ruta de mapData.routes');
+    return [matchedRoute];
+  }
 
   if (routeId && vehicle.route?.id === routeId && vehicle.route.polyline?.length) {
+    console.log('>>> Se usó vehicle.route');
     return [vehicle.route];
   }
 
   if (assignedRoute?.route?.polyline?.length) {
+    console.log('>>> Se usó assignedRoute.route');
     return [
       {
         id: routeId || `assigned-route-${vehicle.id}`,
@@ -59,9 +83,11 @@ function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[])
     ];
   }
 
+  console.log('>>> NO SE ENCONTRÓ NINGUNA RUTA');
+  console.log('================================');
+
   return [];
 }
-
 function getMapGateState({
   hasCoordinates,
   liveVehicleCount,
@@ -423,9 +449,23 @@ export function MapScreen() {
           onSelectorDragStart={() => selector.setSelectorPlan(null)}
           onSelectorPointDragEnd={selector.updateSelectorPoint}
           onVehiclePress={(vehicle) => {
-            setSelectedVehicleId(vehicle.id);
-            setFollowMode(true);
-          }}
+  setSelectedVehicleId(vehicle.id);
+  setFollowMode(true);
+
+  const routes = getSelectedVehicleRoutes(vehicle, mapData.routes);
+
+  if (routes.length > 0 && routes[0].polyline.length > 1) {
+    fitRoute({
+      coordinates: routes[0].polyline,
+      edgePadding: routeFitPadding,
+    });
+    return;
+  }
+
+  if (vehicle.locationTimestamp) {
+    focusPoint(vehicle.location);
+  }
+}}
           scaleBarPosition={{ left: 24, top: insets.top + 62 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}
@@ -490,7 +530,21 @@ export function MapScreen() {
               onSelectTrackingVehicle={(vehicle) => {
                 setSelectedVehicleId(vehicle.id);
                 setFollowMode(true);
-              }}
+
+              const routes = getSelectedVehicleRoutes(vehicle, mapData.routes);
+
+              if (routes.length > 0 && routes[0].polyline.length > 1) {
+                 fitRoute({
+                    coordinates: routes[0].polyline,
+                    edgePadding: routeFitPadding,
+                   });
+             return;
+             }
+
+             if (vehicle.locationTimestamp) {
+                focusPoint(vehicle.location);
+               }
+            }}
               selectedVehicle={selectedVehicle}
               trackingVehicles={visiblePanelVehicles}
             />
