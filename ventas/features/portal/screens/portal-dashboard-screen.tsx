@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router, useLocalSearchParams } from '@/src/navigation/router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocalSearchParams } from '@/src/navigation/router';
+import type { CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
@@ -32,6 +33,9 @@ type SessionDetail = {
   events: RouteEvent[];
   metrics: RouteSessionMetrics | null;
   positions: RouteSessionPosition[];
+  positionsLimit: number;
+  positionsOffset: number;
+  positionsTotal: number;
   visits: CheckpointVisit[];
 };
 
@@ -45,7 +49,17 @@ type Filters = {
 };
 
 const statusFilters = ['ALL', 'RUNNING', 'PAUSED', 'FINISHED', 'CANCELLED'] as const;
+const historyPageSize = 50;
+const replayPageSize = 800;
+const maxRenderedReplayPoints = 900;
 const replaySpeeds = [1, 2, 4] as const;
+const OperationsMap = lazy(() => import('../components/operations-map').then((module) => ({ default: module.OperationsMap })));
+const driverAvatarImageStyle: CSSProperties = {
+  borderRadius: 24,
+  height: 48,
+  objectFit: 'cover',
+  width: 48,
+};
 
 function getParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -111,17 +125,83 @@ function getDriverName(users: User[], driverId?: string | null, fallback?: strin
   return users.find((user) => user.id === driverId)?.name || fallback || 'Sin chofer';
 }
 
-function getRouteLabel(vehicle?: Vehicle | null, session?: RouteSession | null) {
-  return (
-    vehicle?.assignedRoute?.route?.label ||
-    vehicle?.assignedRoute?.destinationLabel ||
-    session?.routeId ||
-    'Sin ruta asignada'
-  );
+type RouteInfo = {
+  code: string;
+  direction: string;
+  label: string;
+  status: string;
+};
+
+type JourneyState = {
+  label: string;
+  tone: StatusBadgeTone;
+};
+
+function getDriverLicense(driver?: User | null) {
+  const extended = driver as (User & { driverLicense?: string | null; license?: string | null; licenseNumber?: string | null }) | null | undefined;
+  return extended?.licenseNumber || extended?.driverLicense || extended?.license || '';
 }
 
-function getLastUpdate(vehicle: Vehicle) {
-  return vehicle.updatedAt ? formatDate(vehicle.updatedAt, { fallback: 'Sin actualizacion' }) : 'Sin actualizacion';
+function getDriverInitials(driver?: User | null) {
+  return String(driver?.name || 'SC')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((chunk) => chunk[0]?.toUpperCase() || '')
+    .join('') || 'SC';
+}
+
+function getAssignedDrivers(users: User[], vehicle: Vehicle, activeSession?: RouteSession | null) {
+  const ids = new Set<string>();
+  if (vehicle.driverId) ids.add(vehicle.driverId);
+  if (vehicle.driver?.id) ids.add(vehicle.driver.id);
+  if (activeSession?.driverId) ids.add(activeSession.driverId);
+  users.forEach((user) => {
+    if (user.role === 'driver' && user.vehicleId === vehicle.id) ids.add(user.id);
+  });
+  return Array.from(ids)
+    .map((id) => users.find((user) => user.id === id) || (vehicle.driver?.id === id ? vehicle.driver : null))
+    .filter(Boolean) as User[];
+}
+
+function getActiveDriver(users: User[], vehicle: Vehicle, activeSession?: RouteSession | null) {
+  const activeDriverId = activeSession?.driverId || vehicle.driverId || vehicle.driver?.id || null;
+  return users.find((user) => user.id === activeDriverId) || vehicle.driver || null;
+}
+
+function getRouteInfo(vehicle?: Vehicle | null, session?: RouteSession | null): RouteInfo {
+  const assignedRoute = vehicle?.assignedRoute || null;
+  const route = assignedRoute?.route || null;
+  const routeCode = vehicle?.routeCode || vehicle?.routeId || session?.routeId || '';
+  const rawLabel = route?.label || vehicle?.routeName || assignedRoute?.destinationLabel || routeCode || 'Sin ruta asignada';
+  const label = /^sin ruta/i.test(String(rawLabel).trim()) ? 'Sin ruta asignada' : String(rawLabel);
+  const origin = assignedRoute?.originLabel || '';
+  const destination = assignedRoute?.destinationLabel || '';
+  const direction = origin && destination ? `${origin} -> ${destination}` : destination || origin || 'Sin sentido registrado';
+  const status =
+    session?.status === 'RUNNING'
+      ? 'En servicio'
+      : session?.status === 'PAUSED'
+        ? 'Pausada'
+        : session?.status === 'FINISHED'
+          ? 'Finalizada'
+          : assignedRoute
+            ? 'Asignada'
+            : 'Sin ruta';
+  return {
+    code: routeCode ? `Codigo ${routeCode}` : 'Sin codigo',
+    direction,
+    label: label === 'Sin ruta asignada' || label.startsWith('Ruta') ? label : `Ruta ${label}`,
+    status,
+  };
+}
+
+function getRouteLabel(vehicle?: Vehicle | null, session?: RouteSession | null) {
+  return getRouteInfo(vehicle, session).label;
+}
+
+function getLastGpsUpdate(vehicle: Vehicle) {
+  return vehicle.locationTimestamp ? formatDate(vehicle.locationTimestamp, { fallback: 'Sin GPS' }) : 'Sin GPS';
 }
 
 function getTimestamp(value?: string | null) {
@@ -133,32 +213,68 @@ function getSessionProductivity(session?: RouteSession | null) {
   return Number(session?.metrics?.effectiveTimePercent ?? 0);
 }
 
-function getPointFromVehicle(vehicle: Vehicle) {
-  const location = (vehicle as Vehicle & { location?: { latitude?: number; longitude?: number } | null }).location;
-  if (Number.isFinite(Number(location?.latitude)) && Number.isFinite(Number(location?.longitude))) {
-    return { latitude: Number(location?.latitude), longitude: Number(location?.longitude) };
-  }
-  if (vehicle.assignedRoute?.origin) return vehicle.assignedRoute.origin;
-  if (vehicle.assignedRoute?.destination) return vehicle.assignedRoute.destination;
-  return null;
+function getRouteProgressPercent(vehicle: Vehicle, session?: RouteSession | null) {
+  if (session?.status === 'FINISHED') return 100;
+  if (!session) return 0;
+  const progress = Number(vehicle.activeRouteProgress?.progressPercent);
+  return Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 }
 
-function normalizeMapPoints(vehicles: Vehicle[]) {
-  const points = vehicles.map((vehicle) => ({ vehicle, point: getPointFromVehicle(vehicle) })).filter((entry) => entry.point);
-  const latitudes = points.map((entry) => Number(entry.point?.latitude));
-  const longitudes = points.map((entry) => Number(entry.point?.longitude));
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLng = Math.min(...longitudes);
-  const maxLng = Math.max(...longitudes);
-  const latRange = Math.max(0.001, maxLat - minLat);
-  const lngRange = Math.max(0.001, maxLng - minLng);
+function getEtaLabel(vehicle: Vehicle) {
+  if (vehicle.activeRouteProgress?.etaAt) {
+    return formatDate(vehicle.activeRouteProgress.etaAt);
+  }
+  if (typeof vehicle.etaMinutes === 'number') {
+    return `${Math.max(0, Math.round(vehicle.etaMinutes))} min`;
+  }
+  return 'Sin ETA';
+}
 
-  return points.map(({ vehicle, point }) => ({
-    vehicle,
-    x: 8 + ((Number(point?.longitude) - minLng) / lngRange) * 84,
-    y: 8 + (1 - (Number(point?.latitude) - minLat) / latRange) * 84,
-  }));
+function getGpsState(vehicle: Vehicle, session?: RouteSession | null): { label: string; stale: boolean; tone: StatusBadgeTone } {
+  if (!vehicle.location || !vehicle.locationTimestamp) return { label: 'Sin GPS', stale: true, tone: 'warning' };
+  const ageMs = Date.now() - getTimestamp(vehicle.locationTimestamp);
+  if (Number.isFinite(ageMs) && ageMs > 120000 && session?.status !== 'FINISHED') {
+    return { label: 'GPS vencido', stale: true, tone: 'warning' };
+  }
+  if ((session?.gpsLostEvents || 0) > 0 && session?.status !== 'RUNNING') {
+    return { label: 'GPS con perdidas', stale: false, tone: 'warning' };
+  }
+  return { label: 'GPS actualizado', stale: false, tone: 'positive' };
+}
+
+function getJourneyState(vehicle: Vehicle, session?: RouteSession | null): JourneyState {
+  if (vehicle.activeRouteProgress?.isOffRoute) return { label: 'Fuera de ruta', tone: 'danger' };
+  if (getGpsState(vehicle, session).stale && session && session.status !== 'FINISHED') return { label: 'GPS perdido', tone: 'warning' };
+  if (!session) return { label: 'Esperando salida', tone: 'neutral' };
+  if (session.status === 'RUNNING') return { label: 'En ruta', tone: 'positive' };
+  if (session.status === 'PAUSED') return { label: 'Pausado', tone: 'warning' };
+  if (session.status === 'FINISHED') return { label: 'Finalizado', tone: 'info' };
+  return { label: session.status, tone: session.status === 'CANCELLED' ? 'danger' : 'neutral' };
+}
+
+function getRouteGeometry(vehicle?: Vehicle | null) {
+  if (!vehicle?.assignedRoute) return [];
+  const polyline = vehicle.assignedRoute.route?.polyline || [];
+  if (polyline.length >= 2) return polyline;
+  return [vehicle.assignedRoute.origin, vehicle.assignedRoute.destination].filter(Boolean) as { latitude: number; longitude: number }[];
+}
+
+function downsamplePositions(positions: RouteSessionPosition[], maxPoints = maxRenderedReplayPoints) {
+  if (positions.length <= maxPoints) return positions;
+  const step = Math.ceil(positions.length / maxPoints);
+  return positions.filter((_, index) => index % step === 0 || index === positions.length - 1);
+}
+
+function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
+  const alerts: { label: string; tone: StatusBadgeTone }[] = [];
+  const gps = getGpsState(vehicle, session);
+  if (vehicle.activeRouteProgress?.isOffRoute) alerts.push({ label: 'Fuera de ruta', tone: 'danger' });
+  if (gps.stale) alerts.push({ label: gps.label, tone: 'warning' });
+  if (session?.status === 'PAUSED') alerts.push({ label: 'Pausado', tone: 'warning' });
+  if (session && session.status !== 'FINISHED' && Number(vehicle.speed) <= 0.8 && Number(session.stoppedTime) > 300) {
+    alerts.push({ label: 'Detenido demasiado tiempo', tone: 'warning' });
+  }
+  return alerts;
 }
 
 function getTodaySessions(sessions: RouteSession[]) {
@@ -169,14 +285,22 @@ function getTodaySessions(sessions: RouteSession[]) {
 export function PortalDashboardScreen() {
   const params = useLocalSearchParams<{ vehicleId?: string | string[]; sessionId?: string | string[] }>();
   const {
+    isSubmitting,
+    lastRouteSessionUpdateId,
     loadUsers,
     loadVehicles,
+    routeSessionVersion,
+    updateUser,
     users,
     vehicles,
   } = useAppStore(
     useShallow((state) => ({
+      isSubmitting: state.isSubmitting,
+      lastRouteSessionUpdateId: state.lastRouteSessionUpdateId,
       loadUsers: state.loadUsers,
       loadVehicles: state.loadVehicles,
+      routeSessionVersion: state.routeSessionVersion,
+      updateUser: state.updateUser,
       users: state.users,
       vehicles: state.vehicles,
     }))
@@ -190,12 +314,18 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [history, setHistory] = useState<RouteSession[]>([]);
+  const [historyLimit, setHistoryLimit] = useState(historyPageSize);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [selectedVehicleId, setSelectedVehicleId] = useState(getParam(params.vehicleId) || '');
   const [selectedSessionId, setSelectedSessionId] = useState(getParam(params.sessionId) || '');
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isPositionsLoading, setIsPositionsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [driverSelectorVehicleId, setDriverSelectorVehicleId] = useState<string | null>(null);
+  const [driverChangeMessage, setDriverChangeMessage] = useState<string | null>(null);
+  const [routeFocusVehicleId, setRouteFocusVehicleId] = useState<string | null>(getParam(params.vehicleId) || null);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState<(typeof replaySpeeds)[number]>(1);
@@ -206,12 +336,22 @@ export function PortalDashboardScreen() {
     void loadVehicles();
   }, [loadUsers, loadVehicles]);
 
-  const loadHistory = async () => {
+  const loadHistory = async ({ append = false } = {}) => {
     setIsLoading(true);
     setMessage(null);
     try {
-      const sessions = await getRouteSessionHistoryRequest({ limit: 500 });
-      setHistory(sessions);
+      const offset = append ? history.length : 0;
+      const result = await getRouteSessionHistoryRequest({
+        driverId: filters.driverId || undefined,
+        limit: historyPageSize,
+        offset,
+        routeId: filters.routeId || undefined,
+        status: filters.status !== 'ALL' ? filters.status as RouteSession['status'] : undefined,
+        vehicleId: filters.vehicleId || undefined,
+      });
+      setHistory((current) => (append ? [...current, ...result.items] : result.items));
+      setHistoryLimit(result.limit);
+      setHistoryTotal(result.total);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No fue posible cargar jornadas.');
     } finally {
@@ -221,7 +361,12 @@ export function PortalDashboardScreen() {
 
   useEffect(() => {
     void loadHistory();
-  }, []);
+  }, [filters.driverId, filters.routeId, filters.status, filters.vehicleId, routeSessionVersion]);
+
+  useEffect(() => {
+    if (!lastRouteSessionUpdateId) return;
+    detailCache.current.delete(lastRouteSessionUpdateId);
+  }, [lastRouteSessionUpdateId]);
 
   const sessionsByVehicle = useMemo(() => {
     const map = new Map<string, RouteSession[]>();
@@ -285,8 +430,11 @@ export function PortalDashboardScreen() {
       });
   }, [filters, history]);
 
-  const mapPoints = useMemo(() => normalizeMapPoints(vehicles), [vehicles]);
+  const routeFocusVehicle = vehicles.find((vehicle) => vehicle.id === routeFocusVehicleId) || selectedVehicle;
+  const routeCoordinates = useMemo(() => getRouteGeometry(routeFocusVehicle), [routeFocusVehicle]);
+  const routeCheckpoints = routeFocusVehicle?.assignedRoute?.stops || [];
   const replayPosition = sessionDetail?.positions[replayIndex] || null;
+  const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
 
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
@@ -295,6 +443,28 @@ export function PortalDashboardScreen() {
     if (session) {
       void openSession(session);
     }
+  };
+
+  const showRoute = (vehicle: Vehicle) => {
+    setRouteFocusVehicleId(vehicle.id);
+    openVehicle(vehicle);
+  };
+
+  const changeDriver = async (vehicle: Vehicle, driver: User) => {
+    const currentDriver = getActiveDriver(users, vehicle, sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null);
+    if (currentDriver?.id === driver.id) {
+      setDriverChangeMessage(`${driver.name} ya es el chofer activo.`);
+      return;
+    }
+    setDriverChangeMessage(null);
+    const result = await updateUser(driver.id, { vehicleId: vehicle.id });
+    if (!result.ok) {
+      setDriverChangeMessage(result.message || 'No fue posible cambiar el chofer.');
+      return;
+    }
+    await Promise.all([loadUsers(), loadVehicles(), loadHistory()]);
+    setDriverSelectorVehicleId(null);
+    setDriverChangeMessage(`Chofer activo actualizado: ${driver.name}.`);
   };
 
   const openSession = async (session: RouteSession) => {
@@ -309,13 +479,21 @@ export function PortalDashboardScreen() {
     setIsDetailLoading(true);
     setMessage(null);
     try {
-      const [metrics, events, visits, positions] = await Promise.all([
+      const [metrics, events, visits, positionsResult] = await Promise.all([
         getRouteSessionMetricsRequest(session.id),
         getRouteSessionEventsRequest(session.id, { limit: 5000 }),
         getRouteSessionCheckpointVisitsRequest(session.id, 5000),
-        getRouteSessionPositionsRequest(session.id, 50000),
+        getRouteSessionPositionsRequest(session.id, { limit: replayPageSize, offset: 0 }),
       ]);
-      const detail = { metrics, events, visits, positions };
+      const detail = {
+        metrics,
+        events,
+        positions: positionsResult.items,
+        positionsLimit: positionsResult.limit,
+        positionsOffset: positionsResult.items.length,
+        positionsTotal: positionsResult.total,
+        visits,
+      };
       detailCache.current.set(session.id, detail);
       setSessionDetail(detail);
     } catch (error) {
@@ -323,6 +501,30 @@ export function PortalDashboardScreen() {
       setSessionDetail(null);
     } finally {
       setIsDetailLoading(false);
+    }
+  };
+
+  const loadMorePositions = async () => {
+    if (!selectedSession || !sessionDetail || sessionDetail.positionsOffset >= sessionDetail.positionsTotal || isPositionsLoading) return;
+    setIsPositionsLoading(true);
+    try {
+      const result = await getRouteSessionPositionsRequest(selectedSession.id, {
+        limit: replayPageSize,
+        offset: sessionDetail.positionsOffset,
+      });
+      const nextDetail = {
+        ...sessionDetail,
+        positions: [...sessionDetail.positions, ...result.items],
+        positionsLimit: result.limit,
+        positionsOffset: sessionDetail.positionsOffset + result.items.length,
+        positionsTotal: result.total,
+      };
+      detailCache.current.set(selectedSession.id, nextDetail);
+      setSessionDetail(nextDetail);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No fue posible cargar mas posiciones.');
+    } finally {
+      setIsPositionsLoading(false);
     }
   };
 
@@ -346,6 +548,13 @@ export function PortalDashboardScreen() {
     }, Math.max(180, 900 / replaySpeed));
     return () => window.clearInterval(timer);
   }, [replayPlaying, replaySpeed, sessionDetail?.positions.length]);
+
+  useEffect(() => {
+    if (!replayPlaying || !sessionDetail || sessionDetail.positionsOffset >= sessionDetail.positionsTotal) return;
+    if (replayIndex >= sessionDetail.positions.length - 80) {
+      void loadMorePositions();
+    }
+  }, [replayIndex, replayPlaying, sessionDetail?.positions.length, sessionDetail?.positionsOffset, sessionDetail?.positionsTotal]);
 
   const setFilter = <T extends keyof Filters>(field: T, value: Filters[T]) => {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -379,28 +588,15 @@ export function PortalDashboardScreen() {
 
       <View style={styles.operationsGrid}>
         <PortalSectionCard title="Mapa operativo" subtitle="Posicion real disponible por unidad y ruta asignada.">
-          <View style={styles.mapBox}>
-            <View style={styles.mapGrid} pointerEvents="none" />
-            {selectedVehicle?.assignedRoute?.origin && selectedVehicle.assignedRoute.destination ? <View style={styles.routeLine} /> : null}
-            {mapPoints.length ? (
-              mapPoints.map(({ vehicle, x, y }) => {
-                const active = vehicle.id === selectedVehicle?.id;
-                return (
-                  <Pressable
-                    key={vehicle.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Seleccionar unidad ${vehicle.code}`}
-                    onPress={() => openVehicle(vehicle)}
-                    style={[styles.mapPin, active ? styles.mapPinActive : undefined, { left: `${x}%`, top: `${y}%` }]}>
-                    <MaterialCommunityIcons name="bus" size={16} color="#FFFFFF" />
-                    <Text style={styles.mapPinText}>{vehicle.code}</Text>
-                  </Pressable>
-                );
-              })
-            ) : (
-              <EmptyState icon="map-marker-off-outline" title="Sin ubicaciones reales" description="Las unidades apareceran cuando reporten ubicacion o tengan ruta asignada." />
-            )}
-          </View>
+          <Suspense fallback={<MapFallback />}>
+            <OperationsMap
+              checkpoints={routeCheckpoints}
+              onVehiclePress={openVehicle}
+              routeCoordinates={routeCoordinates}
+              selectedVehicleId={selectedVehicle?.id}
+              vehicles={vehicles}
+            />
+          </Suspense>
         </PortalSectionCard>
 
         <PortalSectionCard title="Unidades" subtitle={`${vehicles.length} unidades registradas`}>
@@ -419,8 +615,11 @@ export function PortalDashboardScreen() {
                     setSelectedVehicleId(vehicle.id);
                     setFilter('vehicleId', vehicle.id);
                   }}
-                  onRoute={() => router.push('/portal/rutas' as never)}
-                  onDriver={() => router.push('/portal/usuarios' as never)}
+                  onRoute={() => showRoute(vehicle)}
+                  onDriver={() => {
+                    setSelectedVehicleId(vehicle.id);
+                    setDriverSelectorVehicleId(vehicle.id);
+                  }}
                 />
               ))}
             </View>
@@ -438,7 +637,16 @@ export function PortalDashboardScreen() {
               latestSession={latestSession}
               users={users}
               vehicle={selectedVehicle}
+              driverChangeMessage={driverChangeMessage}
+              driverSelectorOpen={driverSelectorVehicleId === selectedVehicle.id}
+              isChangingDriver={isSubmitting}
+              onChangeDriver={(driver) => void changeDriver(selectedVehicle, driver)}
+              onCloseDriverSelector={() => setDriverSelectorVehicleId(null)}
+              onDriverSelectorOpen={() => setDriverSelectorVehicleId(selectedVehicle.id)}
+              onHistory={() => setFilter('vehicleId', selectedVehicle.id)}
               onOpenSession={(session) => void openSession(session)}
+              onRoute={() => showRoute(selectedVehicle)}
+              onCenter={() => openVehicle(selectedVehicle)}
             />
           ) : (
             <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrara estado, ruta, metricas y jornada activa." />
@@ -447,9 +655,12 @@ export function PortalDashboardScreen() {
 
         <PortalSectionCard title="Historial de jornadas" subtitle="Ordenado y filtrado con metricas persistidas.">
           <HistoryFilters filters={filters} sessions={history} users={users} vehicles={vehicles} onChange={setFilter} />
+          <Text style={styles.unitMeta}>
+            Mostrando {history.length} de {historyTotal || history.length} jornadas. Pagina de {historyLimit}.
+          </Text>
           {filteredSessions.length ? (
             <View style={styles.historyList}>
-              {filteredSessions.slice(0, 40).map((session) => (
+              {filteredSessions.map((session) => (
                 <SessionHistoryCard
                   key={session.id}
                   active={session.id === selectedSessionId}
@@ -460,6 +671,11 @@ export function PortalDashboardScreen() {
                   onOpen={() => void openSession(session)}
                 />
               ))}
+              {history.length < historyTotal ? (
+                <Pressable accessibilityRole="button" onPress={() => void loadHistory({ append: true })} style={styles.secondaryButton}>
+                  <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar mas (${historyTotal - history.length})`}</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <EmptyState icon="history" title="Sin jornadas" description="Ajusta filtros o espera a que existan jornadas finalizadas." />
@@ -475,7 +691,10 @@ export function PortalDashboardScreen() {
           <SessionDetailView
             detail={sessionDetail}
             isLoading={isDetailLoading}
+            isPositionsLoading={isPositionsLoading}
+            onLoadMorePositions={() => void loadMorePositions()}
             replayIndex={replayIndex}
+            replayPath={replayPath}
             replayPlaying={replayPlaying}
             replayPosition={replayPosition}
             replaySpeed={replaySpeed}
@@ -518,6 +737,12 @@ function OperationalUnitCard({
   vehicle: Vehicle;
 }) {
   const status = getVehicleStatus(vehicle, activeSession);
+  const routeInfo = getRouteInfo(vehicle, activeSession || latestSession);
+  const journeyState = getJourneyState(vehicle, activeSession || latestSession);
+  const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
+  const activeDriver = getActiveDriver(users, vehicle, activeSession);
+  const progress = getRouteProgressPercent(vehicle, activeSession || latestSession);
+  const alerts = getOperationalAlerts(vehicle, activeSession || latestSession);
   return (
     <View style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
       <View style={styles.unitHeader}>
@@ -527,20 +752,36 @@ function OperationalUnitCard({
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
       </View>
+      {alerts.length ? (
+        <View style={styles.alertRow}>
+          {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
+        </View>
+      ) : null}
+      <View style={styles.routeSummary}>
+        <View style={styles.routeIcon}>
+          <MaterialCommunityIcons name="routes" size={18} color="#FFFFFF" />
+        </View>
+        <View style={styles.flex}>
+          <Text style={styles.routeTitle} numberOfLines={1}>{routeInfo.label}</Text>
+          <Text style={styles.unitMeta} numberOfLines={1}>{routeInfo.direction}</Text>
+          <Text style={styles.unitMeta}>{routeInfo.code} / {routeInfo.status}</Text>
+        </View>
+      </View>
+      <ProgressBar value={progress} />
       <View style={styles.unitFacts}>
-        <Fact label="Chofer" value={getDriverName(users, vehicle.driverId, vehicle.driverName)} />
-        <Fact label="Ruta" value={getRouteLabel(vehicle, latestSession)} />
+        <Fact label="Chofer activo" value={activeDriver?.name || vehicle.driverName || 'Sin chofer'} />
+        <Fact label="Choferes" value={assignedDrivers.length > 1 ? `${assignedDrivers.length} asignados` : assignedDrivers[0]?.name || 'Sin asignacion'} />
         <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada'} />
-        <Fact label="Actualizacion" value={getLastUpdate(vehicle)} />
-        <Fact label="Velocidad" value={formatSpeed((vehicle as Vehicle & { speed?: number }).speed)} />
-        <Fact label="GPS" value={(vehicle as Vehicle & { location?: unknown }).location ? 'Con posicion' : 'Sin posicion'} />
-        <Fact label="Jornada" value={activeSession?.status || latestSession?.status || 'Sin historial'} />
+        <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
+        <Fact label="Avance" value={`${progress}%`} />
+        <Fact label="Jornada" value={journeyState.label} />
+        <Fact label="GPS" value={vehicle.location ? getLastGpsUpdate(vehicle) : 'Sin posicion'} />
       </View>
       <View style={styles.quickActions}>
         <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
         <QuickAction icon="history" label="Historial" onPress={onHistory} />
-        <QuickAction icon="account-switch-outline" label="Chofer" onPress={onDriver} />
-        <QuickAction icon="crosshairs-gps" label="Centrar" onPress={onCenter} />
+        <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriver} />
+        <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
       </View>
     </View>
   );
@@ -548,33 +789,119 @@ function OperationalUnitCard({
 
 function VehicleSidePanel({
   activeSession,
+  driverChangeMessage,
+  driverSelectorOpen,
+  isChangingDriver,
   latestSession,
+  onCenter,
+  onChangeDriver,
+  onCloseDriverSelector,
+  onDriverSelectorOpen,
+  onHistory,
   onOpenSession,
+  onRoute,
   users,
   vehicle,
 }: {
   activeSession: RouteSession | null;
+  driverChangeMessage: string | null;
+  driverSelectorOpen: boolean;
+  isChangingDriver: boolean;
   latestSession: RouteSession | null;
+  onCenter: () => void;
+  onChangeDriver: (driver: User) => void;
+  onCloseDriverSelector: () => void;
+  onDriverSelectorOpen: () => void;
+  onHistory: () => void;
   onOpenSession: (session: RouteSession) => void;
+  onRoute: () => void;
   users: User[];
   vehicle: Vehicle;
 }) {
   const session = activeSession || latestSession;
+  const activeDriver = getActiveDriver(users, vehicle, activeSession);
+  const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
+  const routeInfo = getRouteInfo(vehicle, session);
+  const journeyState = getJourneyState(vehicle, session);
+  const progress = getRouteProgressPercent(vehicle, session);
+  const alerts = getOperationalAlerts(vehicle, session);
   return (
     <View style={styles.sidePanel}>
       <View style={styles.sideHeader}>
         <MaterialCommunityIcons name="bus" size={24} color={portalPalette.accent} />
         <View style={styles.flex}>
           <Text style={styles.sideTitle}>{vehicle.code}</Text>
-          <Text style={styles.sideMeta}>{getDriverName(users, vehicle.driverId, vehicle.driverName)}</Text>
+          <Text style={styles.sideMeta}>{routeInfo.label} / {vehicle.plate}</Text>
         </View>
-        <StatusBadge label={getVehicleStatus(vehicle, activeSession).label} tone={getVehicleStatus(vehicle, activeSession).tone} />
+        <StatusBadge label={journeyState.label} tone={journeyState.tone} />
+      </View>
+      {alerts.length ? (
+        <View style={styles.alertRow}>
+          {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
+        </View>
+      ) : null}
+      <View style={styles.routeSummaryLarge}>
+        <View style={styles.routeIcon}>
+          <MaterialCommunityIcons name="map-marker-path" size={18} color="#FFFFFF" />
+        </View>
+        <View style={styles.flex}>
+          <Text style={styles.routeTitle}>{routeInfo.label}</Text>
+          <Text style={styles.unitMeta}>{routeInfo.code}</Text>
+          <Text style={styles.unitMeta}>{routeInfo.direction}</Text>
+          <Text style={styles.unitMeta}>{routeInfo.status}</Text>
+        </View>
+      </View>
+      <ProgressBar value={progress} />
+      <View style={styles.sideHighlightRow}>
+        <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
+        <Fact label="Avance" value={`${progress}%`} />
+        <Fact label="ETA" value={getEtaLabel(vehicle)} />
+      </View>
+      <DriverProfile driver={activeDriver} title="Chofer actual" />
+      <View style={styles.assignedDriversPanel}>
+        <View style={styles.inlineHeader}>
+          <Text style={styles.panelTitle}>Choferes asignados ({assignedDrivers.length})</Text>
+          {driverSelectorOpen ? (
+            <Pressable accessibilityRole="button" onPress={onCloseDriverSelector} style={styles.iconButton}>
+              <MaterialCommunityIcons name="close" size={16} color={portalPalette.text} />
+            </Pressable>
+          ) : null}
+        </View>
+        {assignedDrivers.length ? assignedDrivers.map((driver) => (
+          <View key={driver.id} style={styles.driverRow}>
+            <Text style={styles.driverRowText} numberOfLines={1}>
+              {driver.name}{driver.id === activeDriver?.id ? ' - Activo' : ''}
+            </Text>
+            <StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />
+          </View>
+        )) : (
+          <Text style={styles.unitMeta}>No hay choferes asignados a esta unidad.</Text>
+        )}
+        {driverSelectorOpen ? (
+          <View style={styles.driverSelector}>
+            {assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).length ? (
+              assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).map((driver) => (
+                <Pressable
+                  key={driver.id}
+                  accessibilityRole="button"
+                  disabled={isChangingDriver}
+                  onPress={() => onChangeDriver(driver)}
+                  style={[styles.driverOption, isChangingDriver ? styles.disabledAction : undefined]}>
+                  <Text style={styles.driverRowText}>{driver.name}</Text>
+                  <MaterialCommunityIcons name="check-circle-outline" size={16} color={portalPalette.accent} />
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.unitMeta}>No hay otro chofer asignado disponible para esta unidad.</Text>
+            )}
+          </View>
+        ) : null}
+        {driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
       </View>
       <View style={styles.metricGrid}>
-        <Fact label="Ruta" value={getRouteLabel(vehicle, session)} />
         <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
         <Fact label="Distancia" value={formatDistance(session?.totalDistance)} />
-        <Fact label="Velocidad" value={formatSpeed((vehicle as Vehicle & { speed?: number }).speed)} />
+        <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
         <Fact label="Checkpoints" value={String(session?.completedCheckpoints ?? 0)} />
         <Fact label="Vueltas" value={String(session?.completedLaps ?? 0)} />
         <Fact label="Detenido" value={formatDuration(session?.stoppedTime)} />
@@ -588,6 +915,57 @@ function VehicleSidePanel({
           <MaterialCommunityIcons name="arrow-right" size={17} color="#FFFFFF" />
         </Pressable>
       ) : null}
+      <View style={styles.quickActions}>
+        <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
+        <QuickAction icon="history" label="Historial" onPress={onHistory} />
+        <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriverSelectorOpen} />
+        <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
+      </View>
+    </View>
+  );
+}
+
+function DriverProfile({ driver, title }: { driver: User | null; title: string }) {
+  const photo = driver?.avatarUrl || driver?.avatar || '';
+  const license = getDriverLicense(driver);
+  return (
+    <View style={styles.driverProfile}>
+      {photo ? (
+        <img src={photo} alt={driver?.name || 'Chofer'} style={driverAvatarImageStyle} />
+      ) : (
+        <View style={styles.driverAvatar}>
+          <Text style={styles.driverAvatarText}>{getDriverInitials(driver)}</Text>
+        </View>
+      )}
+      <View style={styles.flex}>
+        <Text style={styles.factLabel}>{title}</Text>
+        <Text style={styles.driverName} numberOfLines={1}>{driver?.name || 'Sin chofer activo'}</Text>
+        <Text style={styles.unitMeta}>{driver?.phone || 'Sin telefono'}</Text>
+        <Text style={styles.unitMeta}>{driver?.status || driver?.userStatus || 'Sin estado'}{license ? ` / Lic. ${license}` : ''}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ProgressBar({ value }: { value: number }) {
+  const progress = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <View style={styles.progressBlock}>
+      <View style={styles.inlineHeader}>
+        <Text style={styles.factLabel}>Avance de ruta</Text>
+        <Text style={styles.progressValue}>{progress}%</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${progress}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+function MapFallback({ height = 410 }: { height?: number }) {
+  return (
+    <View style={[styles.mapFallback, { minHeight: height }]}>
+      <Text style={styles.loadingText}>Cargando mapa...</Text>
     </View>
   );
 }
@@ -695,11 +1073,14 @@ function SessionHistoryCard({
 function SessionDetailView({
   detail,
   isLoading,
+  isPositionsLoading,
   onEventSelect,
+  onLoadMorePositions,
   onReplayIndexChange,
   onReplayPlayingChange,
   onReplaySpeedChange,
   replayIndex,
+  replayPath,
   replayPlaying,
   replayPosition,
   replaySpeed,
@@ -707,11 +1088,14 @@ function SessionDetailView({
 }: {
   detail: SessionDetail | null;
   isLoading: boolean;
+  isPositionsLoading: boolean;
   onEventSelect: (event: RouteEvent) => void;
+  onLoadMorePositions: () => void;
   onReplayIndexChange: (index: number) => void;
   onReplayPlayingChange: (playing: boolean) => void;
   onReplaySpeedChange: (speed: (typeof replaySpeeds)[number]) => void;
   replayIndex: number;
+  replayPath: RouteSessionPosition[];
   replayPlaying: boolean;
   replayPosition: RouteSessionPosition | null;
   replaySpeed: (typeof replaySpeeds)[number];
@@ -725,6 +1109,7 @@ function SessionDetailView({
   }
   const maxIndex = Math.max(0, detail.positions.length - 1);
   const currentVisit = detail.visits.find((visit) => getTimestamp(visit.timestamp) <= getTimestamp(replayPosition?.timestamp));
+  const hasMorePositions = detail.positionsOffset < detail.positionsTotal;
   return (
     <View style={styles.sessionDetail}>
       <View style={styles.summaryGrid}>
@@ -735,14 +1120,15 @@ function SessionDetailView({
       </View>
       <View style={styles.operationsGrid}>
         <View style={styles.replayPanel}>
-          <View style={styles.replayMap}>
-            <View style={styles.mapGrid} pointerEvents="none" />
-            {replayPosition ? (
-              <View style={[styles.replayMarker, { left: `${Math.min(92, Math.max(8, 8 + (replayIndex / Math.max(1, maxIndex)) * 84))}%`, top: '48%' }]}>
-                <MaterialCommunityIcons name="bus" size={18} color="#FFFFFF" />
-              </View>
-            ) : null}
-          </View>
+          <Suspense fallback={<MapFallback height={250} />}>
+            <OperationsMap
+              height={250}
+              replayPath={replayPath}
+              replayPosition={replayPosition}
+              routeCoordinates={replayPath.map((position) => ({ latitude: position.latitude, longitude: position.longitude }))}
+              vehicles={[]}
+            />
+          </Suspense>
           <View style={styles.replayControls}>
             <QuickAction icon={replayPlaying ? 'pause' : 'play'} label={replayPlaying ? 'Pause' : 'Play'} onPress={() => onReplayPlayingChange(!replayPlaying)} />
             {replaySpeeds.map((speed) => (
@@ -761,12 +1147,18 @@ function SessionDetailView({
             <Pressable onPress={() => onReplayIndexChange(Math.min(maxIndex, replayIndex + 1))} style={styles.secondaryButton}>
               <Text style={styles.secondaryText}>Siguiente</Text>
             </Pressable>
+            {hasMorePositions ? (
+              <Pressable onPress={onLoadMorePositions} style={styles.secondaryButton}>
+                <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar mas posiciones'}</Text>
+              </Pressable>
+            ) : null}
           </View>
           <View style={styles.metricGrid}>
             <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posicion'} />
             <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
             <Fact label="Checkpoint" value={currentVisit?.checkpointId || 'Sin checkpoint'} />
             <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
+            <Fact label="Posiciones" value={`${detail.positions.length} / ${detail.positionsTotal || detail.positions.length}`} />
           </View>
         </View>
 
@@ -862,6 +1254,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  alertRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   compactRow: {
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.xs,
@@ -875,12 +1272,85 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  assignedDriversPanel: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    gap: 8,
+    padding: 12,
+  },
   detailGrid: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: AppTheme.spacing.md,
     minWidth: 0,
+  },
+  disabledAction: {
+    opacity: 0.55,
+  },
+  driverAvatar: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.infoSoft,
+    borderColor: portalPalette.info,
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  driverAvatarText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  driverName: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  driverOption: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 38,
+    paddingHorizontal: 10,
+  },
+  driverProfile: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 12,
+  },
+  driverRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minWidth: 0,
+  },
+  driverRowText: {
+    color: portalPalette.text,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+    minWidth: 0,
+  },
+  driverSelector: {
+    gap: 8,
   },
   fact: {
     backgroundColor: portalPalette.surfaceSoft,
@@ -951,6 +1421,23 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
+  iconButton: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  inlineHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minWidth: 0,
+  },
   historyCard: {
     backgroundColor: portalPalette.surface,
     borderColor: portalPalette.line,
@@ -976,41 +1463,14 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 14,
   },
-  mapBox: {
+  mapFallback: {
+    alignItems: 'center',
     backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    minHeight: 410,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  mapGrid: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: portalPalette.surfaceSoft,
-    opacity: 0.96,
-  },
-  mapPin: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.info,
-    borderColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 2,
-    flexDirection: 'row',
-    gap: 4,
-    minHeight: 32,
-    paddingHorizontal: 8,
-    position: 'absolute',
-  },
-  mapPinActive: {
-    backgroundColor: portalPalette.accent,
-    transform: [{ scale: 1.05 }],
-  },
-  mapPinText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '900',
+    justifyContent: 'center',
+    padding: 18,
   },
   metricGrid: {
     flexDirection: 'row',
@@ -1034,6 +1494,12 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 13,
     minWidth: 0,
+  },
+  noticeInline: {
+    color: portalPalette.warning,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
   },
   operationsGrid: {
     alignItems: 'flex-start',
@@ -1069,6 +1535,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  progressBlock: {
+    gap: 6,
+  },
+  progressFill: {
+    backgroundColor: portalPalette.accent,
+    borderRadius: 999,
+    height: '100%',
+  },
+  progressTrack: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 10,
+    overflow: 'hidden',
+  },
+  progressValue: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   quickAction: {
     alignItems: 'center',
     backgroundColor: portalPalette.surfaceSoft,
@@ -1096,26 +1584,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
-  replayMap: {
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    minHeight: 250,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  replayMarker: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.accent,
-    borderColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 2,
-    height: 36,
-    justifyContent: 'center',
-    position: 'absolute',
-    width: 36,
-  },
   replayPanel: {
     flex: 1.2,
     flexBasis: 430,
@@ -1127,15 +1595,39 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
-  routeLine: {
+  routeIcon: {
+    alignItems: 'center',
     backgroundColor: portalPalette.accent,
-    height: 3,
-    left: '14%',
-    opacity: 0.75,
-    position: 'absolute',
-    top: '52%',
-    transform: [{ rotate: '-12deg' }],
-    width: '68%',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  routeSummary: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 10,
+  },
+  routeSummaryLarge: {
+    alignItems: 'flex-start',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 12,
+  },
+  routeTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
   },
   secondaryButton: {
     alignItems: 'center',
@@ -1188,6 +1680,12 @@ const styles = StyleSheet.create({
   sidePanel: {
     gap: 12,
   },
+  sideHighlightRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minWidth: 0,
+  },
   sideTitle: {
     color: portalPalette.text,
     fontFamily: Typography.display,
@@ -1238,10 +1736,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 13,
     fontWeight: '900',
-  },
-  unitBody: {
-    flex: 1,
-    minWidth: 0,
   },
   unitCard: {
     backgroundColor: portalPalette.surface,

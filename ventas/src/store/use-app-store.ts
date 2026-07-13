@@ -50,6 +50,8 @@ type AppState = {
   token: string | null;
   refreshToken: string | null;
   socketStatus: SocketStatus;
+  routeSessionVersion: number;
+  lastRouteSessionUpdateId: string | null;
   themeMode: ThemeMode;
   isHydrated: boolean;
   isBootstrapping: boolean;
@@ -79,6 +81,22 @@ type AppState = {
 
 let socket: Socket | null = null;
 let socketSessionKey: string | null = null;
+
+function extractVehicleFromRealtimePayload(payload: unknown): Vehicle | null {
+  const candidate = (payload && typeof payload === 'object' && 'vehicle' in payload ? (payload as { vehicle?: unknown }).vehicle : payload) as Vehicle | null;
+  return candidate && typeof candidate === 'object' && typeof candidate.id === 'string' ? candidate : null;
+}
+
+function upsertRealtimeVehicle(vehicle: Vehicle) {
+  useAppStore.setState((state) => {
+    const exists = state.vehicles.some((entry) => entry.id === vehicle.id);
+    return {
+      vehicles: exists
+        ? state.vehicles.map((entry) => (entry.id === vehicle.id ? { ...entry, ...vehicle } : entry))
+        : [vehicle, ...state.vehicles],
+    };
+  });
+}
 
 function getStoredItem(key: string) {
   if (typeof window === 'undefined') {
@@ -224,6 +242,7 @@ function connectSocket(get: () => AppState) {
     'vehicle:created',
     'vehicle:updated',
     'location:updated',
+    'route-session:updated',
   ].forEach((eventName) => {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
@@ -234,7 +253,20 @@ function connectSocket(get: () => AppState) {
       }
 
       if (eventName === 'vehicle:created' || eventName === 'vehicle:updated' || eventName === 'location:updated') {
-        void useAppStore.getState().loadVehicles();
+        const vehicle = extractVehicleFromRealtimePayload(payload);
+        if (vehicle) {
+          upsertRealtimeVehicle(vehicle);
+        } else {
+          void useAppStore.getState().loadVehicles();
+        }
+      }
+
+      if (eventName === 'route-session:updated') {
+        const sessionId = payload && typeof payload === 'object' && 'id' in payload ? String((payload as { id?: unknown }).id || '') : null;
+        useAppStore.setState((state) => ({
+          lastRouteSessionUpdateId: sessionId || null,
+          routeSessionVersion: state.routeSessionVersion + 1,
+        }));
       }
     });
   });
@@ -253,6 +285,8 @@ async function clearSession(set: (partial: Partial<AppState>) => void) {
     user: null,
     users: [],
     vehicles: [],
+    lastRouteSessionUpdateId: null,
+    routeSessionVersion: 0,
   });
 }
 
@@ -261,6 +295,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   token: null,
   refreshToken: null,
   socketStatus: 'idle',
+  lastRouteSessionUpdateId: null,
+  routeSessionVersion: 0,
   themeMode: 'dark',
   isHydrated: false,
   isBootstrapping: true,

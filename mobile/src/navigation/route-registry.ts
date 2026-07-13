@@ -1,3 +1,7 @@
+import type { Role } from '@/src/types/app';
+
+export const DIRECTORY_ALLOWED_ROLES: Role[] = ['admin', 'supervisor'];
+
 export const MODULE_ROUTE_NAMES = {
   map: '__module/map',
   incidents: '__module/incidents',
@@ -14,12 +18,13 @@ export type ModuleRouteName = (typeof MODULE_ROUTE_NAMES)[ModuleKey];
 export type RouteDefinition = {
   module: ModuleKey;
   root: string;
+  allowedRoles?: Role[];
 };
 
 const moduleRoutes: Record<string, RouteDefinition> = {
   '/mapa': { module: 'map', root: '/mapa' },
   '/incidencias': { module: 'incidents', root: '/incidencias' },
-  '/usuarios': { module: 'users', root: '/usuarios' },
+  '/usuarios': { module: 'users', root: '/usuarios', allowedRoles: DIRECTORY_ALLOWED_ROLES },
   '/chat': { module: 'chat', root: '/chat' },
   '/radio': { module: 'radio', root: '/radio' },
   '/checklist': { module: 'checklist', root: '/checklist' },
@@ -40,3 +45,7 @@ export function isModuleRoot(routeName: string) {
   return definition?.root === routeName;
 }
 
+export function canRoleAccessRoute(routeName: string, role: Role) {
+  const definition = getRouteDefinition(routeName);
+  return Boolean(definition && (!definition.allowedRoles || definition.allowedRoles.includes(role)));
+}

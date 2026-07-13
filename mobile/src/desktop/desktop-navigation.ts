@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { Role } from '@/src/types/app';
+import { DIRECTORY_ALLOWED_ROLES } from '@/src/navigation/route-registry';
 
 export type AppSectionKey =
   | 'mapa'
@@ -54,12 +55,12 @@ const appSections: AppSection[] = [
   {
     key: 'usuarios',
     href: '/usuarios',
-    label: 'Usuarios',
-    eyebrow: 'Gestión administrativa',
+    label: 'Directorio',
+    eyebrow: 'Operación',
     title: 'Directorio operativo',
-    description: 'Administra cuentas, roles, unidades y permisos.',
+    description: 'Consulta personal, estado, unidad y ruta asignada.',
     icon: 'account-group',
-    roles: ['admin', 'owner'],
+    roles: DIRECTORY_ALLOWED_ROLES,
   },
   {
     key: 'chat',

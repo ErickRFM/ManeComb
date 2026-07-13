@@ -166,12 +166,13 @@ function buildActivationTimeline(user, order, users = []) {
   ];
 }
 
-function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) {
+function getDefaultOnboardingSteps({ user, order, users, vehicles = [], activationKeys = [] }) {
   const subscription = buildSubscription(order);
   const teamUsers = users.filter((entry) => entry.id !== user?.id);
   const drivers = teamUsers.filter((entry) => String(entry.role || "") === "driver");
   const activeDrivers = drivers.filter((entry) => String(entry.userStatus || "active") !== "suspended");
-  const activeUnits = activeDrivers.filter((entry) => entry.vehicleId).length;
+  const assignedUnits = activeDrivers.filter((entry) => entry.vehicleId).length;
+  const registeredUnits = vehicles.length;
   const generatedKeys = activationKeys.length;
   const availableKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "available").length;
   const usedKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "used").length;
@@ -217,13 +218,13 @@ function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) 
     {
       id: "register-units",
       title: "Unidades/combis",
-      status: activeUnits > 0 || subscription.activeUnits > 0 ? "completed" : "pending",
-      description: `${Math.max(activeUnits, subscription.activeUnits)}/${subscription.totalUnits} unidades relacionadas.`
+      status: registeredUnits > 0 ? "completed" : "pending",
+      description: `${registeredUnits}/${subscription.totalUnits} unidades registradas.`
     },
     {
       id: "gps-radio",
       title: "GPS / Radio",
-      status: activeUnits > 0 && order?.activationStatus === "active" ? "completed" : "pending",
+      status: assignedUnits > 0 && order?.activationStatus === "active" ? "completed" : "pending",
       description: order?.radioFeatureEnabled
         ? "GPS y radio operativo listos para conductores."
         : "GPS listo; radio disponible como modulo adicional."
@@ -231,8 +232,8 @@ function getDefaultOnboardingSteps({ user, order, users, activationKeys = [] }) 
   ];
 }
 
-function buildOnboarding({ user, order, users = [], activationKeys = [] }) {
-  const steps = getDefaultOnboardingSteps({ user, order, users, activationKeys });
+function buildOnboarding({ user, order, users = [], vehicles = [], activationKeys = [] }) {
+  const steps = getDefaultOnboardingSteps({ user, order, users, vehicles, activationKeys });
 
   return {
     status: steps.every((step) => step.status === "completed") ? "completed" : "pending",

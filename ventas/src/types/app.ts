@@ -90,17 +90,47 @@ export type GeoPoint = {
   longitude: number;
 };
 
+export type NavigationStop = GeoPoint & {
+  id: string;
+  address: string;
+  order: number;
+};
+
+export type NavigationRouteOption = {
+  label?: string;
+  distanceMeters?: number;
+  durationSeconds?: number;
+  durationInTrafficSeconds?: number;
+  trafficLevel?: 'low' | 'medium' | 'high' | string;
+  polyline?: GeoPoint[];
+};
+
 export type AssignedRoute = {
   originLabel?: string;
   origin?: GeoPoint | null;
   destinationLabel?: string;
   destination?: GeoPoint | null;
+  stops?: NavigationStop[];
   assignedAt?: string | null;
-  route?: {
-    label?: string;
-    distanceMeters?: number;
-    durationSeconds?: number;
-  } | null;
+  provider?: 'mapbox' | 'system' | 'osrm' | 'valhalla' | string;
+  route?: NavigationRouteOption | null;
+  alternatives?: NavigationRouteOption[];
+};
+
+export type ActiveRouteProgress = {
+  checkpointCount: number;
+  currentCheckpointIndex: number;
+  distanceAlongRoute: number;
+  distanceFromRoute: number;
+  distanceRemaining: number;
+  etaAt: string | null;
+  heading?: number | null;
+  isOffRoute: boolean;
+  progressPercent: number;
+  snappedLocation: GeoPoint | null;
+  speedMetersPerSecond: number | null;
+  timeRemainingSeconds: number;
+  timestamp: string;
 };
 
 export type Vehicle = {
@@ -110,10 +140,20 @@ export type Vehicle = {
   plate: string;
   status: VehicleStatus | string;
   currentKilometers?: number;
+  routeId?: string | null;
   driverId?: string | null;
+  supervisorId?: string | null;
   driverName?: string;
   driver?: User | null;
+  etaMinutes?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  location?: GeoPoint | null;
+  locationTimestamp?: string | null;
+  activeRouteProgress?: ActiveRouteProgress | null;
   assignedRoute?: AssignedRoute | null;
+  routeName?: string;
+  routeCode?: string;
   updatedAt?: string | null;
 };
 
@@ -246,6 +286,14 @@ export type RouteSessionHistoryFilters = {
   dateTo?: string;
   status?: RouteSessionStatus;
   limit?: number;
+  offset?: number;
+};
+
+export type PaginatedResult<T> = {
+  items: T[];
+  limit: number;
+  offset: number;
+  total: number;
 };
 
 export type RouteEvent = {

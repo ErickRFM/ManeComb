@@ -1,6 +1,7 @@
 import axios, { AxiosHeaders, isAxiosError, type AxiosError } from 'axios';
 import type {
   CheckpointVisit,
+  PaginatedResult,
   RouteEvent,
   RouteSession,
   RouteSessionHistoryFilters,
@@ -218,7 +219,10 @@ export async function clearRouteAssignmentRequest(vehicleId: string) {
 }
 
 export async function getRouteSessionHistoryRequest(params?: RouteSessionHistoryFilters) {
-  return await unwrapData<RouteSession[]>(apiClient.get('/navigation/sessions/history', { params }));
+  const data = await unwrapData<RouteSession[] | PaginatedResult<RouteSession>>(apiClient.get('/navigation/sessions/history', { params }));
+  return Array.isArray(data)
+    ? { items: data, limit: data.length, offset: 0, total: data.length }
+    : data;
 }
 
 export async function getRouteSessionMetricsRequest(sessionId: string) {
@@ -245,10 +249,13 @@ export async function getRouteSessionCheckpointVisitsRequest(sessionId: string, 
   );
 }
 
-export async function getRouteSessionPositionsRequest(sessionId: string, limit?: number) {
-  return await unwrapData<RouteSessionPosition[]>(
-    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/positions`, { params: { limit } })
+export async function getRouteSessionPositionsRequest(sessionId: string, params?: { limit?: number; offset?: number }) {
+  const data = await unwrapData<RouteSessionPosition[] | PaginatedResult<RouteSessionPosition>>(
+    apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/positions`, { params })
   );
+  return Array.isArray(data)
+    ? { items: data, limit: data.length, offset: 0, total: data.length }
+    : data;
 }
 
 export async function getPortalOverviewRequest() {

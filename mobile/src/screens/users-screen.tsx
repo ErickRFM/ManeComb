@@ -1,92 +1,23 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
-import { useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
-import { PrimaryButton } from '@/src/components/primary-button';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Role, User, Vehicle } from '@/src/types/app';
+import type { Role, Vehicle } from '@/src/types/app';
 import { formatRole, formatStatus } from '@/src/utils/format';
-import { getTextInputProps } from '@/src/utils/text-input-props';
-
-type EditorState = {
-  name: string;
-  email: string;
-  password: string;
-  phone: string;
-  role: Role;
-  status: string;
-  shift: string;
-  vehicleId: string | null;
-};
-
-type VehicleEditorState = {
-  code: string;
-  plate: string;
-  currentKilometers: string;
-  status: 'available' | 'maintenance';
-};
 
 type Tone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
-
-const roleOptions: Role[] = ['admin', 'supervisor'];
-const statusOptions = ['online', 'offline', 'patrolling', 'on-route'];
-const vehicleStatusOptions: VehicleEditorState['status'][] = ['available', 'maintenance'];
-
-function createBlankEditor(): EditorState {
-  return {
-    name: '',
-    email: '',
-    password: '',
-    phone: '',
-    role: 'supervisor',
-    status: 'online',
-    shift: '',
-    vehicleId: null,
-  };
-}
-
-function createBlankVehicleEditor(): VehicleEditorState {
-  return {
-    code: '',
-    plate: '',
-    currentKilometers: '',
-    status: 'available',
-  };
-}
-
-function buildEditorFromUser(user: User): EditorState {
-  return {
-    name: user.name,
-    email: user.email,
-    password: '',
-    phone: user.phone,
-    role: user.role,
-    status: user.status,
-    shift: user.shift,
-    vehicleId: user.vehicleId,
-  };
-}
 
 function roleTone(role: Role): Tone {
   if (role === 'admin') return 'danger';
   if (role === 'supervisor') return 'info';
-  return 'positive';
+  return role === 'driver' ? 'positive' : 'neutral';
 }
 
 function statusTone(status: string): Tone {
@@ -95,289 +26,57 @@ function statusTone(status: string): Tone {
   return 'positive';
 }
 
-function vehicleStatusLabel(vehicle: Vehicle) {
-  if (vehicle.driverId || vehicle.status === 'assigned') {
-    return 'Asignada';
-  }
-
-  if (vehicle.status === 'maintenance') {
-    return 'Mantenimiento';
-  }
-
-  return 'Disponible';
-}
-
-function vehicleStatusTone(vehicle: Vehicle): Tone {
-  if (vehicle.status === 'maintenance') return 'warning';
-  if (vehicle.driverId || vehicle.status === 'assigned') return 'positive';
-  return 'info';
+function getVehicleRoute(vehicle?: Vehicle) {
+  if (!vehicle) return 'Sin ruta asignada';
+  return vehicle.assignedRoute?.route?.label || vehicle.assignedRoute?.destinationLabel || vehicle.routeName || 'Sin ruta asignada';
 }
 
 export function UsersScreen() {
   const { width } = useWindowDimensions();
-  const isCompact = width < 980;
   const isPhone = width < 640;
   const { theme } = useAppTheme();
-  const {
-    createVehicle,
-    createUser,
-    mapData,
-    deleteUser,
-    isSubmitting,
-    loadUsers,
-    refreshAll,
-    updateUser,
-    user,
-    users,
-  } = useAppStore(
+  const { loadUsers, mapData, refreshAll, user, users } = useAppStore(
     useShallow((state) => ({
-      createUser: state.createUser,
-      createVehicle: state.createVehicle,
-      mapData: state.mapData,
-      deleteUser: state.deleteUser,
-      isSubmitting: state.isSubmitting,
       loadUsers: state.loadUsers,
+      mapData: state.mapData,
       refreshAll: state.refreshAll,
-      updateUser: state.updateUser,
       user: state.user,
       users: state.users,
     }))
   );
-  const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editor, setEditor] = useState<EditorState>(createBlankEditor);
-  const [vehicleEditor, setVehicleEditor] = useState<VehicleEditorState>(createBlankVehicleEditor);
-  const [helperMessage, setHelperMessage] = useState<string | null>(null);
-  const [helperTone, setHelperTone] = useState<'danger' | 'success'>('danger');
+  const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const canManageUsers = Boolean(
-    user && (user.role === 'admin' || user.role === 'owner')
-  );
-
-  useEffect(() => {
-    if (canManageUsers) {
-      loadUsers().catch(() => undefined);
-    }
-  }, [canManageUsers, loadUsers]);
-
   const operationalUsers = useMemo(
     () => users.filter((entry) => entry.accountType !== 'company_owner'),
     [users]
   );
-
-  const totalByRole = useMemo(() => {
-    return operationalUsers.reduce(
-      (accumulator, currentUser) => {
-        accumulator[currentUser.role] = accumulator[currentUser.role] || 0;
-        accumulator[currentUser.role] += 1;
-        return accumulator;
-      },
-      {
-        owner: 0,
-        admin: 0,
-        dispatcher: 0,
-        supervisor: 0,
-        billing_manager: 0,
-        support: 0,
-        viewer: 0,
-        driver: 0,
-      } satisfies Record<Role, number>
-    );
-  }, [operationalUsers]);
-
-  const activeUsers = useMemo(
-    () => operationalUsers.filter((entry) => entry.status !== 'offline').length,
-    [operationalUsers]
+  const vehicles = useMemo(() => mapData?.vehicles || [], [mapData?.vehicles]);
+  const vehicleById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
+    [vehicles]
   );
 
-  const assignedDrivers = useMemo(
-    () => operationalUsers.filter((entry) => entry.role === 'driver' && entry.vehicleId).length,
-    [operationalUsers]
-  );
-
-  const availableVehicles = useMemo(() => mapData?.vehicles || [], [mapData?.vehicles]);
-  const assignableVehicles = useMemo(
-    () =>
-      availableVehicles.filter((vehicle) =>
-        (!vehicle.driverId && vehicle.status === 'available') ||
-        (editingUserId && vehicle.driverId === editingUserId) ||
-        vehicle.id === editor.vehicleId
-      ),
-    [availableVehicles, editingUserId, editor.vehicleId]
-  );
-
-  const setMessage = (message: string | null, tone: 'danger' | 'success' = 'danger') => {
-    setHelperMessage(message);
-    setHelperTone(tone);
-  };
-
-  const refreshUsers = async () => {
+  const refreshDirectory = useCallback(async () => {
     setIsRefreshing(true);
     try {
       await Promise.all([loadUsers(), refreshAll()]);
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [loadUsers, refreshAll]);
 
-  const updateEditor = <T extends keyof EditorState>(field: T, value: EditorState[T]) => {
-    setEditor((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  };
-
-  const updateVehicleEditor = <T extends keyof VehicleEditorState>(field: T, value: VehicleEditorState[T]) => {
-    setVehicleEditor((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  };
-
-  const resetEditor = (clearMessage = true) => {
-    setEditingUserId(null);
-    setEditor(createBlankEditor());
-    if (clearMessage) {
-      setMessage(null);
+  useEffect(() => {
+    if (user) {
+      refreshDirectory().catch(() => undefined);
     }
-  };
-
-  const startEditing = (targetUser: User) => {
-    setEditingUserId(targetUser.id);
-    setEditor(buildEditorFromUser(targetUser));
-    setMessage(null);
-  };
-
-  const getVehicleCode = (vehicleId?: string | null) => {
-    if (!vehicleId) return 'Sin asignacion';
-    return availableVehicles.find((vehicle) => vehicle.id === vehicleId)?.code || vehicleId;
-  };
-
-  const handleSubmit = async () => {
-    if (!editor.name.trim() || !editor.email.trim()) {
-      setMessage('Nombre y correo son obligatorios.');
-      return;
-    }
-
-    if (!editingUserId && !editor.password.trim()) {
-      setMessage('La contrasena es obligatoria para crear un usuario.');
-      return;
-    }
-
-    const payload = {
-      accountType: 'operations' as const,
-      name: editor.name.trim(),
-      email: editor.email.trim(),
-      phone: editor.phone.trim(),
-      role: editor.role,
-      status: editor.status.trim() || 'online',
-      shift: editor.shift.trim(),
-      vehicleId: editor.role === 'driver' ? editor.vehicleId || null : null,
-      ...(editor.password.trim() ? { password: editor.password.trim() } : {}),
-    };
-
-    const result = editingUserId ? await updateUser(editingUserId, payload) : await createUser(payload);
-
-    if (!result.ok) {
-      setMessage(result.message || 'No fue posible guardar el usuario.');
-      return;
-    }
-
-    resetEditor(false);
-    setMessage(editingUserId ? 'Usuario actualizado correctamente.' : 'Usuario creado correctamente.', 'success');
-  };
-
-  const handleCreateVehicle = async () => {
-    if (!vehicleEditor.code.trim() || !vehicleEditor.plate.trim()) {
-      setMessage('Nombre y placas de unidad son obligatorios.');
-      return;
-    }
-
-    const currentKilometers = Number(vehicleEditor.currentKilometers || 0);
-    if (!Number.isFinite(currentKilometers) || currentKilometers < 0) {
-      setMessage('Los kilometros actuales deben ser un numero valido.');
-      return;
-    }
-
-    const result = await createVehicle({
-      code: vehicleEditor.code.trim(),
-      plate: vehicleEditor.plate.trim().toUpperCase(),
-      currentKilometers,
-      status: vehicleEditor.status,
-    });
-
-    if (!result.ok) {
-      setMessage(result.message || 'No fue posible crear la unidad.');
-      return;
-    }
-
-    setVehicleEditor(createBlankVehicleEditor());
-    setMessage('Unidad creada correctamente.', 'success');
-  };
-
-  const performDelete = async (targetUser: User) => {
-    const result = await deleteUser(targetUser.id);
-
-    if (!result.ok) {
-      setMessage(result.message || 'No fue posible eliminar el usuario.');
-      return;
-    }
-
-    if (editingUserId === targetUser.id) {
-      resetEditor();
-    }
-
-    setMessage('Usuario eliminado correctamente.', 'success');
-  };
-
-  const confirmDelete = (targetUser: User) => {
-    if (Platform.OS === 'web') {
-      const shouldDelete = globalThis.window?.confirm(
-        `Se eliminara a ${targetUser.name}. Esta accion no se puede deshacer.`
-      );
-
-      if (shouldDelete) {
-        performDelete(targetUser);
-      }
-
-      return;
-    }
-
-    Alert.alert(
-      'Eliminar usuario',
-      `Se eliminara a ${targetUser.name}. Esta accion no se puede deshacer.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => {
-            performDelete(targetUser);
-          },
-        },
-      ]
-    );
-  };
+  }, [refreshDirectory, user]);
 
   if (!user) {
     return (
       <AppShell sectionKey="usuarios">
         <AppCard>
           <Text style={styles.title}>Acceso restringido</Text>
-          <Text style={styles.subtitle}>Inicia sesion para administrar usuarios.</Text>
-        </AppCard>
-      </AppShell>
-    );
-  }
-
-  if (!canManageUsers) {
-    return (
-      <AppShell sectionKey="usuarios">
-        <AppCard>
-          <Text style={styles.title}>Solo para administracion</Text>
-          <Text style={styles.subtitle}>
-            Esta vista permite crear, editar y eliminar cuentas operativas.
-          </Text>
+          <Text style={styles.subtitle}>Inicia sesión para consultar el directorio operativo.</Text>
         </AppCard>
       </AppShell>
     );
@@ -386,421 +85,62 @@ export function UsersScreen() {
   return (
     <AppShell
       sectionKey="usuarios"
-      mobileTitle="Usuarios"
-      mobileSubtitle="Altas, roles y unidades."
-      onRefresh={refreshUsers}
+      mobileTitle="Directorio"
+      mobileSubtitle="Personal y unidades en operación."
+      onRefresh={refreshDirectory}
       refreshing={isRefreshing}
       header={
         <View style={styles.header}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>ADMINISTRACION OPERATIVA</Text>
-            <Text style={styles.title}>Usuarios, roles y unidades</Text>
-            <Text style={styles.subtitle}>
-              Cuentas, permisos y unidades operativas.
-            </Text>
-          </View>
-          <PrimaryButton
-            label={isRefreshing ? 'Actualizando...' : 'Actualizar'}
-            icon="refresh"
-            compact
-            variant="ghost"
-            onPress={() => { refreshUsers(); }}
-            disabled={isRefreshing}
-          />
+          <Text style={styles.eyebrow}>OPERACIÓN</Text>
+          <Text style={styles.title}>Directorio operativo</Text>
+          <Text style={styles.subtitle}>Consulta personal, estado, unidad y ruta asignada.</Text>
         </View>
-      }
-      mobileBadges={[
-        { label: `${operationalUsers.length} cuentas`, tone: 'info' },
-        { label: `${assignedDrivers} choferes asignados`, tone: 'positive' },
-      ]}>
-      <View style={styles.summaryGrid}>
-        <SummaryCard icon="shield-account" label="Administradores" tone="danger" value={totalByRole.admin} />
-        <SummaryCard icon="account-tie-hat" label="Supervisores" tone="info" value={totalByRole.supervisor} />
-        <SummaryCard icon="account-hard-hat" label="Choferes" tone="positive" value={totalByRole.driver} />
-        <SummaryCard icon="access-point-check" label="Activos" tone="warning" value={activeUsers} />
-      </View>
-
-      <View style={styles.mainGrid}>
-        <AppCard style={styles.editorCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionTitle}>{editingUserId ? 'Editar cuenta' : 'Nueva cuenta operativa'}</Text>
-              <Text style={styles.sectionSubtitle}>
-                {editingUserId
-                  ? 'Actualiza datos, permisos y unidad.'
-                  : 'Alta manual para administracion o supervision. Los choferes se activan con key.'}
-              </Text>
-            </View>
-            {editingUserId ? (
-              <PrimaryButton label="Cancelar" icon="close" compact variant="ghost" onPress={() => resetEditor()} />
-            ) : null}
+      }>
+      <AppCard style={styles.directoryCard}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionCopy}>
+            <Text style={styles.sectionTitle}>Personal operativo</Text>
+            <Text style={styles.sectionSubtitle}>{operationalUsers.length} cuentas visibles</Text>
           </View>
+        </View>
 
-          <View style={styles.formGrid}>
-            <Field label="Nombre completo" value={editor.name} onChangeText={(value) => updateEditor('name', value)} />
-            <Field
-              label="Correo"
-              value={editor.email}
-              onChangeText={(value) => updateEditor('email', value)}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Field
-              label={editingUserId ? 'Nueva contrasena (opcional)' : 'Contrasena'}
-              value={editor.password}
-              onChangeText={(value) => updateEditor('password', value)}
-              secureTextEntry
-            />
-            <Field
-              label="Telefono"
-              value={editor.phone}
-              onChangeText={(value) => updateEditor('phone', value)}
-              keyboardType="phone-pad"
-            />
-            <Field label="Turno" value={editor.shift} onChangeText={(value) => updateEditor('shift', value)} />
-          </View>
+        <View style={styles.usersList}>
+          {operationalUsers.length ? (
+            operationalUsers.map((entry) => {
+              const vehicle = entry.vehicleId ? vehicleById.get(entry.vehicleId) : undefined;
 
-          <View style={styles.choiceGroup}>
-            <Text style={styles.choiceLabel}>Rol operativo</Text>
-            <View style={styles.choiceRow}>
-              {(editingUserId && editor.role === 'driver' ? [...roleOptions, 'driver' as const] : roleOptions).map((role) => (
-                <ChoiceChip
-                  key={role}
-                  active={editor.role === role}
-                  label={formatRole(role)}
-                  onPress={() => updateEditor('role', role)}
-                />
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.choiceGroup}>
-            <Text style={styles.choiceLabel}>Estado</Text>
-            <View style={styles.choiceRow}>
-              {statusOptions.map((status) => (
-                <ChoiceChip
-                  key={status}
-                  active={editor.status === status}
-                  label={formatStatus(status)}
-                  onPress={() => updateEditor('status', status)}
-                />
-              ))}
-            </View>
-          </View>
-
-          {editor.role === 'driver' ? (
-            <View style={styles.choiceGroup}>
-              <Text style={styles.choiceLabel}>Unidad asignada</Text>
-              <View style={styles.choiceRow}>
-                <ChoiceChip active={!editor.vehicleId} label="Sin unidad" onPress={() => updateEditor('vehicleId', null)} />
-                {assignableVehicles.map((vehicle) => (
-                  <ChoiceChip
-                    key={vehicle.id}
-                    active={editor.vehicleId === vehicle.id}
-                    label={`${vehicle.code} · ${vehicle.plate}`}
-                    onPress={() => updateEditor('vehicleId', vehicle.id)}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {helperMessage ? (
-            <View
-              style={[
-                styles.messageBox,
-                {
-                  backgroundColor:
-                    helperTone === 'success' ? theme.colors.successSoft : theme.colors.dangerSoft,
-                  borderColor: helperTone === 'success' ? theme.colors.success : theme.colors.danger,
-                },
-              ]}>
-              <Text
-                style={[
-                  styles.messageText,
-                  { color: helperTone === 'success' ? theme.colors.success : theme.colors.danger },
-                ]}>
-                {helperMessage}
-              </Text>
-            </View>
-          ) : null}
-
-          <PrimaryButton
-            label={isSubmitting ? 'Guardando...' : editingUserId ? 'Actualizar usuario' : 'Crear usuario'}
-            icon={editingUserId ? 'content-save-outline' : 'account-plus-outline'}
-            onPress={() => { handleSubmit(); }}
-            disabled={isSubmitting}
-          />
-        </AppCard>
-
-        <AppCard style={styles.unitsCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionTitle}>Unidades</Text>
-              <Text style={styles.sectionSubtitle}>
-                Alta simple de unidades disponibles para asignacion.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.formGrid}>
-            <Field
-              label="Nombre"
-              value={vehicleEditor.code}
-              onChangeText={(value) => updateVehicleEditor('code', value)}
-              autoCapitalize="characters"
-            />
-            <Field
-              label="Placas"
-              value={vehicleEditor.plate}
-              onChangeText={(value) => updateVehicleEditor('plate', value)}
-              autoCapitalize="characters"
-            />
-            <Field
-              label="Kilometros actuales"
-              value={vehicleEditor.currentKilometers}
-              onChangeText={(value) => updateVehicleEditor('currentKilometers', value.replace(/[^\d.]/g, ''))}
-              keyboardType="number-pad"
-            />
-          </View>
-
-          <View style={styles.choiceGroup}>
-            <Text style={styles.choiceLabel}>Estado</Text>
-            <View style={styles.choiceRow}>
-              {vehicleStatusOptions.map((status) => (
-                <ChoiceChip
-                  key={status}
-                  active={vehicleEditor.status === status}
-                  label={status === 'maintenance' ? 'Mantenimiento' : 'Disponible'}
-                  onPress={() => updateVehicleEditor('status', status)}
-                />
-              ))}
-            </View>
-          </View>
-
-          <PrimaryButton
-            label={isSubmitting ? 'Guardando...' : 'Crear unidad'}
-            icon="bus"
-            onPress={() => { handleCreateVehicle(); }}
-            disabled={isSubmitting}
-          />
-
-          <View style={styles.unitsList}>
-            {availableVehicles.length ? (
-              availableVehicles.map((vehicle) => (
-                <View key={vehicle.id} style={styles.unitRow}>
-                  <View style={styles.unitCopy}>
-                    <Text style={styles.unitTitle}>{vehicle.code}</Text>
-                    <Text style={styles.unitMeta}>
-                      Placas {vehicle.plate} · {vehicle.currentKilometers ?? 0} km
-                    </Text>
-                  </View>
-                  <StatusPill label={vehicleStatusLabel(vehicle)} tone={vehicleStatusTone(vehicle)} />
-                  <View style={styles.actionsRow}>
-                    <PrimaryButton
-                      label="Ver ruta"
-                      icon="map-outline"
-                      compact
-                      variant="ghost"
-                      onPress={() => router.push({ pathname: '/mapa', params: { vehicleId: vehicle.id, follow: 'true' } } as never)}
-                    />
-                    <PrimaryButton
-                      label="Cambiar chofer"
-                      icon="account-switch-outline"
-                      compact
-                      variant="ghost"
-                      onPress={() => {
-                        const driver = operationalUsers.find((entry) => entry.id === vehicle.driverId);
-                        if (driver) startEditing(driver);
-                        else setMessage('Selecciona un chofer y asignale esta unidad desde el editor.');
-                      }}
-                    />
-                  </View>
-                </View>
-              ))
-            ) : (
-              <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="bus-clock" size={26} color={theme.colors.muted} />
-                <Text style={styles.sectionSubtitle}>
-                  Aun no hay unidades registradas.
-                </Text>
-              </View>
-            )}
-          </View>
-        </AppCard>
-
-        <AppCard style={styles.listCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionCopy}>
-              <Text style={styles.sectionTitle}>Directorio operativo</Text>
-              <Text style={styles.sectionSubtitle}>
-                Cuentas internas de operacion.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.usersList}>
-            {operationalUsers.length ? (
-              operationalUsers.map((entry) => {
-                const isCurrentUser = entry.id === user.id;
-
-                return (
-                  <View key={entry.id} style={styles.userRow}>
-                    <View style={styles.userTop}>
-                      <UserAvatar user={entry} status={entry.status} showStatus size={56} />
-                      <View style={styles.userMeta}>
-                        <View style={styles.userNameRow}>
-                          <Text style={styles.userName} numberOfLines={2}>{entry.name}</Text>
-                          {isCurrentUser ? <StatusPill label="Tu cuenta" tone="warning" /> : null}
-                        </View>
-                        <Text style={styles.userEmail} numberOfLines={1}>{entry.email}</Text>
-                        <View style={styles.pillsRow}>
-                          <StatusPill label={formatRole(entry.role)} tone={roleTone(entry.role)} />
-                          <StatusPill label={formatStatus(entry.status)} tone={statusTone(entry.status)} />
-                        </View>
+              return (
+                <View key={entry.id} style={styles.userRow}>
+                  <View style={styles.userTop}>
+                    <UserAvatar user={entry} status={entry.status} showStatus size={56} />
+                    <View style={styles.userMeta}>
+                      <Text style={styles.userName} numberOfLines={2}>{entry.name}</Text>
+                      <Text style={styles.userEmail} numberOfLines={1}>{entry.email}</Text>
+                      <View style={styles.pillsRow}>
+                        <StatusPill label={formatRole(entry.role)} tone={roleTone(entry.role)} />
+                        <StatusPill label={formatStatus(entry.status)} tone={statusTone(entry.status)} />
                       </View>
                     </View>
-
-                    <View style={styles.detailsGrid}>
-                      <DetailItem label="Telefono" value={entry.phone || 'Pendiente'} />
-                      <DetailItem label="Turno" value={entry.shift || 'Sin turno'} />
-                      <DetailItem label="Unidad" value={getVehicleCode(entry.vehicleId)} />
-                    </View>
-
-                    <View style={styles.actionsRow}>
-                      <PrimaryButton
-                        label="Editar"
-                        icon="pencil-outline"
-                        compact
-                        variant="ghost"
-                        onPress={() => startEditing(entry)}
-                      />
-                      <PrimaryButton
-                        label="Eliminar"
-                        accessibilityLabel={`Eliminar usuario ${entry.name}`}
-                        icon="trash-can-outline"
-                        compact
-                        variant="ghost"
-                        onPress={() => confirmDelete(entry)}
-                        disabled={isCurrentUser}
-                      />
-                    </View>
                   </View>
-                );
-              })
-            ) : (
-              <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="account-search-outline" size={26} color={theme.colors.muted} />
-                <Text style={styles.sectionSubtitle}>
-                  Aun no hay cuentas operativas. Crea un supervisor aqui o activa choferes con key desde el portal.
-                </Text>
-              </View>
-            )}
-          </View>
-        </AppCard>
-      </View>
+
+                  <View style={styles.detailsGrid}>
+                    <DetailItem label="Teléfono" value={entry.phone || 'Sin teléfono'} />
+                    <DetailItem label="Turno" value={entry.shift || 'Sin turno'} />
+                    <DetailItem label="Unidad" value={vehicle?.code || 'Sin unidad asignada'} />
+                    <DetailItem label="Ruta" value={getVehicleRoute(vehicle)} />
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons name="account-search-outline" size={26} color={theme.colors.muted} />
+              <Text style={styles.sectionSubtitle}>No hay personal operativo disponible.</Text>
+            </View>
+          )}
+        </View>
+      </AppCard>
     </AppShell>
-  );
-}
-
-function SummaryCard({
-  icon,
-  label,
-  tone,
-  value,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  tone: Tone;
-  value: number | string;
-}) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-  const toneColor =
-    tone === 'positive'
-      ? theme.colors.success
-      : tone === 'warning'
-        ? theme.colors.warning
-        : tone === 'danger'
-          ? theme.colors.danger
-          : theme.colors.info;
-  const toneBackground =
-    tone === 'positive'
-      ? theme.colors.successSoft
-      : tone === 'warning'
-        ? theme.colors.warningSoft
-        : tone === 'danger'
-          ? theme.colors.dangerSoft
-          : theme.colors.infoSoft;
-
-  return (
-    <AppCard style={styles.summaryCard}>
-      <View style={[styles.summaryIcon, { backgroundColor: toneBackground }]}>
-        <MaterialCommunityIcons name={icon} size={22} color={toneColor} />
-      </View>
-      <View style={styles.summaryCopy}>
-        <Text style={styles.summaryLabel}>{label}</Text>
-        <Text style={styles.summaryValue}>{value}</Text>
-      </View>
-    </AppCard>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  keyboardType = 'default',
-  autoCapitalize = 'sentences',
-  secureTextEntry = false,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'number-pad';
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  secureTextEntry?: boolean;
-}) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        {...getTextInputProps(theme, {
-          autoComplete: secureTextEntry ? 'new-password' : 'off',
-          returnKeyType: 'done',
-          submitBehavior: 'blurAndSubmit',
-        })}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={label}
-        placeholderTextColor={theme.colors.muted}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        secureTextEntry={secureTextEntry}
-        style={styles.input}
-      />
-    </View>
-  );
-}
-
-function ChoiceChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[
-        styles.choiceChip,
-        active
-          ? { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent }
-          : undefined,
-      ]}>
-      <Text style={[styles.choiceChipText, { color: active ? theme.colors.accent : theme.colors.text }]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -816,24 +156,12 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function createStyles(
-  theme: ReturnType<typeof useAppTheme>['theme'],
-  isCompact = false,
-  isPhone = false
-) {
+function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = false) {
   return StyleSheet.create({
     header: {
-      alignItems: 'flex-start',
-      flexDirection: isPhone ? 'column' : 'row',
-      gap: AppTheme.spacing.sm,
-      justifyContent: 'space-between',
-      paddingTop: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md,
-    },
-    headerCopy: {
-      flex: 1,
-      minWidth: 0,
       gap: 8,
       maxWidth: 760,
+      paddingTop: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md,
     },
     eyebrow: {
       color: theme.colors.accent,
@@ -854,77 +182,17 @@ function createStyles(
       fontSize: isPhone ? 13 : 14,
       lineHeight: isPhone ? 20 : 21,
     },
-    summaryGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md,
-    },
-    summaryCard: {
-      alignItems: 'center',
-      flex: 1,
-      flexDirection: 'row',
-      gap: 12,
-      minWidth: isPhone ? '100%' : 180,
-      padding: AppTheme.spacing.sm,
-    },
-    summaryIcon: {
-      alignItems: 'center',
-      borderRadius: 14,
-      height: 42,
-      justifyContent: 'center',
-      width: 42,
-    },
-    summaryCopy: {
-      flex: 1,
-      gap: 2,
-    },
-    summaryLabel: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    summaryValue: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: isPhone ? 23 : 26,
-      fontWeight: '900',
-    },
-    mainGrid: {
-      flexDirection: isCompact ? 'column' : 'row',
-      flexWrap: 'wrap',
-      alignItems: isCompact ? 'stretch' : 'flex-start',
+    directoryCard: {
       width: '100%',
-      gap: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md,
-    },
-    editorCard: {
-      flex: 0.9,
-      width: isCompact ? '100%' : undefined,
-      minWidth: isPhone ? 0 : 330,
-      maxWidth: isCompact ? undefined : 520,
-    },
-    listCard: {
-      flex: 1.35,
-      width: isCompact ? '100%' : undefined,
-      minWidth: isPhone ? 0 : 420,
-    },
-    unitsCard: {
-      flex: 0.9,
-      width: isCompact ? '100%' : undefined,
-      minWidth: isPhone ? 0 : 330,
-      maxWidth: isCompact ? undefined : 520,
     },
     sectionHeader: {
       alignItems: 'flex-start',
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 12,
       justifyContent: 'space-between',
     },
     sectionCopy: {
       flex: 1,
       gap: 6,
-      minWidth: isPhone ? '100%' : 220,
     },
     sectionTitle: {
       color: theme.colors.text,
@@ -937,105 +205,9 @@ function createStyles(
       fontFamily: Typography.body,
       fontSize: isPhone ? 13 : 14,
       lineHeight: isPhone ? 20 : 22,
-      maxWidth: 520,
-    },
-    formGrid: {
-      gap: 10,
-    },
-    field: {
-      gap: 8,
-    },
-    fieldLabel: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '800',
-      letterSpacing: 0.3,
-    },
-    input: {
-      backgroundColor: theme.colors.input,
-      borderColor: theme.colors.line,
-      borderRadius: AppTheme.radius.md,
-      borderWidth: 1,
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: isPhone ? 14 : 15,
-      minHeight: isPhone ? 46 : 48,
-      paddingHorizontal: AppTheme.spacing.md,
-    },
-    choiceGroup: {
-      gap: 10,
-    },
-    choiceLabel: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '800',
-      letterSpacing: 0.3,
-      textTransform: 'uppercase',
-    },
-    choiceRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-    },
-    choiceChip: {
-      backgroundColor: theme.colors.surfaceAlt,
-      borderColor: theme.colors.line,
-      borderRadius: AppTheme.radius.pill,
-      borderWidth: 1,
-      paddingHorizontal: isPhone ? 12 : 14,
-      paddingVertical: isPhone ? 7 : 8,
-    },
-    choiceChipText: {
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    messageBox: {
-      borderRadius: AppTheme.radius.md,
-      borderWidth: 1,
-      paddingHorizontal: AppTheme.spacing.md,
-      paddingVertical: 12,
-    },
-    messageText: {
-      fontFamily: Typography.body,
-      fontSize: 14,
-      fontWeight: '800',
     },
     usersList: {
       gap: AppTheme.spacing.md,
-    },
-    unitsList: {
-      gap: 10,
-    },
-    unitRow: {
-      alignItems: 'center',
-      backgroundColor: theme.colors.surfaceAlt,
-      borderColor: theme.colors.line,
-      borderRadius: AppTheme.radius.md,
-      borderWidth: 1,
-      flexDirection: 'row',
-      gap: 10,
-      justifyContent: 'space-between',
-      padding: AppTheme.spacing.sm,
-    },
-    unitCopy: {
-      flex: 1,
-      gap: 4,
-      minWidth: 0,
-    },
-    unitTitle: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: 16,
-      fontWeight: '900',
-    },
-    unitMeta: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '700',
     },
     userRow: {
       backgroundColor: theme.colors.surfaceAlt,
@@ -1055,14 +227,7 @@ function createStyles(
       gap: 6,
       minWidth: 0,
     },
-    userNameRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
     userName: {
-      flexShrink: 1,
       color: theme.colors.text,
       fontFamily: Typography.display,
       fontSize: isPhone ? 17 : 19,
@@ -1072,7 +237,6 @@ function createStyles(
       color: theme.colors.muted,
       fontFamily: Typography.body,
       fontSize: isPhone ? 13 : 14,
-      minWidth: 0,
     },
     pillsRow: {
       flexDirection: 'row',
@@ -1103,13 +267,6 @@ function createStyles(
       fontFamily: Typography.body,
       fontSize: isPhone ? 13 : 14,
       fontWeight: '800',
-    },
-    actionsRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-      justifyContent: isPhone ? 'flex-start' : 'flex-end',
-      minWidth: 0,
     },
     emptyState: {
       alignItems: 'flex-start',

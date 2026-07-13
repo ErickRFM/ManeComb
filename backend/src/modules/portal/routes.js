@@ -13,19 +13,23 @@ const router = Router();
 
 async function getPortalContext(req) {
   const organizationId = getOrganizationId(req.user);
-  const [rawOrders, users, activationKeys] = await Promise.all([
+  const [rawOrders, users, activationKeys, live] = await Promise.all([
     req.app.locals.store.listCommercialOrdersForUser(req.user),
     req.app.locals.store.listUsers(req.user),
     organizationId && req.app.locals.store.listActivationKeysForCompany
       ? req.app.locals.store.listActivationKeysForCompany(organizationId)
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    req.app.locals.store.getLiveLocations()
   ]);
   const orders = enrichOrdersForUser(rawOrders, req.user);
 
   return {
     activationKeys,
     orders,
-    users
+    users,
+    vehicles: (live.vehicles || []).filter(
+      (vehicle) => String(vehicle.organizationId || "") === String(organizationId || "")
+    )
   };
 }
 
@@ -44,7 +48,7 @@ router.get("/overview", authenticate, requirePortalAccess, async (req, res) => {
 });
 
 router.get("/onboarding", authenticate, requirePortalAccess, async (req, res) => {
-  const { activationKeys, orders, users } = await getPortalContext(req);
+  const { activationKeys, orders, users, vehicles } = await getPortalContext(req);
   const activeOrder = pickActiveOrder(orders);
 
   return res.json({
@@ -53,7 +57,8 @@ router.get("/onboarding", authenticate, requirePortalAccess, async (req, res) =>
       user: req.user,
       order: activeOrder,
       activationKeys,
-      users
+      users,
+      vehicles
     })
   });
 });

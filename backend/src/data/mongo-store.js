@@ -2865,7 +2865,7 @@ async function createMongoStore() {
     return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
   }
 
-  async function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50 } = {}) {
+  async function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50, offset = 0, includeTotal = false } = {}) {
     const query = {
       ...(organizationId ? { organizationId } : {}),
       ...(vehicleId ? { vehicleId } : {}),
@@ -2887,11 +2887,17 @@ async function createMongoStore() {
       query.startedAt = startedAt;
     }
 
+    const safeLimit = Math.max(1, Math.min(5000, Number(limit) || 50));
+    const safeOffset = Math.max(0, Number(offset) || 0);
     const docs = await RouteSessionModel.find(query)
       .sort({ startedAt: -1 })
-      .limit(Math.max(1, Math.min(5000, Number(limit) || 50)))
+      .skip(safeOffset)
+      .limit(safeLimit)
       .lean();
-    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+    const items = docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+    if (!includeTotal) return items;
+    const total = await RouteSessionModel.countDocuments(query);
+    return { items, limit: safeLimit, offset: safeOffset, total };
   }
 
   async function createRouteSession(payload) {
@@ -2930,12 +2936,19 @@ async function createMongoStore() {
     return { ...plain, id: String(plain._id), _id: undefined };
   }
 
-  async function listRouteSessionPositions({ sessionId, limit = 50 }) {
-    const docs = await RouteSessionPositionModel.find(sessionId ? { sessionId } : {})
+  async function listRouteSessionPositions({ sessionId, limit = 50, offset = 0, includeTotal = false }) {
+    const query = sessionId ? { sessionId } : {};
+    const safeLimit = Math.max(1, Math.min(50000, Number(limit) || 50));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const docs = await RouteSessionPositionModel.find(query)
       .sort({ timestamp: -1 })
-      .limit(Math.max(1, Math.min(50000, Number(limit) || 50)))
+      .skip(safeOffset)
+      .limit(safeLimit)
       .lean();
-    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+    const items = docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+    if (!includeTotal) return items;
+    const total = await RouteSessionPositionModel.countDocuments(query);
+    return { items, limit: safeLimit, offset: safeOffset, total };
   }
 
   async function getLastRouteEvent(sessionId, eventType = null) {

@@ -503,7 +503,10 @@ router.get("/sessions/history", authenticate, requireOperationalAccess, async (r
       if (!vehicle) return;
     }
 
-    const sessions = await req.app.locals.store.listRouteSessions({
+    const paginated = typeof req.query.offset !== "undefined";
+    const limit = Math.max(1, Math.min(paginated ? 500 : 5000, Number(req.query.limit) || 100));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const result = await req.app.locals.store.listRouteSessions({
       organizationId: canAccessAllTenants(req.user) ? undefined : getOrganizationId(req.user),
       vehicleId: vehicleId || undefined,
       driverId: req.query.driverId ? String(req.query.driverId).trim() : undefined,
@@ -511,10 +514,12 @@ router.get("/sessions/history", authenticate, requireOperationalAccess, async (r
       status: req.query.status ? String(req.query.status).trim().toUpperCase() : undefined,
       dateFrom: req.query.dateFrom ? String(req.query.dateFrom).trim() : undefined,
       dateTo: req.query.dateTo ? String(req.query.dateTo).trim() : undefined,
-      limit: Math.max(1, Math.min(5000, Number(req.query.limit) || 100))
+      limit,
+      offset,
+      includeTotal: paginated
     });
 
-    return res.json({ ok: true, data: sessions });
+    return res.json({ ok: true, data: result });
   } catch (error) { return next(error); }
 });
 
@@ -637,14 +642,23 @@ router.get("/sessions/:sessionId/positions", authenticate, requireOperationalAcc
     const vehicle = await getAccessibleVehicle(req, res, session.vehicleId);
     if (!vehicle) return;
 
-    const positions = await req.app.locals.store.listRouteSessionPositions({
+    const paginated = typeof req.query.offset !== "undefined";
+    const limit = Math.max(1, Math.min(paginated ? 5000 : 50000, Number(req.query.limit) || (paginated ? 800 : 5000)));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const result = await req.app.locals.store.listRouteSessionPositions({
       sessionId: session.id,
-      limit: Math.max(1, Math.min(50000, Number(req.query.limit) || 5000))
+      limit,
+      offset,
+      includeTotal: paginated
     });
+    const items = [...(paginated ? result.items || [] : result)].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
 
     return res.json({
       ok: true,
-      data: [...positions].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp))
+      data: paginated ? {
+        ...result,
+        items
+      } : items
     });
   } catch (error) { return next(error); }
 });

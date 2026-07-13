@@ -1,4 +1,5 @@
 import {
+  canRoleAccessRoute,
   getModuleRouteName,
   getRouteDefinition,
   isModuleRoot,
@@ -12,6 +13,13 @@ describe('navigation route registry', () => {
 
     expect(new Set(modules).size).toBe(roots.length);
     expect(roots.every(isModuleRoot)).toBe(true);
+  });
+
+  it('restringe el directorio operativo a administradores y supervisores', () => {
+    expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(true);
+    expect(canRoleAccessRoute('/usuarios', 'supervisor')).toBe(true);
+    expect(canRoleAccessRoute('/usuarios', 'driver')).toBe(false);
+    expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(false);
   });
 
   it('keeps profile editing inside the profile stack', () => {

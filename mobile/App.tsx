@@ -26,7 +26,7 @@ import {
   stopBackgroundLocationServiceAsync,
 } from '@/src/native/background-location';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
-import { MODULE_ROUTE_NAMES } from '@/src/navigation/route-registry';
+import { MODULE_ROUTE_NAMES, canRoleAccessRoute } from '@/src/navigation/route-registry';
 import { linking } from '@/src/navigation/linking';
 import {
   LatestNavigationRequest,
@@ -355,6 +355,31 @@ function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
 
+function DirectoryRoute({ children }: { children: React.ReactNode }) {
+  const user = useAppStore((state) => state.user);
+  const allowed = Boolean(user && canRoleAccessRoute('/usuarios', user.role));
+
+  useEffect(() => {
+    if (user && !allowed) {
+      console.warn('[mobile:access] directorio operativo bloqueado', {
+        role: user.role,
+        route: '/usuarios',
+        userId: user.id,
+      });
+    }
+  }, [allowed, user]);
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  if (!allowed) {
+    return <Redirect href="/mapa" />;
+  }
+
+  return <OperationalRoute>{children}</OperationalRoute>;
+}
+
 const moduleScreenOptions = {
   headerShown: false,
   contentStyle: { backgroundColor: AppTheme.colors.background },
@@ -381,7 +406,7 @@ function IncidentsModule() {
 function UsersModule() {
   return (
     <UsersStack.Navigator initialRouteName="/usuarios" screenOptions={moduleScreenOptions}>
-      <UsersStack.Screen name="/usuarios">{() => withOperationalScreen(<UsersScreen />)}</UsersStack.Screen>
+      <UsersStack.Screen name="/usuarios">{() => <DirectoryRoute><UsersScreen /></DirectoryRoute>}</UsersStack.Screen>
     </UsersStack.Navigator>
   );
 }

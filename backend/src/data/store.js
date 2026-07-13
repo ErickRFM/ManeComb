@@ -2294,14 +2294,13 @@ function createEmbeddedStore() {
     return session ? clone(session) : null;
   }
 
-  function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50 } = {}) {
+  function listRouteSessions({ dateFrom, dateTo, driverId, organizationId, routeId, status, vehicleId, limit = 50, offset = 0, includeTotal = false } = {}) {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
     const toTime = dateTo ? new Date(dateTo).getTime() : null;
     const normalizedStatus = status ? String(status).trim().toUpperCase() : "";
 
-    return clone(
-      state.routeSessions
-        .filter((entry) => {
+    const filtered = state.routeSessions
+      .filter((entry) => {
           const startedAt = new Date(entry.startedAt).getTime();
           if (organizationId && entry.organizationId !== organizationId) return false;
           if (vehicleId && entry.vehicleId !== vehicleId) return false;
@@ -2312,9 +2311,11 @@ function createEmbeddedStore() {
           if (toTime && startedAt > toTime) return false;
           return true;
         })
-        .sort((left, right) => new Date(right.startedAt) - new Date(left.startedAt))
-        .slice(0, Math.max(1, Math.min(5000, Number(limit) || 50)))
-    );
+      .sort((left, right) => new Date(right.startedAt) - new Date(left.startedAt));
+    const safeLimit = Math.max(1, Math.min(5000, Number(limit) || 50));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const items = clone(filtered.slice(safeOffset, safeOffset + safeLimit));
+    return includeTotal ? { items, limit: safeLimit, offset: safeOffset, total: filtered.length } : items;
   }
 
   function createRouteSession(payload) {
@@ -2345,13 +2346,14 @@ function createEmbeddedStore() {
     return clone(position);
   }
 
-  function listRouteSessionPositions({ sessionId, limit = 50 }) {
-    return clone(
-      state.routeSessionPositions
-        .filter((entry) => !sessionId || entry.sessionId === sessionId)
-        .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))
-        .slice(0, Math.max(1, Math.min(50000, Number(limit) || 50)))
-    );
+  function listRouteSessionPositions({ sessionId, limit = 50, offset = 0, includeTotal = false }) {
+    const filtered = state.routeSessionPositions
+      .filter((entry) => !sessionId || entry.sessionId === sessionId)
+      .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp));
+    const safeLimit = Math.max(1, Math.min(50000, Number(limit) || 50));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const items = clone(filtered.slice(safeOffset, safeOffset + safeLimit));
+    return includeTotal ? { items, limit: safeLimit, offset: safeOffset, total: filtered.length } : items;
   }
 
   function getLastRouteEvent(sessionId, eventType = null) {

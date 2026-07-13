@@ -171,7 +171,7 @@ export function PlanCheckoutScreen() {
   };
 
   const goToPortal = () => {
-    router.replace((receiptIsActive ? '/portal/activacion' : '/portal/plan') as never);
+    router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never);
   };
   const doneTitle = receiptIsActive
     ? 'Plan activado en tu cuenta.'
