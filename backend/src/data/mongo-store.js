@@ -34,6 +34,12 @@ const { ConversationRepository } = require("./repositories/conversation-reposito
 const { buildBackendStore } = require("./backend-store");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const {
+  getClearedVehicleRouteFields,
+  hasActiveAssignedRoute,
+  normalizeRouteId,
+  serializeVehicle
+} = require("./serializers");
 
 function buildAvatar(name) {
   return String(name)
@@ -219,10 +225,6 @@ function serializeE2eeBackupEntry(entry, includeCipher = false) {
 }
 
 function serializeRoute(doc) {
-  return toPlain(doc);
-}
-
-function serializeVehicle(doc) {
   return toPlain(doc);
 }
 
@@ -929,6 +931,180 @@ async function createMongoStore() {
     return serializeRoute(doc);
   }
 
+  function routeOptionFromRoute(route) {
+    if (!route || !Array.isArray(route.polyline) || route.polyline.length < 2) {
+      return null;
+    }
+
+    return {
+      label: String(route.name || "Ruta asignada").trim() || "Ruta asignada",
+      distanceMeters: Math.max(0, Number(route.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(route.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(route.durationInTrafficSeconds) || 0),
+      trafficLevel: "low",
+      polyline: route.polyline
+    };
+  }
+
+  function assignedRouteFromSavedRoute(route, previousAssignment = null, assignedBy = null) {
+    const routeOption = routeOptionFromRoute(route);
+
+    if (!routeOption) {
+      return null;
+    }
+
+    const origin = route.origin || routeOption.polyline[0] || null;
+    const destination = route.destination || routeOption.polyline[routeOption.polyline.length - 1] || null;
+
+    if (!origin || !destination) {
+      return null;
+    }
+
+    return {
+      routeId: route.id || route._id,
+      routeName: route.name,
+      routeCode: route.code,
+      routeColor: route.color,
+      originLabel: route.name,
+      origin,
+      destinationLabel: route.name,
+      destination,
+      stops: route.stops || [],
+      assignedBy: previousAssignment?.assignedBy || assignedBy || "system",
+      assignedAt: previousAssignment?.assignedAt || new Date(),
+      provider: previousAssignment?.provider || "system",
+      route: routeOption,
+      alternatives: []
+    };
+  }
+
+  function vehicleRouteViewFromAssignment(vehicle) {
+    const assignedRoute = hasActiveAssignedRoute(vehicle?.assignedRoute) ? vehicle.assignedRoute : null;
+    const assignedRouteId = normalizeRouteId(assignedRoute?.routeId);
+
+    if (!assignedRoute || !assignedRouteId) {
+      return {
+        ...getClearedVehicleRouteFields(),
+        route: null,
+        routeName: "Sin ruta",
+        routeCode: "N/A",
+        routeColor: null
+      };
+    }
+
+    const route = {
+      id: assignedRouteId,
+      name: assignedRoute.routeName || assignedRoute.route.label,
+      code: assignedRoute.routeCode || "N/A",
+      color: assignedRoute.routeColor || null,
+      origin: assignedRoute.origin || assignedRoute.route.polyline[0] || null,
+      destination: assignedRoute.destination || assignedRoute.route.polyline[assignedRoute.route.polyline.length - 1] || null,
+      stops: assignedRoute.stops || [],
+      distanceMeters: Math.max(0, Number(assignedRoute.route.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(assignedRoute.route.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(assignedRoute.route.durationInTrafficSeconds) || 0),
+      polyline: assignedRoute.route.polyline || []
+    };
+
+    return {
+      routeId: assignedRouteId,
+      assignedRoute,
+      route,
+      routeName: route.name,
+      routeCode: route.code,
+      routeColor: route.color
+    };
+  }
+
+  async function updateAssignedRouteSnapshots(route) {
+    const vehicles = await VehicleModel.find({ routeId: route._id || route.id }).lean();
+
+    await Promise.all(vehicles.map((vehicle) => {
+      const nextAssignment = assignedRouteFromSavedRoute(route, vehicle.assignedRoute);
+
+      if (!nextAssignment) {
+        return VehicleModel.findByIdAndUpdate(
+          vehicle._id,
+          {
+            $set: {
+              ...getClearedVehicleRouteFields(),
+              updatedAt: new Date()
+            }
+          }
+        );
+      }
+
+      return VehicleModel.findByIdAndUpdate(
+        vehicle._id,
+        {
+          $set: {
+            routeId: route._id || route.id,
+            assignedRoute: nextAssignment,
+            updatedAt: new Date()
+          }
+        }
+      );
+    }));
+  }
+
+  async function updateRoute(routeId, payload, user = null) {
+    const update = {};
+
+    if (typeof payload.name !== "undefined") update.name = String(payload.name || "").trim();
+    if (typeof payload.code !== "undefined") update.code = String(payload.code || "").trim();
+    if (typeof payload.color !== "undefined") update.color = payload.color || "#1473E6";
+    if (typeof payload.origin !== "undefined") update.origin = payload.origin || null;
+    if (typeof payload.destination !== "undefined") update.destination = payload.destination || null;
+    if (typeof payload.stops !== "undefined") update.stops = payload.stops || [];
+    if (typeof payload.distanceMeters !== "undefined") update.distanceMeters = Math.max(0, Number(payload.distanceMeters) || 0);
+    if (typeof payload.durationSeconds !== "undefined") update.durationSeconds = Math.max(0, Number(payload.durationSeconds) || 0);
+    if (typeof payload.durationInTrafficSeconds !== "undefined") {
+      update.durationInTrafficSeconds = Math.max(0, Number(payload.durationInTrafficSeconds) || 0);
+    }
+    if (typeof payload.polyline !== "undefined") update.polyline = payload.polyline || [];
+
+    update.updatedAt = new Date();
+
+    const route = await RouteModel.findOneAndUpdate(
+      {
+        _id: routeId,
+        ...getOrganizationQuery(user)
+      },
+      { $set: update },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!route) {
+      return null;
+    }
+
+    await updateAssignedRouteSnapshots(route);
+    return serializeRoute(route);
+  }
+
+  async function deleteRoute(routeId, user = null) {
+    const route = await RouteModel.findOneAndDelete({
+      _id: routeId,
+      ...getOrganizationQuery(user)
+    }).lean();
+
+    if (!route) {
+      return null;
+    }
+
+    await VehicleModel.updateMany(
+      { routeId },
+      {
+        $set: {
+          ...getClearedVehicleRouteFields(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    return serializeRoute(route);
+  }
+
   async function listTripLogs({ vehicleId, serviceDate, limit = 12 }) {
     if (!vehicleId) {
       return [];
@@ -1245,21 +1421,15 @@ async function createMongoStore() {
       return null;
     }
 
-    const vehicle = serializeVehicle(vehicleDoc);
-    const route =
-      routeMap?.get(vehicle.routeId) ||
-      (vehicle.routeId ? await RouteModel.findById(vehicle.routeId).lean().then(serializeRoute) : null);
+    const plain = serializeVehicle(vehicleDoc);
     const driver =
-      userMap?.get(vehicle.driverId) ||
-      (vehicle.driverId ? await UserModel.findById(vehicle.driverId).lean().then(sanitizeUser) : null);
+      userMap?.get(plain.driverId) ||
+      (plain.driverId ? await UserModel.findById(plain.driverId).lean().then(sanitizeUser) : null);
 
     return {
-      ...vehicle,
-      route: route || null,
+      ...plain,
+      ...vehicleRouteViewFromAssignment(plain),
       driver: driver || null,
-      routeName: route?.name || "Sin ruta",
-      routeCode: route?.code || "N/A",
-      routeColor: route?.color || "#8892b0",
       driverName: driver?.name || "Pendiente asignacion"
     };
   }
@@ -2010,44 +2180,7 @@ async function createMongoStore() {
     const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
     const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
 
-    return vehicles.map((vehicle) => {
-      const plain = serializeVehicle(vehicle);
-      const assignedRoute =
-  plain.assignedRoute &&
-  typeof plain.assignedRoute === "object"
-    ? plain.assignedRoute
-    : null;
-
-const route =
-  assignedRoute?.route ||
-  routeMap.get(plain.routeId) ||
-  null;
-
-const driver = userMap.get(plain.driverId);
-
-return {
-  ...plain,
-  route,
-
-  routeName:
-    route?.name ||
-    assignedRoute?.route?.label ||
-    "Sin ruta",
-
-  routeCode:
-    route?.code ||
-    assignedRoute?.route?.name ||
-    "N/A",
-
-  routeColor:
-    route?.color ||
-    "#1473E6",
-
-  driverName:
-    driver?.name ||
-    "Pendiente asignacion"
-};
-    });
+    return Promise.all(vehicles.map((vehicle) => enrichVehicle(vehicle, routeMap, userMap)));
   }
 
   async function getLiveLocations() {
@@ -2297,10 +2430,11 @@ return {
     const requestedRoute = payload.routeId
       ? await RouteModel.findOne({ _id: payload.routeId, ...getOrganizationQuery(user) }).lean()
       : null;
-    const assignedRoute = assignedVehicle?.routeId
-      ? await RouteModel.findOne({ _id: assignedVehicle.routeId, ...getOrganizationQuery(user) }).lean()
-      : null;
-    const routeId = requestedRoute?._id || assignedRoute?._id || null;
+    const routeId =
+      requestedRoute?._id ||
+      (hasActiveAssignedRoute(assignedVehicle?.assignedRoute)
+        ? normalizeRouteId(assignedVehicle.routeId)
+        : null);
 
     const incident = await IncidentModel.create({
       _id: randomUUID(),
@@ -2872,13 +3006,20 @@ return {
     return enrichVehicle(vehicle);
   }
 
-  async function assignRouteToVehicle({ vehicleId, routeId = null, assignment }) {
+  async function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
+    const route = routeId ? await RouteModel.findById(routeId).lean() : null;
+    const nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+
+    if (!route || !nextAssignment) {
+      throw new Error("Ruta no encontrada");
+    }
+
     const vehicle = await VehicleModel.findByIdAndUpdate(
       vehicleId,
       {
         $set: {
-          routeId: routeId || "",
-          assignedRoute: assignment,
+          routeId: route._id,
+          assignedRoute: nextAssignment,
           updatedAt: new Date()
         }
       },
@@ -2897,7 +3038,7 @@ return {
       vehicleId,
       {
         $set: {
-          routeId: "",
+          routeId: null,
           assignedRoute: null,
           updatedAt: new Date()
         }
@@ -3089,6 +3230,7 @@ return {
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
     createRoute,
+    deleteRoute,
     authenticate,
     canUserAccessConversation,
     canUserAccessChatMedia,
@@ -3146,6 +3288,7 @@ return {
     listRouteSessions,
     listRouteSessionPositions,
     updateRouteSession,
+    updateRoute,
     createTripLog,
   }, {
     models: {

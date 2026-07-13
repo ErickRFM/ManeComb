@@ -873,15 +873,7 @@ export async function createNavigationRouteRequest(payload: {
 
 export async function assignVehicleRouteRequest(payload: {
   vehicleId: string;
-  routeId?: string;
-  origin?: GeoPoint;
-  destination?: GeoPoint;
-  originLabel?: string;
-  destinationLabel?: string;
-  provider?: NavigationPlan['provider'];
-  route?: NavigationPlan['routes'][number];
-  alternatives?: NavigationPlan['routes'];
-  stops?: NavigationStop[];
+  routeId: string;
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/navigation/assign', payload);
   return response.data.data;

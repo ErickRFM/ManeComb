@@ -122,6 +122,29 @@ function createSeedState() {
       ]
     }
   ];
+  const buildAssignedRoute = (route, assignedBy) => ({
+    routeId: route.id,
+    routeName: route.name,
+    routeCode: route.code,
+    routeColor: route.color,
+    originLabel: route.name,
+    origin: route.polyline[0],
+    destinationLabel: route.name,
+    destination: route.polyline[route.polyline.length - 1],
+    stops: [],
+    assignedBy,
+    assignedAt: minutesAgo(30),
+    provider: "system",
+    route: {
+      label: route.name,
+      distanceMeters: 0,
+      durationSeconds: 0,
+      durationInTrafficSeconds: 0,
+      trafficLevel: "low",
+      polyline: route.polyline
+    },
+    alternatives: []
+  });
 
   const vehicles = [
     {
@@ -130,6 +153,7 @@ function createSeedState() {
       code: "CB-101",
       plate: "CMB-101-A",
       routeId: "route-1",
+      assignedRoute: buildAssignedRoute(routes[0], "user-supervisor-01"),
       driverId: "user-driver-01",
       supervisorId: "user-supervisor-01",
       status: "on-route",
@@ -151,6 +175,7 @@ function createSeedState() {
       code: "CB-204",
       plate: "CMB-204-B",
       routeId: "route-2",
+      assignedRoute: buildAssignedRoute(routes[1], "user-supervisor-01"),
       driverId: "user-driver-02",
       supervisorId: "user-supervisor-01",
       status: "on-route",
@@ -171,7 +196,7 @@ function createSeedState() {
       organizationId: demoOrganizationId,
       code: "CB-310",
       plate: "CMB-310-C",
-      routeId: "route-3",
+      routeId: null,
       driverId: null,
       supervisorId: "user-supervisor-01",
       status: "maintenance",

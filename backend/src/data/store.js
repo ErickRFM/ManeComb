@@ -12,6 +12,12 @@ const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 const {
+  getClearedVehicleRouteFields,
+  hasActiveAssignedRoute,
+  normalizeRouteId,
+  serializeVehicle
+} = require("./serializers");
+const {
   decodeCursor,
   encodeCursor,
   normalizeLimit
@@ -76,6 +82,155 @@ function createEmbeddedStore() {
     };
 
     state.routes.push(route);
+    return clone(route);
+  }
+
+  function routeOptionFromRoute(route) {
+    if (!route || !Array.isArray(route.polyline) || route.polyline.length < 2) {
+      return null;
+    }
+
+    return {
+      label: String(route.name || "Ruta asignada").trim() || "Ruta asignada",
+      distanceMeters: Math.max(0, Number(route.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(route.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(route.durationInTrafficSeconds) || 0),
+      trafficLevel: "low",
+      polyline: clone(route.polyline)
+    };
+  }
+
+  function assignedRouteFromSavedRoute(route, previousAssignment = null, assignedBy = null) {
+    const routeOption = routeOptionFromRoute(route);
+
+    if (!routeOption) {
+      return null;
+    }
+
+    const origin = route.origin || routeOption.polyline[0] || null;
+    const destination = route.destination || routeOption.polyline[routeOption.polyline.length - 1] || null;
+
+    if (!origin || !destination) {
+      return null;
+    }
+
+    return {
+      routeId: route.id,
+      routeName: route.name,
+      routeCode: route.code,
+      routeColor: route.color,
+      originLabel: route.name,
+      origin,
+      destinationLabel: route.name,
+      destination,
+      stops: clone(route.stops || []),
+      assignedBy: previousAssignment?.assignedBy || assignedBy || "system",
+      assignedAt: previousAssignment?.assignedAt || new Date().toISOString(),
+      provider: previousAssignment?.provider || "system",
+      route: routeOption,
+      alternatives: []
+    };
+  }
+
+  function vehicleRouteViewFromAssignment(vehicle) {
+    const assignedRoute = hasActiveAssignedRoute(vehicle?.assignedRoute) ? vehicle.assignedRoute : null;
+    const assignedRouteId = normalizeRouteId(assignedRoute?.routeId);
+
+    if (!assignedRoute || !assignedRouteId) {
+      return {
+        ...getClearedVehicleRouteFields(),
+        route: null,
+        routeName: "Sin ruta",
+        routeCode: "N/A",
+        routeColor: null
+      };
+    }
+
+    const route = {
+      id: assignedRouteId,
+      name: assignedRoute.routeName || assignedRoute.route.label,
+      code: assignedRoute.routeCode || "N/A",
+      color: assignedRoute.routeColor || null,
+      origin: assignedRoute.origin || assignedRoute.route.polyline[0] || null,
+      destination: assignedRoute.destination || assignedRoute.route.polyline[assignedRoute.route.polyline.length - 1] || null,
+      stops: clone(assignedRoute.stops || []),
+      distanceMeters: Math.max(0, Number(assignedRoute.route.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(assignedRoute.route.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(assignedRoute.route.durationInTrafficSeconds) || 0),
+      polyline: clone(assignedRoute.route.polyline || [])
+    };
+
+    return {
+      routeId: assignedRouteId,
+      assignedRoute: clone(assignedRoute),
+      route,
+      routeName: route.name,
+      routeCode: route.code,
+      routeColor: route.color
+    };
+  }
+
+  function updateAssignedRouteSnapshots(route) {
+    state.vehicles.forEach((vehicle) => {
+      if (vehicle.routeId !== route.id) {
+        return;
+      }
+
+      const nextAssignment = assignedRouteFromSavedRoute(route, vehicle.assignedRoute);
+
+      if (!nextAssignment) {
+        Object.assign(vehicle, getClearedVehicleRouteFields(), {
+          updatedAt: new Date().toISOString()
+        });
+        return;
+      }
+
+      vehicle.routeId = route.id;
+      vehicle.assignedRoute = nextAssignment;
+      vehicle.updatedAt = new Date().toISOString();
+    });
+  }
+
+  function updateRoute(routeId, payload) {
+    const route = getRouteById(routeId);
+
+    if (!route) {
+      return null;
+    }
+
+    if (typeof payload.name !== "undefined") route.name = String(payload.name || "").trim();
+    if (typeof payload.code !== "undefined") route.code = String(payload.code || "").trim();
+    if (typeof payload.color !== "undefined") route.color = payload.color || "#1473E6";
+    if (typeof payload.origin !== "undefined") route.origin = payload.origin || null;
+    if (typeof payload.destination !== "undefined") route.destination = payload.destination || null;
+    if (typeof payload.stops !== "undefined") route.stops = clone(payload.stops || []);
+    if (typeof payload.distanceMeters !== "undefined") route.distanceMeters = Math.max(0, Number(payload.distanceMeters) || 0);
+    if (typeof payload.durationSeconds !== "undefined") route.durationSeconds = Math.max(0, Number(payload.durationSeconds) || 0);
+    if (typeof payload.durationInTrafficSeconds !== "undefined") {
+      route.durationInTrafficSeconds = Math.max(0, Number(payload.durationInTrafficSeconds) || 0);
+    }
+    if (typeof payload.polyline !== "undefined") route.polyline = clone(payload.polyline || []);
+
+    route.updatedAt = new Date().toISOString();
+    updateAssignedRouteSnapshots(route);
+    return clone(route);
+  }
+
+  function deleteRoute(routeId) {
+    const index = state.routes.findIndex((route) => route.id === routeId);
+
+    if (index < 0) {
+      return null;
+    }
+
+    const [route] = state.routes.splice(index, 1);
+    state.vehicles.forEach((vehicle) => {
+      if (vehicle.routeId === routeId) {
+        Object.assign(vehicle, getClearedVehicleRouteFields(), {
+          updatedAt: new Date().toISOString()
+        });
+      }
+    });
     return clone(route);
   }
 
@@ -146,13 +301,14 @@ function createEmbeddedStore() {
       return null;
     }
 
-    const route = getRouteById(vehicle.routeId);
-    const driver = getUserById(vehicle.driverId);
+    const plain = serializeVehicle(vehicle);
+    const driver = getUserById(plain.driverId);
 
     return {
-      ...clone(vehicle),
-      route: route ? clone(route) : null,
-      driver: driver ? sanitizeUser(driver) : null
+      ...plain,
+      ...vehicleRouteViewFromAssignment(plain),
+      driver: driver ? sanitizeUser(driver) : null,
+      driverName: driver?.name || "Pendiente asignacion"
     };
   }
 
@@ -1308,16 +1464,7 @@ function createEmbeddedStore() {
           )
       )
       .map((vehicle) => {
-      const route = getRouteById(vehicle.routeId);
-      const driver = getUserById(vehicle.driverId);
-
-      return {
-        ...clone(vehicle),
-        routeName: route?.name || "Sin ruta",
-        routeCode: route?.code || "N/A",
-        routeColor: route?.color || "#8892b0",
-        driverName: driver?.name || "Pendiente asignacion"
-      };
+        return enrichVehicle(vehicle);
       });
   }
 
@@ -1871,7 +2018,11 @@ function createEmbeddedStore() {
       state.vehicles.find((vehicle) => vehicle.driverId === user.id)?.id;
     const assignedVehicle = getVehicleById(assignedVehicleId);
     const requestedRoute = payload.routeId ? getRouteById(payload.routeId) : null;
-    const assignedRoute = assignedVehicle?.routeId ? getRouteById(assignedVehicle.routeId) : null;
+    const routeId =
+      (requestedRoute && canAccessOrganizationResource(user, requestedRoute) ? requestedRoute.id : null) ||
+      (hasActiveAssignedRoute(assignedVehicle?.assignedRoute)
+        ? normalizeRouteId(assignedVehicle.routeId)
+        : null);
 
     const incident = {
       id: randomUUID(),
@@ -1880,9 +2031,7 @@ function createEmbeddedStore() {
       type: payload.type,
       severity: payload.severity || "medium",
       status: "open",
-      routeId:
-        (requestedRoute && canAccessOrganizationResource(user, requestedRoute) ? requestedRoute.id : null) ||
-        (assignedRoute && canAccessOrganizationResource(user, assignedRoute) ? assignedRoute.id : null),
+      routeId,
       vehicleId: assignedVehicleId || null,
       reporterId: user.id,
       description: payload.description,
@@ -2290,15 +2439,22 @@ function createEmbeddedStore() {
     return enrichVehicle(vehicle);
   }
 
-  function assignRouteToVehicle({ vehicleId, routeId = null, assignment }) {
+  function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
     const vehicle = getVehicleById(vehicleId);
 
     if (!vehicle) {
       return null;
     }
 
-    vehicle.routeId = routeId || "";
-    vehicle.assignedRoute = clone(assignment);
+    const route = getRouteById(routeId);
+    const nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+
+    if (!route || !nextAssignment) {
+      throw new Error("Ruta no encontrada");
+    }
+
+    vehicle.routeId = route.id;
+    vehicle.assignedRoute = nextAssignment;
     vehicle.updatedAt = new Date().toISOString();
 
     return enrichVehicle(vehicle);
@@ -2311,7 +2467,7 @@ function createEmbeddedStore() {
       return null;
     }
 
-    vehicle.routeId = "";
+    vehicle.routeId = null;
     vehicle.assignedRoute = null;
     vehicle.updatedAt = new Date().toISOString();
 
@@ -2487,6 +2643,7 @@ function createEmbeddedStore() {
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
     createRoute,
+    deleteRoute,
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,
@@ -2553,6 +2710,7 @@ function createEmbeddedStore() {
     listRouteSessions,
     listRouteSessionPositions,
     updateRouteSession,
+    updateRoute,
     updateCommercialOrder,
     updateActivationKey,
     updateRtcSession

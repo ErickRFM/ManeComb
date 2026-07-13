@@ -63,21 +63,6 @@ function normalizeRouteOption(route) {
   };
 }
 
-function routeOptionFromSavedRoute(route) {
-  if (!route || !Array.isArray(route.polyline) || route.polyline.length < 2) {
-    return null;
-  }
-
-  return normalizeRouteOption({
-    label: route.name,
-    distanceMeters: route.distanceMeters,
-    durationSeconds: route.durationSeconds,
-    durationInTrafficSeconds: route.durationInTrafficSeconds,
-    trafficLevel: "low",
-    polyline: route.polyline
-  });
-}
-
 function buildRouteCode(name) {
   return String(name || "ruta")
     .trim()
@@ -306,6 +291,127 @@ router.post("/routes", authenticate, requireOperationalAccess, async (req, res, 
   }
 });
 
+router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({
+        ok: false,
+        message: "Solo administracion puede editar rutas"
+      });
+    }
+
+    const routeId = String(req.params.routeId || "").trim();
+    const name = String(req.body.name || "").trim();
+    const origin = normalizePoint(req.body.origin);
+    const destination = normalizePoint(req.body.destination);
+    const stops = normalizeStops(req.body.stops);
+    const route = normalizeRouteOption(req.body.route);
+
+    if (!routeId || !name || !origin || !destination || !route) {
+      return res.status(400).json({
+        ok: false,
+        message: "routeId, name, origin, destination y route son obligatorios"
+      });
+    }
+
+    const stopsError = getStopsValidationError(origin, destination, stops);
+
+    if (stopsError) {
+      return res.status(400).json({
+        ok: false,
+        message: stopsError
+      });
+    }
+
+    const updatedRoute = await req.app.locals.store.updateRoute(routeId, {
+      name,
+      code: buildRouteCode(name),
+      color: "#1473E6",
+      origin,
+      destination,
+      stops,
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+      durationInTrafficSeconds: route.durationInTrafficSeconds,
+      polyline: route.polyline
+    }, req.user);
+
+    if (!updatedRoute) {
+      return res.status(404).json({
+        ok: false,
+        message: "Ruta no encontrada"
+      });
+    }
+
+    const liveLocations = await req.app.locals.store.getLiveLocations();
+    liveLocations.vehicles
+      .filter((vehicle) => vehicle.routeId === updatedRoute.id)
+      .forEach((vehicle) => {
+        req.app.locals.io
+          ?.to(`org:${getOrganizationId(req.user)}`)
+          .emit("location:updated", vehicle);
+      });
+
+    return res.json({
+      ok: true,
+      data: updatedRoute
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/routes/:routeId", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({
+        ok: false,
+        message: "Solo administracion puede eliminar rutas"
+      });
+    }
+
+    const routeId = String(req.params.routeId || "").trim();
+
+    if (!routeId) {
+      return res.status(400).json({
+        ok: false,
+        message: "routeId es obligatorio"
+      });
+    }
+
+    const liveBeforeDelete = await req.app.locals.store.getLiveLocations();
+    const affectedVehicleIds = new Set(
+      liveBeforeDelete.vehicles
+        .filter((vehicle) => vehicle.routeId === routeId)
+        .map((vehicle) => vehicle.id)
+    );
+    const deletedRoute = await req.app.locals.store.deleteRoute(routeId, req.user);
+
+    if (!deletedRoute) {
+      return res.status(404).json({
+        ok: false,
+        message: "Ruta no encontrada"
+      });
+    }
+
+    const liveAfterDelete = await req.app.locals.store.getLiveLocations();
+    liveAfterDelete.vehicles
+      .filter((vehicle) => affectedVehicleIds.has(vehicle.id))
+      .forEach((vehicle) => {
+        req.app.locals.io
+          ?.to(`org:${getOrganizationId(req.user)}`)
+          .emit("location:updated", vehicle);
+      });
+
+    return res.json({
+      ok: true,
+      data: deletedRoute
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/assign", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
     if (!hasPermission(req.user, "canManageRoutes")) {
@@ -317,30 +423,10 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
 
     const vehicleId = String(req.body.vehicleId || "").trim();
     const routeId = String(req.body.routeId || "").trim();
-    const origin = normalizePoint(req.body.origin);
-    const destination = normalizePoint(req.body.destination);
-    const destinationLabel = String(req.body.destinationLabel || "").trim();
-    const originLabel = String(req.body.originLabel || "Ubicacion actual").trim();
-    const stops = normalizeStops(req.body.stops);
-    const providedRoute = normalizeRouteOption(req.body.route);
-    const providedAlternatives = Array.isArray(req.body.alternatives)
-      ? req.body.alternatives.map(normalizeRouteOption).filter(Boolean)
-      : [];
-    const providedProvider = String(req.body.provider || "").trim();
-
-    if (!vehicleId || (!routeId && (!origin || !destination || !destinationLabel))) {
+    if (!vehicleId || !routeId) {
       return res.status(400).json({
         ok: false,
-        message: "vehicleId y routeId o datos completos de ruta son obligatorios"
-      });
-    }
-
-    const stopsError = origin && destination ? getStopsValidationError(origin, destination, stops) : null;
-
-    if (stopsError) {
-      return res.status(400).json({
-        ok: false,
-        message: stopsError
+        message: "vehicleId y routeId son obligatorios"
       });
     }
 
@@ -355,52 +441,18 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
     }
 
     const savedRoute = routeId ? await req.app.locals.store.getRouteById(routeId) : null;
-    const savedRouteOption = routeOptionFromSavedRoute(savedRoute);
-    const routePlan = savedRouteOption
-      ? {
-          provider: "system",
-          stops: savedRoute.stops || [],
-          routes: [savedRouteOption]
-        }
-      : providedRoute
-      ? {
-          provider: providedProvider || "system",
-          stops,
-          routes: [providedRoute, ...providedAlternatives]
-        }
-      : await planRoute(origin, destination, stops);
-    const [primaryRoute, ...alternatives] = routePlan.routes;
-    const assignmentOrigin = savedRoute?.origin || savedRoute?.polyline?.[0] || origin;
-    const assignmentDestination =
-      savedRoute?.destination ||
-      savedRoute?.polyline?.[savedRoute.polyline.length - 1] ||
-      destination;
-    const assignmentStops = savedRoute?.stops || stops;
-    const assignmentOriginLabel = savedRoute?.name || originLabel;
-    const assignmentDestinationLabel = savedRoute?.name || destinationLabel;
 
-    if (!primaryRoute || !assignmentOrigin || !assignmentDestination) {
-      return res.status(422).json({
+    if (routeId && (!savedRoute || !canAccessTenantResource(req.user, savedRoute))) {
+      return res.status(404).json({
         ok: false,
-        message: "No se pudo calcular una ruta valida"
+        message: "Ruta no encontrada"
       });
     }
 
     const updatedVehicle = await req.app.locals.store.assignRouteToVehicle({
       vehicleId,
-      routeId: savedRoute?._id || savedRoute?.id || routeId || null,
-      assignment: {
-        originLabel: assignmentOriginLabel,
-        origin: assignmentOrigin,
-        destinationLabel: assignmentDestinationLabel,
-        destination: assignmentDestination,
-        stops: assignmentStops,
-        assignedBy: req.user.id,
-        assignedAt: new Date().toISOString(),
-        provider: routePlan.provider,
-        route: primaryRoute,
-        alternatives
-      }
+      routeId: savedRoute?._id || savedRoute?.id || routeId,
+      assignedBy: req.user.id
     });
 
     if (!updatedVehicle) {

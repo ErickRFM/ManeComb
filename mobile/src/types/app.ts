@@ -436,6 +436,10 @@ export type NavigationPlan = {
 };
 
 export type AssignedRoute = {
+  routeId?: string | null;
+  routeName?: string;
+  routeCode?: string;
+  routeColor?: string | null;
   originLabel: string;
   origin?: GeoPoint | null;
   destinationLabel: string;
@@ -656,7 +660,7 @@ export type Vehicle = {
   id: string;
   code: string;
   plate: string;
-  routeId: string;
+  routeId: string | null;
   driverId: string | null;
   supervisorId: string | null;
   status: string;
@@ -675,7 +679,7 @@ export type Vehicle = {
   assignedRoute?: AssignedRoute | null;
   routeName?: string;
   routeCode?: string;
-  routeColor?: string;
+  routeColor?: string | null;
   driverName?: string;
   route?: RouteShape | null;
   driver?: User | null;

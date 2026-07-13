@@ -391,7 +391,7 @@ function buildVehiclePayload({ payload, companyId, driverId, activationKey }) {
     organizationId: companyId,
     code: String(unit.code || unit.vehicleCode || `CB-${suffix}`).trim(),
     plate: String(unit.plate || `PEND-${suffix}`).trim().toUpperCase(),
-    routeId: String(unit.routeId || "route-1").trim() || "route-1",
+    routeId: String(unit.routeId || "").trim() || null,
     capacity: Math.max(1, Number(unit.capacity) || 18),
     status: "available",
     driverId

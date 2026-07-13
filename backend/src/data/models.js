@@ -44,6 +44,10 @@ const stopSchema = new mongoose.Schema(
 
 const assignedRouteSchema = new mongoose.Schema(
   {
+    routeId: { type: String, default: null },
+    routeName: { type: String, default: "" },
+    routeCode: { type: String, default: "" },
+    routeColor: { type: String, default: null },
     originLabel: { type: String, default: "" },
     origin: { type: pointSchema, default: null },
     destinationLabel: { type: String, default: "" },

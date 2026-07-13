@@ -7,8 +7,24 @@ const { signToken } = require("../src/utils/jwt");
 
 async function createContext() {
   const store = createEmbeddedStore();
+  const route = store.createRoute({
+    id: "test-route-12",
+    name: "R-12",
+    code: "R-12",
+    color: "#1473E6",
+    origin: { latitude: 19.415, longitude: -99.073 },
+    destination: { latitude: 19.4452, longitude: -99.1513 },
+    stops: [],
+    distanceMeters: 1000,
+    durationSeconds: 600,
+    durationInTrafficSeconds: 600,
+    polyline: [{ latitude: 19.415, longitude: -99.073 }, { latitude: 19.4452, longitude: -99.1513 }],
+    organizationId: "manecomb-demo",
+    createdBy: "user-admin-01"
+  });
   await store.assignRouteToVehicle({
     vehicleId: "vehicle-101",
+    routeId: route.id,
     assignment: {
       originLabel: "Pantitlan",
       origin: { latitude: 19.415, longitude: -99.073 },
@@ -24,6 +40,7 @@ async function createContext() {
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
+    routeId: route.id,
     store,
     token: signToken(store.getUserById("user-admin-01")),
     url: `http://127.0.0.1:${server.address().port}/api`,
@@ -90,10 +107,70 @@ function testMetricsEngineScenarios() {
   assert.equal(emptyCheckpointMetrics.completedLaps, 0);
 }
 
+function testVehicleRouteFlow(store) {
+  const route = store.createRoute({
+    id: "route-flow-a",
+    name: "Ruta Flujo A",
+    code: "RUTA-FLUJO-A",
+    color: "#1473E6",
+    origin: { latitude: 19.37, longitude: -99.25 },
+    destination: { latitude: 19.39, longitude: -99.23 },
+    stops: [],
+    distanceMeters: 2200,
+    durationSeconds: 700,
+    durationInTrafficSeconds: 700,
+    polyline: [{ latitude: 19.37, longitude: -99.25 }, { latitude: 19.39, longitude: -99.23 }],
+    organizationId: "manecomb-demo",
+    createdBy: "user-admin-01"
+  });
+
+  store.assignRouteToVehicle({
+    vehicleId: "vehicle-310",
+    routeId: route.id,
+    assignedBy: "user-admin-01"
+  });
+
+  let vehicle = store.getLiveLocations().vehicles.find((entry) => entry.id === "vehicle-310");
+  assert.equal(vehicle.routeId, route.id);
+  assert.equal(vehicle.assignedRoute.routeId, route.id);
+  assert.equal(vehicle.route.id, route.id);
+  assert.equal(vehicle.routeName, "Ruta Flujo A");
+  assert.deepEqual(vehicle.route.polyline, route.polyline);
+
+  const updatedRoute = store.updateRoute(route.id, {
+    name: "Ruta Flujo Actualizada",
+    code: "RUTA-FLUJO-ACTUALIZADA",
+    color: "#1473E6",
+    origin: { latitude: 19.41, longitude: -99.21 },
+    destination: { latitude: 19.43, longitude: -99.19 },
+    stops: [],
+    distanceMeters: 3300,
+    durationSeconds: 900,
+    durationInTrafficSeconds: 900,
+    polyline: [{ latitude: 19.41, longitude: -99.21 }, { latitude: 19.43, longitude: -99.19 }]
+  });
+
+  vehicle = store.getLiveLocations().vehicles.find((entry) => entry.id === "vehicle-310");
+  assert.equal(updatedRoute.id, route.id);
+  assert.equal(vehicle.routeId, route.id);
+  assert.equal(vehicle.assignedRoute.routeId, route.id);
+  assert.equal(vehicle.routeName, "Ruta Flujo Actualizada");
+  assert.deepEqual(vehicle.route.polyline, updatedRoute.polyline);
+
+  store.deleteRoute(route.id);
+  vehicle = store.getLiveLocations().vehicles.find((entry) => entry.id === "vehicle-310");
+  assert.equal(vehicle.routeId, null);
+  assert.equal(vehicle.assignedRoute, null);
+  assert.equal(vehicle.route, null);
+  assert.equal(vehicle.routeName, "Sin ruta");
+  assert.equal(vehicle.routeCode, "N/A");
+}
+
 async function main() {
   testMetricsEngineScenarios();
   const context = await createContext();
   try {
+    testVehicleRouteFlow(context.store);
     const [first, second] = await Promise.all([
       request(context, "/navigation/sessions/start", "POST", { vehicleId: "vehicle-101" }),
       request(context, "/navigation/sessions/start", "POST", { vehicleId: "vehicle-101" })
@@ -104,8 +181,8 @@ async function main() {
 
     const session = first.data.data;
     const blockedRoute = await request(context, "/navigation/assign", "POST", {
-      vehicleId: "vehicle-101", origin: { latitude: 19.415, longitude: -99.073 },
-      destination: { latitude: 19.4452, longitude: -99.1513 }, destinationLabel: "Tacuba"
+      vehicleId: "vehicle-101",
+      routeId: context.routeId
     });
     assert.equal(blockedRoute.status, 409);
     const blockedDriver = await request(context, "/users/user-driver-01", "PATCH", { vehicleId: null });

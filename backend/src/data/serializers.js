@@ -58,10 +58,50 @@ function sanitizeUser(doc) {
   return safeUser;
 }
 
+function normalizeRouteId(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
+
+function getAssignedRoutePolyline(assignedRoute) {
+  if (!assignedRoute || typeof assignedRoute !== "object") {
+    return [];
+  }
+
+  const route = assignedRoute.route;
+  if (!route || typeof route !== "object") {
+    return [];
+  }
+
+  return Array.isArray(route.polyline) ? route.polyline : [];
+}
+
+function hasActiveAssignedRoute(assignedRoute) {
+  return getAssignedRoutePolyline(assignedRoute).length >= 2;
+}
+
+function getClearedVehicleRouteFields() {
+  return {
+    routeId: null,
+    assignedRoute: null,
+    activeRouteProgress: null,
+    etaMinutes: null
+  };
+}
+
+function serializeVehicle(doc) {
+  return toPlain(doc);
+}
+
 module.exports = {
+  getAssignedRoutePolyline,
+  getClearedVehicleRouteFields,
   getUserOrganizationId,
+  hasActiveAssignedRoute,
   normalizeAccountType,
+  normalizeRouteId,
   normalizeUserStatus,
   sanitizeUser,
+  serializeVehicle,
   toPlain
 };

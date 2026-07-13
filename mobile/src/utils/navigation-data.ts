@@ -132,6 +132,10 @@ export function normalizeAssignedRoute(value: unknown): AssignedRoute | null {
     originLabel: stringValue(value.originLabel, 'Punto inicial'),
     provider: normalizeProvider(value.provider),
     route,
+    routeCode: stringValue(value.routeCode),
+    routeColor: stringValue(value.routeColor) || null,
+    routeId: stringValue(value.routeId) || null,
+    routeName: stringValue(value.routeName),
     stops,
   };
 }
