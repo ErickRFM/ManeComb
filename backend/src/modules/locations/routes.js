@@ -43,9 +43,17 @@ function normalizePoint(point) {
 function filterLiveLocationsForTenant(user, live) {
   const vehicles = filterTenantList(user, live.vehicles || []);
   const vehicleIds = new Set(vehicles.map((vehicle) => vehicle.id));
+  const organizationId = getOrganizationId(user);
 
   return {
     ...live,
+    routes: (live.routes || []).filter((route) => {
+      if (!route.organizationId) {
+        return true;
+      }
+
+      return String(route.organizationId) === String(organizationId || "");
+    }),
     vehicles,
     incidents: (live.incidents || []).filter((incident) => {
       if (user.role === "driver") {

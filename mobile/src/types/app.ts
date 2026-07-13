@@ -395,6 +395,12 @@ export type RouteShape = {
   name: string;
   code: string;
   color: string;
+  origin?: GeoPoint | null;
+  destination?: GeoPoint | null;
+  stops?: NavigationStop[];
+  distanceMeters?: number;
+  durationSeconds?: number;
+  durationInTrafficSeconds?: number;
   polyline: GeoPoint[];
 };
 

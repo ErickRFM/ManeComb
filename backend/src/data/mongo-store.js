@@ -906,6 +906,29 @@ async function createMongoStore() {
     return serializeRoute(route);
   }
 
+  async function createRoute(payload) {
+    const now = new Date();
+    const doc = await RouteModel.create({
+      _id: payload.id || randomUUID(),
+      name: String(payload.name || "").trim(),
+      code: String(payload.code || payload.name || "").trim(),
+      color: payload.color || "#1473E6",
+      origin: payload.origin || null,
+      destination: payload.destination || null,
+      stops: payload.stops || [],
+      distanceMeters: Math.max(0, Number(payload.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
+      polyline: payload.polyline || [],
+      organizationId: payload.organizationId || null,
+      createdBy: payload.createdBy || null,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    return serializeRoute(doc);
+  }
+
   async function listTripLogs({ vehicleId, serviceDate, limit = 12 }) {
     if (!vehicleId) {
       return [];
@@ -2824,11 +2847,12 @@ async function createMongoStore() {
     return enrichVehicle(vehicle);
   }
 
-  async function assignRouteToVehicle({ vehicleId, assignment }) {
+  async function assignRouteToVehicle({ vehicleId, routeId = null, assignment }) {
     const vehicle = await VehicleModel.findByIdAndUpdate(
       vehicleId,
       {
         $set: {
+          routeId: routeId || "",
           assignedRoute: assignment,
           updatedAt: new Date()
         }
@@ -2848,6 +2872,7 @@ async function createMongoStore() {
       vehicleId,
       {
         $set: {
+          routeId: "",
           assignedRoute: null,
           updatedAt: new Date()
         }
@@ -3038,6 +3063,7 @@ async function createMongoStore() {
     addMessage,
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
+    createRoute,
     authenticate,
     canUserAccessConversation,
     canUserAccessChatMedia,

@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -19,7 +20,7 @@ import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest, getActiveRouteSessionRequest, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
+import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest, createNavigationRouteRequest, getActiveRouteSessionRequest, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useUserLocation } from '@/src/hooks/use-user-location';
@@ -32,6 +33,7 @@ import type {
   NavigationPlaceResult,
   NavigationRouteOption,
   NavigationStop,
+  RouteShape,
   RouteSession,
   Vehicle,
 } from '@/src/types/app';
@@ -840,6 +842,26 @@ function createStyles(
       gap: 12,
       paddingBottom: 8,
     },
+    routeNamePrompt: {
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surface,
+      gap: 12,
+      padding: 14,
+    },
+    routeNameInput: {
+      minHeight: 46,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 15,
+      fontWeight: '800',
+      paddingHorizontal: 12,
+    },
     routePreview: {
       height: 230,
       borderRadius: 22,
@@ -1058,6 +1080,26 @@ function createStyles(
     routeEndpoints: {
       gap: 6,
     },
+    savedRoutesList: {
+      gap: 8,
+    },
+    savedRouteButton: {
+      minHeight: 42,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+    },
+    savedRouteName: {
+      flex: 1,
+      color: theme.colors.text,
+      fontSize: 13,
+      fontWeight: '900',
+    },
     endpointText: {
       color: theme.colors.text,
       fontSize: 15,
@@ -1187,6 +1229,17 @@ function createStyles(
       justifyContent: 'center',
       paddingHorizontal: 16,
     },
+    primaryWideInline: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 15,
+      backgroundColor: theme.colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: 16,
+    },
     primaryWideText: {
       color: '#FFFFFF',
       fontSize: 14,
@@ -1214,6 +1267,8 @@ export function ChecklistScreen() {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
+  const [routeNameDraft, setRouteNameDraft] = useState('');
+  const [routeNamePromptOpen, setRouteNamePromptOpen] = useState(false);
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [isChangingSession, setIsChangingSession] = useState(false);
@@ -1222,6 +1277,10 @@ export function ChecklistScreen() {
   const vehicles = useMemo(
     () => [...(mapData?.vehicles || [])].sort((left, right) => left.code.localeCompare(right.code)),
     [mapData?.vehicles]
+  );
+  const savedRoutes = useMemo(
+    () => [...(mapData?.routes || [])].sort((left, right) => left.name.localeCompare(right.name)),
+    [mapData?.routes]
   );
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
@@ -1517,6 +1576,8 @@ export function ChecklistScreen() {
     }
 
     setRouteModalOpen(false);
+    setRouteNamePromptOpen(false);
+    setRouteNameDraft('');
   };
 
   const cancelRouteDraft = () => {
@@ -1527,6 +1588,8 @@ export function ChecklistScreen() {
     }
 
     pendingStopPersistRef.current = false;
+    setRouteNamePromptOpen(false);
+    setRouteNameDraft('');
     setFinalizedRouteSummary(null);
     trackerState.resetPointToPointSession();
     syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
@@ -1572,7 +1635,7 @@ export function ChecklistScreen() {
     tracker.removeStop(stopId);
   };
 
-  const saveAssignedRoute = useCallback(async () => {
+  const openRouteNamePrompt = useCallback(() => {
     const trackerState = trackerRef.current;
     const origin = trackerState.pointSelection.origin;
     const destination = trackerState.pointSelection.destination;
@@ -1588,29 +1651,74 @@ export function ChecklistScreen() {
       return;
     }
 
+    setRouteNameDraft(route.label && route.label !== 'Ruta recomendada' ? route.label : '');
+    setRouteNamePromptOpen(true);
+  }, [isCalculatedRouteSaved, selectedVehicle?.id]);
+
+  const saveAssignedRoute = useCallback(async () => {
+    const trackerState = trackerRef.current;
+    const origin = trackerState.pointSelection.origin;
+    const destination = trackerState.pointSelection.destination;
+    const route = trackerState.pointPlan?.routes[0] || null;
+    const routeName = routeNameDraft.trim();
+
+    if (!selectedVehicle?.id || !origin || !destination || !trackerState.pointPlan || !route) {
+      trackerState.setPointMessage('Calcula la ruta antes de guardarla.');
+      return;
+    }
+
+    if (!routeName) {
+      trackerState.setPointMessage('Escribe el nombre de la ruta.');
+      return;
+    }
+
+    setIsSavingAssignedRoute(true);
+    setFinalizedRouteSummary(null);
+
+    try {
+      const savedRoute = await createNavigationRouteRequest({
+        name: routeName,
+        origin: origin.location,
+        destination: destination.location,
+        route,
+        stops: trackerState.pointStops,
+      });
+      await assignVehicleRouteRequest({
+        vehicleId: selectedVehicle.id,
+        routeId: savedRoute.id,
+      });
+      await refreshAll();
+      setRouteNamePromptOpen(false);
+      setRouteNameDraft('');
+      trackerState.setPointMessage('Ruta guardada y asignada a la unidad.');
+    } catch {
+      trackerState.setPointMessage('No fue posible guardar la ruta.');
+    } finally {
+      setIsSavingAssignedRoute(false);
+    }
+  }, [refreshAll, routeNameDraft, selectedVehicle?.id]);
+
+  const assignSavedRoute = useCallback(async (route: RouteShape) => {
+    if (!selectedVehicle?.id) {
+      return;
+    }
+
     setIsSavingAssignedRoute(true);
     setFinalizedRouteSummary(null);
 
     try {
       await assignVehicleRouteRequest({
         vehicleId: selectedVehicle.id,
-        origin: origin.location,
-        destination: destination.location,
-        originLabel: origin.label,
-        destinationLabel: destination.label,
-        provider: trackerState.pointPlan.provider,
-        route,
-        alternatives: trackerState.pointPlan.routes.slice(1),
-        stops: trackerState.pointStops,
+        routeId: route.id,
       });
       await refreshAll();
-      trackerState.setPointMessage('Ruta guardada para la unidad.');
+      trackerRef.current.setPointMessage(`Ruta ${route.name} asignada a la unidad.`);
     } catch {
-      trackerState.setPointMessage('No fue posible guardar la ruta.');
+      trackerRef.current.setPointMessage('No fue posible asignar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [isCalculatedRouteSaved, refreshAll, selectedVehicle?.id]);
+  }, [refreshAll, selectedVehicle?.id]);
 
   const navParams = useLocalSearchParams<{
     vehicleId?: string;
@@ -1820,14 +1928,14 @@ export function ChecklistScreen() {
     }
 
     pendingStopPersistRef.current = false;
-    saveAssignedRoute();
+    tracker.setPointMessage('Asigna un nombre y guarda la ruta.');
   }, [
     activeRouteSignature,
     isCalculatedRouteSaved,
     isSavingAssignedRoute,
     routeModalOpen,
-    saveAssignedRoute,
     selectedVehicle,
+    tracker,
     tracker.pointPlan,
   ]);
 
@@ -2009,6 +2117,21 @@ export function ChecklistScreen() {
                     <Text style={styles.messageText}>
                       Esta unidad no tiene una ruta punto a punto activa.
                     </Text>
+                    {savedRoutes.length ? (
+                      <View style={styles.savedRoutesList}>
+                        <Text style={styles.fieldLabel}>Rutas guardadas</Text>
+                        {savedRoutes.map((route) => (
+                          <Pressable
+                            key={route.id}
+                            style={styles.savedRouteButton}
+                            onPress={() => assignSavedRoute(route)}
+                            disabled={isSavingAssignedRoute}>
+                            <MaterialCommunityIcons name="routes" size={17} color={theme.colors.text} />
+                            <Text style={styles.savedRouteName} numberOfLines={1}>{route.name}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ) : null}
                     <Pressable
                       style={styles.primaryWide}
                       onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}>
@@ -2108,7 +2231,7 @@ export function ChecklistScreen() {
                       style={styles.primaryWide}
                       onPress={
                         tracker.pointPlan
-                          ? saveAssignedRoute
+                          ? openRouteNamePrompt
                           : () => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')
                       }
                       disabled={tracker.isPlanningPointRoute || isSavingAssignedRoute}>
@@ -2297,6 +2420,42 @@ export function ChecklistScreen() {
                 </View>
               ) : null}
             </ScrollView>
+            {routeNamePromptOpen ? (
+              <View style={styles.routeNamePrompt}>
+                <Text style={styles.configTitle}>Nombre de la ruta</Text>
+                <TextInput
+                  value={routeNameDraft}
+                  onChangeText={setRouteNameDraft}
+                  placeholder="Ruta Centro"
+                  placeholderTextColor={theme.colors.muted}
+                  style={styles.routeNameInput}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                />
+                <View style={styles.routeActionRow}>
+                  <Pressable
+                    style={styles.secondaryWide}
+                    onPress={() => {
+                      setRouteNamePromptOpen(false);
+                      setRouteNameDraft('');
+                    }}
+                    disabled={isSavingAssignedRoute}>
+                    <MaterialCommunityIcons name="close" size={18} color={theme.colors.text} />
+                    <Text style={styles.secondaryWideText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable style={styles.primaryWideInline} onPress={saveAssignedRoute} disabled={isSavingAssignedRoute}>
+                    {isSavingAssignedRoute ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="content-save-check-outline" size={18} color="#FFFFFF" />
+                        <Text style={styles.primaryWideText}>Guardar</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>

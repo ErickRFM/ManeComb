@@ -1123,12 +1123,15 @@ export function createStyles(
     },
     composerBar: {
       minHeight: 48,
+      flexShrink: 0,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
     composerInputShell: {
-      flex: 1,
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 0,
       minWidth: 0,
       minHeight: 44,
       maxHeight: 92,
@@ -1148,6 +1151,7 @@ export function createStyles(
       textAlignVertical: 'top',
     },
     attachButton: {
+      flexShrink: 0,
       width: 44,
       height: 44,
       borderRadius: 17,
@@ -1158,6 +1162,7 @@ export function createStyles(
       backgroundColor: theme.colors.surfaceAlt,
     },
     voiceButton: {
+      flexShrink: 0,
       width: 44,
       height: 44,
       borderRadius: 17,
@@ -1168,6 +1173,7 @@ export function createStyles(
       justifyContent: 'center',
     },
     sendIconButton: {
+      flexShrink: 0,
       width: 44,
       height: 44,
       borderRadius: 17,

@@ -64,7 +64,17 @@ const routeSchema = new mongoose.Schema(
     name: { type: String, required: true },
     code: { type: String, required: true },
     color: { type: String, required: true },
-    polyline: { type: [pointSchema], default: [] }
+    origin: { type: pointSchema, default: null },
+    destination: { type: pointSchema, default: null },
+    stops: { type: [stopSchema], default: [] },
+    distanceMeters: { type: Number, default: 0 },
+    durationSeconds: { type: Number, default: 0 },
+    durationInTrafficSeconds: { type: Number, default: 0 },
+    polyline: { type: [pointSchema], default: [] },
+    organizationId: { type: String, default: null },
+    createdBy: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
   },
   {
     collection: "routes",

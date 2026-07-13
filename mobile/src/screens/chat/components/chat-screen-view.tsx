@@ -308,7 +308,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         {showConversationPanel ? (
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={isPhone ? 108 : 0}
+            keyboardVerticalOffset={0}
             style={[
               styles.conversationPanel,
               isMobileConversation ? styles.conversationPanelMobile : undefined,
@@ -485,7 +485,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       <Pressable
                         onPress={() =>
                           closeActiveCall({
-                            emitHangup: true,
                             reason: 'Llamada finalizada.',
                           })
                         }

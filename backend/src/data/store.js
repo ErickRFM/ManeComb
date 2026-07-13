@@ -55,6 +55,30 @@ function createEmbeddedStore() {
     return state.routes.find((route) => route.id === routeId) || null;
   }
 
+  function createRoute(payload) {
+    const now = new Date().toISOString();
+    const route = {
+      id: payload.id || randomUUID(),
+      name: String(payload.name || "").trim(),
+      code: String(payload.code || payload.name || "").trim(),
+      color: payload.color || "#1473E6",
+      origin: payload.origin || null,
+      destination: payload.destination || null,
+      stops: clone(payload.stops || []),
+      distanceMeters: Math.max(0, Number(payload.distanceMeters) || 0),
+      durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
+      durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
+      polyline: clone(payload.polyline || []),
+      organizationId: payload.organizationId || null,
+      createdBy: payload.createdBy || null,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    state.routes.push(route);
+    return clone(route);
+  }
+
   function getTripLogById(tripLogId) {
     return state.tripLogs.find((tripLog) => tripLog.id === tripLogId) || null;
   }
@@ -2266,13 +2290,14 @@ function createEmbeddedStore() {
     return enrichVehicle(vehicle);
   }
 
-  function assignRouteToVehicle({ vehicleId, assignment }) {
+  function assignRouteToVehicle({ vehicleId, routeId = null, assignment }) {
     const vehicle = getVehicleById(vehicleId);
 
     if (!vehicle) {
       return null;
     }
 
+    vehicle.routeId = routeId || "";
     vehicle.assignedRoute = clone(assignment);
     vehicle.updatedAt = new Date().toISOString();
 
@@ -2286,6 +2311,7 @@ function createEmbeddedStore() {
       return null;
     }
 
+    vehicle.routeId = "";
     vehicle.assignedRoute = null;
     vehicle.updatedAt = new Date().toISOString();
 
@@ -2460,6 +2486,7 @@ function createEmbeddedStore() {
     addMessage,
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
+    createRoute,
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,

@@ -33,6 +33,7 @@ import type {
   ProfileMutationPayload,
   RegisterPayload,
   RouteEvent,
+  RouteShape,
   RouteSessionHistoryFilters,
   RouteSessionMetrics,
   RouteSession,
@@ -859,12 +860,24 @@ export async function planNavigationRouteRequest(payload: {
   return response.data.data;
 }
 
-export async function assignVehicleRouteRequest(payload: {
-  vehicleId: string;
+export async function createNavigationRouteRequest(payload: {
+  name: string;
   origin: GeoPoint;
   destination: GeoPoint;
+  route: NavigationPlan['routes'][number];
+  stops?: NavigationStop[];
+}) {
+  const response = await apiClient.post<{ ok: boolean; data: RouteShape }>('/navigation/routes', payload);
+  return response.data.data;
+}
+
+export async function assignVehicleRouteRequest(payload: {
+  vehicleId: string;
+  routeId?: string;
+  origin?: GeoPoint;
+  destination?: GeoPoint;
   originLabel?: string;
-  destinationLabel: string;
+  destinationLabel?: string;
   provider?: NavigationPlan['provider'];
   route?: NavigationPlan['routes'][number];
   alternatives?: NavigationPlan['routes'];

@@ -24,6 +24,10 @@ import { getOperationalStatusRank } from '../utils/conversation';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
 
+type CloseActiveCallOptions = {
+  reason?: string | null;
+};
+
 export function useChatController() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1080;
@@ -86,6 +90,14 @@ export function useChatController() {
   const joinedRtcRoomRef = useRef<string | null>(null);
   const currentCallModeRef = useRef<CallMode | null>(null);
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingIceCandidatesRef = useRef<
+    Array<{ candidate: RTCIceCandidateInit; fromSocketId: string }>
+  >([]);
+  const isStartingCallRef = useRef(false);
+  const callAttemptRef = useRef(0);
+  const closeActiveCallRef = useRef<(options?: CloseActiveCallOptions) => Promise<void>>(
+    async () => undefined
+  );
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !user) return;
@@ -100,7 +112,8 @@ export function useChatController() {
       randomizationFactor: 0.45,
     });
     socketRef.current = socket;
-    const resetPeerConnection = () => {
+    const resetPeerConnection = (clearPendingCandidates = true) => {
+      if (clearPendingCandidates) pendingIceCandidatesRef.current = [];
       if (peerRef.current) {
         peerRef.current.onicecandidate = null;
         peerRef.current.ontrack = null;
@@ -115,7 +128,7 @@ export function useChatController() {
       targetSocketId: string,
       mode: CallMode
     ) => {
-      resetPeerConnection();
+      resetPeerConnection(false);
 
       const peer = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -141,6 +154,10 @@ export function useChatController() {
       };
 
       peer.ontrack = (event) => {
+        if (peerRef.current !== peer || joinedRtcRoomRef.current !== roomId) {
+          return;
+        }
+
         setCallSession((current) => {
           if (current?.roomId === roomId) {
             return {
@@ -151,21 +168,14 @@ export function useChatController() {
             };
           }
 
-          return {
-            roomId,
-            mode,
-            phase: 'connected',
-            joinedAt: Date.now(),
-            remoteStream: event.streams[0],
-            remoteSocketId: targetSocketId,
-          };
+          return current;
         });
       };
 
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === 'connected') {
           setCallSession((current) =>
-            current
+            current?.roomId === roomId
               ? {
                   ...current,
                   phase: 'connected',
@@ -175,22 +185,24 @@ export function useChatController() {
           setCallNotice(mode === 'video' ? 'Videollamada activa.' : 'Llamada activa.');
         }
 
-        if (
-          peer.connectionState === 'failed' ||
-          peer.connectionState === 'closed' ||
-          peer.connectionState === 'disconnected'
-        ) {
+        if (peer.connectionState === 'disconnected') {
           resetPeerConnection();
           setCallSession((current) =>
-            current
-              ? {
-                  ...current,
-                  phase: 'waiting',
-                  remoteStream: null,
-                  remoteSocketId: null,
-                }
+            current?.roomId === roomId
+              ? { ...current, phase: 'reconnecting', remoteStream: null }
               : current
           );
+          setCallNotice('Reconectando llamada...');
+        }
+
+        if (peer.connectionState === 'failed') {
+          resetPeerConnection();
+          setCallSession((current) =>
+            current?.roomId === roomId
+              ? { ...current, phase: 'reconnecting', remoteStream: null, remoteSocketId: null }
+              : current
+          );
+          socket.emit('rtc:join', { roomId });
         }
       };
 
@@ -212,7 +224,7 @@ export function useChatController() {
 
         if (!others.length) {
           setCallSession((current) =>
-            current
+            current?.roomId === payload.roomId
               ? {
                   ...current,
                   phase: 'waiting',
@@ -243,6 +255,9 @@ export function useChatController() {
           offerToReceiveVideo: mode === 'video',
         });
         await peer.setLocalDescription(offer);
+        if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
+          return;
+        }
         socket.emit('rtc:offer', {
           offer,
           roomId: payload.roomId,
@@ -252,7 +267,7 @@ export function useChatController() {
           userId: user.id,
         });
         setCallSession((current) =>
-          current
+          current?.roomId === payload.roomId
             ? {
                 ...current,
                 phase: 'connecting',
@@ -278,8 +293,19 @@ export function useChatController() {
         const mode = payload.mode || currentCallModeRef.current || 'audio';
         const peer = buildPeerConnection(payload.roomId, payload.fromSocketId, mode);
         await peer.setRemoteDescription(new RTCSessionDescription(payload.offer));
+        if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
+          return;
+        }
+        for (const queued of pendingIceCandidatesRef.current.splice(0)) {
+          if (queued.fromSocketId === payload.fromSocketId) {
+            await peer.addIceCandidate(new RTCIceCandidate(queued.candidate));
+          }
+        }
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
+        if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
+          return;
+        }
         socket.emit('rtc:answer', {
           answer,
           roomId: payload.roomId,
@@ -287,7 +313,7 @@ export function useChatController() {
           mode,
         });
         setCallSession((current) =>
-          current
+          current?.roomId === payload.roomId
             ? {
                 ...current,
                 phase: 'connecting',
@@ -300,18 +326,39 @@ export function useChatController() {
 
     socket.on(
       'rtc:answer',
-      async (payload: { answer: RTCSessionDescriptionInit; roomId: string }) => {
+      async (payload: { answer: RTCSessionDescriptionInit; fromSocketId: string; roomId: string }) => {
         if (payload.roomId !== joinedRtcRoomRef.current || !peerRef.current) {
           return;
         }
 
-        await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+        const peer = peerRef.current;
+        await peer.setRemoteDescription(new RTCSessionDescription(payload.answer));
+        if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
+          return;
+        }
+        for (const queued of pendingIceCandidatesRef.current.splice(0)) {
+          if (queued.fromSocketId === payload.fromSocketId) {
+            await peer.addIceCandidate(new RTCIceCandidate(queued.candidate));
+          }
+        }
       }
     );
 
-    socket.on('rtc:ice-candidate', async (payload: { candidate: RTCIceCandidateInit }) => {
-      if (peerRef.current) {
+    socket.on('rtc:ice-candidate', async (payload: { candidate: RTCIceCandidateInit; fromSocketId: string; roomId: string }) => {
+      if (payload.roomId !== joinedRtcRoomRef.current) {
+        return;
+      }
+
+      if (peerRef.current?.remoteDescription) {
         await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      } else {
+        if (pendingIceCandidatesRef.current.length >= 128) {
+          pendingIceCandidatesRef.current.shift();
+        }
+        pendingIceCandidatesRef.current.push({
+          candidate: payload.candidate,
+          fromSocketId: payload.fromSocketId,
+        });
       }
     });
 
@@ -320,22 +367,28 @@ export function useChatController() {
         return;
       }
 
+      socket.emit('rtc:leave', { roomId: payload.roomId });
       resetPeerConnection();
-      setCallSession((current) =>
-        current
-          ? {
-              ...current,
-              phase: 'waiting',
-              remoteStream: null,
-              remoteSocketId: null,
-            }
-          : current
-      );
-      setCallNotice('La otra persona salio de la llamada.');
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+      setCallElapsedSeconds(0);
+      setCallNotice('La otra persona finalizo la llamada.');
     });
 
     socket.on('disconnect', () => {
+      resetPeerConnection();
       setCallParticipants([]);
+      setCallSession((current) =>
+        current ? { ...current, phase: 'reconnecting', remoteStream: null, remoteSocketId: null } : current
+      );
       setCallNotice('Reconectando senal de llamada...');
     });
 
@@ -354,7 +407,20 @@ export function useChatController() {
     });
 
     return () => {
+      callAttemptRef.current += 1;
+      isStartingCallRef.current = false;
       resetPeerConnection();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      setCallElapsedSeconds(0);
       socket.removeAllListeners();
       socket.io.removeAllListeners();
       socket.disconnect();
@@ -498,12 +564,14 @@ export function useChatController() {
       ? 'En llamada'
       : activeCallSession.phase === 'connecting'
         ? 'Conectando'
+        : activeCallSession.phase === 'reconnecting'
+          ? 'Reconectando'
         : 'Esperando'
     : 'Listo';
   const callTone: 'positive' | 'warning' | 'neutral' =
     activeCallSession?.phase === 'connected'
       ? 'positive'
-      : activeCallSession
+      : activeCallSession?.phase === 'connecting' || activeCallSession?.phase === 'reconnecting'
         ? 'warning'
         : 'neutral';
   const activeConversationCallMode = activeCallSession?.mode ?? null;
@@ -765,19 +833,14 @@ export function useChatController() {
   };
 
   const closeActiveCall = async (
-    options: {
-      emitHangup?: boolean;
-      reason?: string | null;
-    } = {}
+    options: CloseActiveCallOptions = {}
   ) => {
-    const { emitHangup = true, reason = null } = options;
+    callAttemptRef.current += 1;
+    isStartingCallRef.current = false;
+    const { reason = null } = options;
     const roomId = joinedRtcRoomRef.current;
 
     if (roomId && socketRef.current) {
-      if (emitHangup) {
-        socketRef.current.emit('rtc:hangup', { roomId });
-      }
-
       socketRef.current.emit('rtc:leave', { roomId });
     }
 
@@ -798,7 +861,12 @@ export function useChatController() {
   };
 
   const handleStartCall = async (mode: CallMode) => {
-    if (!activeConversation) {
+    if (!activeConversation || isStartingCallRef.current) {
+      return;
+    }
+
+    if (activeConversation.kind !== 'direct') {
+      setCallNotice('Las llamadas estan disponibles solo en conversaciones privadas.');
       return;
     }
 
@@ -825,10 +893,13 @@ export function useChatController() {
     }
 
     if (callSession) {
-      await closeActiveCall({ emitHangup: true });
+      await closeActiveCall();
     }
 
+    const callAttempt = ++callAttemptRef.current;
+
     try {
+      isStartingCallRef.current = true;
       setCallNotice(
         mode === 'video'
           ? 'Preparando camara y microfono...'
@@ -837,7 +908,14 @@ export function useChatController() {
 
       const localStream = await ensureLocalCallStream(mode);
 
-      if (!localStream || !socketRef.current) {
+      if (callAttemptRef.current !== callAttempt) {
+        localStream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        return;
+      }
+
+      if (!localStream || !socketRef.current?.connected) {
+        stopLocalCallTracks();
+        setCallNotice('No hay conexion disponible para iniciar la llamada.');
         return;
       }
 
@@ -853,13 +931,31 @@ export function useChatController() {
         remoteStream: null,
         remoteSocketId: null,
       });
-      syncCallTimer(joinedAt);
-
-      socketRef.current.emit('rtc:join', {
-        name: user?.name,
-        roomId: activeConversation.id,
-        userId: user?.id,
+      const joinResult = await new Promise<{ ok: boolean; reason?: string }>((resolve) => {
+        const timeoutId = setTimeout(() => resolve({ ok: false, reason: 'timeout' }), 8000);
+        socketRef.current?.emit(
+          'rtc:join',
+          { roomId: activeConversation.id },
+          (result: { ok: boolean; reason?: string }) => {
+            clearTimeout(timeoutId);
+            resolve(result);
+          }
+        );
       });
+
+      if (callAttemptRef.current !== callAttempt) {
+        return;
+      }
+
+      if (!joinResult.ok) {
+        await closeActiveCall();
+        setCallNotice(
+          joinResult.reason === 'busy'
+            ? 'La llamada esta ocupada.'
+            : 'No fue posible conectar la llamada.'
+        );
+        return;
+      }
 
       const recentCallAnnouncement = activeMessages
         .slice(-4)
@@ -884,14 +980,19 @@ export function useChatController() {
           : 'Llamada lista. Cuando alguien se una, aparecera aqui.'
       );
     } catch (error) {
-      await closeActiveCall({ emitHangup: false });
+      await closeActiveCall();
       setCallNotice(
         error instanceof Error
           ? error.message
           : 'No fue posible iniciar la llamada en este momento.'
       );
+    } finally {
+      if (callAttemptRef.current === callAttempt) {
+        isStartingCallRef.current = false;
+      }
     }
   };
+  closeActiveCallRef.current = closeActiveCall;
 
   const toggleCallMute = () => {
     const nextMuted = !isCallMuted;
@@ -1099,17 +1200,37 @@ export function useChatController() {
     }
   };
 
+  const activeCallJoinedAt = callSession?.joinedAt ?? null;
+  const activeCallPhase = callSession?.phase ?? null;
+
   useEffect(() => {
-    if (!callSession) {
+    if (!activeCallJoinedAt) {
       stopCallTimer();
       return;
     }
 
-    syncCallTimer(callSession.joinedAt);
+    syncCallTimer(activeCallJoinedAt);
     return () => {
       stopCallTimer();
     };
-  }, [callSession]);
+  }, [activeCallJoinedAt]);
+
+  useEffect(() => {
+    if (activeCallPhase !== 'waiting' && activeCallPhase !== 'reconnecting') {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      closeActiveCallRef.current({
+        reason:
+          activeCallPhase === 'reconnecting'
+            ? 'La llamada termino porque no fue posible recuperar la conexion.'
+            : 'La llamada termino porque no hubo respuesta.',
+      }).catch(() => undefined);
+    }, activeCallPhase === 'reconnecting' ? 15000 : 30000);
+
+    return () => clearTimeout(timeoutId);
+  }, [activeCallPhase]);
 
   useEffect(() => {
     if (!callSession || !activeConversation) {
@@ -1120,7 +1241,6 @@ export function useChatController() {
       const roomId = joinedRtcRoomRef.current;
 
       if (roomId && socketRef.current) {
-        socketRef.current.emit('rtc:hangup', { roomId });
         socketRef.current.emit('rtc:leave', { roomId });
       }
 

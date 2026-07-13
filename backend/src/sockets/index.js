@@ -29,6 +29,7 @@ function registerSocketServer(server, store) {
   const allowCredentials = !CLIENT_ORIGINS.includes("*");
   const rtcRooms = new Map();
   const activeRtcSessions = new Map();
+  const rtcDisconnectTimers = new Map();
   const activeRadioTransmissions = new Map();
   const io = new Server(server, {
     cors: {
@@ -270,6 +271,12 @@ function registerSocketServer(server, store) {
   }
 
   async function leaveRtcRoom(socket, roomId) {
+    const disconnectTimer = rtcDisconnectTimers.get(socket.id);
+    if (disconnectTimer) {
+      clearTimeout(disconnectTimer);
+      rtcDisconnectTimers.delete(socket.id);
+    }
+
     if (!roomId || !rtcRooms.has(roomId)) {
       return;
     }
@@ -890,7 +897,7 @@ function registerSocketServer(server, store) {
       }
     });
 
-    socket.on("rtc:join", async ({ roomId }) => {
+    socket.on("rtc:join", async ({ roomId }, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user;
       const safeRoomId = String(roomId || "").trim();
@@ -900,14 +907,33 @@ function registerSocketServer(server, store) {
         !safeRoomId ||
         !organizationId ||
         !(await canUseOperations(socket)) ||
+        !(await store.canUserAccessConversation?.(authenticatedUser.id, safeRoomId)) ||
         !isRtcRoomCompatible(safeRoomId, organizationId)
       ) {
         observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { roomId: safeRoomId });
+        acknowledge(ack, { ok: false, reason: "forbidden" });
         return;
       }
 
       const roomKey = getRoomKey(safeRoomId);
       const members = rtcRooms.get(safeRoomId) || new Map();
+      const previousConnection = Array.from(members.values()).find(
+        (participant) => participant.userId === authenticatedUser.id && participant.socketId !== socket.id
+      );
+
+      if (previousConnection) {
+        const reconnectTimer = rtcDisconnectTimers.get(previousConnection.socketId);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        rtcDisconnectTimers.delete(previousConnection.socketId);
+        members.delete(previousConnection.socketId);
+      }
+      const alreadyJoined = members.has(socket.id);
+
+      if (!alreadyJoined && members.size >= 2) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "busy", { roomId: safeRoomId });
+        acknowledge(ack, { ok: false, reason: "busy" });
+        return;
+      }
 
       members.set(socket.id, {
         socketId: socket.id,
@@ -919,6 +945,7 @@ function registerSocketServer(server, store) {
       socket.join(roomKey);
       broadcastRtcParticipants(safeRoomId);
       observeSocketEvent(socket, "rtc:join", startedAt, "success", { roomId: safeRoomId });
+      acknowledge(ack, { ok: true });
     });
 
     socket.on("rtc:leave", ({ roomId }) => {
@@ -927,7 +954,7 @@ function registerSocketServer(server, store) {
       observeSocketEvent(socket, "rtc:leave", startedAt, "success", { roomId: String(roomId || "").trim() });
     });
 
-    ["rtc:offer", "rtc:answer", "rtc:ice-candidate", "rtc:hangup"].forEach((eventName) => {
+    ["rtc:offer", "rtc:answer", "rtc:ice-candidate"].forEach((eventName) => {
       socket.on(eventName, async ({ roomId, targetSocketId, ...payload }) => {
         const startedAt = Date.now();
         const safeRoomId = String(roomId || "").trim();
@@ -951,10 +978,6 @@ function registerSocketServer(server, store) {
             offerCount: 1,
             sharedScreen: payload.mode === "screen"
           });
-        }
-
-        if (eventName === "rtc:hangup") {
-          await finishRtcSession(safeRoomId, "completed");
         }
 
         const eventPayload = {
@@ -985,9 +1008,18 @@ function registerSocketServer(server, store) {
         status: "disconnected",
         userId: socket.data.user?.id
       });
-      Array.from(rtcRooms.keys()).forEach((roomId) => {
-        void leaveRtcRoom(socket, roomId);
-      });
+      const joinedRtcRoomIds = Array.from(rtcRooms.keys()).filter((roomId) =>
+        isSocketInRtcRoom(socket, roomId)
+      );
+      if (joinedRtcRoomIds.length) {
+        const disconnectTimer = setTimeout(() => {
+        rtcDisconnectTimers.delete(socket.id);
+        joinedRtcRoomIds.forEach((roomId) => {
+          void leaveRtcRoom(socket, roomId);
+        });
+        }, 15000);
+        rtcDisconnectTimers.set(socket.id, disconnectTimer);
+      }
       Array.from(activeRadioTransmissions.entries()).forEach(([channelId, transmission]) => {
         if (transmission.socketId === socket.id) void finishRadioTransmission(channelId, "disconnected");
       });

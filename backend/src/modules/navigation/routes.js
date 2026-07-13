@@ -1,4 +1,5 @@
 const { Router } = require("express");
+const { randomUUID } = require("crypto");
 const { authenticate } = require("../../middlewares/authenticate");
 const {
   canAccessTenantResource,
@@ -60,6 +61,32 @@ function normalizeRouteOption(route) {
       : "low",
     polyline
   };
+}
+
+function routeOptionFromSavedRoute(route) {
+  if (!route || !Array.isArray(route.polyline) || route.polyline.length < 2) {
+    return null;
+  }
+
+  return normalizeRouteOption({
+    label: route.name,
+    distanceMeters: route.distanceMeters,
+    durationSeconds: route.durationSeconds,
+    durationInTrafficSeconds: route.durationInTrafficSeconds,
+    trafficLevel: "low",
+    polyline: route.polyline
+  });
+}
+
+function buildRouteCode(name) {
+  return String(name || "ruta")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toUpperCase()
+    .slice(0, 24) || "RUTA";
 }
 
 function normalizeStops(stops) {
@@ -223,6 +250,62 @@ router.post("/plan", authenticate, requireOperationalAccess, async (req, res, ne
   }
 });
 
+router.post("/routes", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({
+        ok: false,
+        message: "Solo administracion puede guardar rutas"
+      });
+    }
+
+    const name = String(req.body.name || "").trim();
+    const origin = normalizePoint(req.body.origin);
+    const destination = normalizePoint(req.body.destination);
+    const stops = normalizeStops(req.body.stops);
+    const route = normalizeRouteOption(req.body.route);
+
+    if (!name || !origin || !destination || !route) {
+      return res.status(400).json({
+        ok: false,
+        message: "name, origin, destination y route son obligatorios"
+      });
+    }
+
+    const stopsError = getStopsValidationError(origin, destination, stops);
+
+    if (stopsError) {
+      return res.status(400).json({
+        ok: false,
+        message: stopsError
+      });
+    }
+
+    const savedRoute = await req.app.locals.store.createRoute({
+      id: randomUUID(),
+      name,
+      code: buildRouteCode(name),
+      color: "#1473E6",
+      origin,
+      destination,
+      stops,
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+      durationInTrafficSeconds: route.durationInTrafficSeconds,
+      polyline: route.polyline,
+      organizationId: getOrganizationId(req.user),
+      createdBy: req.user.id
+    });
+
+    return res.status(201).json({
+      ok: true,
+      data: savedRoute
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/assign", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
     if (!hasPermission(req.user, "canManageRoutes")) {
@@ -233,6 +316,7 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
     }
 
     const vehicleId = String(req.body.vehicleId || "").trim();
+    const routeId = String(req.body.routeId || "").trim();
     const origin = normalizePoint(req.body.origin);
     const destination = normalizePoint(req.body.destination);
     const destinationLabel = String(req.body.destinationLabel || "").trim();
@@ -244,14 +328,14 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       : [];
     const providedProvider = String(req.body.provider || "").trim();
 
-    if (!vehicleId || !origin || !destination || !destinationLabel) {
+    if (!vehicleId || (!routeId && (!origin || !destination || !destinationLabel))) {
       return res.status(400).json({
         ok: false,
-        message: "vehicleId, origin, destination y destinationLabel son obligatorios"
+        message: "vehicleId y routeId o datos completos de ruta son obligatorios"
       });
     }
 
-    const stopsError = getStopsValidationError(origin, destination, stops);
+    const stopsError = origin && destination ? getStopsValidationError(origin, destination, stops) : null;
 
     if (stopsError) {
       return res.status(400).json({
@@ -270,7 +354,15 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       return res.status(409).json({ ok: false, message: "Finaliza la jornada activa antes de cambiar la ruta" });
     }
 
-    const routePlan = providedRoute
+    const savedRoute = routeId ? await req.app.locals.store.getRouteById(routeId) : null;
+    const savedRouteOption = routeOptionFromSavedRoute(savedRoute);
+    const routePlan = savedRouteOption
+      ? {
+          provider: "system",
+          stops: savedRoute.stops || [],
+          routes: [savedRouteOption]
+        }
+      : providedRoute
       ? {
           provider: providedProvider || "system",
           stops,
@@ -278,8 +370,16 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
         }
       : await planRoute(origin, destination, stops);
     const [primaryRoute, ...alternatives] = routePlan.routes;
+    const assignmentOrigin = savedRoute?.origin || savedRoute?.polyline?.[0] || origin;
+    const assignmentDestination =
+      savedRoute?.destination ||
+      savedRoute?.polyline?.[savedRoute.polyline.length - 1] ||
+      destination;
+    const assignmentStops = savedRoute?.stops || stops;
+    const assignmentOriginLabel = savedRoute?.name || originLabel;
+    const assignmentDestinationLabel = savedRoute?.name || destinationLabel;
 
-    if (!primaryRoute) {
+    if (!primaryRoute || !assignmentOrigin || !assignmentDestination) {
       return res.status(422).json({
         ok: false,
         message: "No se pudo calcular una ruta valida"
@@ -288,12 +388,13 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
 
     const updatedVehicle = await req.app.locals.store.assignRouteToVehicle({
       vehicleId,
+      routeId: savedRoute?._id || savedRoute?.id || routeId || null,
       assignment: {
-        originLabel,
-        origin,
-        destinationLabel,
-        destination,
-        stops,
+        originLabel: assignmentOriginLabel,
+        origin: assignmentOrigin,
+        destinationLabel: assignmentDestinationLabel,
+        destination: assignmentDestination,
+        stops: assignmentStops,
         assignedBy: req.user.id,
         assignedAt: new Date().toISOString(),
         provider: routePlan.provider,
