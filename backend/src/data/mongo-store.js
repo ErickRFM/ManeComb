@@ -2007,7 +2007,12 @@ async function createMongoStore() {
       UserModel.find().lean()
     ]);
 
- const assignedRoute =
+    const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
+    const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
+
+    return vehicles.map((vehicle) => {
+      const plain = serializeVehicle(vehicle);
+      const assignedRoute =
   plain.assignedRoute &&
   typeof plain.assignedRoute === "object"
     ? plain.assignedRoute
@@ -2042,6 +2047,9 @@ return {
     driver?.name ||
     "Pendiente asignacion"
 };
+    });
+  }
+
   async function getLiveLocations() {
     const [fleet, routes, incidents] = await Promise.all([
       getFleetSummary(),
