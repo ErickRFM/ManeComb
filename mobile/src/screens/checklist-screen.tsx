@@ -167,10 +167,10 @@ function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[])
   const activeLog = getActiveLog(manualLogs, vehicle.id);
   const status = getVehicleOperationalStatus(vehicle, activeLog || latestLog);
   const activeRoute = buildActiveRouteSnapshot({ vehicle });
-  const departureAt =
-    activeLog?.departureAt ||
-    latestLog?.departureAt ||
-    (status === 'available' ? null : vehicle.updatedAt);
+  const departureAt = activeLog?.departureAt || latestLog?.departureAt || null;
+  const etaAt =
+    activeRoute?.progress?.etaAt ||
+    (status === 'active' || status === 'delayed' ? getEtaAt(vehicle) : null);
 
   return {
     id: latestLog?.id || `vehicle-record-${vehicle.id}`,
@@ -185,7 +185,7 @@ function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[])
       'Ruta sin asignar',
     departureAt,
     arrivalAt: latestLog?.arrivalAt || null,
-    etaAt: activeRoute?.progress?.etaAt || getEtaAt(vehicle),
+    etaAt,
     delayMinutes: vehicle.delayMinutes || 0,
     status,
     vehicle,

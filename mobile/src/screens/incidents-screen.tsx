@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useLocalSearchParams } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,7 +18,7 @@ import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Incident, IncidentSeverity } from '@/src/types/app';
+import type { Incident, IncidentDraft, IncidentSeverity, LiveLocationsData, User } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
@@ -202,7 +202,33 @@ function getSeverityStyle(severity?: string | null) {
 }
 
 function getIncidentUnitLabel(incident: Incident) {
-  return incident.vehicle?.code || incident.vehicleId || 'Sin unidad';
+  return incident.vehicle?.code || 'Sin unidad';
+}
+
+function hasIncidentLocation(incident: Incident) {
+  return Boolean(
+    Number.isFinite(Number(incident.location?.latitude)) &&
+      Number.isFinite(Number(incident.location?.longitude))
+  );
+}
+
+function getIncidentContext(user: User | null, mapData: LiveLocationsData | null): Pick<IncidentDraft, 'location' | 'routeId' | 'vehicleId'> {
+  const vehicle = user?.vehicleId
+    ? mapData?.vehicles.find((entry) => entry.id === user.vehicleId) || null
+    : null;
+  const vehicleLocation = vehicle?.locationTimestamp ? vehicle.location : null;
+
+  return {
+    vehicleId: vehicle?.id || user?.vehicleId || null,
+    routeId: vehicle?.routeId || vehicle?.route?.id || null,
+    location: vehicleLocation
+      ? {
+          latitude: vehicleLocation.latitude,
+          longitude: vehicleLocation.longitude,
+          timestamp: vehicle?.locationTimestamp || null,
+        }
+      : null,
+  };
 }
 
 function isIncidentActive(incident: Incident) {
@@ -663,6 +689,20 @@ function createStyles(theme: any, isCompact: boolean, isPhone: boolean) {
       fontSize: 11,
       fontWeight: '900',
     },
+    mapButton: {
+      minHeight: 28,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      borderRadius: 9,
+      backgroundColor: theme.colors.infoSoft,
+    },
+    mapLink: {
+      color: theme.colors.info,
+      fontSize: 11,
+      fontWeight: '900',
+    },
     loadMoreButton: {
       minHeight: 36,
       flexDirection: 'row',
@@ -725,6 +765,7 @@ export function IncidentsScreen() {
     incidents,
     isRefreshing,
     isSubmitting,
+    mapData,
     refreshAll,
     updateIncidentStatus,
     user,
@@ -736,6 +777,7 @@ export function IncidentsScreen() {
       incidents: state.incidents,
       isRefreshing: state.isRefreshing,
       isSubmitting: state.isSubmitting,
+      mapData: state.mapData,
       refreshAll: state.refreshAll,
       updateIncidentStatus: state.updateIncidentStatus,
       user: state.user,
@@ -791,7 +833,7 @@ export function IncidentsScreen() {
   const handleCreate = async () => {
     if (!title.trim() || !description.trim()) return;
 
-    const ok = await createIncident({ title, type, description, severity });
+    const ok = await createIncident({ title, type, description, severity, ...getIncidentContext(user, mapData) });
     if (ok) {
       setTitle('');
       setDescription('');
@@ -810,6 +852,7 @@ export function IncidentsScreen() {
         ? `Alerta critica de seguridad enviada por ${user?.name || 'operador'}.`
         : `Alerta critica de unidad enviada por ${user?.name || 'operador'}.`,
       severity: 'critical',
+      ...getIncidentContext(user, mapData),
     });
   };
 
@@ -1131,11 +1174,37 @@ export function IncidentsScreen() {
 
                         <View style={screenStyles.cardFooter}>
                           <View style={screenStyles.incidentMeta}>
-                            <MaterialCommunityIcons name="bus-marker" size={14} color={theme.colors.muted} />
+                            <MaterialCommunityIcons
+                              name={hasIncidentLocation(incident) ? 'map-marker-check-outline' : 'map-marker-off-outline'}
+                              size={14}
+                              color={theme.colors.muted}
+                            />
                             <Text style={screenStyles.incidentMetaText} numberOfLines={1}>
-                              {getIncidentUnitLabel(incident)}
+                              {hasIncidentLocation(incident)
+                                ? `${getIncidentUnitLabel(incident)} · Con ubicacion`
+                                : `${getIncidentUnitLabel(incident)} · Sin ubicacion GPS`}
                             </Text>
                           </View>
+                          {hasIncidentLocation(incident) ? (
+                            <Pressable
+                              accessibilityLabel={`Abrir ubicacion de ${incident.title}`}
+                              accessibilityRole="button"
+                              onPress={() => router.push({
+                                pathname: '/mapa',
+                                params: {
+                                  focusLatitude: String(incident.location?.latitude),
+                                  focusLongitude: String(incident.location?.longitude),
+                                },
+                              })}
+                              style={screenStyles.mapButton}>
+                              <MaterialCommunityIcons
+                                name="map-marker-radius-outline"
+                                size={14}
+                                color={theme.colors.info}
+                              />
+                              <Text style={screenStyles.mapLink}>Mapa</Text>
+                            </Pressable>
+                          ) : null}
                           {canResolve ? (
                             <Pressable
                               accessibilityLabel={`Marcar resuelta ${incident.title}`}

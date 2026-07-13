@@ -1,12 +1,10 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
-import { getTextInputProps } from '@/src/utils/text-input-props';
 import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
 import type { ChatDirectoryContact } from '@/src/types/app';
-import { MAX_VOICE_SEARCH_SECONDS } from '../types';
 import type { DirectoryMode, LocalTextMessage } from '../types';
 import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPresenceLabel, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, getOperationalStatusRank, getOperationalStatusTone, isSystemMessage } from '../utils/conversation';
 import { ChatComposer } from './chat-composer';
@@ -18,14 +16,12 @@ export type ChatScreenViewProps = ReturnType<typeof useChatController>;
 
 export function ChatScreenView(props: ChatScreenViewProps) {
   const {
-    actionCategory,
     activeAudioMessageId,
     activeCallSession,
     activeContact,
     activeConversation,
     activeConversationCallMode,
     activeMessageItems,
-    activeStatusChips,
     attachmentMenuOpen,
     callElapsedSeconds,
     callNotice,
@@ -33,24 +29,20 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     callStatusLabel,
     callTone,
     canStartRealtimeCall,
-    canUseVoiceSearch,
     closeActiveCall,
     conversationFilterCounts,
     directoryHelperText,
     directoryItems,
     directoryMode,
-    handleAttachmentUnavailable,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
     handleMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     handleOpenRadioFromChat,
-    handlePickMedia,
     handleRetryTextMessage,
     handleSelectConversation,
     handleStartCall,
-    handleVoiceSearchAction,
     isCallMuted,
     isCameraEnabled,
     isCompact,
@@ -60,16 +52,12 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     localStreamRef,
     messagesListRef,
     optionsMenuOpen,
-    search,
-    searchTerm,
-    setActionCategory,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,
     setCallNotice,
     setDirectoryMode,
     setMobilePane,
     setOptionsMenuOpen,
-    setSearch,
     showConversationPanel,
     showDirectoryPanel,
     sortedOperationalContacts,
@@ -79,9 +67,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     toggleCamera,
     token,
     user,
-    voiceSearchMessage,
-    voiceSearchSeconds,
-    voiceSearchState,
   } = props;
 
   return (
@@ -93,71 +78,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
       ]}
       header={
         isMobileConversation ? null : <ChatHeader {...props} />
-      }>
+      }
+      hideMobileToolbar={isMobileConversation}>
       <View style={styles.layout}>
         {showDirectoryPanel ? (
           <View style={styles.directoryPanel}>
-            <View style={styles.searchShell}>
-              <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
-              <TextInput
-                {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'search' })}
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Buscar conversacion o unidad..."
-                placeholderTextColor={theme.colors.muted}
-                style={styles.searchInput}
-                testID="chat-search-input"
-              />
-              {searchTerm ? (
-                <Pressable
-                  onPress={() => setSearch('')}
-                  style={styles.searchClearButton}
-                  accessibilityLabel="Limpiar busqueda">
-                  <MaterialCommunityIcons name="close" size={16} color={theme.colors.muted} />
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => { handleVoiceSearchAction(); }}
-                disabled={!canUseVoiceSearch}
-                style={[
-                  styles.searchVoiceButton,
-                  voiceSearchState === 'recording'
-                    ? styles.searchVoiceButtonActive
-                    : voiceSearchState === 'processing'
-                      ? styles.searchVoiceButtonLoading
-                      : undefined,
-                  !canUseVoiceSearch ? styles.searchVoiceButtonDisabled : undefined,
-                ]}
-                testID="chat-voice-search-button">
-                {voiceSearchState === 'processing' ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <MaterialCommunityIcons
-                    name={voiceSearchState === 'recording' ? 'stop-circle-outline' : 'microphone'}
-                    size={18}
-                    color="#FFFFFF"
-                  />
-                )}
-              </Pressable>
-            </View>
-
-            {voiceSearchMessage ? (
-              <View style={styles.searchMetaRow}>
-                <MaterialCommunityIcons
-                  name={voiceSearchState === 'recording' ? 'record-rec' : 'waveform'}
-                  size={16}
-                  color={
-                    voiceSearchState === 'recording' ? theme.colors.accent : theme.colors.info
-                  }
-                />
-                <Text style={styles.searchMetaText}>
-                  {voiceSearchState === 'recording'
-                    ? `${voiceSearchMessage} ${formatDuration(voiceSearchSeconds)} / ${formatDuration(MAX_VOICE_SEARCH_SECONDS)}`
-                    : voiceSearchMessage}
-                </Text>
-              </View>
-            ) : null}
-
             <ScrollView
               horizontal
               style={styles.modeRowScroll}
@@ -480,26 +405,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </Pressable>
                     </View>
                   </View>
-                  <View style={styles.headerMetaPills}>
-                    {activeStatusChips.map((chip) => (
-                      <View key={chip.label} style={styles.headerMetaPill}>
-                        <MaterialCommunityIcons
-                          name={chip.icon as any}
-                          size={12}
-                          color={
-                            chip.tone === 'positive'
-                              ? theme.colors.success
-                              : chip.tone === 'warning'
-                                ? theme.colors.warning
-                                : chip.tone === 'danger'
-                                  ? theme.colors.danger
-                                  : theme.colors.muted
-                          }
-                        />
-                        <Text style={styles.headerMetaPillText}>{chip.label}</Text>
-                      </View>
-                    ))}
-                  </View>
                 </View>
 
                 {activeCallSession ? (
@@ -792,112 +697,53 @@ export function ChatScreenView(props: ChatScreenViewProps) {
           <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              {actionCategory !== 'root' ? (
-                <Pressable
-                  onPress={() => setActionCategory('root')}
-                  style={styles.sheetBackButton}
-                  accessibilityLabel="Volver a acciones">
-                  <MaterialCommunityIcons name="arrow-left" size={18} color={theme.colors.text} />
-                </Pressable>
-              ) : null}
               <View style={styles.sheetHeaderCopy}>
-                <Text style={styles.sheetTitle}>
-                  {actionCategory === 'drivers'
-                    ? 'Conductores'
-                    : actionCategory === 'units'
-                      ? 'Unidades'
-                      : actionCategory === 'groups'
-                        ? 'Grupos'
-                        : 'Nueva accion'}
-                </Text>
-                <Text style={styles.sheetSubtitle}>
-                  {actionCategory === 'drivers'
-                    ? 'Inicia un chat directo ordenado por disponibilidad.'
-                    : actionCategory === 'root'
-                      ? 'Acciones rapidas para coordinar la operacion.'
-                      : 'Accion operativa preparada para integrarse al flujo actual.'}
-                </Text>
+                <Text style={styles.sheetTitle}>Conductores</Text>
+                <Text style={styles.sheetSubtitle}>Inicia un chat directo ordenado por disponibilidad.</Text>
               </View>
             </View>
 
-            {actionCategory === 'drivers' ? (
-              <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
-                {sortedOperationalContacts.map((contact) => {
-                  const unitLabel =
-                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
-                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
-                    (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName ||
-                    formatRole(contact.role);
-                  const statusTone = getOperationalStatusTone(contact.status);
+            <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
+              {sortedOperationalContacts.map((contact) => {
+                const unitLabel =
+                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
+                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
+                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName ||
+                  formatRole(contact.role);
+                const statusTone = getOperationalStatusTone(contact.status);
 
-                  return (
-                    <Pressable
-                      key={contact.id}
-                      style={styles.driverActionRow}
-                      onPress={() => {
-                        setAttachmentMenuOpen(false);
-                        handleOpenDirect(contact.id, 'chat');
-                      }}>
-                      <UserAvatar user={contact} status={contact.status} showStatus size={42} />
-                      <View style={styles.driverActionCopy}>
-                        <Text style={styles.driverActionName} numberOfLines={1}>
-                          {contact.name}
-                        </Text>
-                        <Text style={styles.driverActionUnit} numberOfLines={1}>
-                          {unitLabel}
-                        </Text>
-                      </View>
-                      <View style={styles.driverStatusPill}>
-                        <View
-                          style={[
-                            styles.driverStatusDot,
-                            statusTone === 'warning' ? styles.driverStatusDotWarning : undefined,
-                            statusTone === 'danger' ? styles.driverStatusDotDanger : undefined,
-                            statusTone === 'neutral' ? styles.driverStatusDotMuted : undefined,
-                          ]}
-                        />
-                        <Text style={styles.driverStatusText}>{formatStatus(contact.status)}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            ) : actionCategory === 'units' || actionCategory === 'groups' ? (
-              <View style={styles.sheetEmptyState}>
-                <MaterialCommunityIcons
-                  name={actionCategory === 'units' ? 'bus-clock' : 'account-group-outline'}
-                  size={28}
-                  color={theme.colors.muted}
-                />
-                <Text style={styles.sheetEmptyTitle}>
-                  {actionCategory === 'units' ? 'Unidades en preparacion' : 'Grupos en preparacion'}
-                </Text>
-                <Text style={styles.sheetEmptyText}>
-                  Esta accion queda lista en la experiencia sin cambiar contratos ni crear datos nuevos.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.sheetActionList}>
-                {[
-                  { label: 'Conductores', icon: 'account-hard-hat-outline', action: () => setActionCategory('drivers') },
-                  { label: 'Unidades', icon: 'bus', action: () => setActionCategory('units') },
-                  { label: 'Grupos', icon: 'account-group-outline', action: () => setActionCategory('groups') },
-                  { label: 'Canal Operativo', icon: 'bullhorn-outline', action: () => { setAttachmentMenuOpen(false); handleOpenGeneral('chat'); } },
-                  { label: 'Reportar incidencia', icon: 'alert-outline', action: () => { handleAttachmentUnavailable('Incidencia'); setAttachmentMenuOpen(false); } },
-                  { label: 'Compartir ubicacion', icon: 'map-marker-outline', action: () => { handleAttachmentUnavailable('Ubicacion'); setAttachmentMenuOpen(false); } },
-                  { label: 'Compartir documento', icon: 'file-document-outline', action: () => { handleAttachmentUnavailable('Documento'); setAttachmentMenuOpen(false); } },
-                  { label: 'Compartir imagen', icon: 'image-outline', action: () => { handlePickMedia('image', 'library'); } },
-                ].map((action) => (
-                  <Pressable key={action.label} style={styles.sheetActionRow} onPress={action.action}>
-                    <View style={styles.sheetActionIcon}>
-                      <MaterialCommunityIcons name={action.icon as any} size={22} color={theme.colors.text} />
+                return (
+                  <Pressable
+                    key={contact.id}
+                    style={styles.driverActionRow}
+                    onPress={() => {
+                      setAttachmentMenuOpen(false);
+                      handleOpenDirect(contact.id, 'chat');
+                    }}>
+                    <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                    <View style={styles.driverActionCopy}>
+                      <Text style={styles.driverActionName} numberOfLines={1}>
+                        {contact.name}
+                      </Text>
+                      <Text style={styles.driverActionUnit} numberOfLines={1}>
+                        {unitLabel}
+                      </Text>
                     </View>
-                    <Text style={styles.sheetActionText}>{action.label}</Text>
-                    <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.muted} />
+                    <View style={styles.driverStatusPill}>
+                      <View
+                        style={[
+                          styles.driverStatusDot,
+                          statusTone === 'warning' ? styles.driverStatusDotWarning : undefined,
+                          statusTone === 'danger' ? styles.driverStatusDotDanger : undefined,
+                          statusTone === 'neutral' ? styles.driverStatusDotMuted : undefined,
+                        ]}
+                      />
+                      <Text style={styles.driverStatusText}>{formatStatus(contact.status)}</Text>
+                    </View>
                   </Pressable>
-                ))}
-              </View>
-            )}
+                );
+              })}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>

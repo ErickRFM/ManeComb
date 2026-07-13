@@ -44,7 +44,11 @@ export function getVisibleIncidents(mapData: LiveLocationsData | null, vehicleBy
   }
 
   return mapData.incidents.filter((incident) =>
-    typeof incident.vehicleId === 'string' && vehicleById.has(incident.vehicleId)
+    (typeof incident.vehicleId === 'string' && vehicleById.has(incident.vehicleId)) ||
+    (
+      Number.isFinite(Number(incident.location?.latitude)) &&
+      Number.isFinite(Number(incident.location?.longitude))
+    )
   );
 }
 

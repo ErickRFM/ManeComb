@@ -11,17 +11,16 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { transcribeVoiceSearchRequest, SOCKET_URL } from '@/src/api/client';
+import { SOCKET_URL } from '@/src/api/client';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
   ConversationChannelMode,
 } from '@/src/types/app';
 import { createStyles } from '../chat-screen.styles';
-import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, OperationalActionCategory, RecordingState, RtcParticipant, VoiceSearchState } from '../types';
-import { MAX_VOICE_NOTE_SECONDS, MAX_VOICE_SEARCH_SECONDS } from '../types';
-import { getConversationPresenceLabel, getOperationalStatusRank, getOperationalStatusTone } from '../utils/conversation';
-import { sendPickedChatMedia } from '../services/chat-attachment-service';
+import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, RecordingState, RtcParticipant } from '../types';
+import { MAX_VOICE_NOTE_SECONDS } from '../types';
+import { getOperationalStatusRank } from '../utils/conversation';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
 
@@ -43,8 +42,6 @@ export function useChatController() {
     sendMessage,
     sendVoiceMessage,
     setActiveConversationId,
-    sendMediaMessage,
-    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -61,8 +58,6 @@ export function useChatController() {
       sendMessage: state.sendMessage,
       sendVoiceMessage: state.sendVoiceMessage,
       setActiveConversationId: state.setActiveConversationId,
-      sendMediaMessage: state.sendMediaMessage,
-      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -70,18 +65,13 @@ export function useChatController() {
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
   const [directoryMode, setDirectoryMode] = useState<DirectoryMode>('all');
   const [mobilePane, setMobilePane] = useState<MobilePane>('directory');
-  const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [actionCategory, setActionCategory] = useState<OperationalActionCategory>('root');
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
-  const [voiceSearchState, setVoiceSearchState] = useState<VoiceSearchState>('idle');
-  const [voiceSearchSeconds, setVoiceSearchSeconds] = useState(0);
-  const [voiceSearchMessage, setVoiceSearchMessage] = useState<string | null>(null);
   const [callSession, setCallSession] = useState<CallSession | null>(null);
   const [callParticipants, setCallParticipants] = useState<RtcParticipant[]>([]);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -90,8 +80,6 @@ export function useChatController() {
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [pendingTextMessages, setPendingTextMessages] = useState<LocalTextMessage[]>([]);
   const [activeAudioMessageId, setActiveAudioMessageId] = useState<string | null>(null);
-  const [isRtcSocketConnected, setIsRtcSocketConnected] = useState(false);
-
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -112,12 +100,6 @@ export function useChatController() {
       randomizationFactor: 0.45,
     });
     socketRef.current = socket;
-    setIsRtcSocketConnected(socket.connected);
-
-    socket.on('connect', () => {
-      setIsRtcSocketConnected(true);
-    });
-
     const resetPeerConnection = () => {
       if (peerRef.current) {
         peerRef.current.onicecandidate = null;
@@ -353,7 +335,6 @@ export function useChatController() {
     });
 
     socket.on('disconnect', () => {
-      setIsRtcSocketConnected(false);
       setCallParticipants([]);
       setCallNotice('Reconectando senal de llamada...');
     });
@@ -373,7 +354,6 @@ export function useChatController() {
     });
 
     return () => {
-      setIsRtcSocketConnected(false);
       resetPeerConnection();
       socket.removeAllListeners();
       socket.io.removeAllListeners();
@@ -386,14 +366,8 @@ export function useChatController() {
   const webChunksRef = useRef<Blob[]>([]);
   const recordStartedAtRef = useRef<number | null>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const searchWebRecorderRef = useRef<any>(null);
-  const searchWebStreamRef = useRef<any>(null);
-  const searchWebChunksRef = useRef<Blob[]>([]);
-  const searchStartedAtRef = useRef<number | null>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bootstrappedRef = useRef(false);
   const nativeVoiceRecorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
-  const nativeSearchRecorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
   const chatConversations = useMemo(
     () => conversations.filter((conversation) => conversation.channelMode === 'chat'),
     [conversations]
@@ -472,19 +446,13 @@ export function useChatController() {
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
       }
-      if (searchTimerRef.current) {
-        clearInterval(searchTimerRef.current);
-      }
       nativeVoiceRecorder.stop().catch(() => undefined);
-      nativeSearchRecorder.stop().catch(() => undefined);
       webRecorderRef.current?.stop?.();
       webStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
-      searchWebRecorderRef.current?.stop?.();
-      searchWebStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       peerRef.current?.close();
     };
-  }, [nativeSearchRecorder, nativeVoiceRecorder]);
+  }, [nativeVoiceRecorder]);
 
   const {
     activeContact,
@@ -495,18 +463,12 @@ export function useChatController() {
     conversationFilterCounts,
     directoryHelperText,
     directoryItems,
-    filteredContacts,
-    searchTerm,
-    visibleContacts,
-    visibleListCount,
   } = useChatDirectoryData({
     activeConversationId,
-    chatContacts,
     chatConversations,
     directoryMode,
     messagesByConversation,
     pendingTextMessages,
-    search,
     userId: user?.id,
   });
   const composerPlaceholder = 'Escribe un mensaje...';
@@ -517,10 +479,7 @@ export function useChatController() {
       typeof (globalThis as any).MediaRecorder !== 'undefined');
   const canSendText =
     Boolean(activeConversation && draft.trim()) && recordingState === 'idle' && !isSubmitting;
-  const canRecord =
-    voiceSearchState === 'idle' && recordingState !== 'uploading' && supportsMicrophoneCapture;
-  const canUseVoiceSearch =
-    recordingState === 'idle' && voiceSearchState !== 'processing' && supportsMicrophoneCapture;
+  const canRecord = recordingState !== 'uploading' && supportsMicrophoneCapture;
   const supportsRtcCalls =
     Platform.OS === 'web' &&
     typeof globalThis !== 'undefined' &&
@@ -561,32 +520,6 @@ export function useChatController() {
       }),
     [chatContacts]
   );
-  const activeStatusChips = useMemo(
-    () => {
-      const isChatSocketConnected =
-        Platform.OS === 'web' ? isRtcSocketConnected : socketStatus === 'connected';
-
-      return [
-      {
-        icon: 'circle',
-        label: activeConversation ? getConversationPresenceLabel(activeConversation, activeContact) : 'Sin canal',
-        tone: activeConversation ? getOperationalStatusTone(activeContact?.status || 'online') : 'neutral',
-      },
-      {
-        icon: 'shield-lock-outline',
-        label: 'Cifrado',
-        tone: 'positive',
-      },
-      {
-        icon: isChatSocketConnected ? 'access-point' : 'access-point-off',
-        label: isChatSocketConnected ? 'Socket activo' : 'Reconectando',
-        tone: isChatSocketConnected ? 'positive' : 'warning',
-      },
-      ];
-    },
-    [activeContact, activeConversation, isRtcSocketConnected, socketStatus]
-  );
-
   const {
     handleMessagesContentSizeChange,
     handleMessagesLayout,
@@ -636,67 +569,6 @@ export function useChatController() {
     }
     recordStartedAtRef.current = null;
     setRecordingSeconds(0);
-  };
-
-  const startVoiceSearchTicker = () => {
-    searchStartedAtRef.current = Date.now();
-    setVoiceSearchSeconds(0);
-
-    if (searchTimerRef.current) {
-      clearInterval(searchTimerRef.current);
-    }
-
-    searchTimerRef.current = setInterval(() => {
-      if (!searchStartedAtRef.current) {
-        return;
-      }
-
-      const elapsedSeconds = Math.max(
-        1,
-        Math.round((Date.now() - searchStartedAtRef.current) / 1000)
-      );
-
-      setVoiceSearchSeconds(elapsedSeconds);
-
-      if (elapsedSeconds >= MAX_VOICE_SEARCH_SECONDS) {
-        if (searchTimerRef.current) {
-          clearInterval(searchTimerRef.current);
-          searchTimerRef.current = null;
-        }
-
-        setVoiceSearchMessage(
-          `Limite de ${MAX_VOICE_SEARCH_SECONDS}s alcanzado. Procesando audio...`
-        );
-        (Platform.OS === 'web' ? stopWebVoiceSearch() : stopNativeVoiceSearch());
-      }
-    }, 400);
-  };
-
-  const stopVoiceSearchTicker = () => {
-    if (searchTimerRef.current) {
-      clearInterval(searchTimerRef.current);
-      searchTimerRef.current = null;
-    }
-    searchStartedAtRef.current = null;
-    setVoiceSearchSeconds(0);
-  };
-
-  const applyVoiceSearchTranscript = (transcript: string) => {
-    const normalizedTranscript = transcript.replace(/\s+/g, ' ').trim();
-
-    if (!normalizedTranscript) {
-      setVoiceSearchMessage('No se detecto texto util en el audio de busqueda.');
-      return;
-    }
-
-    setSearch(normalizedTranscript);
-    setDirectoryMode('all');
-
-    if (isCompact) {
-      setMobilePane('directory');
-    }
-
-    setVoiceSearchMessage(`Busqueda por voz aplicada: "${normalizedTranscript}"`);
   };
 
   const handleSelectConversation = async (conversationId: string) => {
@@ -820,35 +692,6 @@ export function useChatController() {
           : entry
       )
     );
-  };
-
-  const handleAttachmentUnavailable = (label: string) => {
-    setAttachmentNotice(`${label} en preparacion. Se conectara cuando exista soporte de backend/picker.`);
-  };
-
-  const handlePickMedia = async (type: 'image' | 'video', source: 'library' | 'camera' = 'library') => {
-    if (!activeConversation) return;
-
-    setAttachmentMenuOpen(false);
-    setAttachmentNotice(type === 'image' ? 'Preparando imagen...' : 'Preparando video...');
-
-    try {
-      const resultMessage = await sendPickedChatMedia({
-        activeConversationId: activeConversation.id,
-        draft,
-        sendMediaMessage,
-        source,
-        type,
-      });
-
-      if (resultMessage.clearDraft) {
-        setDraft('');
-      }
-
-      setAttachmentNotice(resultMessage.notice);
-    } catch (error) {
-      setAttachmentNotice(error instanceof Error ? error.message : 'No fue posible preparar el archivo.');
-    }
   };
 
   const syncCallTimer = (joinedAt: number) => {
@@ -1084,16 +927,6 @@ export function useChatController() {
     return formData;
   };
 
-  const buildNativeVoiceSearchFormData = async (uri: string) => {
-    const formData = new FormData();
-    formData.append('file', {
-      uri,
-      name: `voice-search-${Date.now()}.m4a`,
-      type: 'audio/mp4',
-    } as any);
-    return formData;
-  };
-
   const startNativeRecording = async () => {
     const permission = await requestRecordingPermissionsAsync();
 
@@ -1150,56 +983,6 @@ export function useChatController() {
     setDraft('');
     setRecorderMessage('Nota de voz enviada.');
     setRecordingState('idle');
-  };
-
-  const startNativeVoiceSearch = async () => {
-    const permission = await requestRecordingPermissionsAsync();
-
-    if (!permission.granted) {
-      setVoiceSearchMessage('La app necesita permiso de microfono para buscar por voz.');
-      return;
-    }
-
-    await setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-      shouldRouteThroughEarpiece: false,
-      interruptionMode: 'duckOthers',
-      shouldPlayInBackground: false,
-    });
-
-    await nativeSearchRecorder.prepareToRecordAsync();
-    nativeSearchRecorder.record();
-    startVoiceSearchTicker();
-    setVoiceSearchMessage('Escuchando busqueda por voz...');
-    setVoiceSearchState('recording');
-  };
-
-  const stopNativeVoiceSearch = async () => {
-    setVoiceSearchState('processing');
-    await nativeSearchRecorder.stop();
-    const status = nativeSearchRecorder.getStatus();
-    const uri = status.url || nativeSearchRecorder.uri;
-    stopVoiceSearchTicker();
-    await setAudioModeAsync({
-      allowsRecording: false,
-      playsInSilentMode: true,
-      shouldRouteThroughEarpiece: false,
-      interruptionMode: 'duckOthers',
-      shouldPlayInBackground: false,
-    });
-
-    if (!uri) {
-      setVoiceSearchMessage('No se pudo recuperar el audio de busqueda.');
-      setVoiceSearchState('idle');
-      return;
-    }
-
-    setVoiceSearchMessage('Transcribiendo busqueda por voz...');
-    const formData = await buildNativeVoiceSearchFormData(uri);
-    const transcript = await transcribeVoiceSearchRequest(formData);
-    applyVoiceSearchTranscript(transcript);
-    setVoiceSearchState('idle');
   };
 
   const startWebRecording = async () => {
@@ -1285,88 +1068,6 @@ export function useChatController() {
     setRecordingState('idle');
   };
 
-  const startWebVoiceSearch = async () => {
-    const runtime = globalThis as any;
-    const mediaDevices = runtime.navigator?.mediaDevices;
-    const MediaRecorderCtor = runtime.MediaRecorder;
-
-    if (!mediaDevices?.getUserMedia || !MediaRecorderCtor) {
-      setVoiceSearchMessage('Este navegador no soporta busqueda por voz.');
-      return;
-    }
-
-    const stream = await mediaDevices.getUserMedia({
-      audio: true,
-    });
-    const preferredMimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
-      (mimeType) =>
-        typeof MediaRecorderCtor.isTypeSupported === 'function'
-          ? MediaRecorderCtor.isTypeSupported(mimeType)
-          : mimeType === 'audio/webm'
-    );
-    const recorder = preferredMimeType
-      ? new MediaRecorderCtor(stream, { mimeType: preferredMimeType })
-      : new MediaRecorderCtor(stream);
-
-    searchWebStreamRef.current = stream;
-    searchWebRecorderRef.current = recorder;
-    searchWebChunksRef.current = [];
-    recorder.ondataavailable = (event: any) => {
-      if (event.data?.size) {
-        searchWebChunksRef.current.push(event.data);
-      }
-    };
-
-    recorder.start();
-    startVoiceSearchTicker();
-    setVoiceSearchMessage('Escuchando busqueda por voz...');
-    setVoiceSearchState('recording');
-  };
-
-  const stopWebVoiceSearch = async () => {
-    if (!searchWebRecorderRef.current) {
-      return;
-    }
-
-    setVoiceSearchState('processing');
-    setVoiceSearchMessage('Transcribiendo busqueda por voz...');
-    const recorder = searchWebRecorderRef.current;
-    const mimeType = recorder.mimeType || 'audio/webm';
-
-    try {
-      const transcript = await new Promise<string>((resolve, reject) => {
-        recorder.onstop = async () => {
-          try {
-            const blob = new Blob(searchWebChunksRef.current, {
-              type: mimeType,
-            });
-            const file = new File([blob], `voice-search-${Date.now()}.webm`, {
-              type: mimeType,
-            });
-            const formData = new FormData();
-            formData.append('file', file);
-            resolve(await transcribeVoiceSearchRequest(formData));
-          } catch (error) {
-            reject(error);
-          }
-        };
-        recorder.onerror = (event: any) => {
-          reject(event?.error || new Error('No fue posible capturar el audio de busqueda.'));
-        };
-        recorder.stop();
-      });
-
-      applyVoiceSearchTranscript(transcript);
-    } finally {
-      searchWebRecorderRef.current = null;
-      searchWebStreamRef.current?.getTracks?.().forEach((track: any) => track.stop());
-      searchWebStreamRef.current = null;
-      searchWebChunksRef.current = [];
-      stopVoiceSearchTicker();
-      setVoiceSearchState('idle');
-    }
-  };
-
   const handleVoiceAction = async () => {
     if (!activeConversation || !canRecord) {
       return;
@@ -1394,37 +1095,6 @@ export function useChatController() {
       setRecordingState('idle');
       setRecorderMessage(
         error instanceof Error ? error.message : 'No fue posible usar el microfono.'
-      );
-    }
-  };
-
-  const handleVoiceSearchAction = async () => {
-    if (!canUseVoiceSearch) {
-      return;
-    }
-
-    try {
-      if (voiceSearchState === 'recording') {
-        if (Platform.OS === 'web') {
-          await stopWebVoiceSearch();
-          return;
-        }
-
-        await stopNativeVoiceSearch();
-        return;
-      }
-
-      if (Platform.OS === 'web') {
-        await startWebVoiceSearch();
-        return;
-      }
-
-      await startNativeVoiceSearch();
-    } catch (error) {
-      stopVoiceSearchTicker();
-      setVoiceSearchState('idle');
-      setVoiceSearchMessage(
-        error instanceof Error ? error.message : 'No fue posible completar la busqueda por voz.'
       );
     }
   };
@@ -1473,14 +1143,12 @@ export function useChatController() {
   const isMobileConversation = isCompact && mobilePane === 'conversation';
 
   return {
-    actionCategory,
     activeAudioMessageId,
     activeCallSession,
     activeContact,
     activeConversation,
     activeConversationCallMode,
     activeMessageItems,
-    activeStatusChips,
     attachmentMenuOpen,
     attachmentNotice,
     callElapsedSeconds,
@@ -1491,7 +1159,6 @@ export function useChatController() {
     canRecord,
     canSendText,
     canStartRealtimeCall,
-    canUseVoiceSearch,
     closeActiveCall,
     composerPlaceholder,
     conversationFilterCounts,
@@ -1499,21 +1166,17 @@ export function useChatController() {
     directoryItems,
     directoryMode,
     draft,
-    filteredContacts,
-    handleAttachmentUnavailable,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
     handleMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     handleOpenRadioFromChat,
-    handlePickMedia,
     handleRetryTextMessage,
     handleSelectConversation,
     handleSendText,
     handleStartCall,
     handleVoiceAction,
-    handleVoiceSearchAction,
     isCallMuted,
     isCameraEnabled,
     isCompact,
@@ -1531,9 +1194,6 @@ export function useChatController() {
     recorderMessage,
     remoteParticipants,
     scrollMessagesToEnd,
-    search,
-    searchTerm,
-    setActionCategory,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,
     setCallNotice,
@@ -1541,7 +1201,6 @@ export function useChatController() {
     setDraft,
     setMobilePane,
     setOptionsMenuOpen,
-    setSearch,
     showConversationPanel,
     showDirectoryPanel,
     sortedOperationalContacts,
@@ -1551,10 +1210,5 @@ export function useChatController() {
     toggleCamera,
     token,
     user,
-    visibleContacts,
-    visibleListCount,
-    voiceSearchMessage,
-    voiceSearchSeconds,
-    voiceSearchState,
   };
 }

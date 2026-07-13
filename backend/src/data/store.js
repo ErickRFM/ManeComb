@@ -1824,12 +1824,18 @@ function createEmbeddedStore() {
 
     return clone(
       incidents
-        .map((incident) => ({
-          ...incident,
-          route: getRouteById(incident.routeId),
-          vehicle: getVehicleById(incident.vehicleId),
-          reporter: sanitizeUser(getUserById(incident.reporterId))
-        }))
+        .map((incident) => {
+          const route = getRouteById(incident.routeId);
+          const vehicle = getVehicleById(incident.vehicleId);
+          const reporter = getUserById(incident.reporterId);
+
+          return {
+            ...incident,
+            route: route && canAccessOrganizationResource(user, route) ? route : null,
+            vehicle: vehicle && canAccessOrganizationResource(user, vehicle) ? vehicle : null,
+            reporter: reporter && canAccessOrganizationResource(user, reporter) ? sanitizeUser(reporter) : null
+          };
+        })
         .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
     );
   }
@@ -1840,7 +1846,8 @@ function createEmbeddedStore() {
       user.vehicleId ||
       state.vehicles.find((vehicle) => vehicle.driverId === user.id)?.id;
     const assignedVehicle = getVehicleById(assignedVehicleId);
-    const routeId = payload.routeId || assignedVehicle?.routeId || state.routes[0].id;
+    const requestedRoute = payload.routeId ? getRouteById(payload.routeId) : null;
+    const assignedRoute = assignedVehicle?.routeId ? getRouteById(assignedVehicle.routeId) : null;
 
     const incident = {
       id: randomUUID(),
@@ -1849,10 +1856,13 @@ function createEmbeddedStore() {
       type: payload.type,
       severity: payload.severity || "medium",
       status: "open",
-      routeId,
+      routeId:
+        (requestedRoute && canAccessOrganizationResource(user, requestedRoute) ? requestedRoute.id : null) ||
+        (assignedRoute && canAccessOrganizationResource(user, assignedRoute) ? assignedRoute.id : null),
       vehicleId: assignedVehicleId || null,
       reporterId: user.id,
       description: payload.description,
+      location: payload.location || null,
       createdAt: new Date().toISOString(),
       media: payload.media || []
     };

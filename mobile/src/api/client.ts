@@ -607,6 +607,9 @@ export async function createIncidentRequest(payload: {
   type: string;
   description: string;
   severity: string;
+  routeId?: string | null;
+  vehicleId?: string | null;
+  location?: Incident['location'];
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Incident }>('/incidents', payload);
   return response.data.data;

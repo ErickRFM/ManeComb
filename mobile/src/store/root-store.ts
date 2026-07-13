@@ -379,6 +379,42 @@ function upsertConversationMessage(messagesByConversation: Record<string, ChatMe
   };
 }
 
+function upsertIncident(incidents: Incident[], incident: Incident) {
+  const next = incidents.some((entry) => entry.id === incident.id)
+    ? incidents.map((entry) => (entry.id === incident.id ? incident : entry))
+    : [incident, ...incidents];
+
+  return next.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+}
+
+function enrichIncidentFromState(state: AppState, incident: Incident): Incident {
+  const vehicle = incident.vehicle || state.mapData?.vehicles.find((entry) => entry.id === incident.vehicleId) || null;
+  const route = incident.route || state.mapData?.routes.find((entry) => entry.id === incident.routeId) || null;
+
+  return {
+    ...incident,
+    route,
+    vehicle,
+  };
+}
+
+function applyIncidentToMapData(mapData: LiveLocationsData | null, incident: Incident) {
+  if (!mapData) {
+    return mapData;
+  }
+
+  const incidents =
+    incident.status === 'resolved'
+      ? mapData.incidents.filter((entry) => entry.id !== incident.id)
+      : upsertIncident(mapData.incidents, incident);
+
+  return {
+    ...mapData,
+    incidents,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function mergeConversationMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   const messagesById = new Map(current.map((message) => [message.id, message]));
   incoming.forEach((message) => messagesById.set(message.id, message));
@@ -988,8 +1024,20 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     get().refreshAll().catch(() => undefined);
   });
 
-  socket.on('incident:created', (i: Incident) => set(s => ({ incidents: [i, ...s.incidents] })));
-  socket.on('incident:updated', (i: Incident) => set(s => ({ incidents: s.incidents.map(ei => ei.id === i.id ? i : ei) })));
+  socket.on('incident:created', (i: Incident) => set(s => {
+    const incident = enrichIncidentFromState(s, i);
+    return {
+      incidents: upsertIncident(s.incidents, incident),
+      mapData: applyIncidentToMapData(s.mapData, incident),
+    };
+  }));
+  socket.on('incident:updated', (i: Incident) => set(s => {
+    const incident = enrichIncidentFromState(s, i);
+    return {
+      incidents: upsertIncident(s.incidents, incident),
+      mapData: applyIncidentToMapData(s.mapData, incident),
+    };
+  }));
 
   [
     'account:created',
@@ -1472,8 +1520,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isSubmitting: true });
     try {
       const i = await createIncidentRequest(d);
-      set(s => ({ incidents: [i, ...s.incidents] }));
-      await get().refreshAll();
+      set(s => {
+        const incident = enrichIncidentFromState(s, i);
+        return {
+          incidents: upsertIncident(s.incidents, incident),
+          mapData: applyIncidentToMapData(s.mapData, incident),
+        };
+      });
       return true;
     } catch (error) {
       logStoreError('createIncident', error);
@@ -1671,8 +1724,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateIncidentStatus: async (id, st) => {
     try {
       const i = await updateIncidentStatusRequest(id, st);
-      set(s => ({ incidents: s.incidents.map(e => e.id === i.id ? i : e) }));
-      await get().refreshAll();
+      set(s => {
+        const incident = enrichIncidentFromState(s, i);
+        return {
+          incidents: upsertIncident(s.incidents, incident),
+          mapData: applyIncidentToMapData(s.mapData, incident),
+        };
+      });
     } catch (error) {
       logStoreError('updateIncidentStatus', error);
       if (isProbablyNetworkError(error)) {

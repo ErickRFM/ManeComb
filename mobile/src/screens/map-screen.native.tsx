@@ -8,7 +8,7 @@ import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer'
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { User, Vehicle } from '@/src/types/app';
+import type { RouteShape, User, Vehicle } from '@/src/types/app';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { BottomTrackingPanel } from './map/components/BottomTrackingPanel';
 import { FloatingControls } from './map/components/FloatingControls';
@@ -25,12 +25,41 @@ import { useTrackingData } from './map/hooks/use-tracking-data';
 import { mapStyles as styles } from './map/map-styles';
 import type { MapSelectorParams } from './map/types';
 import { isSelectorMode } from './map/utils/selector-route';
+import { hasVehicleLiveLocation } from './map/utils/tracking';
 
 type MapGateState = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   message: string;
   title: string;
 };
+
+function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[]) {
+  if (!vehicle) return [];
+
+  const routeKeys = new Set(
+    [vehicle.routeId, vehicle.route?.id, vehicle.routeCode].filter((value): value is string => Boolean(value))
+  );
+  const matchedRoutes = routes.filter((route) => routeKeys.has(route.id) || routeKeys.has(route.code));
+  if (matchedRoutes.length) return matchedRoutes;
+
+  if (vehicle.route?.polyline?.length) {
+    return [vehicle.route];
+  }
+
+  if (vehicle.assignedRoute?.route?.polyline?.length) {
+    return [
+      {
+        id: vehicle.routeId || `assigned-route-${vehicle.id}`,
+        name: vehicle.routeName || vehicle.assignedRoute.route.label || 'Ruta asignada',
+        code: vehicle.routeCode || vehicle.code,
+        color: vehicle.routeColor || '#1473E6',
+        polyline: vehicle.assignedRoute.route.polyline,
+      },
+    ];
+  }
+
+  return [];
+}
 
 function getMapGateState({
   hasCoordinates,
@@ -237,10 +266,30 @@ export function MapScreen() {
   }, [params.vehicleId, params.follow]);
 
   useEffect(() => {
-    if (followMode && selectedVehicle) {
+    const latitude = Number(params.focusLatitude);
+    const longitude = Number(params.focusLongitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return;
+    }
+
+    setFollowMode(false);
+    focusMap(latitude, longitude, 'close');
+  }, [focusMap, params.focusLatitude, params.focusLongitude]);
+
+  useEffect(() => {
+    const hasExplicitFocus =
+      Number.isFinite(Number(params.focusLatitude)) &&
+      Number.isFinite(Number(params.focusLongitude));
+
+    if (hasExplicitFocus) {
+      return;
+    }
+
+    if (followMode && selectedVehicle && hasVehicleLiveLocation(selectedVehicle)) {
       focusPoint(selectedVehicle.location);
     }
-  }, [focusPoint, followMode, selectedVehicle]);
+  }, [focusPoint, followMode, params.focusLatitude, params.focusLongitude, selectedVehicle]);
 
   useEffect(() => {
     if (!selectorMode) {
@@ -248,7 +297,11 @@ export function MapScreen() {
       return;
     }
 
-    if (selectedVehicle && selectorFocusedVehicleIdRef.current !== selectedVehicle.id) {
+    if (
+      selectedVehicle &&
+      hasVehicleLiveLocation(selectedVehicle) &&
+      selectorFocusedVehicleIdRef.current !== selectedVehicle.id
+    ) {
       selectorFocusedVehicleIdRef.current = selectedVehicle.id;
       setFollowMode(false);
       focusPoint(selectedVehicle.location);
@@ -283,13 +336,17 @@ export function MapScreen() {
     const nextIndex = activeAlertIndex + 1;
     const incident = visibleIncidents[nextIndex % visibleIncidents.length];
     const vehicle = vehicleById.get(incident.vehicleId || '');
+    const point = incident.location || vehicle?.location;
 
     setActiveAlertIndex(nextIndex);
 
     if (vehicle) {
       setSelectedVehicleId(vehicle.id);
+    }
+
+    if (point) {
       setFollowMode(false);
-      focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
+      focusMap(point.latitude, point.longitude, 'close');
     }
   };
 
@@ -333,6 +390,7 @@ export function MapScreen() {
 
   const driverWithoutUnit = user.role === 'driver' && !driverVehicle;
   const driverWithoutRoute = user.role === 'driver' && driverVehicle && !driverVehicle.assignedRoute;
+  const selectedVehicleRoutes = getSelectedVehicleRoutes(selectedVehicle, mapData.routes);
   const mapDataForDisplay =
     driverWithoutUnit || driverWithoutRoute
       ? {
@@ -341,9 +399,12 @@ export function MapScreen() {
           vehicles: driverWithoutUnit ? [] : mapData.vehicles,
           incidents: driverWithoutUnit ? [] : visibleIncidents,
         }
-      : mapData;
+      : {
+          ...mapData,
+          routes: selectedVehicleRoutes,
+        };
   const visibleMapVehicles = driverWithoutUnit ? [] : liveVehicles;
-  const visiblePanelVehicles = driverWithoutUnit ? [] : trackingVehicles;
+  const visiblePanelVehicles = driverWithoutUnit ? [] : user.role === 'driver' ? trackingVehicles : prioritizedVehicles;
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
 
   return (

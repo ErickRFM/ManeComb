@@ -17,7 +17,7 @@ router.get("/", authenticate, requireOperationalAccess, async (req, res) => {
 });
 
 router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
-  const { title, type, description, severity, vehicleId, routeId, media } = req.body;
+  const { title, type, description, severity, vehicleId, routeId, location, media } = req.body;
 
   if (!title || !type || !description) {
     return res.status(400).json({
@@ -48,6 +48,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
     severity,
     vehicleId,
     routeId,
+    location,
     media
   });
 

@@ -56,6 +56,10 @@ export function OperationalMenuDrawer({
   );
 
   const sections = useMemo(() => (user ? getAppSections(user.role) : []), [user]);
+  const activeIncidentCount = useMemo(
+    () => incidents.filter((incident) => incident.status !== 'resolved').length,
+    [incidents]
+  );
   const derivedKey = useMemo(() => {
     if (!user) {
       return activeKey;
@@ -123,7 +127,7 @@ export function OperationalMenuDrawer({
       case 'mapa':
         return mapData ? `${mapData.vehicles.length}` : undefined;
       case 'incidencias':
-        return incidents.length ? `${incidents.length}` : undefined;
+        return activeIncidentCount ? `${activeIncidentCount}` : undefined;
       case 'usuarios':
         return users.length ? `${users.length}` : undefined;
       case 'chat':

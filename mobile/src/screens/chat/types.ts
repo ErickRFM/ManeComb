@@ -2,9 +2,7 @@ import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/s
 
 export type DirectoryMode = 'all' | 'priority' | 'unread';
 export type MobilePane = 'directory' | 'conversation';
-export type OperationalActionCategory = 'root' | 'drivers' | 'units' | 'groups';
 export type RecordingState = 'idle' | 'recording' | 'uploading';
-export type VoiceSearchState = 'idle' | 'recording' | 'processing';
 export type CallMode = 'audio' | 'video';
 export type CallPhase = 'waiting' | 'connecting' | 'connected';
 export type MessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -34,4 +32,3 @@ export type MessageListItem =
   | { type: 'date'; id: string; label: string }
   | { type: 'message'; id: string; message: ChatMessage };
 export const MAX_VOICE_NOTE_SECONDS = 45;
-export const MAX_VOICE_SEARCH_SECONDS = 12;

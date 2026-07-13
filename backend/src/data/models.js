@@ -368,10 +368,11 @@ const incidentSchema = new mongoose.Schema(
     type: { type: String, required: true },
     severity: { type: String, default: "medium" },
     status: { type: String, default: "open" },
-    routeId: { type: String, required: true },
+    routeId: { type: String, default: null },
     vehicleId: { type: String, default: null },
     reporterId: { type: String, required: true },
     description: { type: String, required: true },
+    location: { type: Object, default: null },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: null },
     media: { type: [String], default: [] }

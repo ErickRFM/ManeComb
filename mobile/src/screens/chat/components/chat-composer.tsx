@@ -20,7 +20,6 @@ type ChatComposerProps = Pick<
   | 'recordingState'
   | 'recorderMessage'
   | 'scrollMessagesToEnd'
-  | 'setActionCategory'
   | 'setAttachmentMenuOpen'
   | 'setDraft'
   | 'styles'
@@ -41,7 +40,6 @@ export function ChatComposer({
   recordingState,
   recorderMessage,
   scrollMessagesToEnd,
-  setActionCategory,
   setAttachmentMenuOpen,
   setDraft,
   styles,
@@ -76,7 +74,6 @@ export function ChatComposer({
           accessibilityLabel="Abrir adjuntos"
           accessibilityRole="button"
           onPress={() => {
-            setActionCategory('root');
             setAttachmentMenuOpen(true);
           }}
           style={({ pressed }) => [styles.attachButton, pressed ? styles.controlPressed : undefined]}>

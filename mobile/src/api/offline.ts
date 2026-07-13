@@ -586,10 +586,11 @@ export function offlineCreateIncident(token: string, draft: IncidentDraft) {
     type: draft.type,
     severity: draft.severity,
     status: 'open',
-    routeId: user.vehicleId ? getVehicle(user.vehicleId)?.routeId || 'route-1' : 'route-1',
+    routeId: draft.routeId || (user.vehicleId ? getVehicle(user.vehicleId)?.routeId || null : null),
     vehicleId: user.vehicleId,
     reporterId: user.id,
     description: draft.description,
+    location: draft.location || null,
     createdAt: new Date().toISOString(),
     media: [],
   };

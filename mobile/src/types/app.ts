@@ -695,10 +695,14 @@ export type Incident = {
   type: string;
   severity: IncidentSeverity;
   status: IncidentStatus;
-  routeId: string;
+  routeId: string | null;
   vehicleId: string | null;
   reporterId: string;
   description: string;
+  location?: (GeoPoint & {
+    accuracy?: number | null;
+    timestamp?: string | null;
+  }) | null;
   createdAt: string;
   media: string[];
   route?: RouteShape | null;
@@ -1038,6 +1042,12 @@ export type IncidentDraft = {
   type: string;
   description: string;
   severity: IncidentSeverity;
+  routeId?: string | null;
+  vehicleId?: string | null;
+  location?: (GeoPoint & {
+    accuracy?: number | null;
+    timestamp?: string | null;
+  }) | null;
 };
 
 export type FleetControlLog = {

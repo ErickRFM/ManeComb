@@ -51,7 +51,7 @@ export function SelectorRouteOverlay({
       </View>
 
       {hasEditableSelection ? (
-        <View style={[styles.selectorEditWrap, { top: top + 78 }]}>
+        <View style={[styles.selectorEditWrap, { top: top + 64 }]}>
           {points.origin ? (
             <Pressable
               onPress={() => onRemovePoint('origin')}
@@ -84,7 +84,7 @@ export function SelectorRouteOverlay({
               onPress={onRemoveLastStop}
               style={[styles.selectorUndoButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
               <MaterialCommunityIcons name="undo" size={17} color={theme.colors.text} />
-              <Text style={[styles.selectorUndoText, { color: theme.colors.text }]}>Deshacer ultima parada</Text>
+              <Text style={[styles.selectorUndoText, { color: theme.colors.text }]}>Deshacer parada</Text>
             </Pressable>
           ) : null}
           <Pressable

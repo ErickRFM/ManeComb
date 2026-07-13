@@ -8,6 +8,14 @@ import { mapStyles as styles } from '../map-styles';
 
 type SelectorPoints = Record<SelectorPointRole, NavigationPlaceResult | null>;
 
+const SELECTOR_STOP_MARKER_OFFSETS = [
+  { transform: [{ translateX: 0 }, { translateY: 0 }] },
+  { transform: [{ translateX: 8 }, { translateY: -8 }] },
+  { transform: [{ translateX: -8 }, { translateY: -8 }] },
+  { transform: [{ translateX: 8 }, { translateY: 8 }] },
+  { transform: [{ translateX: -8 }, { translateY: 8 }] },
+];
+
 type MapCanvasProps = {
   compassPosition?:
     | { bottom: number; left: number }
@@ -187,9 +195,10 @@ function IncidentMarkers({
     <>
       {incidents.map((incident) => {
         const vehicle = vehicleById.get(incident.vehicleId || '');
-        if (!vehicle) return null;
+        const coordinate = incident.location || vehicle?.location;
+        if (!coordinate) return null;
         return (
-          <AppMapMarker key={incident.id} id={`incident-${incident.id}`} coordinate={vehicle.location}>
+          <AppMapMarker key={incident.id} id={`incident-${incident.id}`} coordinate={coordinate}>
             <View style={[styles.incidentMarker, { backgroundColor: incident.severity === 'critical' ? theme.colors.danger : theme.colors.warning }]}>
               <MaterialCommunityIcons name="alert" size={13} color="#FFF" />
             </View>
@@ -223,7 +232,7 @@ function SelectorMarkers({
           onDragStart={onDragStart}
           onDragEnd={(event) => onPointDragEnd('origin', event.nativeEvent.coordinate)}>
           <View style={[styles.selectorPointMarker, { backgroundColor: theme.colors.success }]}>
-            <Text style={styles.selectorPointMarkerText}>O</Text>
+            <Text style={styles.selectorPointMarkerText}>SAL</Text>
           </View>
         </AppMapMarker>
       ) : null}
@@ -235,13 +244,18 @@ function SelectorMarkers({
           onDragStart={onDragStart}
           onDragEnd={(event) => onPointDragEnd('destination', event.nativeEvent.coordinate)}>
           <View style={[styles.selectorPointMarker, { backgroundColor: theme.colors.danger }]}>
-            <Text style={styles.selectorPointMarkerText}>D</Text>
+            <Text style={styles.selectorPointMarkerText}>FIN</Text>
           </View>
         </AppMapMarker>
       ) : null}
       {stops.map((stop, index) => (
         <AppMapMarker key={stop.id} id={`stop-${stop.id}`} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
-          <View style={[styles.vehicleMarker, { backgroundColor: theme.colors.warning }]}>
+          <View
+            style={[
+              styles.selectorStopMarker,
+              SELECTOR_STOP_MARKER_OFFSETS[index % SELECTOR_STOP_MARKER_OFFSETS.length],
+              { backgroundColor: theme.colors.warning },
+            ]}>
             <Text style={styles.stopMarkerText}>{index + 1}</Text>
           </View>
         </AppMapMarker>

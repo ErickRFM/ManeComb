@@ -9,6 +9,8 @@ export type MapFocusZoom = 'close' | 'vehicle' | 'overview';
 export type MapSelectorParams = {
   vehicleId?: string;
   follow?: string;
+  focusLatitude?: string;
+  focusLongitude?: string;
   point?: SelectorRole;
   returnTo?: string;
   originLatitude?: string;

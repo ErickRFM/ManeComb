@@ -2218,9 +2218,9 @@ async function createMongoStore() {
 
     const [incidents, routes, vehicles, users] = await Promise.all([
       IncidentModel.find(filter).sort({ createdAt: -1 }).lean(),
-      RouteModel.find().lean(),
-      VehicleModel.find().lean(),
-      UserModel.find().lean()
+      RouteModel.find(getOrganizationQuery(user)).lean(),
+      VehicleModel.find(getOrganizationQuery(user)).lean(),
+      UserModel.find(getOrganizationQuery(user)).lean()
     ]);
 
     const routeMap = new Map(routes.map((entry) => [entry._id, serializeRoute(entry)]));
@@ -2246,7 +2246,13 @@ async function createMongoStore() {
       user.vehicleId ||
       fleet.find((vehicle) => vehicle.driverId === user.id)?.id;
     const assignedVehicle = fleet.find((vehicle) => vehicle.id === assignedVehicleId);
-    const routeId = payload.routeId || assignedVehicle?.routeId;
+    const requestedRoute = payload.routeId
+      ? await RouteModel.findOne({ _id: payload.routeId, ...getOrganizationQuery(user) }).lean()
+      : null;
+    const assignedRoute = assignedVehicle?.routeId
+      ? await RouteModel.findOne({ _id: assignedVehicle.routeId, ...getOrganizationQuery(user) }).lean()
+      : null;
+    const routeId = requestedRoute?._id || assignedRoute?._id || null;
 
     const incident = await IncidentModel.create({
       _id: randomUUID(),
@@ -2255,10 +2261,11 @@ async function createMongoStore() {
       type: payload.type,
       severity: payload.severity || "medium",
       status: "open",
-      routeId: routeId || (await RouteModel.findOne().lean())?._id,
+      routeId,
       vehicleId: assignedVehicleId || null,
       reporterId: user.id,
       description: payload.description,
+      location: payload.location || null,
       createdAt: new Date(),
       updatedAt: null,
       media: payload.media || []

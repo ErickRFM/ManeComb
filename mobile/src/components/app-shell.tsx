@@ -38,6 +38,7 @@ type AppShellProps = PropsWithChildren<{
     label: string;
     tone: MobileBadgeTone;
   }[];
+  hideMobileToolbar?: boolean;
   scrollProps?: Partial<import('react-native').ScrollViewProps> & { ref?: any };
 }>;
 
@@ -52,6 +53,7 @@ export function AppShell({
   mobileTitle,
   mobileSubtitle,
   mobileBadges,
+  hideMobileToolbar = false,
   scrollProps = {},
 }: AppShellProps) {
   const pathname = usePathname();
@@ -144,7 +146,7 @@ export function AppShell({
     Platform.OS === 'web' ? (isDesktopMode ? styles.contentDesktop : styles.contentWeb) : undefined,
     contentContainerStyle,
   ];
-  const topChrome = isMobileLayout ? (
+  const topChrome = isMobileLayout && !hideMobileToolbar ? (
     <View style={styles.mobileToolbar}>
       <Pressable
         onPress={() => router.push('/incidencias')}
