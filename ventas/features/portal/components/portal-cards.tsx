@@ -150,16 +150,16 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
             <MaterialCommunityIcons name="file-document-outline" size={21} color={theme.colors.accent} />
           </View>
           <View style={styles.listBody}>
-            <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={1}>{invoice.id}</Text>
+            <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={1}>{invoice.referenceCode || 'Factura'}</Text>
             <Text style={[styles.itemDescription, { color: theme.colors.muted }]} numberOfLines={2}>
-              {invoice.referenceCode} - ${Number(invoice.total || 0).toLocaleString('es-MX')} {invoice.currency}
+              ${Number(invoice.total || 0).toLocaleString('es-MX')} {invoice.currency}
             </Text>
           </View>
           <View style={styles.statusActionGroup}>
             <StatusBadge label={formatPortalStatus(invoice.status)} tone={getStatusTone(invoice.status)} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Descargar factura ${invoice.id}`}
+              accessibilityLabel={`Descargar factura ${invoice.referenceCode || ''}`.trim()}
               onPress={() => onDownload?.(invoice)}
               style={[styles.smallButton, { backgroundColor: theme.colors.surfaceAlt }]}>
               <MaterialCommunityIcons name="download-outline" size={18} color={theme.colors.text} />

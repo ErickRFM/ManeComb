@@ -161,7 +161,7 @@ function createSeedState() {
       capacity: 18,
       etaMinutes: 6,
       delayMinutes: 2,
-      speed: 36,
+      speed: 10, // 36 km/h en m/s
       fuel: 71,
       updatedAt: minutesAgo(2),
       location: {
@@ -183,7 +183,7 @@ function createSeedState() {
       capacity: 17,
       etaMinutes: 4,
       delayMinutes: 0,
-      speed: 28,
+      speed: 7.8, // 28 km/h en m/s
       fuel: 55,
       updatedAt: minutesAgo(1),
       location: {

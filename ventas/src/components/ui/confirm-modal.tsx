@@ -80,6 +80,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
     justifyContent: 'flex-end',
   },
@@ -89,7 +90,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: DesignSystem.control.sm,
-    minWidth: 120,
+    flexGrow: 1,
+    minWidth: 112,
     paddingHorizontal: 16,
   },
   confirmButton: {

@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -81,6 +82,7 @@ export function PortalRoutesScreen() {
   );
   const [editor, setEditor] = useState<RouteEditor>(() => createBlankEditor(routeVehicles[0]?.id));
   const [message, setMessage] = useState<string | null>(null);
+  const [routeToClear, setRouteToClear] = useState<Vehicle | null>(null);
 
   useEffect(() => {
     void loadVehicles();
@@ -190,21 +192,24 @@ export function PortalRoutesScreen() {
                 <TextInput
                   value={editor.originLabel}
                   onChangeText={(value) => setField('originLabel', value)}
-                  placeholder="Origen"
+                   placeholder="Origen"
+                   accessibilityLabel="Origen"
                   placeholderTextColor={theme.colors.muted}
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
                 />
                 <TextInput
                   value={editor.destinationLabel}
                   onChangeText={(value) => setField('destinationLabel', value)}
-                  placeholder="Destino"
+                   placeholder="Destino"
+                   accessibilityLabel="Destino"
                   placeholderTextColor={theme.colors.muted}
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
                 />
                 <TextInput
                   value={editor.originLatitude}
                   onChangeText={(value) => setField('originLatitude', value.replace(/[^0-9.-]/g, ''))}
-                  placeholder="Latitud origen"
+                   placeholder="Latitud origen"
+                   accessibilityLabel="Latitud de origen"
                   placeholderTextColor={theme.colors.muted}
                   keyboardType="numeric"
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
@@ -212,7 +217,8 @@ export function PortalRoutesScreen() {
                 <TextInput
                   value={editor.originLongitude}
                   onChangeText={(value) => setField('originLongitude', value.replace(/[^0-9.-]/g, ''))}
-                  placeholder="Longitud origen"
+                   placeholder="Longitud origen"
+                   accessibilityLabel="Longitud de origen"
                   placeholderTextColor={theme.colors.muted}
                   keyboardType="numeric"
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
@@ -220,7 +226,8 @@ export function PortalRoutesScreen() {
                 <TextInput
                   value={editor.destinationLatitude}
                   onChangeText={(value) => setField('destinationLatitude', value.replace(/[^0-9.-]/g, ''))}
-                  placeholder="Latitud destino"
+                   placeholder="Latitud destino"
+                   accessibilityLabel="Latitud de destino"
                   placeholderTextColor={theme.colors.muted}
                   keyboardType="numeric"
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
@@ -228,7 +235,8 @@ export function PortalRoutesScreen() {
                 <TextInput
                   value={editor.destinationLongitude}
                   onChangeText={(value) => setField('destinationLongitude', value.replace(/[^0-9.-]/g, ''))}
-                  placeholder="Longitud destino"
+                   placeholder="Longitud destino"
+                   accessibilityLabel="Longitud de destino"
                   placeholderTextColor={theme.colors.muted}
                   keyboardType="numeric"
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
@@ -279,7 +287,7 @@ export function PortalRoutesScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Liberar ruta de ${vehicle.code}`}
-                    onPress={() => void clearRoute(vehicle.id)}
+                     onPress={() => setRouteToClear(vehicle)}
                     disabled={isSubmitting}
                     style={[styles.iconAction, { backgroundColor: theme.colors.warningSoft }]}>
                     <MaterialCommunityIcons name="link-off" size={18} color={theme.colors.warning} />
@@ -289,6 +297,18 @@ export function PortalRoutesScreen() {
             ))}
           </View>
       </PortalSectionCard> : null}
+      <ConfirmModal
+        visible={Boolean(routeToClear)}
+        title="Liberar ruta"
+        description={`La unidad ${routeToClear?.code || 'seleccionada'} quedará sin ruta asignada.`}
+        confirmLabel="Liberar ruta"
+        destructive
+        onCancel={() => setRouteToClear(null)}
+        onConfirm={() => {
+          if (routeToClear) void clearRoute(routeToClear.id);
+          setRouteToClear(null);
+        }}
+      />
     </PortalLayout>
   );
 }

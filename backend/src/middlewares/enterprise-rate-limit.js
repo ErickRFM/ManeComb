@@ -4,15 +4,7 @@ const { recordAuditLog } = require("../services/audit");
 const memoryBuckets = new Map();
 
 function getClientKey(req, scope) {
-  const ip = String(
-    req.headers["cf-connecting-ip"] ||
-      req.headers["x-forwarded-for"] ||
-      req.socket?.remoteAddress ||
-      req.ip ||
-      "unknown"
-  )
-    .split(",")[0]
-    .trim();
+  const ip = String(req.ip || "unknown").trim();
   const userId = req.user?.id || "anonymous";
   return `rate:${scope}:${userId}:${ip}`;
 }

@@ -25,15 +25,29 @@ export function useCheckoutExperience({
 }) {
   const [service] = useState(() => createCheckoutService());
   const [plans, setPlans] = useState<CommercialPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
   const [providerMode, setProviderMode] = useState<PaymentProviderMode>('unavailable');
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    void service.listPlans().then(setPlans);
-    void service.getProviderMode().then(setProviderMode);
+  const loadPlans = useCallback(async () => {
+    setPlansLoading(true);
+    setPlansError(null);
+    try {
+      setPlans(await service.listPlans());
+    } catch {
+      setPlansError('No pudimos cargar los planes. Revisa tu conexión e inténtalo de nuevo.');
+    } finally {
+      setPlansLoading(false);
+    }
   }, [service]);
+
+  useEffect(() => {
+    void loadPlans();
+    void service.getProviderMode().then(setProviderMode);
+  }, [loadPlans, service]);
 
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.id === planId) || null,
@@ -80,7 +94,10 @@ export function useCheckoutExperience({
     isCompleted: result?.status === PAYMENT_SESSION_STATUSES.COMPLETED,
     isPending: result?.status === PAYMENT_SESSION_STATUSES.PENDING,
     message,
+    loadPlans,
     plans,
+    plansError,
+    plansLoading,
     processing,
     providerMode,
     result,

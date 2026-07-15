@@ -9,10 +9,7 @@ const packageJson = require("../package.json");
 const {
   CORS_ORIGIN,
   CLIENT_ORIGINS,
-  IS_RENDER_RUNTIME,
-  JWT_SECRET_SOURCE,
   NODE_ENV,
-  RUNTIME_COMMIT,
   TRUST_PROXY
 } = require("./config/env");
 const accountRoutes = require("./modules/account/routes");
@@ -36,7 +33,6 @@ const radioRoutes = require("./modules/radio/routes");
 const rtcRoutes = require("./modules/rtc/routes");
 const userRoutes = require("./modules/users/routes");
 const vehicleRoutes = require("./modules/vehicles/routes");
-const { getStorageMode } = require("./services/storage");
 const { getOrCreateTraceId, recordAppEventSafely } = require("./services/telemetry");
 const { getRuntimeReadiness } = require("./services/runtime-readiness");
 const logger = require("./services/logger");
@@ -201,10 +197,8 @@ function createApp({ store, getDbState }) {
   });
 
   function handleHealth(req, res) {
-    const startedAt = Date.now();
     const db = getDbState();
     const readiness = getRuntimeReadiness(db);
-    const commit = String(RUNTIME_COMMIT || "").trim();
     const socketServer = app.locals.io;
     const socketCount = socketServer?.engine?.clientsCount || 0;
     setGauge("socket_clients", socketCount);
@@ -212,36 +206,8 @@ function createApp({ store, getDbState }) {
     return res.json({
       ok: true,
       status: readiness.status,
-      environment: NODE_ENV,
       version: packageJson.version,
-      commit: commit ? commit.slice(0, 12) : null,
       uptimeSeconds: Math.round(process.uptime()),
-      render: IS_RENDER_RUNTIME,
-      trustProxy: app.get("trust proxy") === 1,
-      auth: {
-        jwtSecretSource: JWT_SECRET_SOURCE,
-        ready: JWT_SECRET_SOURCE !== "default"
-      },
-      mode: db.mode,
-      database: db.connected ? "connected" : db.mode,
-      storage: getStorageMode(),
-      payments: readiness.payments.mode,
-      rtc: readiness.rtc.mode,
-      checks: {
-        api: {
-          ok: true,
-          responseTimeMs: Date.now() - startedAt
-        },
-        database: readiness.database,
-        queues: readiness.queues,
-        redis: readiness.redis,
-        socket: {
-          clients: socketCount,
-          ok: Boolean(socketServer)
-        },
-        storage: readiness.storage
-      },
-      readiness,
       timestamp: new Date().toISOString()
     });
   }

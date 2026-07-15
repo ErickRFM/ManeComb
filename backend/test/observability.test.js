@@ -50,8 +50,11 @@ async function main() {
 
     assert.equal(healthResponse.headers.get("x-trace-id"), traceId);
     assert.equal(health.ok, true);
-    assert.ok(health.checks.api.responseTimeMs >= 0);
-    assert.equal(typeof health.checks.socket.ok, "boolean");
+    assert.equal(typeof health.status, "string");
+    assert.equal(typeof health.uptimeSeconds, "number");
+    assert.equal(typeof health.timestamp, "string");
+    assert.equal("readiness" in health, false);
+    assert.equal("auth" in health, false);
 
     const liveResponse = await fetch(`${baseUrl}/api/health/live`);
     const live = await liveResponse.json();

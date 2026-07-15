@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon",
     "start": "node src/server.js",
-    "test": "node test/backend-architecture.test.js && node test/proxy.test.js && node test/observability.test.js && node test/env.test.js && node test/error-handler.test.js && node test/chat-data-model.test.js && node test/mercado-pago.test.js && node test/auth-context.test.js && node test/cors.test.js && node test/telemetry.test.js && node test/navigation-trips.test.js && node test/route-sessions.test.js && node test/activation-keys.test.js && node test/tenant-isolation.test.js && node test/app-smoke.test.js",
+    "test": "node --require ./test/setup-env.js test/backend-architecture.test.js && node --require ./test/setup-env.js test/proxy.test.js && node --require ./test/setup-env.js test/observability.test.js && node --require ./test/setup-env.js test/env.test.js && node --require ./test/setup-env.js test/error-handler.test.js && node --require ./test/setup-env.js test/chat-data-model.test.js && node --require ./test/setup-env.js test/mercado-pago.test.js && node --require ./test/setup-env.js test/auth-context.test.js && node --require ./test/setup-env.js test/cors.test.js && node --require ./test/setup-env.js test/telemetry.test.js && node --require ./test/setup-env.js test/navigation-trips.test.js && node --require ./test/setup-env.js test/route-sessions.test.js && node --require ./test/setup-env.js test/activation-keys.test.js && node --require ./test/setup-env.js test/tenant-isolation.test.js && node --require ./test/setup-env.js test/app-smoke.test.js",
     "diagnose:auth": "node scripts/diagnose-auth-account.js",
     "migrate:chat-messages": "node scripts/migrate-chat-messages.js"
   },

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
@@ -53,6 +54,7 @@ export function PortalProfileScreen() {
     billingAddress: '',
   });
   const [message, setMessage] = useState<string | null>(null);
+  const [sessionToRevoke, setSessionToRevoke] = useState<{ id: string; deviceName: string } | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -114,7 +116,8 @@ export function PortalProfileScreen() {
                 key={field}
                 value={form[field]}
                 onChangeText={(value) => setField(field, value)}
-                placeholder={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Telefono'}
+                 placeholder={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Telefono'}
+                 accessibilityLabel={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Teléfono'}
                 placeholderTextColor={theme.colors.muted}
                 autoCapitalize={field === 'email' ? 'none' : 'sentences'}
                 style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
@@ -132,7 +135,7 @@ export function PortalProfileScreen() {
                 key={field}
                 value={form[field]}
                 onChangeText={(value) => setField(field, value)}
-                placeholder={
+                 placeholder={
                   field === 'companyName'
                     ? 'Empresa'
                     : field === 'legalName'
@@ -142,6 +145,9 @@ export function PortalProfileScreen() {
                         : field === 'billingEmail'
                           ? 'Correo fiscal'
                           : 'Direccion fiscal'
+                 }
+                accessibilityLabel={
+                  field === 'companyName' ? 'Empresa' : field === 'legalName' ? 'Razón social' : field === 'taxId' ? 'RFC' : field === 'billingEmail' ? 'Correo fiscal' : 'Dirección fiscal'
                 }
                 placeholderTextColor={theme.colors.muted}
                 autoCapitalize={field === 'billingEmail' ? 'none' : 'sentences'}
@@ -176,7 +182,7 @@ export function PortalProfileScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
-                      onPress={() => void revokeSession(session.id)}
+                       onPress={() => setSessionToRevoke({ id: session.id, deviceName: session.deviceName })}
                       style={[styles.iconButton, { backgroundColor: theme.colors.dangerSoft }]}>
                       <MaterialCommunityIcons name="close" size={18} color={theme.colors.danger} />
                     </Pressable>
@@ -214,6 +220,18 @@ export function PortalProfileScreen() {
           </View>
         </PortalSectionCard>
       ) : null}
+      <ConfirmModal
+        visible={Boolean(sessionToRevoke)}
+        title="Cerrar sesión remota"
+        description={`Se cerrará la sesión en ${sessionToRevoke?.deviceName || 'el dispositivo seleccionado'}. La persona deberá iniciar sesión de nuevo.`}
+        confirmLabel="Cerrar sesión"
+        destructive
+        onCancel={() => setSessionToRevoke(null)}
+        onConfirm={() => {
+          if (sessionToRevoke) void revokeSession(sessionToRevoke.id);
+          setSessionToRevoke(null);
+        }}
+      />
     </PortalLayout>
   );
 }

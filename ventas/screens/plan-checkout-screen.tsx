@@ -112,6 +112,9 @@ export function PlanCheckoutScreen() {
     isCompleted: receiptIsActive,
     isPending: receiptIsPending,
     message,
+    loadPlans,
+    plansError,
+    plansLoading,
     processing,
     providerMode,
     result: receipt,
@@ -140,11 +143,29 @@ export function PlanCheckoutScreen() {
     return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
-  if (!selectedPlan) {
+  if (plansLoading) {
     return (
       <View style={styles.loadingScreen}>
         <ActivityIndicator color={palette.accent} />
         <Text style={styles.loadingText}>Preparando tu plan...</Text>
+      </View>
+    );
+  }
+
+  if (plansError || !selectedPlan) {
+    return (
+      <View style={styles.loadingScreen}>
+        <MaterialCommunityIcons name="alert-circle-outline" size={34} color={palette.accent} />
+        <Text style={styles.loadingText}>{plansError || 'El plan seleccionado ya no está disponible.'}</Text>
+        {plansError ? (
+          <Pressable accessibilityRole="button" onPress={() => void loadPlans()} style={styles.doneButton}>
+            <Text style={styles.payButtonText}>Reintentar</Text>
+          </Pressable>
+        ) : (
+          <Pressable accessibilityRole="link" onPress={() => router.replace('/ventas' as never)} style={styles.doneButton}>
+            <Text style={styles.payButtonText}>Volver a planes</Text>
+          </Pressable>
+        )}
       </View>
     );
   }

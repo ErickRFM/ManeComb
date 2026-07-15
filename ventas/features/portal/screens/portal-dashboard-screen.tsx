@@ -84,10 +84,14 @@ function formatDistance(meters?: number | null) {
   return `${(value / 1000).toLocaleString('es-MX', { maximumFractionDigits: 1 })} km`;
 }
 
+// Contrato: el backend siempre entrega velocidad en metros/segundo
+// (ver normalizeSpeedMetersPerSecond en backend/src/services/route-progress.js
+// y normalizeSpeed en route-metrics-engine.js / route-event-engine.js).
+// No adivinar la unidad por magnitud: eso rompe con GPS real >45 m/s (162 km/h).
 function formatSpeed(speed?: number | null) {
   const value = Number(speed);
   if (!Number.isFinite(value) || value < 0) return 'Sin dato';
-  const kmh = value > 45 ? value : value * 3.6;
+  const kmh = value * 3.6;
   return `${Math.round(kmh)} km/h`;
 }
 
@@ -278,8 +282,11 @@ function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
 }
 
 function getTodaySessions(sessions: RouteSession[]) {
-  const today = new Date().toISOString().slice(0, 10);
-  return sessions.filter((session) => String(session.startedAt || '').slice(0, 10) === today);
+  const today = new Date().toLocaleDateString('en-CA');
+  return sessions.filter((session) => {
+    const startedAt = new Date(session.startedAt || '');
+    return Number.isFinite(startedAt.getTime()) && startedAt.toLocaleDateString('en-CA') === today;
+  });
 }
 
 export function PortalDashboardScreen() {
@@ -563,7 +570,7 @@ export function PortalDashboardScreen() {
   return (
     <PortalLayout
       title="Centro de operaciones"
-      subtitle="Supervision de flota, jornadas historicas, timeline y replay usando metricas persistidas."
+      subtitle="Supervisión de flota, jornadas históricas y reproducción de recorridos con datos guardados."
       actions={
         <Pressable accessibilityRole="button" onPress={() => void loadHistory()} style={[styles.actionButton, portalButtonGradient()]}>
           <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" />
@@ -587,7 +594,7 @@ export function PortalDashboardScreen() {
       </View>
 
       <View style={styles.operationsGrid}>
-        <PortalSectionCard title="Mapa operativo" subtitle="Posicion real disponible por unidad y ruta asignada.">
+        <PortalSectionCard title="Mapa operativo" subtitle="Posición disponible por unidad y ruta asignada.">
           <Suspense fallback={<MapFallback />}>
             <OperationsMap
               checkpoints={routeCheckpoints}
@@ -624,7 +631,7 @@ export function PortalDashboardScreen() {
               ))}
             </View>
           ) : (
-            <EmptyState icon="bus-alert" title="Sin unidades" description="Registra unidades reales para iniciar la operacion." />
+            <EmptyState icon="bus-alert" title="Sin unidades" description="Registra unidades para iniciar la operación." />
           )}
         </PortalSectionCard>
       </View>
@@ -649,14 +656,14 @@ export function PortalDashboardScreen() {
               onCenter={() => openVehicle(selectedVehicle)}
             />
           ) : (
-            <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrara estado, ruta, metricas y jornada activa." />
+            <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrará estado, ruta, métricas y jornada activa." />
           )}
         </PortalSectionCard>
 
-        <PortalSectionCard title="Historial de jornadas" subtitle="Ordenado y filtrado con metricas persistidas.">
+        <PortalSectionCard title="Historial de jornadas" subtitle="Consulta los datos guardados por fecha, unidad, conductor y estado.">
           <HistoryFilters filters={filters} sessions={history} users={users} vehicles={vehicles} onChange={setFilter} />
           <Text style={styles.unitMeta}>
-            Mostrando {history.length} de {historyTotal || history.length} jornadas. Pagina de {historyLimit}.
+            Mostrando {history.length} de {historyTotal || history.length} jornadas. Página de {historyLimit}.
           </Text>
           {filteredSessions.length ? (
             <View style={styles.historyList}>
@@ -673,7 +680,7 @@ export function PortalDashboardScreen() {
               ))}
               {history.length < historyTotal ? (
                 <Pressable accessibilityRole="button" onPress={() => void loadHistory({ append: true })} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar mas (${historyTotal - history.length})`}</Text>
+                  <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar más (${historyTotal - history.length})`}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -708,7 +715,7 @@ export function PortalDashboardScreen() {
             onReplaySpeedChange={setReplaySpeed}
           />
         ) : (
-          <EmptyState icon="clipboard-text-clock-outline" title="Sin jornada seleccionada" description="Abre una jornada del historial para consultar metricas, eventos y replay." />
+          <EmptyState icon="clipboard-text-clock-outline" title="Sin jornada seleccionada" description="Abre una jornada del historial para consultar métricas, eventos y recorrido." />
         )}
       </PortalSectionCard>
     </PortalLayout>
@@ -1130,7 +1137,7 @@ function SessionDetailView({
             />
           </Suspense>
           <View style={styles.replayControls}>
-            <QuickAction icon={replayPlaying ? 'pause' : 'play'} label={replayPlaying ? 'Pause' : 'Play'} onPress={() => onReplayPlayingChange(!replayPlaying)} />
+            <QuickAction icon={replayPlaying ? 'pause' : 'play'} label={replayPlaying ? 'Pausar' : 'Reproducir'} onPress={() => onReplayPlayingChange(!replayPlaying)} />
             {replaySpeeds.map((speed) => (
               <Pressable key={speed} onPress={() => onReplaySpeedChange(speed)} style={[styles.filterChip, replaySpeed === speed ? styles.filterChipActive : undefined]}>
                 <Text style={styles.filterChipText}>{speed}x</Text>
@@ -1149,12 +1156,12 @@ function SessionDetailView({
             </Pressable>
             {hasMorePositions ? (
               <Pressable onPress={onLoadMorePositions} style={styles.secondaryButton}>
-                <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar mas posiciones'}</Text>
+                <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar más posiciones'}</Text>
               </Pressable>
             ) : null}
           </View>
           <View style={styles.metricGrid}>
-            <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posicion'} />
+            <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posición'} />
             <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
             <Fact label="Checkpoint" value={currentVisit?.checkpointId || 'Sin checkpoint'} />
             <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
@@ -1163,7 +1170,7 @@ function SessionDetailView({
         </View>
 
         <View style={styles.timelinePanel}>
-          <Text style={styles.panelTitle}>Timeline</Text>
+          <Text style={styles.panelTitle}>Eventos del recorrido</Text>
           {detail.events.length ? (
             <View style={styles.timelineList}>
               {detail.events.map((event) => (
@@ -1179,7 +1186,7 @@ function SessionDetailView({
               ))}
             </View>
           ) : (
-            <EmptyState icon="timeline-clock-outline" title="Sin eventos" description="La jornada no tiene eventos persistidos." />
+            <EmptyState icon="timeline-clock-outline" title="Sin eventos" description="La jornada no tiene eventos registrados." />
           )}
         </View>
       </View>
@@ -1192,7 +1199,7 @@ function SessionDetailView({
             </View>
           )) : <EmptyState icon="flag-outline" title="Sin checkpoints" description="No existen visitas registradas para esta jornada." />}
         </PortalSectionCard>
-        <PortalSectionCard title="GPS" subtitle="Cobertura y precision persistidas">
+        <PortalSectionCard title="GPS" subtitle="Cobertura y precisión registradas">
           <View style={styles.metricGrid}>
             <Fact label="Cobertura" value={formatPercent(detail.metrics?.metrics?.gpsCoveragePercent)} />
             <Fact label="Precision prom." value={detail.metrics?.averageGpsAccuracy ? `${detail.metrics.averageGpsAccuracy} m` : 'Sin dato'} />
