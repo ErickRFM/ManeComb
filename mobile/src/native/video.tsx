@@ -18,6 +18,8 @@ export function useVideoPlayer(
   setup?: (player: { loop: boolean }) => void,
 ) {
   const loopRef = useRef(false);
+  const setupRef = useRef(setup);
+  setupRef.current = setup;
   const [status, setStatus] = useState<PlayerStatus>({
     playing: false,
     currentTime: 0,
@@ -33,7 +35,7 @@ export function useVideoPlayer(
       get loop() { return loopRef.current; },
       set loop(v: boolean) { loopRef.current = v; },
     };
-    setup?.(p);
+    setupRef.current?.(p);
     setStatus({ playing: false, currentTime: 0, duration: 0, isBuffering: true, isLoaded: false, error: null });
   }, [source]);
 

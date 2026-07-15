@@ -1047,7 +1047,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     });
   });
 
-  socket.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
+  socket.on('chat:read', ({ conversationId, messageId, userId: _userId }: { conversationId: string; messageId: string; userId: string }) => {
     set(s => {
       const messages = s.messagesByConversation[conversationId];
       if (!messages) return s;
