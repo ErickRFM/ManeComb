@@ -15,6 +15,10 @@ type FloatingControlsProps = {
   onToggleTraffic: () => void;
   top: number;
   trafficEnabled: boolean;
+  journeyStatus?: 'none' | 'running' | 'paused';
+  onStartJourney?: () => void;
+  onFinishJourney?: () => void;
+  onPauseJourney?: () => void;
 };
 
 export function FloatingControls({
@@ -29,6 +33,10 @@ export function FloatingControls({
   onToggleTraffic,
   top,
   trafficEnabled,
+  journeyStatus,
+  onStartJourney,
+  onFinishJourney,
+  onPauseJourney,
 }: FloatingControlsProps) {
   const { theme } = useAppTheme();
 
@@ -88,6 +96,38 @@ export function FloatingControls({
           <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#FFF" />
         </Pressable>
       )}
+      {journeyStatus && onStartJourney && onFinishJourney && onPauseJourney ? (
+        <View style={[styles.fabGroup, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.accent }]}>
+          {journeyStatus === 'none' ? (
+            <Pressable
+              onPress={onStartJourney}
+              style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
+              accessibilityLabel="Iniciar jornada">
+              <MaterialCommunityIcons name="play-circle-outline" size={24} color={theme.colors.accent} />
+            </Pressable>
+          ) : (
+            <>
+              <Pressable
+                onPress={onPauseJourney}
+                style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
+                accessibilityLabel={journeyStatus === 'paused' ? 'Reanudar jornada' : 'Pausar jornada'}>
+                <MaterialCommunityIcons
+                  name={journeyStatus === 'paused' ? 'play-circle-outline' : 'pause-circle-outline'}
+                  size={24}
+                  color={theme.colors.text}
+                />
+              </Pressable>
+              <View style={[styles.fabDivider, { backgroundColor: theme.colors.line }]} />
+              <Pressable
+                onPress={onFinishJourney}
+                style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
+                accessibilityLabel="Finalizar jornada">
+                <MaterialCommunityIcons name="stop-circle-outline" size={24} color={theme.colors.danger} />
+              </Pressable>
+            </>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }

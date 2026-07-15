@@ -434,6 +434,11 @@ export function MapScreen() {
   const visiblePanelVehicles = driverWithoutUnit ? [] : user.role === 'driver' ? trackingVehicles : prioritizedVehicles;
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
 
+  const journeyStatus: 'none' | 'running' | 'paused' = !activeRouteSession ? 'none' : activeRouteSession.status === 'RUNNING' ? 'running' : activeRouteSession.status === 'PAUSED' ? 'paused' : 'none';
+  const handleStartJourney = () => router.push({ pathname: '/checklist', params: { action: 'start', returnToMap: 'true' } });
+  const handleFinishJourney = () => router.push({ pathname: '/checklist', params: { action: 'finish', returnToMap: 'true' } });
+  const handlePauseJourney = () => router.push({ pathname: '/checklist', params: { action: 'pause', returnToMap: 'true' } });
+
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <StatusBar style={theme.statusBar} />
@@ -507,9 +512,13 @@ export function MapScreen() {
               followMode={followMode}
               incidentCount={visibleIncidents.length}
               isRefreshing={isRefreshing}
+              journeyStatus={journeyStatus}
+              onFinishJourney={handleFinishJourney}
               onFocusNextAlert={focusNextAlert}
+              onPauseJourney={handlePauseJourney}
               onRefresh={handleRefresh}
               onRetryLocation={refresh}
+              onStartJourney={handleStartJourney}
               onToggleFollow={() => setFollowMode((current) => !current)}
               onToggleTraffic={() => setTrafficEnabled((current) => !current)}
               top={insets.top + 118}

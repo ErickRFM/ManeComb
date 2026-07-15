@@ -1262,6 +1262,7 @@ export function ChecklistScreen() {
       user: state.user,
     }))
   );
+  const params = useLocalSearchParams();
   const [manualLogs, setManualLogs] = useState<FleetControlLog[]>([]);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -1272,6 +1273,7 @@ export function ChecklistScreen() {
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [isChangingSession, setIsChangingSession] = useState(false);
+  const [isSessionLoaded, setIsSessionLoaded] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
@@ -1302,11 +1304,13 @@ export function ChecklistScreen() {
   const pendingStopPersistRef = useRef(false);
   const processedMapSelectionRef = useRef<string | null>(null);
   const restoredSessionIdRef = useRef<string | null>(null);
+  const processedActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!selectedVehicle?.id) { setActiveSession(null); return; }
+    if (!selectedVehicle?.id) { setActiveSession(null); setIsSessionLoaded(true); return; }
     restoredSessionIdRef.current = null;
-    getActiveRouteSessionRequest(selectedVehicle.id).then(setActiveSession).catch(() => setActiveSession(null));
+    setIsSessionLoaded(false);
+    getActiveRouteSessionRequest(selectedVehicle.id).then((session) => { setActiveSession(session); setIsSessionLoaded(true); }).catch(() => { setActiveSession(null); setIsSessionLoaded(true); });
   }, [selectedVehicle?.id]);
 
   useEffect(() => {
@@ -1355,6 +1359,29 @@ export function ChecklistScreen() {
 
     trackerRef.current.resetPointToPointSession();
   }, [routeModalOpen, selectedVehicle]);
+
+  useEffect(() => {
+    const actionValue = String(params.action || '').trim();
+    const returnToMap = String(params.returnToMap || '').trim();
+    if (!actionValue || !selectedVehicle || routeModalOpen) return;
+
+    const actionKey = `${actionValue}:${selectedVehicle.id}`;
+    if (processedActionRef.current === actionKey) return;
+    if (actionValue !== 'start' && !isSessionLoaded) return;
+
+    processedActionRef.current = actionKey;
+
+    (async () => {
+      try {
+        if (actionValue === 'start') await startTrip();
+        else if (actionValue === 'finish') await finishTrip(selectedVehicle);
+        else if (actionValue === 'pause') await toggleSessionPause();
+      } finally {
+        if (returnToMap === 'true') router.back();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.action, params.returnToMap, selectedVehicle, routeModalOpen, isSessionLoaded]);
 
   const routeOption = tracker.pointPlan?.routes[0] || selectedAssignedRoute?.route || null;
   const routeStops = useMemo(

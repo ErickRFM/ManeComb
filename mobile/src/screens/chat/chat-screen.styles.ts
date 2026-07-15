@@ -960,6 +960,12 @@ export function createStyles(
       right: 20,
       zIndex: 10,
     },
+    downloadFullscreen: {
+      position: 'absolute',
+      top: 40,
+      right: 60,
+      zIndex: 10,
+    },
     messageHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -1397,6 +1403,55 @@ export function createStyles(
       lineHeight: 22,
       textAlign: 'center',
       maxWidth: 320,
+    },
+    sheetMediaOptions: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.line,
+    },
+    sheetMediaButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: 10,
+      backgroundColor: theme.colors.background,
+    },
+    sheetMediaLabel: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    connectionNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 4,
+      paddingHorizontal: 12,
+      backgroundColor: theme.colors.warning,
+    },
+    connectionNoticeText: {
+      color: theme.mode === 'light' ? '#000000' : '#FFFFFF',
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    typingIndicator: {
+      paddingHorizontal: isPhone ? 10 : 0,
+      paddingBottom: 4,
+    },
+    typingIndicatorText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontStyle: 'italic',
     },
   });
 }

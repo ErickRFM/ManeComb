@@ -5,13 +5,14 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from '@/src/native/audio';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { SOCKET_URL } from '@/src/api/client';
+import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
@@ -44,8 +45,14 @@ export function useChatController() {
     openDirectConversation,
     openGeneralConversation,
     sendMessage,
+    sendMediaMessage,
     sendVoiceMessage,
     setActiveConversationId,
+    markAsRead,
+    emitTyping,
+    typingByConversation,
+    networkStatus,
+    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -61,7 +68,13 @@ export function useChatController() {
       openGeneralConversation: state.openGeneralConversation,
       sendMessage: state.sendMessage,
       sendVoiceMessage: state.sendVoiceMessage,
+      sendMediaMessage: state.sendMediaMessage,
       setActiveConversationId: state.setActiveConversationId,
+      markAsRead: state.markAsRead,
+      emitTyping: state.emitTyping,
+      typingByConversation: state.typingByConversation,
+      networkStatus: state.networkStatus,
+      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -577,7 +590,7 @@ export function useChatController() {
   const activeConversationCallMode = activeCallSession?.mode ?? null;
   const sortedOperationalContacts = useMemo(
     () =>
-      [...chatContacts].sort((left, right) => {
+      (chatContacts || []).slice().sort((left, right) => {
         const statusDiff = getOperationalStatusRank(left.status) - getOperationalStatusRank(right.status);
 
         if (statusDiff) {
@@ -704,22 +717,23 @@ export function useChatController() {
 
     shouldScrollAfterSendRef.current = true;
     setPendingTextMessages((current) => [...current, localMessage]);
-    setDraft('');
 
-    const result = await sendMessage(activeConversation.id, text);
+    try {
+      const result = await sendMessage(activeConversation.id, text);
 
-    if (!result || result.ok) {
-      setPendingTextMessages((current) => current.filter((message) => message.id !== localId));
-      return;
+      if (!result || result.ok) {
+        setDraft('');
+        setPendingTextMessages((current) => current.filter((message) => message.id !== localId));
+        return;
+      }
+    } catch {
+      // Fallo de red — el draft se conserva, el mensaje se marca como fallido
     }
 
     setPendingTextMessages((current) =>
       current.map((message) =>
         message.id === localId
-          ? {
-              ...message,
-              localStatus: 'failed',
-            }
+          ? { ...message, localStatus: 'failed' }
           : message
       )
     );
@@ -1258,6 +1272,30 @@ export function useChatController() {
     }
   }, [activeConversation, callSession]);
 
+  const handleMediaPicked = useCallback(async (source: 'camera' | 'gallery') => {
+    if (!activeConversation) return;
+    try {
+      const result = source === 'camera'
+        ? await launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 })
+        : await launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: asset.fileName || (source === 'camera' ? 'photo.jpg' : 'video.mp4'),
+        type: asset.mimeType || (source === 'camera' ? 'image/jpeg' : 'video/mp4'),
+      } as any);
+      if (asset.mimeType?.startsWith('image/')) {
+        formData.append('caption', draft || '');
+      }
+      setDraft('');
+      await sendMediaMessage(activeConversation.id, formData);
+    } catch {
+      setAttachmentNotice('No fue posible subir el archivo. Verifica tu conexion.');
+    }
+  }, [activeConversation, draft, sendMediaMessage, setDraft, setAttachmentNotice]);
+
   const showDirectoryPanel = !isCompact || mobilePane === 'directory';
   const showConversationPanel = !isCompact || mobilePane === 'conversation';
   const isMobileConversation = isCompact && mobilePane === 'conversation';
@@ -1286,14 +1324,15 @@ export function useChatController() {
     directoryItems,
     directoryMode,
     draft,
+    handleMediaPicked,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
     handleMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     handleOpenRadioFromChat,
-    handleRetryTextMessage,
     handleSelectConversation,
+    handleRetryTextMessage,
     handleSendText,
     handleStartCall,
     handleVoiceAction,
@@ -1306,6 +1345,9 @@ export function useChatController() {
     isSubmitting,
     leadRemoteParticipant,
     localStreamRef,
+    markAsRead,
+    emitTyping,
+    typingByConversation,
     messagesListRef,
     mobilePane,
     optionsMenuOpen,
@@ -1328,6 +1370,8 @@ export function useChatController() {
     theme,
     toggleCallMute,
     toggleCamera,
+    networkStatus,
+    socketStatus,
     token,
     user,
   };

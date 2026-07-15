@@ -34,6 +34,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     directoryHelperText,
     directoryItems,
     directoryMode,
+    handleMediaPicked,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
     handleMessagesScroll,
@@ -65,7 +66,10 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     theme,
     toggleCallMute,
     toggleCamera,
+    networkStatus,
+    socketStatus,
     token,
+    typingByConversation,
     user,
   } = props;
 
@@ -80,6 +84,17 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         isMobileConversation ? null : <ChatHeader {...props} />
       }
       hideMobileToolbar={isMobileConversation}>
+      {socketStatus !== 'connected' || networkStatus !== 'online' ? (
+        <View style={styles.connectionNotice}>
+          <Text style={styles.connectionNoticeText}>
+            {networkStatus === 'offline'
+              ? 'Sin conexion a Internet'
+              : socketStatus === 'connecting' || socketStatus === 'reconnecting'
+                ? 'Reconectando...'
+                : 'Conexion perdida'}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.layout}>
         {showDirectoryPanel ? (
           <View style={styles.directoryPanel}>
@@ -307,7 +322,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
         {showConversationPanel ? (
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior="padding"
             keyboardVerticalOffset={0}
             style={[
               styles.conversationPanel,
@@ -517,6 +532,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   style={styles.messagesScroll}
                   contentContainerStyle={styles.messagesList}
                   data={activeMessageItems}
+                  extraData={activeAudioMessageId}
                   keyExtractor={(item) => item.id}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -608,11 +624,13 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                                   );
                                 }}
                                 token={token}
+                                isCompact={isCompact}
+                                isPhone={isPhone}
                               />
                             ) : message.kind === 'image' ? (
-                              <ImageMessageBubble message={message} token={token} />
+                              <ImageMessageBubble message={message} token={token} isCompact={isCompact} isPhone={isPhone} />
                             ) : message.kind === 'video' ? (
-                              <VideoMessageBubble message={message} token={token} />
+                              <VideoMessageBubble message={message} token={token} isCompact={isCompact} isPhone={isPhone} />
                             ) : (
                               <Text
                                 style={[
@@ -628,6 +646,8 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                                 status={deliveryStatus}
                                 isOwn={isOwn}
                                 time={formatMessageTime(message.createdAt)}
+                                isCompact={isCompact}
+                                isPhone={isPhone}
                               />
                             ) : null}
 
@@ -672,6 +692,14 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   }
                 />
 
+                {activeConversation && typingByConversation[activeConversation.id]?.length ? (
+                  <View style={styles.typingIndicator}>
+                    <Text style={styles.typingIndicatorText}>
+                      {typingByConversation[activeConversation.id].map(t => t.userName).join(', ')}
+                      {typingByConversation[activeConversation.id].length === 1 ? ' esta escribiendo...' : ' estan escribiendo...'}
+                    </Text>
+                  </View>
+                ) : null}
                 <ChatComposer {...props} />
               </>
             ) : (
@@ -700,6 +728,26 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                 <Text style={styles.sheetTitle}>Conductores</Text>
                 <Text style={styles.sheetSubtitle}>Inicia un chat directo ordenado por disponibilidad.</Text>
               </View>
+            </View>
+            <View style={styles.sheetMediaOptions}>
+              <Pressable
+                style={styles.sheetMediaButton}
+                onPress={() => {
+                  setAttachmentMenuOpen(false);
+                  handleMediaPicked('camera');
+                }}>
+                <MaterialCommunityIcons name="camera" size={22} color={theme.colors.text} />
+                <Text style={styles.sheetMediaLabel}>Camara</Text>
+              </Pressable>
+              <Pressable
+                style={styles.sheetMediaButton}
+                onPress={() => {
+                  setAttachmentMenuOpen(false);
+                  handleMediaPicked('gallery');
+                }}>
+                <MaterialCommunityIcons name="image-multiple-outline" size={22} color={theme.colors.text} />
+                <Text style={styles.sheetMediaLabel}>Galeria</Text>
+              </Pressable>
             </View>
 
             <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
@@ -754,24 +802,28 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         onRequestClose={() => setOptionsMenuOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setOptionsMenuOpen(false)}>
           <Pressable style={styles.optionsSheet} onPress={(event) => event.stopPropagation()}>
-            <Pressable
-              style={styles.optionRow}
-              onPress={() => {
-                setOptionsMenuOpen(false);
-                handleStartCall('audio');
-              }}>
-              <MaterialCommunityIcons name="phone-outline" size={22} color={theme.colors.text} />
-              <Text style={styles.optionRowText}>Llamada de voz</Text>
-            </Pressable>
-            <Pressable
-              style={styles.optionRow}
-              onPress={() => {
-                setOptionsMenuOpen(false);
-                handleStartCall('video');
-              }}>
-              <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.text} />
-              <Text style={styles.optionRowText}>Videollamada</Text>
-            </Pressable>
+            {canStartRealtimeCall ? (
+              <>
+                <Pressable
+                  style={styles.optionRow}
+                  onPress={() => {
+                    setOptionsMenuOpen(false);
+                    handleStartCall('audio');
+                  }}>
+                  <MaterialCommunityIcons name="phone-outline" size={22} color={theme.colors.text} />
+                  <Text style={styles.optionRowText}>Llamada de voz</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.optionRow}
+                  onPress={() => {
+                    setOptionsMenuOpen(false);
+                    handleStartCall('video');
+                  }}>
+                  <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.text} />
+                  <Text style={styles.optionRowText}>Videollamada</Text>
+                </Pressable>
+              </>
+            ) : null}
             <Pressable
               style={styles.optionRow}
               onPress={() => {

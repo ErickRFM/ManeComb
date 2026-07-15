@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 import { MAX_VOICE_NOTE_SECONDS } from '../types';
@@ -7,11 +8,13 @@ import type { useChatController } from '../hooks/use-chat-controller';
 
 type ChatComposerProps = Pick<
   ReturnType<typeof useChatController>,
+  | 'activeConversation'
   | 'attachmentNotice'
   | 'canRecord'
   | 'canSendText'
   | 'composerPlaceholder'
   | 'draft'
+  | 'emitTyping'
   | 'handleSendText'
   | 'handleVoiceAction'
   | 'isNearMessagesBottomRef'
@@ -27,11 +30,13 @@ type ChatComposerProps = Pick<
 >;
 
 export function ChatComposer({
+  activeConversation,
   attachmentNotice,
   canRecord,
   canSendText,
   composerPlaceholder,
   draft,
+  emitTyping,
   handleSendText,
   handleVoiceAction,
   isNearMessagesBottomRef,
@@ -45,6 +50,29 @@ export function ChatComposer({
   styles,
   theme,
 }: ChatComposerProps) {
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleChangeText = (text: string) => {
+    setDraft(text);
+    if (!emitTyping || !activeConversation) return;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    } else {
+      emitTyping(activeConversation.id, true);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      typingTimeoutRef.current = null;
+      emitTyping(activeConversation.id, false);
+    }, 2000);
+  };
+
+  useEffect(() => () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (emitTyping && activeConversation) {
+      emitTyping(activeConversation.id, false);
+    }
+  }, [activeConversation, emitTyping]);
+
   return (
     <View style={styles.composerShell}>
       {recorderMessage ? (
@@ -88,15 +116,16 @@ export function ChatComposer({
               submitBehavior: 'newline',
             })}
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={handleChangeText}
             placeholder={composerPlaceholder}
             placeholderTextColor={theme.colors.muted}
             style={styles.composerInput}
             onFocus={() => {
               if (isNearMessagesBottomRef.current) {
-                setTimeout(() => scrollMessagesToEnd(true), 80);
+                setTimeout(() => scrollMessagesToEnd(true), 350);
               }
             }}
+            onSubmitEditing={handleSendText}
             multiline
           />
         </View>

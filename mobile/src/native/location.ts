@@ -200,8 +200,22 @@ export async function requestBackgroundPermissionsAsync() {
     return { status: PermissionStatus.GRANTED };
   }
 
+  const isGranted = await PermissionsAndroid.check(
+    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+  );
+
+  if (isGranted) {
+    return { status: PermissionStatus.GRANTED };
+  }
+
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+  );
+
   return {
-    status: await getAndroidPermissionStatus(PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION),
+    status: result === PermissionsAndroid.RESULTS.GRANTED
+      ? PermissionStatus.GRANTED
+      : PermissionStatus.DENIED,
   };
 }
 

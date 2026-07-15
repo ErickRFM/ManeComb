@@ -192,6 +192,8 @@ export type AppState = {
   activeRouteSession: RouteSession | null;
   activeConversationId: string | null;
   focusedIncidentId: string | null;
+  typingByConversation: Record<string, { userId: string; userName: string; startedAt: number }[]>;
+  readByConversation: Record<string, Set<string>>;
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
@@ -239,6 +241,8 @@ export type AppState = {
   markNotificationRead: (notificationId: string) => Promise<void>;
   setActiveConversationId: (conversationId: string) => void;
   setFocusedIncidentId: (incidentId: string | null) => void;
+  markAsRead: (conversationId: string, messageId: string) => void;
+  emitTyping: (conversationId: string, isTyping: boolean) => void;
   handlePushIntent: (intent: PushRouteIntent) => Promise<void>;
   clearError: () => void;
 };
@@ -261,6 +265,8 @@ function getEmptyOperationalState(): Partial<AppState> {
     activeRouteSession: null,
     activeConversationId: null,
     focusedIncidentId: null,
+    typingByConversation: {},
+    readByConversation: {},
     pendingSyncCount: 0,
     lastCacheAt: null,
     lastSyncedAt: null,
@@ -998,6 +1004,70 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     handleIncomingConversationMessage(payload).catch(() => undefined);
   });
 
+  socket.on('chat:typing', ({ conversationId, userId, userName }: { conversationId: string; userId: string; userName: string }) => {
+    set(s => {
+      const existing = s.typingByConversation[conversationId] || [];
+      if (existing.some(t => t.userId === userId)) return s;
+      return {
+        ...s,
+        typingByConversation: {
+          ...s.typingByConversation,
+          [conversationId]: [...existing, { userId, userName, startedAt: Date.now() }],
+        },
+      };
+    });
+  });
+
+  socket.on('chat:typing:stop', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+    set(s => {
+      const existing = s.typingByConversation[conversationId] || [];
+      const filtered = existing.filter(t => t.userId !== userId);
+      if (filtered.length === existing.length) return s;
+      return {
+        ...s,
+        typingByConversation: {
+          ...s.typingByConversation,
+          [conversationId]: filtered,
+        },
+      };
+    });
+  });
+
+  socket.on('chat:delivered', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    set(s => {
+      const messages = s.messagesByConversation[conversationId];
+      if (!messages) return s;
+      return {
+        ...s,
+        messagesByConversation: {
+          ...s.messagesByConversation,
+          [conversationId]: messages.map(m => m.id === messageId && (m as any).status === 'sent' ? { ...(m as any), status: 'delivered' } : m),
+        },
+      };
+    });
+  });
+
+  socket.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
+    set(s => {
+      const messages = s.messagesByConversation[conversationId];
+      if (!messages) return s;
+      const existing = s.readByConversation[conversationId] || new Set();
+      const next = new Set(existing);
+      next.add(messageId);
+      return {
+        ...s,
+        messagesByConversation: {
+          ...s.messagesByConversation,
+          [conversationId]: messages.map(m => m.id === messageId && (m as any).status !== 'read' ? { ...(m as any), status: 'read' } : m),
+        },
+        readByConversation: {
+          ...s.readByConversation,
+          [conversationId]: next,
+        },
+      };
+    });
+  });
+
   socket.on('location:updated', (v: Vehicle) => {
     const nextVehicle = normalizeVehicle(v);
     set(s => ({
@@ -1223,10 +1293,24 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
   authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null,
-  activeConversationId: null, focusedIncidentId: null, error: null,
+  activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },
   setFocusedIncidentId: (id) => set({ focusedIncidentId: id }),
+  markAsRead: (conversationId, messageId) => {
+    const s = get();
+    const existing = s.readByConversation[conversationId] || new Set();
+    if (existing.has(messageId)) return;
+    socket?.emit('chat:read', { conversationId, messageId, userId: s.user?.id });
+  },
+  emitTyping: (conversationId, isTyping) => {
+    const s = get();
+    if (isTyping) {
+      socket?.emit('chat:typing', { conversationId, userId: s.user?.id, userName: s.user?.name });
+    } else {
+      socket?.emit('chat:typing:stop', { conversationId, userId: s.user?.id });
+    }
+  },
   initialize: async () => {
     configureMobileRuntime(set, get);
     set({ isBootstrapping: true });

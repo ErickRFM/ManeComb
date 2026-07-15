@@ -799,6 +799,26 @@ function registerSocketServer(server, store) {
       acknowledge(ack, { ok: true });
     });
 
+    socket.on("chat:typing", ({ conversationId, userId, userName } = {}) => {
+      if (!conversationId || !userId) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:typing", { conversationId, userId, userName });
+    });
+
+    socket.on("chat:typing:stop", ({ conversationId, userId } = {}) => {
+      if (!conversationId || !userId) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:typing:stop", { conversationId, userId });
+    });
+
+    socket.on("chat:delivered", ({ conversationId, messageId, userId } = {}) => {
+      if (!conversationId || !messageId || !userId) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:delivered", { conversationId, messageId, userId });
+    });
+
+    socket.on("chat:read", ({ conversationId, messageId, userId } = {}) => {
+      if (!conversationId || !messageId || !userId) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:read", { conversationId, messageId, userId });
+    });
+
     socket.on("chat:send", async ({ conversationId, senderId, text, ...payload } = {}, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
