@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
-import { ChecklistScreen } from '@/src/screens/checklist-screen';
+import { ChecklistScreen, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
 import { useAppStore } from '@/src/store/use-app-store';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -102,6 +102,18 @@ describe('ChecklistScreen', () => {
       themeMode: 'light',
       user: null,
     });
+  });
+
+  it('selects the newest active log by operational timestamp', () => {
+    const logs = [
+      { id: 'older', vehicleId: 'v-1', vehicleCode: 'C-1', departureAt: '2026-07-15T10:00:00.000Z', status: 'active' as const },
+      { id: 'newer', vehicleId: 'v-1', vehicleCode: 'C-1', departureAt: '2026-07-15T12:00:00.000Z', status: 'delayed' as const },
+      { id: 'finished', vehicleId: 'v-1', vehicleCode: 'C-1', departureAt: '2026-07-15T13:00:00.000Z', arrivalAt: '2026-07-15T14:00:00.000Z', status: 'completed' as const },
+      { id: 'cancelled', vehicleId: 'v-1', vehicleCode: 'C-1', departureAt: '2026-07-15T15:00:00.000Z', arrivalAt: '2026-07-15T15:10:00.000Z', status: 'cancelled' as const },
+    ];
+
+    expect(getActiveLog(logs, 'v-1')?.id).toBe('newer');
+    expect(getLatestLog(logs, 'v-1')?.id).toBe('cancelled');
   });
 
   it('renders when an old assignedRoute snapshot has no route payload', () => {

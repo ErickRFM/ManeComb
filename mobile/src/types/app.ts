@@ -1071,7 +1071,7 @@ export type FleetControlLog = {
   driverName?: string;
   departureAt: string;
   arrivalAt?: string | null;
-  status: 'active' | 'completed' | 'delayed';
+  status: 'active' | 'completed' | 'cancelled' | 'delayed';
   odometerDeparture?: number;
   odometerArrival?: number;
   notes?: string;

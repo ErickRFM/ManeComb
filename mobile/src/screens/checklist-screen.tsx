@@ -42,8 +42,8 @@ import { formatTime } from '@/src/utils/format';
 import { buildActiveRouteSnapshot, getAssignedRouteLabel } from '@/src/utils/active-route';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 
-type FilterMode = 'all' | 'active' | 'routes' | 'completed';
-type OperationalStatus = 'available' | 'active' | 'completed' | 'delayed';
+type FilterMode = 'all' | 'active' | 'routes' | 'completed' | 'cancelled';
+export type OperationalStatus = 'available' | 'active' | 'completed' | 'cancelled' | 'delayed';
 type PointRole = 'origin' | 'destination';
 type MapPointRole = PointRole | 'stop';
 type RouteUiState = 'empty' | 'editing' | 'ready' | 'navigation' | 'paused' | 'finalized';
@@ -58,6 +58,7 @@ type OperationalRecord = {
   etaAt: string | null;
   delayMinutes: number;
   status: OperationalStatus;
+  lastRouteStatus: Extract<OperationalStatus, 'completed' | 'cancelled'> | null;
   vehicle: Vehicle;
 };
 type FinalizedRouteSummary = {
@@ -110,23 +111,39 @@ function getEtaAt(vehicle: Vehicle) {
   return new Date(Date.now() + vehicle.etaMinutes * 60 * 1000).toISOString();
 }
 
-function getLatestLog(logs: FleetControlLog[], vehicleId: string) {
+function getLogTimestamp(log: FleetControlLog) {
+  return new Date(log.arrivalAt || log.departureAt).getTime();
+}
+
+export function getLatestLog(logs: FleetControlLog[], vehicleId: string) {
   return logs
     .filter((log) => log.vehicleId === vehicleId)
     .sort(
       (left, right) =>
-        new Date(right.arrivalAt || right.departureAt).getTime() -
-        new Date(left.arrivalAt || left.departureAt).getTime()
+        getLogTimestamp(right) - getLogTimestamp(left)
     )[0] || null;
 }
 
-function getActiveLog(logs: FleetControlLog[], vehicleId: string) {
-  return logs.find((log) => log.vehicleId === vehicleId && log.status !== 'completed') || null;
+export function getActiveLog(logs: FleetControlLog[], vehicleId: string) {
+  // Historical inconsistencies can leave more than one non-terminal log. The
+  // vigente record is always the one with the newest operational timestamp.
+  return logs
+    .filter(
+      (log) =>
+        log.vehicleId === vehicleId &&
+        log.status !== 'completed' &&
+        log.status !== 'cancelled'
+    )
+    .sort((left, right) => getLogTimestamp(right) - getLogTimestamp(left))[0] || null;
 }
 
 function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlLog | null): OperationalStatus {
   if (sessionLog?.status === 'completed') {
     return 'completed';
+  }
+
+  if (sessionLog?.status === 'cancelled') {
+    return 'cancelled';
   }
 
   if (sessionLog?.status === 'delayed') {
@@ -147,7 +164,9 @@ function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlL
 function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[]): OperationalRecord {
   const latestLog = getLatestLog(sessionLogs, vehicle.id);
   const activeLog = getActiveLog(sessionLogs, vehicle.id);
-  const status = getVehicleOperationalStatus(vehicle, activeLog || latestLog);
+  // Terminal history describes the last route outcome, not the vehicle's
+  // current availability. Only a vigente log may determine current operation.
+  const status = getVehicleOperationalStatus(vehicle, activeLog);
   const activeRoute = buildActiveRouteSnapshot({ vehicle });
   const departureAt = activeLog?.departureAt || latestLog?.departureAt || null;
   const etaAt =
@@ -165,6 +184,10 @@ function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[]
     etaAt,
     delayMinutes: vehicle.delayMinutes || 0,
     status,
+    lastRouteStatus:
+      latestLog?.status === 'completed' || latestLog?.status === 'cancelled'
+        ? latestLog.status
+        : null,
     vehicle,
   };
 }
@@ -172,13 +195,15 @@ function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[]
 function getStatusLabel(status: OperationalStatus) {
   if (status === 'active') return 'En ruta';
   if (status === 'completed') return 'Finalizado';
+  if (status === 'cancelled') return 'Cancelado';
   if (status === 'delayed') return 'Retraso';
   return 'Disponible';
 }
 
-function getStatusTone(status: OperationalStatus): 'info' | 'positive' | 'warning' | 'neutral' {
+function getStatusTone(status: OperationalStatus): 'danger' | 'info' | 'positive' | 'warning' | 'neutral' {
   if (status === 'active') return 'info';
   if (status === 'completed') return 'positive';
+  if (status === 'cancelled') return 'danger';
   if (status === 'delayed') return 'warning';
   return 'neutral';
 }
@@ -186,6 +211,7 @@ function getStatusTone(status: OperationalStatus): 'info' | 'positive' | 'warnin
 function getStatusColor(theme: ReturnType<typeof useAppTheme>['theme'], status: OperationalStatus) {
   if (status === 'active') return theme.colors.info;
   if (status === 'completed') return theme.colors.success;
+  if (status === 'cancelled') return theme.colors.danger;
   if (status === 'delayed') return theme.colors.warning;
   return theme.colors.muted;
 }
@@ -1309,7 +1335,12 @@ export function ChecklistScreen() {
         driverName: vehicle?.driverName || 'Operador sin asignar',
         departureAt: session.startedAt,
         arrivalAt: session.finishedAt,
-        status: session.status === 'FINISHED' || session.status === 'CANCELLED' ? 'completed' : 'active',
+        status:
+          session.status === 'FINISHED'
+            ? 'completed'
+            : session.status === 'CANCELLED'
+              ? 'cancelled'
+              : 'active',
       };
     }),
     [sessionHistory, vehicles]
@@ -1513,7 +1544,8 @@ export function ChecklistScreen() {
         const matchesFilter =
           filterMode === 'all' ||
           (filterMode === 'active' && ['active', 'delayed'].includes(record.status)) ||
-          (filterMode === 'completed' && record.status === 'completed') ||
+          (filterMode === 'completed' && record.lastRouteStatus === 'completed') ||
+          (filterMode === 'cancelled' && record.lastRouteStatus === 'cancelled') ||
           (filterMode === 'routes' && Boolean(normalizeAssignedRoute(record.vehicle.assignedRoute)));
 
         return matchesFilter;
@@ -1973,6 +2005,8 @@ export function ChecklistScreen() {
         {[
           { id: 'all', label: 'Historial' },
           { id: 'active', label: 'En ruta' },
+          { id: 'completed', label: 'Finalizadas' },
+          { id: 'cancelled', label: 'Canceladas' },
           { id: 'routes', label: 'Rutas' },
         ].map((option) => {
           const isActive = filterMode === option.id;
@@ -2000,6 +2034,7 @@ export function ChecklistScreen() {
           {filteredRecords.length ? (
             filteredRecords.map((record) => {
               const statusColor = getStatusColor(theme, record.status);
+              const lastRouteStatus = record.lastRouteStatus;
               const etaLabel =
                 record.status === 'completed'
                   ? 'LLE'
@@ -2034,6 +2069,12 @@ export function ChecklistScreen() {
                       </View>
                     </View>
                     <StatusPill label={getStatusLabel(record.status)} tone={getStatusTone(record.status)} />
+                    {lastRouteStatus ? (
+                      <StatusPill
+                        label={`Ultima ruta: ${getStatusLabel(lastRouteStatus)}`}
+                        tone={getStatusTone(lastRouteStatus)}
+                      />
+                    ) : null}
                   </View>
 
                   <View style={styles.recordTimeline}>
@@ -2044,7 +2085,9 @@ export function ChecklistScreen() {
                       </Text>
                     </View>
                     <View style={styles.timeBlock}>
-                      <Text style={styles.timeLabel}>{etaLabel}</Text>
+                      <Text style={styles.timeLabel}>
+                        {lastRouteStatus === 'cancelled' ? 'CAN' : etaLabel}
+                      </Text>
                       <Text style={styles.timeValue} numberOfLines={1} ellipsizeMode="tail">
                         {record.arrivalAt
                           ? formatTime(record.arrivalAt)
