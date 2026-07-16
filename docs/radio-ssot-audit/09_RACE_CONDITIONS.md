@@ -18,11 +18,12 @@
 | end durante prepare RX | revalidacion antes/despues de AudioTrack |
 | salir/logout con socket global vivo | `radio:end` antes de retirar listeners |
 | cliente conectado sin `radio:end` | timeout Backend de 65 segundos |
+| arbitraje local entre instancias | propietario autoritativo en Redis con adquisicion NX, verificacion y TTL renovado por frame |
 
 ## Riesgos abiertos
 
-- `activeRadioTransmissions` es memoria local del proceso; dos instancias backend no comparten arbitraje.
 - El foreground service no demuestra por si solo que React Native y Socket.IO entreguen frames con JS suspendido.
 - Web graba y sube al final; no ofrece el mismo streaming PTT nativo.
 - La red real puede introducir jitter; no existe una cola adaptativa de jitter medida fisicamente.
-- El arbitraje sigue siendo local al proceso aun cuando Socket.IO use adaptador Redis.
+
+El riesgo de background JS se detalla en `11_BACKGROUND_JS_AUDIT.md`.

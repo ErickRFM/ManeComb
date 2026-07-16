@@ -16,7 +16,7 @@ const {
 } = require("../modules/radio/live-stream");
 
 const RADIO_TRANSMISSION_TIMEOUT_MS = 65000;
-const RADIO_LOCK_TTL_MS = RADIO_TRANSMISSION_TIMEOUT_MS + 5000;
+const RADIO_LOCK_TTL_MS = 10000;
 const RADIO_LOCK_PREFIX = "manecomb:radio:channel:";
 const RADIO_FRAME_DURATION_MS = 20;
 const RADIO_FRAME_BURST_ALLOWANCE = 50;
@@ -80,12 +80,41 @@ function registerSocketServer(server, store) {
     }
   }
 
+  async function getAuthoritativeRadioOwner(channelId) {
+    if (!redisReadiness.enabled) {
+      const local = activeRadioTransmissions.get(channelId);
+      return local
+        ? { socketId: local.socketId, transmissionId: local.id, userId: local.userId, userName: local.userName }
+        : null;
+    }
+    if (!redisClient?.isReady || !radioClusterReady) {
+      throw new Error("Redis no esta disponible para consultar Radio");
+    }
+    const value = await redisClient.get(`${RADIO_LOCK_PREFIX}${channelId}`);
+    if (!value) return null;
+    try { return JSON.parse(value); } catch { return null; }
+  }
+
+  async function verifyAndRefreshRadioChannel(transmission) {
+    if (!redisReadiness.enabled) return true;
+    if (!redisClient?.isReady || !radioClusterReady || !transmission.lockKey || !transmission.lockValue) {
+      return false;
+    }
+    const refreshed = await redisClient.eval(
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+      { keys: [transmission.lockKey], arguments: [transmission.lockValue, String(RADIO_LOCK_TTL_MS)] }
+    );
+    return Number(refreshed) === 1;
+  }
+
   async function releaseRadioChannel(transmission) {
-    if (!redisClient || !transmission.lockKey || !transmission.lockValue) return;
-    await redisClient.eval(
+    if (!redisReadiness.enabled) return true;
+    if (!redisClient || !transmission.lockKey || !transmission.lockValue) return false;
+    const released = await redisClient.eval(
       "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
       { keys: [transmission.lockKey], arguments: [transmission.lockValue] }
     );
+    return Number(released) === 1;
   }
 
   if (redisClient) {
@@ -307,6 +336,7 @@ function registerSocketServer(server, store) {
 
   io.on("connection", (socket) => {
     incrementMetric("socket_connections_total", 1);
+    let radioFrameQueue = Promise.resolve();
     setGauge("socket_clients", io.engine.clientsCount || 0);
     logger.info({
       action: "Connect",
@@ -515,15 +545,23 @@ function registerSocketServer(server, store) {
         return;
       }
 
-      const current = activeRadioTransmissions.get(safeChannelId);
-      if (current) {
-        if (current.socketId === socket.id) {
+      let authoritativeOwner;
+      try {
+        authoritativeOwner = await getAuthoritativeRadioOwner(safeChannelId);
+      } catch (error) {
+        logger.error({ action: "ReadRadioChannel", module: "Radio", status: "error", error });
+        acknowledge(ack, { ok: false, error: "radio_unavailable" });
+        return;
+      }
+      if (authoritativeOwner) {
+        const current = activeRadioTransmissions.get(safeChannelId);
+        if (authoritativeOwner.socketId === socket.id && current?.id === authoritativeOwner.transmissionId) {
           acknowledge(ack, { ok: true, transmissionId: current.id });
           return;
         }
         const busyPayload = {
           channelId: safeChannelId,
-          transmitter: { id: current.userId, name: current.userName }
+          transmitter: { id: authoritativeOwner.userId, name: authoritativeOwner.userName }
         };
         acknowledge(ack, { ok: false, error: "channel_busy", ...busyPayload });
         return;
@@ -620,6 +658,7 @@ function registerSocketServer(server, store) {
     });
 
     socket.on("radio:frame", (payload = {}) => {
+      radioFrameQueue = radioFrameQueue.then(async () => {
       const channelId = String(payload.channelId || "").trim();
       const liveRoom = getRadioRoom(channelId);
       const transmission = activeRadioTransmissions.get(channelId);
@@ -640,6 +679,23 @@ function registerSocketServer(server, store) {
             transmissionId: payload.transmissionId || null
           }
         });
+        return;
+      }
+      let ownsAuthoritativeChannel = false;
+      try {
+        ownsAuthoritativeChannel = await verifyAndRefreshRadioChannel(transmission);
+      } catch (error) {
+        logger.error({ action: "RefreshRadioChannel", module: "Radio", status: "error", error });
+      }
+      if (!ownsAuthoritativeChannel) {
+        activeRadioTransmissions.delete(channelId);
+        if (transmission.timeoutId) clearTimeout(transmission.timeoutId);
+        io.to(liveRoom).emit("radio:end", {
+          channelId,
+          reason: "authority_lost",
+          transmissionId: transmission.id
+        });
+        socket.emit("radio:error", { message: "Se perdio el arbitraje distribuido del canal." });
         return;
       }
       if (sequence <= transmission.lastSequence) {
@@ -729,7 +785,10 @@ function registerSocketServer(server, store) {
         sentAt,
         transmissionId: transmission.id
       });
-      transmission.forwardedFrames += 1;
+        transmission.forwardedFrames += 1;
+      }).catch((error) => {
+        logger.error({ action: "ProcessRadioFrame", module: "Radio", status: "error", error });
+      });
     });
 
     async function finishRadioTransmission(channelId, reason = "completed") {
