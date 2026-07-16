@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 
 const createApp = require("../src/app");
 const { ROLE_PERMISSIONS, hasPermission } = require("../src/middlewares/access-control");
@@ -54,6 +56,12 @@ async function main() {
   assert.deepEqual(ROLE_PERMISSIONS.admin.includes("canManageUsers"), true);
   assert.deepEqual(ROLE_PERMISSIONS.supervisor.includes("canManageUsers"), false);
   assert.deepEqual(ROLE_PERMISSIONS.driver, ["canAccessRTC"]);
+
+  const socketSource = fs.readFileSync(path.join(__dirname, "../src/sockets/index.js"), "utf8");
+  assert.match(socketSource, /resolveAuthenticatedUser\(store, token\)/);
+  assert.match(socketSource, /socket\.on\("chat:typing"[\s\S]*authenticatedUser\.id[\s\S]*canUserAccessConversation/);
+  assert.doesNotMatch(socketSource, /socket\.on\("chat:typing",[^]*\{ conversationId, userId, userName \}/);
+  assert.match(socketSource, /getRolesWithPermission\("canViewAnalytics"\)/);
 
   const context = await createContext();
   try {

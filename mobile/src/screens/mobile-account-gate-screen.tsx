@@ -25,14 +25,14 @@ const BLOCK_COPY: Record<MobileBlockReason, {
     title: 'Plan no activo',
   },
   missing_tenant: {
-    action: 'Continuar configuracion',
-    body: 'Tu plan esta activo. Configura tu empresa para comenzar.',
+    action: 'Continuar configuración',
+    body: 'Tu plan está activo. Configura tu empresa para comenzar.',
     icon: 'office-building-cog-outline',
     title: 'Completa tu configuración',
   },
   no_plan: {
     action: 'Comprar plan',
-    body: 'Tu cuenta esta creada, pero aun no tienes un plan activo.',
+    body: 'Tu cuenta está creada, pero aún no tienes un plan activo.',
     icon: 'credit-card-plus-outline',
     title: 'Activa tu plan',
   },
@@ -44,7 +44,7 @@ const BLOCK_COPY: Record<MobileBlockReason, {
   },
   sync_error: {
     action: 'Reintentar',
-    body: 'Revisa tu conexion e intenta de nuevo.',
+    body: 'Revisa tu conexión e intenta de nuevo.',
     icon: 'sync-alert',
     title: 'No pudimos sincronizar tu cuenta',
   },
@@ -140,7 +140,7 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
               pressed && !isRefreshing ? styles.pressed : undefined,
               isRefreshing ? styles.disabled : undefined,
             ]}>
-            {isRefreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+            {isRefreshing ? <ActivityIndicator size="small" color={theme.colors.text} /> : null}
             <Text style={styles.primaryText}>{isRefreshing ? 'Sincronizando...' : copy.action}</Text>
           </Pressable>
           {reason !== 'sync_error' ? (
@@ -161,7 +161,7 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
               styles.ghostButton,
               pressed ? styles.pressed : undefined,
             ]}>
-            <Text style={[styles.ghostText, { color: theme.colors.muted }]}>Cerrar sesion</Text>
+            <Text style={[styles.ghostText, { color: theme.colors.muted }]}>Cerrar sesión</Text>
           </Pressable>
         </View>
       </View>

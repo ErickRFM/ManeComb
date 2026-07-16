@@ -279,7 +279,7 @@ function ChangePreview({
           <MaterialCommunityIcons
             name={isSubmitting ? 'progress-clock' : action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
             size={18}
-            color="#FFFFFF"
+            color={portalPalette.text}
           />
         </Pressable>
       </View>
@@ -478,7 +478,7 @@ export function PortalPlanScreen() {
         visible={cancelOpen}
         destructive
         title="Cancelar suscripción"
-        description="La cancelación es inmediata y detendrá el acceso asociado al plan actual."
+        description={`La cancelación será efectiva al final del periodo pagado (${subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString('es-MX') : 'por definir'}). Hasta entonces, la cuenta seguirá activa.`}
         confirmLabel={isSubmitting ? 'Cancelando...' : 'Cancelar suscripción'}
         processing={isSubmitting}
         onCancel={() => setCancelOpen(false)}

@@ -36,9 +36,7 @@ import type {
   RouteSessionStatus,
   SessionResult,
   User,
-  UserMutationPayload,
   Vehicle,
-  VehicleMutationPayload,
 } from '@/src/types/app';
 
 const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
@@ -757,11 +755,6 @@ export async function putE2eeBackupRequest(payload: {
   return response.data.data;
 }
 
-export async function createVehicleRequest(payload: VehicleMutationPayload) {
-  const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/vehicles', payload);
-  return response.data.data;
-}
-
 export async function updateVehicleLocationRequest(payload: {
   vehicleId: string;
   coordinates: GeoPoint;
@@ -966,20 +959,6 @@ export async function registerDriverActivationRequest(payload: DriverActivationR
 export async function updateProfileRequest(payload: ProfileMutationPayload) {
   const response = await apiClient.patch<{ ok: boolean; data: User }>('/users/me', payload);
   return response.data.data;
-}
-
-export async function createUserRequest(payload: UserMutationPayload) {
-  const response = await apiClient.post<{ ok: boolean; data: User }>('/users', payload);
-  return response.data.data;
-}
-
-export async function updateUserRequest(userId: string, payload: UserMutationPayload) {
-  const response = await apiClient.patch<{ ok: boolean; data: User }>(`/users/${userId}`, payload);
-  return response.data.data;
-}
-
-export async function deleteUserRequest(userId: string) {
-  await apiClient.delete(`/users/${userId}`);
 }
 
 export async function getOperationalObservabilityRequest(params?: {

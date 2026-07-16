@@ -1,16 +1,18 @@
 import { useEffect } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { EmptyState } from '@/src/components/ui/empty-state';
+import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { resolveInvoiceDownloadUrl } from '@/features/commercial';
 import { InvoiceList, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalBillingScreen() {
-  const { invoices, loadBilling } = usePortalStore(
+  const { invoices, isLoading, loadBilling } = usePortalStore(
     useShallow((state) => ({
       invoices: state.invoices,
+      isLoading: state.isLoading,
       loadBilling: state.loadBilling,
     }))
   );
@@ -24,7 +26,12 @@ export function PortalBillingScreen() {
       <PortalSectionCard
         title="Historial de facturas"
         subtitle={invoices.length ? `${invoices.length} ${invoices.length === 1 ? 'registro' : 'registros'}` : undefined}>
-        {invoices.length ? (
+        {isLoading ? (
+          <View style={{ gap: 10 }}>
+            <SkeletonBlock height={80} />
+            <SkeletonBlock height={80} />
+          </View>
+        ) : invoices.length ? (
           <InvoiceList invoices={invoices} onDownload={(invoice) => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} />
         ) : (
           <EmptyState

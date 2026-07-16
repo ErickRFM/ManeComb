@@ -80,9 +80,14 @@ export function PortalRoutesScreen() {
     () => sortedVehicles.filter((vehicle) => vehicle.status !== 'maintenance'),
     [sortedVehicles]
   );
+  const vehiclesWithRoutes = useMemo(
+    () => sortedVehicles.filter((vehicle) => vehicle.assignedRoute),
+    [sortedVehicles]
+  );
   const [editor, setEditor] = useState<RouteEditor>(() => createBlankEditor(routeVehicles[0]?.id));
   const [message, setMessage] = useState<string | null>(null);
   const [routeToClear, setRouteToClear] = useState<Vehicle | null>(null);
+  const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadVehicles();
@@ -96,6 +101,34 @@ export function PortalRoutesScreen() {
 
   const setField = <T extends keyof RouteEditor>(field: T, value: RouteEditor[T]) => {
     setEditor((current) => ({ ...current, [field]: value }));
+  };
+
+  const loadRoute = (vehicle: Vehicle) => {
+    const route = vehicle.assignedRoute;
+    if (!route) return;
+    setEditor({
+      vehicleId: vehicle.id,
+      originLabel: route.originLabel || '',
+      originLatitude: String(route.origin?.latitude || ''),
+      originLongitude: String(route.origin?.longitude || ''),
+      destinationLabel: route.destinationLabel || '',
+      destinationLatitude: String(route.destination?.latitude || ''),
+      destinationLongitude: String(route.destination?.longitude || ''),
+    });
+  };
+
+  const duplicateRoute = async (source: Vehicle) => {
+    if (!source.assignedRoute || !editor.vehicleId) return;
+    const route = source.assignedRoute;
+    const result = await assignRoute({
+      vehicleId: editor.vehicleId,
+      originLabel: route.originLabel || '',
+      destinationLabel: route.destinationLabel || '',
+      origin: route.origin || { latitude: 0, longitude: 0 },
+      destination: route.destination || { latitude: 0, longitude: 0 },
+    });
+    setMessage(result.ok ? 'Ruta duplicada en la unidad seleccionada.' : result.message || 'No fue posible duplicar la ruta.');
+    setDuplicateSourceId(null);
   };
 
   const saveRoute = async () => {
@@ -166,7 +199,7 @@ export function PortalRoutesScreen() {
       {canManageRoutes ? (
         <PortalSectionCard
           title="Asignar ruta"
-          subtitle={message || 'Selecciona una unidad real y captura origen/destino con coordenadas verificadas.'}>
+          subtitle={message || undefined}>
           {routeVehicles.length ? (
             <>
               <View style={styles.segmentRow}>
@@ -265,7 +298,7 @@ export function PortalRoutesScreen() {
 
       {sortedVehicles.length ? <PortalSectionCard
         title="Rutas por unidad"
-        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad registrada' : 'unidades registradas'}`}>
+        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad' : 'unidades'}`}>
           <View style={styles.list}>
             {sortedVehicles.map((vehicle) => (
               <View key={vehicle.id} style={[styles.routeRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
@@ -276,27 +309,63 @@ export function PortalRoutesScreen() {
                   <Text style={[styles.routeName, { color: theme.colors.text }]}>{vehicle.code}</Text>
                   <Text style={[styles.routeMeta, { color: theme.colors.muted }]}>{getRouteLabel(vehicle)}</Text>
                   <Text style={[styles.routeMeta, { color: theme.colors.muted }]}>
-                    Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor asignado'}
+                    Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor'}
                   </Text>
                 </View>
                 <StatusBadge
                   label={vehicle.assignedRoute ? 'Asignada' : 'No asignada'}
                   tone={vehicle.assignedRoute ? 'positive' : 'neutral'}
                 />
-                {canManageRoutes && vehicle.assignedRoute ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Liberar ruta de ${vehicle.code}`}
-                     onPress={() => setRouteToClear(vehicle)}
-                    disabled={isSubmitting}
-                    style={[styles.iconAction, { backgroundColor: theme.colors.warningSoft }]}>
-                    <MaterialCommunityIcons name="link-off" size={18} color={theme.colors.warning} />
-                  </Pressable>
+                {canManageRoutes ? (
+                  <View style={styles.rowActions}>
+                    {vehicle.assignedRoute ? (
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Editar ruta de ${vehicle.code}`}
+                          onPress={() => loadRoute(vehicle)}
+                          style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
+                          <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Liberar ruta de ${vehicle.code}`}
+                          onPress={() => setRouteToClear(vehicle)}
+                          disabled={isSubmitting}
+                          style={[styles.iconAction, { backgroundColor: theme.colors.warningSoft }]}>
+                          <MaterialCommunityIcons name="link-off" size={18} color={theme.colors.warning} />
+                        </Pressable>
+                        {routeVehicles.length > 1 ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Duplicar ruta de ${vehicle.code}`}
+                            onPress={() => {
+                              setDuplicateSourceId(vehicle.id);
+                              duplicateRoute(vehicle);
+                            }}
+                            style={[styles.iconAction, { backgroundColor: theme.colors.surfaceAlt }]}>
+                            <MaterialCommunityIcons name="content-copy" size={18} color={theme.colors.text} />
+                          </Pressable>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
             ))}
           </View>
       </PortalSectionCard> : null}
+      <ConfirmModal
+        visible={Boolean(duplicateSourceId)}
+        title="Duplicar ruta"
+        description="La ruta se copiará a la unidad seleccionada en el formulario de asignación."
+        confirmLabel="Duplicar"
+        onCancel={() => setDuplicateSourceId(null)}
+        onConfirm={() => {
+          const source = vehicles.find((v) => v.id === duplicateSourceId);
+          if (source) void duplicateRoute(source);
+        }}
+      />
       <ConfirmModal
         visible={Boolean(routeToClear)}
         title="Liberar ruta"
@@ -412,6 +481,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     minWidth: 0,
+  },
+  rowActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
   },
   iconAction: {
     alignItems: 'center',

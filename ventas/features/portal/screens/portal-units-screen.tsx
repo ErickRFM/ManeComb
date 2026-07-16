@@ -8,9 +8,10 @@ import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-ba
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Vehicle, VehicleStatus } from '@/src/types/app';
+import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
-import { portalButtonGradient } from '../portal-theme';
+import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 type UnitEditor = {
   code: string;
@@ -140,7 +141,7 @@ export function PortalUnitsScreen() {
       {canManageUnits ? (
         <PortalSectionCard
           title={editingId ? 'Editar unidad' : 'Crear unidad'}
-          subtitle={message || 'Registra solo unidades reales. La asignacion a conductor se hace desde Equipo.'}>
+          subtitle={message || undefined}>
           <View style={styles.formGrid}>
             <TextInput
               value={editor.code}
@@ -206,10 +207,13 @@ export function PortalUnitsScreen() {
       <PortalSectionCard
         title="Unidades registradas"
         subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad real' : 'unidades reales'}`}>
-        {sortedVehicles.length ? (
+          {sortedVehicles.length ? (
           <View style={styles.list}>
             {sortedVehicles.map((vehicle) => {
               const status = getUnitStatus(vehicle);
+              const routeLabel = vehicle.assignedRoute
+                ? `${vehicle.assignedRoute.originLabel || 'Origen'} -> ${vehicle.assignedRoute.destinationLabel || 'Destino'}`
+                : null;
               return (
                 <View key={vehicle.id} style={[styles.unitRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
                   <View style={[styles.unitIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
@@ -218,21 +222,33 @@ export function PortalUnitsScreen() {
                   <View style={styles.unitBody}>
                     <Text style={[styles.unitName, { color: theme.colors.text }]}>{vehicle.code}</Text>
                     <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
-                      Placas: {vehicle.plate} / {getKilometersLabel(vehicle.currentKilometers)}
+                      {vehicle.plate} · {getKilometersLabel(vehicle.currentKilometers)}
                     </Text>
                     <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
-                      Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor asignado'}
+                      Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor'}
                     </Text>
+                    {routeLabel ? (
+                      <Text style={[styles.unitMeta, { color: theme.colors.muted }]} numberOfLines={1}>
+                        Ruta: {routeLabel}
+                      </Text>
+                    ) : null}
+                    {vehicle.locationTimestamp ? (
+                      <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
+                        Última actividad: {formatDate(vehicle.locationTimestamp, { fallback: 'Sin registro' })}
+                      </Text>
+                    ) : null}
                   </View>
                   <StatusBadge label={status.label} tone={status.tone} />
                   {canManageUnits ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Editar unidad ${vehicle.code}`}
-                      onPress={() => startEdit(vehicle)}
-                      style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
-                      <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
-                    </Pressable>
+                    <View style={styles.rowActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Editar unidad ${vehicle.code}`}
+                        onPress={() => startEdit(vehicle)}
+                        style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
+                        <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
+                      </Pressable>
+                    </View>
                   ) : null}
                 </View>
               );
@@ -363,6 +379,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     minWidth: 0,
+  },
+  rowActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
   },
   iconAction: {
     alignItems: 'center',

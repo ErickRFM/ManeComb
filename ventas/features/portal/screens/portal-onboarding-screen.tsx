@@ -54,6 +54,26 @@ function getStepTarget(stepId: string) {
     return '/portal/unidades';
   }
 
+  if (stepId === 'invite-supervisors') {
+    return '/portal/usuarios';
+  }
+
+  if (stepId === 'activate-drivers') {
+    return '/portal/usuarios';
+  }
+
+  if (stepId === 'gps-setup' || stepId === 'gps-radio') {
+    return '/portal/rutas';
+  }
+
+  if (stepId === 'radio-setup') {
+    return '/portal/unidades';
+  }
+
+  if (stepId === 'finish-activation') {
+    return '/portal';
+  }
+
   return null;
 }
 
@@ -703,11 +723,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     flex: 1,
-    flexBasis: 250,
-    gap: 12,
-    minHeight: 220,
+    flexBasis: 240,
+    gap: 10,
+    minHeight: 170,
     minWidth: 0,
-    padding: AppTheme.spacing.md,
+    padding: AppTheme.spacing.sm,
   },
   stepCardDone: {
     borderColor: 'rgba(82, 242, 167, 0.22)',

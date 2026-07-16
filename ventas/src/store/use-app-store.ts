@@ -246,12 +246,24 @@ function connectSocket(get: () => AppState) {
     'vehicle:updated',
     'location:updated',
     'route-session:updated',
+    'user:updated',
+    'user:deleted',
   ].forEach((eventName) => {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
 
-      if (eventName === 'users:invited' || eventName === 'user:first-login') {
+      if (eventName === 'users:invited' || eventName === 'user:first-login' || eventName === 'user:updated') {
         void useAppStore.getState().loadUsers();
+        void useAppStore.getState().loadVehicles();
+      }
+
+      if (eventName === 'user:deleted') {
+        const userId = (payload as { userId?: string }).userId || (payload as { user?: { id: string } }).user?.id;
+        if (userId) {
+          useAppStore.setState((s) => ({
+            users: s.users.filter((u) => u.id !== userId),
+          }));
+        }
         void useAppStore.getState().loadVehicles();
       }
 
@@ -455,7 +467,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadUsers: async () => {
     const user = get().user;
 
-    if (!user) {
+    if (!hasPortalPermission(user, 'users')) {
       return;
     }
 
@@ -469,7 +481,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadVehicles: async () => {
     const user = get().user;
 
-    if (!user) {
+    if (!hasPortalPermission(user, 'vehicles') && !hasPortalPermission(user, 'routes')) {
       return;
     }
 
@@ -481,6 +493,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   createUser: async (payload) => {
+    if (!hasPortalPermission(get().user, 'users')) {
+      return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -496,6 +511,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   updateUser: async (userId, payload) => {
+    if (!hasPortalPermission(get().user, 'users')) {
+      return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -516,6 +534,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   deleteUser: async (userId) => {
+    if (!hasPortalPermission(get().user, 'users')) {
+      return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -531,6 +552,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   createVehicle: async (payload) => {
+    if (!hasPortalPermission(get().user, 'vehicles')) {
+      return { ok: false, message: 'No tienes permiso para administrar unidades.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -546,6 +570,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   updateVehicle: async (vehicleId, payload) => {
+    if (!hasPortalPermission(get().user, 'vehicles')) {
+      return { ok: false, message: 'No tienes permiso para administrar unidades.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -563,6 +590,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   assignRoute: async (payload) => {
+    if (!hasPortalPermission(get().user, 'routes')) {
+      return { ok: false, message: 'No tienes permiso para administrar rutas.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -580,6 +610,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   clearRouteAssignment: async (vehicleId) => {
+    if (!hasPortalPermission(get().user, 'routes')) {
+      return { ok: false, message: 'No tienes permiso para administrar rutas.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {

@@ -1135,7 +1135,7 @@ export function IncidentsScreen() {
                   const typeStyle = INCIDENT_TYPE_STYLES[getIncidentTypeKey(incident)];
                   const severityStyle = getSeverityStyle(incident.severity);
                   const statusStyle = STATUS_STYLES[getIncidentStatusKey(incident.status)];
-                  const canResolve = user?.role !== 'driver' && isIncidentActive(incident);
+                  const canResolve = (user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'owner') && isIncidentActive(incident);
 
                   return (
                     <View key={incident.id} style={screenStyles.timelineItem}>

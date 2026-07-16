@@ -1969,7 +1969,7 @@ export function ChecklistScreen() {
     );
   }
 
-  if (user.role === 'driver') {
+  if (user.role === 'driver' || user.role === 'viewer' || user.role === 'support' || user.role === 'billing_manager' || user.role === 'dispatcher') {
     return <Redirect href="/mapa" />;
   }
 

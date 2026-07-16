@@ -61,53 +61,12 @@ export type OperationalSchedule = {
   timezone?: string | null;
 };
 
-export type UserMutationPayload = {
-  name?: string;
-  email?: string;
-  password?: string;
-  phone?: string;
-  role?: Role;
-  accountType?: AccountType;
-  organizationId?: string;
-  userStatus?: UserAccountStatus;
-  status?: string;
-  shift?: string;
-  vehicleId?: string | null;
-  avatarUrl?: string | null;
-  companyName?: string;
-  legalName?: string;
-  taxId?: string;
-  billingEmail?: string;
-  billingAddress?: string;
-  preferredMethod?: PaymentProfile['preferredMethod'];
-  cardholderName?: string;
-  cardBrand?: string;
-  cardLast4?: string;
-  cardExpMonth?: string;
-  cardExpYear?: string;
-  customerReference?: string;
-  e2eePublicKey?: string;
-  e2eeKeyRotatedAt?: string;
-  companyProfile?: Partial<CompanyProfile>;
-  paymentProfile?: Partial<PaymentProfile>;
-  operationalSchedule?: Partial<OperationalSchedule> | null;
-};
-
-export type VehicleMutationPayload = {
-  code: string;
-  plate: string;
-  currentKilometers?: number;
-  status?: 'available' | 'maintenance';
-};
-
 export type ProfileMutationPayload = {
   name?: string;
   email?: string;
   password?: string;
   phone?: string;
   avatarUrl?: string | null;
-  accountType?: AccountType;
-  organizationId?: string;
   userStatus?: UserAccountStatus;
   companyName?: string;
   legalName?: string;

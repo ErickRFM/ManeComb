@@ -563,7 +563,7 @@ export function PortalDashboardScreen() {
       subtitle="Supervisión de flota, jornadas históricas y reproducción de recorridos con datos guardados."
       actions={
         <Pressable accessibilityRole="button" onPress={() => void loadHistory()} style={[styles.actionButton, portalButtonGradient()]}>
-          <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" />
+          <MaterialCommunityIcons name="refresh" size={18} color={portalPalette.text} />
           <Text style={styles.actionText}>{isLoading ? 'Actualizando' : 'Actualizar'}</Text>
         </Pressable>
       }>
@@ -664,7 +664,7 @@ export function PortalDashboardScreen() {
                   driverName={getDriverName(users, session.driverId)}
                   routeLabel={getRouteLabel(vehicles.find((vehicle) => vehicle.id === session.vehicleId), session)}
                   session={session}
-                  vehicleCode={vehicles.find((vehicle) => vehicle.id === session.vehicleId)?.code || session.vehicleId}
+                   vehicleCode={vehicles.find((vehicle) => vehicle.id === session.vehicleId)?.code || 'Unidad'}
                   onOpen={() => void openSession(session)}
                 />
               ))}
@@ -756,7 +756,7 @@ function OperationalUnitCard({
       ) : null}
       <View style={styles.routeSummary}>
         <View style={styles.routeIcon}>
-          <MaterialCommunityIcons name="routes" size={18} color="#FFFFFF" />
+          <MaterialCommunityIcons name="routes" size={18} color={portalPalette.text} />
         </View>
         <View style={styles.flex}>
           <Text style={styles.routeTitle} numberOfLines={1}>{routeInfo.label}</Text>
@@ -839,7 +839,7 @@ function VehicleSidePanel({
       ) : null}
       <View style={styles.routeSummaryLarge}>
         <View style={styles.routeIcon}>
-          <MaterialCommunityIcons name="map-marker-path" size={18} color="#FFFFFF" />
+          <MaterialCommunityIcons name="map-marker-path" size={18} color={portalPalette.text} />
         </View>
         <View style={styles.flex}>
           <Text style={styles.routeTitle}>{routeInfo.label}</Text>
@@ -909,7 +909,7 @@ function VehicleSidePanel({
       {session ? (
         <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
           <Text style={styles.primaryText}>Ver jornada</Text>
-          <MaterialCommunityIcons name="arrow-right" size={17} color="#FFFFFF" />
+          <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
         </Pressable>
       ) : null}
       <View style={styles.quickActions}>
@@ -1164,7 +1164,7 @@ function SessionDetailView({
           <View style={styles.metricGrid}>
             <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posición'} />
             <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
-            <Fact label="Checkpoint" value={currentVisit?.checkpointId || 'Sin checkpoint'} />
+            <Fact label="Checkpoint" value={currentVisit ? `#${detail.visits.indexOf(currentVisit) + 1}` : 'Sin checkpoint'} />
             <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
             <Fact label="Posiciones" value={`${detail.positions.length} / ${detail.positionsTotal || detail.positions.length}`} />
           </View>
@@ -1177,7 +1177,7 @@ function SessionDetailView({
               {detail.events.map((event) => (
                 <Pressable key={event.id} onPress={() => onEventSelect(event)} style={styles.timelineItem}>
                   <View style={styles.timelineDot}>
-                    <MaterialCommunityIcons name={event.eventType === 'CHECKPOINT_REACHED' ? 'flag-checkered' : 'clock-outline'} size={14} color="#FFFFFF" />
+                    <MaterialCommunityIcons name={event.eventType === 'CHECKPOINT_REACHED' ? 'flag-checkered' : 'clock-outline'} size={14} color={portalPalette.text} />
                   </View>
                   <View style={styles.flex}>
                     <Text style={styles.timelineTitle}>{getEventLabel(event.eventType)}</Text>
@@ -1193,9 +1193,9 @@ function SessionDetailView({
       </View>
       <View style={styles.detailGrid}>
         <PortalSectionCard title="Checkpoints" subtitle={`${detail.visits.length} visitas persistidas`}>
-          {detail.visits.length ? detail.visits.slice(0, 12).map((visit) => (
+          {detail.visits.length ? detail.visits.slice(0, 12).map((visit, index) => (
             <View key={visit.id} style={styles.compactRow}>
-              <Text style={styles.compactTitle}>{visit.checkpointId}</Text>
+              <Text style={styles.compactTitle}>Checkpoint #{index + 1}</Text>
               <Text style={styles.unitMeta}>{formatDate(visit.timestamp)}</Text>
             </View>
           )) : <EmptyState icon="flag-outline" title="Sin checkpoints" description="No existen visitas registradas para esta jornada." />}

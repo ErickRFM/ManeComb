@@ -1,29 +1,36 @@
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { AppTheme, Typography } from '@/constants/theme';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 import { StatusBadge } from '@/src/components/ui/status-badge';
+import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalPaymentsScreen() {
-  const subscription = usePortalStore((state) => state.subscription);
-  const loadOverview = usePortalStore((state) => state.loadOverview);
+  const { invoices, isLoading, subscription, loadBilling, loadOverview } = usePortalStore(
+    (state) => ({
+      invoices: state.invoices,
+      isLoading: state.isLoading,
+      subscription: state.subscription,
+      loadBilling: state.loadBilling,
+      loadOverview: state.loadOverview,
+    })
+  );
 
   useEffect(() => {
     void loadOverview();
-  }, [loadOverview]);
+    void loadBilling();
+  }, [loadBilling, loadOverview]);
 
-  const canRetry = Boolean(
-    subscription?.planId &&
-    ['failed', 'payment_failed', 'pending', 'pending_payment', 'payment_pending'].includes(
-      String(subscription.status || '').toLowerCase()
-    )
-  );
+  const status = subscription?.status || '';
+  const canRetry = ['failed', 'payment_failed', 'pending', 'pending_payment', 'payment_pending'].includes(status.toLowerCase());
+  const nextChargeDate = subscription?.currentPeriodEnd;
+  const nextChargeAmount = subscription?.monthlyPrice;
 
   const retryPayment = () => {
     if (!subscription?.planId) return;
@@ -31,42 +38,48 @@ export function PortalPaymentsScreen() {
   };
 
   return (
-    <PortalLayout title="Pagos" subtitle="Consulta el estado real informado por tu orden y suscripción.">
-      <PortalSectionCard title="Estado comercial" subtitle="Estos datos provienen del backend de ManeComb.">
-        {subscription?.id ? (
-          <View style={styles.paymentCard}>
-            <View style={styles.headerRow}>
-              <View style={styles.identity}>
-                <Text style={styles.kicker}>Plan contratado</Text>
-                <Text style={styles.planName}>{subscription.planName}</Text>
-              </View>
-              <StatusBadge
-                label={formatPortalStatus(subscription.status)}
-                tone={getPortalStatusTone(subscription.status)}
-              />
-            </View>
-            <View style={styles.facts}>
-              <View style={styles.fact}>
-                <Text style={styles.factLabel}>Importe mensual</Text>
-                <Text style={styles.factValue}>{formatCurrency(subscription.monthlyPrice || 0, subscription.currency || 'MXN')}</Text>
-              </View>
-              <View style={styles.fact}>
-                <Text style={styles.factLabel}>Inicio del periodo</Text>
-                <Text style={styles.factValue}>{formatDate(subscription.currentPeriodStart, { fallback: 'Sin fecha registrada' })}</Text>
-              </View>
-              <View style={styles.fact}>
-                <Text style={styles.factLabel}>Fin del periodo</Text>
-                <Text style={styles.factValue}>{formatDate(subscription.currentPeriodEnd, { fallback: 'Sin fecha registrada' })}</Text>
-              </View>
-            </View>
-            {canRetry ? (
-              <Pressable accessibilityRole="button" onPress={retryPayment} style={[styles.retryButton, portalButtonGradient()]}>
-                <MaterialCommunityIcons name="credit-card-refresh-outline" size={19} color="#FFFFFF" />
-                <Text style={styles.retryText}>Reintentar pago</Text>
-              </Pressable>
-            ) : null}
+    <PortalLayout title="Administración comercial" subtitle="Estado del plan, pagos, facturas y referencias de tu cuenta.">
+      {isLoading && !subscription ? (
+        <PortalSectionCard title="Estado comercial">
+          <View style={{ gap: 10 }}>
+            <SkeletonBlock height={24} width="40%" />
+            <SkeletonBlock height={18} width="60%" />
+            <SkeletonBlock height={80} />
           </View>
-        ) : (
+        </PortalSectionCard>
+      ) : subscription?.id ? (
+        <PortalSectionCard title="Estado del plan" subtitle="Información actual de tu suscripción.">
+          <View style={styles.headerRow}>
+            <View style={styles.identity}>
+              <Text style={styles.kicker}>Plan contratado</Text>
+              <Text style={styles.planName}>{subscription.planName}</Text>
+              <Text style={styles.reference}>Ref: {subscription.id}</Text>
+            </View>
+            <StatusBadge label={formatPortalStatus(status)} tone={getPortalStatusTone(status)} />
+          </View>
+          <View style={styles.facts}>
+            <View style={styles.fact}>
+              <Text style={styles.factLabel}>Importe mensual</Text>
+              <Text style={styles.factValue}>{formatCurrency(nextChargeAmount || 0, subscription.currency || 'MXN')}</Text>
+            </View>
+            <View style={styles.fact}>
+              <Text style={styles.factLabel}>Inicio del periodo</Text>
+              <Text style={styles.factValue}>{formatDate(subscription.currentPeriodStart, { fallback: 'Sin registro' })}</Text>
+            </View>
+            <View style={styles.fact}>
+              <Text style={styles.factLabel}>Próximo cobro</Text>
+              <Text style={styles.factValue}>{nextChargeDate ? formatDate(nextChargeDate, { fallback: 'Sin fecha' }) : 'Sin fecha'}</Text>
+            </View>
+          </View>
+          {canRetry ? (
+            <Pressable accessibilityRole="button" onPress={retryPayment} style={[styles.retryButton, portalButtonGradient()]}>
+              <MaterialCommunityIcons name="credit-card-refresh-outline" size={19} color="#FFFFFF" />
+              <Text style={styles.retryText}>Reintentar pago</Text>
+            </Pressable>
+          ) : null}
+        </PortalSectionCard>
+      ) : (
+        <PortalSectionCard title="Estado comercial">
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="receipt-text-outline" size={28} color={portalPalette.muted} />
             <Text style={styles.emptyTitle}>No existe una orden comercial</Text>
@@ -75,18 +88,49 @@ export function PortalPaymentsScreen() {
               <Text style={styles.secondaryText}>Ver planes</Text>
             </Pressable>
           </View>
-        )}
-      </PortalSectionCard>
+        </PortalSectionCard>
+      )}
+
+      {subscription?.id ? (
+        <PortalSectionCard title="Facturas" subtitle="Comprobantes asociados a tu cuenta.">
+          {invoices.length ? (
+            <View style={styles.invoiceList}>
+              {invoices.slice(0, 5).map((invoice) => (
+                <View key={invoice.id} style={[styles.invoiceRow, { borderColor: portalPalette.line, backgroundColor: portalPalette.surface }]}>
+                  <View style={styles.invoiceBody}>
+                    <Text style={styles.invoiceTitle}>{invoice.referenceCode || 'Factura'}</Text>
+                    <Text style={styles.invoiceMeta}>
+                      {formatCurrency(Number(invoice.total || 0), invoice.currency || 'MXN')} · {formatDate(invoice.issuedAt, { fallback: '' })}
+                    </Text>
+                  </View>
+                  <StatusBadge label={formatPortalStatus(invoice.status)} tone={getPortalStatusTone(invoice.status)} />
+                  <Pressable onPress={() => void Linking.openURL(invoice.downloadUrl || '')} style={styles.iconAction}>
+                    <MaterialCommunityIcons name="download-outline" size={18} color={portalPalette.text} />
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable onPress={() => router.push('/portal/facturacion' as never)} style={styles.viewAllButton}>
+                <Text style={styles.viewAllText}>Ver todas las facturas</Text>
+                <MaterialCommunityIcons name="arrow-right" size={16} color={portalPalette.text} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyInlineText}>No hay facturas disponibles. Aparecerán después del primer cobro.</Text>
+            </View>
+          )}
+        </PortalSectionCard>
+      ) : null}
     </PortalLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  paymentCard: { gap: AppTheme.spacing.md },
   headerRow: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between' },
   identity: { flex: 1, gap: 4, minWidth: 220 },
   kicker: { color: portalPalette.accent, fontFamily: Typography.body, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   planName: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 26, fontWeight: '900' },
+  reference: { color: portalPalette.mutedSoft, fontFamily: Typography.mono, fontSize: 11, marginTop: 2 },
   facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   fact: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flex: 1, flexBasis: 180, gap: 4, padding: 12 },
   factLabel: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 11 },
@@ -98,4 +142,14 @@ const styles = StyleSheet.create({
   emptyText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 13, textAlign: 'center' },
   secondaryButton: { borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm, borderWidth: 1, marginTop: 6, paddingHorizontal: 16, paddingVertical: 10 },
   secondaryText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
+  invoiceList: { gap: 10 },
+  invoiceRow: { alignItems: 'flex-start', borderRadius: AppTheme.radius.sm, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 12, minWidth: 0, padding: 12 },
+  invoiceBody: { flex: 1, flexBasis: 190, gap: 2, minWidth: 0 },
+  invoiceTitle: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 14, fontWeight: '900' },
+  invoiceMeta: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 12, lineHeight: 17 },
+  iconAction: { alignItems: 'center', borderRadius: AppTheme.radius.xs, flexShrink: 0, height: 36, justifyContent: 'center', width: 36, backgroundColor: portalPalette.surfaceSoft },
+  viewAllButton: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 6, minHeight: 36, paddingHorizontal: 12 },
+  viewAllText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
+  emptyInline: { padding: AppTheme.spacing.md },
+  emptyInlineText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
 });

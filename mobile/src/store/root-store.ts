@@ -21,9 +21,6 @@ import {
   SOCKET_URL,
   configureApiSessionRecovery,
   createIncidentRequest,
-  createVehicleRequest,
-  createUserRequest,
-  deleteUserRequest,
   forgotPasswordRequest,
   resetPasswordRequest,
   registerDriverActivationRequest,
@@ -63,7 +60,6 @@ import {
   updateIncidentStatusRequest,
   updateProfileRequest,
   updateRouteSessionStatusRequest,
-  updateUserRequest,
 } from '@/src/api/client';
 import {
   getMobileNetworkSnapshot,
@@ -93,8 +89,6 @@ import type {
   DriverActivationRegisterPayload,
   RegisterPayload,
   User,
-  UserMutationPayload,
-  VehicleMutationPayload,
   Vehicle,
   SessionResult,
   RouteSession,
@@ -244,10 +238,6 @@ export type AppState = {
     sessionId?: string | null;
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
-  createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
-  createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
-  updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
-  deleteUser: (userId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
   uploadDocument: (formData: FormData) => Promise<ActionResult & { document?: DocumentItem }>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
@@ -1255,13 +1245,71 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       mapData: s.mapData
         ? {
             ...s.mapData,
-            vehicles: s.mapData.vehicles.map(ev =>
-              ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
-            ),
+            vehicles: s.mapData.vehicles.some(ev => ev.id === nextVehicle.id)
+              ? s.mapData.vehicles.map(ev =>
+                  ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
+                )
+              : [...s.mapData.vehicles, nextVehicle],
             updatedAt: new Date().toISOString(),
           }
         : s.mapData,
     }));
+  });
+
+  socket.on('vehicle:created', (payload: unknown) => {
+    const raw = payload && typeof payload === 'object' && 'vehicle' in (payload as Record<string, unknown>)
+      ? (payload as { vehicle: Vehicle }).vehicle
+      : (payload as Vehicle);
+    if (!raw || typeof raw !== 'object' || !('id' in raw)) return;
+    const normalized = normalizeVehicle(raw as Vehicle);
+    set(s => ({
+      mapData: s.mapData
+        ? {
+            ...s.mapData,
+            vehicles: s.mapData.vehicles.some(ev => ev.id === normalized.id)
+              ? s.mapData.vehicles.map(ev =>
+                  ev.id === normalized.id ? { ...ev, ...normalized } : ev
+                )
+              : [...s.mapData.vehicles, normalized],
+            updatedAt: new Date().toISOString(),
+          }
+        : s.mapData,
+    }));
+  });
+
+  socket.on('vehicle:updated', (payload: unknown) => {
+    const raw = payload && typeof payload === 'object' && 'vehicle' in (payload as Record<string, unknown>)
+      ? (payload as { vehicle: Vehicle }).vehicle
+      : (payload as Vehicle);
+    if (!raw || typeof raw !== 'object' || !('id' in raw)) return;
+    const normalized = normalizeVehicle(raw as Vehicle);
+    set(s => ({
+      mapData: s.mapData
+        ? {
+            ...s.mapData,
+            vehicles: s.mapData.vehicles.some(ev => ev.id === normalized.id)
+              ? s.mapData.vehicles.map(ev =>
+                  ev.id === normalized.id ? { ...ev, ...normalized } : ev
+                )
+              : [...s.mapData.vehicles, normalized],
+            updatedAt: new Date().toISOString(),
+          }
+        : s.mapData,
+    }));
+  });
+
+  socket.on('user:deleted', (payload: unknown) => {
+    const rawPayload = payload as Record<string, unknown>;
+    const userId = typeof rawPayload?.userId === 'string'
+      ? rawPayload.userId
+      : typeof rawPayload?.user === 'object' && rawPayload.user !== null
+        ? (rawPayload.user as Record<string, unknown>)?.id as string | undefined
+        : undefined;
+    if (!userId) return;
+    set(s => ({
+      users: s.users.filter((u) => u.id !== userId),
+    }));
+    get().refreshAll().catch(() => undefined);
   });
 
   socket.on('route-session:updated', (session: RouteSession) => {
@@ -2004,7 +2052,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   loadUsers: async () => {
     const currentUser = get().user;
-    if (!currentUser || !['owner', 'admin'].includes(currentUser.role)) return;
+    if (!currentUser || !['owner', 'admin', 'supervisor'].includes(currentUser.role)) return;
 
     try {
       set({ users: await getUsersRequest() });
@@ -2020,45 +2068,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error;
     }
   },
-  createUser: async (p) => {
-    try {
-      const u = await createUserRequest(p);
-      set(s => ({ users: [u, ...s.users] }));
-      await get().refreshAll();
-      return { ok: true };
-    } catch (error) {
-      const message = getReadableErrorMessage(error, 'No fue posible crear el usuario.');
-      logStoreError('createUser', error);
-      return { ok: false, message };
-    }
-  },
-  createVehicle: async (p) => {
-    set({ isSubmitting: true });
-    try {
-      await createVehicleRequest(p);
-      await get().refreshAll();
-      return { ok: true };
-    } catch (error) {
-      const message = getReadableErrorMessage(error, 'No fue posible crear la unidad.');
-      logStoreError('createVehicle', error);
-      return { ok: false, message };
-    } finally {
-      set({ isSubmitting: false });
-    }
-  },
-  updateUser: async (id, p) => {
-    try {
-      const u = await updateUserRequest(id, p);
-      set(s => ({ users: s.users.map(eu => eu.id === id ? u : eu) }));
-      await get().refreshAll();
-      return { ok: true };
-    } catch (error) {
-      const message = getReadableErrorMessage(error, 'No fue posible actualizar el usuario.');
-      logStoreError('updateUser', error);
-      return { ok: false, message };
-    }
-  },
-  deleteUser: async (id) => { try { await deleteUserRequest(id); set(s => ({ users: s.users.filter(eu => eu.id !== id) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible eliminar el usuario.'); logStoreError('deleteUser', error); return { ok: false, message }; } },
   uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {
     set({ isLoadingConversation: true });
