@@ -390,19 +390,19 @@ function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
 
-function DirectoryRoute({ children }: { children: React.ReactNode }) {
+function RoleProtectedOperationalRoute({ children, route }: { children: React.ReactNode; route: '/usuarios' | '/checklist' }) {
   const user = useAppStore((state) => state.user);
-  const allowed = Boolean(user && canRoleAccessRoute('/usuarios', user.role));
+  const allowed = Boolean(user && canRoleAccessRoute(route, user.role));
 
   useEffect(() => {
     if (user && !allowed) {
-      console.warn('[mobile:access] directorio operativo bloqueado', {
+      console.warn('[mobile:access] modulo operativo bloqueado', {
         role: user.role,
-        route: '/usuarios',
+        route,
         userId: user.id,
       });
     }
-  }, [allowed, user]);
+  }, [allowed, route, user]);
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -413,6 +413,14 @@ function DirectoryRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <OperationalRoute>{children}</OperationalRoute>;
+}
+
+function DirectoryRoute({ children }: { children: React.ReactNode }) {
+  return <RoleProtectedOperationalRoute route="/usuarios">{children}</RoleProtectedOperationalRoute>;
+}
+
+function ControlRoute({ children }: { children: React.ReactNode }) {
+  return <RoleProtectedOperationalRoute route="/checklist">{children}</RoleProtectedOperationalRoute>;
 }
 
 const moduleScreenOptions = {
@@ -466,7 +474,7 @@ function ChecklistModule() {
   return (
     <ChecklistStack.Navigator initialRouteName="/checklist" screenOptions={moduleScreenOptions}>
       <ChecklistStack.Screen name="/checklist">
-        {() => withOperationalScreen(<ChecklistScreen />)}
+        {() => <ControlRoute><ChecklistScreen /></ControlRoute>}
       </ChecklistStack.Screen>
     </ChecklistStack.Navigator>
   );

@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import * as Haptics from '@/src/native/haptics';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -23,11 +22,10 @@ import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/comp
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
-import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionCheckpointVisitsRequest, getRouteSessionEventsRequest, getRouteSessionHistoryRequest, getRouteSessionMetricsRequest, updateNavigationRouteRequest } from '@/src/api/client';
+import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionHistoryRequest, updateNavigationRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { executeRouteSessionAction } from '@/src/services/route-session-actions';
 import type {
   AssignedRoute,
   FleetControlLog,
@@ -1268,12 +1266,11 @@ export function ChecklistScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1120;
   const isPhone = width < 640;
-  const { activeRouteSession: syncedActiveSession, coordinates, incidents, mapData, refreshAll, sessionHistory, user } = useAppStore(
+  const { activeRouteSession: syncedActiveSession, coordinates, mapData, refreshAll, sessionHistory, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
       activeRouteSession: state.activeRouteSession,
       coordinates: state.deviceLocation.coordinates,
-      incidents: state.incidents,
       refreshAll: state.refreshAll,
       sessionHistory: state.routeSessionHistory,
       user: state.user,
@@ -1291,15 +1288,12 @@ export function ChecklistScreen() {
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
-  const [isChangingSession, setIsChangingSession] = useState(false);
-  const [isSessionLoaded, setIsSessionLoaded] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
     () => [...(mapData?.vehicles || [])]
-      .filter((vehicle) => user?.role !== 'driver' || vehicle.id === user.vehicleId)
       .sort((left, right) => left.code.localeCompare(right.code)),
-    [mapData?.vehicles, user?.role, user?.vehicleId]
+    [mapData?.vehicles]
   );
   const savedRoutes = useMemo(
     () => [...(mapData?.routes || [])].sort((left, right) => left.name.localeCompare(right.name)),
@@ -1351,13 +1345,11 @@ export function ChecklistScreen() {
   const pendingStopPersistRef = useRef(false);
   const processedMapSelectionRef = useRef<string | null>(null);
   const restoredSessionIdRef = useRef<string | null>(null);
-  const processedActionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!selectedVehicle?.id) { setActiveSession(null); setIsSessionLoaded(true); return; }
+    if (!selectedVehicle?.id) { setActiveSession(null); return; }
     restoredSessionIdRef.current = null;
-    setIsSessionLoaded(false);
-    getActiveRouteSessionRequest(selectedVehicle.id).then((session) => { setActiveSession(session); setIsSessionLoaded(true); }).catch(() => { setActiveSession(null); setIsSessionLoaded(true); });
+    getActiveRouteSessionRequest(selectedVehicle.id).then(setActiveSession).catch(() => setActiveSession(null));
   }, [selectedVehicle?.id]);
 
   useEffect(() => {
@@ -1413,41 +1405,6 @@ export function ChecklistScreen() {
       setSelectedVehicleId(requestedVehicleId);
     }
   }, [params.vehicleId, vehicles]);
-
-  useEffect(() => {
-    if (user?.role === 'driver' && !String(params.action || '').trim()) {
-      router.replace('/mapa');
-    }
-  }, [params.action, user?.role]);
-
-  useEffect(() => {
-    const actionValue = String(params.action || '').trim();
-    const returnToMap = String(params.returnToMap || '').trim();
-    if (!actionValue || !selectedVehicle || routeModalOpen) return;
-    if (params.vehicleId && String(params.vehicleId) !== selectedVehicle.id) return;
-
-    const actionKey = `${actionValue}:${selectedVehicle.id}`;
-    if (processedActionRef.current === actionKey) return;
-    if (actionValue !== 'start' && !isSessionLoaded) return;
-
-    processedActionRef.current = actionKey;
-
-    if (user?.role !== 'driver') {
-      if (returnToMap === 'true') router.back();
-      return;
-    }
-
-    (async () => {
-      try {
-        if (actionValue === 'start') await startTrip();
-        else if (actionValue === 'finish') await finishTrip(selectedVehicle);
-        else if (actionValue === 'pause') await toggleSessionPause();
-      } finally {
-        if (returnToMap === 'true') router.back();
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.action, params.returnToMap, selectedVehicle, routeModalOpen, isSessionLoaded, user?.role]);
 
   const routeOption = tracker.pointPlan?.routes[0] || selectedAssignedRoute?.route || null;
   const routeStops = useMemo(
@@ -1563,123 +1520,6 @@ export function ChecklistScreen() {
       }),
     [filterMode, records]
   );
-
-  const finishTrip = async (vehicle: Vehicle) => {
-    if (!activeSession || !normalizeAssignedRoute(vehicle.assignedRoute)) return;
-
-    try {
-      const result = await executeRouteSessionAction({
-        action: 'finish',
-        currentSession: activeSession,
-        organizationId: user?.organizationId || '',
-        routeId: vehicle.routeId || '',
-        userId: user?.id || '',
-        vehicleId: vehicle.id,
-        driverId: vehicle.driverId,
-      });
-      if (result.offline || !result.record) {
-        setActiveSession(null);
-        useAppStore.setState({ activeRouteSession: null });
-        tracker.resetPointToPointSession();
-        tracker.setPointMessage('Finalizacion guardada. Se confirmara al recuperar conexion.');
-        return;
-      }
-      const finishedSession = result.record;
-      const [metrics, events, checkpoints] = await Promise.all([
-        getRouteSessionMetricsRequest(finishedSession.id),
-        getRouteSessionEventsRequest(finishedSession.id, { limit: 2000 }),
-        getRouteSessionCheckpointVisitsRequest(finishedSession.id, 2000),
-      ]);
-      const finishedAt = finishedSession.finishedAt || new Date().toISOString();
-      const incidentCount = incidents.filter((incident) =>
-        incident.vehicleId === vehicle.id &&
-        new Date(incident.createdAt).getTime() >= new Date(finishedSession.startedAt).getTime() &&
-        new Date(incident.createdAt).getTime() <= new Date(finishedAt).getTime()
-      ).length;
-      const summary: NonNullable<FinalizedRouteSummary> = {
-        destinationLabel,
-        distanceLabel: formatDistance(metrics.totalDistance || 0),
-        durationLabel: typeof metrics.totalDuration === 'number' ? formatDuration(metrics.totalDuration) : 'Sin datos',
-        movingTimeLabel: typeof metrics.movingTime === 'number' ? formatDuration(metrics.movingTime) : 'Sin datos',
-        stoppedTimeLabel: typeof metrics.stoppedTime === 'number' ? formatDuration(metrics.stoppedTime) : 'Sin datos',
-        finishedAt,
-        originLabel,
-        stopCount: metrics.stopEvents ?? checkpoints.length,
-        lapCount: metrics.completedLaps || 0,
-        eventCount: events.length,
-        incidentCount,
-        vehicleId: vehicle.id,
-      };
-      setActiveSession(null);
-      useAppStore.setState({ activeRouteSession: null });
-      await Promise.all([refreshAll(), loadSessionHistory()]);
-
-      if (selectedVehicle?.id === vehicle.id) {
-        tracker.resetPointToPointSession();
-        setFinalizedRouteSummary(summary);
-      }
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    } catch {
-      tracker.setPointMessage('No fue posible finalizar la jornada.');
-    }
-  };
-
-  const startTrip = async () => {
-    if (!selectedVehicle || activeSession || isChangingSession) return;
-    setIsChangingSession(true);
-    try {
-      const result = await executeRouteSessionAction({
-        action: 'start',
-        currentSession: null,
-        organizationId: user?.organizationId || '',
-        routeId: selectedVehicle.routeId || '',
-        userId: user?.id || '',
-        vehicleId: selectedVehicle.id,
-        driverId: selectedVehicle.driverId,
-      });
-      const session = result.session;
-      if (!session) throw new Error('No fue posible iniciar la jornada');
-      setActiveSession(session);
-      useAppStore.setState({ activeRouteSession: session });
-      restoredSessionIdRef.current = session.id;
-      tracker.restoreTrackerSession({ startedAt: session.startedAt, status: 'RUNNING', vehicleId: session.vehicleId });
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
-      tracker.setPointMessage('No fue posible iniciar la jornada.');
-    } finally {
-      setIsChangingSession(false);
-    }
-  };
-
-  const toggleSessionPause = async () => {
-    if (!selectedVehicle || !activeSession || isChangingSession) return;
-    setIsChangingSession(true);
-    try {
-      const action = activeSession.status === 'PAUSED' ? 'resume' : 'pause';
-      const result = await executeRouteSessionAction({
-        action,
-        currentSession: activeSession,
-        organizationId: user?.organizationId || '',
-        routeId: selectedVehicle.routeId || '',
-        userId: user?.id || '',
-        vehicleId: selectedVehicle.id,
-        driverId: selectedVehicle.driverId,
-      });
-      const updatedSession = result.session;
-      if (!updatedSession) throw new Error('No fue posible cambiar el estado de la jornada');
-      const nextStatus = updatedSession.status;
-      setActiveSession(updatedSession);
-      useAppStore.setState({ activeRouteSession: updatedSession });
-      tracker.toggleTracker();
-      await Haptics.impactAsync(
-        nextStatus === 'PAUSED' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
-      );
-    } catch {
-      tracker.setPointMessage('No fue posible cambiar el estado de la jornada.');
-    } finally {
-      setIsChangingSession(false);
-    }
-  };
 
   const openRouteModal = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
@@ -2116,15 +1956,6 @@ export function ChecklistScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator color={theme.colors.accent} size="large" />
-      </View>
-    );
-  }
-
-  if (user.role === 'driver') {
-    return (
-      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator color={theme.colors.accent} size="large" />
-        <Text style={styles.centeredText}>Actualizando jornada...</Text>
       </View>
     );
   }

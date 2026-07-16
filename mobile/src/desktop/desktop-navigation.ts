@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { Role } from '@/src/types/app';
-import { DIRECTORY_ALLOWED_ROLES } from '@/src/navigation/route-registry';
+import { CONTROL_ALLOWED_ROLES, DIRECTORY_ALLOWED_ROLES } from '@/src/navigation/route-registry';
 
 export type AppSectionKey =
   | 'mapa'
@@ -88,7 +88,7 @@ const appSections: AppSection[] = [
     title: 'Checklist de flota',
     description: 'Control automático de tiempos, aforo y estado de unidades al entrar o salir.',
     icon: 'clipboard-list-outline',
-    roles: DIRECTORY_ALLOWED_ROLES,
+    roles: CONTROL_ALLOWED_ROLES,
   },
   {
     key: 'perfil',

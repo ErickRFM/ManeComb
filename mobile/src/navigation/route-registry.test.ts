@@ -22,6 +22,13 @@ describe('navigation route registry', () => {
     expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(false);
   });
 
+  it('restringe Control a propietario, administrador y supervisor', () => {
+    expect(canRoleAccessRoute('/checklist', 'owner')).toBe(true);
+    expect(canRoleAccessRoute('/checklist', 'admin')).toBe(true);
+    expect(canRoleAccessRoute('/checklist', 'supervisor')).toBe(true);
+    expect(canRoleAccessRoute('/checklist', 'driver')).toBe(false);
+  });
+
   it('keeps profile editing inside the profile stack', () => {
     expect(getRouteDefinition('/perfil-editar')).toEqual({ module: 'profile', root: '/perfil' });
     expect(isModuleRoot('/perfil-editar')).toBe(false);

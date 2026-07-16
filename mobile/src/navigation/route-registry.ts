@@ -1,6 +1,7 @@
 import type { Role } from '@/src/types/app';
 
 export const DIRECTORY_ALLOWED_ROLES: Role[] = ['admin', 'supervisor'];
+export const CONTROL_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'supervisor'];
 
 export const MODULE_ROUTE_NAMES = {
   map: '__module/map',
@@ -27,7 +28,7 @@ const moduleRoutes: Record<string, RouteDefinition> = {
   '/usuarios': { module: 'users', root: '/usuarios', allowedRoles: DIRECTORY_ALLOWED_ROLES },
   '/chat': { module: 'chat', root: '/chat' },
   '/radio': { module: 'radio', root: '/radio' },
-  '/checklist': { module: 'checklist', root: '/checklist' },
+  '/checklist': { module: 'checklist', root: '/checklist', allowedRoles: CONTROL_ALLOWED_ROLES },
   '/perfil': { module: 'profile', root: '/perfil' },
   '/perfil-editar': { module: 'profile', root: '/perfil' },
 };

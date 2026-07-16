@@ -201,6 +201,7 @@ export type AppState = {
   routeSessionHistory: RouteSession[];
   deviceLocation: LocationEngineState;
   refreshDeviceLocation: () => Promise<void>;
+  syncBackgroundLocationCredentials: (token: string, refreshToken: string) => Promise<void>;
   activeConversationId: string | null;
   focusedIncidentId: string | null;
   typingByConversation: Record<string, { userId: string; userName: string; startedAt: number }[]>;
@@ -1422,6 +1423,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
+  syncBackgroundLocationCredentials: async (token, refreshToken) => {
+    if (!token || !refreshToken) return;
+    setAuthToken(token);
+    await persistSession(token, get().connectionMode, refreshToken);
+    set({ token, refreshToken });
+  },
   activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },

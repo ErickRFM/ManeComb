@@ -5,6 +5,7 @@ type ManeCombLocationModule = {
   startService: (
     apiUrl: string,
     token: string,
+    refreshToken: string,
     vehicleId: string,
     sessionId: string,
     scheduleEnabled: boolean,
@@ -13,6 +14,14 @@ type ManeCombLocationModule = {
     activeDays: number[]
   ) => Promise<boolean>;
   stopService: () => Promise<boolean>;
+  getServiceStatus: () => Promise<BackgroundLocationServiceStatus>;
+};
+
+export type BackgroundLocationServiceStatus = {
+  active: boolean;
+  reason: string | null;
+  token: string | null;
+  refreshToken: string | null;
 };
 
 const NativeLocation =
@@ -24,12 +33,14 @@ export async function startBackgroundLocationServiceAsync({
   apiUrl,
   schedule,
   token,
+  refreshToken,
   vehicleId,
   sessionId,
 }: {
   apiUrl: string;
   schedule: OperationalSchedule | null | undefined;
   token: string;
+  refreshToken: string;
   vehicleId: string;
   sessionId: string;
 }) {
@@ -40,6 +51,7 @@ export async function startBackgroundLocationServiceAsync({
   return await NativeLocation.startService(
     apiUrl,
     token,
+    refreshToken,
     vehicleId,
     sessionId,
     schedule?.enabled !== false,
@@ -47,6 +59,14 @@ export async function startBackgroundLocationServiceAsync({
     schedule?.endTime || '',
     schedule?.activeDays || []
   );
+}
+
+export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
+  if (!NativeLocation) {
+    return { active: false, reason: null, token: null, refreshToken: null };
+  }
+
+  return NativeLocation.getServiceStatus();
 }
 
 export async function stopBackgroundLocationServiceAsync() {

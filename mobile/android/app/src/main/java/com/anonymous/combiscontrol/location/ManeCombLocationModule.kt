@@ -7,6 +7,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.Arguments
 
 class ManeCombLocationModule(
   private val reactContext: ReactApplicationContext
@@ -17,6 +18,7 @@ class ManeCombLocationModule(
   fun startService(
     apiUrl: String,
     token: String,
+    refreshToken: String,
     vehicleId: String,
     sessionId: String,
     scheduleEnabled: Boolean,
@@ -29,6 +31,7 @@ class ManeCombLocationModule(
       val intent = Intent(reactContext, ManeCombLocationService::class.java).apply {
         putExtra(ManeCombLocationService.EXTRA_API_URL, apiUrl)
         putExtra(ManeCombLocationService.EXTRA_TOKEN, token)
+        putExtra(ManeCombLocationService.EXTRA_REFRESH_TOKEN, refreshToken)
         putExtra(ManeCombLocationService.EXTRA_VEHICLE_ID, vehicleId)
         putExtra(ManeCombLocationService.EXTRA_SESSION_ID, sessionId)
         putExtra(ManeCombLocationService.EXTRA_SCHEDULE_ENABLED, scheduleEnabled)
@@ -46,6 +49,17 @@ class ManeCombLocationModule(
     } catch (error: Exception) {
       promise.reject("location_service_start_failed", error.message, error)
     }
+  }
+
+  @ReactMethod
+  fun getServiceStatus(promise: Promise) {
+    val prefs = reactContext.getSharedPreferences(ManeCombLocationService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    promise.resolve(Arguments.createMap().apply {
+      putBoolean("active", prefs.getBoolean(ManeCombLocationService.KEY_SERVICE_ENABLED, false))
+      putString("reason", prefs.getString(ManeCombLocationService.KEY_STATUS_REASON, null))
+      putString("token", prefs.getString(ManeCombLocationService.KEY_TOKEN, null))
+      putString("refreshToken", prefs.getString(ManeCombLocationService.KEY_REFRESH_TOKEN, null))
+    })
   }
 
   @ReactMethod

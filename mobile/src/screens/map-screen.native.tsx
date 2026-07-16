@@ -1,7 +1,7 @@
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
@@ -10,6 +10,13 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
 import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
+import {
+  getBackgroundLocationServiceStatusAsync,
+  startBackgroundLocationServiceAsync,
+  stopBackgroundLocationServiceAsync,
+} from '@/src/native/background-location';
+import { requestBackgroundPermission } from './map/services/location-service';
+import * as Location from '@/src/native/location';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
@@ -189,6 +196,10 @@ export function MapScreen() {
     deviceLocation,
     refreshDeviceLocation,
     signOut,
+    apiUrl,
+    token,
+    refreshToken,
+    syncBackgroundLocationCredentials,
     user,
   } = useAppStore(
     useShallow((state) => ({
@@ -203,6 +214,10 @@ export function MapScreen() {
       deviceLocation: state.deviceLocation,
       refreshDeviceLocation: state.refreshDeviceLocation,
       signOut: state.signOut,
+      apiUrl: state.apiUrl,
+      token: state.token,
+      refreshToken: state.refreshToken,
+      syncBackgroundLocationCredentials: state.syncBackgroundLocationCredentials,
       user: state.user,
     }))
   );
@@ -223,6 +238,26 @@ export function MapScreen() {
   const [pendingJourneyAction, setPendingJourneyAction] = useState<RouteSessionAction | null>(null);
   const [isChangingJourney, setIsChangingJourney] = useState(false);
   const selectorFocusedVehicleIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const inspectBackgroundTracking = async () => {
+      const status = await getBackgroundLocationServiceStatusAsync();
+      if (status.token && status.refreshToken && (status.token !== token || status.refreshToken !== refreshToken)) {
+        await syncBackgroundLocationCredentials(status.token, status.refreshToken);
+      }
+      if (status.reason === 'auth_failed') {
+        Alert.alert(
+          'Rastreo en segundo plano interrumpido',
+          'La sesion del GPS expiro. Abre de nuevo tu jornada o inicia sesion otra vez; el rastreo en primer plano sigue disponible.'
+        );
+      }
+    };
+    inspectBackgroundTracking().catch(() => undefined);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') inspectBackgroundTracking().catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [refreshToken, syncBackgroundLocationCredentials, token]);
 
   const selectorMode = isSelectorMode(params.point);
   const { fitRoute, focusMap, focusPoint, mapPadding, mapRef, routeFitPadding } = useMapCamera(insets);
@@ -423,6 +458,34 @@ export function MapScreen() {
         driverId: vehicle.driverId,
       });
       useAppStore.setState({ activeRouteSession: result.session });
+      if (action === 'finish') {
+        await stopBackgroundLocationServiceAsync().catch(() => undefined);
+      } else if (action === 'start' || action === 'resume') {
+        const backgroundPermission = await requestBackgroundPermission();
+        if (backgroundPermission.status !== Location.PermissionStatus.GRANTED) {
+          Alert.alert(
+            'Ubicacion en segundo plano desactivada',
+            'ManeComb continuara rastreando mientras la app este visible. Habilita "Permitir siempre" en Ajustes para mantener el rastreo con la pantalla bloqueada.'
+          );
+        } else if (!token || !refreshToken) {
+          Alert.alert('No se pudo activar el rastreo', 'Faltan credenciales de sesion. Inicia sesion nuevamente.');
+        } else {
+          const started = await startBackgroundLocationServiceAsync({
+            apiUrl,
+            refreshToken,
+            schedule: user.operationalSchedule,
+            sessionId: result.session?.id || '',
+            token,
+            vehicleId: vehicle.id,
+          }).catch(() => false);
+          if (!started) {
+            Alert.alert(
+              'Rastreo en segundo plano no disponible',
+              'La jornada inicio, pero el GPS en segundo plano no pudo activarse. El rastreo en primer plano continuara.'
+            );
+          }
+        }
+      }
       setPendingJourneyAction(null);
       if (!result.offline) await refreshAll();
     } catch {

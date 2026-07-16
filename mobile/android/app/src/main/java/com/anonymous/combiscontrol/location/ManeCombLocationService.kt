@@ -38,6 +38,7 @@ import org.json.JSONObject
 class ManeCombLocationService : Service(), LocationListener {
   private var apiUrl: String = ""
   private var token: String = ""
+  private var refreshToken: String = ""
   private var vehicleId: String = ""
   private var sessionId: String = ""
   private var scheduleEnabled: Boolean = true
@@ -81,6 +82,7 @@ class ManeCombLocationService : Service(), LocationListener {
     val startIntent = intent ?: buildIntentFromPrefs(this)
     apiUrl = startIntent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
     token = startIntent?.getStringExtra(EXTRA_TOKEN).orEmpty()
+    refreshToken = startIntent?.getStringExtra(EXTRA_REFRESH_TOKEN).orEmpty()
     vehicleId = startIntent?.getStringExtra(EXTRA_VEHICLE_ID).orEmpty()
     sessionId = startIntent?.getStringExtra(EXTRA_SESSION_ID).orEmpty()
     scheduleEnabled = startIntent?.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true) ?: true
@@ -96,6 +98,7 @@ class ManeCombLocationService : Service(), LocationListener {
     }
 
     startIntent?.let { persistServiceConfig(it) }
+    setServiceStatus(true, null)
     loadPendingLocations()
     startForeground(NOTIFICATION_ID, buildNotification())
     registerNetworkCallback()
@@ -246,7 +249,7 @@ class ManeCombLocationService : Service(), LocationListener {
    * guarantees that positions captured during an offline start are not uploaded before
    * the server has an active RouteSession to attach them to.
    */
-  private fun ensureRouteSessionStarted(): Boolean {
+  private fun ensureRouteSessionStarted(authRetry: Boolean = true): Boolean {
     val safeApiUrl = apiUrl
     val safeToken = token
     var connection: HttpURLConnection? = null
@@ -270,10 +273,7 @@ class ManeCombLocationService : Service(), LocationListener {
         responseCode in 200..299 -> true
         responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
           responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
-          Log.w(TAG, "Stopping background GPS after session auth failure HTTP $responseCode.")
-          clearServiceConfig()
-          stopSelf()
-          false
+          if (authRetry && refreshAccessToken()) ensureRouteSessionStarted(false) else stopForAuthFailure(responseCode)
         }
         else -> {
           Log.w(TAG, "Could not ensure route session HTTP $responseCode; GPS queue retained.")
@@ -289,7 +289,7 @@ class ManeCombLocationService : Service(), LocationListener {
     }
   }
 
-  private fun postLocation(body: JSONObject): Boolean {
+  private fun postLocation(body: JSONObject, authRetry: Boolean = true): Boolean {
     val safeApiUrl = apiUrl
     val safeToken = token
     var connection: HttpURLConnection? = null
@@ -314,10 +314,7 @@ class ManeCombLocationService : Service(), LocationListener {
         responseCode in 200..299 -> true
         responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
           responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
-          Log.w(TAG, "Stopping background GPS after auth failure HTTP $responseCode.")
-          clearServiceConfig()
-          stopSelf()
-          true
+          if (authRetry && refreshAccessToken()) postLocation(body, false) else stopForAuthFailure(responseCode)
         }
         else -> {
           Log.w(TAG, "Background GPS upload failed HTTP $responseCode; queued for retry.")
@@ -331,6 +328,55 @@ class ManeCombLocationService : Service(), LocationListener {
       connection?.disconnect()
       releaseUploadWakeLock(wakeLock)
     }
+  }
+
+  private fun refreshAccessToken(): Boolean {
+    val safeRefreshToken = refreshToken
+    if (safeRefreshToken.isBlank()) return false
+    var connection: HttpURLConnection? = null
+    return try {
+      connection = URL("$apiUrl/auth/refresh").openConnection() as HttpURLConnection
+      connection.requestMethod = "POST"
+      connection.connectTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.readTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.doOutput = true
+      connection.setRequestProperty("Content-Type", "application/json")
+      OutputStreamWriter(connection.outputStream).use { writer ->
+        writer.write(JSONObject().put("refreshToken", safeRefreshToken).toString())
+      }
+      if (connection.responseCode !in 200..299) {
+        closeConnectionBody(connection)
+        false
+      } else {
+        val response = connection.inputStream.bufferedReader().use { it.readText() }
+        val payload = JSONObject(response)
+        val nextToken = payload.optString("token")
+        val nextRefreshToken = payload.optString("refreshToken", safeRefreshToken)
+        if (nextToken.isBlank()) false else {
+          token = nextToken
+          refreshToken = nextRefreshToken
+          prefs().edit().putString(KEY_TOKEN, token).putString(KEY_REFRESH_TOKEN, refreshToken).apply()
+          true
+        }
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not refresh background GPS credentials.", error)
+      false
+    } finally {
+      connection?.disconnect()
+    }
+  }
+
+  private fun stopForAuthFailure(responseCode: Int): Boolean {
+    Log.w(TAG, "Stopping background GPS after auth failure HTTP $responseCode.")
+    setServiceStatus(false, "auth_failed")
+    stopTracking()
+    stopSelf()
+    return false
+  }
+
+  private fun setServiceStatus(active: Boolean, reason: String?) {
+    prefs().edit().putBoolean(KEY_SERVICE_ENABLED, active).putString(KEY_STATUS_REASON, reason).apply()
   }
 
   private fun acquireUploadWakeLock(): PowerManager.WakeLock? =
@@ -501,6 +547,7 @@ class ManeCombLocationService : Service(), LocationListener {
       .putBoolean(KEY_SERVICE_ENABLED, true)
       .putString(KEY_API_URL, intent.getStringExtra(EXTRA_API_URL).orEmpty())
       .putString(KEY_TOKEN, intent.getStringExtra(EXTRA_TOKEN).orEmpty())
+      .putString(KEY_REFRESH_TOKEN, intent.getStringExtra(EXTRA_REFRESH_TOKEN).orEmpty())
       .putString(KEY_VEHICLE_ID, intent.getStringExtra(EXTRA_VEHICLE_ID).orEmpty())
       .putString(KEY_SESSION_ID, intent.getStringExtra(EXTRA_SESSION_ID).orEmpty())
       .putBoolean(KEY_SCHEDULE_ENABLED, intent.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true))
@@ -516,6 +563,7 @@ class ManeCombLocationService : Service(), LocationListener {
       .putBoolean(KEY_SERVICE_ENABLED, false)
       .remove(KEY_API_URL)
       .remove(KEY_TOKEN)
+      .remove(KEY_REFRESH_TOKEN)
       .remove(KEY_VEHICLE_ID)
       .remove(KEY_SESSION_ID)
       .remove(KEY_SCHEDULE_ENABLED)
@@ -589,6 +637,7 @@ class ManeCombLocationService : Service(), LocationListener {
     const val ACTION_RESTORE = "com.anonymous.combiscontrol.location.RESTORE"
     const val EXTRA_API_URL = "apiUrl"
     const val EXTRA_TOKEN = "token"
+    const val EXTRA_REFRESH_TOKEN = "refreshToken"
     const val EXTRA_VEHICLE_ID = "vehicleId"
     const val EXTRA_SESSION_ID = "sessionId"
     const val EXTRA_SCHEDULE_ENABLED = "scheduleEnabled"
@@ -605,10 +654,12 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val LOCATION_DISTANCE_METERS = 20f
     private const val RETRY_BASE_MS = 5000L
     private const val RETRY_MAX_MS = 60000L
-    private const val PREFS_NAME = "manecomb-location-service"
-    private const val KEY_SERVICE_ENABLED = "serviceEnabled"
+    const val PREFS_NAME = "manecomb-location-service"
+    const val KEY_SERVICE_ENABLED = "serviceEnabled"
     private const val KEY_API_URL = "apiUrl"
-    private const val KEY_TOKEN = "token"
+    const val KEY_TOKEN = "token"
+    const val KEY_REFRESH_TOKEN = "refreshToken"
+    const val KEY_STATUS_REASON = "statusReason"
     private const val KEY_VEHICLE_ID = "vehicleId"
     private const val KEY_SESSION_ID = "sessionId"
     private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
@@ -625,6 +676,7 @@ class ManeCombLocationService : Service(), LocationListener {
 
       val apiUrl = prefs.getString(KEY_API_URL, "").orEmpty()
       val token = prefs.getString(KEY_TOKEN, "").orEmpty()
+      val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, "").orEmpty()
       val vehicleId = prefs.getString(KEY_VEHICLE_ID, "").orEmpty()
       if (apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank()) {
         return null
@@ -635,6 +687,7 @@ class ManeCombLocationService : Service(), LocationListener {
         action = ACTION_RESTORE
         putExtra(EXTRA_API_URL, apiUrl)
         putExtra(EXTRA_TOKEN, token)
+        putExtra(EXTRA_REFRESH_TOKEN, refreshToken)
         putExtra(EXTRA_VEHICLE_ID, vehicleId)
         putExtra(EXTRA_SESSION_ID, prefs.getString(KEY_SESSION_ID, "").orEmpty())
         putExtra(EXTRA_SCHEDULE_ENABLED, prefs.getBoolean(KEY_SCHEDULE_ENABLED, true))
