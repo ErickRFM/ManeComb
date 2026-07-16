@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { resetPasswordRequest } from '@/src/api/client';
 import { getApiErrorMessage } from '@/src/lib/api';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 
 export function PasswordResetScreen() {
   const { token = '' } = useLocalSearchParams<{ token?: string }>();
@@ -41,7 +42,7 @@ export function PasswordResetScreen() {
   };
 
   return (
-    <View style={styles.page}>
+    <KeyboardSafeScrollView contentContainerStyle={styles.page}>
       <View style={styles.card}>
         <Text style={styles.title}>Restablecer contrasena</Text>
         <Text style={styles.subtitle}>Define una nueva contrasena para tu cuenta ManeComb.</Text>
@@ -80,12 +81,12 @@ export function PasswordResetScreen() {
           )}
         </Pressable>
       </View>
-    </View>
+    </KeyboardSafeScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { alignItems: 'center', backgroundColor: '#050816', flex: 1, justifyContent: 'center', padding: 20 },
+  page: { alignItems: 'center', backgroundColor: '#050816', flexGrow: 1, justifyContent: 'center', padding: 20 },
   card: { backgroundColor: '#11182A', borderColor: '#2D3748', borderRadius: 20, borderWidth: 1, gap: 14, maxWidth: 420, padding: 24, width: '100%' },
   title: { color: '#F8FAFC', fontSize: 25, fontWeight: '900', textAlign: 'center' },
   subtitle: { color: '#A0AEC0', fontSize: 14, lineHeight: 20, textAlign: 'center' },

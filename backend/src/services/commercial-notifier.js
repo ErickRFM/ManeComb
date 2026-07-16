@@ -5,6 +5,7 @@ const {
   TWILIO_AUTH_TOKEN,
   TWILIO_WHATSAPP_FROM
 } = require("../config/env");
+const communication = require("../../modules/communication");
 
 function canSendEmail() {
   return Boolean(RESEND_API_KEY && RESEND_FROM_EMAIL);
@@ -17,7 +18,7 @@ function canSendWhatsapp() {
 function getNotifierReadiness() {
   return {
     email: {
-      ready: canSendEmail(),
+      ready: communication.isConfigured() || canSendEmail(),
       missing: canSendEmail() ? [] : ["RESEND_API_KEY", "RESEND_FROM_EMAIL"]
     },
     whatsapp: {
@@ -40,6 +41,28 @@ function normalizePhone(phone) {
 }
 
 async function sendEmailNotification(order, message) {
+  if (communication.isConfigured()) {
+    try {
+      await communication.sendEmail({
+        to: order.email,
+        template: "payment-approved",
+        data: {
+          name: order.contactName,
+          referenceCode: order.referenceCode,
+          planName: order.planName,
+          amount: `$${order.totalPrice} MXN`,
+          date: new Date().toLocaleDateString("es-MX"),
+          dashboardUrl: order.dashboardUrl,
+          userId: order.userId,
+          organizationId: order.organizationId
+        }
+      });
+      return "sent";
+    } catch {
+      return "failed";
+    }
+  }
+
   if (!canSendEmail()) {
     return "skipped_not_configured";
   }

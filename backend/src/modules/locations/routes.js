@@ -7,6 +7,7 @@ const {
   canAccessTenantResource,
   filterTenantList,
   getOrganizationId,
+  getRolesWithPermission,
   requireOrganization
 } = require("../../middlewares/access-control");
 const { classifyGpsQuality, processRoutePosition } = require("../../services/route-event-engine");
@@ -178,7 +179,13 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
 
   const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("location:updated", update);
+    getRolesWithPermission("canViewAnalytics").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("location:updated", update);
+    });
+    if (vehicle.driverId) {
+      req.app.locals.io?.to(`user:${vehicle.driverId}`).emit("location:updated", update);
+    }
+    req.app.locals.io?.to("platform:admin").emit("location:updated", update);
   } else {
     req.app.locals.io?.to("platform:admin").emit("location:updated", update);
   }

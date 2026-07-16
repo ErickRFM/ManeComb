@@ -2,10 +2,9 @@ import { Link, Redirect, router } from '@/src/navigation/router';
 import { useMemo, useRef, useState, type Ref } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Image,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   StatusBar,
   Text,
@@ -25,6 +24,7 @@ import {
   validateDriverActivationKeyRequest,
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
@@ -39,6 +39,8 @@ type AuthIdentity = {
   phone?: string;
   displayName: string;
 };
+
+const fasterArtwork = require('../../assets/images/faster.png');
 
 function normalizeIdentity(rawValue: string): AuthIdentity {
   const value = rawValue.trim();
@@ -64,7 +66,7 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 }
 
 export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const { activateDriverWithKey, authContext, forgotPassword, isSubmitting, register, resetPassword, signIn, user } = useAppStore(
     useShallow((state) => ({
       activateDriverWithKey: state.activateDriverWithKey,
@@ -110,13 +112,16 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const isDriverRegister = isRegister && registerProfile === 'driver';
 
   const isNarrow = width < 390;
+  const isShortViewport = height < 720;
 
   const sizing = useMemo(
     () => ({
       logoSize: isNarrow ? ('md' as const) : ('lg' as const),
+      artworkWidth: isShortViewport ? 136 : 156,
+      artworkHeight: isShortViewport ? 96 : 110,
       contentPadding: isNarrow ? 16 : 20,
     }),
-    [isNarrow]
+    [isNarrow, isShortViewport]
   );
 
   if (user) {
@@ -274,10 +279,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}>
-        <ScrollView
+      <KeyboardSafeScrollView
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === 'web'}
@@ -289,9 +291,13 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
             <View style={styles.brandRow}>
               <BrandLogo size={sizing.logoSize} tone="dark" plain />
             </View>
-
-
-
+            <View style={styles.artworkWrap}>
+              <Image
+                source={fasterArtwork}
+                resizeMode="contain"
+                style={{ height: sizing.artworkHeight, width: sizing.artworkWidth }}
+              />
+            </View>
             <View style={styles.form}>
               <View style={styles.segmentedControl}>
                 <SegmentButton
@@ -560,8 +566,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               </View>
             </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeScrollView>
     </SafeAreaView>
   );
 }
@@ -690,9 +695,12 @@ const styles = StyleSheet.create({
   brandRow: {
     alignItems: 'flex-start',
   },
+  artworkWrap: {
+    alignItems: 'center',
+    marginTop: 14,
+  },
   form: {
-    marginTop: 'auto',
-    paddingTop: 24,
+    marginTop: 18,
     gap: 18,
   },
   segmentedControl: {

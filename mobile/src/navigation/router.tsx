@@ -8,11 +8,13 @@ import {
   type ParamListBase,
 } from '@react-navigation/native';
 import {
+  canRoleAccessRoute,
   getModuleRouteName,
   getRouteDefinition,
   isModuleRoot,
 } from '@/src/navigation/route-registry';
 import { NavigationRequestGuard } from '@/src/navigation/navigation-policy';
+import { useAppStore } from '@/src/store/use-app-store';
 
 type RouteParamValue = string | string[] | number | boolean | null | undefined;
 type RouteParams = Record<string, RouteParamValue>;
@@ -21,11 +23,6 @@ type HrefObject = {
   params?: RouteParams;
 };
 type Href = string | HrefObject;
-
-export type ErrorBoundaryProps = {
-  error: Error;
-  retry: () => void;
-};
 
 export const navigationRef = createNavigationContainerRef<ParamListBase>();
 const navigationGuard = new NavigationRequestGuard();
@@ -105,6 +102,13 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
   if (destination) {
     const currentName = currentRoute?.name;
     const currentModule = getRouteDefinition(currentName)?.module;
+    const user = useAppStore.getState().user;
+
+    if (user && !canRoleAccessRoute(name, user.role)) {
+      navigateWith('replace', '/mapa');
+      return;
+    }
+
     const moduleRouteName = getModuleRouteName(destination.module);
     const nestedRoute = { screen: name, params };
 
@@ -149,10 +153,6 @@ export const router = {
   clearPendingNavigation: () => navigationGuard.clear(),
 };
 
-export function useRouter() {
-  return router;
-}
-
 export function usePathname() {
   const route = useRoute();
   return normalizeRouteName(route.name);
@@ -194,22 +194,6 @@ export function Link({ href, children, onPress, ...props }: LinkProps) {
       {children}
     </Text>
   );
-}
-
-function StackContainer({ children }: PropsWithChildren<Record<string, unknown>>) {
-  return <>{children}</>;
-}
-
-function StackScreen(_props: Record<string, unknown>) {
-  return null;
-}
-
-export const Stack = Object.assign(StackContainer, {
-  Screen: StackScreen,
-});
-
-export function Slot() {
-  return null;
 }
 
 const redirectStyles = StyleSheet.create({

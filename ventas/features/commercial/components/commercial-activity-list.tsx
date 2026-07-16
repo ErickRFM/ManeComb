@@ -18,12 +18,6 @@ function getActivityIcon(type: CommercialActivity['type']): string {
   const icons: Record<CommercialActivity['type'], string> = {
     ACCOUNT_CREATED: 'domain-plus',
     PLAN_CONTRACTED: 'clipboard-check-outline',
-    CHANGE_REQUESTED: 'calendar-arrow-right',
-    CHANGE_CONFIRMED: 'check-decagram-outline',
-    RENEWAL: 'calendar-refresh-outline',
-    CANCELLATION: 'close-circle-outline',
-    REACTIVATION: 'backup-restore',
-    PAYMENT_METHOD_ADDED: 'credit-card-check-outline',
     INVOICE_ISSUED: 'receipt-text-outline',
   };
   return icons[type];

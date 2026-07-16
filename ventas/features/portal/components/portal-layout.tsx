@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -50,7 +51,7 @@ const navSections: { title: string; items: PortalNavItem[] }[] = [
       { label: 'Operaciones', href: '/portal', icon: 'view-dashboard-outline' },
       { label: 'Mi plan', href: '/portal/plan', icon: 'clipboard-list-outline', permission: 'billing' },
       { label: 'Facturación', href: '/portal/facturacion', icon: 'file-document-outline', permission: 'billing' },
-      { label: 'Métodos de pago', href: '/portal/pagos', icon: 'credit-card-outline', permission: 'billing' },
+      { label: 'Pagos', href: '/portal/pagos', icon: 'credit-card-outline', permission: 'billing' },
     ],
   },
   {
@@ -273,14 +274,14 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
             </View>
           </View>
         ) : (
-          <ScrollView
+          <KeyboardSafeScrollView
             style={styles.contentScroll}
             contentContainerStyle={[styles.content, !isWide ? styles.contentCompact : undefined]}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
             {contentBody}
-          </ScrollView>
+          </KeyboardSafeScrollView>
         )}
       </View>
     </SafeAreaView>

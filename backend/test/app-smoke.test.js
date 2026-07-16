@@ -109,6 +109,15 @@ async function testCriticalFlows() {
   let createdTeamUserId = null;
 
   try {
+    const plansResponse = await requestJson(`${context.url}/commercial/plans`);
+    assert.equal(plansResponse.status, 200);
+    assert.equal(plansResponse.payload.ok, true);
+    assert.equal(plansResponse.payload.data.length, 5);
+    assert.equal(new Set(plansResponse.payload.data.map((plan) => plan.id)).size, 5);
+    const starterPlan = plansResponse.payload.data.find((plan) => plan.id === "starter-2");
+    assert.ok(starterPlan);
+    assert.equal(starterPlan.price, 149);
+
     const registerResponse = await requestJson(`${context.url}/auth/register`, {
       body: JSON.stringify({
         name: "Smoke Ops",
@@ -176,6 +185,8 @@ async function testCriticalFlows() {
 
     assert.equal(checkoutResponse.status, 201);
     assert.equal(checkoutResponse.payload.ok, true);
+    assert.equal(checkoutResponse.payload.data.planId, starterPlan.id);
+    assert.equal(checkoutResponse.payload.data.basePlanPrice, starterPlan.price);
     assert.ok(checkoutResponse.payload.data.referenceCode);
     assert.equal(checkoutResponse.payload.data.radioFeatureEnabled, true);
     assert.ok(Array.isArray(checkoutResponse.payload.data.downloads));
@@ -369,7 +380,7 @@ async function testCriticalFlows() {
     });
     const radioUploadPayload = await radioUploadResponse.json();
 
-    assert.equal(radioUploadResponse.status, 201);
+    assert.equal(radioUploadResponse.status, 201, JSON.stringify(radioUploadPayload));
     assert.equal(radioUploadPayload.ok, true);
     assert.equal(radioUploadPayload.data.kind, "audio");
     assert.ok(radioUploadPayload.data.audioUrl);
@@ -489,17 +500,7 @@ async function testCriticalFlows() {
       createdTeamUserId
     );
 
-    const myOrdersResponse = await requestJson(`${context.url}/commercial/me`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-
-    assert.equal(myOrdersResponse.status, 200);
-    assert.equal(myOrdersResponse.payload.ok, true);
-    assert.ok(Array.isArray(myOrdersResponse.payload.data));
-    assert.ok(myOrdersResponse.payload.data.length >= 1);
-    const downloadableAsset = myOrdersResponse.payload.data[0]?.downloads?.find(
+    const downloadableAsset = checkoutResponse.payload.data.downloads?.find(
       (entry) => entry.available && entry.token
     );
     assert.ok(downloadableAsset, "La orden trial debe exponer al menos una descarga");
@@ -529,6 +530,34 @@ async function testCriticalFlows() {
     assert.equal(incidentResponse.status, 201);
     assert.equal(incidentResponse.payload.ok, true);
     assert.equal(incidentResponse.payload.data.severity, "critical");
+
+    const changedSubscriptionResponse = await requestJson(`${context.url}/account/subscription/plan`, {
+      body: JSON.stringify({
+        planId: "control-6",
+        selectedAddOns: ["radio_dispatch"]
+      }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "PATCH"
+    });
+
+    assert.equal(changedSubscriptionResponse.status, 200);
+    assert.equal(changedSubscriptionResponse.payload.data.planId, "control-6");
+    assert.equal(changedSubscriptionResponse.payload.data.totalUnits, 6);
+    assert.equal(changedSubscriptionResponse.payload.data.monthlyPrice, 319);
+
+    const cancellationResponse = await requestJson(`${context.url}/account/subscription/cancel`, {
+      body: JSON.stringify({ reason: "Cierre de certificacion comercial" }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+
+    assert.equal(cancellationResponse.status, 200);
+    assert.equal(cancellationResponse.payload.data.planId, "control-6");
+    assert.equal(cancellationResponse.payload.data.status, "cancelled");
 
     const logoutResponse = await requestJson(`${context.url}/auth/logout`, {
       body: JSON.stringify({

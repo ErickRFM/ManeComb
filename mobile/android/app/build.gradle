@@ -176,6 +176,8 @@ android {
             MAPBOX_ACCESS_TOKEN: mapboxAccessToken,
             usesCleartextTraffic: allowCleartextTraffic.toString(),
         ]
+        // Mapbox reads this resource before Fabric mounts the first MapView.
+        resValue "string", "mapbox_access_token", mapboxAccessToken
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -231,6 +233,10 @@ gradle.taskGraph.whenReady { taskGraph ->
 
     if (needsReleaseSigning && hasReleaseSigningConfig && !rootProject.file(releaseStoreFile).exists()) {
         throw new GradleException("No existe el keystore release: ${rootProject.file(releaseStoreFile)}")
+    }
+
+    if (needsReleaseSigning && !mapboxAccessToken.startsWith('pk.')) {
+        throw new GradleException('MAPBOX_ACCESS_TOKEN publico es obligatorio para compilar Release.')
     }
 }
 

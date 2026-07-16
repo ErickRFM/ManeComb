@@ -42,10 +42,6 @@ export class InMemoryTimelineRepository implements CommercialTimelineRepository 
     this.events = events.map((event) => ({ ...event, metadata: event.metadata ? { ...event.metadata } : undefined }));
   }
 
-  async append(event: CommercialActivity) {
-    this.events = [event, ...this.events.filter((item) => item.id !== event.id)];
-  }
-
   async list() {
     return [...this.events]
       .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())

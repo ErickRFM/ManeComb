@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
@@ -49,7 +50,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     isCompact,
     isMobileConversation,
     isPhone,
-    leadRemoteParticipant,
     localStreamRef,
     messagesListRef,
     setActiveAudioMessageId,
@@ -294,9 +294,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         ) : null}
 
         {showConversationPanel ? (
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
+          <KeyboardSafeView
             style={[
               styles.conversationPanel,
               isMobileConversation ? styles.conversationPanelMobile : undefined,
@@ -368,7 +366,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                     <View style={styles.callStage}>
                       <CallMediaTile
                         stream={activeCallSession.remoteStream}
-                        label={leadRemoteParticipant?.name || activeConversation.title}
+                        label={activeConversation.title}
                         caption={
                           activeCallSession.phase === 'connected'
                             ? 'Conectado'
@@ -464,7 +462,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   keyExtractor={(item) => item.id}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                  automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                  automaticallyAdjustKeyboardInsets={false}
                   onContentSizeChange={handleMessagesContentSizeChange}
                   onLayout={handleMessagesLayout}
                   onScroll={handleMessagesScroll}
@@ -634,7 +632,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                 <Text style={styles.emptyTitle}>Selecciona un canal</Text>
               </View>
             )}
-          </KeyboardAvoidingView>
+          </KeyboardSafeView>
         ) : null}
       </View>
 

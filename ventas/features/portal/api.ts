@@ -1,12 +1,9 @@
 export {
   cancelAccountSubscriptionRequest,
   changeAccountPlanRequest,
-  createAccountPaymentMethodRequest,
-  deleteAccountPaymentMethodRequest,
   generateAdminActivationKeyRequest,
   getAdminActivationKeysRequest,
   getAccountInvoicesRequest,
-  getAccountPaymentMethodsRequest,
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
@@ -19,6 +16,4 @@ export {
   getRouteSessionPositionsRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
-  setDefaultAccountPaymentMethodRequest,
-  updateAccountPaymentMethodRequest,
 } from '@/src/api/client';

@@ -3,7 +3,6 @@ import { Link, Redirect, router, useLocalSearchParams } from '@/src/navigation/r
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { StatusBar } from '@/src/native/status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -219,10 +219,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
         <View style={styles.backgroundGlowTop} />
         <View style={styles.backgroundGlowBottom} />
       </View>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}>
-        <ScrollView
+      <KeyboardSafeScrollView
           style={styles.scroll}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
@@ -381,8 +378,7 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
               </View>
             </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeScrollView>
     </SafeAreaView>
   );
 }

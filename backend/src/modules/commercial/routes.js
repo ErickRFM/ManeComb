@@ -3,7 +3,6 @@ const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
 const { MERCADO_PAGO_WEBHOOK_SECRET } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
-const { requireAdmin } = require("../../middlewares/require-admin");
 const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
@@ -137,17 +136,6 @@ router.get("/plans", (req, res) => {
   return res.json({
     ok: true,
     data: listCommercialPlans()
-  });
-});
-
-router.get("/me", authenticate, requirePortalAccess, async (req, res) => {
-  return res.json({
-    ok: true,
-    data: (await req.app.locals.store.listCommercialOrdersForUser(req.user)).map((order) =>
-      enrichCommercialOrder(order, {
-        user: req.user
-      })
-    )
   });
 });
 
@@ -496,85 +484,6 @@ router.post("/webhooks/mercadopago", async (req, res) => {
 
     return res.status(202).json({
       ok: true
-    });
-  }
-});
-
-router.get("/orders", authenticate, requireAdmin, async (req, res) => {
-  return res.json({
-    ok: true,
-    data: (await req.app.locals.store.listCommercialOrders()).map((order) =>
-      enrichCommercialOrder(order, {
-        user: req.user
-      })
-    )
-  });
-});
-
-router.patch("/orders/:orderId", authenticate, requireAdmin, async (req, res) => {
-  try {
-    const existingOrder = (await req.app.locals.store.listCommercialOrders()).find(
-      (entry) => entry.id === req.params.orderId
-    );
-
-    if (!existingOrder) {
-      return res.status(404).json({
-        ok: false,
-        message: "Orden comercial no encontrada"
-      });
-    }
-
-    const requestedStatus = req.body.activationStatus;
-    const automationUpdate =
-      requestedStatus === "active"
-        ? buildCommercialActivationUpdate(existingOrder, existingOrder.requestTrial ? "trial" : "active")
-        : requestedStatus === "ready_for_activation"
-          ? buildCommercialActivationUpdate(existingOrder, "ready")
-          : {};
-
-    const order = await req.app.locals.store.updateCommercialOrder(req.params.orderId, {
-      activationStatus: req.body.activationStatus,
-      activationNotes: req.body.activationNotes,
-      activatedAt:
-        req.body.activationStatus === "active" ? new Date().toISOString() : undefined,
-      status:
-        req.body.activationStatus === "active"
-          ? "active"
-          : req.body.status,
-      ...automationUpdate
-    });
-
-    if (!order) {
-      return res.status(404).json({
-        ok: false,
-        message: "Orden comercial no encontrada"
-      });
-    }
-
-    await req.app.locals.store.recordAppEvent?.({
-      type: "checkout_activation_updated",
-      scope: "commercial",
-      level: req.body.activationStatus === "active" ? "info" : "warning",
-      status: req.body.activationStatus || req.body.status || "updated",
-      userId: req.user.id,
-      entityId: order.id,
-      message: `Orden ${order.referenceCode} actualizada desde administración`
-    });
-    const responseOrder = enrichCommercialOrder(order, {
-      user: req.user
-    });
-    emitCommercialEvent(req, "subscription:updated", responseOrder, {
-      status: responseOrder.activationStatus || responseOrder.status
-    });
-
-    return res.json({
-      ok: true,
-      data: responseOrder
-    });
-  } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible actualizar la orden comercial"
     });
   }
 });

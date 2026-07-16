@@ -5,6 +5,7 @@ const {
   canAccessTenantResource,
   canAccessAllTenants,
   getOrganizationId,
+  getRolesWithPermission,
   hasPermission
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
@@ -14,6 +15,14 @@ const { calculateAndPersistRouteMetrics } = require("../../services/route-metric
 const { isServiceDate, toServiceDate } = require("../../utils/service-date");
 
 const router = Router();
+
+function emitToRouteAudience(req, organizationId, eventName, payload, driverId = null) {
+  getRolesWithPermission("canViewAnalytics").forEach((role) => {
+    req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit(eventName, payload);
+  });
+  if (driverId) req.app.locals.io?.to(`user:${driverId}`).emit(eventName, payload);
+  req.app.locals.io?.to("platform:admin").emit(eventName, payload);
+}
 
 function normalizePoint(point) {
   if (!point) {
@@ -347,9 +356,7 @@ router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (
     liveLocations.vehicles
       .filter((vehicle) => vehicle.routeId === updatedRoute.id)
       .forEach((vehicle) => {
-        req.app.locals.io
-          ?.to(`org:${getOrganizationId(req.user)}`)
-          .emit("location:updated", vehicle);
+        emitToRouteAudience(req, getOrganizationId(req.user), "location:updated", vehicle, vehicle.driverId);
       });
 
     return res.json({
@@ -398,9 +405,7 @@ router.delete("/routes/:routeId", authenticate, requireOperationalAccess, async 
     liveAfterDelete.vehicles
       .filter((vehicle) => affectedVehicleIds.has(vehicle.id))
       .forEach((vehicle) => {
-        req.app.locals.io
-          ?.to(`org:${getOrganizationId(req.user)}`)
-          .emit("location:updated", vehicle);
+        emitToRouteAudience(req, getOrganizationId(req.user), "location:updated", vehicle, vehicle.driverId);
       });
 
     return res.json({
@@ -462,9 +467,7 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       });
     }
 
-    req.app.locals.io
-      ?.to(`org:${String(vehicle.organizationId || getOrganizationId(req.user)).trim()}`)
-      .emit("location:updated", updatedVehicle);
+    emitToRouteAudience(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), "location:updated", updatedVehicle, updatedVehicle.driverId);
 
     return res.json({
       ok: true,
@@ -512,9 +515,7 @@ router.delete("/assign/:vehicleId", authenticate, requireOperationalAccess, asyn
       });
     }
 
-    req.app.locals.io
-      ?.to(`org:${String(vehicle.organizationId || getOrganizationId(req.user)).trim()}`)
-      .emit("location:updated", updatedVehicle);
+    emitToRouteAudience(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), "location:updated", updatedVehicle, updatedVehicle.driverId);
 
     return res.json({
       ok: true,
@@ -551,6 +552,9 @@ router.get("/sessions/active", authenticate, requireOperationalAccess, async (re
 
 router.post("/sessions/start", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para iniciar la jornada" });
+    }
     const vehicleId = String(req.body.vehicleId || req.user.vehicleId || "").trim();
     const vehicle = await getAccessibleVehicle(req, res, vehicleId);
     if (!vehicle) return;
@@ -579,8 +583,7 @@ router.post("/sessions/start", authenticate, requireOperationalAccess, async (re
         startedBy: req.user.id,
         vehicleId
       });
-      req.app.locals.io?.to(`org:${session.organizationId}`).emit("route-session:updated", publicSession);
-      req.app.locals.io?.to(`user:${session.driverId}`).emit("route-session:updated", publicSession);
+      emitToRouteAudience(req, session.organizationId, "route-session:updated", publicSession, session.driverId);
     }
     return res.status(creationApplied ? 201 : 200).json({ ok: true, data: publicSession });
   } catch (error) { return next(error); }
@@ -593,6 +596,9 @@ router.patch("/sessions/:sessionId/status", authenticate, requireOperationalAcce
     const vehicleId = String(req.body.vehicleId || req.user.vehicleId || "").trim();
     const vehicle = await getAccessibleVehicle(req, res, vehicleId);
     if (!vehicle) return;
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para cambiar el estado de la jornada" });
+    }
     const existing = await req.app.locals.store.getRouteSessionById(req.params.sessionId);
     if (!existing || existing.vehicleId !== vehicleId) return res.status(404).json({ ok: false, message: "Jornada no encontrada" });
     if (["FINISHED", "CANCELLED"].includes(existing.status)) {
@@ -637,8 +643,7 @@ router.patch("/sessions/:sessionId/status", authenticate, requireOperationalAcce
           publicSession = await req.app.locals.store.getRouteSessionById(publicSession.id);
         }
       }
-      req.app.locals.io?.to(`org:${session.organizationId}`).emit("route-session:updated", publicSession);
-      req.app.locals.io?.to(`user:${session.driverId}`).emit("route-session:updated", publicSession);
+      emitToRouteAudience(req, session.organizationId, "route-session:updated", publicSession, session.driverId);
     }
     return res.json({ ok: true, data: publicSession });
   } catch (error) { return next(error); }
@@ -864,6 +869,9 @@ router.get("/trips", authenticate, requireOperationalAccess, async (req, res, ne
 
 router.post("/trips", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para registrar recorridos" });
+    }
     const vehicleId = String(req.body.vehicleId || "").trim();
     const origin = normalizePoint(req.body.origin);
     const destination = normalizePoint(req.body.destination);
@@ -912,9 +920,13 @@ router.post("/trips", authenticate, requireOperationalAccess, async (req, res, n
       registeredBy: req.user.id
     });
 
-    req.app.locals.io
-      ?.to(`org:${String(tripLog.organizationId || getOrganizationId(req.user)).trim()}`)
-      .emit("navigation:trip-recorded", tripLog);
+    emitToRouteAudience(
+      req,
+      String(tripLog.organizationId || getOrganizationId(req.user)).trim(),
+      "navigation:trip-recorded",
+      tripLog,
+      vehicle.driverId
+    );
 
     return res.status(201).json({
       ok: true,

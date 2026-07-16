@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Text, View, type ViewProps } from 'react-native';
+import { StyleSheet, Text, View, type ViewProps } from 'react-native';
 import RNVideo, { type VideoRef, type OnLoadData, type OnProgressData, type OnBufferData, type OnVideoErrorData } from 'react-native-video';
 
 type VideoSource = { uri: string; headers?: Record<string, string> } | null;
@@ -82,8 +82,8 @@ export function VideoView({
 
   if (internalError) {
     return (
-      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', padding: 16 }]}>
-        <Text style={{ color: '#fff', textAlign: 'center', fontSize: 14 }}>{internalError}</Text>
+      <View style={[style, styles.errorContainer]}>
+        <Text style={styles.errorText}>{internalError}</Text>
       </View>
     );
   }
@@ -119,3 +119,17 @@ export function VideoView({
     />
   );
 }
+
+const styles = StyleSheet.create({
+  errorContainer: {
+    alignItems: 'center',
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+});

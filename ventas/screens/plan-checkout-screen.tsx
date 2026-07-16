@@ -16,6 +16,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
 import { useCheckoutExperience, type TestCardInput } from '@/features/commercial';
@@ -99,6 +100,7 @@ export function PlanCheckoutScreen() {
     }))
   );
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [includeRadioAddon, setIncludeRadioAddon] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [testCard, setTestCard] = useState<TestCardInput>({
     cardholderName: '',
@@ -121,7 +123,9 @@ export function PlanCheckoutScreen() {
     selectedPlan,
     submit,
   } = useCheckoutExperience({ planId, requestTrial, user });
-  const buttonAmount = `${formatCurrency(selectedPlan?.price)} MXN`;
+  const addonPrice = includeRadioAddon ? Number(selectedPlan?.radioAddonPrice || 0) : 0;
+  const totalAmount = Number(selectedPlan?.price || 0) + addonPrice;
+  const buttonAmount = `${formatCurrency(totalAmount)} MXN`;
   const canSubmit = Boolean(selectedPlan && user && !processing && providerMode !== 'unavailable');
   const isTestPaymentMode = providerMode === 'test';
 
@@ -173,7 +177,11 @@ export function PlanCheckoutScreen() {
   const submitPayment = async () => {
     if (!canSubmit) return;
     setStep('confirmation');
-    const nextResult = await submit({ method: selectedMethod, testCard });
+    const nextResult = await submit({
+      method: selectedMethod,
+      selectedAddOns: includeRadioAddon ? ['radio_dispatch'] : [],
+      testCard,
+    });
     if (!nextResult) {
       setStep('payment');
       return;
@@ -216,7 +224,7 @@ export function PlanCheckoutScreen() {
         <View style={styles.backgroundRail} />
       </View>
 
-      <ScrollView
+      <KeyboardSafeScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.content, isPhone ? styles.contentPhone : undefined]}
         showsVerticalScrollIndicator={Platform.OS === 'web'}>
@@ -360,6 +368,26 @@ export function PlanCheckoutScreen() {
                     </>
                   )}
 
+                  {selectedPlan.radioAddonEligible ? (
+                    <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: includeRadioAddon }}
+                      onPress={() => setIncludeRadioAddon((current) => !current)}
+                      style={styles.addonOption}>
+                      <MaterialCommunityIcons
+                        name={includeRadioAddon ? 'checkbox-marked-outline' : 'checkbox-blank-outline'}
+                        size={24}
+                        color={includeRadioAddon ? palette.violet : palette.muted}
+                      />
+                      <View style={styles.addonCopy}>
+                        <Text style={styles.addonTitle}>Radio operativo</Text>
+                        <Text style={styles.addonText}>
+                          Agregar por {formatCurrency(selectedPlan.radioAddonPrice || 0)} MXN al mes.
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+
                   <View style={styles.securityNote}>
                     <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
                     <Text style={styles.securityText}>
@@ -413,18 +441,23 @@ export function PlanCheckoutScreen() {
                   </Pressable>
                 </View>
 
-                <OrderSummary plan={selectedPlan} requestTrial={requestTrial} />
+                <OrderSummary
+                  includeRadioAddon={includeRadioAddon}
+                  plan={selectedPlan}
+                  requestTrial={requestTrial}
+                  totalAmount={totalAmount}
+                />
               </View>
 
               <View style={styles.trustStrip}>
                 <TrustItem icon="shield-lock-outline" title="Pago 100% seguro" body="Tus datos estan protegidos con encriptacion SSL." />
                 <TrustItem icon="file-document-outline" title="Comprobante comercial" body="Consulta el resultado de tu orden desde el portal." />
-                <TrustItem icon="calendar-refresh-outline" title="Periodo mensual" body={`Renovación estimada por ${buttonAmount}.`} />
+                <TrustItem icon="calendar-refresh-outline" title="Importe mensual" body={`El plan seleccionado suma ${buttonAmount} al mes.`} />
               </View>
             </>
           )}
         </View>
-      </ScrollView>
+      </KeyboardSafeScrollView>
     </View>
   );
 }
@@ -518,7 +551,17 @@ function TestPaymentInput({
   );
 }
 
-function OrderSummary({ plan, requestTrial }: { plan: CommercialPlan; requestTrial: boolean }) {
+function OrderSummary({
+  includeRadioAddon,
+  plan,
+  requestTrial,
+  totalAmount,
+}: {
+  includeRadioAddon: boolean;
+  plan: CommercialPlan;
+  requestTrial: boolean;
+  totalAmount: number;
+}) {
   return (
     <View style={styles.summaryPanel}>
       <View style={styles.panelTitleRow}>
@@ -544,9 +587,12 @@ function OrderSummary({ plan, requestTrial }: { plan: CommercialPlan; requestTri
 
       <View style={styles.totals}>
         <TotalRow label="Subtotal" value={`${formatCurrency(plan.price)} MXN`} />
+        {includeRadioAddon ? (
+          <TotalRow label="Radio operativo" value={`${formatCurrency(plan.radioAddonPrice || 0)} MXN`} />
+        ) : null}
         <TotalRow label="IVA incluido" value="Incluido" />
         <View style={styles.totalDivider} />
-        <TotalRow label="Total mensual" value={`${formatCurrency(plan.price)} MXN`} strong />
+        <TotalRow label="Total mensual" value={`${formatCurrency(totalAmount)} MXN`} strong />
       </View>
 
       <View style={styles.summaryBenefits}>
@@ -566,7 +612,7 @@ function OrderSummary({ plan, requestTrial }: { plan: CommercialPlan; requestTri
           <Text style={styles.cancelText}>
             {requestTrial
               ? 'Prueba primero y conserva el plan seleccionado.'
-              : 'La administración del ciclo de vida estará disponible desde tu portal.'}
+              : 'Puedes cambiar o cancelar la suscripción desde tu portal.'}
           </Text>
         </View>
       </View>
@@ -947,6 +993,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 48,
     paddingHorizontal: 12,
+  },
+  addonOption: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: palette.line,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 14,
+  },
+  addonCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  addonTitle: {
+    color: palette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  addonText: {
+    color: palette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 17,
   },
   securityText: {
     color: palette.muted,

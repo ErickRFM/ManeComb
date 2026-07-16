@@ -6,7 +6,6 @@ import type {
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
-  PortalPaymentMethod,
   PortalSession,
   PortalSubscription,
   RouteEvent,
@@ -252,7 +251,10 @@ export async function resetPasswordRequest(token: string, password: string) {
 
 export async function getCommercialPlansRequest() {
   const plans = await unwrapData<any[]>(apiClient.get('/commercial/plans'));
-  return Array.isArray(plans) ? plans : [];
+  if (!Array.isArray(plans)) {
+    throw new Error('El backend devolvio un catalogo de planes invalido.');
+  }
+  return plans;
 }
 
 export async function getRuntimeHealthRequest() {
@@ -382,32 +384,6 @@ export async function cancelAccountSubscriptionRequest(reason?: string) {
 
 export async function getAccountInvoicesRequest() {
   return await unwrapData<PortalInvoice[]>(apiClient.get('/account/invoices'));
-}
-
-export async function getAccountPaymentMethodsRequest() {
-  return await unwrapData<PortalPaymentMethod[]>(apiClient.get('/account/payment-methods'));
-}
-
-export async function createAccountPaymentMethodRequest(payload: any) {
-  return await unwrapData<PortalPaymentMethod[]>(apiClient.post('/account/payment-methods', payload));
-}
-
-export async function updateAccountPaymentMethodRequest(paymentMethodId: string, payload: any) {
-  return await unwrapData<PortalPaymentMethod[]>(
-    apiClient.patch(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}`, payload)
-  );
-}
-
-export async function deleteAccountPaymentMethodRequest(paymentMethodId: string) {
-  return await unwrapData<PortalPaymentMethod[]>(
-    apiClient.delete(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}`)
-  );
-}
-
-export async function setDefaultAccountPaymentMethodRequest(paymentMethodId: string) {
-  return await unwrapData<PortalPaymentMethod[]>(
-    apiClient.post(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}/default`)
-  );
 }
 
 export async function getAccountSessionsRequest() {

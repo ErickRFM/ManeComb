@@ -262,37 +262,6 @@ function buildInvoices(orders = []) {
     });
 }
 
-function buildPaymentMethods(user) {
-  const profile = user?.paymentProfile || {};
-  const methods = [
-    {
-      id: "spei-default",
-      provider: "manual",
-      type: "spei",
-      brand: "SPEI",
-      last4: "",
-      expMonth: "",
-      expYear: "",
-      isDefault: profile.preferredMethod !== "card"
-    }
-  ];
-
-  if (profile.cardLast4) {
-    methods.unshift({
-      id: "card-default",
-      provider: "card",
-      type: "card",
-      brand: profile.cardBrand || "Tarjeta",
-      last4: profile.cardLast4,
-      expMonth: profile.cardExpMonth || "",
-      expYear: profile.cardExpYear || "",
-      isDefault: profile.preferredMethod === "card"
-    });
-  }
-
-  return methods;
-}
-
 function buildPortalOverview({ user, orders = [], users = [], activationKeys = [] }) {
   const activeOrder = pickActiveOrder(orders);
   const subscription = buildSubscription(activeOrder);
@@ -335,7 +304,6 @@ function enrichOrdersForUser(orders, user) {
 module.exports = {
   buildInvoices,
   buildOnboarding,
-  buildPaymentMethods,
   buildPortalOverview,
   buildSubscription,
   enrichOrdersForUser,

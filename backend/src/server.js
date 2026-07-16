@@ -9,6 +9,7 @@ const { HOST, PORT, REQUIRE_MONGO } = require("./config/env");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const { initializeQueues } = require("./services/queue");
+const communication = require("../modules/communication");
 const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
 const { migrateLegacyLocalDocumentsToMongo } = require("./services/storage");
 const { registerSocketServer } = require("./sockets");
@@ -18,6 +19,23 @@ async function startServer() {
   await connectDB();
   await connectRedis();
   await initializeQueues();
+
+  communication.configure({
+    provider: "resend",
+    providerConfig: {
+      apiKey: process.env.RESEND_API_KEY || "",
+      fromEmail: process.env.RESEND_FROM_EMAIL || ""
+    },
+    queue: {
+      enabled: Boolean(process.env.ENABLE_QUEUES) && Boolean(process.env.REDIS_URL),
+      redisUrl: process.env.REDIS_URL || ""
+    },
+    defaultFrom: process.env.RESEND_FROM_EMAIL || "",
+    supportEmail: process.env.COMMERCIAL_SUPPORT_EMAIL || "",
+    docsUrl: "",
+    brandName: process.env.COMMERCIAL_BRAND_NAME || "ManeComb",
+    legalName: process.env.COMMERCIAL_LEGAL_NAME || "ManeComb"
+  });
 
   const db = getDbState();
   const store = db.connected ? await createMongoStore() : createEmbeddedStore();

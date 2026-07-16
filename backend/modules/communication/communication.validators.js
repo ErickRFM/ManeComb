@@ -23,8 +23,11 @@ function isValidProvider(value) {
 
 function normalizePriority(value) {
   if (typeof value === "number") return value;
-  const map = { critical: PRIORITY.CRITICAL, high: PRIORITY.HIGH, normal: PRIORITY.NORMAL, low: PRIORITY.LOW };
-  return map[value] || PRIORITY.NORMAL;
+  if (value === "critical") return PRIORITY.CRITICAL;
+  if (value === "high") return PRIORITY.HIGH;
+  if (value === "normal") return PRIORITY.NORMAL;
+  if (value === "low") return PRIORITY.LOW;
+  return PRIORITY.NORMAL;
 }
 
 function validateSendEmailInput({ to, template, data }) {

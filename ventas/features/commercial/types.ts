@@ -1,7 +1,6 @@
 import type {
   CommercialPlan,
   PortalInvoice,
-  PortalPaymentMethod,
   PortalSubscription,
 } from '@/src/types/app';
 
@@ -50,7 +49,6 @@ export type CommercialActionKey =
   | 'CONTINUE_CHANGE'
   | 'REVIEW_PAYMENT'
   | 'CONTACT_SUPPORT'
-  | 'REACTIVATE'
   | 'RESOLVE_USAGE'
   | 'NONE';
 
@@ -107,12 +105,6 @@ export type CommercialChangeSummary = {
 export const COMMERCIAL_ACTIVITY_TYPES = {
   ACCOUNT_CREATED: 'ACCOUNT_CREATED',
   PLAN_CONTRACTED: 'PLAN_CONTRACTED',
-  CHANGE_REQUESTED: 'CHANGE_REQUESTED',
-  CHANGE_CONFIRMED: 'CHANGE_CONFIRMED',
-  RENEWAL: 'RENEWAL',
-  CANCELLATION: 'CANCELLATION',
-  REACTIVATION: 'REACTIVATION',
-  PAYMENT_METHOD_ADDED: 'PAYMENT_METHOD_ADDED',
   INVOICE_ISSUED: 'INVOICE_ISSUED',
 } as const;
 
@@ -134,7 +126,6 @@ export type CommercialContextSnapshot = {
   subscription: PortalSubscription | null;
   plans: CommercialPlan[];
   invoices: PortalInvoice[];
-  paymentMethods: PortalPaymentMethod[];
   organizationCreatedAt?: string | null;
 };
 
@@ -150,7 +141,6 @@ export type CommercialDashboardModel = {
   subscription: PortalSubscription | null;
   state: CommercialStatePresentation;
   currentPlan: CommercialPlanView | null;
-  defaultPaymentMethod: PortalPaymentMethod | null;
   latestInvoice: PortalInvoice | null;
   pendingInvoices: PortalInvoice[];
   totalUnits: number;

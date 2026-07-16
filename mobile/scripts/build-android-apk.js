@@ -170,10 +170,21 @@ function run(command, args, options = {}) {
 }
 
 // 1. Setup Environment with OneDrive Isolation
+const localEnv = readEnvFile('.env');
 const fileEnv = {
   ...productionDefaults,
+  // The public map credential is shared by native resources and the JS bundle.
+  ...(localEnv.MAPBOX_ACCESS_TOKEN
+    ? { MAPBOX_ACCESS_TOKEN: localEnv.MAPBOX_ACCESS_TOKEN }
+    : {}),
   ...readEnvFile('.env.production'),
 };
+
+if (!String(fileEnv.MAPBOX_ACCESS_TOKEN || '').startsWith('pk.')) {
+  throw new Error(
+    '[apk] MAPBOX_ACCESS_TOKEN publico es obligatorio para Release; sin el, MapView cierra la aplicacion.'
+  );
+}
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   ...process.env,
   ...fileEnv,

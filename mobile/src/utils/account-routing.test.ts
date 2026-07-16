@@ -6,36 +6,9 @@ import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import { getSalesPortalPathForBlockReason } from '@/src/utils/sales-portal';
 import type {
   AuthRoutingContext,
-  AuthTenantContext,
   MobileBlockReason,
-  PortalOnboarding,
-  PortalSubscription,
   User,
 } from '@/src/types/app';
-
-const tenant: AuthTenantContext = {
-  id: 'terminal-norte',
-  isOperational: true,
-  organizationId: 'terminal-norte',
-  status: 'active',
-};
-
-const activeSubscription: PortalSubscription = {
-  activeUnits: 2,
-  availableUnits: 0,
-  id: 'order-active',
-  isActive: true,
-  planId: 'starter-2',
-  planName: 'Starter',
-  status: 'active',
-  totalUnits: 2,
-  unitsLimit: 2,
-};
-
-const pendingOnboarding: PortalOnboarding = {
-  status: 'pending',
-  steps: [],
-};
 
 function user(overrides: Partial<User> = {}): User {
   return {
@@ -59,10 +32,7 @@ function authContext(overrides: Partial<AuthRoutingContext> = {}): AuthRoutingCo
     canUseOperations: true,
     destination: 'HomeOperativo',
     mobileBlockReason: null,
-    onboarding: pendingOnboarding,
     route: '/mapa',
-    subscription: activeSubscription,
-    tenant,
     ...overrides,
   };
 }
@@ -81,22 +51,6 @@ describe('resolveMobilePostLoginRoute', () => {
 
     expect(result.destination).toBe('HomeOperativo');
     expect(result.reason).toBe('active_mobile_access');
-    expect(result.route).toBe('/mapa');
-  });
-
-  it('ignora accountType, source y onboarding pendiente si canAccessMobile es true', () => {
-    const result = resolveMobilePostLoginRoute({
-      authContext: authContext({
-        source: 'sales-portal',
-        onboarding: pendingOnboarding,
-      }),
-      onboarding: pendingOnboarding,
-      subscription: activeSubscription,
-      tenant,
-      user: user({ accountType: 'company_owner', role: 'owner' }),
-    });
-
-    expect(result.destination).toBe('HomeOperativo');
     expect(result.route).toBe('/mapa');
   });
 
@@ -125,8 +79,6 @@ describe('resolveMobilePostLoginRoute', () => {
   it('acepta el contrato plano de /auth/me aunque authContext no venga anidado', () => {
     const result = resolveMobilePostLoginRoute({
       canAccessMobile: true,
-      subscription: activeSubscription,
-      tenant,
       user: user(),
     });
 
@@ -136,8 +88,6 @@ describe('resolveMobilePostLoginRoute', () => {
 
   it('no concede acceso usando plan y tenant locales sin canAccessMobile del backend', () => {
     const result = resolveMobilePostLoginRoute({
-      subscription: activeSubscription,
-      tenant,
       user: user(),
     });
 
@@ -153,8 +103,6 @@ describe('resolveMobilePostLoginRoute', () => {
         mobileBlockReason: 'inactive_plan',
       }),
       canAccessMobile: false,
-      subscription: activeSubscription,
-      tenant,
       user: user(),
     });
 

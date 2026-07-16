@@ -76,6 +76,12 @@ function hasPermission(user, permission) {
   return (ROLE_PERMISSIONS[getEffectiveRole(user)] || []).includes(permission);
 }
 
+function getRolesWithPermission(permission) {
+  return Object.entries(ROLE_PERMISSIONS)
+    .filter(([, permissions]) => permissions.includes(permission))
+    .map(([role]) => role);
+}
+
 function requireOrganization(req, res, next) {
   const organizationId = getOrganizationId(req.user);
 
@@ -92,23 +98,6 @@ function requireOrganization(req, res, next) {
   };
 
   return next();
-}
-
-function requireRole(...roles) {
-  const allowedRoles = new Set(roles.flat().filter(Boolean));
-
-  return (req, res, next) => {
-    const role = getEffectiveRole(req.user);
-
-    if (!allowedRoles.has(role)) {
-      return res.status(403).json({
-        ok: false,
-        message: "No tienes el rol necesario para acceder a este recurso"
-      });
-    }
-
-    return next();
-  };
 }
 
 function requirePermission(permission) {
@@ -141,29 +130,6 @@ function canAccessTenantResource(user, resource = {}) {
   );
 }
 
-function requireTenantAccess(resolveResource) {
-  return async (req, res, next) => {
-    const resource = await resolveResource(req);
-
-    if (!resource) {
-      return res.status(404).json({
-        ok: false,
-        message: "Recurso no encontrado"
-      });
-    }
-
-    if (!canAccessTenantResource(req.user, resource)) {
-      return res.status(403).json({
-        ok: false,
-        message: "No tienes acceso a recursos de otra organizacion"
-      });
-    }
-
-    req.tenantResource = resource;
-    return next();
-  };
-}
-
 function filterTenantList(user, items = []) {
   if (canAccessAllTenants(user)) {
     return items;
@@ -192,9 +158,8 @@ module.exports = {
   filterTenantList,
   getEffectiveRole,
   getOrganizationId,
+  getRolesWithPermission,
   hasPermission,
   requireOrganization,
-  requirePermission,
-  requireRole,
-  requireTenantAccess
+  requirePermission
 };

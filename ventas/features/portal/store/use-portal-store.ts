@@ -3,12 +3,9 @@ import { create } from 'zustand';
 import {
   cancelAccountSubscriptionRequest,
   changeAccountPlanRequest,
-  createAccountPaymentMethodRequest,
-  deleteAccountPaymentMethodRequest,
   generateAdminActivationKeyRequest,
   getAdminActivationKeysRequest,
   getAccountInvoicesRequest,
-  getAccountPaymentMethodsRequest,
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
@@ -16,8 +13,6 @@ import {
   getPortalOverviewRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
-  setDefaultAccountPaymentMethodRequest,
-  updateAccountPaymentMethodRequest,
 } from '../api';
 import type {
   PortalInvoice,
@@ -25,7 +20,6 @@ import type {
   PortalActivationKeysSummary,
   PortalOnboarding,
   PortalOverview,
-  PortalPaymentMethod,
   PortalSession,
   PortalSubscription,
 } from '../types';
@@ -35,10 +29,6 @@ type PortalActionResult = {
   message?: string;
 };
 
-type PaymentPayload = Partial<PortalPaymentMethod> & {
-  providerToken?: string;
-};
-
 type PortalStore = {
   overview: PortalOverview | null;
   onboarding: PortalOnboarding | null;
@@ -46,7 +36,6 @@ type PortalStore = {
   activationKeys: PortalActivationKey[];
   activationSummary: PortalActivationKeysSummary | null;
   invoices: PortalInvoice[];
-  paymentMethods: PortalPaymentMethod[];
   sessions: PortalSession[];
   isLoading: boolean;
   isSubmitting: boolean;
@@ -54,17 +43,12 @@ type PortalStore = {
   loadOverview: () => Promise<void>;
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
-  loadPaymentMethods: () => Promise<void>;
   loadSessions: () => Promise<void>;
   loadAll: () => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
   cancelPlan: (reason?: string) => Promise<PortalActionResult>;
-  createPaymentMethod: (payload: PaymentPayload) => Promise<PortalActionResult>;
-  updatePaymentMethod: (paymentMethodId: string, payload: PaymentPayload) => Promise<PortalActionResult>;
-  deletePaymentMethod: (paymentMethodId: string) => Promise<PortalActionResult>;
-  setDefaultPaymentMethod: (paymentMethodId: string) => Promise<PortalActionResult>;
   revokeSession: (sessionId: string) => Promise<PortalActionResult>;
   applyRealtimeEvent: (eventName: string, payload?: unknown) => void;
   reset: () => void;
@@ -78,7 +62,6 @@ const emptyPortalState = {
   activationKeys: [],
   activationSummary: null,
   invoices: [],
-  paymentMethods: [],
   sessions: [],
   isLoading: false,
   isSubmitting: false,
@@ -90,10 +73,6 @@ async function getOptionalActivationKeys() {
     keys: [],
     summary: null,
   }));
-}
-
-async function getOptionalData<T>(request: () => Promise<T>, fallback: T) {
-  return await request().catch(() => fallback);
 }
 
 function getMessage(error: unknown, fallback: string) {
@@ -115,7 +94,6 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
   activationKeys: [],
   activationSummary: null,
   invoices: [],
-  paymentMethods: [],
   sessions: [],
   isLoading: false,
   isSubmitting: false,
@@ -166,15 +144,6 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       set({ error: getMessage(error, 'No fue posible cargar facturacion.'), isLoading: false });
     }
   },
-  loadPaymentMethods: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const paymentMethods = await getAccountPaymentMethodsRequest();
-      set({ paymentMethods, isLoading: false });
-    } catch (error) {
-      set({ error: getMessage(error, 'No fue posible cargar metodos de pago.'), isLoading: false });
-    }
-  },
   loadSessions: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -187,15 +156,14 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
   loadAll: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [overview, subscription, onboarding, activationKeysResponse, invoices, paymentMethods, sessions] =
+      const [overview, subscription, onboarding, activationKeysResponse, invoices, sessions] =
         await Promise.all([
           getPortalOverviewRequest(),
           getAccountSubscriptionRequest(),
           getPortalOnboardingRequest(),
           getOptionalActivationKeys(),
-          getOptionalData(getAccountInvoicesRequest, []),
-          getOptionalData(getAccountPaymentMethodsRequest, []),
-          getOptionalData(getAccountSessionsRequest, []),
+          getAccountInvoicesRequest(),
+          getAccountSessionsRequest(),
         ]);
 
       set({
@@ -205,7 +173,6 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
         activationKeys: activationKeysResponse.keys,
         activationSummary: activationKeysResponse.summary,
         invoices,
-        paymentMethods,
         sessions,
         isLoading: false,
       });
@@ -269,54 +236,6 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       return { ok: true };
     } catch (error) {
       const message = getMessage(error, 'No fue posible cancelar el plan.');
-      set({ error: message, isSubmitting: false });
-      return { ok: false, message };
-    }
-  },
-  createPaymentMethod: async (payload) => {
-    set({ isSubmitting: true, error: null });
-    try {
-      const paymentMethods = await createAccountPaymentMethodRequest(payload);
-      set({ paymentMethods, isSubmitting: false });
-      return { ok: true };
-    } catch (error) {
-      const message = getMessage(error, 'No fue posible agregar la tarjeta.');
-      set({ error: message, isSubmitting: false });
-      return { ok: false, message };
-    }
-  },
-  updatePaymentMethod: async (paymentMethodId, payload) => {
-    set({ isSubmitting: true, error: null });
-    try {
-      const paymentMethods = await updateAccountPaymentMethodRequest(paymentMethodId, payload);
-      set({ paymentMethods, isSubmitting: false });
-      return { ok: true };
-    } catch (error) {
-      const message = getMessage(error, 'No fue posible actualizar la tarjeta.');
-      set({ error: message, isSubmitting: false });
-      return { ok: false, message };
-    }
-  },
-  deletePaymentMethod: async (paymentMethodId) => {
-    set({ isSubmitting: true, error: null });
-    try {
-      const paymentMethods = await deleteAccountPaymentMethodRequest(paymentMethodId);
-      set({ paymentMethods, isSubmitting: false });
-      return { ok: true };
-    } catch (error) {
-      const message = getMessage(error, 'No fue posible eliminar la tarjeta.');
-      set({ error: message, isSubmitting: false });
-      return { ok: false, message };
-    }
-  },
-  setDefaultPaymentMethod: async (paymentMethodId) => {
-    set({ isSubmitting: true, error: null });
-    try {
-      const paymentMethods = await setDefaultAccountPaymentMethodRequest(paymentMethodId);
-      set({ paymentMethods, isSubmitting: false });
-      return { ok: true };
-    } catch (error) {
-      const message = getMessage(error, 'No fue posible marcar el metodo principal.');
       set({ error: message, isSubmitting: false });
       return { ok: false, message };
     }

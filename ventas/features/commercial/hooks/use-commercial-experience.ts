@@ -14,14 +14,17 @@ function useCommercialRuntime() {
   const [runtime] = useState(() => createCommercialService());
   const [plans, setPlans] = useState<CommercialPlan[]>([]);
   const [plansLoaded, setPlansLoaded] = useState(false);
-  const { invoices, isLoading, loadAll, onboarding, overview, paymentMethods, subscription } = usePortalStore(
+  const [plansError, setPlansError] = useState<string | null>(null);
+  const { cancelPlan, changePlan, invoices, isLoading, isSubmitting, loadAll, onboarding, overview, subscription } = usePortalStore(
     useShallow((state) => ({
+      cancelPlan: state.cancelPlan,
+      changePlan: state.changePlan,
       invoices: state.invoices,
       isLoading: state.isLoading,
+      isSubmitting: state.isSubmitting,
       loadAll: state.loadAll,
       onboarding: state.onboarding,
       overview: state.overview,
-      paymentMethods: state.paymentMethods,
       subscription: state.subscription,
     }))
   );
@@ -31,49 +34,50 @@ function useCommercialRuntime() {
       subscription: subscription || overview?.subscription || null,
       plans,
       invoices,
-      paymentMethods,
       organizationCreatedAt: null,
     });
-  }, [invoices, overview?.subscription, paymentMethods, plans, runtime, subscription]);
+  }, [invoices, overview?.subscription, plans, runtime, subscription]);
 
   useEffect(() => {
     if (!overview && !isLoading) void loadAll();
   }, [isLoading, loadAll, overview]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    void getCommercialPlansRequest()
-      .then((nextPlans) => {
-        if (mounted) setPlans(Array.isArray(nextPlans) ? nextPlans : []);
-      })
-      .catch(() => {
-        if (mounted) setPlans([]);
-      })
-      .finally(() => {
-        if (mounted) setPlansLoaded(true);
-      });
-
-    return () => {
-      mounted = false;
-    };
+  const reloadPlans = useCallback(async () => {
+    setPlansLoaded(false);
+    setPlansError(null);
+    try {
+      setPlans(await getCommercialPlansRequest());
+    } catch {
+      setPlansError('No pudimos cargar los planes. Revisa tu conexión e intenta nuevamente.');
+    } finally {
+      setPlansLoaded(true);
+    }
   }, []);
+
+  useEffect(() => {
+    void reloadPlans();
+  }, [reloadPlans]);
 
   return {
     activationComplete: (onboarding?.status || overview?.onboarding.status) === 'completed',
+    cancelPlan,
+    changePlan,
     isLoading: isLoading || !plansLoaded,
+    isSubmitting,
+    plansError,
     reload: loadAll,
+    reloadPlans,
     runtime,
     synchronize,
   };
 }
 
 export function useCommercialExperience() {
-  const { isLoading, runtime, synchronize } = useCommercialRuntime();
+  const { cancelPlan, changePlan, isLoading, isSubmitting, plansError, reload, reloadPlans, runtime, synchronize } = useCommercialRuntime();
   const [workspace, setWorkspace] = useState<CommercialWorkspace | null>(null);
   const [comparison, setComparison] = useState<CommercialChangeSummary | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [readyForNextStep, setReadyForNextStep] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     await synchronize();
@@ -86,25 +90,48 @@ export function useCommercialExperience() {
 
   const selectPlan = useCallback(async (planId: string) => {
     setSelectedPlanId(planId);
-    setReadyForNextStep(false);
+    setActionMessage(null);
     setComparison(await runtime.service.evaluateChange(planId));
   }, [runtime.service]);
 
   const continuePreview = useCallback(async () => {
     if (!selectedPlanId || !comparison?.validation.allowed) return;
-    setReadyForNextStep(true);
-    setWorkspace(await runtime.service.getWorkspace());
-  }, [comparison?.validation.allowed, runtime.service, selectedPlanId]);
+    const result = await changePlan(selectedPlanId);
+    if (!result.ok) {
+      setActionMessage(result.message || 'No fue posible cambiar el plan.');
+      return;
+    }
+    setActionMessage('El plan se actualizó correctamente.');
+    setSelectedPlanId(null);
+    setComparison(null);
+    await reload();
+  }, [changePlan, comparison?.validation.allowed, reload, selectedPlanId]);
 
   const clearSelection = useCallback(() => {
     setSelectedPlanId(null);
     setComparison(null);
-    setReadyForNextStep(false);
+    setActionMessage(null);
   }, []);
+
+  const cancelSubscription = useCallback(async () => {
+    const result = await cancelPlan();
+    if (!result.ok) {
+      setActionMessage(result.message || 'No fue posible cancelar la suscripción.');
+      return false;
+    }
+    setActionMessage('La suscripción se canceló correctamente.');
+    setSelectedPlanId(null);
+    setComparison(null);
+    await reload();
+    return true;
+  }, [cancelPlan, reload]);
 
   const comparisonAction = comparison ? (() => {
     if (comparison.validation.allowed) {
       return { kind: 'continue' as const, label: comparison.validation.actionLabel, href: null };
+    }
+    if (comparison.validation.code === 'NO_ACTIVE_SUBSCRIPTION') {
+      return { kind: 'checkout' as const, label: 'Contratar plan', href: null };
     }
     if (comparison.validation.action === 'REVIEW_PAYMENT') {
       return { kind: 'navigate' as const, label: comparison.validation.actionLabel, href: '/portal/pagos' as const };
@@ -116,6 +143,9 @@ export function useCommercialExperience() {
         href: '/portal/perfil?section=soporte' as const,
       };
     }
+    if (comparison.validation.action === 'RESOLVE_USAGE') {
+      return { kind: 'navigate' as const, label: comparison.validation.actionLabel, href: '/portal/unidades' as const };
+    }
     if (comparison.validation.action === 'COMPARE_PLAN') {
       return { kind: 'select' as const, label: comparison.validation.actionLabel, href: null };
     }
@@ -123,12 +153,16 @@ export function useCommercialExperience() {
   })() : null;
 
   return {
+    actionMessage,
+    cancelSubscription,
     clearSelection,
     comparison,
     comparisonAction,
     continuePreview,
     isLoading: isLoading || !workspace,
-    readyForNextStep,
+    isSubmitting,
+    plansError,
+    reloadPlans,
     selectPlan,
     selectedPlanId,
     workspace,

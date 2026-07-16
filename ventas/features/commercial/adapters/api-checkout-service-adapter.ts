@@ -44,7 +44,9 @@ function resolveResultStatus(response: LegacyCheckoutResponse) {
 
 export class ApiCheckoutServiceAdapter implements CheckoutService {
   async listPlans() {
-    const plans = await getCommercialPlansRequest().catch(() => []);
+    // Un fallo de transporte no equivale a un catalogo vacio. El consumidor
+    // necesita distinguir ambos estados para no informar que no existen planes.
+    const plans = await getCommercialPlansRequest();
     return plans.map((plan) => ({ ...plan }));
   }
 

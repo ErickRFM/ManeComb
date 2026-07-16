@@ -27,7 +27,6 @@ export interface SubscriptionRepository {
 
 export interface CommercialTimelineRepository {
   replace(events: CommercialActivity[]): Promise<void>;
-  append(event: CommercialActivity): Promise<void>;
   list(): Promise<CommercialActivity[]>;
 }
 

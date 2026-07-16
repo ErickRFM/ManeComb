@@ -56,9 +56,11 @@ export function useCheckoutExperience({
 
   const submit = useCallback(async ({
     method,
+    selectedAddOns = [],
     testCard,
   }: {
     method: Exclude<CheckoutPaymentMethod, 'trial'>;
+    selectedAddOns?: string[];
     testCard: TestCardInput;
   }) => {
     if (!selectedPlan || !user) return null;
@@ -81,7 +83,7 @@ export function useCheckoutExperience({
       planId: selectedPlan.id,
       paymentMethod: requestTrial ? 'trial' : method,
       requestTrial,
-      selectedAddOns: [],
+      selectedAddOns,
     });
     setResult(nextResult);
     setMessage(nextResult.message);
@@ -115,12 +117,27 @@ export function usePublicCommercialFlow({
 }) {
   const [service] = useState(() => createCheckoutService());
   const [plans, setPlans] = useState<CommercialPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<PaymentReturnConfirmation>({ status: 'idle' });
   const lastConfirmation = useRef<string | null>(null);
 
-  useEffect(() => {
-    void service.listPlans().then(setPlans);
+  const loadPlans = useCallback(async () => {
+    setPlansLoading(true);
+    setPlansError(null);
+
+    try {
+      setPlans(await service.listPlans());
+    } catch {
+      setPlansError('No pudimos cargar los planes. Revisa tu conexion e intenta nuevamente.');
+    } finally {
+      setPlansLoading(false);
+    }
   }, [service]);
+
+  useEffect(() => {
+    void loadPlans();
+  }, [loadPlans]);
 
   useEffect(() => {
     const cleanPaymentId = String(paymentId || '').trim();
@@ -139,5 +156,5 @@ export function usePublicCommercialFlow({
       });
   }, [externalReference, paymentId, service]);
 
-  return { confirmation, plans };
+  return { confirmation, loadPlans, plans, plansError, plansLoading };
 }

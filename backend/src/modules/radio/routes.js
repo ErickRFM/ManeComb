@@ -1,7 +1,6 @@
 const { Router } = require("express");
 const multer = require("multer");
 const { authenticate } = require("../../middlewares/authenticate");
-const { getOrganizationId } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { transcribeAudioBuffer } = require("../../services/audio-transcription");
 const { streamChatMediaAsset, uploadChatAudioAsset } = require("../../services/chat-media");
@@ -33,13 +32,6 @@ function emitRadioMessage(req, conversation, message) {
       message
     });
 
-  const organizationId = getOrganizationId(req.user);
-
-  if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("conversation:updated", {
-      conversationId
-    });
-  }
 }
 
 async function getAccessibleRadioConversation(req, channelId) {

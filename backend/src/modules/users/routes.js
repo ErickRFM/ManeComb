@@ -102,7 +102,9 @@ router.patch("/me", authenticate, async (req, res) => {
   }
 });
 
-router.get("/", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res) => {
+// Directory access is read-only for operational supervisors. Mutations remain
+// protected by canManageUsers below.
+router.get("/", authenticate, requireOrganization, requirePermission("canViewAnalytics"), async (req, res) => {
   return res.json({
     ok: true,
     data: await req.app.locals.store.listUsers(req.user)

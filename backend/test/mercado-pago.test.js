@@ -277,7 +277,8 @@ async function createCheckout(context, owner) {
       email: owner.email,
       paymentMethod: "card",
       phone: "+52 55 2000 0000",
-      planId: "starter-2"
+      planId: "starter-2",
+      selectedAddOns: ["radio_dispatch"]
     }),
     headers: {
       Authorization: `Bearer ${owner.token}`
@@ -311,6 +312,10 @@ async function testCheckoutUrlsByEnvironment() {
           "https://sandbox.mercadopago.com.mx/checkout/v1/redirect?pref_id=sandbox"
         );
         assert.equal(mp.preferencePayload.metadata.order_id, mp.preferencePayload.external_reference);
+        assert.equal(mp.preferencePayload.metadata.plan_id, "starter-2");
+        assert.equal(mp.preferencePayload.items[0].id, "starter-2");
+        assert.equal(mp.preferencePayload.items[0].unit_price, 169);
+        assert.equal(checkout.payload.data.totalPrice, 169);
         assert.equal(Object.prototype.hasOwnProperty.call(mp.preferencePayload, "payer"), false);
       } finally {
         mp.restore();
@@ -536,6 +541,30 @@ async function testPaymentProviderTestActivatesWithoutMercadoPago() {
         assert.equal(session.payload.canAccessMobile, true);
         assert.equal(session.payload.subscription.status, "active");
         assert.equal(session.payload.tenant.status, "active");
+
+        const changed = await requestJson(`${context.url}/account/subscription/plan`, {
+          body: JSON.stringify({ planId: "control-6", selectedAddOns: ["radio_dispatch"] }),
+          headers: { Authorization: `Bearer ${owner.token}` },
+          method: "PATCH"
+        });
+        assert.equal(changed.status, 200);
+        assert.equal(changed.payload.data.planId, "control-6");
+        assert.equal(changed.payload.data.monthlyPrice, 319);
+
+        const cancelled = await requestJson(`${context.url}/account/subscription/cancel`, {
+          body: JSON.stringify({ reason: "commercial-flow-test" }),
+          headers: { Authorization: `Bearer ${owner.token}` },
+          method: "POST"
+        });
+        assert.equal(cancelled.status, 200);
+        assert.equal(cancelled.payload.data.status, "cancelled");
+
+        const changeAfterCancellation = await requestJson(`${context.url}/account/subscription/plan`, {
+          body: JSON.stringify({ planId: "premium-8" }),
+          headers: { Authorization: `Bearer ${owner.token}` },
+          method: "PATCH"
+        });
+        assert.equal(changeAfterCancellation.status, 409);
       } finally {
         mp.restore();
         await context.close();

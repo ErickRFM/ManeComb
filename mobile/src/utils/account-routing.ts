@@ -1,32 +1,24 @@
 import type {
   AuthRoutingContext,
-  AuthTenantContext,
   MobileBlockReason,
-  PortalOnboarding,
-  PortalSubscription,
   PostLoginDestination,
   User,
 } from '@/src/types/app';
 
 type RouteUser = Pick<User, 'id'> | null | undefined;
 
-export type PostLoginResolution = {
-  destination: PostLoginDestination;
-  reason: MobileBlockReason | 'active_mobile_access' | 'missing_user';
-  route: string;
-};
-
-export type MobileRouteBlockReason = MobileBlockReason;
-
-export type MobilePostLoginSession = {
+type MobilePostLoginSession = {
   authContext?: AuthRoutingContext | null;
   canAccessMobile?: boolean | null;
   error?: unknown;
   mobileBlockReason?: MobileBlockReason | null;
-  onboarding?: Partial<PortalOnboarding> | null;
-  subscription?: Partial<PortalSubscription> | null;
-  tenant?: Partial<AuthTenantContext> | null;
   user?: RouteUser;
+};
+
+export type PostLoginResolution = {
+  destination: PostLoginDestination;
+  reason: MobileBlockReason | 'active_mobile_access' | 'missing_user';
+  route: string;
 };
 
 function normalizeBlockReason(value: unknown): MobileBlockReason {
@@ -79,23 +71,6 @@ export function resolveMobilePostLoginRoute(
     reason: 'sync_error',
     route: '/sync-error',
   };
-}
-
-export function resolvePostLoginRoute(
-  user: RouteUser,
-  subscription?: Partial<PortalSubscription> | null,
-  tenant?: Partial<AuthTenantContext> | null,
-  onboarding?: Partial<PortalOnboarding> | null,
-  options: { authContext?: AuthRoutingContext | null; canAccessMobile?: boolean | null } = {}
-): PostLoginResolution {
-  return resolveMobilePostLoginRoute({
-    authContext: options.authContext,
-    canAccessMobile: options.canAccessMobile,
-    onboarding,
-    subscription,
-    tenant,
-    user,
-  });
 }
 
 export function getAuthenticatedHome(

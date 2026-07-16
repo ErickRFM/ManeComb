@@ -924,14 +924,33 @@ function registerSocketServer(server, store) {
       acknowledge(ack, { ok: true });
     });
 
-    socket.on("chat:typing", ({ conversationId, userId, userName } = {}) => {
-      if (!conversationId || !userId) return;
-      socket.to(`conversation:${conversationId}`).emit("chat:typing", { conversationId, userId, userName });
+    socket.on("chat:typing", async ({ conversationId } = {}) => {
+      const authenticatedUser = socket.data.user;
+      if (
+        !conversationId ||
+        !(await canUseOperations(socket)) ||
+        !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId)) ||
+        !socket.rooms.has(`conversation:${conversationId}`)
+      ) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:typing", {
+        conversationId,
+        userId: authenticatedUser.id,
+        userName: authenticatedUser.name
+      });
     });
 
-    socket.on("chat:typing:stop", ({ conversationId, userId } = {}) => {
-      if (!conversationId || !userId) return;
-      socket.to(`conversation:${conversationId}`).emit("chat:typing:stop", { conversationId, userId });
+    socket.on("chat:typing:stop", async ({ conversationId } = {}) => {
+      const authenticatedUser = socket.data.user;
+      if (
+        !conversationId ||
+        !(await canUseOperations(socket)) ||
+        !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId)) ||
+        !socket.rooms.has(`conversation:${conversationId}`)
+      ) return;
+      socket.to(`conversation:${conversationId}`).emit("chat:typing:stop", {
+        conversationId,
+        userId: authenticatedUser.id
+      });
     });
 
     socket.on("chat:delivered", async ({ conversationId, messageId } = {}, ack) => {
@@ -1054,7 +1073,11 @@ function registerSocketServer(server, store) {
         const organizationId = String(vehicle.organizationId || "").trim();
 
         if (organizationId) {
-          io.to(`org:${organizationId}`).emit("location:updated", update);
+          ["owner", "admin", "dispatcher", "supervisor", "billing_manager", "support", "viewer"].forEach((role) => {
+            io.to(`org:${organizationId}:role:${role}`).emit("location:updated", update);
+          });
+          if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", update);
+          io.to("platform:admin").emit("location:updated", update);
           return;
         }
 

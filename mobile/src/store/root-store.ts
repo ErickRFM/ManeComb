@@ -73,7 +73,6 @@ import {
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
 import { stopBackgroundLocationServiceAsync } from '@/src/native/background-location';
-import { usePortalStore } from '@/src/store/portal-store-bridge';
 import type {
   ChatMessage,
   ChatDirectoryContact,
@@ -306,7 +305,6 @@ function getEmptyOperationalState(): Partial<AppState> {
 
 async function clearTenantCache() {
   await clearOfflineCache().catch(() => undefined);
-  usePortalStore.getState().reset();
 }
 
 async function clearSessionState(set: StoreSet, error: string | null = null) {
@@ -1302,8 +1300,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     'onboarding:updated',
     'activation-keys:updated',
   ].forEach((eventName) => {
-    socket?.on(eventName, (payload) => {
-      usePortalStore.getState().applyRealtimeEvent(eventName, payload);
+    socket?.on(eventName, (_payload) => {
       if (eventName === 'users:invited' || eventName === 'user:first-login') {
         get().loadUsers();
       }
@@ -1690,7 +1687,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await Promise.allSettled([
         getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
-        user.role === 'admin' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
+        user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);

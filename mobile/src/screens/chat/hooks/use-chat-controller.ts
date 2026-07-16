@@ -24,8 +24,6 @@ import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getPresenceStatus } from '@/src/utils/presence';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
-import { CHAT_RTC_ENABLED } from '../chat-features';
-
 type CloseActiveCallOptions = {
   reason?: string | null;
 };
@@ -53,8 +51,6 @@ export function useChatController() {
     markAsRead,
     emitTyping,
     typingByConversation,
-    networkStatus,
-    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -76,8 +72,6 @@ export function useChatController() {
       markAsRead: state.markAsRead,
       emitTyping: state.emitTyping,
       typingByConversation: state.typingByConversation,
-      networkStatus: state.networkStatus,
-      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -116,7 +110,7 @@ export function useChatController() {
   );
 
   useEffect(() => {
-    if (!CHAT_RTC_ENABLED || Platform.OS !== 'web' || !user) return;
+    if (Platform.OS !== 'web' || !user) return;
 
     const socket = io(SOCKET_URL, {
       auth: token ? { token } : undefined,
@@ -577,20 +571,8 @@ export function useChatController() {
   const canSendText =
     Boolean(activeConversation && draft.trim()) && recordingState === 'idle' && !isSubmitting;
   const canRecord = recordingState !== 'uploading' && supportsMicrophoneCapture;
-  const supportsRtcCalls =
-    CHAT_RTC_ENABLED &&
-    Platform.OS === 'web' &&
-    typeof globalThis !== 'undefined' &&
-    Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
-    typeof (globalThis as any).RTCPeerConnection !== 'undefined';
-  const remoteParticipants = useMemo(
-    () => callParticipants.filter((participant) => participant.socketId !== socketRef.current?.id),
-    [callParticipants]
-  );
-  const leadRemoteParticipant = remoteParticipants[0] || activeContact || null;
   const activeCallSession =
     activeConversation && callSession?.roomId === activeConversation.id ? callSession : null;
-  const canStartRealtimeCall = Boolean(activeConversation) && supportsRtcCalls;
   const callStatusLabel = activeCallSession
     ? activeCallSession.phase === 'connected'
       ? 'En llamada'
@@ -606,7 +588,6 @@ export function useChatController() {
       : activeCallSession?.phase === 'connecting' || activeCallSession?.phase === 'reconnecting'
         ? 'warning'
         : 'neutral';
-  const activeConversationCallMode = activeCallSession?.mode ?? null;
   const sortedOperationalContacts = useMemo(
     () =>
       (chatContacts || []).slice().sort((left, right) => {
@@ -836,49 +817,6 @@ export function useChatController() {
     localStreamRef.current = null;
   };
 
-  const ensureLocalCallStream = async (mode: CallMode) => {
-    if (Platform.OS !== 'web') {
-      setCallNotice('Las llamadas en vivo estan disponibles en la version web.');
-      return null;
-    }
-
-    const mediaDevices = (globalThis as any).navigator?.mediaDevices;
-
-    if (!mediaDevices?.getUserMedia) {
-      setCallNotice('Este navegador no soporta llamadas en vivo.');
-      return null;
-    }
-
-    const needsVideo = mode === 'video';
-    const currentStream = localStreamRef.current;
-    const currentHasVideo = Boolean(currentStream?.getVideoTracks().length);
-
-    if (currentStream && currentHasVideo === needsVideo) {
-      currentCallModeRef.current = mode;
-      setIsCameraEnabled(currentHasVideo);
-      setIsCallMuted(false);
-      currentStream.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      currentStream.getVideoTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      return currentStream;
-    }
-
-    stopLocalCallTracks();
-    const stream = await mediaDevices.getUserMedia({
-      audio: true,
-      video: needsVideo ? { facingMode: 'user' } : false,
-    });
-
-    localStreamRef.current = stream;
-    currentCallModeRef.current = mode;
-    setIsCallMuted(false);
-    setIsCameraEnabled(needsVideo);
-    return stream;
-  };
-
   const closeActiveCall = async (
     options: CloseActiveCallOptions = {}
   ) => {
@@ -907,138 +845,6 @@ export function useChatController() {
     }
   };
 
-  const handleStartCall = async (mode: CallMode) => {
-    if (!activeConversation || isStartingCallRef.current) {
-      return;
-    }
-
-    if (activeConversation.kind !== 'direct') {
-      setCallNotice('Las llamadas estan disponibles solo en conversaciones privadas.');
-      return;
-    }
-
-    if (!supportsRtcCalls) {
-      setCallNotice(
-        Platform.OS === 'web'
-          ? 'Este navegador no soporta llamadas en vivo.'
-          : 'Llamadas proximamente en Android. Esta funcion necesita WebRTC nativo.'
-      );
-      return;
-    }
-
-    if (
-      callSession &&
-      callSession.roomId === activeConversation.id &&
-      callSession.mode === mode
-    ) {
-      setCallNotice(
-        mode === 'video'
-          ? 'La videollamada ya esta abierta en este chat.'
-          : 'La llamada ya esta abierta en este chat.'
-      );
-      return;
-    }
-
-    if (callSession) {
-      await closeActiveCall();
-    }
-
-    const callAttempt = ++callAttemptRef.current;
-
-    try {
-      isStartingCallRef.current = true;
-      setCallNotice(
-        mode === 'video'
-          ? 'Preparando camara y microfono...'
-          : 'Preparando cabina de voz...'
-      );
-
-      const localStream = await ensureLocalCallStream(mode);
-
-      if (callAttemptRef.current !== callAttempt) {
-        localStream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-        return;
-      }
-
-      if (!localStream || !socketRef.current?.connected) {
-        stopLocalCallTracks();
-        setCallNotice('No hay conexion disponible para iniciar la llamada.');
-        return;
-      }
-
-      const joinedAt = Date.now();
-      joinedRtcRoomRef.current = activeConversation.id;
-      currentCallModeRef.current = mode;
-      setCallParticipants([]);
-      setCallSession({
-        roomId: activeConversation.id,
-        mode,
-        phase: 'waiting',
-        joinedAt,
-        remoteStream: null,
-        remoteSocketId: null,
-      });
-      const joinResult = await new Promise<{ ok: boolean; reason?: string }>((resolve) => {
-        const timeoutId = setTimeout(() => resolve({ ok: false, reason: 'timeout' }), 8000);
-        socketRef.current?.emit(
-          'rtc:join',
-          { roomId: activeConversation.id },
-          (result: { ok: boolean; reason?: string }) => {
-            clearTimeout(timeoutId);
-            resolve(result);
-          }
-        );
-      });
-
-      if (callAttemptRef.current !== callAttempt) {
-        return;
-      }
-
-      if (!joinResult.ok) {
-        await closeActiveCall();
-        setCallNotice(
-          joinResult.reason === 'busy'
-            ? 'La llamada esta ocupada.'
-            : 'No fue posible conectar la llamada.'
-        );
-        return;
-      }
-
-      const recentCallAnnouncement = activeMessages
-        .slice(-4)
-        .some((message) =>
-          /videollamada|llamada de voz|llamada en este chat/.test(
-            `${message.text || ''} ${message.textPreview || ''}`.toLowerCase()
-          )
-        );
-
-      if (!recentCallAnnouncement) {
-        await sendMessage(
-          activeConversation.id,
-          mode === 'video'
-            ? 'Inicie una videollamada en este chat. Usa el panel de cabina para unirte.'
-            : 'Inicie una llamada de voz en este chat. Usa el panel de cabina para unirte.'
-        );
-      }
-
-      setCallNotice(
-        mode === 'video'
-          ? 'Videollamada lista. Cuando alguien se una, aparecera aqui.'
-          : 'Llamada lista. Cuando alguien se una, aparecera aqui.'
-      );
-    } catch (error) {
-      await closeActiveCall();
-      setCallNotice(
-        error instanceof Error
-          ? error.message
-          : 'No fue posible iniciar la llamada en este momento.'
-      );
-    } finally {
-      if (callAttemptRef.current === callAttempt) {
-        isStartingCallRef.current = false;
-      }
-    }
-  };
   closeActiveCallRef.current = closeActiveCall;
 
   const toggleCallMute = () => {
@@ -1345,7 +1151,6 @@ export function useChatController() {
     activeCallSession,
     activeContact,
     activeConversation,
-    activeConversationCallMode,
     activeMessageItems,
     attachmentMenuOpen,
     attachmentMenuMode,
@@ -1357,7 +1162,6 @@ export function useChatController() {
     callTone,
     canRecord,
     canSendText,
-    canStartRealtimeCall,
     closeActiveCall,
     composerPlaceholder,
     conversationFilterCounts,
@@ -1376,7 +1180,6 @@ export function useChatController() {
     handleSelectConversation,
     handleRetryTextMessage,
     handleSendText,
-    handleStartCall,
     handleVoiceAction,
     isCallMuted,
     isCameraEnabled,
@@ -1385,7 +1188,6 @@ export function useChatController() {
     isNearMessagesBottomRef,
     isPhone,
     isSubmitting,
-    leadRemoteParticipant,
     localStreamRef,
     markAsRead,
     emitTyping,
@@ -1396,7 +1198,6 @@ export function useChatController() {
     presenceByUser,
     recordingState,
     recorderMessage,
-    remoteParticipants,
     scrollMessagesToEnd,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,
@@ -1411,8 +1212,6 @@ export function useChatController() {
     theme,
     toggleCallMute,
     toggleCamera,
-    networkStatus,
-    socketStatus,
     token,
     user,
   };

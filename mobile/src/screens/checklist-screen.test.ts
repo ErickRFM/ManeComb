@@ -46,6 +46,7 @@ jest.mock('@/src/navigation/router', () => ({
     replace: jest.fn(),
     back: jest.fn(),
   },
+  Redirect: () => null,
   useLocalSearchParams: () => ({}),
   usePathname: () => '/checklist',
 }));
@@ -56,12 +57,8 @@ jest.mock('@/src/api/client', () => {
   return {
     ...actual,
     assignVehicleRouteRequest: jest.fn(),
-    clearAssignedVehicleRouteRequest: jest.fn(),
     getActiveRouteSessionRequest: jest.fn(() => Promise.resolve(null)),
     getRouteSessionHistoryRequest: jest.fn(() => Promise.resolve([])),
-    getRouteSessionMetricsRequest: jest.fn(),
-    getRouteSessionEventsRequest: jest.fn(() => Promise.resolve([])),
-    getRouteSessionCheckpointVisitsRequest: jest.fn(() => Promise.resolve([])),
     startRouteSessionRequest: jest.fn(),
     updateRouteSessionStatusRequest: jest.fn(),
     getNavigationTripLogsRequest: jest.fn(() => Promise.resolve({ logs: [] })),

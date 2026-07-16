@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 import { router } from '@/src/navigation/router';
 import type { PortalSubscription } from '@/src/types/app';
@@ -62,7 +64,7 @@ function CurrentPlanOverview({
         <PlanFact label="Unidades incluidas" value={String(totalUnits)} />
         <PlanFact label="Unidades utilizadas" value={`${activeUnits} de ${totalUnits}`} />
         <PlanFact
-          label="Próxima renovación"
+          label="Fin del periodo"
           value={formatDate(subscription.currentPeriodEnd, { fallback: 'Por confirmar' })}
         />
       </View>
@@ -161,23 +163,23 @@ function ChangePreview({
   action,
   compact,
   comparison,
-  ready,
+  isSubmitting,
   onClose,
   onPrimary,
 }: {
   action: {
-    kind: 'continue' | 'navigate' | 'select' | 'disabled';
+    kind: 'continue' | 'checkout' | 'navigate' | 'select' | 'disabled';
     label: string;
-    href: '/portal/pagos' | '/portal/perfil?section=soporte' | null;
+    href: '/portal/pagos' | '/portal/perfil?section=soporte' | '/portal/unidades' | null;
   };
   compact: boolean;
   comparison: CommercialChangeSummary;
-  ready: boolean;
+  isSubmitting: boolean;
   onClose: () => void;
   onPrimary: () => void;
 }) {
   const { currentPlan, targetPlan, unitsDelta, priceDelta, validation } = comparison;
-  const actionDisabled = action.kind === 'disabled' || ready;
+  const actionDisabled = action.kind === 'disabled' || isSubmitting;
 
   return (
     <PortalSectionCard
@@ -254,18 +256,6 @@ function ChangePreview({
         </View>
       </View>
 
-      {ready ? (
-        <View style={styles.comingSoonNotice}>
-          <MaterialCommunityIcons name="clock-outline" size={20} color={portalPalette.info} />
-          <View style={styles.comingSoonCopy}>
-            <Text style={styles.comingSoonTitle}>Confirmación disponible próximamente</Text>
-            <Text style={styles.comingSoonText}>
-              En el siguiente paso podrás revisar el importe final y confirmar el cambio. Tu plan actual permanece igual.
-            </Text>
-          </View>
-        </View>
-      ) : null}
-
       <View style={[styles.previewActions, compact ? styles.previewActionsCompact : undefined]}>
         <Pressable
           accessibilityRole="button"
@@ -275,7 +265,7 @@ function ChangePreview({
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={ready ? 'Confirmación disponible próximamente' : action.label}
+          accessibilityLabel={isSubmitting ? 'Aplicando cambio de plan' : action.label}
           accessibilityState={{ disabled: actionDisabled }}
           disabled={actionDisabled}
           onPress={onPrimary}
@@ -285,9 +275,9 @@ function ChangePreview({
             compact ? styles.fullWidthButton : undefined,
             actionDisabled ? styles.disabledButton : undefined,
           ]}>
-          <Text style={styles.continueButtonText}>{ready ? 'Próximamente' : action.label}</Text>
+          <Text style={styles.continueButtonText}>{isSubmitting ? 'Aplicando...' : action.label}</Text>
           <MaterialCommunityIcons
-            name={ready || action.kind === 'disabled' ? 'clock-outline' : 'arrow-right'}
+            name={isSubmitting ? 'progress-clock' : action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
             size={18}
             color="#FFFFFF"
           />
@@ -343,20 +333,26 @@ export function PortalPlanScreen() {
   const { width } = useWindowDimensions();
   const compact = width < 720;
   const {
+    actionMessage,
+    cancelSubscription,
     clearSelection,
     comparison,
     comparisonAction,
     continuePreview,
     isLoading,
-    readyForNextStep,
+    isSubmitting,
+    plansError,
+    reloadPlans,
     selectPlan,
     selectedPlanId,
     workspace,
   } = useCommercialExperience();
+  const [cancelOpen, setCancelOpen] = useState(false);
   const plans = workspace?.plans || [];
   const subscription = workspace?.subscription || null;
   const currentPlan = workspace?.currentPlan || null;
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
+  const canCancel = workspace?.state.state === 'ACTIVE' || workspace?.state.state === 'TRIAL';
 
   const runPrimaryAction = () => {
     if (!comparisonAction) return;
@@ -368,6 +364,10 @@ export function PortalPlanScreen() {
       router.push(comparisonAction.href as never);
       return;
     }
+    if (comparisonAction.kind === 'checkout' && selectedPlan) {
+      router.push({ pathname: '/ventas/pago', params: { planId: selectedPlan.id } } as never);
+      return;
+    }
     if (comparisonAction.kind === 'select') clearSelection();
   };
 
@@ -375,7 +375,18 @@ export function PortalPlanScreen() {
     <PortalLayout title="Mi plan" subtitle="Conoce tu cobertura actual y compara opciones antes de tomar una decisión.">
       <PortalSectionCard title="Tu suscripción" subtitle="La información esencial de tu plan, sin cargos ni cambios ocultos.">
         {workspace ? (
-          <CurrentPlanOverview currentPlan={currentPlan} state={workspace.state} subscription={subscription} />
+          <View style={styles.subscriptionContent}>
+            <CurrentPlanOverview currentPlan={currentPlan} state={workspace.state} subscription={subscription} />
+            {canCancel ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setCancelOpen(true)}
+                style={styles.cancelSubscriptionButton}>
+                <MaterialCommunityIcons name="close-circle-outline" size={18} color={portalPalette.danger} />
+                <Text style={styles.cancelSubscriptionText}>Cancelar suscripción</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : (
           <View style={styles.currentPlanCard}>
             <SkeletonBlock height={22} width="35%" />
@@ -386,6 +397,12 @@ export function PortalPlanScreen() {
       </PortalSectionCard>
 
       <PortalSectionCard title="Compara planes" subtitle="Elige una opción para ver exactamente qué cambiaría.">
+        {actionMessage ? (
+          <View style={styles.actionFeedback}>
+            <MaterialCommunityIcons name="information-outline" size={18} color={portalPalette.info} />
+            <Text style={styles.actionFeedbackText}>{actionMessage}</Text>
+          </View>
+        ) : null}
         {isLoading ? (
           <View style={styles.planGrid}>
             {[0, 1, 2].map((item) => (
@@ -396,6 +413,17 @@ export function PortalPlanScreen() {
                 <SkeletonBlock height={16} width="85%" />
               </View>
             ))}
+          </View>
+        ) : plansError ? (
+          <View style={styles.plansErrorState}>
+            <EmptyState
+              icon="cloud-alert-outline"
+              title="No pudimos cargar los planes"
+              description={plansError}
+            />
+            <Pressable accessibilityRole="button" onPress={() => void reloadPlans()} style={styles.retryButton}>
+              <Text style={styles.retryButtonText}>Reintentar</Text>
+            </Pressable>
           </View>
         ) : plans.length ? (
           <View style={styles.planGrid}>
@@ -423,7 +451,7 @@ export function PortalPlanScreen() {
           action={comparisonAction}
           compact={compact}
           comparison={comparison}
-          ready={readyForNextStep}
+          isSubmitting={isSubmitting}
           onClose={clearSelection}
           onPrimary={runPrimaryAction}
         />
@@ -446,11 +474,45 @@ export function PortalPlanScreen() {
           <CommercialActivityList activities={workspace.activities} />
         </PortalSectionCard>
       ) : null}
+      <ConfirmModal
+        visible={cancelOpen}
+        destructive
+        title="Cancelar suscripción"
+        description="La cancelación es inmediata y detendrá el acceso asociado al plan actual."
+        confirmLabel={isSubmitting ? 'Cancelando...' : 'Cancelar suscripción'}
+        processing={isSubmitting}
+        onCancel={() => setCancelOpen(false)}
+        onConfirm={() => {
+          void cancelSubscription().then((cancelled) => {
+            if (cancelled) setCancelOpen(false);
+          });
+        }}
+      />
     </PortalLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  subscriptionContent: {
+    gap: 12,
+  },
+  cancelSubscriptionButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    borderColor: portalPalette.danger,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  cancelSubscriptionText: {
+    color: portalPalette.danger,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   currentPlanCard: {
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.md,
@@ -858,7 +920,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
-  comingSoonNotice: {
+  actionFeedback: {
     alignItems: 'flex-start',
     backgroundColor: portalPalette.infoSoft,
     borderColor: 'rgba(35, 213, 255, 0.24)',
@@ -866,21 +928,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
+    marginBottom: AppTheme.spacing.md,
     padding: AppTheme.spacing.md,
   },
-  comingSoonCopy: {
-    flex: 1,
-    gap: 3,
-    minWidth: 0,
+  plansErrorState: {
+    alignItems: 'center',
+    gap: 12,
   },
-  comingSoonTitle: {
+  retryButton: {
+    alignItems: 'center',
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  retryButtonText: {
     color: portalPalette.text,
     fontFamily: Typography.body,
     fontSize: 13,
     fontWeight: '900',
   },
-  comingSoonText: {
+  actionFeedbackText: {
     color: portalPalette.muted,
+    flex: 1,
     fontFamily: Typography.body,
     fontSize: 12,
     lineHeight: 18,

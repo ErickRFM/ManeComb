@@ -493,17 +493,6 @@ export type PortalInvoice = {
   downloadUrl?: string | null;
 };
 
-export type PortalPaymentMethod = {
-  id: string;
-  provider: string;
-  type: 'card' | 'spei' | string;
-  brand: string;
-  last4: string;
-  expMonth?: string;
-  expYear?: string;
-  isDefault: boolean;
-};
-
 export type PortalSession = {
   id: string;
   userId?: string;

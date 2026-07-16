@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const {
   getOrganizationId,
+  getRolesWithPermission,
   requireOrganization,
   requirePermission
 } = require("../../middlewares/access-control");
@@ -39,7 +40,9 @@ function emitActivationKeysUpdated(req, payload) {
   const organizationId = getOrganizationId(req.user);
 
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("activation-keys:updated", payload);
+    getRolesWithPermission("canManageUsers").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("activation-keys:updated", payload);
+    });
   }
 
   req.app.locals.io?.to(`user:${req.user.id}`).emit("activation-keys:updated", payload);
@@ -208,11 +211,13 @@ driverActivationRoutes.post("/register", async (req, res) => {
   try {
     const activation = await registerDriverWithActivationKey(req.app.locals.store, req.body || {});
 
-    req.app.locals.io?.to(`org:${activation.company.id}`).emit("users:invited", {
-      user: activation.user,
-      organizationId: activation.company.id,
-      activationKeyId: activation.activationKey?.id || null,
-      createdAt: new Date().toISOString()
+    getRolesWithPermission("canManageUsers").forEach((role) => {
+      req.app.locals.io?.to(`org:${activation.company.id}:role:${role}`).emit("users:invited", {
+        user: activation.user,
+        organizationId: activation.company.id,
+        activationKeyId: activation.activationKey?.id || null,
+        createdAt: new Date().toISOString()
+      });
     });
 
     return buildDriverLoginResponse(req, res, activation.user, activation);

@@ -1,6 +1,6 @@
 const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
-const { canAccessTenantResource, filterTenantList, getOrganizationId, requireOrganization, requirePermission } = require("../../middlewares/access-control");
+const { canAccessTenantResource, filterTenantList, getOrganizationId, getRolesWithPermission, requireOrganization, requirePermission } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 
 const router = Router();
@@ -45,10 +45,12 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       currentKilometers: req.body?.currentKilometers
     });
 
-    req.app.locals.io?.to(`org:${getOrganizationId(req.user)}`).emit("vehicle:created", {
-      vehicle,
-      organizationId: getOrganizationId(req.user),
-      createdAt: new Date().toISOString()
+    getRolesWithPermission("canManageVehicles").forEach((role) => {
+      req.app.locals.io?.to(`org:${getOrganizationId(req.user)}:role:${role}`).emit("vehicle:created", {
+        vehicle,
+        organizationId: getOrganizationId(req.user),
+        createdAt: new Date().toISOString()
+      });
     });
 
     return res.status(201).json({
@@ -115,11 +117,20 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
 
     const vehicle = await req.app.locals.store.updateVehicle(vehicleId, payload);
 
-    req.app.locals.io?.to(`org:${getOrganizationId(req.user)}`).emit("vehicle:updated", {
-      vehicle,
-      organizationId: getOrganizationId(req.user),
-      updatedAt: new Date().toISOString()
+    getRolesWithPermission("canManageVehicles").forEach((role) => {
+      req.app.locals.io?.to(`org:${getOrganizationId(req.user)}:role:${role}`).emit("vehicle:updated", {
+        vehicle,
+        organizationId: getOrganizationId(req.user),
+        updatedAt: new Date().toISOString()
+      });
     });
+    if (vehicle?.driverId) {
+      req.app.locals.io?.to(`user:${vehicle.driverId}`).emit("vehicle:updated", {
+        vehicle,
+        organizationId: getOrganizationId(req.user),
+        updatedAt: new Date().toISOString()
+      });
+    }
 
     return res.json({
       ok: true,

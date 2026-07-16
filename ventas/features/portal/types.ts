@@ -8,7 +8,6 @@ export type {
   PortalOnboarding,
   PortalOnboardingStep,
   PortalOverview,
-  PortalPaymentMethod,
   PortalSession,
   PortalSubscription,
 } from '@/src/types/app';

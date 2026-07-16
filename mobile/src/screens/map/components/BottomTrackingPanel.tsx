@@ -214,7 +214,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     () => formatLastUpdate(selectedVehicle?.locationTimestamp || selectedVehicle?.updatedAt || lastSyncedAt),
     [lastSyncedAt, selectedVehicle?.locationTimestamp, selectedVehicle?.updatedAt]
   );
-  const isAdmin = userRole === 'admin';
+  const canViewVehicleDetails = userRole === 'admin' || userRole === 'supervisor';
   const statusTone = vehicleSession?.status === 'PAUSED'
     ? 'warning'
     : selectedVehicle?.status === 'maintenance'
@@ -230,7 +230,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     () => {
       if (!selectedVehicle) return [];
       const rows: Array<[string, string]> = [];
-      if (isAdmin) {
+      if (canViewVehicleDetails) {
         rows.push(
           ['Unidad', selectedVehicle.code],
           ['Chofer', selectedVehicle.driver?.name || selectedVehicle.driverName || 'Sin chofer asignado'],
@@ -248,7 +248,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       if (kilometersLabel) rows.push(['Kilometros', kilometersLabel]);
       return rows;
     },
-    [activeTimeLabel, gpsLabel, isAdmin, kilometersLabel, lastUpdateLabel, routeLabel, selectedVehicle, speedLabel, statusLabel]
+    [activeTimeLabel, gpsLabel, canViewVehicleDetails, kilometersLabel, lastUpdateLabel, routeLabel, selectedVehicle, speedLabel, statusLabel]
   );
   const history = useMemo(
     () => sessionHistory.filter((session) => !selectedVehicle || session.vehicleId === selectedVehicle.id),

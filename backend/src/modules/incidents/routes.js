@@ -2,7 +2,9 @@ const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const {
   canAccessTenantResource,
-  getOrganizationId
+  getOrganizationId,
+  getRolesWithPermission,
+  requirePermission
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
@@ -53,7 +55,10 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
 
   const organizationId = String(incident.organizationId || getOrganizationId(req.user)).trim();
-  req.app.locals.io?.to(`org:${organizationId}`).emit("incident:created", incident);
+  getRolesWithPermission("canManageIncidents").forEach((role) => {
+    req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("incident:created", incident);
+  });
+  req.app.locals.io?.to("platform:admin").emit("incident:created", incident);
 
   const isSos = incident.severity === "critical" || /^sos/i.test(incident.title);
   const notification = await deliverOperationalNotification({
@@ -78,10 +83,13 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
 
   if (isSos) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("incident:sos", {
-      incident,
-      notification
+    getRolesWithPermission("canManageIncidents").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("incident:sos", {
+        incident,
+        notification
+      });
     });
+    req.app.locals.io?.to("platform:admin").emit("incident:sos", { incident, notification });
   }
 
   return res.status(201).json({
@@ -90,7 +98,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
 });
 
-router.patch("/:incidentId/status", authenticate, requireOperationalAccess, async (req, res) => {
+router.patch("/:incidentId/status", authenticate, requireOperationalAccess, requirePermission("canManageIncidents"), async (req, res) => {
   const { status } = req.body;
 
   if (!["open", "in_progress", "resolved"].includes(status)) {
@@ -111,13 +119,6 @@ router.patch("/:incidentId/status", authenticate, requireOperationalAccess, asyn
     });
   }
 
-  if (req.user.role === "driver" && currentIncident.reporterId !== req.user.id) {
-    return res.status(403).json({
-      ok: false,
-      message: "No puedes actualizar una incidencia reportada por otro usuario"
-    });
-  }
-
   const incident = await req.app.locals.store.updateIncidentStatus(req.params.incidentId, status);
 
   if (!incident) {
@@ -127,9 +128,12 @@ router.patch("/:incidentId/status", authenticate, requireOperationalAccess, asyn
     });
   }
 
-  req.app.locals.io
-    ?.to(`org:${String(incident.organizationId || getOrganizationId(req.user)).trim()}`)
-    .emit("incident:updated", incident);
+  const incidentOrganizationId = String(incident.organizationId || getOrganizationId(req.user)).trim();
+  getRolesWithPermission("canManageIncidents").forEach((role) => {
+    req.app.locals.io?.to(`org:${incidentOrganizationId}:role:${role}`).emit("incident:updated", incident);
+  });
+  req.app.locals.io?.to(`user:${incident.reporterId}`).emit("incident:updated", incident);
+  req.app.locals.io?.to("platform:admin").emit("incident:updated", incident);
 
   await req.app.locals.store.recordAppEvent?.({
     type: "incident_status_updated",

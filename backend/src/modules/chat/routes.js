@@ -3,7 +3,6 @@ const multer = require("multer");
 const { authenticate } = require("../../middlewares/authenticate");
 const { getOrganizationId } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
-const { transcribeAudioBuffer } = require("../../services/audio-transcription");
 const { streamChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
 
@@ -74,11 +73,6 @@ function emitConversationUpdate(req, conversationOrId, message) {
 
   const organizationId = getOrganizationId(req.user);
 
-  if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("conversation:updated", {
-      conversationId
-    });
-  }
 }
 
 router.get("/conversations", authenticate, async (req, res) => {
@@ -259,36 +253,6 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
     data: message
   });
 });
-
-router.post(
-  "/transcribe-search",
-  authenticate,
-  audioUpload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          ok: false,
-          message: "Debes adjuntar un audio para la busqueda por voz"
-        });
-      }
-
-      const transcript = await transcribeAudioBuffer(req.file);
-
-      return res.json({
-        ok: true,
-        data: {
-          transcript: transcript || ""
-        }
-      });
-    } catch (error) {
-      return res.status(422).json({
-        ok: false,
-        message: error.message || "No fue posible transcribir el audio"
-      });
-    }
-  }
-);
 
 router.post(
   "/conversations/:conversationId/audio",

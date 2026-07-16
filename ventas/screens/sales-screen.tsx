@@ -352,7 +352,13 @@ export function SalesScreen() {
   }>();
   const paymentId = getFirstParam(routeParams.payment_id) || getFirstParam(routeParams.collection_id);
   const externalReference = getFirstParam(routeParams.external_reference);
-  const { confirmation: checkoutConfirm, plans } = usePublicCommercialFlow({
+  const {
+    confirmation: checkoutConfirm,
+    loadPlans,
+    plans,
+    plansError,
+    plansLoading,
+  } = usePublicCommercialFlow({
     externalReference,
     paymentId,
   });
@@ -597,7 +603,22 @@ export function SalesScreen() {
                 </View>
               </View>
 
-              {plans.length ? (
+              {plansLoading ? (
+                <View style={styles.plansEmpty}>
+                  <MaterialCommunityIcons name="progress-clock" size={28} color={neonPalette.muted} />
+                  <Text style={styles.plansEmptyTitle}>Cargando planes</Text>
+                  <Text style={styles.plansEmptyText}>Consultando el catalogo publicado.</Text>
+                </View>
+              ) : plansError ? (
+                <View style={styles.plansEmpty}>
+                  <MaterialCommunityIcons name="cloud-alert-outline" size={28} color={neonPalette.muted} />
+                  <Text style={styles.plansEmptyTitle}>No pudimos cargar los planes</Text>
+                  <Text style={styles.plansEmptyText}>{plansError}</Text>
+                  <Pressable accessibilityRole="button" onPress={() => void loadPlans()} style={styles.plansRetryButton}>
+                    <Text style={styles.plansRetryLabel}>Reintentar</Text>
+                  </Pressable>
+                </View>
+              ) : plans.length ? (
                 <>
               <ScrollView
                 ref={carouselRef}
@@ -2537,6 +2558,20 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     maxWidth: 420,
     textAlign: 'center',
+  },
+  plansRetryButton: {
+    borderColor: neonPalette.lineStrong,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  plansRetryLabel: {
+    color: neonPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
   },
   planCard: {
     minHeight: 382,

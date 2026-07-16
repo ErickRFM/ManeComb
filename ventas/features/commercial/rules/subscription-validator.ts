@@ -104,9 +104,9 @@ export class DefaultSubscriptionValidator implements SubscriptionValidator {
         restrictions: state.restrictions,
         expectedState: state.state,
         outcome: 'No se aplicará ningún cambio.',
-        nextStep: 'Reactiva la cuenta antes de cambiar de plan.',
-        action: 'REACTIVATE',
-        actionLabel: 'Reactivar próximamente',
+        nextStep: 'Contacta a soporte para revisar una nueva contratación.',
+        action: 'CONTACT_SUPPORT',
+        actionLabel: 'Contactar soporte',
       }),
       EXPIRED: blocked(changeKind, {
         code: CHANGE_VALIDATION_CODES.ACCOUNT_EXPIRED,
@@ -114,9 +114,9 @@ export class DefaultSubscriptionValidator implements SubscriptionValidator {
         restrictions: state.restrictions,
         expectedState: state.state,
         outcome: 'No se aplicará ningún cambio.',
-        nextStep: 'Renueva la suscripción antes de cambiar de plan.',
-        action: 'REACTIVATE',
-        actionLabel: 'Renovar próximamente',
+        nextStep: 'Contacta a soporte para revisar una nueva contratación.',
+        action: 'CONTACT_SUPPORT',
+        actionLabel: 'Contactar soporte',
       }),
       PAYMENT_PENDING: blocked(changeKind, {
         code: CHANGE_VALIDATION_CODES.PAYMENT_REQUIRED,
@@ -156,25 +156,19 @@ export class DefaultSubscriptionValidator implements SubscriptionValidator {
       });
     }
 
-    const expectedState = changeKind === PLAN_CHANGE_KINDS.DOWNGRADE
-      ? COMMERCIAL_SUBSCRIPTION_STATES.CHANGE_SCHEDULED
-      : COMMERCIAL_SUBSCRIPTION_STATES.PAYMENT_PENDING;
+    const expectedState = state.state;
 
     return {
       allowed: true,
       code: CHANGE_VALIDATION_CODES.ALLOWED,
       changeKind,
       reason: changeKind === PLAN_CHANGE_KINDS.UPGRADE
-        ? 'Puedes continuar con esta ampliación de cobertura.'
-        : 'Puedes preparar este cambio de capacidad.',
-      restrictions: state.state === COMMERCIAL_SUBSCRIPTION_STATES.TRIAL
-        ? ['La prueba terminará cuando se confirme una contratación pagada.']
-        : [],
+        ? 'Puedes aplicar esta ampliación de cobertura.'
+        : 'Puedes aplicar este cambio de capacidad.',
+      restrictions: [],
       expectedState,
-      outcome: changeKind === PLAN_CHANGE_KINDS.UPGRADE
-        ? 'La nueva capacidad quedará pendiente de confirmación y pago.'
-        : 'El cambio se programará para la fecha comercial aplicable.',
-      nextStep: 'Revisa el resumen final antes de confirmar.',
+      outcome: 'El plan, la capacidad y el importe mensual se actualizarán inmediatamente.',
+      nextStep: 'Confirma el cambio mostrado en este resumen.',
       action: 'CONTINUE_CHANGE',
       actionLabel: 'Continuar',
     };

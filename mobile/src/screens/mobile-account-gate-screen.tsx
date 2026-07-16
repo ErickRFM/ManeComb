@@ -8,13 +8,11 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { StatusBar } from '@/src/native/status-bar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import {
-  resolveMobilePostLoginRoute,
-  type MobileRouteBlockReason,
-} from '@/src/utils/account-routing';
+import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
+import type { MobileBlockReason } from '@/src/types/app';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
 
-const BLOCK_COPY: Record<MobileRouteBlockReason, {
+const BLOCK_COPY: Record<MobileBlockReason, {
   action: string;
   body: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -52,7 +50,7 @@ const BLOCK_COPY: Record<MobileRouteBlockReason, {
   },
 };
 
-function getBlockReason(value: string | undefined): MobileRouteBlockReason {
+function getBlockReason(value: string | undefined): MobileBlockReason {
   if (
     value === 'inactive_plan' ||
     value === 'missing_tenant' ||

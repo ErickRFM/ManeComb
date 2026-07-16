@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -22,6 +21,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ConnectionBanner } from './connection-banner';
 import { OperationalMenuDrawer } from './operational-menu-drawer';
+import { KeyboardSafeScrollView } from './keyboard-safe-layout';
 
 type MobileBadgeTone = 'info' | 'positive' | 'warning' | 'danger' | 'neutral';
 
@@ -175,12 +175,9 @@ export function AppShell({
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       {scroll ? (
-        <ScrollView
+        <KeyboardSafeScrollView
           style={styles.scroll}
           contentContainerStyle={contentStyles}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
           showsVerticalScrollIndicator={false}
           refreshControl={refreshControl}
@@ -188,7 +185,7 @@ export function AppShell({
           <ConnectionBanner />
           {mobileHeaderChrome}
           {children}
-        </ScrollView>
+        </KeyboardSafeScrollView>
       ) : (
         <View style={contentStyles}>
           <ConnectionBanner />

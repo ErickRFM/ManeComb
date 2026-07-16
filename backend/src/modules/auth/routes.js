@@ -11,6 +11,7 @@ const {
 } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
 const { RESEND_API_KEY, RESEND_FROM_EMAIL, APP_URL } = require("../../config/env");
+const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
 
 const router = Router();
@@ -226,7 +227,28 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
     const resetUrl = `${APP_URL.replace(/\/$/, "")}/reset-password?token=${result.token}`;
 
-    if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
+    if (communication.isConfigured()) {
+      try {
+        await communication.sendEmail({
+          to: result.email,
+          template: "password-reset",
+          data: {
+            name: result.name,
+            resetUrl,
+            userId: result.userId,
+            organizationId: result.organizationId
+          }
+        });
+      } catch (error) {
+        logger.error({
+          action: "ForgotPasswordEmail",
+          module: "Auth",
+          message: "Error enviando correo de recuperación",
+          error,
+          metadata: { email: result.email }
+        });
+      }
+    } else if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
       const emailResponse = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {

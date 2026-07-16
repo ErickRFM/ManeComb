@@ -1,4 +1,4 @@
-import type { CommercialPlan, PortalInvoice, PortalPaymentMethod, PortalSubscription } from '@/src/types/app';
+import type { CommercialPlan, PortalInvoice, PortalSubscription } from '@/src/types/app';
 import type {
   CommercialTimelineRepository,
   PlanRepository,
@@ -18,14 +18,6 @@ import {
   type CommercialPlanView,
 } from '../types';
 
-function getPlanIndicator(plan: CommercialPlan) {
-  if (plan.id === 'value-4') return 'Más elegido';
-  if (plan.id === 'premium-8') return 'Mayor cobertura';
-  if (plan.id === 'enterprise-12') return 'Escala empresarial';
-  if (plan.id === 'starter-2') return 'Para comenzar';
-  return plan.badge || 'Recomendado';
-}
-
 function getPlanBenefits(plan: CommercialPlan) {
   return [
     `Control de hasta ${plan.units} unidades`,
@@ -37,10 +29,10 @@ function getPlanBenefits(plan: CommercialPlan) {
 function toPlanView(plan: CommercialPlan): CommercialPlanView {
   return {
     ...plan,
-    displayName: `${plan.units} ${plan.units === 1 ? 'unidad' : 'unidades'}`,
+    displayName: plan.name,
     description: plan.subtitle || 'Cobertura flexible para administrar tu operación.',
     benefits: getPlanBenefits(plan),
-    indicator: getPlanIndicator(plan),
+    indicator: plan.badge,
   };
 }
 
@@ -147,10 +139,9 @@ function isPendingInvoice(invoice: PortalInvoice) {
 function getRecommendation(input: {
   state: ReturnType<typeof getCommercialStatePresentation>;
   pendingInvoices: PortalInvoice[];
-  defaultPaymentMethod: PortalPaymentMethod | null;
   activationComplete: boolean;
 }): CommercialDashboardModel['recommendation'] {
-  const { state, pendingInvoices, defaultPaymentMethod, activationComplete } = input;
+  const { state, pendingInvoices, activationComplete } = input;
 
   if (state.primaryAction === 'CONTACT_SUPPORT') {
     return {
@@ -174,17 +165,6 @@ function getRecommendation(input: {
     };
   }
 
-  if (state.primaryAction === 'REACTIVATE') {
-    return {
-      title: state.label,
-      body: state.message,
-      label: state.actionLabel,
-      href: '/portal/plan',
-      icon: 'backup-restore',
-      tone: 'warning',
-    };
-  }
-
   if (state.state === COMMERCIAL_SUBSCRIPTION_STATES.CHANGE_SCHEDULED) {
     return {
       title: 'Tienes un cambio programado',
@@ -203,17 +183,6 @@ function getRecommendation(input: {
       label: 'Revisar facturación',
       href: '/portal/facturacion',
       icon: 'file-alert-outline',
-      tone: 'warning',
-    };
-  }
-
-  if (!defaultPaymentMethod) {
-    return {
-      title: 'Configura un método de pago',
-      body: 'Agrega una referencia para tener listo el siguiente paso de contratación.',
-      label: 'Agregar método',
-      href: '/portal/pagos',
-      icon: 'credit-card-plus-outline',
       tone: 'warning',
     };
   }
@@ -244,7 +213,6 @@ export class DefaultSubscriptionService implements SubscriptionService {
     subscription: null,
     plans: [],
     invoices: [],
-    paymentMethods: [],
   };
 
   constructor(
@@ -307,9 +275,6 @@ export class DefaultSubscriptionService implements SubscriptionService {
 
   async getDashboardModel({ activationComplete }: { activationComplete: boolean }) {
     const workspace = await this.getWorkspace();
-    const defaultPaymentMethod = this.snapshot.paymentMethods.find((method) => method.isDefault)
-      || this.snapshot.paymentMethods[0]
-      || null;
     const pendingInvoices = this.snapshot.invoices.filter(isPendingInvoice);
     const latestInvoice = getLatestInvoice(this.snapshot.invoices);
     const totalUnits = Number(workspace.subscription?.totalUnits || workspace.currentPlan?.units || 0);
@@ -319,7 +284,6 @@ export class DefaultSubscriptionService implements SubscriptionService {
       subscription: workspace.subscription,
       state: workspace.state,
       currentPlan: workspace.currentPlan,
-      defaultPaymentMethod,
       latestInvoice,
       pendingInvoices,
       totalUnits,
@@ -328,7 +292,6 @@ export class DefaultSubscriptionService implements SubscriptionService {
       recommendation: getRecommendation({
         state: workspace.state,
         pendingInvoices,
-        defaultPaymentMethod,
         activationComplete,
       }),
       activities: workspace.activities,

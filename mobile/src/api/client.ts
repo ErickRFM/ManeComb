@@ -11,7 +11,6 @@ import {
 import type {
   DriverActivationRegisterPayload,
   DriverActivationValidation,
-  CheckpointVisit,
   GeoPoint,
   ChatDirectoryContact,
   ChatMessage,
@@ -31,10 +30,8 @@ import type {
   OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   RegisterPayload,
-  RouteEvent,
   RouteShape,
   RouteSessionHistoryFilters,
-  RouteSessionMetrics,
   RouteSession,
   RouteSessionStatus,
   SessionResult,
@@ -884,36 +881,10 @@ export async function updateRouteSessionStatusRequest(
   return response.data.data;
 }
 
-export async function getRouteSessionMetricsRequest(sessionId: string) {
-  const response = await apiClient.get<{ ok: boolean; data: RouteSessionMetrics }>(
-    `/navigation/sessions/${encodeURIComponent(sessionId)}/metrics`,
-  );
-  return response.data.data;
-}
-
 export async function getRouteSessionHistoryRequest(params?: RouteSessionHistoryFilters) {
   const response = await apiClient.get<{ ok: boolean; data: RouteSession[] }>('/navigation/sessions/history', {
     params,
   });
-  return response.data.data;
-}
-
-export async function getRouteSessionEventsRequest(
-  sessionId: string,
-  params?: { type?: RouteEvent['eventType']; limit?: number },
-) {
-  const response = await apiClient.get<{ ok: boolean; data: RouteEvent[] }>(
-    `/navigation/sessions/${encodeURIComponent(sessionId)}/events`,
-    { params },
-  );
-  return response.data.data;
-}
-
-export async function getRouteSessionCheckpointVisitsRequest(sessionId: string, limit?: number) {
-  const response = await apiClient.get<{ ok: boolean; data: CheckpointVisit[] }>(
-    `/navigation/sessions/${encodeURIComponent(sessionId)}/checkpoint-visits`,
-    { params: { limit } },
-  );
   return response.data.data;
 }
 

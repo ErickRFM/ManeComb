@@ -144,8 +144,7 @@ export function ProfileEditScreen() {
 
   useEffect(() => {
     if (section && sectionsRef.current[section]) {
-      // Small delay to ensure layout is ready
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         sectionsRef.current[section]?.measureLayout(
           // @ts-ignore - ScrollView content internal view
           scrollRef.current?.getInnerViewNode?.() || scrollRef.current,
@@ -155,7 +154,11 @@ export function ProfileEditScreen() {
           () => {}
         );
       }, 300);
+
+      return () => clearTimeout(timer);
     }
+
+    return undefined;
   }, [section]);
 
   const setMessage = (message: string | null, tone: 'danger' | 'success' = 'danger') => {
