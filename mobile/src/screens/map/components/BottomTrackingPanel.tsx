@@ -18,14 +18,18 @@ import { getAssignedRouteLabel } from '@/src/utils/active-route';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 import type { LocationStatusSnapshot } from '../types';
 import { mapStyles as styles } from '../map-styles';
+import {
+  getSessionDistanceMeters,
+  getSessionDurationSeconds,
+  isFiniteMetricNumber,
+  selectVehicleActiveSession,
+} from './bottom-tracking-panel-data';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 const PANEL_ANIMATION_MS = 220;
-const ACTIVE_SESSION_STATUSES = new Set<RouteSession['status']>(['RUNNING', 'PAUSED']);
-
 const statusLabels: Record<string, string> = {
   available: 'Disponible',
   maintenance: 'Mantenimiento',
@@ -42,12 +46,8 @@ const statusLabels: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 
-function isFiniteNumber(value: unknown): value is number {
-  return value !== null && value !== undefined && Number.isFinite(Number(value));
-}
-
 function formatVehicleSpeed(vehicle: Vehicle | null) {
-  if (!vehicle?.locationTimestamp || !isFiniteNumber(vehicle.speed)) return 'GPS pendiente';
+  if (!vehicle?.locationTimestamp || !isFiniteMetricNumber(vehicle.speed)) return 'GPS pendiente';
   const speed = Math.max(0, Math.round(Number(vehicle.speed)));
   return speed < 1 ? 'Detenida' : `${speed} km/h`;
 }
@@ -82,7 +82,7 @@ function formatLastUpdate(timestamp?: string | null) {
 }
 
 function formatKilometers(meters?: number | null) {
-  if (!isFiniteNumber(meters)) return null;
+  if (!isFiniteMetricNumber(meters)) return null;
   return `${(Math.max(0, Number(meters)) / 1000).toLocaleString('es-MX', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -90,50 +90,11 @@ function formatKilometers(meters?: number | null) {
 }
 
 function formatDuration(seconds?: number | null) {
-  if (!isFiniteNumber(seconds)) return null;
+  if (!isFiniteMetricNumber(seconds)) return null;
   const minutes = Math.max(0, Math.round(Number(seconds) / 60));
   if (minutes < 60) return `${minutes} min`;
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${Math.floor(minutes / 60)} h ${remainingMinutes} min` : `${Math.floor(minutes / 60)} h`;
-}
-
-function getElapsedSessionSeconds(session: RouteSession | null) {
-  if (!session) return null;
-  const start = new Date(session.startedAt).getTime();
-  const end = session.finishedAt ? new Date(session.finishedAt).getTime() : Date.now();
-  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, (end - start) / 1000) : null;
-}
-
-export function getSessionDurationSeconds(session: RouteSession | null) {
-  if (!session) return null;
-  if (isFiniteNumber(session.totalDuration)) return Number(session.totalDuration);
-  if (isFiniteNumber(session.metrics?.totalDuration)) return Number(session.metrics?.totalDuration);
-  return getElapsedSessionSeconds(session);
-}
-
-export function getSessionDistanceMeters(session: RouteSession | null) {
-  if (!session) return null;
-  if (isFiniteNumber(session.totalDistance)) return Number(session.totalDistance);
-  if (isFiniteNumber(session.metrics?.totalDistance)) return Number(session.metrics?.totalDistance);
-  return null;
-}
-
-export function selectVehicleActiveSession(
-  selectedVehicleId: string | null | undefined,
-  activeSession: RouteSession | null,
-  sessionHistory: RouteSession[]
-) {
-  if (!selectedVehicleId) return null;
-  if (
-    activeSession?.vehicleId === selectedVehicleId &&
-    ACTIVE_SESSION_STATUSES.has(activeSession.status)
-  ) {
-    return activeSession;
-  }
-  return sessionHistory.find(
-    (session) =>
-      session.vehicleId === selectedVehicleId && ACTIVE_SESSION_STATUSES.has(session.status)
-  ) || null;
 }
 
 function formatDateTime(value?: string | null) {
@@ -167,7 +128,7 @@ type BottomTrackingPanelProps = {
   lastSyncedAt: string | null;
 };
 
-export const BottomTrackingPanel = memo(function BottomTrackingPanel({
+export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   activeIncident,
   activeIncidentVehicle,
   bottomPadding,
@@ -316,11 +277,11 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanel({
     if (stoppedLabel) rows.push(['Tiempo detenido', stoppedLabel]);
     if (pausedLabel) rows.push(['Tiempo pausado', pausedLabel]);
     if (distanceLabel) rows.push(['Kilometros', distanceLabel]);
-    if (isFiniteNumber(selectedSession.averageSpeed)) rows.push(['Velocidad promedio', `${Math.round(Number(selectedSession.averageSpeed))} km/h`]);
-    if (isFiniteNumber(selectedSession.maxSpeed)) rows.push(['Velocidad maxima', `${Math.round(Number(selectedSession.maxSpeed))} km/h`]);
-    if (isFiniteNumber(selectedSession.stopEvents)) rows.push(['Paradas', String(selectedSession.stopEvents)]);
+    if (isFiniteMetricNumber(selectedSession.averageSpeed)) rows.push(['Velocidad promedio', `${Math.round(Number(selectedSession.averageSpeed))} km/h`]);
+    if (isFiniteMetricNumber(selectedSession.maxSpeed)) rows.push(['Velocidad maxima', `${Math.round(Number(selectedSession.maxSpeed))} km/h`]);
+    if (isFiniteMetricNumber(selectedSession.stopEvents)) rows.push(['Paradas', String(selectedSession.stopEvents)]);
     rows.push(['Incidencias', String(incidentCount)]);
-    if (isFiniteNumber(selectedSession.metrics?.gpsCoveragePercent)) {
+    if (isFiniteMetricNumber(selectedSession.metrics?.gpsCoveragePercent)) {
       rows.push(['Estado GPS', `${Math.round(Number(selectedSession.metrics?.gpsCoveragePercent))}% cobertura`]);
     }
     const syncedLabel = formatDateTime(lastSyncedAt || selectedSession.updatedAt);
@@ -361,7 +322,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanel({
       ) : null}
 
       <View
-        {...panResponder.panHandlers}
         style={[
           styles.followCard,
           styles.trackingPanelCard,
@@ -370,7 +330,9 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanel({
             ? { maxHeight: expandedMaxHeight }
             : { minHeight: compactHeight, maxHeight: compactMaxHeight },
         ]}>
-        <View style={[styles.panelHandle, { backgroundColor: theme.colors.line }]} />
+        <View {...panResponder.panHandlers} style={styles.panelGestureArea}>
+          <View style={[styles.panelHandle, { backgroundColor: theme.colors.line }]} />
+        </View>
         <View style={styles.followHeader}>
           <View style={styles.followIdentity}>
             <Text style={[styles.followTitle, { color: theme.colors.text }]} numberOfLines={1}>

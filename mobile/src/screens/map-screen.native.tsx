@@ -1,6 +1,6 @@
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
@@ -301,6 +301,25 @@ export function MapScreen() {
     selectorMode,
   });
 
+  const handleSelectTrackingVehicle = useCallback((vehicle: Vehicle) => {
+    setSelectedVehicleId(vehicle.id);
+    setFollowMode(true);
+    const routes = getSelectedVehicleRoutes(vehicle, mapData?.routes || []);
+
+    if (routes.length > 0 && routes[0].polyline.length > 1) {
+      fitRoute({ coordinates: routes[0].polyline, edgePadding: routeFitPadding });
+      return;
+    }
+
+    if (vehicle.locationTimestamp) focusPoint(vehicle.location);
+  }, [fitRoute, focusPoint, mapData?.routes, routeFitPadding]);
+
+  const handleSelectIncidentVehicle = useCallback((vehicle: Vehicle) => {
+    setSelectedVehicleId(vehicle.id);
+    setFollowMode(false);
+    focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
+  }, [focusMap]);
+
   useEffect(() => {
     if (params.vehicleId) {
       setSelectedVehicleId(params.vehicleId);
@@ -511,24 +530,7 @@ export function MapScreen() {
           onMapSelectorPress={selector.handleSelectorPress}
           onSelectorDragStart={() => selector.setSelectorPlan(null)}
           onSelectorPointDragEnd={selector.updateSelectorPoint}
-          onVehiclePress={(vehicle) => {
-  setSelectedVehicleId(vehicle.id);
-  setFollowMode(true);
-
-  const routes = getSelectedVehicleRoutes(vehicle, mapData.routes);
-
-  if (routes.length > 0 && routes[0].polyline.length > 1) {
-    fitRoute({
-      coordinates: routes[0].polyline,
-      edgePadding: routeFitPadding,
-    });
-    return;
-  }
-
-  if (vehicle.locationTimestamp) {
-    focusPoint(vehicle.location);
-  }
-}}
+          onVehiclePress={handleSelectTrackingVehicle}
           scaleBarPosition={{ left: 24, top: insets.top + 62 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}
@@ -588,29 +590,8 @@ export function MapScreen() {
               locationStatus={locationStatus}
               locationStatusColor={locationStatusColor}
               onRetryLocation={refresh}
-              onSelectIncidentVehicle={(vehicle) => {
-                setSelectedVehicleId(vehicle.id);
-                setFollowMode(false);
-                focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
-              }}
-              onSelectTrackingVehicle={(vehicle) => {
-                setSelectedVehicleId(vehicle.id);
-                setFollowMode(true);
-
-              const routes = getSelectedVehicleRoutes(vehicle, mapData.routes);
-
-              if (routes.length > 0 && routes[0].polyline.length > 1) {
-                 fitRoute({
-                    coordinates: routes[0].polyline,
-                    edgePadding: routeFitPadding,
-                   });
-             return;
-             }
-
-             if (vehicle.locationTimestamp) {
-                focusPoint(vehicle.location);
-               }
-            }}
+              onSelectIncidentVehicle={handleSelectIncidentVehicle}
+              onSelectTrackingVehicle={handleSelectTrackingVehicle}
               selectedVehicle={selectedVehicle}
               trackingVehicles={visiblePanelVehicles}
               userRole={user.role}

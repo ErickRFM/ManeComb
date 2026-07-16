@@ -55,11 +55,12 @@ type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
 
 function OperationalBackgroundServices() {
   const location = useLocationEngine();
-  const { activeRouteSession, authContext, connectionMode, sendVehicleLocation, token, user } = useAppStore(
+  const { activeRouteSession, authContext, connectionMode, refreshToken, sendVehicleLocation, token, user } = useAppStore(
     useShallow((state) => ({
       activeRouteSession: state.activeRouteSession,
       authContext: state.authContext,
       connectionMode: state.connectionMode,
+      refreshToken: state.refreshToken,
       sendVehicleLocation: state.sendVehicleLocation,
       token: state.token,
       user: state.user,
@@ -134,6 +135,7 @@ function OperationalBackgroundServices() {
         apiUrl: API_URL,
         schedule: user?.operationalSchedule || null,
         token: token || '',
+        refreshToken: refreshToken || '',
         vehicleId: user?.vehicleId || '',
         sessionId: activeRouteSession?.id || '',
       }).catch(() => undefined);
@@ -151,6 +153,7 @@ function OperationalBackgroundServices() {
     location.backgroundPermission,
     location.permission,
     token,
+    refreshToken,
     user?.operationalSchedule,
     user?.role,
     user?.vehicleId,

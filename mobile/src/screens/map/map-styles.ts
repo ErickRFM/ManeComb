@@ -118,6 +118,7 @@ export const mapStyles = StyleSheet.create({
   locationRetry: { width: 38, height: 38, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   followCard: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10, elevation: 8, shadowOpacity: 0.12, shadowRadius: 10 },
   trackingPanelCard: { overflow: 'hidden' },
+  panelGestureArea: { minHeight: 14, alignItems: 'center', justifyContent: 'center', marginTop: -4 },
   panelHandle: { alignSelf: 'center', width: 42, height: 4, borderRadius: 2, marginBottom: 1 },
   followHeader: { flexDirection: 'row', gap: 10, justifyContent: 'space-between', alignItems: 'center', minWidth: 0 },
   followIdentity: { flex: 1, minWidth: 0 },

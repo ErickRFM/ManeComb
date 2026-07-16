@@ -54,12 +54,16 @@ class ManeCombLocationModule(
   @ReactMethod
   fun getServiceStatus(promise: Promise) {
     val prefs = reactContext.getSharedPreferences(ManeCombLocationService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    val reason = prefs.getString(ManeCombLocationService.KEY_STATUS_REASON, null)
     promise.resolve(Arguments.createMap().apply {
       putBoolean("active", prefs.getBoolean(ManeCombLocationService.KEY_SERVICE_ENABLED, false))
-      putString("reason", prefs.getString(ManeCombLocationService.KEY_STATUS_REASON, null))
+      putString("reason", reason)
       putString("token", prefs.getString(ManeCombLocationService.KEY_TOKEN, null))
       putString("refreshToken", prefs.getString(ManeCombLocationService.KEY_REFRESH_TOKEN, null))
     })
+    if (reason != null) {
+      prefs.edit().remove(ManeCombLocationService.KEY_STATUS_REASON).apply()
+    }
   }
 
   @ReactMethod
