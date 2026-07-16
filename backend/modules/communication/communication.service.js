@@ -1,4 +1,4 @@
-const { validateSendEmailInput, normalizePriority } = require("./communication.validators");
+const { validateSendEmailInput, normalizePriority, validateProviderConfig } = require("./communication.validators");
 const { getTemplateBuilder } = require("./communication.templates");
 const { renderTemplate, extractSubject } = require("./communication.renderer");
 const { createProvider } = require("./communication.provider");
@@ -51,8 +51,18 @@ function configure(cfg) {
     serverToken: config.providerConfig.serverToken
   };
 
-  provider = createProvider(config.provider, providerCfg);
-  providerName = config.provider;
+  const providerValidation = validateProviderConfig(config.provider, providerCfg);
+  if (!providerValidation.valid) {
+    logger.logWarn("ProviderConfigInvalid", `Proveedor ${config.provider} no configurado: ${providerValidation.errors.join(", ")}. Comunicación deshabilitada.`, {
+      provider: config.provider,
+      errors: providerValidation.errors
+    });
+    provider = null;
+    providerName = null;
+  } else {
+    provider = createProvider(config.provider, providerCfg);
+    providerName = config.provider;
+  }
 
   configureQueue({
     enabled: config.queue.enabled,
@@ -103,21 +113,32 @@ async function sendEmail({ to, template, data, priority, from, subject }) {
   const queue = getQueue(QUEUE_NAMES.EMAILS);
   const jobOptions = retry.getJobOptions(resolvedPriority);
 
-  const job = await queue.add(
-    "send-email",
-    {
-      to,
+  let job;
+  try {
+    job = await queue.add(
+      "send-email",
+      {
+        to,
+        template,
+        data: enrichedData,
+        priority: resolvedPriority,
+        provider: providerName,
+        from
+      },
+      {
+        ...jobOptions,
+        priority: resolvedPriority
+      }
+    );
+  } catch (error) {
+    logger.logWarn("QueueAddFailed", `No se pudo encolar correo (${template}), enviando directo`, {
       template,
-      data: enrichedData,
-      priority: resolvedPriority,
       provider: providerName,
-      from
-    },
-    {
-      ...jobOptions,
-      priority: resolvedPriority
-    }
-  );
+      error: error.message
+    });
+    const result = await sendDirect({ to, template, data: enrichedData, from, subject });
+    return result;
+  }
 
   await history.log({
     to: Array.isArray(to) ? to : [to],
@@ -144,10 +165,14 @@ async function sendDirect({ to, template, data, from, subject }) {
 
   metrics.increment("emails_attempted", 1, { template, provider: providerName });
 
-  const resolvedSubject = subject || extractSubject(data);
-  const html = renderTemplate(getTemplateBuilder(template), data);
-
   try {
+    const resolvedSubject = subject || extractSubject(data);
+    const templateFn = getTemplateBuilder(template);
+    if (!templateFn) {
+      throw new Error(`Template not found: ${template}`);
+    }
+    const html = renderTemplate(templateFn, data);
+
     const result = await provider.send({
       to,
       from: from || config.defaultFrom,
@@ -156,6 +181,28 @@ async function sendDirect({ to, template, data, from, subject }) {
     });
 
     const duration = Date.now() - startTime;
+
+    if (!result.success) {
+      metrics.increment("emails_failed", 1, { template, provider: providerName });
+      logger.logError("EmailSendFailed", new Error(result.error), {
+        template,
+        provider: providerName,
+        to: Array.isArray(to) ? to.join(",") : to,
+        durationMs: duration
+      });
+      events.emit("communication:email_failed", {
+        template,
+        provider: providerName,
+        error: result.error,
+        to: Array.isArray(to) ? to : [to]
+      });
+      return {
+        success: false,
+        error: result.error,
+        provider: providerName,
+        durationMs: duration
+      };
+    }
 
     metrics.increment("emails_sent", 1, { template, provider: providerName });
     metrics.observeDuration("email_send_duration_ms", duration, { template, provider: providerName });
@@ -199,7 +246,12 @@ async function sendDirect({ to, template, data, from, subject }) {
       to: Array.isArray(to) ? to : [to]
     });
 
-    throw error;
+    return {
+      success: false,
+      error: error.message,
+      provider: providerName,
+      durationMs: duration
+    };
   }
 }
 

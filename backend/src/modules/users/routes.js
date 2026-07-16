@@ -4,6 +4,7 @@ const {
   canAccessAllTenants,
   canAccessTenantResource,
   getOrganizationId,
+  getRolesWithPermission,
   requireOrganization,
   requirePermission
 } = require("../../middlewares/access-control");
@@ -54,7 +55,9 @@ function emitOrganizationEvent(req, eventName, payload) {
   const organizationId = getOrganizationId(req.user);
 
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit(eventName, payload);
+    getRolesWithPermission("canViewAnalytics").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit(eventName, payload);
+    });
   }
 
   if (payload?.user?.id) {
@@ -134,7 +137,7 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
     const payload = {
       ...pickFields(req.body, MANAGED_USER_FIELDS),
       accountType,
-      organizationId: organizationId || req.body?.organizationId,
+      organizationId,
       userStatus: req.body?.userStatus || "pending",
       status: req.body?.status || "offline"
     };

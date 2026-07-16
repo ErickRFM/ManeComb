@@ -3,7 +3,10 @@ const http = require("node:http");
 
 const createApp = require("../src/app");
 const { ROLE_PERMISSIONS, hasPermission } = require("../src/middlewares/access-control");
+const { resolveAuthenticatedUser } = require("../src/middlewares/authenticate");
+const { requirePortalAccess } = require("../src/middlewares/portal-access");
 const { createEmbeddedStore } = require("../src/data/store");
+const { createSessionForRequest, revokeSession } = require("../src/services/sessions");
 const { signToken } = require("../src/utils/jwt");
 
 const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -70,13 +73,37 @@ async function main() {
       role: "driver"
     })).status, 403);
 
+    let portalAllowed = false;
+    requirePortalAccess(
+      { user: { ...admin, accountType: "company_owner", role: "owner" } },
+      { status: () => ({ json: () => undefined }) },
+      () => { portalAllowed = true; }
+    );
+    assert.equal(portalAllowed, true);
+    portalAllowed = false;
+    requirePortalAccess(
+      { user: supervisor },
+      { status: () => ({ json: () => undefined }) },
+      () => { portalAllowed = true; }
+    );
+    assert.equal(portalAllowed, false);
+
     const incident = (await request(context, driver, "/incidents")).data.data[0];
     assert.ok(incident, "seed debe incluir una incidencia accesible");
     assert.equal((await request(context, driver, `/incidents/${incident.id}/status`, "PATCH", {
       status: "resolved"
     })).status, 403);
 
-    console.log("ok - matriz Admin/Supervisor/Chofer aplicada a directorio e incidencias");
+    const createdSession = await createSessionForRequest({ headers: {}, ip: "127.0.0.1" }, supervisor);
+    const sessionToken = signToken(supervisor, createdSession.session.id);
+    assert.equal((await resolveAuthenticatedUser(context.store, sessionToken)).user.id, supervisor.id);
+    await revokeSession(supervisor.id, createdSession.session.id, "rbac_test");
+    assert.equal(await resolveAuthenticatedUser(context.store, sessionToken), null);
+
+    await context.store.updateUser(supervisor.id, { userStatus: "suspended" });
+    assert.equal(await resolveAuthenticatedUser(context.store, signToken(supervisor)), null);
+
+    console.log("ok - matriz, Portal, revocacion y suspension aplicados por la autorizacion compartida");
   } finally {
     context.store.listCommercialOrdersForUser = context.originalListOrders;
     await context.close();

@@ -4,7 +4,7 @@ const {
   getCommercialPlanPricing
 } = require("../../config/commercial-plans");
 const { authenticate } = require("../../middlewares/authenticate");
-const { requirePermission } = require("../../middlewares/access-control");
+const { getRolesWithPermission, requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const { recordAuditLog } = require("../../services/audit");
 const { listSessionsForUser, revokeSession } = require("../../services/sessions");
@@ -22,7 +22,9 @@ function emitAccountEvent(req, eventName, payload) {
   const organizationId = getOrganizationId(req.user);
 
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit(eventName, payload);
+    getRolesWithPermission("canManageBilling").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit(eventName, payload);
+    });
   }
 
   req.app.locals.io?.to(`user:${req.user.id}`).emit(eventName, payload);
@@ -53,7 +55,7 @@ router.get("/subscription", authenticate, requirePortalAccess, async (req, res) 
   });
 });
 
-router.patch("/subscription/plan", authenticate, requirePermission("canManageBilling"), async (req, res) => {
+router.patch("/subscription/plan", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
   const planId = String(req.body?.planId || "").trim();
   const plan = getCommercialPlanById(planId);
 
@@ -121,7 +123,7 @@ router.patch("/subscription/plan", authenticate, requirePermission("canManageBil
   });
 });
 
-router.post("/subscription/cancel", authenticate, requirePermission("canManageBilling"), async (req, res) => {
+router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
   const activeOrder = pickActiveOrder(await getOrders(req));
 
   if (!activeOrder) {
@@ -169,14 +171,14 @@ router.post("/subscription/cancel", authenticate, requirePermission("canManageBi
   });
 });
 
-router.get("/invoices", authenticate, requirePermission("canManageBilling"), async (req, res) => {
+router.get("/invoices", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
   return res.json({
     ok: true,
     data: buildInvoices(await getOrders(req))
   });
 });
 
-router.get("/invoices/:invoiceId/download", authenticate, requirePermission("canManageBilling"), async (req, res) => {
+router.get("/invoices/:invoiceId/download", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
   const invoice = buildInvoices(await getOrders(req)).find(
     (entry) => entry.id === req.params.invoiceId || entry.orderId === req.params.invoiceId
   );

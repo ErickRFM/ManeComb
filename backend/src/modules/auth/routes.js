@@ -174,7 +174,7 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
 
   const user = await req.app.locals.store.getUserById(rotated.session.userId);
 
-  if (!user) {
+  if (!user || String(user.userStatus || "active").toLowerCase() === "suspended") {
     await revokeRefreshToken(rotated.refreshToken, "user_not_found");
     return res.status(401).json({
       ok: false,

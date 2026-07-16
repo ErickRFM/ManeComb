@@ -1,6 +1,6 @@
 import mapboxgl, { type Map as MapboxMap, type Marker as MapboxMarker } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
@@ -146,6 +146,7 @@ export function OperationsMap({
   const checkpointMarkersRef = useRef(new Map<string, MapboxMarker>());
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
   const fittedKeyRef = useRef('');
+  const [mapUnavailable, setMapUnavailable] = useState(false);
   const mapStyle = showTraffic ? 'mapbox://styles/mapbox/navigation-preview-night-v4' : 'mapbox://styles/mapbox/dark-v11';
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
@@ -166,6 +167,8 @@ export function OperationsMap({
       style: mapStyle,
       zoom: 12,
     });
+    const handleMapError = () => setMapUnavailable(true);
+    map.on('error', handleMapError);
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     mapRef.current = map;
@@ -174,6 +177,7 @@ export function OperationsMap({
       vehicleMarkersRef.current.forEach((marker) => marker.remove());
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
       replayMarkerRef.current?.remove();
+      map.off('error', handleMapError);
       map.remove();
       mapRef.current = null;
     };
@@ -302,11 +306,31 @@ export function OperationsMap({
     map.fitBounds(bounds, { duration: 450, padding: 52 });
   }, [boundsPoints]);
 
-  if (!MAPBOX_ACCESS_TOKEN) {
+  if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
+    const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));
+    const currentReplayPoint = positionToPoint(replayPosition) || positionToPoint(replayPath[replayPath.length - 1]);
     return (
       <View style={[styles.fallback, { minHeight: height }]}>
-        <Text style={styles.fallbackTitle}>Mapa no configurado</Text>
-        <Text style={styles.fallbackText}>Configura VITE_MAPBOX_ACCESS_TOKEN para mostrar el mapa geografico real.</Text>
+        <Text style={styles.fallbackTitle}>Seguimiento por unidad</Text>
+        <Text style={styles.fallbackText}>
+          {locatedVehicles.length
+            ? 'Consulta la ultima ubicacion recibida mientras la vista geografica no esta disponible.'
+            : currentReplayPoint
+              ? `Ultima posicion del recorrido: ${currentReplayPoint.latitude.toFixed(5)}, ${currentReplayPoint.longitude.toFixed(5)}.`
+              : 'Las unidades apareceran aqui cuando reporten una ubicacion.'}
+        </Text>
+        {locatedVehicles.length ? (
+          <View style={styles.fallbackList}>
+            {locatedVehicles.map((vehicle) => {
+              const point = getVehiclePoint(vehicle);
+              return (
+                <Text key={vehicle.id} style={styles.fallbackUnit} onPress={() => onVehiclePress?.(vehicle)}>
+                  {vehicle.code} · {Number(point?.latitude).toFixed(5)}, {Number(point?.longitude).toFixed(5)}
+                </Text>
+              );
+            })}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -336,6 +360,24 @@ const styles = StyleSheet.create({
     fontFamily: Typography.display,
     fontSize: 16,
     fontWeight: '900',
+  },
+  fallbackList: {
+    gap: 8,
+    maxWidth: 520,
+    width: '100%',
+  },
+  fallbackUnit: {
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   map: {
     borderColor: portalPalette.line,

@@ -3,6 +3,16 @@ const history = require("./communication.history");
 const metrics = require("./communication.metrics");
 const logger = require("../../src/services/logger");
 
+process.on("unhandledRejection", (reason) => {
+  logger.error({
+    action: "UnhandledRejection",
+    module: "Communication",
+    message: reason?.message || String(reason),
+    error: reason,
+    metadata: { section: "jobs" }
+  });
+});
+
 let sendFn = null;
 
 function setSendFunction(fn) {
@@ -29,6 +39,10 @@ function createEmailWorker() {
         provider,
         from
       });
+
+      if (!result.success) {
+        throw new Error(result.error || "Email send failed");
+      }
 
       const duration = Date.now() - startTime;
 
@@ -93,6 +107,10 @@ function createWhatsAppWorker() {
         template: job.data.template,
         data: job.data.data
       });
+
+      if (!result.success) {
+        throw new Error(result.error || "WhatsApp send failed");
+      }
 
       const duration = Date.now() - startTime;
 

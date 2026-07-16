@@ -1,13 +1,13 @@
 const { Server } = require("socket.io");
 const { CORS_ORIGIN, CLIENT_ORIGINS } = require("../config/env");
-const { canAccessTenantResource, getOrganizationId } = require("../middlewares/access-control");
+const { canAccessTenantResource, getOrganizationId, getRolesWithPermission } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const logger = require("../services/logger");
 const { hasAnotherPresenceSocket, isPresenceHeartbeatFresh } = require("../services/presence");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
-const { verifyToken } = require("../utils/jwt");
+const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
 const {
   appendFrame,
   FRAME_BASE64_LENGTH,
@@ -199,15 +199,14 @@ function registerSocketServer(server, store) {
     }
 
     try {
-      const payload = verifyToken(token);
-      const user = await store.getUserById(payload.sub);
+      const resolved = await resolveAuthenticatedUser(store, token);
 
-      if (!user) {
+      if (!resolved) {
         incrementMetric("socket_auth_failures_total", 1);
         return next(new Error("unauthorized"));
       }
 
-      socket.data.user = user;
+      socket.data.user = resolved.user;
       return next();
     } catch (error) {
       incrementMetric("socket_auth_failures_total", 1);
@@ -1073,7 +1072,7 @@ function registerSocketServer(server, store) {
         const organizationId = String(vehicle.organizationId || "").trim();
 
         if (organizationId) {
-          ["owner", "admin", "dispatcher", "supervisor", "billing_manager", "support", "viewer"].forEach((role) => {
+          getRolesWithPermission("canViewAnalytics").forEach((role) => {
             io.to(`org:${organizationId}:role:${role}`).emit("location:updated", update);
           });
           if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", update);

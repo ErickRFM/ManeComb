@@ -26,27 +26,32 @@ class ResendProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        from: from || `${this.fromName} <${this.fromEmail}>`,
-        to: Array.isArray(to) ? to : [to],
-        subject,
-        html,
-        text: text || ""
-      })
-    });
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: from || `${this.fromName} <${this.fromEmail}>`,
+          to: Array.isArray(to) ? to : [to],
+          subject,
+          html,
+          text: text || ""
+        })
+      });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      throw new Error(`Resend error ${response.status}: ${errorBody}`);
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        return { success: false, error: `Resend error ${response.status}: ${errorBody}`, status: response.status };
+      }
+
+      const data = await response.json();
+      return { success: true, id: data?.id || null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
     }
-
-    return response.json();
   }
 
   async verifyConnection() {
@@ -83,21 +88,27 @@ class SmtpProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const nodemailer = require("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: this.host,
-      port: this.port,
-      secure: this.secure,
-      auth: this.auth
-    });
+    try {
+      const nodemailer = require("nodemailer");
+      const transporter = nodemailer.createTransport({
+        host: this.host,
+        port: this.port,
+        secure: this.secure,
+        auth: this.auth
+      });
 
-    return await transporter.sendMail({
-      from: from || this.fromEmail,
-      to: Array.isArray(to) ? to.join(", ") : to,
-      subject,
-      html,
-      text: text || ""
-    });
+      const info = await transporter.sendMail({
+        from: from || this.fromEmail,
+        to: Array.isArray(to) ? to.join(", ") : to,
+        subject,
+        html,
+        text: text || ""
+      });
+
+      return { success: true, id: info?.messageId || null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
+    }
   }
 
   async verifyConnection() {
@@ -128,30 +139,35 @@ class SesProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
-    const client = new SESClient({
-      region: this.region,
-      credentials: {
-        accessKeyId: this.accessKeyId,
-        secretAccessKey: this.secretAccessKey
-      }
-    });
-
-    const command = new SendEmailCommand({
-      Source: from || this.fromEmail,
-      Destination: {
-        ToAddresses: Array.isArray(to) ? to : [to]
-      },
-      Message: {
-        Subject: { Data: subject },
-        Body: {
-          Html: { Data: html },
-          Text: { Data: text || "" }
+    try {
+      const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
+      const client = new SESClient({
+        region: this.region,
+        credentials: {
+          accessKeyId: this.accessKeyId,
+          secretAccessKey: this.secretAccessKey
         }
-      }
-    });
+      });
 
-    return await client.send(command);
+      const command = new SendEmailCommand({
+        Source: from || this.fromEmail,
+        Destination: {
+          ToAddresses: Array.isArray(to) ? to : [to]
+        },
+        Message: {
+          Subject: { Data: subject },
+          Body: {
+            Html: { Data: html },
+            Text: { Data: text || "" }
+          }
+        }
+      });
+
+      const result = await client.send(command);
+      return { success: true, id: result?.MessageId || null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
+    }
   }
 
   async verifyConnection() {
@@ -183,30 +199,35 @@ class MailgunProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const url = `https://api${this.region === "eu" ? ".eu" : ""}.mailgun.net/v3/${this.domain}/messages`;
-    const formData = new URLSearchParams();
-    formData.append("from", from || this.fromEmail);
-    if (Array.isArray(to)) to.forEach((t) => formData.append("to", t));
-    else formData.append("to", to);
-    formData.append("subject", subject);
-    formData.append("html", html);
-    if (text) formData.append("text", text);
+    try {
+      const url = `https://api${this.region === "eu" ? ".eu" : ""}.mailgun.net/v3/${this.domain}/messages`;
+      const formData = new URLSearchParams();
+      formData.append("from", from || this.fromEmail);
+      if (Array.isArray(to)) to.forEach((t) => formData.append("to", t));
+      else formData.append("to", to);
+      formData.append("subject", subject);
+      formData.append("html", html);
+      if (text) formData.append("text", text);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`api:${this.apiKey}`).toString("base64")}`,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: formData
-    });
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`api:${this.apiKey}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData
+      });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      throw new Error(`Mailgun error ${response.status}: ${errorBody}`);
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        return { success: false, error: `Mailgun error ${response.status}: ${errorBody}`, status: response.status };
+      }
+
+      const data = await response.json();
+      return { success: true, id: data?.id || null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
     }
-
-    return response.json();
   }
 
   async verifyConnection() {
@@ -242,28 +263,33 @@ class PostmarkProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const response = await fetch("https://api.postmarkapp.com/email", {
-      method: "POST",
-      headers: {
-        "X-Postmark-Server-Token": this.serverToken,
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({
-        From: from || this.fromEmail,
-        To: Array.isArray(to) ? to.join(", ") : to,
-        Subject: subject,
-        HtmlBody: html,
-        TextBody: text || ""
-      })
-    });
+    try {
+      const response = await fetch("https://api.postmarkapp.com/email", {
+        method: "POST",
+        headers: {
+          "X-Postmark-Server-Token": this.serverToken,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          From: from || this.fromEmail,
+          To: Array.isArray(to) ? to.join(", ") : to,
+          Subject: subject,
+          HtmlBody: html,
+          TextBody: text || ""
+        })
+      });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      throw new Error(`Postmark error ${response.status}: ${errorBody}`);
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        return { success: false, error: `Postmark error ${response.status}: ${errorBody}`, status: response.status };
+      }
+
+      const data = await response.json();
+      return { success: true, id: data?.MessageID || null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
     }
-
-    return response.json();
   }
 
   async verifyConnection() {
@@ -299,33 +325,37 @@ class SendGridProvider extends BaseProvider {
   }
 
   async send({ to, from, subject, html, text }) {
-    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        personalizations: [
-          {
-            to: (Array.isArray(to) ? to : [to]).map((addr) => ({ email: addr })),
-            subject
-          }
-        ],
-        from: { email: from || this.fromEmail, name: this.fromName },
-        content: [
-          { type: "text/html", value: html },
-          { type: "text/plain", value: text || "" }
-        ]
-      })
-    });
+    try {
+      const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          personalizations: [
+            {
+              to: (Array.isArray(to) ? to : [to]).map((addr) => ({ email: addr })),
+              subject
+            }
+          ],
+          from: { email: from || this.fromEmail, name: this.fromName },
+          content: [
+            { type: "text/html", value: html },
+            { type: "text/plain", value: text || "" }
+          ]
+        })
+      });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => "");
-      throw new Error(`SendGrid error ${response.status}: ${errorBody}`);
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        return { success: false, error: `SendGrid error ${response.status}: ${errorBody}`, status: response.status };
+      }
+
+      return { success: true, id: null };
+    } catch (error) {
+      return { success: false, error: error.message || String(error), status: 0 };
     }
-
-    return response.json();
   }
 
   async verifyConnection() {

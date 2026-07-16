@@ -173,6 +173,29 @@ async function listSessionsForUser(userId, currentSessionId = null) {
   return sessions.map((session) => serializeSession(session, currentSessionId));
 }
 
+async function isSessionActive(userId, sessionId) {
+  if (!userId || !sessionId) return false;
+
+  if (!isMongoReady()) {
+    const session = memorySessions.get(sessionId);
+    return Boolean(
+      session &&
+      session.userId === userId &&
+      session.isActive &&
+      !session.revokedAt &&
+      new Date(session.expiresAt).getTime() > Date.now()
+    );
+  }
+
+  return Boolean(await SessionModel.exists({
+    _id: sessionId,
+    userId,
+    isActive: true,
+    revokedAt: null,
+    expiresAt: { $gt: new Date() }
+  }));
+}
+
 async function revokeSession(userId, sessionId, reason = "revoked") {
   if (!isMongoReady()) {
     const session = memorySessions.get(sessionId);
@@ -286,6 +309,7 @@ async function revokeRefreshToken(refreshToken, reason = "logout") {
 module.exports = {
   createSessionForRequest,
   hashRefreshToken,
+  isSessionActive,
   listSessionsForUser,
   revokeAllSessions,
   revokeRefreshToken,

@@ -44,16 +44,16 @@ function createLocalQueue(name) {
       };
       jobs.push(job);
 
-      process.nextTick(() => {
-        consumers.forEach((consumer) => {
+      setImmediate(async () => {
+        for (const consumer of consumers) {
           try {
-            consumer({ id: job.id, name: jobName, data: payload, opts: options });
+            await consumer({ id: job.id, name: jobName, data: payload, opts: options });
             job.status = "completed";
           } catch (err) {
             job.status = "failed";
             job.error = err.message;
           }
-        });
+        }
       });
 
       return job;

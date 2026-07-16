@@ -13,6 +13,7 @@ import {
   getRouteSessionHistoryRequest,
   getRouteSessionMetricsRequest,
   getRouteSessionPositionsRequest,
+  getApiErrorMessage,
 } from '@/src/api/client';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
@@ -25,7 +26,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
-import { AccountSummaryCard, PortalSectionCard } from '../components/portal-cards';
+import { AccountSummaryCard, formatPortalStatus, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
@@ -349,7 +350,7 @@ export function PortalDashboardScreen() {
       setHistoryLimit(result.limit);
       setHistoryTotal(result.total);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No fue posible cargar jornadas.');
+      setMessage(getApiErrorMessage(error, 'No fue posible cargar jornadas.'));
     } finally {
       setIsLoading(false);
     }
@@ -493,7 +494,7 @@ export function PortalDashboardScreen() {
       detailCache.current.set(session.id, detail);
       setSessionDetail(detail);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No fue posible cargar el detalle de jornada.');
+      setMessage(getApiErrorMessage(error, 'No fue posible cargar el detalle de jornada.'));
       setSessionDetail(null);
     } finally {
       setIsDetailLoading(false);
@@ -518,7 +519,7 @@ export function PortalDashboardScreen() {
       detailCache.current.set(selectedSession.id, nextDetail);
       setSessionDetail(nextDetail);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No fue posible cargar mas posiciones.');
+      setMessage(getApiErrorMessage(error, 'No fue posible cargar mas posiciones.'));
     } finally {
       setIsPositionsLoading(false);
     }
@@ -681,8 +682,8 @@ export function PortalDashboardScreen() {
 
       <PortalSectionCard
         title="Detalle de jornada"
-        subtitle={selectedSession ? `${selectedSession.vehicleId} / ${formatDate(selectedSession.startedAt)}` : 'Selecciona una jornada'}
-        right={selectedSession ? <StatusBadge label={selectedSession.status} tone={selectedSession.status === 'FINISHED' ? 'positive' : 'info'} /> : null}>
+        subtitle={selectedSession ? `${vehicles.find((vehicle) => vehicle.id === selectedSession.vehicleId)?.code || 'Unidad'} / ${formatDate(selectedSession.startedAt)}` : 'Selecciona una jornada'}
+        right={selectedSession ? <StatusBadge label={formatPortalStatus(selectedSession.status)} tone={selectedSession.status === 'FINISHED' ? 'positive' : 'info'} /> : null}>
         {selectedSession ? (
           <SessionDetailView
             detail={sessionDetail}
@@ -980,11 +981,20 @@ function HistoryFilters({
   vehicles: Vehicle[];
 }) {
   const routes = Array.from(new Set(sessions.map((session) => session.routeId).filter(Boolean)));
+  const selectedVehicleLabel = vehicles.find((vehicle) => vehicle.id === filters.vehicleId)?.code || 'Todas';
+  const selectedDriverLabel = users.find((user) => user.id === filters.driverId)?.name || '';
+  const selectedRouteLabel = filters.routeId
+    ? getRouteLabel(vehicles.find((vehicle) => vehicle.routeId === filters.routeId), sessions.find((session) => session.routeId === filters.routeId))
+    : '';
   return (
     <View style={styles.filters}>
-      <SelectPill label="Unidad" value={filters.vehicleId || 'Todas'} onClear={() => onChange('vehicleId', '')} />
       <View style={styles.optionRow}>
-        {vehicles.slice(0, 8).map((vehicle) => (
+        <SelectPill label="Unidad" value={selectedVehicleLabel} onClear={() => onChange('vehicleId', '')} />
+        {filters.driverId ? <SelectPill label="Chofer" value={selectedDriverLabel} onClear={() => onChange('driverId', '')} /> : null}
+        {filters.routeId ? <SelectPill label="Ruta" value={selectedRouteLabel} onClear={() => onChange('routeId', '')} /> : null}
+      </View>
+      <View style={styles.optionRow}>
+        {vehicles.map((vehicle) => (
           <Pressable key={vehicle.id} onPress={() => onChange('vehicleId', vehicle.id)} style={[styles.filterChip, filters.vehicleId === vehicle.id ? styles.filterChipActive : undefined]}>
             <Text style={styles.filterChipText}>{vehicle.code}</Text>
           </Pressable>
@@ -993,21 +1003,23 @@ function HistoryFilters({
       <View style={styles.optionRow}>
         {statusFilters.map((status) => (
           <Pressable key={status} onPress={() => onChange('status', status)} style={[styles.filterChip, filters.status === status ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{status === 'ALL' ? 'Todos' : status}</Text>
+            <Text style={styles.filterChipText}>{status === 'ALL' ? 'Todos' : formatPortalStatus(status)}</Text>
           </Pressable>
         ))}
       </View>
       <View style={styles.optionRow}>
-        {users.filter((user) => user.role === 'driver').slice(0, 6).map((driver) => (
+        {users.filter((user) => user.role === 'driver').map((driver) => (
           <Pressable key={driver.id} onPress={() => onChange('driverId', driver.id)} style={[styles.filterChip, filters.driverId === driver.id ? styles.filterChipActive : undefined]}>
             <Text style={styles.filterChipText}>{driver.name}</Text>
           </Pressable>
         ))}
       </View>
       <View style={styles.optionRow}>
-        {routes.slice(0, 6).map((routeId) => (
+        {routes.map((routeId) => (
           <Pressable key={routeId} onPress={() => onChange('routeId', routeId)} style={[styles.filterChip, filters.routeId === routeId ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{routeId}</Text>
+            <Text style={styles.filterChipText}>
+              {getRouteLabel(vehicles.find((vehicle) => vehicle.routeId === routeId), sessions.find((session) => session.routeId === routeId))}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -1051,7 +1063,7 @@ function SessionHistoryCard({
           <Text style={styles.historyTitle}>{vehicleCode} / {formatDate(session.startedAt)}</Text>
           <Text style={styles.unitMeta}>{driverName} / {routeLabel}</Text>
         </View>
-        <StatusBadge label={session.status} tone={session.status === 'FINISHED' ? 'positive' : session.status === 'CANCELLED' ? 'danger' : 'info'} />
+        <StatusBadge label={formatPortalStatus(session.status)} tone={session.status === 'FINISHED' ? 'positive' : session.status === 'CANCELLED' ? 'danger' : 'info'} />
       </View>
       <View style={styles.unitFacts}>
         <Fact label="Duracion" value={formatDuration(session.totalDuration)} />

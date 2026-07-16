@@ -1,5 +1,21 @@
 const { verifyToken } = require("../utils/jwt");
+const { isSessionActive } = require("../services/sessions");
 const { getOrganizationId } = require("./access-control");
+
+async function resolveAuthenticatedUser(store, token) {
+  const payload = verifyToken(token);
+  const user = await store.getUserById(payload.sub);
+
+  if (!user || String(user.userStatus || "active").toLowerCase() === "suspended") {
+    return null;
+  }
+
+  if (payload.sid && !(await isSessionActive(user.id, payload.sid))) {
+    return null;
+  }
+
+  return { payload, user };
+}
 
 async function authenticate(req, res, next) {
   const header = req.headers.authorization;
@@ -12,21 +28,23 @@ async function authenticate(req, res, next) {
   }
 
   try {
-    const payload = verifyToken(header.replace("Bearer ", "").trim());
-    const user = await req.app.locals.store.getUserById(payload.sub);
+    const resolved = await resolveAuthenticatedUser(
+      req.app.locals.store,
+      header.replace("Bearer ", "").trim()
+    );
 
-    if (!user) {
+    if (!resolved) {
       return res.status(401).json({
         ok: false,
         message: "Sesión inválida"
       });
     }
 
-    req.auth = payload;
-    req.user = user;
+    req.auth = resolved.payload;
+    req.user = resolved.user;
     req.tenant = {
-      organizationId: getOrganizationId(user),
-      companyId: getOrganizationId(user)
+      organizationId: getOrganizationId(resolved.user),
+      companyId: getOrganizationId(resolved.user)
     };
     return next();
   } catch (error) {
@@ -38,5 +56,6 @@ async function authenticate(req, res, next) {
 }
 
 module.exports = {
-  authenticate
+  authenticate,
+  resolveAuthenticatedUser
 };

@@ -44,6 +44,9 @@ export function formatPortalStatus(status?: string) {
   const normalized = String(status || '').toLowerCase();
 
   if (normalized === 'completed') return 'Completado';
+  if (normalized === 'running') return 'En curso';
+  if (normalized === 'paused') return 'Pausada';
+  if (normalized === 'finished') return 'Finalizada';
   if (normalized === 'pending') return 'Pendiente';
   if (normalized === 'active') return 'Activo';
   if (normalized === 'inactive') return 'Inactivo';

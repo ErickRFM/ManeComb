@@ -3,6 +3,7 @@ const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
 const { MERCADO_PAGO_WEBHOOK_SECRET } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
+const { getRolesWithPermission } = require("../../middlewares/access-control");
 const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
@@ -39,7 +40,9 @@ function emitCommercialEvent(req, eventName, order, payload = {}) {
   };
 
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit(eventName, eventPayload);
+    getRolesWithPermission("canManageBilling").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit(eventName, eventPayload);
+    });
   }
 
   if (ownerUserId) {
