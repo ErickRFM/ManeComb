@@ -53,7 +53,7 @@ No se crearon endpoints, pantallas ni una segunda implementacion de logica movil
   - `/portal` sin sesion redirige a `/ventas/login`.
   - La pantalla de acceso no registra errores de consola.
   - Navegacion, consumidores y permisos autenticados fueron verificados en codigo contra el router y los stores.
-- `git diff --check`: aprobado.
+- `git diff --check`: aprobado para el arbol de trabajo. Los cambios concurrentes ajenos al Portal se preservaron y no forman parte de esta certificacion.
 
 ## Conclusion
 
