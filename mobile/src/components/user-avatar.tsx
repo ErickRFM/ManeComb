@@ -1,20 +1,20 @@
 import { Image } from '@/src/native/image';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { User } from '@/src/types/app';
+import { PresenceDot } from '@/src/components/presence-indicator';
+import type { PresenceStatus } from '@/src/utils/presence';
 
 type UserAvatarProps = {
   user?: Pick<User, 'avatar' | 'avatarUrl' | 'name'> | null;
   size?: number;
   showStatus?: boolean;
-  status?: string;
+  status?: PresenceStatus;
 };
 
 export function UserAvatar({ user, size = 52, showStatus = false, status }: UserAvatarProps) {
   const { theme } = useAppTheme();
-  const normalizedStatus = status || 'offline';
-  const isOnline = normalizedStatus !== 'offline';
 
   return (
     <View style={styles.wrapper}>
@@ -45,25 +45,7 @@ export function UserAvatar({ user, size = 52, showStatus = false, status }: User
         )}
       </View>
       {showStatus ? (
-        <View
-          style={[
-            styles.statusDot,
-            {
-              backgroundColor: isOnline ? theme.colors.success : theme.colors.danger,
-              ...(Platform.OS === 'web'
-                ? {
-                    boxShadow: `0px 0px 10px ${isOnline ? theme.colors.success : theme.colors.danger}`,
-                  }
-                : {
-                    shadowColor: isOnline ? theme.colors.success : theme.colors.danger,
-                    shadowOpacity: 1,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 0 },
-                    elevation: 6,
-                  }),
-            },
-          ]}
-        />
+        <View style={styles.statusDot}><PresenceDot status={status || 'unknown'} size={12} /></View>
       ) : null}
     </View>
   );
@@ -88,8 +70,5 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 2,
     bottom: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
   },
 });

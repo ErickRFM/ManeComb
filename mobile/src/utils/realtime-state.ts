@@ -12,6 +12,7 @@ export type RealtimeMachineState =
 export type RealtimeMachineTone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
 
 type RealtimeInputs = {
+  heartbeatHealthy?: boolean;
   hasUser?: boolean;
   isReceiving?: boolean;
   isTransmitting?: boolean;
@@ -30,6 +31,7 @@ export type RealtimeSnapshot = {
 };
 
 export function getRealtimeSnapshot({
+  heartbeatHealthy = true,
   hasUser = false,
   isReceiving = false,
   isTransmitting = false,
@@ -62,6 +64,16 @@ export function getRealtimeSnapshot({
     return {
       canTransmit: false,
       detail: 'Reconectando Socket',
+      label: 'Reconectando',
+      state: 'RECONNECTING',
+      tone: 'warning',
+    };
+  }
+
+  if (socketStatus === 'connected' && !heartbeatHealthy) {
+    return {
+      canTransmit: false,
+      detail: 'Esperando heartbeat',
       label: 'Reconectando',
       state: 'RECONNECTING',
       tone: 'warning',

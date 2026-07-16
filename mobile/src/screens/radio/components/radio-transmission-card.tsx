@@ -12,16 +12,19 @@ import type { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatRelativeTime } from '@/src/utils/format';
 import { clampVolume, formatDuration } from '../utils/radio-format';
+import type { PresenceStatus } from '@/src/utils/presence';
 import { RadioWaveform } from './radio-waveform';
 
 export function VoiceTransmissionCard({
   channelTitle,
   message,
+  presence,
   token,
   theme,
 }: {
   channelTitle?: string;
   message: ChatMessage;
+  presence: PresenceStatus;
   token: string | null;
   theme: ReturnType<typeof useAppTheme>['theme'];
 }) {
@@ -148,7 +151,7 @@ export function VoiceTransmissionCard({
       ]}>
       <View style={styles.voiceCardHeader}>
         <View style={styles.voiceCardLead}>
-          <UserAvatar user={message.sender} status={message.sender?.status} size={36} />
+          <UserAvatar user={message.sender} status={presence} size={36} />
           <View style={styles.voiceCardCopy}>
             <Text style={[styles.voiceCardName, { color: theme.colors.text }]}>
               {message.sender?.name || 'Operación'}

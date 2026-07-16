@@ -6,11 +6,13 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
+import { PresenceBadge } from '@/src/components/presence-indicator';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, Vehicle } from '@/src/types/app';
-import { formatRole, formatStatus } from '@/src/utils/format';
+import { formatRole } from '@/src/utils/format';
+import { getPresenceStatus } from '@/src/utils/presence';
 
 type Tone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
 
@@ -18,12 +20,6 @@ function roleTone(role: Role): Tone {
   if (role === 'admin') return 'danger';
   if (role === 'supervisor') return 'info';
   return role === 'driver' ? 'positive' : 'neutral';
-}
-
-function statusTone(status: string): Tone {
-  if (status === 'offline') return 'neutral';
-  if (status === 'online') return 'info';
-  return 'positive';
 }
 
 function getVehicleRoute(vehicle?: Vehicle) {
@@ -35,10 +31,11 @@ export function UsersScreen() {
   const { width } = useWindowDimensions();
   const isPhone = width < 640;
   const { theme } = useAppTheme();
-  const { loadUsers, mapData, refreshAll, user, users } = useAppStore(
+  const { loadUsers, mapData, presenceByUser, refreshAll, user, users } = useAppStore(
     useShallow((state) => ({
       loadUsers: state.loadUsers,
       mapData: state.mapData,
+      presenceByUser: state.presenceByUser,
       refreshAll: state.refreshAll,
       user: state.user,
       users: state.users,
@@ -105,17 +102,18 @@ export function UsersScreen() {
           {operationalUsers.length ? (
             operationalUsers.map((entry) => {
               const vehicle = entry.vehicleId ? vehicleById.get(entry.vehicleId) : undefined;
+              const presence = getPresenceStatus(presenceByUser, entry.id);
 
               return (
                 <View key={entry.id} style={styles.userRow}>
                   <View style={styles.userTop}>
-                    <UserAvatar user={entry} status={entry.status} showStatus size={56} />
+                    <UserAvatar user={entry} status={presence} showStatus size={56} />
                     <View style={styles.userMeta}>
                       <Text style={styles.userName} numberOfLines={2}>{entry.name}</Text>
                       <Text style={styles.userEmail} numberOfLines={1}>{entry.email}</Text>
                       <View style={styles.pillsRow}>
                         <StatusPill label={formatRole(entry.role)} tone={roleTone(entry.role)} />
-                        <StatusPill label={formatStatus(entry.status)} tone={statusTone(entry.status)} />
+                        <PresenceBadge status={presence} />
                       </View>
                     </View>
                   </View>

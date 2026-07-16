@@ -4,6 +4,7 @@ const { canAccessTenantResource, getOrganizationId } = require("../middlewares/a
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const logger = require("../services/logger");
+const { hasAnotherPresenceSocket, isPresenceHeartbeatFresh } = require("../services/presence");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { verifyToken } = require("../utils/jwt");
@@ -20,6 +21,8 @@ const RADIO_LOCK_TTL_MS = 10000;
 const RADIO_LOCK_PREFIX = "manecomb:radio:channel:";
 const RADIO_FRAME_DURATION_MS = 20;
 const RADIO_FRAME_BURST_ALLOWANCE = 50;
+const PRESENCE_HEARTBEAT_TIMEOUT_MS = 55000;
+const PRESENCE_SWEEP_INTERVAL_MS = 5000;
 
 function getRadioRoom(channelId) {
   return `radio:${channelId}`;
@@ -48,6 +51,41 @@ function registerSocketServer(server, store) {
   const redisClient = getRedisClient();
   const redisReadiness = getRedisReadiness();
   let radioClusterReady = !redisReadiness.enabled;
+
+  async function hasAnotherLivePresenceSocket(sourceSocket, userId) {
+    const candidates = await io.in(`user:${userId}`).fetchSockets();
+    return hasAnotherPresenceSocket(candidates, sourceSocket.id, userId);
+  }
+
+  async function emitPresenceStatus(sourceSocket, status) {
+    const userId = sourceSocket.data.user?.id;
+    const organizationId = getOrganizationId(sourceSocket.data.user);
+    if (!userId || !organizationId) return;
+    if (status === "offline" && await hasAnotherLivePresenceSocket(sourceSocket, userId)) return;
+    io.to(`org:${organizationId}`).emit("presence:updated", { userId, status });
+  }
+
+  const presenceSweepTimer = setInterval(() => {
+    const now = Date.now();
+    io.sockets.sockets.forEach((candidate) => {
+      if (!candidate.data.presenceJoined) return;
+      const lastHeartbeatAt = Number(candidate.data.lastPresenceHeartbeatAt || 0);
+      if (isPresenceHeartbeatFresh(lastHeartbeatAt, now, PRESENCE_HEARTBEAT_TIMEOUT_MS)) return;
+      candidate.data.presenceJoined = false;
+      void emitPresenceStatus(candidate, "offline").catch((error) => {
+        logger.error({ action: "PresenceExpireBroadcast", module: "Presence", status: "error", error });
+      });
+      logger.warn({
+        action: "PresenceExpired",
+        module: "Presence",
+        status: "offline",
+        userId: candidate.data.user?.id,
+        metadata: { lastHeartbeatAt: lastHeartbeatAt || null, socketId: candidate.id }
+      });
+    });
+  }, PRESENCE_SWEEP_INTERVAL_MS);
+  presenceSweepTimer.unref?.();
+  server.once("close", () => clearInterval(presenceSweepTimer));
 
   function getLocalRoomDiagnostics(room, sourceSocketId = null) {
     const socketIds = [...(io.sockets.adapter.rooms.get(room) || [])];
@@ -347,7 +385,7 @@ function registerSocketServer(server, store) {
       userId: socket.data.user?.id
     });
 
-    socket.on("presence:join", (payload, ack) => {
+    socket.on("presence:join", async (payload, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
       const resolvedUserId = authenticatedUser?.id;
@@ -380,7 +418,11 @@ function registerSocketServer(server, store) {
       }
 
       socket.data.presenceJoined = true;
-      const onlineUserIds = Array.from(io.sockets.sockets.values())
+      socket.data.lastPresenceHeartbeatAt = Date.now();
+      const organizationSockets = resolvedOrganizationId
+        ? await io.in(`org:${resolvedOrganizationId}`).fetchSockets()
+        : [];
+      const onlineUserIds = organizationSockets
         .filter(
           (candidate) =>
             candidate.data.presenceJoined &&
@@ -602,6 +644,13 @@ function registerSocketServer(server, store) {
         lockKey: null,
         lockValue: null
       };
+
+      const presenceWasExpired = !socket.data.presenceJoined;
+      socket.data.lastPresenceHeartbeatAt = Date.now();
+      socket.data.presenceJoined = true;
+      if (presenceWasExpired) {
+        void emitPresenceStatus(socket, "online");
+      }
       try {
         const lock = await acquireRadioChannel(safeChannelId, {
           socketId: socket.id,
@@ -1113,7 +1162,7 @@ function registerSocketServer(server, store) {
       });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       incrementMetric("socket_disconnects_total", 1);
       setGauge("socket_clients", io.engine.clientsCount || 0);
       logger.info({
@@ -1126,17 +1175,8 @@ function registerSocketServer(server, store) {
       });
       const disconnectedUserId = socket.data.user?.id;
       const disconnectedOrganizationId = getOrganizationId(socket.data.user);
-      const hasAnotherPresenceSocket = Array.from(io.sockets.sockets.values()).some(
-        (candidate) =>
-          candidate.id !== socket.id &&
-          candidate.data.presenceJoined &&
-          candidate.data.user?.id === disconnectedUserId
-      );
-      if (socket.data.presenceJoined && disconnectedOrganizationId && disconnectedUserId && !hasAnotherPresenceSocket) {
-        io.to(`org:${disconnectedOrganizationId}`).emit("presence:updated", {
-          userId: disconnectedUserId,
-          status: "offline"
-        });
+      if (socket.data.presenceJoined && disconnectedOrganizationId && disconnectedUserId) {
+        await emitPresenceStatus(socket, "offline");
       }
       const joinedRtcRoomIds = Array.from(rtcRooms.keys()).filter((roomId) =>
         isSocketInRtcRoom(socket, roomId)

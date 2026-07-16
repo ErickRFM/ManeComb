@@ -120,6 +120,7 @@ import {
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
 import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
+import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -501,6 +502,42 @@ function upsertConversationMessage(messagesByConversation: Record<string, ChatMe
   };
 }
 
+function getKnownPresenceUserIds(state: AppState) {
+  return [
+    state.user?.id,
+    ...state.users.map((entry) => entry.id),
+    ...state.chatContacts.map((entry) => entry.id),
+    ...state.conversations.flatMap((entry) => entry.participants.map((participant) => participant.id)),
+    ...Object.values(state.messagesByConversation).flatMap((messages) =>
+      messages.map((message) => message.sender?.id).filter(Boolean)
+    ),
+  ].filter((value): value is string => Boolean(value));
+}
+
+function applyPresenceToLoadedEntities(state: AppState, presenceByUser: PresenceMap) {
+  const statusFor = (userId: string) => presenceByUser[userId] || 'offline';
+  return {
+    presenceByUser,
+    chatContacts: state.chatContacts.map((contact) => ({ ...contact, status: statusFor(contact.id) })),
+    conversations: state.conversations.map((conversation) => ({
+      ...conversation,
+      participants: conversation.participants.map((participant) => ({
+        ...participant,
+        status: statusFor(participant.id),
+      })),
+    })),
+    messagesByConversation: Object.fromEntries(
+      Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
+        conversationId,
+        messages.map((message) => message.sender ? {
+          ...message,
+          sender: { ...message.sender, status: statusFor(message.sender.id) },
+        } : message),
+      ])
+    ),
+  };
+}
+
 function upsertIncident(incidents: Incident[], incident: Incident) {
   const next = incidents.some((entry) => entry.id === incident.id)
     ? incidents.map((entry) => (entry.id === incident.id ? incident : entry))
@@ -802,8 +839,10 @@ async function registerCurrentPushToken() {
 
 function setNetworkSignal(set: StoreSet, signal: NetworkStatus, snapshot?: MobileNetworkSnapshot | null) {
   set((state) => ({
-    networkStatus:
-      signal === 'online' && state.networkStatus === 'recovering' ? 'online' : signal,
+    ...(signal === 'offline'
+      ? applyPresenceToLoadedEntities(state, markAllPresenceUnknown())
+      : {}),
+    networkStatus: signal === 'online' && state.networkStatus === 'recovering' ? 'online' : signal,
     networkSnapshot: typeof snapshot === 'undefined' ? state.networkSnapshot : snapshot,
   }));
 }
@@ -824,6 +863,7 @@ function disconnectSocket() {
   socketSessionKey = null;
   missedHeartbeatAcks = 0;
   useAppStore.setState((state) => ({
+    ...applyPresenceToLoadedEntities(state, markAllPresenceUnknown()),
     socketStatus: 'disconnected',
     realtimeDiagnostics: {
       ...state.realtimeDiagnostics,
@@ -841,6 +881,12 @@ function joinCurrentConversationRooms(get: () => AppState) {
   }
 
   get().conversations.forEach((conversation) => activeSocket.emit('conversation:join', conversation.id));
+}
+
+function emitCurrentPresence(get: () => AppState) {
+  const current = get();
+  if (!socket?.connected || !current.user) return;
+  socket.emit('presence:join', { packetId: createRealtimePacketId('presence') });
 }
 
 function cleanupSessionRuntime() {
@@ -904,6 +950,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       setSocketTransition(set, 'connecting', 'socket_reconnect_requested');
     } else {
       joinCurrentConversationRooms(get);
+      emitCurrentPresence(get);
     }
     return;
   }
@@ -926,20 +973,6 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     randomizationFactor: 0.45,
     autoConnect: false,
   });
-
-  const emitPresence = () => {
-    const current = get();
-    if (!socket?.connected || !current.user) {
-      return;
-    }
-
-    socket.emit('presence:join', {
-      userId: current.user.id,
-      role: current.user.role,
-      organizationId: current.user.organizationId,
-      accountType: current.user.accountType,
-    });
-  };
 
   const emitHeartbeat = () => {
     const current = get();
@@ -1027,7 +1060,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     });
     set({ networkStatus: 'online' });
     mobileLog('socket', `connected ${socket?.id || ''}`);
-    emitPresence();
+    emitCurrentPresence(get);
     emitHeartbeat();
     joinCurrentConversationRooms(get);
   });
@@ -1052,11 +1085,9 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('disconnect', (reason) => {
-    setSocketTransition(
-      set,
-      reason === 'io client disconnect' ? 'disconnected' : 'reconnecting',
-      `socket_disconnect:${reason}`
-    );
+    set((state) => applyPresenceToLoadedEntities(state, markAllPresenceUnknown()));
+    setSocketTransition(set, reason === 'io client disconnect' ? 'disconnected' : 'reconnecting',
+      `socket_disconnect:${reason}`);
     mobileLog('socket', `disconnected: ${reason}`);
   });
 
@@ -1207,58 +1238,16 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('presence:snapshot', ({ userIds }: { userIds: string[] }) => {
-    const online = new Set(userIds || []);
-    set(state => ({
-      presenceByUser: Object.fromEntries(
-        state.chatContacts.map(contact => [contact.id, online.has(contact.id) ? 'online' : 'offline'])
-      ),
-      chatContacts: state.chatContacts.map(contact => ({
-        ...contact,
-        status: online.has(contact.id) ? 'online' : 'offline',
-      })),
-      conversations: state.conversations.map(conversation => ({
-        ...conversation,
-        participants: conversation.participants.map(participant => ({
-          ...participant,
-          status: online.has(participant.id) ? 'online' : 'offline',
-        })),
-      })),
-      messagesByConversation: Object.fromEntries(
-        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
-          conversationId,
-          messages.map(message => message.sender ? {
-            ...message,
-            sender: {
-              ...message.sender,
-              status: online.has(message.sender.id) ? 'online' : 'offline',
-            },
-          } : message),
-        ])
-      ),
-    }));
+    set(state => applyPresenceToLoadedEntities(
+      state,
+      buildPresenceSnapshot(getKnownPresenceUserIds(state), userIds || [])
+    ));
   });
 
   socket.on('presence:updated', ({ userId, status }: { userId: string; status: 'online' | 'offline' }) => {
-    set(state => ({
-      presenceByUser: { ...state.presenceByUser, [userId]: status },
-      chatContacts: state.chatContacts.map(contact =>
-        contact.id === userId ? { ...contact, status } : contact
-      ),
-      conversations: state.conversations.map(conversation => ({
-        ...conversation,
-        participants: conversation.participants.map(participant =>
-          participant.id === userId ? { ...participant, status } : participant
-        ),
-      })),
-      messagesByConversation: Object.fromEntries(
-        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
-          conversationId,
-          messages.map(message => message.sender?.id === userId ? {
-            ...message,
-            sender: { ...message.sender, status },
-          } : message),
-        ])
-      ),
+    set(state => applyPresenceToLoadedEntities(state, {
+      ...state.presenceByUser,
+      [userId]: status,
     }));
   });
 
@@ -1327,7 +1316,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socketHeartbeatTimer = setInterval(() => {
-    emitPresence();
+    emitCurrentPresence(get);
     emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
@@ -1383,10 +1372,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!networkUnsubscribe) {
     networkUnsubscribe = subscribeMobileNetwork((snapshot) => {
       const reachable = isNetworkReachable(snapshot);
-      set({
-        networkSnapshot: snapshot,
-        networkStatus: reachable ? 'online' : 'offline',
-      });
+      setNetworkSignal(set, reachable ? 'online' : 'offline', snapshot);
 
       if (reachable && get().user) {
         connectSocket(set, get);
@@ -1398,6 +1384,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!appStateSubscription) {
     appStateSubscription = NativeAppState.addEventListener('change', (state) => {
       if (state === 'active' && get().user) {
+        set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
         getMobileNetworkSnapshot()
           .then((snapshot) => {
             set({
@@ -1408,6 +1395,8 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
           .catch(() => undefined);
         get().flushPendingSync();
         connectSocket(set, get);
+      } else if (state !== 'active') {
+        set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
       }
     });
   }
@@ -1422,7 +1411,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
         .then(() => set({ networkStatus: 'online' }))
         .catch((error) => {
           if (isProbablyNetworkError(error)) {
-            set({ networkStatus: 'offline' });
+            setNetworkSignal(set, 'offline');
           }
         });
     }, API_HEALTHCHECK_MS);
@@ -1679,6 +1668,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     finally { set({ isSubmitting: false }); }
   },
   signOut: async () => {
+    disconnectSocket();
     await stopBackgroundLocationServiceAsync().catch(() => undefined);
     const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
     await logoutRequest(rt).catch(() => {});

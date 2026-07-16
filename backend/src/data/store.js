@@ -466,7 +466,7 @@ function createEmbeddedStore() {
       return status;
     }
 
-    return role === "driver" ? "offline" : "online";
+    return "offline";
   }
 
   function normalizeShift(shift, role) {

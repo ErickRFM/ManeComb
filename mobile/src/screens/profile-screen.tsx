@@ -7,11 +7,13 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
+import { PresenceBadge } from '@/src/components/presence-indicator';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { formatRole, formatStatus } from '@/src/utils/format';
+import { formatRole } from '@/src/utils/format';
+import { getPresenceStatus } from '@/src/utils/presence';
 import {
   formatOperationalSchedule,
   getOperationalScheduleState,
@@ -199,8 +201,9 @@ export function ProfileScreen() {
   const isCompact = width < 1040;
   const isPhone = width < 640;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { signOut, user } = useAppStore(
+  const { presenceByUser, signOut, user } = useAppStore(
     useShallow((state) => ({
+      presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
     }))
@@ -214,6 +217,7 @@ export function ProfileScreen() {
   const roleLabel = user.accountType === 'company_owner' ? 'Propietario' : formatRole(user.role);
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
+  const presence = getPresenceStatus(presenceByUser, user.id);
   return (
     <AppShell
       scroll
@@ -232,13 +236,13 @@ export function ProfileScreen() {
           <View style={styles.identityBlock}>
             <View style={styles.profileTop}>
               <View style={styles.avatarBox}>
-                <UserAvatar user={user} status={user.status} showStatus size={112} />
+                <UserAvatar user={user} status={presence} showStatus size={112} />
               </View>
               <View style={styles.profileCopy}>
                 <Text style={styles.userName}>{user.name}</Text>
                 <View style={styles.pillsRow}>
                   <StatusPill label={roleLabel} tone="info" />
-                  <StatusPill label={formatStatus(user.status)} tone={user.status === 'offline' ? 'neutral' : 'positive'} />
+                  <PresenceBadge status={presence} />
                 </View>
               </View>
             </View>

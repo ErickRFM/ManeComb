@@ -23,17 +23,6 @@ export function getConversationDisplayTitle(conversation: ConversationSummary) {
   return conversation.title;
 }
 
-export function getConversationPresenceLabel(conversation: ConversationSummary, activeContact?: { status?: string } | null) {
-  if (conversation.kind !== 'direct') {
-    return 'Canal operativo';
-  }
-
-  const normalizedStatus = String(activeContact?.status || '').trim().toLowerCase();
-  return /available|disponible|online|linea|activo/.test(normalizedStatus)
-    ? 'En linea'
-    : 'Offline';
-}
-
 export function getConversationSubline(conversation: ConversationSummary, activeContact?: ChatDirectoryContact | null) {
   if (conversation.kind === 'group') {
     return `${conversation.participants.length || 1} integrantes`;
@@ -85,26 +74,6 @@ export function isPriorityConversation(conversation: ConversationSummary) {
     text.includes('incidente') ||
     text.includes('alerta')
   );
-}
-
-export function getOperationalStatusRank(status?: string | null) {
-  const normalizedStatus = `${status || ''}`.toLowerCase();
-
-  if (/available|disponible|online|linea|activo/.test(normalizedStatus)) return 0;
-  if (/route|ruta|en camino|busy|ocupado/.test(normalizedStatus)) return 1;
-  if (/transmit|transmitiendo|radio|ptt/.test(normalizedStatus)) return 2;
-  if (/offline|desconect|inactive|inactivo/.test(normalizedStatus)) return 3;
-  return 4;
-}
-
-export function getOperationalStatusTone(status?: string | null) {
-  const rank = getOperationalStatusRank(status);
-
-  if (rank === 0) return 'positive';
-  if (rank === 1) return 'warning';
-  if (rank === 2) return 'danger';
-  if (rank === 3) return 'neutral';
-  return 'info';
 }
 
 export function isSystemMessage(message: ChatMessage) {

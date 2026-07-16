@@ -79,6 +79,7 @@ import {
   getConversationContact,
   getConversationPreview,
 } from './utils/radio-format';
+import { getPresenceStatus } from '@/src/utils/presence';
 
 const RADIO_MOTION = {
   duration: DesignSystem.motion.normal,
@@ -97,6 +98,7 @@ export function RadioScreen() {
     loadChatContacts,
     loadConversation,
     messagesByConversation,
+    presenceByUser,
     socketStatus,
     openDirectConversation,
     openGeneralConversation,
@@ -112,6 +114,7 @@ export function RadioScreen() {
       loadChatContacts: state.loadChatContacts,
       loadConversation: state.loadConversation,
       messagesByConversation: state.messagesByConversation,
+      presenceByUser: state.presenceByUser,
       socketStatus: state.socketStatus,
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
@@ -1696,7 +1699,7 @@ export function RadioScreen() {
                     hoveredRadioItemId === `contact-${contact.id}` ? styles.listCardHover : undefined,
                   ]}>
                   <View style={styles.contactLead}>
-                    <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                    <UserAvatar user={contact} status={getPresenceStatus(presenceByUser, contact.id)} showStatus size={42} />
                     <View style={styles.contactCopy}>
                       <Text style={styles.contactTitle}>{contact.name}</Text>
                     </View>
@@ -1893,6 +1896,7 @@ export function RadioScreen() {
               renderItem={({ item }) => (
                 <VoiceTransmissionCard
                   message={item.message}
+                  presence={getPresenceStatus(presenceByUser, item.message.sender?.id)}
                   channelTitle={item.channelTitle}
                   token={token}
                   theme={theme}

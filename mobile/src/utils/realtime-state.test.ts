@@ -26,4 +26,15 @@ describe('realtime state machine', () => {
     expect(snapshot.state).toBe('RECONNECTING');
     expect(snapshot.detail).toBe('Reconectando Socket');
   });
+
+  it('does not report connected without a healthy heartbeat', () => {
+    const snapshot = getRealtimeSnapshot({
+      hasUser: true,
+      heartbeatHealthy: false,
+      networkStatus: 'online',
+      socketStatus: 'connected',
+    });
+    expect(snapshot.state).toBe('RECONNECTING');
+    expect(snapshot.detail).toBe('Esperando heartbeat');
+  });
 });

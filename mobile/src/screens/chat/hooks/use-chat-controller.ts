@@ -21,7 +21,7 @@ import type {
 import { createStyles } from '../chat-screen.styles';
 import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, RecordingState, RtcParticipant } from '../types';
 import { MAX_VOICE_NOTE_SECONDS } from '../types';
-import { getOperationalStatusRank } from '../utils/conversation';
+import { getPresenceStatus } from '@/src/utils/presence';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
 import { CHAT_RTC_ENABLED } from '../chat-features';
@@ -45,6 +45,7 @@ export function useChatController() {
     messagesByConversation,
     openDirectConversation,
     openGeneralConversation,
+    presenceByUser,
     sendMessage,
     sendMediaMessage,
     sendVoiceMessage,
@@ -67,6 +68,7 @@ export function useChatController() {
       messagesByConversation: state.messagesByConversation,
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
+      presenceByUser: state.presenceByUser,
       sendMessage: state.sendMessage,
       sendVoiceMessage: state.sendVoiceMessage,
       sendMediaMessage: state.sendMediaMessage,
@@ -608,7 +610,11 @@ export function useChatController() {
   const sortedOperationalContacts = useMemo(
     () =>
       (chatContacts || []).slice().sort((left, right) => {
-        const statusDiff = getOperationalStatusRank(left.status) - getOperationalStatusRank(right.status);
+        const rank = (userId: string) => {
+          const presence = getPresenceStatus(presenceByUser, userId);
+          return presence === 'online' ? 0 : presence === 'offline' ? 2 : 1;
+        };
+        const statusDiff = rank(left.id) - rank(right.id);
 
         if (statusDiff) {
           return statusDiff;
@@ -616,7 +622,7 @@ export function useChatController() {
 
         return left.name.localeCompare(right.name);
       }),
-    [chatContacts]
+    [chatContacts, presenceByUser]
   );
   const setAttachmentMenuOpen = useCallback((open: boolean) => {
     if (open) {
@@ -1387,6 +1393,7 @@ export function useChatController() {
     messagesListRef,
     mobilePane,
     recordingSeconds,
+    presenceByUser,
     recordingState,
     recorderMessage,
     remoteParticipants,

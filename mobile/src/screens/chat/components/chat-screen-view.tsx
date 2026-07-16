@@ -3,10 +3,12 @@ import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
-import { formatRelativeTime, formatRole, formatStatus } from '@/src/utils/format';
+import { formatRelativeTime, formatRole } from '@/src/utils/format';
+import { PresenceDot } from '@/src/components/presence-indicator';
+import { getPresencePresentation, getPresenceStatus } from '@/src/utils/presence';
 import type { ChatDirectoryContact } from '@/src/types/app';
 import type { DirectoryMode, LocalTextMessage } from '../types';
-import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPresenceLabel, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, getOperationalStatusRank, getOperationalStatusTone, isSystemMessage } from '../utils/conversation';
+import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, isSystemMessage } from '../utils/conversation';
 import { ChatComposer } from './chat-composer';
 import { ChatHeader } from './chat-header';
 import { CallMediaTile, ImageMessageBubble, MessageDeliveryMeta, VideoMessageBubble, VoiceMessageBubble } from './message-media';
@@ -61,12 +63,12 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     theme,
     toggleCallMute,
     toggleCamera,
-    networkStatus,
-    socketStatus,
+    presenceByUser,
     token,
     typingByConversation,
     user,
   } = props;
+  const presenceFor = (userId?: string | null) => getPresenceStatus(presenceByUser, userId);
 
   return (
     <AppShell
@@ -79,17 +81,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         isMobileConversation ? null : <ChatHeader {...props} />
       }
       hideMobileToolbar={isMobileConversation}>
-      {socketStatus !== 'connected' || networkStatus !== 'online' ? (
-        <View style={styles.connectionNotice}>
-          <Text style={styles.connectionNoticeText}>
-            {networkStatus === 'offline'
-              ? 'Sin conexion a Internet'
-              : socketStatus === 'connecting' || socketStatus === 'reconnecting'
-                ? 'Reconectando...'
-                : 'Conexion perdida'}
-          </Text>
-        </View>
-      ) : null}
       <View style={styles.layout}>
         {showDirectoryPanel ? (
           <View style={styles.directoryPanel}>
@@ -210,7 +201,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       ]}>
                       <View style={styles.tileLead}>
                         {conversation.kind === 'direct' && contact ? (
-                          <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                          <UserAvatar user={contact} status={presenceFor(contact.id)} showStatus size={42} />
                         ) : (
                           <View style={styles.groupAvatar}>
                             <MaterialCommunityIcons
@@ -242,18 +233,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                             ) : null}
                           </View>
                           <View style={styles.tileStatusRow}>
-                            <View
-                              style={[
-                                styles.tileStatusDot,
-                                getOperationalStatusRank(contact?.status || 'offline') === 3
-                                  ? styles.tileStatusDotMuted
-                                  : undefined,
-                              ]}
-                            />
+                            {conversation.kind === 'direct' ? <PresenceDot status={presenceFor(contact?.id)} size={8} /> : null}
                             <Text style={styles.tileStatusText} numberOfLines={1}>
                               {conversation.kind === 'group'
                                 ? 'Canal operativo'
-                                : getConversationPresenceLabel(conversation, contact)}
+                                : getPresencePresentation(presenceFor(contact?.id)).label}
                             </Text>
                           </View>
                         </View>
@@ -268,13 +252,13 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   return (
                     <View style={styles.contactRow}>
                       <View style={styles.tileLead}>
-                        <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                        <UserAvatar user={contact} status={presenceFor(contact.id)} showStatus size={42} />
                         <View style={styles.tileCopy}>
                           <Text style={styles.tileTitle} numberOfLines={1}>
                             {contact.name}
                           </Text>
                           <Text style={styles.tileMeta} numberOfLines={1}>
-                            {formatRole(contact.role)} | {formatStatus(contact.status)}
+                            {formatRole(contact.role)} | {getPresencePresentation(presenceFor(contact.id)).label}
                           </Text>
                         </View>
                       </View>
@@ -334,7 +318,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       {activeConversation.kind === 'direct' && activeContact ? (
                         <UserAvatar
                           user={activeContact}
-                          status={activeContact.status}
+                          status={presenceFor(activeContact.id)}
                           showStatus
                           size={isPhone ? 36 : 40}
                         />
@@ -353,7 +337,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           {getConversationDisplayTitle(activeConversation)}
                         </Text>
                         <Text style={styles.conversationSubtitle} numberOfLines={1}>
-                          {getConversationSubline(activeConversation, activeContact)}  |  {getConversationPresenceLabel(activeConversation, activeContact)}
+                          {getConversationSubline(activeConversation, activeContact)}  |  {activeConversation.kind === 'direct' ? getPresencePresentation(presenceFor(activeContact?.id)).label : 'Canal operativo'}
                         </Text>
                       </View>
                     </View>
@@ -514,7 +498,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           {!isOwn && !isSystem ? (
                             <UserAvatar
                               user={message.sender || activeContact}
-                              status={message.sender?.status}
+                              status={presenceFor(message.sender?.id || activeContact?.id)}
                               size={34}
                             />
                           ) : null}
@@ -697,7 +681,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
                   (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName ||
                   formatRole(contact.role);
-                const statusTone = getOperationalStatusTone(contact.status);
+                const contactPresence = presenceFor(contact.id);
 
                 return (
                   <Pressable
@@ -707,7 +691,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       setAttachmentMenuOpen(false);
                       handleOpenDirect(contact.id, 'chat');
                     }}>
-                    <UserAvatar user={contact} status={contact.status} showStatus size={42} />
+                    <UserAvatar user={contact} status={contactPresence} showStatus size={42} />
                     <View style={styles.driverActionCopy}>
                       <Text style={styles.driverActionName} numberOfLines={1}>
                         {contact.name}
@@ -717,15 +701,8 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </Text>
                     </View>
                     <View style={styles.driverStatusPill}>
-                      <View
-                        style={[
-                          styles.driverStatusDot,
-                          statusTone === 'warning' ? styles.driverStatusDotWarning : undefined,
-                          statusTone === 'danger' ? styles.driverStatusDotDanger : undefined,
-                          statusTone === 'neutral' ? styles.driverStatusDotMuted : undefined,
-                        ]}
-                      />
-                      <Text style={styles.driverStatusText}>{formatStatus(contact.status)}</Text>
+                      <PresenceDot status={contactPresence} size={8} />
+                      <Text style={styles.driverStatusText}>{getPresencePresentation(contactPresence).label}</Text>
                     </View>
                   </Pressable>
                 );

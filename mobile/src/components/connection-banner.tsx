@@ -8,16 +8,22 @@ import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
 
 export function ConnectionBanner() {
   const { theme } = useAppTheme();
-  const { networkStatus, pendingSyncCount, socketStatus, user } = useAppStore(
+  const { networkStatus, pendingSyncCount, realtimeDiagnostics, socketStatus, user } = useAppStore(
     useShallow((state) => ({
       networkStatus: state.networkStatus,
       pendingSyncCount: state.pendingSyncCount,
+      realtimeDiagnostics: state.realtimeDiagnostics,
       socketStatus: state.socketStatus,
       user: state.user,
     }))
   );
 
   const realtime = getRealtimeSnapshot({
+    heartbeatHealthy: Boolean(
+      realtimeDiagnostics.lastPongAt &&
+      realtimeDiagnostics.missedHeartbeatAcks === 0 &&
+      Date.now() - new Date(realtimeDiagnostics.lastPongAt).getTime() <= 55000
+    ),
     hasUser: Boolean(user),
     networkStatus,
     pendingSyncCount,

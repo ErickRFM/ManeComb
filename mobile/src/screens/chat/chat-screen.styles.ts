@@ -1428,21 +1428,6 @@ export function createStyles(
       fontSize: 14,
       fontWeight: '600',
     },
-    connectionNotice: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 4,
-      paddingHorizontal: 12,
-      backgroundColor: theme.colors.warning,
-    },
-    connectionNoticeText: {
-      color: theme.mode === 'light' ? '#000000' : '#FFFFFF',
-      fontFamily: Typography.body,
-      fontSize: 11,
-      fontWeight: '800',
-      textAlign: 'center',
-    },
     typingIndicator: {
       paddingHorizontal: isPhone ? 10 : 0,
       paddingBottom: 4,
