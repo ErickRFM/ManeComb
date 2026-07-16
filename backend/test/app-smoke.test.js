@@ -458,6 +458,37 @@ async function testCriticalFlows() {
     assert.equal(messageResponse.payload.ok, true);
     assert.equal(messageResponse.payload.data.conversationId, directConversationId);
 
+    const senderPublicKey = Buffer.alloc(32, 7).toString("base64");
+    const publishE2eeKeyResponse = await requestJson(`${context.url}/users/me`, {
+      body: JSON.stringify({ e2eePublicKey: senderPublicKey }),
+      headers: { Authorization: `Bearer ${token}` },
+      method: "PATCH"
+    });
+    assert.equal(publishE2eeKeyResponse.status, 200);
+
+    const encryptedMessageResponse = await requestJson(
+      `${context.url}/chat/conversations/${directConversationId}/messages`,
+      {
+        body: JSON.stringify({
+          e2eeEnvelope: {
+            version: "x25519-xsalsa20-poly1305",
+            nonce: Buffer.alloc(24, 3).toString("base64"),
+            ciphertext: Buffer.from("ciphertext-smoke").toString("base64"),
+            recipientId: createdTeamUserId,
+            senderPublicKey
+          }
+        }),
+        headers: { Authorization: `Bearer ${token}` },
+        method: "POST"
+      }
+    );
+    assert.equal(encryptedMessageResponse.status, 201);
+    assert.equal(encryptedMessageResponse.payload.data.text, "");
+    assert.equal(
+      encryptedMessageResponse.payload.data.e2eeEnvelope.recipientId,
+      createdTeamUserId
+    );
+
     const myOrdersResponse = await requestJson(`${context.url}/commercial/me`, {
       headers: {
         Authorization: `Bearer ${token}`

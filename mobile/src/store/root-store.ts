@@ -30,6 +30,7 @@ import {
   getChatContactsRequest,
   getConversationsRequest,
   getDocumentsRequest,
+  getE2eeBackupRequest,
   getIncidentsRequest,
   getLastApiTraceId,
   getLocationsRequest,
@@ -47,6 +48,7 @@ import {
   markNotificationReadRequest,
   openDirectConversationRequest,
   openGeneralConversationRequest,
+  putE2eeBackupRequest,
   registerRequest,
   refreshSessionRequest,
   sendMessageRequest,
@@ -101,7 +103,13 @@ import type {
 import type { LocationEngineState } from '@/src/screens/map/types/location-engine';
 import {
   decryptDirectChatText,
+  buildDirectChatMessagePayload,
+  decryptStoredChatKeyPairBackup,
+  encryptStoredChatKeyPairBackup,
+  generateE2eeDeviceId,
+  generateStoredChatKeyPair,
   type DirectMessageEnvelope,
+  type EncryptedChatKeyBackup,
   isE2eeCapablePublicKey,
   type StoredChatKeyPair,
 } from '@/src/utils/chat-e2ee';
@@ -119,6 +127,7 @@ const MODE_KEY = 'combis-session-mode';
 const THEME_KEY = 'combis-theme-mode';
 const PUSH_TOKEN_KEY = 'combis-push-token';
 const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
+const E2EE_DEVICE_PREFIX = 'combis-e2ee-device:';
 const STORAGE_TIMEOUT_MS = 1200;
 const SOCKET_HEARTBEAT_MS = 20000;
 const SOCKET_ACK_TIMEOUT_MS = 8000;
@@ -383,6 +392,93 @@ async function deleteStoredItem(key: string) {
   const web = getWebStorage();
   if (web) { web.removeItem(key); return; }
   try { await withStorageTimeout(SecureStore.deleteItemAsync(key), undefined); } catch { }
+}
+
+async function getStoredChatKeyPair(userId: string) {
+  const raw = await getStoredItem(`${E2EE_KEY_PREFIX}${userId}`);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as StoredChatKeyPair;
+    return parsed?.publicKey && parsed?.secretKey ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getOrCreateE2eeDeviceId(userId: string) {
+  const storageKey = `${E2EE_DEVICE_PREFIX}${userId}`;
+  const stored = await getStoredItem(storageKey);
+  if (stored) return stored;
+
+  const deviceId = generateE2eeDeviceId();
+  await setStoredItem(storageKey, deviceId);
+  return deviceId;
+}
+
+async function initializeE2eeIdentity(user: User, password: string) {
+  const deviceId = await getOrCreateE2eeDeviceId(user.id);
+  let keyPair = await getStoredChatKeyPair(user.id);
+  let restored = false;
+
+  if (!keyPair) {
+    const remoteBackup = await getE2eeBackupRequest();
+
+    if (remoteBackup?.backupCipher) {
+      keyPair = await decryptStoredChatKeyPairBackup({
+        backup: JSON.parse(remoteBackup.backupCipher) as EncryptedChatKeyBackup,
+        userId: user.id,
+        password,
+      });
+      restored = true;
+    } else {
+      keyPair = generateStoredChatKeyPair();
+    }
+
+    await setStoredItem(`${E2EE_KEY_PREFIX}${user.id}`, JSON.stringify(keyPair));
+  }
+
+  const encryptedBackup = await encryptStoredChatKeyPairBackup({
+    keyPair,
+    userId: user.id,
+    password,
+    deviceId,
+  });
+  const updatedUser = await updateProfileRequest({
+    e2eePublicKey: keyPair.publicKey,
+    e2eeKeyRotatedAt:
+      user.e2eePublicKey === keyPair.publicKey && user.e2eeKeyRotatedAt
+        ? user.e2eeKeyRotatedAt
+        : new Date().toISOString(),
+  });
+
+  await putE2eeBackupRequest({
+    deviceId,
+    publicKey: keyPair.publicKey,
+    backupCipher: JSON.stringify(encryptedBackup),
+    backupVersion: encryptedBackup.version,
+    platform: Platform.OS,
+    label: `ManeComb ${Platform.OS}`,
+    ...(restored ? { restoredAt: new Date().toISOString() } : {}),
+  });
+
+  return updatedUser;
+}
+
+async function buildTextMessagePayload(input: {
+  conversation: ConversationSummary | null;
+  user: User;
+  text: string;
+}) {
+  const keyPair = input.conversation?.kind === 'direct'
+    ? await getStoredChatKeyPair(input.user.id)
+    : null;
+  return buildDirectChatMessagePayload({
+    text: input.text,
+    currentUserId: input.user.id,
+    conversation: input.conversation,
+    keyPair,
+  });
 }
 
 function getMessageCreatedAtTime(message: ChatMessage) {
@@ -1241,7 +1337,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 async function hydrateConversationMessage(m: ChatMessage, c: ConversationSummary | null, u: User | null) {
   if (!m.e2eeEnvelope || !c || !u || c.kind !== 'direct') return m;
   try {
-    const keys = await getStoredItem(`${E2EE_KEY_PREFIX}${u.id}`).then(r => r ? JSON.parse(r) as StoredChatKeyPair : null);
+    const keys = await getStoredChatKeyPair(u.id);
     if (!keys?.secretKey) return { ...m, text: '', textPreview: 'Cifrado (Sincroniza este dispositivo)' };
     const peerKey = m.senderId === u.id ? c.participants.find(p => p.id === m.e2eeEnvelope?.recipientId)?.e2eePublicKey : (m.sender?.e2eePublicKey || m.e2eeEnvelope.senderPublicKey);
     if (!isE2eeCapablePublicKey(peerKey)) return { ...m, text: '', textPreview: 'Cifrado E2EE' };
@@ -1370,9 +1466,18 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
             operation.payload.status
           );
         } else if (operation.type === 'chat:sendMessage') {
-          await sendMessageRequest(operation.payload.conversationId, {
-            text: operation.payload.text,
-          });
+          const state = get();
+          if (!state.user) throw new Error('No hay una sesion activa para sincronizar el mensaje');
+          await sendMessageRequest(
+            operation.payload.conversationId,
+            await buildTextMessagePayload({
+              conversation: state.conversations.find(
+                (entry) => entry.id === operation.payload.conversationId
+              ) || null,
+              user: state.user,
+              text: operation.payload.text,
+            })
+          );
         } else if (operation.type === 'chat:sendVoice') {
           const { conversationId, fileUri, fileName, fileType, durationSeconds, caption } = operation.payload;
           const formData = new FormData();
@@ -1558,6 +1663,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         res.refreshToken,
         r
       );
+      const e2eeUser = await initializeE2eeIdentity(session.profile.user, p).catch((error) => {
+        logStoreError('signIn:e2ee', error);
+        return null;
+      });
+      if (e2eeUser) set({ user: e2eeUser });
       if (shouldRefreshOperationalData(authContext, session.profile.user)) {
         await get().refreshAll();
       }
@@ -1736,8 +1846,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ isSubmitting: true });
     try {
-      const m = await sendMessageRequest(cid, { text: t.trim() });
-      const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, user);
+      const conversation = get().conversations.find(e => e.id === cid) || null;
+      const m = await sendMessageRequest(
+        cid,
+        await buildTextMessagePayload({ conversation, user, text: t })
+      );
+      const h = await hydrateConversationMessage(m, conversation, user);
       set(s => ({
         messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h),
         conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c))
@@ -1799,6 +1913,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         res.refreshToken,
         r
       );
+      const e2eeUser = await initializeE2eeIdentity(session.profile.user, p.password).catch((error) => {
+        logStoreError('register:e2ee', error);
+        return null;
+      });
+      if (e2eeUser) set({ user: e2eeUser });
       if (shouldRefreshOperationalData(authContext, session.profile.user)) {
         await get().refreshAll();
       }
@@ -1819,6 +1938,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         res.refreshToken,
         r
       );
+      const e2eeUser = await initializeE2eeIdentity(session.profile.user, p.password).catch((error) => {
+        logStoreError('activateDriverWithKey:e2ee', error);
+        return null;
+      });
+      if (e2eeUser) set({ user: e2eeUser });
       if (shouldRefreshOperationalData(authContext, session.profile.user)) {
         await get().refreshAll();
       }

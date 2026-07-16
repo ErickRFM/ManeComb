@@ -10,6 +10,14 @@ const { deliverOperationalNotification } = require("../../services/notification-
 const router = Router();
 const MAX_VOICE_NOTE_SECONDS = 60;
 
+function isValidE2eePublicKey(value) {
+  try {
+    return Buffer.from(String(value || "").trim(), "base64").length === 32;
+  } catch {
+    return false;
+  }
+}
+
 const audioUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -174,6 +182,27 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
       ok: false,
       message: "Conversacion no disponible"
     });
+  }
+
+  if (e2eeEnvelope?.ciphertext) {
+    const recipientIds = conversation.participants.filter(
+      (participantId) => participantId !== req.user.id
+    );
+    const validDirectEnvelope =
+      conversation.kind === "direct" &&
+      conversation.channelMode !== "radio" &&
+      conversation.participants.length === 2 &&
+      recipientIds.length === 1 &&
+      e2eeEnvelope.recipientId === recipientIds[0] &&
+      isValidE2eePublicKey(e2eeEnvelope.senderPublicKey) &&
+      e2eeEnvelope.senderPublicKey === req.user.e2eePublicKey;
+
+    if (!validDirectEnvelope) {
+      return res.status(400).json({
+        ok: false,
+        message: "El sobre E2EE no corresponde a este chat directo"
+      });
+    }
   }
 
   const message = await req.app.locals.store.addMessage(

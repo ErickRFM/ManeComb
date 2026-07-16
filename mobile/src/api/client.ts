@@ -18,6 +18,7 @@ import type {
   ConversationChannelMode,
   ConversationSummary,
   DocumentItem,
+  E2eeBackupRecord,
   Incident,
   IncidentStatus,
   LiveLocationsData,
@@ -732,6 +733,30 @@ export async function unregisterPushSubscriptionRequest(token: string) {
 
 export async function getVehiclesRequest() {
   const response = await apiClient.get<{ ok: boolean; data: Vehicle[] }>('/vehicles');
+  return response.data.data;
+}
+
+export async function getE2eeBackupRequest(deviceId?: string) {
+  const response = await apiClient.get<{ ok: boolean; data: E2eeBackupRecord | null }>(
+    '/auth/e2ee-backup',
+    { params: deviceId ? { deviceId } : undefined }
+  );
+  return response.data.data;
+}
+
+export async function putE2eeBackupRequest(payload: {
+  deviceId: string;
+  publicKey: string;
+  backupCipher: string;
+  backupVersion: string;
+  platform: string;
+  label?: string;
+  restoredAt?: string;
+}) {
+  const response = await apiClient.put<{ ok: boolean; data: E2eeBackupRecord }>(
+    '/auth/e2ee-backup',
+    payload
+  );
   return response.data.data;
 }
 

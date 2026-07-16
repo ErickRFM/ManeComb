@@ -1,5 +1,7 @@
 import nacl from 'tweetnacl';
 import * as naclUtil from 'tweetnacl-util';
+import { pbkdf2Async } from '@noble/hashes/pbkdf2';
+import { sha256 } from '@noble/hashes/sha256';
 
 export type StoredChatKeyPair = {
   publicKey: string;
@@ -16,6 +18,9 @@ export type DirectMessageEnvelope = {
 
 export type EncryptedChatKeyBackup = {
   version: string;
+  kdf: 'pbkdf2-sha256';
+  iterations: number;
+  salt: string;
   deviceId: string;
   publicKey: string;
   nonce: string;
@@ -24,7 +29,13 @@ export type EncryptedChatKeyBackup = {
 };
 
 export function isE2eeCapablePublicKey(value: string | null | undefined) {
-  return Boolean(value && value.trim().length >= 40);
+  if (!value) return false;
+
+  try {
+    return decodeBase64Key(value).length === nacl.box.publicKeyLength;
+  } catch {
+    return false;
+  }
 }
 
 export function generateE2eeDeviceId() {
@@ -48,27 +59,51 @@ function decodeBase64Key(value: string) {
   return naclUtil.decodeBase64(String(value || '').trim());
 }
 
-function buildBackupKeyMaterial(userId: string, password: string) {
-  const hashBytes = nacl.hash(naclUtil.decodeUTF8(`${String(userId).trim()}:${String(password).trim()}`));
-  return hashBytes.slice(0, nacl.secretbox.keyLength);
+const BACKUP_KDF_ITERATIONS = 210_000;
+
+async function buildBackupKeyMaterial(input: {
+  userId: string;
+  password: string;
+  salt: Uint8Array;
+  iterations?: number;
+}) {
+  const iterations = Math.max(BACKUP_KDF_ITERATIONS, Number(input.iterations) || 0);
+  const passwordBytes = naclUtil.decodeUTF8(
+    `${String(input.userId).trim()}:${String(input.password)}`
+  );
+
+  return await pbkdf2Async(sha256, passwordBytes, input.salt, {
+    c: iterations,
+    dkLen: nacl.secretbox.keyLength,
+    asyncTick: 10,
+  });
 }
 
-export function encryptStoredChatKeyPairBackup(input: {
+export async function encryptStoredChatKeyPairBackup(input: {
   keyPair: StoredChatKeyPair;
   userId: string;
   password: string;
   deviceId: string;
-}): EncryptedChatKeyBackup {
+}): Promise<EncryptedChatKeyBackup> {
   const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+  const salt = nacl.randomBytes(16);
   const plaintext = naclUtil.decodeUTF8(JSON.stringify(input.keyPair));
   const ciphertext = nacl.secretbox(
     plaintext,
     nonce,
-    buildBackupKeyMaterial(input.userId, input.password)
+    await buildBackupKeyMaterial({
+      userId: input.userId,
+      password: input.password,
+      salt,
+      iterations: BACKUP_KDF_ITERATIONS,
+    })
   );
 
   return {
-    version: 'secretbox-v1',
+    version: 'secretbox-pbkdf2-sha256-v2',
+    kdf: 'pbkdf2-sha256',
+    iterations: BACKUP_KDF_ITERATIONS,
+    salt: naclUtil.encodeBase64(salt),
     deviceId: input.deviceId,
     publicKey: input.keyPair.publicKey,
     nonce: naclUtil.encodeBase64(nonce),
@@ -77,15 +112,29 @@ export function encryptStoredChatKeyPairBackup(input: {
   };
 }
 
-export function decryptStoredChatKeyPairBackup(input: {
+export async function decryptStoredChatKeyPairBackup(input: {
   backup: EncryptedChatKeyBackup;
   userId: string;
   password: string;
-}): StoredChatKeyPair {
+}): Promise<StoredChatKeyPair> {
+  if (
+    input.backup.version !== 'secretbox-pbkdf2-sha256-v2' ||
+    input.backup.kdf !== 'pbkdf2-sha256' ||
+    !input.backup.salt ||
+    input.backup.iterations < BACKUP_KDF_ITERATIONS
+  ) {
+    throw new Error('El respaldo E2EE usa una derivacion de llave no compatible.');
+  }
+
   const decrypted = nacl.secretbox.open(
     decodeBase64Key(input.backup.ciphertext),
     decodeBase64Key(input.backup.nonce),
-    buildBackupKeyMaterial(input.userId, input.password)
+    await buildBackupKeyMaterial({
+      userId: input.userId,
+      password: input.password,
+      salt: decodeBase64Key(input.backup.salt),
+      iterations: input.backup.iterations,
+    })
   );
 
   if (!decrypted) {
@@ -121,6 +170,46 @@ export function encryptDirectChatText(input: {
     ciphertext: naclUtil.encodeBase64(cipherBytes),
     recipientId: input.recipientId,
     senderPublicKey: input.senderPublicKey,
+  };
+}
+
+export function buildDirectChatMessagePayload(input: {
+  text: string;
+  currentUserId: string;
+  conversation: {
+    kind: string;
+    channelMode?: string;
+    participants: Array<{ id: string; e2eePublicKey?: string }>;
+  } | null;
+  keyPair: StoredChatKeyPair | null;
+}) {
+  const text = input.text.trim();
+  const participants = input.conversation?.participants || [];
+  const recipient = participants.find((participant) => participant.id !== input.currentUserId);
+  const eligible =
+    input.conversation?.kind === 'direct' &&
+    input.conversation.channelMode !== 'radio' &&
+    participants.length === 2;
+
+  if (
+    !eligible ||
+    !recipient ||
+    !input.keyPair ||
+    !isE2eeCapablePublicKey(input.keyPair.publicKey) ||
+    !isE2eeCapablePublicKey(recipient.e2eePublicKey)
+  ) {
+    return { text };
+  }
+
+  return {
+    textPreview: 'Mensaje cifrado de extremo a extremo',
+    e2eeEnvelope: encryptDirectChatText({
+      text,
+      recipientId: recipient.id,
+      recipientPublicKey: recipient.e2eePublicKey!,
+      senderPublicKey: input.keyPair.publicKey,
+      senderSecretKey: input.keyPair.secretKey,
+    }),
   };
 }
 
