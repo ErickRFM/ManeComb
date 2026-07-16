@@ -119,7 +119,7 @@ export function getSelectorCopy(hasOrigin: boolean, hasDestination: boolean, sto
 }
 
 export function buildConfirmSelectionParams(
-  params: Pick<MapSelectorParams, 'vehicleId'>,
+  params: Pick<MapSelectorParams, 'vehicleId' | 'returnFilter' | 'historyScrollY' | 'routeNameDraft'>,
   origin: NavigationPlaceResult,
   destination: NavigationPlaceResult,
   stops: NavigationStop[],
@@ -131,6 +131,9 @@ export function buildConfirmSelectionParams(
   if (params.vehicleId) {
     paramsToSet.vehicleId = params.vehicleId;
   }
+  if (params.returnFilter) paramsToSet.returnFilter = params.returnFilter;
+  if (params.historyScrollY) paramsToSet.historyScrollY = params.historyScrollY;
+  if (params.routeNameDraft) paramsToSet.routeNameDraft = params.routeNameDraft;
   paramsToSet.originLatitude = String(origin.location.latitude);
   paramsToSet.originLongitude = String(origin.location.longitude);
   paramsToSet.originAddress = origin.address;

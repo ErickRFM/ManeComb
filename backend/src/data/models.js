@@ -70,6 +70,8 @@ const routeSchema = new mongoose.Schema(
     color: { type: String, required: true },
     origin: { type: pointSchema, default: null },
     destination: { type: pointSchema, default: null },
+    originLabel: { type: String, default: "" },
+    destinationLabel: { type: String, default: "" },
     stops: { type: [stopSchema], default: [] },
     distanceMeters: { type: Number, default: 0 },
     durationSeconds: { type: Number, default: 0 },

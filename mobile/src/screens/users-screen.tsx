@@ -22,6 +22,22 @@ function roleTone(role: Role): Tone {
   return role === 'driver' ? 'positive' : 'neutral';
 }
 
+function accountStatusTone(status?: string): Tone {
+  if (status === 'active') return 'positive';
+  if (status === 'suspended' || status === 'blocked') return 'danger';
+  if (status === 'invited' || status === 'pending') return 'warning';
+  return 'neutral';
+}
+
+function formatAccountStatus(status?: string) {
+  if (status === 'active') return 'Cuenta activa';
+  if (status === 'suspended') return 'Cuenta suspendida';
+  if (status === 'blocked') return 'Cuenta bloqueada';
+  if (status === 'invited') return 'Invitacion pendiente';
+  if (status === 'pending') return 'Cuenta pendiente';
+  return 'Estado no disponible';
+}
+
 function getVehicleRoute(vehicle?: Vehicle) {
   if (!vehicle) return 'Sin ruta asignada';
   return vehicle.assignedRoute?.route?.label || vehicle.assignedRoute?.destinationLabel || vehicle.routeName || 'Sin ruta asignada';
@@ -113,6 +129,7 @@ export function UsersScreen() {
                       <Text style={styles.userEmail} numberOfLines={1}>{entry.email}</Text>
                       <View style={styles.pillsRow}>
                         <StatusPill label={formatRole(entry.role)} tone={roleTone(entry.role)} />
+                        <StatusPill label={formatAccountStatus(entry.userStatus)} tone={accountStatusTone(entry.userStatus)} />
                         <PresenceBadge status={presence} />
                       </View>
                     </View>
@@ -123,6 +140,8 @@ export function UsersScreen() {
                     <DetailItem label="Turno" value={entry.shift || 'Sin turno'} />
                     <DetailItem label="Unidad" value={vehicle?.code || 'Sin unidad asignada'} />
                     <DetailItem label="Ruta" value={getVehicleRoute(vehicle)} />
+                    <DetailItem label="Ultimo acceso" value={entry.lastAccessAt ? new Date(entry.lastAccessAt).toLocaleString('es-MX') : 'Sin acceso registrado'} />
+                    {entry.suspendedAt ? <DetailItem label="Suspendida desde" value={new Date(entry.suspendedAt).toLocaleString('es-MX')} /> : null}
                   </View>
                 </View>
               );

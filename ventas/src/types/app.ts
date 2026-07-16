@@ -139,7 +139,11 @@ export type Vehicle = {
   code: string;
   plate: string;
   status: VehicleStatus | string;
+  occupancy?: number;
+  capacity?: number;
+  delayMinutes?: number;
   currentKilometers?: number;
+  fuel?: number;
   routeId?: string | null;
   driverId?: string | null;
   supervisorId?: string | null;
@@ -154,6 +158,7 @@ export type Vehicle = {
   assignedRoute?: AssignedRoute | null;
   routeName?: string;
   routeCode?: string;
+  routeColor?: string | null;
   updatedAt?: string | null;
 };
 

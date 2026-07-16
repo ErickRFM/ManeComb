@@ -30,15 +30,16 @@ export function PortalProfileScreen() {
   const { theme } = useAppTheme();
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const activeSection = getParam(params.section);
-  const { updateProfile, user } = useAppStore(
+  const { isSubmitting: isProfileSubmitting, updateProfile, user } = useAppStore(
     useShallow((state) => ({
+      isSubmitting: state.isSubmitting,
       updateProfile: state.updateProfile,
       user: state.user,
     }))
   );
-  const { loadSessions, revokeSession, sessions } = usePortalStore(
+  const { isSubmitting: isSessionSubmitting, revokeSession, sessions } = usePortalStore(
     useShallow((state) => ({
-      loadSessions: state.loadSessions,
+      isSubmitting: state.isSubmitting,
       revokeSession: state.revokeSession,
       sessions: state.sessions,
     }))
@@ -72,10 +73,6 @@ export function PortalProfileScreen() {
       billingAddress: user.companyProfile?.billingAddress || '',
     });
   }, [user]);
-
-  useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
 
   const setField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -156,9 +153,13 @@ export function PortalProfileScreen() {
             ))}
           </View>
           <View style={styles.actions}>
-            <Pressable accessibilityRole="button" onPress={() => void saveProfile()} style={[styles.primaryButton, portalButtonGradient()]}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={isProfileSubmitting}
+              onPress={() => void saveProfile()}
+              style={[styles.primaryButton, portalButtonGradient(), isProfileSubmitting ? styles.disabledButton : undefined]}>
               <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryText}>Guardar perfil</Text>
+              <Text style={styles.primaryText}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</Text>
             </Pressable>
           </View>
         </PortalSectionCard>
@@ -226,10 +227,13 @@ export function PortalProfileScreen() {
         description={`Se cerrará la sesión en ${sessionToRevoke?.deviceName || 'el dispositivo seleccionado'}. La persona deberá iniciar sesión de nuevo.`}
         confirmLabel="Cerrar sesión"
         destructive
+        processing={isSessionSubmitting}
         onCancel={() => setSessionToRevoke(null)}
         onConfirm={() => {
-          if (sessionToRevoke) void revokeSession(sessionToRevoke.id);
-          setSessionToRevoke(null);
+          if (!sessionToRevoke) return;
+          void revokeSession(sessionToRevoke.id).then((result) => {
+            if (result.ok) setSessionToRevoke(null);
+          });
         }}
       />
     </PortalLayout>
@@ -237,6 +241,9 @@ export function PortalProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  disabledButton: {
+    opacity: 0.55,
+  },
   formGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

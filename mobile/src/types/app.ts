@@ -617,6 +617,7 @@ export type CommercialCheckoutResult = {
 
 export type Vehicle = {
   id: string;
+  organizationId?: string;
   code: string;
   plate: string;
   routeId: string | null;

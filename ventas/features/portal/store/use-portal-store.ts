@@ -44,7 +44,7 @@ type PortalStore = {
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
   loadSessions: () => Promise<void>;
-  loadAll: () => Promise<void>;
+  loadAll: (options?: { force?: boolean }) => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
@@ -67,6 +67,10 @@ const emptyPortalState = {
   isSubmitting: false,
   error: null,
 };
+
+const PORTAL_LOAD_TTL_MS = 30_000;
+let fullLoadPromise: Promise<void> | null = null;
+let lastFullLoadAt = 0;
 
 async function getOptionalActivationKeys() {
   return await getAdminActivationKeysRequest().catch(() => ({
@@ -98,7 +102,11 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
   isLoading: false,
   isSubmitting: false,
   error: null,
-  reset: () => set(emptyPortalState),
+  reset: () => {
+    fullLoadPromise = null;
+    lastFullLoadAt = 0;
+    set(emptyPortalState);
+  },
   clearError: () => set({ error: null }),
   loadOverview: async () => {
     set({ isLoading: true, error: null });
@@ -153,34 +161,45 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       set({ error: getMessage(error, 'No fue posible cargar sesiones.'), isLoading: false });
     }
   },
-  loadAll: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const [overview, subscription, onboarding, activationKeysResponse, invoices, sessions] =
-        await Promise.all([
-          getPortalOverviewRequest(),
-          getAccountSubscriptionRequest(),
-          getPortalOnboardingRequest(),
-          getOptionalActivationKeys(),
-          getAccountInvoicesRequest(),
-          getAccountSessionsRequest(),
-        ]);
+  loadAll: async (options) => {
+    if (fullLoadPromise) return fullLoadPromise;
+    if (!options?.force && lastFullLoadAt && Date.now() - lastFullLoadAt < PORTAL_LOAD_TTL_MS) return;
 
-      set({
-        overview,
-        subscription,
-        onboarding,
-        activationKeys: activationKeysResponse.keys,
-        activationSummary: activationKeysResponse.summary,
-        invoices,
-        sessions,
-        isLoading: false,
-      });
-    } catch (error) {
-      set({ error: getMessage(error, 'No fue posible cargar los datos de cuenta.'), isLoading: false });
-    }
+    fullLoadPromise = (async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const [overview, subscription, onboarding, activationKeysResponse, invoices, sessions] =
+          await Promise.all([
+            getPortalOverviewRequest(),
+            getAccountSubscriptionRequest(),
+            getPortalOnboardingRequest(),
+            getOptionalActivationKeys(),
+            getAccountInvoicesRequest(),
+            getAccountSessionsRequest(),
+          ]);
+
+        lastFullLoadAt = Date.now();
+        set({
+          overview,
+          subscription,
+          onboarding,
+          activationKeys: activationKeysResponse.keys,
+          activationSummary: activationKeysResponse.summary,
+          invoices,
+          sessions,
+          isLoading: false,
+        });
+      } catch (error) {
+        set({ error: getMessage(error, 'No fue posible cargar los datos de cuenta.'), isLoading: false });
+      } finally {
+        fullLoadPromise = null;
+      }
+    })();
+
+    return fullLoadPromise;
   },
   generateActivationKey: async () => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
     try {
       const activationKeysResponse = await generateAdminActivationKeyRequest();
@@ -198,6 +217,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
     }
   },
   revokeActivationKey: async (activationKeyId) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
     try {
       const activationKeysResponse = await revokeAdminActivationKeyRequest(activationKeyId);
@@ -215,6 +235,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
     }
   },
   changePlan: async (planId, selectedAddOns = []) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
     try {
       const subscription = await changeAccountPlanRequest(planId, selectedAddOns);
@@ -228,6 +249,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
     }
   },
   cancelPlan: async (reason) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
     try {
       const subscription = await cancelAccountSubscriptionRequest(reason);
@@ -241,6 +263,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
     }
   },
   revokeSession: async (sessionId) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
     try {
       await revokeAccountSessionRequest(sessionId);
@@ -296,7 +319,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       }
 
       if (needsFullCommercialReload(eventName)) {
-        void get().loadAll();
+        void get().loadAll({ force: true });
         return;
       }
 

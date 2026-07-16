@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -188,10 +189,11 @@ export function PortalRoutesScreen() {
 
     if (!result.ok) {
       setMessage(result.message || 'No fue posible liberar la ruta.');
-      return;
+      return false;
     }
 
     setMessage('Ruta liberada.');
+    return true;
   };
 
   return (
@@ -298,7 +300,13 @@ export function PortalRoutesScreen() {
 
       {sortedVehicles.length ? <PortalSectionCard
         title="Rutas por unidad"
-        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad' : 'unidades'}`}>
+        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad' : 'unidades'}`}
+        right={vehiclesWithRoutes.length ? (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/portal' as never)} style={styles.continueButton}>
+            <Text style={styles.continueButtonText}>Abrir operaciones</Text>
+            <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
+          </Pressable>
+        ) : undefined}>
           <View style={styles.list}>
             {sortedVehicles.map((vehicle) => (
               <View key={vehicle.id} style={[styles.routeRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
@@ -339,10 +347,8 @@ export function PortalRoutesScreen() {
                           <Pressable
                             accessibilityRole="button"
                             accessibilityLabel={`Duplicar ruta de ${vehicle.code}`}
-                            onPress={() => {
-                              setDuplicateSourceId(vehicle.id);
-                              duplicateRoute(vehicle);
-                            }}
+                            onPress={() => setDuplicateSourceId(vehicle.id)}
+                            disabled={isSubmitting}
                             style={[styles.iconAction, { backgroundColor: theme.colors.surfaceAlt }]}>
                             <MaterialCommunityIcons name="content-copy" size={18} color={theme.colors.text} />
                           </Pressable>
@@ -360,6 +366,7 @@ export function PortalRoutesScreen() {
         title="Duplicar ruta"
         description="La ruta se copiará a la unidad seleccionada en el formulario de asignación."
         confirmLabel="Duplicar"
+        processing={isSubmitting}
         onCancel={() => setDuplicateSourceId(null)}
         onConfirm={() => {
           const source = vehicles.find((v) => v.id === duplicateSourceId);
@@ -372,10 +379,13 @@ export function PortalRoutesScreen() {
         description={`La unidad ${routeToClear?.code || 'seleccionada'} quedará sin ruta asignada.`}
         confirmLabel="Liberar ruta"
         destructive
+        processing={isSubmitting}
         onCancel={() => setRouteToClear(null)}
         onConfirm={() => {
-          if (routeToClear) void clearRoute(routeToClear.id);
-          setRouteToClear(null);
+          if (!routeToClear) return;
+          void clearRoute(routeToClear.id).then((cleared) => {
+            if (cleared) setRouteToClear(null);
+          });
         }}
       />
     </PortalLayout>
@@ -383,6 +393,21 @@ export function PortalRoutesScreen() {
 }
 
 const styles = StyleSheet.create({
+  continueButton: {
+    alignItems: 'center',
+    backgroundColor: '#EA1F23',
+    borderRadius: AppTheme.radius.sm,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 38,
+    paddingHorizontal: 12,
+  },
+  continueButtonText: {
+    color: '#FFFFFF',
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   formGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

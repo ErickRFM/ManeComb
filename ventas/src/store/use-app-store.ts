@@ -363,6 +363,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   signIn: async (email, password, rememberSession = true) => {
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -397,6 +400,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   register: async (payload, rememberSession = true) => {
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -431,6 +437,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   forgotPassword: async (email) => {
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
     try {
       const response = await forgotPasswordRequest(email);
@@ -496,6 +505,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!hasPortalPermission(get().user, 'users')) {
       return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
     }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -513,6 +525,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateUser: async (userId, payload) => {
     if (!hasPortalPermission(get().user, 'users')) {
       return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
+    }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
     }
     set({ isSubmitting: true, error: null });
 
@@ -537,6 +552,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!hasPortalPermission(get().user, 'users')) {
       return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
     }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -555,6 +573,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!hasPortalPermission(get().user, 'vehicles')) {
       return { ok: false, message: 'No tienes permiso para administrar unidades.' };
     }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -572,6 +593,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateVehicle: async (vehicleId, payload) => {
     if (!hasPortalPermission(get().user, 'vehicles')) {
       return { ok: false, message: 'No tienes permiso para administrar unidades.' };
+    }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
     }
     set({ isSubmitting: true, error: null });
 
@@ -593,6 +617,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!hasPortalPermission(get().user, 'routes')) {
       return { ok: false, message: 'No tienes permiso para administrar rutas.' };
     }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -613,6 +640,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!hasPortalPermission(get().user, 'routes')) {
       return { ok: false, message: 'No tienes permiso para administrar rutas.' };
     }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {
@@ -630,6 +660,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   updateProfile: async (payload) => {
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
     set({ isSubmitting: true, error: null });
 
     try {

@@ -37,18 +37,18 @@ export function OperationalMenuDrawer({
   const [shouldRender, setShouldRender] = useState(visible);
   const {
     conversations,
-    documents,
     incidents,
     mapData,
+    notifications,
     signOut,
     user,
     users,
   } = useAppStore(
     useShallow((state) => ({
       conversations: state.conversations,
-      documents: state.documents,
       incidents: state.incidents,
       mapData: state.mapData,
+      notifications: state.notifications,
       signOut: state.signOut,
       user: state.user,
       users: state.users,
@@ -132,8 +132,10 @@ export function OperationalMenuDrawer({
         return users.length ? `${users.length}` : undefined;
       case 'chat':
         return conversations.length ? `${conversations.length}` : undefined;
-      case 'perfil':
-        return documents.length ? `${documents.length}` : undefined;
+      case 'perfil': {
+        const unreadNotifications = notifications.filter((notification) => !notification.isRead).length;
+        return unreadNotifications ? `${unreadNotifications}` : undefined;
+      }
       default:
         return undefined;
     }

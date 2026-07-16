@@ -31,6 +31,7 @@ export function useCheckoutExperience({
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const submitInFlight = useRef(false);
 
   const loadPlans = useCallback(async () => {
     setPlansLoading(true);
@@ -63,7 +64,7 @@ export function useCheckoutExperience({
     selectedAddOns?: string[];
     testCard: TestCardInput;
   }) => {
-    if (!selectedPlan || !user) return null;
+    if (!selectedPlan || !user || submitInFlight.current) return null;
     if (!requestTrial && providerMode === 'test') {
       const validationMessage = service.validateTestCard(testCard);
       if (validationMessage) {
@@ -72,23 +73,31 @@ export function useCheckoutExperience({
       }
     }
 
+    submitInFlight.current = true;
     setProcessing(true);
     setMessage(null);
-    const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
-    const nextResult = await service.createPaymentSession({
-      companyName,
-      contactName: user.name || companyName,
-      email: user.email,
-      phone: getContactPhone(user.phone),
-      planId: selectedPlan.id,
-      paymentMethod: requestTrial ? 'trial' : method,
-      requestTrial,
-      selectedAddOns,
-    });
-    setResult(nextResult);
-    setMessage(nextResult.message);
-    setProcessing(false);
-    return nextResult;
+    try {
+      const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
+      const nextResult = await service.createPaymentSession({
+        companyName,
+        contactName: user.name || companyName,
+        email: user.email,
+        phone: getContactPhone(user.phone),
+        planId: selectedPlan.id,
+        paymentMethod: requestTrial ? 'trial' : method,
+        requestTrial,
+        selectedAddOns,
+      });
+      setResult(nextResult);
+      setMessage(nextResult.message);
+      return nextResult;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No fue posible iniciar el pago. Intenta nuevamente.');
+      return null;
+    } finally {
+      submitInFlight.current = false;
+      setProcessing(false);
+    }
   }, [providerMode, requestTrial, selectedPlan, service, user]);
 
   return {

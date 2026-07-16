@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
-import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
+import { ActivationTimeline, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
@@ -329,6 +329,7 @@ export function PortalOnboardingScreen() {
     isSubmitting,
     loadOverview,
     onboarding,
+    overview,
     revokeActivationKey,
   } = usePortalStore(
     useShallow((state) => ({
@@ -339,14 +340,11 @@ export function PortalOnboardingScreen() {
       isSubmitting: state.isSubmitting,
       loadOverview: state.loadOverview,
       onboarding: state.onboarding,
+      overview: state.overview,
       revokeActivationKey: state.revokeActivationKey,
     }))
   );
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
 
   const steps = onboarding?.steps || [];
   const completedSteps = steps.filter((step) => step.status === 'completed').length;
@@ -406,8 +404,9 @@ export function PortalOnboardingScreen() {
       subtitle="Controla el plan comprado y activa conductores con keys vinculadas a la empresa."
       actions={
         <Pressable
+          disabled={isLoading}
           onPress={() => void loadOverview()}
-          style={[styles.actionButton, portalButtonGradient()]}>
+          style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
           <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" />
           <Text style={styles.actionText}>Actualizar</Text>
         </Pressable>
@@ -420,6 +419,12 @@ export function PortalOnboardingScreen() {
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
       </PortalSectionCard>
+
+      {overview?.activationTimeline?.length ? (
+        <PortalSectionCard title="Historial de activaciÃ³n" subtitle="Eventos de cuenta, compra y puesta en marcha ya registrados.">
+          <ActivationTimeline events={overview.activationTimeline} />
+        </PortalSectionCard>
+      ) : null}
 
       <PortalSectionCard
         title="Keys de activación para conductores"
@@ -491,7 +496,11 @@ export function PortalOnboardingScreen() {
             ))}
           </View>
         ) : (
-          <EmptyState icon="flag-checkered" title="Onboarding sin pasos disponibles" />
+          <EmptyState
+            icon="flag-checkered"
+            title="Onboarding sin pasos disponibles"
+            description="Actualiza el estado para volver a consultar la activación de tu cuenta."
+          />
         )}
       </PortalSectionCard>
     </PortalLayout>

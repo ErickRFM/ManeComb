@@ -56,7 +56,6 @@ import {
   registerPushSubscriptionRequest,
   unregisterPushSubscriptionRequest,
   updateVehicleLocationRequest,
-  uploadDocumentRequest,
   updateIncidentStatusRequest,
   updateProfileRequest,
   updateRouteSessionStatusRequest,
@@ -239,7 +238,6 @@ export type AppState = {
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
-  uploadDocument: (formData: FormData) => Promise<ActionResult & { document?: DocumentItem }>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
   loadConversation: (conversationId: string) => Promise<void>;
   loadChatContacts: () => Promise<void>;
@@ -1319,7 +1317,6 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
   socket.on('user:updated', (payload: { user?: User }) => {
     if (payload.user?.id === get().user?.id) set({ user: payload.user });
-    get().loadUsers().catch(() => undefined);
     get().refreshAll().catch(() => undefined);
   });
 
@@ -2068,7 +2065,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error;
     }
   },
-  uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {
     set({ isLoadingConversation: true });
     try {

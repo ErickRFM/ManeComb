@@ -606,9 +606,9 @@ function createStyles(
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 32 : 36,
+      fontSize: isPhone ? 26 : 36,
       fontWeight: '900',
-      lineHeight: isPhone ? 38 : 42,
+      lineHeight: isPhone ? 32 : 42,
     },
     filterFrame: {
       borderRadius: 28,
@@ -790,14 +790,14 @@ function createStyles(
       justifyContent: 'flex-end',
     },
     modalCard: {
-      maxHeight: '92%',
+      maxHeight: '96%',
       borderTopLeftRadius: 26,
       borderTopRightRadius: 26,
       backgroundColor: theme.colors.background,
       paddingHorizontal: isPhone ? 14 : 18,
       paddingTop: 0,
-      paddingBottom: 18,
-      gap: 14,
+      paddingBottom: 10,
+      gap: 10,
     },
     modalKeyboard: {
       flex: 1,
@@ -840,8 +840,8 @@ function createStyles(
       flexGrow: 0,
     },
     modalScrollContent: {
-      gap: 12,
-      paddingBottom: 8,
+      gap: 10,
+      paddingBottom: 4,
     },
     routeNameInput: {
       minHeight: 46,
@@ -856,7 +856,7 @@ function createStyles(
       paddingHorizontal: 12,
     },
     routePreview: {
-      height: isPhone ? 170 : 230,
+      height: isPhone ? 150 : 210,
       borderRadius: 22,
       overflow: 'hidden',
       backgroundColor: theme.mode === 'light' ? '#F2F6FB' : '#101A27',
@@ -1051,8 +1051,8 @@ function createStyles(
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      padding: 14,
-      gap: 12,
+      padding: 12,
+      gap: 10,
     },
     configTitleRow: {
       flexDirection: 'row',
@@ -1308,14 +1308,22 @@ export function ChecklistScreen() {
     }))
   );
   const params = useLocalSearchParams();
-  const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const returnedFilter = ['all', 'active', 'routes', 'completed', 'cancelled'].includes(String(params.returnFilter))
+    ? params.returnFilter as FilterMode
+    : 'all';
+  const returnedScrollY = Math.max(0, Number(params.historyScrollY) || 0);
+  const hasReturnedMapDraft = Boolean(params.originLatitude || params.destinationLatitude || params.routePolyline);
+  const historyScrollYRef = useRef(returnedScrollY);
+  const [filterMode, setFilterMode] = useState<FilterMode>(returnedFilter);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
-  const [routeModalOpen, setRouteModalOpen] = useState(false);
+  const [routeModalOpen, setRouteModalOpen] = useState(hasReturnedMapDraft);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
-  const [routeNameDraft, setRouteNameDraft] = useState('');
+  const [routeNameDraft, setRouteNameDraft] = useState(String(params.routeNameDraft || ''));
   const [routePendingDelete, setRoutePendingDelete] = useState<RouteShape | null>(null);
   const [isDeletingRoute, setIsDeletingRoute] = useState(false);
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [isCreatingRouteDraft, setIsCreatingRouteDraft] = useState(hasReturnedMapDraft);
+  const [routeLibraryOpen, setRouteLibraryOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [historyLoadError, setHistoryLoadError] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
@@ -1496,7 +1504,7 @@ export function ChecklistScreen() {
     ? 'navigation'
     : isRoutePaused
       ? 'paused'
-      : editingRouteId
+      : editingRouteId || isCreatingRouteDraft
         ? 'editing'
       : isCalculatedRouteSaved
         ? 'ready'
@@ -1566,6 +1574,7 @@ export function ChecklistScreen() {
 
   const openRouteModal = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
+    setRouteLibraryOpen(false);
     setRouteModalOpen(true);
   };
 
@@ -1581,6 +1590,9 @@ export function ChecklistScreen() {
 
     setRouteModalOpen(false);
     setRouteNameDraft('');
+    setEditingRouteId(null);
+    setIsCreatingRouteDraft(false);
+    setRouteLibraryOpen(false);
   }, [selectedAssignedRoute, selectedVehicle]);
 
   const cancelRouteDraft = () => {
@@ -1593,6 +1605,8 @@ export function ChecklistScreen() {
     pendingStopPersistRef.current = false;
     setRouteNameDraft('');
     setEditingRouteId(null);
+    setIsCreatingRouteDraft(false);
+    setRouteLibraryOpen(false);
     trackerState.resetPointToPointSession();
     syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
   };
@@ -1604,6 +1618,9 @@ export function ChecklistScreen() {
       follow: 'true',
       point,
       returnTo: '/checklist',
+      returnFilter: filterMode,
+      historyScrollY: String(historyScrollYRef.current),
+      routeNameDraft,
     };
     const origin = tracker.pointSelection.origin;
     const destination = tracker.pointSelection.destination;
@@ -1629,6 +1646,18 @@ export function ChecklistScreen() {
       params: routeParams,
     });
   }
+
+  const createRouteFromMap = useCallback(() => {
+    if (!selectedVehicle) return;
+
+    pendingStopPersistRef.current = false;
+    setRouteNameDraft('');
+    setEditingRouteId(null);
+    setIsCreatingRouteDraft(true);
+    setRouteLibraryOpen(false);
+    trackerRef.current.resetPointToPointSession();
+    openMapForVehicle(selectedVehicle, 'origin');
+  }, [selectedVehicle]);
 
   const handleRemoveRouteStop = (stopId: string) => {
     pendingStopPersistRef.current = true;
@@ -1673,6 +1702,8 @@ export function ChecklistScreen() {
       await refreshAll();
       setRouteNameDraft('');
       setEditingRouteId(null);
+      setIsCreatingRouteDraft(false);
+      setRouteLibraryOpen(false);
       closeRouteModal();
     } catch {
       trackerState.setPointMessage('No fue posible guardar la ruta.');
@@ -1694,12 +1725,13 @@ export function ChecklistScreen() {
       });
       await refreshAll();
       trackerRef.current.setPointMessage(`Ruta ${route.name} asignada a la unidad.`);
+      closeRouteModal();
     } catch {
       trackerRef.current.setPointMessage('No fue posible asignar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [refreshAll, selectedVehicle?.id]);
+  }, [closeRouteModal, refreshAll, selectedVehicle?.id]);
 
   const deleteSavedRoute = useCallback((route: RouteShape) => {
     setRoutePendingDelete(route);
@@ -1950,16 +1982,12 @@ export function ChecklistScreen() {
     tracker.pointPlan,
   ]);
 
-  const editAssignedRoute = useCallback(() => {
-    if (!selectedVehicle?.id || !selectedVehicle.routeId) {
-      return;
-    }
-
-    setEditingRouteId(selectedVehicle.routeId);
-    const route = savedRoutes.find((r) => r.id === selectedVehicle.routeId);
-    if (route) setRouteNameDraft(route.name);
-    tracker.setPointMessage('Edita la ruta y guarda los cambios sobre la misma ruta.');
-  }, [selectedVehicle?.id, selectedVehicle?.routeId, tracker, savedRoutes]);
+  const openRouteLibrary = useCallback(() => {
+    setEditingRouteId(null);
+    setIsCreatingRouteDraft(false);
+    setRouteNameDraft('');
+    setRouteLibraryOpen(true);
+  }, []);
 
   if (!user || !mapData) {
     return (
@@ -1977,6 +2005,13 @@ export function ChecklistScreen() {
     <AppShell
       sectionKey="checklist"
       mobileTitle="Checklist"
+      scrollProps={{
+        contentOffset: { x: 0, y: returnedScrollY },
+        onScroll: (event) => {
+          historyScrollYRef.current = event.nativeEvent.contentOffset.y;
+        },
+        scrollEventThrottle: 32,
+      }}
       header={
         <View style={styles.header}>
           <Text style={styles.title}>Checklist</Text>
@@ -2136,7 +2171,7 @@ export function ChecklistScreen() {
             </View>
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              {routeUiState === 'empty' ? (
+              {routeUiState === 'empty' || routeLibraryOpen ? (
                 <View style={styles.configCard}>
                     {savedRoutes.length ? (
                       <View style={styles.savedRoutesList}>
@@ -2180,7 +2215,7 @@ export function ChecklistScreen() {
                     ) : null}
                     <Pressable
                       style={styles.primaryWide}
-                      onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}>
+                       onPress={createRouteFromMap}>
                       <MaterialCommunityIcons name="map-plus" size={18} color="#FFFFFF" />
                       <Text style={styles.primaryWideText}>Crear ruta</Text>
                     </Pressable>
@@ -2315,7 +2350,7 @@ export function ChecklistScreen() {
                 </>
               ) : null}
 
-              {routeUiState === 'ready' ? (
+              {routeUiState === 'ready' && !routeLibraryOpen ? (
                 <>
                   <RoutePreview
                     points={routeStops}
@@ -2350,7 +2385,7 @@ export function ChecklistScreen() {
                       <Text style={styles.endpointText} numberOfLines={1}>{destinationLabel}</Text>
                     </View>
                     <View style={styles.routeActionRow}>
-                      <Pressable style={styles.secondaryWide} onPress={editAssignedRoute}>
+                      <Pressable style={styles.secondaryWide} onPress={openRouteLibrary}>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
                         <Text style={styles.secondaryWideText}>Cambiar ruta</Text>
                       </Pressable>

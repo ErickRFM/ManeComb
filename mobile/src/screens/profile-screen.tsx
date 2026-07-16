@@ -151,6 +151,48 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isCompact:
       backgroundColor: theme.colors.cardSoft,
       borderColor: theme.colors.line,
     },
+    notificationList: {
+      gap: 8,
+    },
+    notificationRow: {
+      minHeight: 58,
+      borderRadius: 14,
+      borderWidth: 1,
+      padding: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    notificationIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    notificationCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 3,
+    },
+    notificationTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    notificationBody: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 17,
+    },
+    emptyNotifications: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      lineHeight: 19,
+    },
     logoutBtn: {
       alignItems: 'center',
       borderColor: theme.colors.accent,
@@ -201,8 +243,12 @@ export function ProfileScreen() {
   const isCompact = width < 1040;
   const isPhone = width < 640;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { presenceByUser, signOut, user } = useAppStore(
+  const { documents, markNotificationRead, notifications, observability, presenceByUser, signOut, user } = useAppStore(
     useShallow((state) => ({
+      documents: state.documents,
+      markNotificationRead: state.markNotificationRead,
+      notifications: state.notifications,
+      observability: state.observability,
       presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
@@ -218,6 +264,7 @@ export function ProfileScreen() {
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
+  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
   return (
     <AppShell
       scroll
@@ -258,6 +305,93 @@ export function ProfileScreen() {
 
         <View style={styles.sideColumn}>
           <AppCard>
+            <View style={styles.pillsRow}>
+              <Text style={styles.cardTitle}>Documentos</Text>
+              {documents.length ? <StatusPill label={`${documents.length}`} tone="info" /> : null}
+            </View>
+            {documents.length ? (
+              <View style={styles.notificationList}>
+                {documents.map((document) => {
+                  const reviewLabel = document.reviewStatus === 'approved'
+                    ? 'Aprobado'
+                    : document.reviewStatus === 'rejected'
+                      ? 'Rechazado'
+                      : 'Pendiente';
+                  const reviewTone = document.reviewStatus === 'approved'
+                    ? 'positive' as const
+                    : document.reviewStatus === 'rejected'
+                      ? 'danger' as const
+                      : 'warning' as const;
+                  const ownerLabel = document.owner && 'name' in document.owner
+                    ? document.owner.name
+                    : document.owner && 'code' in document.owner
+                      ? document.owner.code
+                      : document.ownerType === 'vehicle' ? 'Unidad asociada' : 'Conductor asociado';
+                  return (
+                    <View key={document.id} style={[styles.notificationRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surfaceAlt }]}>
+                      <View style={[styles.notificationIcon, { backgroundColor: theme.colors.infoSoft }]}>
+                        <MaterialCommunityIcons name="file-document-outline" size={19} color={theme.colors.info} />
+                      </View>
+                      <View style={styles.notificationCopy}>
+                        <Text style={styles.notificationTitle}>{document.name}</Text>
+                        <Text style={styles.notificationBody}>
+                          {document.category} Â· {ownerLabel} Â· {document.status} Â· Vence {new Date(document.expiresAt).toLocaleDateString('es-MX')}
+                        </Text>
+                        {document.reviewNotes ? <Text style={styles.notificationBody}>{document.reviewNotes}</Text> : null}
+                      </View>
+                      <StatusPill label={reviewLabel} tone={reviewTone} />
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={styles.emptyNotifications}>No hay documentos asociados a tu cuenta o unidad.</Text>
+            )}
+          </AppCard>
+
+          <AppCard>
+            <View style={styles.pillsRow}>
+              <Text style={styles.cardTitle}>Notificaciones</Text>
+              {unreadCount ? <StatusPill label={`${unreadCount} sin leer`} tone="warning" /> : null}
+            </View>
+            {notifications.length ? (
+              <View style={styles.notificationList}>
+                {notifications.map((notification) => {
+                  const isDanger = notification.level === 'danger' || notification.level === 'error';
+                  const color = isDanger ? theme.colors.danger : notification.level === 'warning' ? theme.colors.warning : theme.colors.info;
+                  return (
+                    <Pressable
+                      key={notification.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${notification.isRead ? 'NotificaciÃ³n leÃ­da' : 'Marcar como leÃ­da'}: ${notification.title}`}
+                      disabled={notification.isRead}
+                      onPress={async () => {
+                        await markNotificationRead(notification.id);
+                      }}
+                      style={[
+                        styles.notificationRow,
+                        { borderColor: notification.isRead ? theme.colors.line : color, backgroundColor: theme.colors.surfaceAlt },
+                      ]}>
+                      <View style={[styles.notificationIcon, { backgroundColor: isDanger ? theme.colors.dangerSoft : notification.level === 'warning' ? theme.colors.warningSoft : theme.colors.infoSoft }]}>
+                        <MaterialCommunityIcons name={notification.isRead ? 'bell-outline' : 'bell-badge-outline'} size={19} color={color} />
+                      </View>
+                      <View style={styles.notificationCopy}>
+                        <Text style={styles.notificationTitle}>{notification.title}</Text>
+                        <Text style={styles.notificationBody}>{notification.body}</Text>
+                        <Text style={styles.notificationBody}>
+                          {[notification.category, new Date(notification.createdAt).toLocaleString('es-MX')].filter(Boolean).join(' Â· ')}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={styles.emptyNotifications}>No hay notificaciones pendientes.</Text>
+            )}
+          </AppCard>
+
+          <AppCard>
             <Text style={styles.cardTitle}>Apariencia</Text>
             <View style={styles.themeRow}>
               <Pressable
@@ -288,6 +422,38 @@ export function ProfileScreen() {
               </Pressable>
             </View>
           </AppCard>
+
+          {observability ? (
+            <AppCard>
+              <Text style={styles.cardTitle}>Estado operativo</Text>
+              <View style={styles.infoGrid}>
+                <InfoTile icon="alert-circle-outline" label="Errores API" value={String(observability.apiErrors)} styles={styles} theme={theme} />
+                <InfoTile icon="timer-alert-outline" label="Solicitudes lentas" value={String(observability.slowRequests)} styles={styles} theme={theme} />
+                <InfoTile icon="bell-check-outline" label="Push entregados" value={String(observability.pushDelivered)} styles={styles} theme={theme} />
+                <InfoTile icon="bell-alert-outline" label="Push fallidos" value={String(observability.pushFailed)} styles={styles} theme={theme} />
+                <InfoTile icon="alert-decagram-outline" label="Incidencias crÃ­ticas" value={String(observability.activeCriticalIncidents)} styles={styles} theme={theme} />
+                <InfoTile icon="cart-check" label="Eventos checkout" value={String(observability.checkoutEvents)} styles={styles} theme={theme} />
+                <InfoTile icon="phone-in-talk-outline" label="Sesiones RTC" value={String(observability.rtc.recentSessions)} styles={styles} theme={theme} />
+                <InfoTile icon="phone-check-outline" label="RTC completadas" value={String(observability.rtc.completedSessions)} styles={styles} theme={theme} />
+                <InfoTile icon="timer-outline" label="Promedio RTC" value={`${Math.round(observability.rtc.averageDurationSeconds)} s`} styles={styles} theme={theme} />
+              </View>
+              {observability.recentEvents.length ? (
+                <View style={styles.notificationList}>
+                  {observability.recentEvents.map((event) => (
+                    <View key={event.id} style={[styles.notificationRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surfaceAlt }]}>
+                      <View style={[styles.notificationIcon, { backgroundColor: event.level === 'error' ? theme.colors.dangerSoft : theme.colors.infoSoft }]}>
+                        <MaterialCommunityIcons name="pulse" size={19} color={event.level === 'error' ? theme.colors.danger : theme.colors.info} />
+                      </View>
+                      <View style={styles.notificationCopy}>
+                        <Text style={styles.notificationTitle}>{event.message || event.type}</Text>
+                        <Text style={styles.notificationBody}>{event.scope} Â· {new Date(event.createdAt).toLocaleString('es-MX')}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </AppCard>
+          ) : null}
 
           <AppCard style={styles.sessionCard}>
             <Text style={styles.cardTitle}>Sesion</Text>

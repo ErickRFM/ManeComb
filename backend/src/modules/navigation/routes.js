@@ -275,6 +275,9 @@ router.post("/routes", authenticate, requireOperationalAccess, async (req, res, 
       });
     }
 
+    const originLabel = String(req.body.originLabel || "").trim();
+    const destinationLabel = String(req.body.destinationLabel || "").trim();
+
     const savedRoute = await req.app.locals.store.createRoute({
       id: randomUUID(),
       name,
@@ -282,6 +285,8 @@ router.post("/routes", authenticate, requireOperationalAccess, async (req, res, 
       color: "#1473E6",
       origin,
       destination,
+      originLabel,
+      destinationLabel,
       stops,
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
@@ -332,12 +337,17 @@ router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (
       });
     }
 
+    const originLabel = String(req.body.originLabel || "").trim();
+    const destinationLabel = String(req.body.destinationLabel || "").trim();
+
     const updatedRoute = await req.app.locals.store.updateRoute(routeId, {
       name,
       code: buildRouteCode(name),
       color: "#1473E6",
       origin,
       destination,
+      originLabel,
+      destinationLabel,
       stops,
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
@@ -428,10 +438,11 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
 
     const vehicleId = String(req.body.vehicleId || "").trim();
     const routeId = String(req.body.routeId || "").trim();
-    if (!vehicleId || !routeId) {
+
+    if (!vehicleId) {
       return res.status(400).json({
         ok: false,
-        message: "vehicleId y routeId son obligatorios"
+        message: "vehicleId es obligatorio"
       });
     }
 
@@ -445,18 +456,29 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       return res.status(409).json({ ok: false, message: "Finaliza la jornada activa antes de cambiar la ruta" });
     }
 
-    const savedRoute = routeId ? await req.app.locals.store.getRouteById(routeId) : null;
+    if (routeId) {
+      const savedRoute = await req.app.locals.store.getRouteById(routeId);
 
-    if (routeId && (!savedRoute || !canAccessTenantResource(req.user, savedRoute))) {
-      return res.status(404).json({
-        ok: false,
-        message: "Ruta no encontrada"
-      });
+      if (!savedRoute || !canAccessTenantResource(req.user, savedRoute)) {
+        return res.status(404).json({
+          ok: false,
+          message: "Ruta no encontrada"
+        });
+      }
     }
+
+    const assignment = {
+      originLabel: String(req.body.originLabel || "").trim(),
+      destinationLabel: String(req.body.destinationLabel || "").trim(),
+      origin: normalizePoint(req.body.origin),
+      destination: normalizePoint(req.body.destination),
+      provider: String(req.body.provider || "manual").trim(),
+    };
 
     const updatedVehicle = await req.app.locals.store.assignRouteToVehicle({
       vehicleId,
-      routeId: savedRoute?._id || savedRoute?.id || routeId,
+      routeId: routeId || null,
+      assignment,
       assignedBy: req.user.id
     });
 

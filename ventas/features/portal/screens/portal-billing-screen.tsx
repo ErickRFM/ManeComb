@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Linking, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -9,17 +8,12 @@ import { PortalLayout } from '../components/portal-layout';
 import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalBillingScreen() {
-  const { invoices, isLoading, loadBilling } = usePortalStore(
+  const { invoices, isLoading } = usePortalStore(
     useShallow((state) => ({
       invoices: state.invoices,
       isLoading: state.isLoading,
-      loadBilling: state.loadBilling,
     }))
   );
-
-  useEffect(() => {
-    void loadBilling();
-  }, [loadBilling]);
 
   return (
     <PortalLayout title="Facturación" subtitle="Consulta y descarga los comprobantes disponibles de tu cuenta.">

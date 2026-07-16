@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { resetPasswordRequest } from '@/src/api/client';
@@ -12,9 +12,10 @@ export function PasswordResetScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const submitInFlight = useRef(false);
 
   const submit = async () => {
-    if (submitting) return;
+    if (submitting || submitInFlight.current) return;
     if (!token) {
       setMessage('El enlace de recuperacion no es valido.');
       return;
@@ -28,6 +29,7 @@ export function PasswordResetScreen() {
       return;
     }
 
+    submitInFlight.current = true;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -37,6 +39,7 @@ export function PasswordResetScreen() {
     } catch (error) {
       setMessage(getApiErrorMessage(error, 'No fue posible restablecer la contrasena.'));
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   };

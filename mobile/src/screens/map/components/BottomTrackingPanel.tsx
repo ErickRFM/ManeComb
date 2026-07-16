@@ -244,6 +244,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ['GPS', gpsLabel],
         ['Ultima actualizacion', lastUpdateLabel]
       );
+      if (isFiniteMetricNumber(selectedVehicle.occupancy) && isFiniteMetricNumber(selectedVehicle.capacity)) {
+        rows.push(['Ocupacion', `${selectedVehicle.occupancy} de ${selectedVehicle.capacity}`]);
+      }
+      if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
+      if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
+      if (isFiniteMetricNumber(selectedVehicle.etaMinutes)) rows.push(['ETA', `${Math.max(0, Math.round(Number(selectedVehicle.etaMinutes)))} min`]);
+      if (isFiniteMetricNumber(selectedVehicle.delayMinutes)) rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
       if (activeTimeLabel) rows.push(['Tiempo activo', activeTimeLabel]);
       if (kilometersLabel) rows.push(['Kilometros', kilometersLabel]);
       return rows;
@@ -270,6 +277,17 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     const stoppedLabel = formatDuration(selectedSession.stoppedTime);
     const pausedLabel = formatDuration(selectedSession.metrics?.pausedTime);
     const distanceLabel = formatKilometers(getSessionDistanceMeters(selectedSession));
+    if (selectedSession.processingStatus) {
+      rows.push([
+        'Estadisticas',
+        selectedSession.statisticsReady || selectedSession.processingStatus === 'COMPLETED'
+          ? 'Listas'
+          : selectedSession.processingStatus === 'FAILED'
+            ? 'No disponibles'
+            : 'Procesando',
+      ]);
+    }
+    if (selectedSession.processingError) rows.push(['Detalle de procesamiento', selectedSession.processingError]);
     if (startedLabel) rows.push(['Inicio', startedLabel]);
     rows.push(['Fin', finishedLabel || 'En curso']);
     if (durationLabel) rows.push(['Duracion', durationLabel]);
@@ -280,6 +298,18 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     if (isFiniteMetricNumber(selectedSession.averageSpeed)) rows.push(['Velocidad promedio', `${Math.round(Number(selectedSession.averageSpeed))} km/h`]);
     if (isFiniteMetricNumber(selectedSession.maxSpeed)) rows.push(['Velocidad maxima', `${Math.round(Number(selectedSession.maxSpeed))} km/h`]);
     if (isFiniteMetricNumber(selectedSession.stopEvents)) rows.push(['Paradas', String(selectedSession.stopEvents)]);
+    if (isFiniteMetricNumber(selectedSession.completedCheckpoints)) rows.push(['Checkpoints', String(selectedSession.completedCheckpoints)]);
+    if (isFiniteMetricNumber(selectedSession.completedLaps)) rows.push(['Vueltas', String(selectedSession.completedLaps)]);
+    if (isFiniteMetricNumber(selectedSession.gpsLostTime)) rows.push(['Tiempo sin GPS', formatDuration(selectedSession.gpsLostTime) || '0 min']);
+    if (isFiniteMetricNumber(selectedSession.offRouteTime)) rows.push(['Fuera de ruta', formatDuration(selectedSession.offRouteTime) || '0 min']);
+    if (isFiniteMetricNumber(selectedSession.averageGpsAccuracy)) rows.push(['Precision GPS', `${Math.round(Number(selectedSession.averageGpsAccuracy))} m`]);
+    if (isFiniteMetricNumber(selectedSession.gpsLostEvents)) rows.push(['Perdidas GPS', String(selectedSession.gpsLostEvents)]);
+    if (isFiniteMetricNumber(selectedSession.offRouteEvents)) rows.push(['Desvios', String(selectedSession.offRouteEvents)]);
+    if (isFiniteMetricNumber(selectedSession.startedOdometer)) rows.push(['Odometro inicial', `${Math.round(Number(selectedSession.startedOdometer))} km`]);
+    if (isFiniteMetricNumber(selectedSession.finishedOdometer)) rows.push(['Odometro final', `${Math.round(Number(selectedSession.finishedOdometer))} km`]);
+    if (isFiniteMetricNumber(selectedSession.startBattery)) rows.push(['Bateria inicial', `${Math.round(Number(selectedSession.startBattery))}%`]);
+    if (isFiniteMetricNumber(selectedSession.endBattery)) rows.push(['Bateria final', `${Math.round(Number(selectedSession.endBattery))}%`]);
+    if (selectedSession.finishReason) rows.push(['Motivo de cierre', selectedSession.finishReason]);
     rows.push(['Incidencias', String(incidentCount)]);
     if (isFiniteMetricNumber(selectedSession.metrics?.gpsCoveragePercent)) {
       rows.push(['Estado GPS', `${Math.round(Number(selectedSession.metrics?.gpsCoveragePercent))}% cobertura`]);
@@ -290,13 +320,22 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   }, [incidents, lastSyncedAt, selectedSession]);
 
   const metricCards = useMemo(
-    () => [
-      { label: 'Estado', value: statusLabel, icon: 'bus-clock' },
-      { label: 'GPS', value: gpsLabel, icon: 'crosshairs-gps' },
-      { label: 'Tiempo activo', value: activeTimeLabel || 'Sin registro', icon: 'timer-outline' },
-      { label: 'Kilometros', value: kilometersLabel || 'Sin registro', icon: 'map-marker-distance' },
-    ],
-    [activeTimeLabel, gpsLabel, kilometersLabel, statusLabel]
+    () => {
+      const cards = [
+        { label: 'Estado', value: statusLabel, icon: 'bus-clock' },
+        { label: 'GPS', value: gpsLabel, icon: 'crosshairs-gps' },
+        { label: 'Tiempo activo', value: activeTimeLabel || 'Sin registro', icon: 'timer-outline' },
+        { label: 'Kilometros', value: kilometersLabel || 'Sin registro', icon: 'map-marker-distance' },
+      ];
+      if (selectedVehicle && isFiniteMetricNumber(selectedVehicle.capacity)) {
+        cards.push({ label: 'Ocupacion', value: `${selectedVehicle.occupancy} / ${selectedVehicle.capacity}`, icon: 'account-group-outline' });
+      }
+      if (selectedVehicle && isFiniteMetricNumber(selectedVehicle.fuel)) {
+        cards.push({ label: 'Combustible', value: `${Math.round(selectedVehicle.fuel)}%`, icon: 'fuel' });
+      }
+      return cards;
+    },
+    [activeTimeLabel, gpsLabel, kilometersLabel, selectedVehicle, statusLabel]
   );
 
   return (
@@ -360,6 +399,27 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             <MaterialCommunityIcons name={isExpanded ? 'chevron-down' : 'chevron-up'} size={20} color={theme.colors.accent} />
           </Pressable>
         </View>
+
+        {trackingVehicles.length > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+            {trackingVehicles.map((vehicle) => {
+              const isSelected = vehicle.id === selectedVehicle?.id;
+              return (
+                <Pressable
+                  key={vehicle.id}
+                  onPress={() => onSelectTrackingVehicle(vehicle)}
+                  style={({ pressed }) => [
+                    styles.trackChip,
+                    { borderColor: isSelected ? theme.colors.accent : theme.colors.line },
+                    isSelected ? { backgroundColor: theme.colors.accent } : undefined,
+                    pressed ? styles.controlPressed : undefined,
+                  ]}>
+                  <Text style={[styles.trackChipTitle, isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text }]}>{vehicle.code}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
 
         {isExpanded ? (
           <ScrollView
@@ -475,7 +535,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               </Pressable>
             ) : null}
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+            {trackingVehicles.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
               {trackingVehicles.map((vehicle) => {
                 const isSelected = vehicle.id === selectedVehicle?.id;
                 return (
@@ -498,7 +558,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                   <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>Sin unidades disponibles</Text>
                 </View>
               ) : null}
-            </ScrollView>
+            </ScrollView> : null}
           </ScrollView>
         ) : null}
       </View>

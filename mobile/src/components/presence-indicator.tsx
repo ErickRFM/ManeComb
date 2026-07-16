@@ -15,13 +15,6 @@ export function PresenceDot({ status, size = 10 }: { status: PresenceStatus; siz
   }} />;
 }
 
-export function PresenceLabel({ status }: { status: PresenceStatus }) {
-  const { theme } = useAppTheme();
-  const presentation = getPresencePresentation(status);
-  const colors = getToneColors(theme, presentation.tone);
-  return <Text style={[styles.label, { color: colors.foreground }]}>{presentation.label}</Text>;
-}
-
 export function PresenceBadge({ status }: { status: PresenceStatus }) {
   const { theme } = useAppTheme();
   const presentation = getPresencePresentation(status);

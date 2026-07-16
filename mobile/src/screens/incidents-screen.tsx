@@ -1164,10 +1164,20 @@ export function IncidentsScreen() {
                           {incident.description || 'Sin descripcion disponible.'}
                         </Text>
 
+                        <View style={screenStyles.incidentMeta}>
+                          <MaterialCommunityIcons name="account-alert-outline" size={14} color={theme.colors.muted} />
+                          <Text style={screenStyles.incidentMetaText} numberOfLines={1}>
+                            {[incident.reporter?.name || 'Reportante no disponible', incident.route?.name || incident.route?.code].filter(Boolean).join(' · ')}
+                          </Text>
+                        </View>
+
                         <View style={screenStyles.metaRow}>
                           <VisualBadge icon={typeStyle.icon} label={typeStyle.label} visualStyle={typeStyle} />
                           <VisualBadge label={statusStyle.label} visualStyle={statusStyle} />
                           <VisualBadge label={severityStyle.label} visualStyle={severityStyle} />
+                          {incident.media.length ? (
+                            <VisualBadge icon="paperclip" label={`${incident.media.length} ${incident.media.length === 1 ? 'archivo' : 'archivos'}`} visualStyle={INCIDENT_TYPE_STYLES.general} />
+                          ) : null}
                         </View>
 
                         <View style={screenStyles.cardFooter}>
@@ -1179,7 +1189,7 @@ export function IncidentsScreen() {
                             />
                             <Text style={screenStyles.incidentMetaText} numberOfLines={1}>
                               {hasIncidentLocation(incident)
-                                ? `${getIncidentUnitLabel(incident)} · Con ubicacion`
+                                ? `${getIncidentUnitLabel(incident)} · GPS${Number.isFinite(Number(incident.location?.accuracy)) ? ` ±${Math.round(Number(incident.location?.accuracy))} m` : ''}${incident.location?.timestamp ? ` · ${formatRelativeTime(incident.location.timestamp)}` : ''}`
                                 : `${getIncidentUnitLabel(incident)} · Sin ubicacion GPS`}
                             </Text>
                           </View>

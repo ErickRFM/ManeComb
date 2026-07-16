@@ -75,7 +75,7 @@ function Routes() {
 
   const requiredPermission = protectedPortalRoutes[pathname];
   if (requiredPermission && !hasPortalPermission(user, requiredPermission)) {
-    return <PortalDashboardScreen />;
+    return <Redirect href="/portal" />;
   }
 
   switch (pathname) {

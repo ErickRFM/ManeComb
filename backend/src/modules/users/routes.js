@@ -256,6 +256,25 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       updatedAt: new Date().toISOString()
     });
 
+    if (Object.prototype.hasOwnProperty.call(payload, "vehicleId") && payload.vehicleId !== targetUser.vehicleId) {
+      const affectedVehicleIds = [...new Set([targetUser.vehicleId, payload.vehicleId].filter(Boolean))];
+      for (const vehicleId of affectedVehicleIds) {
+        const affectedVehicle = await req.app.locals.store.getVehicleById(vehicleId);
+        if (affectedVehicle) {
+          const orgId = String(affectedVehicle.organizationId || getOrganizationId(req.user)).trim();
+          if (orgId) {
+            getRolesWithPermission("canViewAnalytics").forEach((role) => {
+              req.app.locals.io?.to(`org:${orgId}:role:${role}`).emit("location:updated", affectedVehicle);
+            });
+            if (affectedVehicle.driverId) {
+              req.app.locals.io?.to(`user:${affectedVehicle.driverId}`).emit("location:updated", affectedVehicle);
+            }
+            req.app.locals.io?.to("platform:admin").emit("location:updated", affectedVehicle);
+          }
+        }
+      }
+    }
+
     return res.json({
       ok: true,
       data: user
@@ -286,6 +305,14 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
     });
   }
 
+  let affectedVehicleIds = [];
+  if (targetUser.role === "driver" || targetUser.role === "supervisor") {
+    const live = await req.app.locals.store.getLiveLocations();
+    affectedVehicleIds = (live.vehicles || [])
+      .filter((v) => v.driverId === targetUser.id || v.supervisorId === targetUser.id)
+      .map((v) => v.id);
+  }
+
   const deleted = await req.app.locals.store.deleteUser(req.params.userId);
 
   if (!deleted) {
@@ -309,6 +336,22 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
     organizationId: getOrganizationId(req.user),
     deletedAt: new Date().toISOString()
   });
+
+  for (const vehicleId of affectedVehicleIds) {
+    const affectedVehicle = await req.app.locals.store.getVehicleById(vehicleId);
+    if (affectedVehicle) {
+      const orgId = String(affectedVehicle.organizationId || getOrganizationId(req.user)).trim();
+      if (orgId) {
+        getRolesWithPermission("canViewAnalytics").forEach((role) => {
+          req.app.locals.io?.to(`org:${orgId}:role:${role}`).emit("location:updated", affectedVehicle);
+        });
+        if (affectedVehicle.driverId) {
+          req.app.locals.io?.to(`user:${affectedVehicle.driverId}`).emit("location:updated", affectedVehicle);
+        }
+        req.app.locals.io?.to("platform:admin").emit("location:updated", affectedVehicle);
+      }
+    }
+  }
 
   return res.json({
     ok: true

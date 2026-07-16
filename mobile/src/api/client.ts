@@ -674,22 +674,6 @@ export async function getDocumentsRequest() {
   return response.data.data;
 }
 
-export async function uploadDocumentRequest(formData: FormData) {
-  const response = await apiClient.post<{ ok: boolean; data: DocumentItem }>(
-    '/documents',
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      timeout: 60000,
-      _allowRetry: true,
-    } as RetryableRequestConfig
-  );
-
-  return response.data.data;
-}
-
 export function resolveAssetUrl(fileUrl: string | null | undefined) {
   if (!fileUrl) {
     return null;
@@ -724,11 +708,6 @@ export async function registerPushSubscriptionRequest(payload: {
 
 export async function unregisterPushSubscriptionRequest(token: string) {
   await apiClient.delete(`/notifications/push-subscriptions/${encodeURIComponent(token)}`);
-}
-
-export async function getVehiclesRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: Vehicle[] }>('/vehicles');
-  return response.data.data;
 }
 
 export async function getE2eeBackupRequest(deviceId?: string) {

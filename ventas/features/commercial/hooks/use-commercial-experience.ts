@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { getCommercialPlansRequest } from '@/src/api/client';
@@ -78,6 +78,7 @@ export function useCommercialExperience() {
   const [comparison, setComparison] = useState<CommercialChangeSummary | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const actionInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
     await synchronize();
@@ -95,16 +96,21 @@ export function useCommercialExperience() {
   }, [runtime.service]);
 
   const continuePreview = useCallback(async () => {
-    if (!selectedPlanId || !comparison?.validation.allowed) return;
-    const result = await changePlan(selectedPlanId);
-    if (!result.ok) {
-      setActionMessage(result.message || 'No fue posible cambiar el plan.');
-      return;
+    if (!selectedPlanId || !comparison?.validation.allowed || actionInFlight.current) return;
+    actionInFlight.current = true;
+    try {
+      const result = await changePlan(selectedPlanId);
+      if (!result.ok) {
+        setActionMessage(result.message || 'No fue posible cambiar el plan.');
+        return;
+      }
+      setActionMessage('El plan se actualizó correctamente.');
+      setSelectedPlanId(null);
+      setComparison(null);
+      await reload({ force: true });
+    } finally {
+      actionInFlight.current = false;
     }
-    setActionMessage('El plan se actualizó correctamente.');
-    setSelectedPlanId(null);
-    setComparison(null);
-    await reload();
   }, [changePlan, comparison?.validation.allowed, reload, selectedPlanId]);
 
   const clearSelection = useCallback(() => {
@@ -114,16 +120,22 @@ export function useCommercialExperience() {
   }, []);
 
   const cancelSubscription = useCallback(async () => {
-    const result = await cancelPlan();
-    if (!result.ok) {
-      setActionMessage(result.message || 'No fue posible cancelar la suscripción.');
-      return false;
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
+    try {
+      const result = await cancelPlan();
+      if (!result.ok) {
+        setActionMessage(result.message || 'No fue posible cancelar la suscripción.');
+        return false;
+      }
+      setActionMessage('La suscripción se canceló correctamente.');
+      setSelectedPlanId(null);
+      setComparison(null);
+      await reload({ force: true });
+      return true;
+    } finally {
+      actionInFlight.current = false;
     }
-    setActionMessage('La suscripción se canceló correctamente.');
-    setSelectedPlanId(null);
-    setComparison(null);
-    await reload();
-    return true;
   }, [cancelPlan, reload]);
 
   const comparisonAction = comparison ? (() => {

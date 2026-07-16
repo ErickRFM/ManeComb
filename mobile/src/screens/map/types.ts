@@ -13,6 +13,9 @@ export type MapSelectorParams = {
   focusLongitude?: string;
   point?: SelectorRole;
   returnTo?: string;
+  returnFilter?: string;
+  historyScrollY?: string;
+  routeNameDraft?: string;
   originLatitude?: string;
   originLongitude?: string;
   originAddress?: string;

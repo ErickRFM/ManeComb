@@ -378,12 +378,15 @@ export function PortalUsersScreen() {
         title="Eliminar usuario"
         description={`Se eliminara ${deleteTarget?.name || 'este usuario'} de la cuenta.`}
         confirmLabel="Eliminar"
+        processing={isSubmitting}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
           const target = deleteTarget;
-          setDeleteTarget(null);
           if (target) {
-            void deleteUser(target.id);
+            void deleteUser(target.id).then((result) => {
+              setMessage(result.ok ? 'Usuario eliminado.' : result.message || 'No fue posible eliminar el usuario.');
+              if (result.ok) setDeleteTarget(null);
+            });
           }
         }}
       />

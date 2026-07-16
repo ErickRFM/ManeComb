@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
@@ -6,26 +5,20 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
+import { resolveInvoiceDownloadUrl } from '@/features/commercial';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalPaymentsScreen() {
-  const { invoices, isLoading, subscription, loadBilling, loadOverview } = usePortalStore(
+  const { invoices, isLoading, subscription } = usePortalStore(
     (state) => ({
       invoices: state.invoices,
       isLoading: state.isLoading,
       subscription: state.subscription,
-      loadBilling: state.loadBilling,
-      loadOverview: state.loadOverview,
     })
   );
-
-  useEffect(() => {
-    void loadOverview();
-    void loadBilling();
-  }, [loadBilling, loadOverview]);
 
   const status = subscription?.status || '';
   const canRetry = ['failed', 'payment_failed', 'pending', 'pending_payment', 'payment_pending'].includes(status.toLowerCase());
@@ -70,6 +63,16 @@ export function PortalPaymentsScreen() {
               <Text style={styles.factLabel}>Próximo cobro</Text>
               <Text style={styles.factValue}>{nextChargeDate ? formatDate(nextChargeDate, { fallback: 'Sin fecha' }) : 'Sin fecha'}</Text>
             </View>
+            <View style={styles.fact}>
+              <Text style={styles.factLabel}>Capacidad disponible</Text>
+              <Text style={styles.factValue}>{subscription.availableUnits} de {subscription.totalUnits} unidades</Text>
+            </View>
+            {subscription.cancelAt ? (
+              <View style={styles.fact}>
+                <Text style={styles.factLabel}>Cancelación efectiva</Text>
+                <Text style={styles.factValue}>{formatDate(subscription.cancelAt, { fallback: 'Sin fecha' })}</Text>
+              </View>
+            ) : null}
           </View>
           {canRetry ? (
             <Pressable accessibilityRole="button" onPress={retryPayment} style={[styles.retryButton, portalButtonGradient()]}>
@@ -98,13 +101,13 @@ export function PortalPaymentsScreen() {
               {invoices.slice(0, 5).map((invoice) => (
                 <View key={invoice.id} style={[styles.invoiceRow, { borderColor: portalPalette.line, backgroundColor: portalPalette.surface }]}>
                   <View style={styles.invoiceBody}>
-                    <Text style={styles.invoiceTitle}>{invoice.referenceCode || 'Factura'}</Text>
+                    <Text style={styles.invoiceTitle}>{invoice.label || 'Factura'}</Text>
                     <Text style={styles.invoiceMeta}>
-                      {formatCurrency(Number(invoice.total || 0), invoice.currency || 'MXN')} · {formatDate(invoice.issuedAt, { fallback: '' })}
+                      {invoice.referenceCode} · {formatCurrency(Number(invoice.total || 0), invoice.currency || 'MXN')} · {formatDate(invoice.issuedAt, { fallback: '' })}
                     </Text>
                   </View>
                   <StatusBadge label={formatPortalStatus(invoice.status)} tone={getPortalStatusTone(invoice.status)} />
-                  <Pressable onPress={() => void Linking.openURL(invoice.downloadUrl || '')} style={styles.iconAction}>
+                  <Pressable onPress={() => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} style={styles.iconAction}>
                     <MaterialCommunityIcons name="download-outline" size={18} color={portalPalette.text} />
                   </Pressable>
                 </View>

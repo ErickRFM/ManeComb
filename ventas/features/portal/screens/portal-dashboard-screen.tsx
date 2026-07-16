@@ -327,6 +327,9 @@ export function PortalDashboardScreen() {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState<(typeof replaySpeeds)[number]>(1);
   const detailCache = useRef(new Map<string, SessionDetail>());
+  const historyRequestKeyRef = useRef<string | null>(null);
+  const detailRequestIdRef = useRef(0);
+  const positionsRequestRef = useRef(false);
 
   useEffect(() => {
     void loadUsers();
@@ -334,10 +337,13 @@ export function PortalDashboardScreen() {
   }, [loadUsers, loadVehicles]);
 
   const loadHistory = async ({ append = false } = {}) => {
+    const offset = append ? history.length : 0;
+    const requestKey = JSON.stringify({ append, filters, offset, routeSessionVersion });
+    if (historyRequestKeyRef.current === requestKey) return;
+    historyRequestKeyRef.current = requestKey;
     setIsLoading(true);
     setMessage(null);
     try {
-      const offset = append ? history.length : 0;
       const result = await getRouteSessionHistoryRequest({
         driverId: filters.driverId || undefined,
         limit: historyPageSize,
@@ -346,13 +352,19 @@ export function PortalDashboardScreen() {
         status: filters.status !== 'ALL' ? filters.status as RouteSession['status'] : undefined,
         vehicleId: filters.vehicleId || undefined,
       });
+      if (historyRequestKeyRef.current !== requestKey) return;
       setHistory((current) => (append ? [...current, ...result.items] : result.items));
       setHistoryLimit(result.limit);
       setHistoryTotal(result.total);
     } catch (error) {
-      setMessage(getApiErrorMessage(error, 'No fue posible cargar jornadas.'));
+      if (historyRequestKeyRef.current === requestKey) {
+        setMessage(getApiErrorMessage(error, 'No fue posible cargar jornadas.'));
+      }
     } finally {
-      setIsLoading(false);
+      if (historyRequestKeyRef.current === requestKey) {
+        historyRequestKeyRef.current = null;
+        setIsLoading(false);
+      }
     }
   };
 
@@ -465,6 +477,7 @@ export function PortalDashboardScreen() {
   };
 
   const openSession = async (session: RouteSession) => {
+    const requestId = ++detailRequestIdRef.current;
     setSelectedSessionId(session.id);
     setReplayIndex(0);
     setReplayPlaying(false);
@@ -492,17 +505,20 @@ export function PortalDashboardScreen() {
         visits,
       };
       detailCache.current.set(session.id, detail);
-      setSessionDetail(detail);
+      if (detailRequestIdRef.current === requestId) setSessionDetail(detail);
     } catch (error) {
-      setMessage(getApiErrorMessage(error, 'No fue posible cargar el detalle de jornada.'));
-      setSessionDetail(null);
+      if (detailRequestIdRef.current === requestId) {
+        setMessage(getApiErrorMessage(error, 'No fue posible cargar el detalle de jornada.'));
+        setSessionDetail(null);
+      }
     } finally {
-      setIsDetailLoading(false);
+      if (detailRequestIdRef.current === requestId) setIsDetailLoading(false);
     }
   };
 
   const loadMorePositions = async () => {
-    if (!selectedSession || !sessionDetail || sessionDetail.positionsOffset >= sessionDetail.positionsTotal || isPositionsLoading) return;
+    if (!selectedSession || !sessionDetail || sessionDetail.positionsOffset >= sessionDetail.positionsTotal || positionsRequestRef.current) return;
+    positionsRequestRef.current = true;
     setIsPositionsLoading(true);
     try {
       const result = await getRouteSessionPositionsRequest(selectedSession.id, {
@@ -521,6 +537,7 @@ export function PortalDashboardScreen() {
     } catch (error) {
       setMessage(getApiErrorMessage(error, 'No fue posible cargar mas posiciones.'));
     } finally {
+      positionsRequestRef.current = false;
       setIsPositionsLoading(false);
     }
   };
@@ -562,7 +579,7 @@ export function PortalDashboardScreen() {
       title="Centro de operaciones"
       subtitle="Supervisión de flota, jornadas históricas y reproducción de recorridos con datos guardados."
       actions={
-        <Pressable accessibilityRole="button" onPress={() => void loadHistory()} style={[styles.actionButton, portalButtonGradient()]}>
+        <Pressable accessibilityRole="button" onPress={() => void loadHistory()} disabled={isLoading} style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
           <MaterialCommunityIcons name="refresh" size={18} color={portalPalette.text} />
           <Text style={styles.actionText}>{isLoading ? 'Actualizando' : 'Actualizar'}</Text>
         </Pressable>
@@ -1247,6 +1264,9 @@ function SelectPill({ label, onClear, value }: { label: string; onClear: () => v
 }
 
 const styles = StyleSheet.create({
+  disabledButton: {
+    opacity: 0.55,
+  },
   actionButton: {
     alignItems: 'center',
     borderRadius: 12,

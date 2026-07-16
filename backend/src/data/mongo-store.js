@@ -936,6 +936,8 @@ async function createMongoStore() {
       color: payload.color || "#1473E6",
       origin: payload.origin || null,
       destination: payload.destination || null,
+      originLabel: String(payload.originLabel || "").trim(),
+      destinationLabel: String(payload.destinationLabel || "").trim(),
       stops: payload.stops || [],
       distanceMeters: Math.max(0, Number(payload.distanceMeters) || 0),
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
@@ -984,9 +986,9 @@ async function createMongoStore() {
       routeName: route.name,
       routeCode: route.code,
       routeColor: route.color,
-      originLabel: route.name,
+      originLabel: route.originLabel || route.name,
       origin,
-      destinationLabel: route.name,
+      destinationLabel: route.destinationLabel || "",
       destination,
       stops: route.stops || [],
       assignedBy: previousAssignment?.assignedBy || assignedBy || "system",
@@ -1074,6 +1076,8 @@ async function createMongoStore() {
     if (typeof payload.color !== "undefined") update.color = payload.color || "#1473E6";
     if (typeof payload.origin !== "undefined") update.origin = payload.origin || null;
     if (typeof payload.destination !== "undefined") update.destination = payload.destination || null;
+    if (typeof payload.originLabel !== "undefined") update.originLabel = String(payload.originLabel || "").trim();
+    if (typeof payload.destinationLabel !== "undefined") update.destinationLabel = String(payload.destinationLabel || "").trim();
     if (typeof payload.stops !== "undefined") update.stops = payload.stops || [];
     if (typeof payload.distanceMeters !== "undefined") update.distanceMeters = Math.max(0, Number(payload.distanceMeters) || 0);
     if (typeof payload.durationSeconds !== "undefined") update.durationSeconds = Math.max(0, Number(payload.durationSeconds) || 0);
@@ -3160,18 +3164,49 @@ async function createMongoStore() {
   }
 
   async function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
-    const route = routeId ? await RouteModel.findById(routeId).lean() : null;
-    const nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+    let nextAssignment;
+    let actualRouteId = null;
 
-    if (!route || !nextAssignment) {
-      throw new Error("Ruta no encontrada");
+    if (routeId) {
+      const route = await RouteModel.findById(routeId).lean();
+      nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+      if (!route || !nextAssignment) throw new Error("Ruta no encontrada");
+      actualRouteId = route._id;
+    } else if (assignment && assignment.origin && assignment.destination) {
+      const originLabel = String(assignment.originLabel || "").trim() || "Origen";
+      const destinationLabel = String(assignment.destinationLabel || "").trim() || "Destino";
+      nextAssignment = {
+        routeId: `manual:${vehicleId}:${Date.now()}`,
+        routeName: `${originLabel} → ${destinationLabel}`,
+        originLabel,
+        origin: assignment.origin,
+        destinationLabel,
+        destination: assignment.destination,
+        stops: [],
+        assignedBy: assignedBy || "system",
+        assignedAt: new Date(),
+        provider: assignment.provider || "manual",
+        route: {
+          label: `${originLabel} → ${destinationLabel}`,
+          distanceMeters: 0,
+          durationSeconds: 0,
+          durationInTrafficSeconds: 0,
+          trafficLevel: "low",
+          polyline: [assignment.origin, assignment.destination],
+        },
+        alternatives: [],
+      };
+    } else {
+      throw new Error("Se requiere routeId o datos de ruta completos");
     }
+
+    if (!nextAssignment) throw new Error("No fue posible construir la asignacion de ruta");
 
     const vehicle = await VehicleModel.findByIdAndUpdate(
       vehicleId,
       {
         $set: {
-          routeId: route._id,
+          routeId: actualRouteId,
           assignedRoute: nextAssignment,
           updatedAt: new Date()
         }

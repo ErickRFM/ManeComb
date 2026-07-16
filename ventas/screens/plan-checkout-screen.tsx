@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -109,6 +109,7 @@ export function PlanCheckoutScreen() {
     expiry: '',
     postalCode: '',
   });
+  const paymentInFlight = useRef(false);
 
   const {
     isCompleted: receiptIsActive,
@@ -175,28 +176,29 @@ export function PlanCheckoutScreen() {
   }
 
   const submitPayment = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || paymentInFlight.current) return;
+    paymentInFlight.current = true;
     setStep('confirmation');
-    const nextResult = await submit({
-      method: selectedMethod,
-      selectedAddOns: includeRadioAddon ? ['radio_dispatch'] : [],
-      testCard,
-    });
-    if (!nextResult) {
-      setStep('payment');
-      return;
+    try {
+      const nextResult = await submit({
+        method: selectedMethod,
+        selectedAddOns: includeRadioAddon ? ['radio_dispatch'] : [],
+        testCard,
+      });
+      if (!nextResult?.ok) {
+        setStep('payment');
+        return;
+      }
+      if (nextResult.session?.checkoutUrl) {
+        openCheckoutUrl(nextResult.session.checkoutUrl);
+        return;
+      }
+      await loadAll({ force: true });
+      clearCheckoutContext();
+      setStep('done');
+    } finally {
+      paymentInFlight.current = false;
     }
-    if (!nextResult.ok) {
-      setStep('payment');
-      return;
-    }
-    if (nextResult.session?.checkoutUrl) {
-      openCheckoutUrl(nextResult.session.checkoutUrl);
-      return;
-    }
-    await loadAll().catch(() => undefined);
-    clearCheckoutContext();
-    setStep('done');
   };
 
   const goToPortal = () => {

@@ -102,6 +102,8 @@ function createEmbeddedStore() {
       color: payload.color || "#1473E6",
       origin: payload.origin || null,
       destination: payload.destination || null,
+      originLabel: String(payload.originLabel || "").trim(),
+      destinationLabel: String(payload.destinationLabel || "").trim(),
       stops: clone(payload.stops || []),
       distanceMeters: Math.max(0, Number(payload.distanceMeters) || 0),
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
@@ -151,9 +153,9 @@ function createEmbeddedStore() {
       routeName: route.name,
       routeCode: route.code,
       routeColor: route.color,
-      originLabel: route.name,
+      originLabel: route.originLabel || route.name,
       origin,
-      destinationLabel: route.name,
+      destinationLabel: route.destinationLabel || "",
       destination,
       stops: clone(route.stops || []),
       assignedBy: previousAssignment?.assignedBy || assignedBy || "system",
@@ -235,6 +237,8 @@ function createEmbeddedStore() {
     if (typeof payload.color !== "undefined") route.color = payload.color || "#1473E6";
     if (typeof payload.origin !== "undefined") route.origin = payload.origin || null;
     if (typeof payload.destination !== "undefined") route.destination = payload.destination || null;
+    if (typeof payload.originLabel !== "undefined") route.originLabel = String(payload.originLabel || "").trim();
+    if (typeof payload.destinationLabel !== "undefined") route.destinationLabel = String(payload.destinationLabel || "").trim();
     if (typeof payload.stops !== "undefined") route.stops = clone(payload.stops || []);
     if (typeof payload.distanceMeters !== "undefined") route.distanceMeters = Math.max(0, Number(payload.distanceMeters) || 0);
     if (typeof payload.durationSeconds !== "undefined") route.durationSeconds = Math.max(0, Number(payload.durationSeconds) || 0);
@@ -2521,14 +2525,45 @@ function createEmbeddedStore() {
       return null;
     }
 
-    const route = getRouteById(routeId);
-    const nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+    let nextAssignment;
+    let actualRouteId = null;
 
-    if (!route || !nextAssignment) {
-      throw new Error("Ruta no encontrada");
+    if (routeId) {
+      const route = getRouteById(routeId);
+      nextAssignment = route ? assignedRouteFromSavedRoute(route, assignment, assignedBy) : null;
+      if (!route || !nextAssignment) throw new Error("Ruta no encontrada");
+      actualRouteId = route.id;
+    } else if (assignment && assignment.origin && assignment.destination) {
+      const originLabel = String(assignment.originLabel || "").trim() || "Origen";
+      const destinationLabel = String(assignment.destinationLabel || "").trim() || "Destino";
+      nextAssignment = {
+        routeId: `manual:${vehicleId}:${Date.now()}`,
+        routeName: `${originLabel} → ${destinationLabel}`,
+        originLabel,
+        origin: assignment.origin,
+        destinationLabel,
+        destination: assignment.destination,
+        stops: [],
+        assignedBy: assignedBy || "system",
+        assignedAt: new Date().toISOString(),
+        provider: assignment.provider || "manual",
+        route: {
+          label: `${originLabel} → ${destinationLabel}`,
+          distanceMeters: 0,
+          durationSeconds: 0,
+          durationInTrafficSeconds: 0,
+          trafficLevel: "low",
+          polyline: [assignment.origin, assignment.destination],
+        },
+        alternatives: [],
+      };
+    } else {
+      throw new Error("Se requiere routeId o datos de ruta completos");
     }
 
-    vehicle.routeId = route.id;
+    if (!nextAssignment) throw new Error("No fue posible construir la asignacion de ruta");
+
+    vehicle.routeId = actualRouteId;
     vehicle.assignedRoute = nextAssignment;
     vehicle.updatedAt = new Date().toISOString();
 

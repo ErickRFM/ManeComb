@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -206,7 +207,12 @@ export function PortalUnitsScreen() {
 
       <PortalSectionCard
         title="Unidades registradas"
-        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad real' : 'unidades reales'}`}>
+        subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad real' : 'unidades reales'}`}
+        right={sortedVehicles.length && canManageUnits ? (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
+            <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Continuar a rutas</Text>
+          </Pressable>
+        ) : undefined}>
           {sortedVehicles.length ? (
           <View style={styles.list}>
             {sortedVehicles.map((vehicle) => {
