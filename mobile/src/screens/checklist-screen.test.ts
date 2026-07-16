@@ -58,6 +58,10 @@ jest.mock('@/src/api/client', () => {
     assignVehicleRouteRequest: jest.fn(),
     clearAssignedVehicleRouteRequest: jest.fn(),
     getActiveRouteSessionRequest: jest.fn(() => Promise.resolve(null)),
+    getRouteSessionHistoryRequest: jest.fn(() => Promise.resolve([])),
+    getRouteSessionMetricsRequest: jest.fn(),
+    getRouteSessionEventsRequest: jest.fn(() => Promise.resolve([])),
+    getRouteSessionCheckpointVisitsRequest: jest.fn(() => Promise.resolve([])),
     startRouteSessionRequest: jest.fn(),
     updateRouteSessionStatusRequest: jest.fn(),
     getNavigationTripLogsRequest: jest.fn(() => Promise.resolve({ logs: [] })),
@@ -72,20 +76,6 @@ jest.mock('@/src/native/vector-icons', () => {
     MaterialCommunityIcons: ({ name }: { name: string }) => ReactMock.createElement(Text, null, name),
   };
 });
-
-jest.mock('@/src/hooks/use-user-location', () => ({
-  useUserLocation: () => ({
-    backgroundPermission: 'undetermined',
-    coordinates: null,
-    issue: null,
-    lastUpdatedAt: null,
-    loading: false,
-    permission: 'denied',
-    refresh: jest.fn(),
-    retryCount: 0,
-    servicesEnabled: true,
-  }),
-}));
 
 jest.mock('@/src/components/app-map', () => {
   const ReactMock = require('react');

@@ -20,7 +20,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     activeCallSession,
     activeContact,
     activeConversation,
-    activeConversationCallMode,
     activeMessageItems,
     attachmentMenuOpen,
     callElapsedSeconds,
@@ -28,7 +27,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     callParticipants,
     callStatusLabel,
     callTone,
-    canStartRealtimeCall,
     closeActiveCall,
     conversationFilterCounts,
     directoryHelperText,
@@ -43,7 +41,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleOpenRadioFromChat,
     handleRetryTextMessage,
     handleSelectConversation,
-    handleStartCall,
     isCallMuted,
     isCameraEnabled,
     isCompact,
@@ -52,13 +49,10 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     leadRemoteParticipant,
     localStreamRef,
     messagesListRef,
-    optionsMenuOpen,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,
-    setCallNotice,
     setDirectoryMode,
     setMobilePane,
-    setOptionsMenuOpen,
     showConversationPanel,
     showDirectoryPanel,
     sortedOperationalContacts,
@@ -188,9 +182,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </View>
                       <View style={styles.quickActionCopy}>
                         <Text style={styles.quickActionTitle}>General Operativo</Text>
-                        <Text style={styles.quickActionBody} numberOfLines={1}>
-                          Abrir grupo operativo
-                        </Text>
                       </View>
                       <MaterialCommunityIcons
                         name="chevron-right"
@@ -309,9 +300,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                     />
                     <View style={styles.emptyStateCopy}>
                       <Text style={styles.emptyStateTitle}>Sin conversaciones</Text>
-                      <Text style={styles.emptyStateBody}>
-                        Ajusta la busqueda o cambia el filtro.
-                      </Text>
                     </View>
                   </View>
                 );
@@ -322,7 +310,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
         {showConversationPanel ? (
           <KeyboardAvoidingView
-            behavior="padding"
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={0}
             style={[
               styles.conversationPanel,
@@ -370,40 +358,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                     </View>
 
                     <View style={styles.conversationHeaderActions}>
-                      {canStartRealtimeCall ? (
-                        <>
-                          <Pressable
-                            onPress={() => { handleStartCall('audio'); }}
-                            style={[
-                              styles.conversationActionButton,
-                              activeConversationCallMode === 'audio'
-                                ? styles.conversationActionButtonActive
-                                : undefined,
-                            ]}
-                            accessibilityLabel="Iniciar llamada de voz">
-                            <MaterialCommunityIcons
-                              name={activeConversationCallMode === 'audio' ? 'phone' : 'phone-outline'}
-                              size={20}
-                              color={theme.colors.text}
-                            />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => { handleStartCall('video'); }}
-                            style={[
-                              styles.conversationActionButton,
-                              activeConversationCallMode === 'video'
-                                ? styles.conversationActionButtonActive
-                                : undefined,
-                            ]}
-                            accessibilityLabel="Iniciar videollamada">
-                            <MaterialCommunityIcons
-                              name={activeConversationCallMode === 'video' ? 'video' : 'video-outline'}
-                              size={20}
-                              color={theme.colors.text}
-                            />
-                          </Pressable>
-                        </>
-                      ) : null}
                       <Pressable
                         onPress={() => {
                           handleOpenRadioFromChat();
@@ -411,12 +365,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                         style={styles.conversationActionButton}
                         accessibilityLabel="Hablar por radio">
                         <MaterialCommunityIcons name="radio-handheld" size={20} color={theme.colors.text} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setOptionsMenuOpen(true)}
-                        style={styles.conversationActionButton}
-                        accessibilityLabel="Mas opciones">
-                        <MaterialCommunityIcons name="dots-vertical" size={21} color={theme.colors.text} />
                       </Pressable>
                     </View>
                   </View>
@@ -427,9 +375,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                     <View style={styles.callHubHeader}>
                       <View style={styles.callHubCopy}>
                         <Text style={styles.callHubTitle}>Cabina en vivo</Text>
-                        <Text style={styles.callHubSubtitle}>
-                          La llamada vive dentro del mismo chat y mantiene el contexto visible.
-                        </Text>
+
                       </View>
                       <StatusPill label={callStatusLabel} tone={callTone} />
                     </View>
@@ -448,7 +394,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       />
                       <CallMediaTile
                         stream={localStreamRef.current}
-                        label="Tu cabina"
+                        label="Tu"
                         caption={
                           isCallMuted
                             ? 'Microfono en silencio'
@@ -520,10 +466,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       ) : null}
                     </View>
 
-                    <Text style={styles.callHubNotice}>
-                      {callNotice ||
-                        'La otra persona puede tocar llamada o video desde este mismo chat para unirse.'}
-                    </Text>
+                    {callNotice ? <Text style={styles.callHubNotice}>{callNotice}</Text> : null}
                   </View>
                 ) : null}
 
@@ -536,6 +479,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   keyExtractor={(item) => item.id}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
                   onContentSizeChange={handleMessagesContentSizeChange}
                   onLayout={handleMessagesLayout}
                   onScroll={handleMessagesScroll}
@@ -683,10 +627,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                         color={theme.colors.muted}
                       />
                       <Text style={styles.emptyTitle}>
-                        Chat listo para conversar
-                      </Text>
-                      <Text style={styles.emptyText}>
-                        Escribe el primer mensaje, adjunta un archivo o abre una llamada para empezar.
+                        Sin mensajes
                       </Text>
                     </View>
                   }
@@ -706,9 +647,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
               <View style={styles.emptyState}>
                 <MaterialCommunityIcons name="forum-outline" size={28} color={theme.colors.muted} />
                 <Text style={styles.emptyTitle}>Selecciona un canal</Text>
-                <Text style={styles.emptyText}>
-                  Abre un grupo o un chat directo para empezar a coordinar desde aqui.
-                </Text>
               </View>
             )}
           </KeyboardAvoidingView>
@@ -725,8 +663,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHeaderCopy}>
-                <Text style={styles.sheetTitle}>Conductores</Text>
-                <Text style={styles.sheetSubtitle}>Inicia un chat directo ordenado por disponibilidad.</Text>
+                <Text style={styles.sheetTitle}>Contactos</Text>
               </View>
             </View>
             <View style={styles.sheetMediaOptions}>
@@ -795,51 +732,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         </Pressable>
       </Modal>
 
-      <Modal
-        visible={optionsMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOptionsMenuOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setOptionsMenuOpen(false)}>
-          <Pressable style={styles.optionsSheet} onPress={(event) => event.stopPropagation()}>
-            {canStartRealtimeCall ? (
-              <>
-                <Pressable
-                  style={styles.optionRow}
-                  onPress={() => {
-                    setOptionsMenuOpen(false);
-                    handleStartCall('audio');
-                  }}>
-                  <MaterialCommunityIcons name="phone-outline" size={22} color={theme.colors.text} />
-                  <Text style={styles.optionRowText}>Llamada de voz</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.optionRow}
-                  onPress={() => {
-                    setOptionsMenuOpen(false);
-                    handleStartCall('video');
-                  }}>
-                  <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.text} />
-                  <Text style={styles.optionRowText}>Videollamada</Text>
-                </Pressable>
-              </>
-            ) : null}
-            <Pressable
-              style={styles.optionRow}
-              onPress={() => {
-                setOptionsMenuOpen(false);
-                setCallNotice(
-                  Platform.OS === 'web'
-                    ? 'Crear reunion esta en preparacion.'
-                    : 'Crear reunion esta en preparacion. En Android requiere WebRTC nativo.'
-                );
-              }}>
-              <MaterialCommunityIcons name="account-group-outline" size={22} color={theme.colors.text} />
-              <Text style={styles.optionRowText}>Crear reunion</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </AppShell>
   );
 }

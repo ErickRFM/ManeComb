@@ -10,6 +10,7 @@ import type {
   NotificationItem,
   OperationalObservabilitySnapshot,
   AuthRoutingContext,
+  ProfileMutationPayload,
   RouteSession,
   User,
 } from '@/src/types/app';
@@ -32,9 +33,28 @@ export type OfflineCacheSnapshot = {
   observability: OperationalObservabilitySnapshot | null;
   users: User[];
   activeRouteSession: RouteSession | null;
+  routeSessionHistory: RouteSession[];
 };
 
 export type PendingSyncOperation =
+  | {
+      id: string;
+      type: 'control:sessionStart';
+      createdAt: string;
+      attempts: number;
+      payload: { vehicleId: string };
+    }
+  | {
+      id: string;
+      type: 'control:sessionStatus';
+      createdAt: string;
+      attempts: number;
+      payload: {
+        sessionId?: string | null;
+        vehicleId: string;
+        status: 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED';
+      };
+    }
   | {
       id: string;
       type: 'incident:create';
@@ -69,6 +89,49 @@ export type PendingSyncOperation =
     }
   | {
       id: string;
+      type: 'chat:sendVoice';
+      createdAt: string;
+      attempts: number;
+      payload: {
+        conversationId: string;
+        fileUri: string;
+        fileName: string;
+        fileType: string;
+        durationSeconds: number;
+        caption: string;
+      };
+    }
+  | {
+      id: string;
+      type: 'chat:sendMedia';
+      createdAt: string;
+      attempts: number;
+      payload: {
+        conversationId: string;
+        fileUri: string;
+        fileName: string;
+        fileType: string;
+        caption: string;
+      };
+    }
+  | {
+      id: string;
+      type: 'notification:markRead';
+      createdAt: string;
+      attempts: number;
+      payload: {
+        notificationId: string;
+      };
+    }
+  | {
+      id: string;
+      type: 'user:updateProfile';
+      createdAt: string;
+      attempts: number;
+      payload: ProfileMutationPayload;
+    }
+  | {
+      id: string;
       type: 'vehicle:location';
       createdAt: string;
       attempts: number;
@@ -83,6 +146,8 @@ export type PendingSyncOperation =
         heading?: number | null;
         accuracy?: number | null;
         timestamp?: string | null;
+        packetId?: string | null;
+        sessionId?: string | null;
       };
     };
 

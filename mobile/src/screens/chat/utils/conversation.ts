@@ -1,5 +1,5 @@
 import type { ChatDirectoryContact, ChatMessage, ConversationSummary } from '@/src/types/app';
-import { formatClockDurationFromSeconds, formatRole, formatStatus } from '@/src/utils/format';
+import { formatClockDurationFromSeconds, formatRole } from '@/src/utils/format';
 import type { MessageDeliveryStatus, MessageListItem } from '../types';
 
 export const formatDuration = formatClockDurationFromSeconds;
@@ -24,11 +24,14 @@ export function getConversationDisplayTitle(conversation: ConversationSummary) {
 }
 
 export function getConversationPresenceLabel(conversation: ConversationSummary, activeContact?: { status?: string } | null) {
-  if (conversation.kind === 'direct' && activeContact?.status) {
-    return formatStatus(activeContact.status);
+  if (conversation.kind !== 'direct') {
+    return 'Canal operativo';
   }
 
-  return 'En linea';
+  const normalizedStatus = String(activeContact?.status || '').trim().toLowerCase();
+  return /available|disponible|online|linea|activo/.test(normalizedStatus)
+    ? 'En linea'
+    : 'Offline';
 }
 
 export function getConversationSubline(conversation: ConversationSummary, activeContact?: ChatDirectoryContact | null) {

@@ -32,6 +32,9 @@ async function run() {
   assert.ok(ChatMessageModel.schema.path("organizationId"), "message stores organizationId");
   assert.ok(ChatMessageModel.schema.path("senderId"), "message stores senderId");
   assert.ok(ChatMessageModel.schema.path("status"), "message stores delivery status");
+  assert.ok(ChatMessageModel.schema.path("audioUrl"), "audio message stores audioUrl");
+  assert.ok(ChatMessageModel.schema.path("imageUrl"), "image message stores imageUrl");
+  assert.ok(ChatMessageModel.schema.path("videoUrl"), "video message stores videoUrl");
   assert.ok(ChatMessageModel.schema.path("transmissionId"), "radio message stores transmissionId");
   assert.equal(
     mongoStoreSource.includes("existingCount < embeddedMessages.length"),
@@ -72,6 +75,26 @@ async function run() {
   assert.strictEqual(storedConversation.messages.length, 0, "conversation keeps no embedded messages");
   assert.strictEqual(page.items.length, 1, "cursor pagination returns requested page size");
   assert.strictEqual(typeof page.pageInfo.hasMore, "boolean");
+
+  const imageMessage = store.addMessage(conversation.id, userId, {
+    kind: "image",
+    imageUrl: "/api/chat/media/image-test.jpg",
+    mimeType: "image/jpeg"
+  });
+  const videoMessage = store.addMessage(conversation.id, userId, {
+    kind: "video",
+    videoUrl: "/api/chat/media/video-test.mp4",
+    mimeType: "video/mp4"
+  });
+  assert.strictEqual(imageMessage.imageUrl, "/api/chat/media/image-test.jpg");
+  assert.strictEqual(imageMessage.audioUrl, null);
+  assert.strictEqual(videoMessage.videoUrl, "/api/chat/media/video-test.mp4");
+  assert.strictEqual(videoMessage.audioUrl, null);
+  assert.equal(store.canUserAccessChatMedia(userId, "image-test.jpg"), true);
+  assert.equal(store.canUserAccessChatMedia(userId, "video-test.mp4"), true);
+
+  const readMessage = store.markConversationMessageRead(conversation.id, added.id, userId);
+  assert.strictEqual(readMessage.status, "read");
 
   const radioConversation = store.ensureGeneralConversation(userId, "radio");
   const radioInput = {

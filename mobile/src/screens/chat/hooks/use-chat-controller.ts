@@ -24,6 +24,7 @@ import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getOperationalStatusRank } from '../utils/conversation';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
+import { CHAT_RTC_ENABLED } from '../chat-features';
 
 type CloseActiveCallOptions = {
   reason?: string | null;
@@ -84,7 +85,6 @@ export function useChatController() {
   const [mobilePane, setMobilePane] = useState<MobilePane>('directory');
   const [draft, setDraft] = useState('');
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -113,7 +113,7 @@ export function useChatController() {
   );
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !user) return;
+    if (!CHAT_RTC_ENABLED || Platform.OS !== 'web' || !user) return;
 
     const socket = io(SOCKET_URL, {
       auth: token ? { token } : undefined,
@@ -550,6 +550,21 @@ export function useChatController() {
     pendingTextMessages,
     userId: user?.id,
   });
+
+  useEffect(() => {
+    if (!activeConversationKey || !user?.id || (isCompact && mobilePane !== 'conversation')) {
+      return;
+    }
+
+    const latestIncomingMessage = [...activeMessages]
+      .reverse()
+      .find((message) => message.senderId !== user.id);
+
+    if (latestIncomingMessage) {
+      markAsRead(activeConversationKey, latestIncomingMessage.id);
+    }
+  }, [activeConversationKey, activeMessages, isCompact, markAsRead, mobilePane, user?.id]);
+
   const composerPlaceholder = 'Escribe un mensaje...';
   const supportsMicrophoneCapture =
     Platform.OS !== 'web' ||
@@ -560,6 +575,7 @@ export function useChatController() {
     Boolean(activeConversation && draft.trim()) && recordingState === 'idle' && !isSubmitting;
   const canRecord = recordingState !== 'uploading' && supportsMicrophoneCapture;
   const supportsRtcCalls =
+    CHAT_RTC_ENABLED &&
     Platform.OS === 'web' &&
     typeof globalThis !== 'undefined' &&
     Boolean((globalThis as any).navigator?.mediaDevices?.getUserMedia) &&
@@ -1350,7 +1366,6 @@ export function useChatController() {
     typingByConversation,
     messagesListRef,
     mobilePane,
-    optionsMenuOpen,
     recordingSeconds,
     recordingState,
     recorderMessage,
@@ -1362,7 +1377,6 @@ export function useChatController() {
     setDirectoryMode,
     setDraft,
     setMobilePane,
-    setOptionsMenuOpen,
     showConversationPanel,
     showDirectoryPanel,
     sortedOperationalContacts,

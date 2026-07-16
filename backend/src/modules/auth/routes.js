@@ -10,6 +10,7 @@ const {
   rotateRefreshToken
 } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
+const { RESEND_API_KEY, RESEND_FROM_EMAIL, APP_URL } = require("../../config/env");
 const logger = require("../../services/logger");
 
 const router = Router();
@@ -203,18 +204,119 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
   });
 });
 
+router.post("/forgot-password", authLimiter, async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({
+      ok: false,
+      message: "El correo es obligatorio"
+    });
+  }
+
+  try {
+    const result = await req.app.locals.store.generatePasswordResetToken(email);
+
+    if (!result) {
+      return res.json({
+        ok: true,
+        message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
+      });
+    }
+
+    const resetUrl = `${APP_URL.replace(/\/$/, "")}/reset-password?token=${result.token}`;
+
+    if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: RESEND_FROM_EMAIL,
+          to: [result.email],
+          subject: "Recuperacion de contrasena - ManeComb",
+          html: [
+            `<p>Hola ${result.name},</p>`,
+            `<p>Recibimos una solicitud para restablecer tu contrasena de ManeComb.</p>`,
+            `<p>Haz clic en el siguiente enlace para crear una nueva contrasena:</p>`,
+            `<p><a href="${resetUrl}">${resetUrl}</a></p>`,
+            `<p>Este enlace expira en 1 hora.</p>`,
+            `<p>Si no solicitaste este cambio, ignora este mensaje.</p>`
+          ].join("\n")
+        })
+      });
+    }
+
+    await recordAuditLog(req, {
+      action: "auth.forgot_password",
+      severity: "info",
+      targetType: "user",
+      metadata: { email }
+    });
+
+    return res.json({
+      ok: true,
+      message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
+    });
+  } catch (error) {
+    logger.error({ action: "forgotPassword", error: error.message });
+    return res.status(500).json({
+      ok: false,
+      message: "No fue posible procesar la solicitud"
+    });
+  }
+});
+
+router.post("/reset-password", authLimiter, async (req, res) => {
+  const { token, password } = req.body;
+
+  if (!token || !password) {
+    return res.status(400).json({
+      ok: false,
+      message: "Token y nueva contrasena son obligatorios"
+    });
+  }
+
+  try {
+    await req.app.locals.store.resetPasswordWithToken(token, password);
+
+    await recordAuditLog(req, {
+      action: "auth.reset_password",
+      severity: "info",
+      targetType: "user"
+    });
+
+    return res.json({
+      ok: true,
+      message: "Contrasena actualizada correctamente"
+    });
+  } catch (error) {
+    const status = error.message.includes("expirado") || error.message.includes("invalido") ? 400 : 500;
+    return res.status(status).json({
+      ok: false,
+      message: error.message || "No fue posible restablecer la contrasena"
+    });
+  }
+});
+
 router.post("/logout", async (req, res) => {
   const refreshToken = String(req.body?.refreshToken || "").trim();
   const session = refreshToken ? await revokeRefreshToken(refreshToken, "logout") : null;
 
-  await recordAuditLog(req, {
-    actorId: session?.userId || null,
-    organizationId: session?.organizationId || "",
-    action: "auth.logout",
-    targetType: "session",
-    targetId: session?.id || null,
-    severity: "info"
-  });
+  try {
+    await recordAuditLog(req, {
+      actorId: session?.userId || null,
+      organizationId: session?.organizationId || "",
+      action: "auth.logout",
+      targetType: "session",
+      targetId: session?.id || null,
+      severity: "info"
+    });
+  } catch (auditError) {
+    logger.warn({ action: "logout.audit_failed", error: auditError.message });
+  }
 
   return res.json({
     ok: true

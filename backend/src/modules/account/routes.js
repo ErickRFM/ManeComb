@@ -366,6 +366,13 @@ router.get("/sessions", authenticate, async (req, res) => {
 router.delete("/sessions/:sessionId", authenticate, async (req, res) => {
   const revoked = await revokeSession(req.user.id, req.params.sessionId, "user_revoked");
 
+  if (!revoked) {
+    return res.status(404).json({
+      ok: false,
+      message: "Sesion no encontrada"
+    });
+  }
+
   await recordAudit(req, {
     type: "session_revoked",
     level: "warning",

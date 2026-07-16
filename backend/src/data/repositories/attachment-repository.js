@@ -6,7 +6,14 @@ class AttachmentRepository {
   }
 
   buildFromMessage(message, conversation) {
-    const url = message.audioUrl || "";
+    const url =
+      message.kind === "audio"
+        ? message.audioUrl || ""
+        : message.kind === "image"
+          ? message.imageUrl || ""
+          : message.kind === "video"
+            ? message.videoUrl || ""
+            : "";
 
     if (!url || !["audio", "image", "video"].includes(message.kind)) {
       return null;

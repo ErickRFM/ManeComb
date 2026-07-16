@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router, usePathname } from '@/src/navigation/router';
+import { usePathname } from '@/src/navigation/router';
 import { useMemo, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Platform,
@@ -149,18 +149,6 @@ export function AppShell({
   const topChrome = isMobileLayout && !hideMobileToolbar ? (
     <View style={styles.mobileToolbar}>
       <Pressable
-        onPress={() => router.push('/incidencias')}
-        style={({ pressed }) => [
-          styles.iconButton,
-          {
-            backgroundColor: theme.colors.surfaceAlt,
-            borderColor: theme.colors.line,
-          },
-          pressed ? styles.iconButtonPressed : undefined,
-        ]}>
-        <MaterialCommunityIcons name="alert-outline" size={22} color={theme.colors.accent} />
-      </Pressable>
-      <Pressable
         onPress={() => setMenuOpen((current) => !current)}
         style={({ pressed }) => [
           styles.iconButton,
@@ -235,10 +223,10 @@ const styles = StyleSheet.create({
     gap: AppTheme.spacing.lg,
   },
   contentMobile: {
-    paddingHorizontal: AppTheme.spacing.md,
-    paddingTop: AppTheme.spacing.sm,
-    paddingBottom: AppTheme.spacing.xl,
-    gap: 12,
+    paddingHorizontal: AppTheme.spacing.sm,
+    paddingTop: AppTheme.spacing.xs,
+    paddingBottom: AppTheme.spacing.lg,
+    gap: 10,
   },
   contentWeb: {
     width: '100%',
@@ -290,8 +278,8 @@ const styles = StyleSheet.create({
   },
   defaultMobileTitle: {
     fontFamily: Typography.display,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '900',
     minWidth: 0,
   },

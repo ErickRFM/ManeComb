@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { RouterProvider, router, usePathname } from '@/src/navigation/router';
+import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
 import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
 const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
+const PasswordResetScreen = lazy(() => import('@/screens/password-reset-screen').then((module) => ({ default: module.PasswordResetScreen })));
 const PlanCheckoutScreen = lazy(() => import('@/screens/plan-checkout-screen').then((module) => ({ default: module.PlanCheckoutScreen })));
 const PortalBillingScreen = lazy(() => import('@/features/portal/screens/portal-billing-screen').then((module) => ({ default: module.PortalBillingScreen })));
 const PortalDashboardScreen = lazy(() => import('@/features/portal/screens/portal-dashboard-screen').then((module) => ({ default: module.PortalDashboardScreen })));
@@ -66,6 +67,12 @@ function Routes() {
     '/portal/facturacion': 'billing',
     '/portal/pagos': 'billing',
   };
+  const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
+
+  if (isPortalRoute && !user) {
+    return <Redirect href="/ventas/login" />;
+  }
+
   const requiredPermission = protectedPortalRoutes[pathname];
   if (requiredPermission && !hasPortalPermission(user, requiredPermission)) {
     return <PortalDashboardScreen />;
@@ -81,6 +88,8 @@ function Routes() {
     case '/registro':
     case '/ventas/registro':
       return <SalesAuthScreen mode="register" />;
+    case '/reset-password':
+      return <PasswordResetScreen />;
     case '/ventas/pago':
       return <PlanCheckoutScreen />;
     case '/portal':

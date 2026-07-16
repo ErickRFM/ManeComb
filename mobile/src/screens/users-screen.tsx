@@ -86,21 +86,18 @@ export function UsersScreen() {
     <AppShell
       sectionKey="usuarios"
       mobileTitle="Directorio"
-      mobileSubtitle="Personal y unidades en operación."
       onRefresh={refreshDirectory}
       refreshing={isRefreshing}
       header={
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>OPERACIÓN</Text>
-          <Text style={styles.title}>Directorio operativo</Text>
-          <Text style={styles.subtitle}>Consulta personal, estado, unidad y ruta asignada.</Text>
+          <Text style={styles.title}>Directorio</Text>
         </View>
       }>
       <AppCard style={styles.directoryCard}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionCopy}>
             <Text style={styles.sectionTitle}>Personal operativo</Text>
-            <Text style={styles.sectionSubtitle}>{operationalUsers.length} cuentas visibles</Text>
+            <Text style={styles.sectionSubtitle}>{operationalUsers.length} usuarios</Text>
           </View>
         </View>
 
@@ -162,13 +159,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
       gap: 8,
       maxWidth: 760,
       paddingTop: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md,
-    },
-    eyebrow: {
-      color: theme.colors.accent,
-      fontFamily: Typography.body,
-      fontSize: 11,
-      fontWeight: '900',
-      letterSpacing: 1.4,
     },
     title: {
       color: theme.colors.text,

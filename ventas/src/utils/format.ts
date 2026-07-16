@@ -47,3 +47,29 @@ export function formatDate(value?: string | null, options: FormatDateOptions = {
     ...(options.year === false ? {} : { year: 'numeric' }),
   });
 }
+
+export function formatDurationFromSeconds(seconds?: number | null) {
+  const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+  if (hours > 0) {
+    return `${hours} h ${minutes.toString().padStart(2, '0')} min`;
+  }
+
+  return `${Math.max(1, minutes)} min`;
+}
+
+export function formatDistanceFromMeters(meters?: number | null) {
+  const safeMeters = Number(meters);
+
+  if (!Number.isFinite(safeMeters) || safeMeters <= 0) {
+    return '--';
+  }
+
+  if (safeMeters < 1000) {
+    return `${Math.round(safeMeters)} m`;
+  }
+
+  return `${(safeMeters / 1000).toFixed(1)} km`;
+}

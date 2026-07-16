@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import * as Haptics from '@/src/native/haptics';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useMemo, useRef, useState } from 'react';
 import {
@@ -835,6 +836,7 @@ export function IncidentsScreen() {
 
     const ok = await createIncident({ title, type, description, severity, ...getIncidentContext(user, mapData) });
     if (ok) {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setTitle('');
       setDescription('');
       setType('traffic');
@@ -845,7 +847,7 @@ export function IncidentsScreen() {
   const handleQuickSos = async (sosType: 'security' | 'maintenance') => {
     const isPanic = sosType === 'security';
 
-    await createIncident({
+    const created = await createIncident({
       title: isPanic ? 'SOS PANICO' : 'Alerta critica de unidad',
       type: sosType,
       description: isPanic
@@ -854,6 +856,9 @@ export function IncidentsScreen() {
       severity: 'critical',
       ...getIncidentContext(user, mapData),
     });
+    if (created) {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
   };
 
   return (
@@ -861,8 +866,8 @@ export function IncidentsScreen() {
       onRefresh={refreshAll}
       refreshing={isRefreshing}
       sectionKey="incidencias"
-      mobileTitle="Alertas"
-      mobileSubtitle="Reporta, prioriza y resuelve eventos."
+      mobileTitle="Incidencias"
+      mobileSubtitle="Reportes y seguimiento"
       mobileBadges={[
         { label: `${summary.open} activas`, tone: summary.open ? 'warning' : 'positive' },
         { label: `${summary.critical} criticas`, tone: summary.critical ? 'danger' : 'neutral' },
@@ -871,9 +876,7 @@ export function IncidentsScreen() {
         <View style={screenStyles.header}>
           <View style={screenStyles.titleRow}>
             <View style={screenStyles.titleCopy}>
-              <Text style={[screenStyles.eyebrow, { color: theme.colors.accent }]}>CENTRO DE ALERTAS</Text>
               <Text style={screenStyles.title}>Incidencias</Text>
-              <Text style={screenStyles.subtitle}>Reportes, SOS y seguimiento operativo.</Text>
             </View>
             <View style={screenStyles.summaryHUD}>
               <Text style={screenStyles.summaryHUDLabel}>Abiertas / activas</Text>
@@ -915,9 +918,7 @@ export function IncidentsScreen() {
         <AppCard style={screenStyles.formCard}>
           <View style={screenStyles.panelHeader}>
             <Text style={screenStyles.panelTitle}>Nuevo reporte</Text>
-            <Text style={screenStyles.panelSubtitle}>
-              Captura el evento y define su prioridad antes de emitirlo.
-            </Text>
+
           </View>
 
           <View style={screenStyles.fieldGroup}>
@@ -1037,9 +1038,7 @@ export function IncidentsScreen() {
           <View style={screenStyles.timelineHeaderRow}>
             <View style={screenStyles.timelineHeaderCopy}>
               <Text style={screenStyles.panelTitle}>Bitacora de eventos</Text>
-              <Text style={screenStyles.panelSubtitle}>
-                Incidentes recientes ordenados por prioridad y actividad.
-              </Text>
+
             </View>
             <Text style={screenStyles.resultCount}>
               {filteredIncidents.length} {filteredIncidents.length === 1 ? 'evento' : 'eventos'}
@@ -1123,8 +1122,7 @@ export function IncidentsScreen() {
           {isRefreshing && !incidents.length ? (
             <View style={screenStyles.stateBox}>
               <ActivityIndicator color={theme.colors.accent} />
-              <Text style={screenStyles.stateTitle}>Sincronizando bitacora</Text>
-              <Text style={screenStyles.stateBody}>Cargando incidencias y actividad reciente.</Text>
+              <Text style={screenStyles.stateTitle}>Cargando</Text>
             </View>
           ) : visibleIncidents.length ? (
             <>
@@ -1254,8 +1252,8 @@ export function IncidentsScreen() {
               </Text>
               <Text style={screenStyles.stateBody}>
                 {incidents.length
-                  ? 'Ajusta los filtros o la busqueda para volver a mostrar eventos.'
-                  : 'Cuando llegue el primer reporte aparecera aqui con prioridad, estado y contexto.'}
+                  ? 'Ajusta los filtros o la busqueda.'
+                  : 'Sin eventos recientes'}
               </Text>
             </View>
           )}

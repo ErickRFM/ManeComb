@@ -15,7 +15,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
@@ -112,7 +111,7 @@ const navItems = [
   { label: 'Inicio', target: 'inicio' },
   { label: 'Funcionalidades', target: 'funcionalidades' },
   { label: 'Planes', target: 'planes' },
-  { label: 'Casos de éxito', target: 'confianza' },
+  { label: 'Confianza', target: 'confianza' },
   { label: 'FAQ', target: 'faq' },
 ] as const;
 
@@ -353,19 +352,14 @@ export function SalesScreen() {
   }>();
   const paymentId = getFirstParam(routeParams.payment_id) || getFirstParam(routeParams.collection_id);
   const externalReference = getFirstParam(routeParams.external_reference);
-  const { confirmation: checkoutConfirm, plans: availablePlans } = usePublicCommercialFlow({
+  const { confirmation: checkoutConfirm, plans } = usePublicCommercialFlow({
     externalReference,
     paymentId,
   });
-  const plans = availablePlans;
   const isDesktop = width >= 1080;
   const isPhone = width < 640;
   const carouselRef = useRef<ScrollView>(null);
-  const { user } = useAppStore(
-    useShallow((state) => ({
-      user: state.user,
-    }))
-  );
+  const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const [scrollY, setScrollY] = useState(0);
@@ -485,6 +479,7 @@ export function SalesScreen() {
 
   const loginLabel = user ? 'Abrir portal' : 'Iniciar sesión';
   const loginAction = () => router.push((user ? getAuthenticatedHome(user) : '/ventas/login') as never);
+  const buyLabel = !user ? 'Elegir plan' : isCustomerAccount(user) ? 'Continuar compra' : 'Ir al portal';
 
   return (
     <View style={styles.screen}>
@@ -543,7 +538,7 @@ export function SalesScreen() {
                 </Text>
                 <View style={styles.heroActions}>
                   <ActionButton
-                    label="Ver demo"
+                    label="Ver funciones"
                     icon="play-circle-outline"
                     onPress={() => scrollToSection('funcionalidades')}
                   />
@@ -585,7 +580,6 @@ export function SalesScreen() {
               <View style={styles.plansHeader}>
                 <View style={styles.sectionCopy}>
                   <Text style={styles.sectionEyebrow}>PLANES</Text>
-                  <Text style={styles.sectionTitle}>Planes disponibles.</Text>
                 </View>
                 <View style={styles.carouselControls}>
                   <RoundIconButton
@@ -625,7 +619,7 @@ export function SalesScreen() {
                     onPress={() => jumpToPlan(index)}
                     onBuy={() => goToPlanCheckout(plan)}
                     onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
-                    userLabel="Continuar compra"
+                    userLabel={buyLabel}
                     trialLabel={`Probar demo ${plan.trialDays || 7} días`}
                   />
                 ))}
@@ -654,7 +648,7 @@ export function SalesScreen() {
                   <MaterialCommunityIcons name="clipboard-list-outline" size={28} color={neonPalette.muted} />
                   <Text style={styles.plansEmptyTitle}>No hay planes publicados</Text>
                   <Text style={styles.plansEmptyText}>
-                    El catalogo aparecera aqui cuando el backend tenga planes disponibles.
+                    Los planes aparecerán aquí cuando el administrador los publique.
                   </Text>
                 </View>
               )}

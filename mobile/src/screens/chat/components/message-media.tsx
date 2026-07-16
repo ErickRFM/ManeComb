@@ -231,7 +231,7 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const resolvedUrl = resolveAssetUrl(message.audioUrl); // Reusing field
+  const resolvedUrl = resolveAssetUrl(message.imageUrl);
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
 
   if (!resolvedUrl) return null;
@@ -298,7 +298,7 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
 export function VideoMessageBubble({ message, token, isCompact, isPhone }: { message: ChatMessage; token: string | null; isCompact?: boolean; isPhone?: boolean }) {
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme, isCompact ?? false, isPhone ?? false), [theme, isCompact, isPhone]);
-  const resolvedUrl = resolveAssetUrl(message.audioUrl);
+  const resolvedUrl = resolveAssetUrl(message.videoUrl);
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);

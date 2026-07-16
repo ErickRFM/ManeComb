@@ -54,59 +54,13 @@ export function ConfirmModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    padding: DesignSystem.spacing.lg,
-  },
-  modal: {
-    borderRadius: DesignSystem.radius.sheet,
-    borderWidth: 1,
-    gap: 12,
-    maxWidth: 440,
-    padding: DesignSystem.spacing.lg,
-    width: '100%',
-  },
-  title: {
-    fontFamily: Typography.display,
-    fontSize: DesignSystem.typography.title.size,
-    fontWeight: DesignSystem.typography.title.weight,
-    lineHeight: DesignSystem.typography.title.lineHeight,
-  },
-  description: {
-    fontFamily: Typography.body,
-    fontSize: DesignSystem.typography.body.size,
-    lineHeight: DesignSystem.typography.body.lineHeight,
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'flex-end',
-    marginTop: 6,
-  },
-  button: {
-    alignItems: 'center',
-    borderRadius: DesignSystem.radius.control,
-    borderWidth: 1,
-    minHeight: DesignSystem.control.sm,
-    minWidth: 120,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  primary: {
-    borderWidth: 0,
-  },
-  cancelText: {
-    fontFamily: Typography.body,
-    fontSize: DesignSystem.typography.caption.size,
-    fontWeight: '900',
-  },
-  primaryText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: DesignSystem.typography.caption.size,
-    fontWeight: '900',
-  },
+  overlay: { alignItems: 'center', flex: 1, justifyContent: 'center', padding: DesignSystem.spacing.lg },
+  modal: { borderRadius: DesignSystem.radius.sheet, borderWidth: 1, gap: 12, maxWidth: 440, padding: DesignSystem.spacing.lg, width: '100%' },
+  title: { fontFamily: Typography.display, fontSize: DesignSystem.typography.title.size, fontWeight: DesignSystem.typography.title.weight, lineHeight: DesignSystem.typography.title.lineHeight },
+  description: { fontFamily: Typography.body, fontSize: DesignSystem.typography.body.size, lineHeight: DesignSystem.typography.body.lineHeight },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginTop: 6 },
+  button: { alignItems: 'center', borderRadius: DesignSystem.radius.control, borderWidth: 1, minHeight: DesignSystem.control.sm, minWidth: 120, paddingHorizontal: 16, paddingVertical: 10 },
+  primary: { borderWidth: 0 },
+  cancelText: { fontFamily: Typography.body, fontSize: DesignSystem.typography.caption.size, fontWeight: '900' },
+  primaryText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: DesignSystem.typography.caption.size, fontWeight: '900' },
 });

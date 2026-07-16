@@ -8,12 +8,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  StatusBar,
   Text,
   TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { StatusBar } from '@/src/native/status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
@@ -76,8 +76,9 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
   const { width, height } = useWindowDimensions();
   const params = useLocalSearchParams<{ planId?: string | string[]; trial?: string | string[] }>();
-  const { isSubmitting, register, signIn, user } = useAppStore(
+  const { forgotPassword, isSubmitting, register, signIn, user } = useAppStore(
     useShallow((state) => ({
+      forgotPassword: state.forgotPassword,
       isSubmitting: state.isSubmitting,
       register: state.register,
       signIn: state.signIn,
@@ -197,9 +198,22 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!loginIdentity.trim()) {
+      setHelperMessage('Ingresa tu correo para recuperar el acceso.');
+      return;
+    }
+
+    const identity = normalizeIdentity(loginIdentity);
+    const result = await forgotPassword(identity.email);
+    setHelperMessage(result.message || (result.ok
+      ? 'Si el correo existe, recibiras instrucciones para recuperar tu contrasena.'
+      : 'No fue posible recuperar el acceso.'));
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar style="light" />
       <View pointerEvents="none" style={styles.backgroundLayer}>
         <View style={styles.backgroundBase} />
         <View style={styles.backgroundGlowTop} />
@@ -321,11 +335,10 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
                     <Text style={styles.smallActionText}>Recordarme</Text>
                   </Pressable>
                   <Pressable
-                    accessibilityRole="button"
+                    accessibilityRole="link"
                     accessibilityLabel="Recuperar acceso"
-                    onPress={() =>
-                      setHelperMessage('Contacta al administrador para recuperar tu acceso.')
-                    }>
+                    disabled={isSubmitting}
+                    onPress={() => void handleForgotPassword()}>
                     <Text style={styles.smallActionText}>Recuperar acceso</Text>
                   </Pressable>
                 </View>

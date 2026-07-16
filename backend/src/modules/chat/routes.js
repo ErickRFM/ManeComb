@@ -382,7 +382,9 @@ router.post(
       const message = await req.app.locals.store.addMessage(req.params.conversationId, req.user.id, {
         kind,
         text: String(req.body.caption || "").trim(),
-        audioUrl: uploadedAsset.fileUrl, // Reusing audioUrl field for generic media URL
+        ...(kind === "image"
+          ? { imageUrl: uploadedAsset.fileUrl }
+          : { videoUrl: uploadedAsset.fileUrl }),
         mimeType
       });
 

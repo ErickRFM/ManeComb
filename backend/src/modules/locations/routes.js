@@ -10,6 +10,7 @@ const {
   requireOrganization
 } = require("../../middlewares/access-control");
 const { classifyGpsQuality, processRoutePosition } = require("../../services/route-event-engine");
+const { calculateAndPersistRouteMetrics } = require("../../services/route-metrics-engine");
 const { getOperationalScheduleState } = require("../../utils/operational-schedule");
 
 const router = Router();
@@ -80,6 +81,8 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   const vehicleId = String(req.body.vehicleId || "").trim();
   const coordinates = normalizePoint(req.body.coordinates);
   const { heading, speed, timestamp, accuracy } = req.body;
+  const packetId = String(req.body.packetId || "").trim() || null;
+  const requestedSessionId = String(req.body.sessionId || "").trim() || null;
 
   if (!vehicleId || !coordinates) {
     return res.status(400).json({
@@ -112,7 +115,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   }
 
   const scheduleState = getOperationalScheduleState(req.user.operationalSchedule);
-  if (scheduleState.isConfigured && !scheduleState.isWithinSchedule) {
+  if (scheduleState.isConfigured && !scheduleState.isWithinSchedule && !requestedSessionId) {
     return res.status(409).json({
       ok: false,
       code: "outside_operational_schedule",
@@ -129,11 +132,30 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   });
 
   const activeSession = await req.app.locals.store.getActiveRouteSession(vehicleId);
-  if (activeSession?.status === "RUNNING") {
+  const requestedSession = requestedSessionId
+    ? await req.app.locals.store.getRouteSessionById(requestedSessionId)
+    : null;
+  const positionTime = new Date(timestamp || Date.now());
+  const historicalSession = requestedSessionId && !requestedSession && !Number.isNaN(positionTime.getTime())
+    ? (await req.app.locals.store.listRouteSessions({ vehicleId, limit: 50 })).find((session) =>
+        positionTime.getTime() >= new Date(session.startedAt).getTime() &&
+        (!session.finishedAt || positionTime.getTime() <= new Date(session.finishedAt).getTime())
+      ) || null
+    : null;
+  const trackingSession = requestedSession || activeSession || historicalSession;
+  const belongsToSession = trackingSession &&
+    trackingSession.vehicleId === vehicleId &&
+    !Number.isNaN(positionTime.getTime()) &&
+    positionTime.getTime() >= new Date(trackingSession.startedAt).getTime() &&
+    (!trackingSession.finishedAt || positionTime.getTime() <= new Date(trackingSession.finishedAt).getTime());
+  const acceptsPosition = trackingSession?.status === "RUNNING" ||
+    (Boolean(requestedSessionId) && ["PAUSED", "FINISHED"].includes(trackingSession?.status));
+  if (belongsToSession && acceptsPosition) {
     const position = await req.app.locals.store.createRouteSessionPosition({
       organizationId: String(vehicle.organizationId || getOrganizationId(req.user)).trim(),
-      sessionId: activeSession.id,
+      sessionId: trackingSession.id,
       vehicleId,
+      packetId,
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
       timestamp: timestamp || new Date().toISOString(),
@@ -142,13 +164,16 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
       accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
       gpsQuality: classifyGpsQuality(accuracy)
     });
-    await processRoutePosition({
+    if (!position.duplicateSkipped && trackingSession.status === "RUNNING") await processRoutePosition({
       store: req.app.locals.store,
-      session: activeSession,
+      session: trackingSession,
       vehicle: update,
       position,
       routeProgress: update?.activeRouteProgress || null
     });
+    if (!position.duplicateSkipped && trackingSession.status === "FINISHED") {
+      await calculateAndPersistRouteMetrics(req.app.locals.store, trackingSession.id);
+    }
   }
 
   const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();

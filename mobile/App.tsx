@@ -6,7 +6,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
-import { ModalScreen } from '@/src/screens/modal-screen';
 import { CustomerAuthScreen } from '@/src/screens/customer-auth-screen';
 import { ChecklistScreen } from '@/src/screens/checklist-screen';
 import { ChatScreen } from '@/src/screens/chat-screen';
@@ -33,8 +32,10 @@ import {
   shouldReturnToMapOnAndroidBack,
 } from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
+import { useLocationEngine } from '@/src/screens/map/hooks/use-location-engine';
+import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
+import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
 import { getAuthenticatedHome, getOperationalHome } from '@/src/utils/account-routing';
-import { getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { addPushResponseListener } from '@/src/utils/push-notifications';
 import { openSalesPortal } from '@/src/utils/sales-portal';
 import { StatusBar } from '@/src/native/status-bar';
@@ -53,20 +54,44 @@ type AppStyles = ReturnType<typeof createStyles>;
 type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
 
 function OperationalBackgroundServices() {
-  const { authContext, connectionMode, token, user } = useAppStore(
+  const location = useLocationEngine();
+  const { activeRouteSession, authContext, connectionMode, sendVehicleLocation, token, user } = useAppStore(
     useShallow((state) => ({
+      activeRouteSession: state.activeRouteSession,
       authContext: state.authContext,
       connectionMode: state.connectionMode,
+      sendVehicleLocation: state.sendVehicleLocation,
       token: state.token,
       user: state.user,
     }))
   );
-  const [scheduleTick, setScheduleTick] = useState(0);
+  const scheduleState = useScheduleTick(user?.operationalSchedule);
 
   useEffect(() => {
-    const timer = setInterval(() => setScheduleTick((current) => current + 1), 60000);
-    return () => clearInterval(timer);
-  }, []);
+    useAppStore.setState({
+      deviceLocation: {
+        backgroundPermission: location.backgroundPermission,
+        coordinates: location.coordinates,
+        issue: location.issue,
+        lastUpdatedAt: location.lastUpdatedAt,
+        loading: location.loading,
+        permission: location.permission,
+        retryCount: location.retryCount,
+        servicesEnabled: location.servicesEnabled,
+      },
+      refreshDeviceLocation: location.refresh,
+    });
+  }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
+
+  useLocationSync({
+    enabled: user?.role !== 'driver' || activeRouteSession?.status === 'RUNNING',
+    connectionMode,
+    coordinates: location.coordinates,
+    isWithinSchedule: scheduleState.isWithinSchedule,
+    lastUpdatedAt: location.lastUpdatedAt,
+    sendVehicleLocation,
+    vehicleId: user?.vehicleId,
+  });
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -74,16 +99,19 @@ function OperationalBackgroundServices() {
     }
 
     let cancelled = false;
-    const scheduleState = getOperationalScheduleState(user?.operationalSchedule || null);
-
     const syncService = async () => {
       const canTryStart =
         Boolean(token && user?.vehicleId) &&
-        authContext?.canAccessMobile === true &&
-        connectionMode === 'online' &&
-        scheduleState.isWithinSchedule;
+        authContext?.canAccessMobile === true;
 
       if (!canTryStart) {
+        await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        return;
+      }
+
+      const isDriver = user?.role === 'driver';
+      const hasActiveSession = activeRouteSession?.status === 'RUNNING';
+      if (isDriver && !hasActiveSession) {
         await stopBackgroundLocationServiceAsync().catch(() => undefined);
         return;
       }
@@ -107,6 +135,7 @@ function OperationalBackgroundServices() {
         schedule: user?.operationalSchedule || null,
         token: token || '',
         vehicleId: user?.vehicleId || '',
+        sessionId: activeRouteSession?.id || '',
       }).catch(() => undefined);
     };
 
@@ -114,16 +143,22 @@ function OperationalBackgroundServices() {
 
     return () => {
       cancelled = true;
-      stopBackgroundLocationServiceAsync().catch(() => undefined);
     };
   }, [
+    activeRouteSession?.id,
+    activeRouteSession?.status,
     authContext?.canAccessMobile,
-    connectionMode,
-    scheduleTick,
+    location.backgroundPermission,
+    location.permission,
     token,
     user?.operationalSchedule,
+    user?.role,
     user?.vehicleId,
   ]);
+
+  useEffect(() => () => {
+    stopBackgroundLocationServiceAsync().catch(() => undefined);
+  }, []);
 
   return null;
 }
@@ -487,13 +522,6 @@ function AppStack() {
       <Stack.Screen name={MODULE_ROUTE_NAMES.radio} component={RadioModule} />
       <Stack.Screen name={MODULE_ROUTE_NAMES.checklist} component={ChecklistModule} />
       <Stack.Screen name={MODULE_ROUTE_NAMES.profile} component={ProfileModule} />
-      <Stack.Screen
-        name="/modal"
-        component={ModalScreen}
-        options={{
-          presentation: 'modal',
-        }}
-      />
     </Stack.Navigator>
   );
 }
@@ -647,7 +675,7 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
           <ThemeProvider value={navigationTheme}>
-            <OperationalBackgroundServices />
+            {isReady && user && authContext?.canAccessMobile ? <OperationalBackgroundServices /> : null}
             <MobileErrorBoundary styles={styles} theme={theme}>
               {!isReady ? (
                 bootTimedOut ? (

@@ -31,6 +31,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.ArrayDeque
 import java.util.Calendar
+import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -38,6 +39,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private var apiUrl: String = ""
   private var token: String = ""
   private var vehicleId: String = ""
+  private var sessionId: String = ""
   private var scheduleEnabled: Boolean = true
   private var scheduleStartTime: String = ""
   private var scheduleEndTime: String = ""
@@ -52,6 +54,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private var flushInProgress = false
   private var retryScheduled = false
   private var retryDelayMs = RETRY_BASE_MS
+  private var stopAfterFlush = false
 
   override fun onCreate() {
     super.onCreate()
@@ -62,9 +65,16 @@ class ManeCombLocationService : Service(), LocationListener {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
-      clearServiceConfig()
       stopTracking()
-      stopSelf()
+      stopAfterFlush = true
+      prefs().edit().putBoolean(KEY_SERVICE_ENABLED, false).apply()
+      val hasPending = synchronized(queueLock) { pendingLocations.isNotEmpty() }
+      if (hasPending) {
+        flushPendingLocations()
+      } else {
+        clearServiceConfig()
+        stopSelf()
+      }
       return START_NOT_STICKY
     }
 
@@ -72,6 +82,7 @@ class ManeCombLocationService : Service(), LocationListener {
     apiUrl = startIntent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
     token = startIntent?.getStringExtra(EXTRA_TOKEN).orEmpty()
     vehicleId = startIntent?.getStringExtra(EXTRA_VEHICLE_ID).orEmpty()
+    sessionId = startIntent?.getStringExtra(EXTRA_SESSION_ID).orEmpty()
     scheduleEnabled = startIntent?.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true) ?: true
     scheduleStartTime = startIntent?.getStringExtra(EXTRA_SCHEDULE_START).orEmpty()
     scheduleEndTime = startIntent?.getStringExtra(EXTRA_SCHEDULE_END).orEmpty()
@@ -165,6 +176,8 @@ class ManeCombLocationService : Service(), LocationListener {
 
     val body = JSONObject()
       .put("vehicleId", safeVehicleId)
+      .put("sessionId", sessionId)
+      .put("packetId", UUID.randomUUID().toString())
       .put(
         "coordinates",
         JSONObject()
@@ -178,9 +191,6 @@ class ManeCombLocationService : Service(), LocationListener {
       .put("timestamp", System.currentTimeMillis())
 
     synchronized(queueLock) {
-      while (pendingLocations.size >= MAX_PENDING_LOCATIONS) {
-        pendingLocations.removeFirst()
-      }
       pendingLocations.addLast(body)
       savePendingLocationsLocked()
     }
@@ -198,6 +208,13 @@ class ManeCombLocationService : Service(), LocationListener {
 
     Thread {
       try {
+        val hasPendingLocations = synchronized(queueLock) { pendingLocations.isNotEmpty() }
+        val needsServerSession = sessionId.isBlank() || sessionId.startsWith("pending:")
+        if (hasPendingLocations && needsServerSession && !ensureRouteSessionStarted()) {
+          scheduleRetry()
+          return@Thread
+        }
+
         while (true) {
           val next = synchronized(queueLock) { pendingLocations.peekFirst() } ?: break
 
@@ -216,8 +233,60 @@ class ManeCombLocationService : Service(), LocationListener {
         synchronized(queueLock) {
           flushInProgress = false
         }
+        if (stopAfterFlush && synchronized(queueLock) { pendingLocations.isEmpty() }) {
+          clearServiceConfig()
+          stopSelf()
+        }
       }
     }.start()
+  }
+
+  /**
+   * The start endpoint is idempotent. Calling it before draining the native GPS queue
+   * guarantees that positions captured during an offline start are not uploaded before
+   * the server has an active RouteSession to attach them to.
+   */
+  private fun ensureRouteSessionStarted(): Boolean {
+    val safeApiUrl = apiUrl
+    val safeToken = token
+    var connection: HttpURLConnection? = null
+    val wakeLock = acquireUploadWakeLock()
+
+    return try {
+      connection = URL("$safeApiUrl/navigation/sessions/start").openConnection() as HttpURLConnection
+      connection.requestMethod = "POST"
+      connection.connectTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.readTimeout = HTTP_TIMEOUT_MS.toInt()
+      connection.doOutput = true
+      connection.setRequestProperty("Authorization", "Bearer $safeToken")
+      connection.setRequestProperty("Content-Type", "application/json")
+      OutputStreamWriter(connection.outputStream).use { writer ->
+        writer.write(JSONObject().put("vehicleId", vehicleId).toString())
+      }
+
+      val responseCode = connection.responseCode
+      closeConnectionBody(connection)
+      when {
+        responseCode in 200..299 -> true
+        responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
+          responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
+          Log.w(TAG, "Stopping background GPS after session auth failure HTTP $responseCode.")
+          clearServiceConfig()
+          stopSelf()
+          false
+        }
+        else -> {
+          Log.w(TAG, "Could not ensure route session HTTP $responseCode; GPS queue retained.")
+          false
+        }
+      }
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not ensure route session; GPS queue retained.", error)
+      false
+    } finally {
+      connection?.disconnect()
+      releaseUploadWakeLock(wakeLock)
+    }
   }
 
   private fun postLocation(body: JSONObject): Boolean {
@@ -433,6 +502,7 @@ class ManeCombLocationService : Service(), LocationListener {
       .putString(KEY_API_URL, intent.getStringExtra(EXTRA_API_URL).orEmpty())
       .putString(KEY_TOKEN, intent.getStringExtra(EXTRA_TOKEN).orEmpty())
       .putString(KEY_VEHICLE_ID, intent.getStringExtra(EXTRA_VEHICLE_ID).orEmpty())
+      .putString(KEY_SESSION_ID, intent.getStringExtra(EXTRA_SESSION_ID).orEmpty())
       .putBoolean(KEY_SCHEDULE_ENABLED, intent.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true))
       .putString(KEY_SCHEDULE_START, intent.getStringExtra(EXTRA_SCHEDULE_START).orEmpty())
       .putString(KEY_SCHEDULE_END, intent.getStringExtra(EXTRA_SCHEDULE_END).orEmpty())
@@ -447,6 +517,7 @@ class ManeCombLocationService : Service(), LocationListener {
       .remove(KEY_API_URL)
       .remove(KEY_TOKEN)
       .remove(KEY_VEHICLE_ID)
+      .remove(KEY_SESSION_ID)
       .remove(KEY_SCHEDULE_ENABLED)
       .remove(KEY_SCHEDULE_START)
       .remove(KEY_SCHEDULE_END)
@@ -519,6 +590,7 @@ class ManeCombLocationService : Service(), LocationListener {
     const val EXTRA_API_URL = "apiUrl"
     const val EXTRA_TOKEN = "token"
     const val EXTRA_VEHICLE_ID = "vehicleId"
+    const val EXTRA_SESSION_ID = "sessionId"
     const val EXTRA_SCHEDULE_ENABLED = "scheduleEnabled"
     const val EXTRA_SCHEDULE_START = "scheduleStart"
     const val EXTRA_SCHEDULE_END = "scheduleEnd"
@@ -531,7 +603,6 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val WAKE_LOCK_TIMEOUT_MS = 15000L
     private const val LOCATION_INTERVAL_MS = 5000L
     private const val LOCATION_DISTANCE_METERS = 20f
-    private const val MAX_PENDING_LOCATIONS = 120
     private const val RETRY_BASE_MS = 5000L
     private const val RETRY_MAX_MS = 60000L
     private const val PREFS_NAME = "manecomb-location-service"
@@ -539,6 +610,7 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val KEY_API_URL = "apiUrl"
     private const val KEY_TOKEN = "token"
     private const val KEY_VEHICLE_ID = "vehicleId"
+    private const val KEY_SESSION_ID = "sessionId"
     private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
     private const val KEY_SCHEDULE_START = "scheduleStart"
     private const val KEY_SCHEDULE_END = "scheduleEnd"
@@ -564,6 +636,7 @@ class ManeCombLocationService : Service(), LocationListener {
         putExtra(EXTRA_API_URL, apiUrl)
         putExtra(EXTRA_TOKEN, token)
         putExtra(EXTRA_VEHICLE_ID, vehicleId)
+        putExtra(EXTRA_SESSION_ID, prefs.getString(KEY_SESSION_ID, "").orEmpty())
         putExtra(EXTRA_SCHEDULE_ENABLED, prefs.getBoolean(KEY_SCHEDULE_ENABLED, true))
         putExtra(EXTRA_SCHEDULE_START, prefs.getString(KEY_SCHEDULE_START, "").orEmpty())
         putExtra(EXTRA_SCHEDULE_END, prefs.getString(KEY_SCHEDULE_END, "").orEmpty())

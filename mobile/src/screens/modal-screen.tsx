@@ -22,29 +22,8 @@ export function ModalScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: AppTheme.spacing.md,
-    padding: AppTheme.spacing.xl,
-  },
-  title: {
-    fontFamily: Typography.display,
-    fontSize: 26,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  body: {
-    fontFamily: Typography.body,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  link: {
-    fontFamily: Typography.body,
-    fontSize: 15,
-    fontWeight: '900',
-    paddingTop: 8,
-  },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: AppTheme.spacing.md, padding: AppTheme.spacing.xl },
+  title: { fontFamily: Typography.display, fontSize: 26, fontWeight: '900', textAlign: 'center' },
+  body: { fontFamily: Typography.body, fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  link: { fontFamily: Typography.body, fontSize: 15, fontWeight: '900', paddingTop: 8 },
 });

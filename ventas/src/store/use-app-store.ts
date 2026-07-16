@@ -18,11 +18,13 @@ import {
   SOCKET_URL,
   assignRouteRequest,
   clearRouteAssignmentRequest,
+  configureApiSessionRecovery,
   createVehicleRequest,
   createUserRequest,
   deleteUserRequest,
   getApiErrorMessage,
   getSessionRequest,
+  forgotPasswordRequest,
   getUsersRequest,
   getVehiclesRequest,
   loginRequest,
@@ -63,6 +65,7 @@ type AppState = {
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
   register: (payload: RegisterPayload, rememberSession?: boolean) => Promise<ActionResult>;
+  forgotPassword: (email: string) => Promise<ActionResult>;
   signOut: () => Promise<void>;
   refreshAll: () => Promise<void>;
   loadUsers: () => Promise<void>;
@@ -415,6 +418,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isSubmitting: false });
     }
   },
+  forgotPassword: async (email) => {
+    set({ isSubmitting: true, error: null });
+    try {
+      const response = await forgotPasswordRequest(email);
+      return { ok: true, message: response.message };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible recuperar el acceso.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
   signOut: async () => {
     const refreshToken = get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY);
     await logoutRequest(refreshToken).catch(() => undefined);
@@ -603,3 +619,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ themeMode: mode });
   },
 }));
+
+configureApiSessionRecovery({
+  getRefreshToken: () => useAppStore.getState().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+  onTokenRefresh: (session) => {
+    const shouldPersist = Boolean(getStoredItem(REFRESH_TOKEN_KEY));
+    if (shouldPersist) {
+      persistSession(session.token, session.refreshToken);
+    }
+    useAppStore.setState((state) => ({
+      token: session.token,
+      refreshToken: session.refreshToken || state.refreshToken,
+      user: (session.user as User | undefined) || state.user,
+    }));
+  },
+  onSessionExpired: () => clearSession(useAppStore.setState),
+});

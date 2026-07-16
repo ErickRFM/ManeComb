@@ -17,11 +17,8 @@ import { MapCanvas } from './map/components/MapCanvas';
 import { MapDataRecovery } from './map/components/MapDataRecovery';
 import { SelectorRouteOverlay } from './map/components/SelectorRouteOverlay';
 import { TrackingHud } from './map/components/TrackingHud';
-import { useLocationEngine } from './map/hooks/use-location-engine';
-import { useLocationSync } from './map/hooks/use-location-sync';
 import { useMapCamera } from './map/hooks/use-map-camera';
 import { useMapSelector } from './map/hooks/use-map-selector';
-import { useScheduleTick } from './map/hooks/use-schedule-tick';
 import { useTrackingData } from './map/hooks/use-tracking-data';
 import { mapStyles as styles } from './map/map-styles';
 import type { MapSelectorParams } from './map/types';
@@ -40,38 +37,19 @@ function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[])
   const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
   const routeId = String(vehicle.routeId || '').trim();
 
-  console.log('========== ROUTE DEBUG ==========');
-  console.log('Vehicle ID:', vehicle.id);
-  console.log('Vehicle routeId:', routeId);
-  console.log('Vehicle.route:', vehicle.route);
-  console.log('AssignedRoute:', assignedRoute);
-  console.log(
-    'Routes disponibles:',
-    routes.map((r) => ({
-      id: r.id,
-      name: r.name,
-      polyline: r.polyline?.length ?? 0,
-    })),
-  );
-
   const matchedRoute = routeId
     ? routes.find((route) => String(route.id).trim() === routeId)
     : null;
 
-  console.log('Matched Route:', matchedRoute);
-
   if (matchedRoute) {
-    console.log('>>> Se usó la ruta de mapData.routes');
     return [matchedRoute];
   }
 
   if (routeId && vehicle.route?.id === routeId && vehicle.route.polyline?.length) {
-    console.log('>>> Se usó vehicle.route');
     return [vehicle.route];
   }
 
   if (assignedRoute?.route?.polyline?.length) {
-    console.log('>>> Se usó assignedRoute.route');
     return [
       {
         id: routeId || `assigned-route-${vehicle.id}`,
@@ -82,9 +60,6 @@ function getSelectedVehicleRoutes(vehicle: Vehicle | null, routes: RouteShape[])
       },
     ];
   }
-
-  console.log('>>> NO SE ENCONTRÓ NINGUNA RUTA');
-  console.log('================================');
 
   return [];
 }
@@ -201,39 +176,38 @@ export function MapScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<MapSelectorParams>();
   const {
-    coordinates,
-    issue: locationIssue,
-    lastUpdatedAt,
-    loading: locationLoading,
-    permission,
-    refresh,
-    servicesEnabled,
-  } = useLocationEngine();
-  const {
-    connectionMode,
     activeRouteSession,
     authContext,
     error,
     isRefreshing,
     mapData,
     refreshAll,
-    sendVehicleLocation,
+    deviceLocation,
+    refreshDeviceLocation,
     signOut,
     user,
   } = useAppStore(
     useShallow((state) => ({
-      connectionMode: state.connectionMode,
       activeRouteSession: state.activeRouteSession,
       authContext: state.authContext,
       error: state.error,
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
       refreshAll: state.refreshAll,
-      sendVehicleLocation: state.sendVehicleLocation,
+      deviceLocation: state.deviceLocation,
+      refreshDeviceLocation: state.refreshDeviceLocation,
       signOut: state.signOut,
       user: state.user,
     }))
   );
+  const {
+    coordinates,
+    issue: locationIssue,
+    loading: locationLoading,
+    permission,
+    servicesEnabled,
+  } = deviceLocation;
+  const refresh = refreshDeviceLocation;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -244,7 +218,6 @@ export function MapScreen() {
 
   const selectorMode = isSelectorMode(params.point);
   const { fitRoute, focusMap, focusPoint, mapPadding, mapRef, routeFitPadding } = useMapCamera(insets);
-  const operationalScheduleState = useScheduleTick(user?.operationalSchedule);
   const locationStatus = useMemo(
     () =>
       getLocationStatus({
@@ -334,16 +307,6 @@ export function MapScreen() {
       focusPoint(selectedVehicle.location);
     }
   }, [focusPoint, selectorMode, selectedVehicle]);
-
-  useLocationSync({
-    enabled: user?.role !== 'driver' || activeRouteSession?.status === 'RUNNING',
-    connectionMode,
-    coordinates,
-    isWithinSchedule: operationalScheduleState.isWithinSchedule,
-    lastUpdatedAt,
-    sendVehicleLocation,
-    vehicleId: user?.vehicleId,
-  });
 
   const handleRefresh = async () => {
     await Promise.all([refreshAll(), refresh()]);
@@ -435,9 +398,10 @@ export function MapScreen() {
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
 
   const journeyStatus: 'none' | 'running' | 'paused' = !activeRouteSession ? 'none' : activeRouteSession.status === 'RUNNING' ? 'running' : activeRouteSession.status === 'PAUSED' ? 'paused' : 'none';
-  const handleStartJourney = () => router.push({ pathname: '/checklist', params: { action: 'start', returnToMap: 'true' } });
-  const handleFinishJourney = () => router.push({ pathname: '/checklist', params: { action: 'finish', returnToMap: 'true' } });
-  const handlePauseJourney = () => router.push({ pathname: '/checklist', params: { action: 'pause', returnToMap: 'true' } });
+  const journeyVehicleId = user.vehicleId || selectedVehicle?.id || '';
+  const handleStartJourney = () => router.push({ pathname: '/checklist', params: { action: 'start', returnToMap: 'true', vehicleId: journeyVehicleId } });
+  const handleFinishJourney = () => router.push({ pathname: '/checklist', params: { action: 'finish', returnToMap: 'true', vehicleId: journeyVehicleId } });
+  const handlePauseJourney = () => router.push({ pathname: '/checklist', params: { action: 'pause', returnToMap: 'true', vehicleId: journeyVehicleId } });
 
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>

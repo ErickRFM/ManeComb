@@ -739,6 +739,8 @@ export type ChatMessage = {
   text: string;
   textPreview?: string;
   audioUrl?: string | null;
+  imageUrl?: string | null;
+  videoUrl?: string | null;
   transcript?: string;
   durationSeconds?: number;
   mimeType?: string;
@@ -842,6 +844,7 @@ export type RouteSessionComputedMetrics = {
   minSpeed?: number | null;
   p95Speed?: number | null;
   positionCount?: number;
+  pausedTime?: number;
   stoppedSpeedThresholdMetersPerSecond?: number;
   totalDistance?: number | null;
   totalDuration?: number;

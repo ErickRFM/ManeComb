@@ -901,9 +901,6 @@ const styles = StyleSheet.create({
     minHeight: 54,
     paddingHorizontal: 14,
   },
-  inputShellFocused: {
-    borderColor: 'rgba(168, 85, 247, 0.78)',
-  },
   input: {
     color: palette.text,
     flex: 1,
@@ -911,28 +908,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 52,
     paddingHorizontal: 0,
-  },
-  fieldRight: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 6,
-  },
-  cardMarks: {
-    flexDirection: 'row',
-    gap: 5,
-  },
-  cardMark: {
-    backgroundColor: 'rgba(35, 213, 255, 0.14)',
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-  },
-  cardMarkText: {
-    color: palette.text,
-    fontFamily: Typography.body,
-    fontSize: 9,
-    fontWeight: '900',
   },
   speiPanel: {
     alignItems: 'center',

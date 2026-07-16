@@ -12,8 +12,6 @@ import type {
   DriverActivationRegisterPayload,
   DriverActivationValidation,
   CheckpointVisit,
-  DocumentReviewPayload,
-  E2eeBackupRecord,
   GeoPoint,
   ChatDirectoryContact,
   ChatMessage,
@@ -38,8 +36,6 @@ import type {
   RouteSessionMetrics,
   RouteSession,
   RouteSessionStatus,
-  RtcIceConfig,
-  RtcSessionRecord,
   SessionResult,
   User,
   UserMutationPayload,
@@ -160,13 +156,6 @@ function getRequestUrl(config: AxiosError['config'] | undefined) {
   }
 }
 
-function getResponseTraceId(error: AxiosError) {
-  const responseData = error.response?.data as { traceId?: unknown } | undefined;
-  const dataTraceId = responseData?.traceId;
-  const headerTraceId = error.response?.headers?.['x-trace-id'];
-  return String(dataTraceId || headerTraceId || '').trim();
-}
-
 const SENSITIVE_LOG_KEYS = new Set([
   'authorization',
   'password',
@@ -232,38 +221,20 @@ export function getApiErrorMessage(
     return error instanceof Error ? error.message : fallbackMessage;
   }
 
-  const apiUrl = options.apiUrl || RESOLVED_API_URL;
-  const backendLabel = getBackendLabel(apiUrl);
   const status = error.response?.status;
   const responseData = error.response?.data as { message?: unknown } | undefined;
   const apiMessage = responseData?.message;
-  const traceId = getResponseTraceId(error);
-  const traceSuffix = traceId ? ` Codigo: ${traceId}` : '';
 
   if (options.hasInternet === false && !error.response) {
-    return 'El celular no tiene internet o no esta conectado a la Wi-Fi. Conectalo a la misma red que la laptop e intenta de nuevo.';
+    return 'Revisa tu conexion e intenta nuevamente.';
   }
 
   if (isTimeoutError(error)) {
-    return isProductionBackendUrl(apiUrl)
-      ? `Timeout: el backend de produccion no respondio a tiempo en ${apiUrl}. Verifica tu internet y el estado de Render.`
-      : `Timeout: el backend configurado no respondio a tiempo en ${apiUrl}. Verifica la URL y la conexion.`;
+    return 'El servidor no respondio a tiempo. Revisa tu conexion e intenta nuevamente.';
   }
 
   if (!error.response) {
-    if (/cleartext|not permitted|CLEARTEXT/i.test(error.message || '')) {
-      return 'Android bloqueo HTTP sin SSL. La app ya permite cleartext en desarrollo; reinstala/recompila el APK si sigues viendo este error.';
-    }
-
-    if (/handshake|ssl|certificate|cert/i.test(error.message || '')) {
-      return isProductionBackendUrl(apiUrl)
-        ? 'Error de SSL/handshake con el backend de produccion. Verifica el certificado HTTPS de Render.'
-        : 'Error de SSL/handshake con el backend configurado. Verifica que la URL use HTTPS valido.';
-    }
-
-    return isProductionBackendUrl(apiUrl)
-      ? `No se pudo conectar con el backend de produccion en ${apiUrl}. Verifica tu internet y que Render este activo.`
-      : `No se pudo conectar con el backend configurado en ${apiUrl}. Verifica la URL y la conexion.`;
+    return 'No pudimos conectar con el servidor. Revisa tu conexion e intenta nuevamente.';
   }
 
   if (status === 400 && typeof apiMessage === 'string' && apiMessage.trim()) {
@@ -273,7 +244,7 @@ export function getApiErrorMessage(
   if (status === 401) {
     return typeof apiMessage === 'string' && apiMessage.trim()
       ? apiMessage
-      : 'Credenciales incorrectas o sesión expirada.';
+      : 'Credenciales incorrectas o sesion expirada.';
   }
 
   if (status === 403) {
@@ -287,7 +258,7 @@ export function getApiErrorMessage(
       return apiMessage;
     }
 
-    return `API no encontrada: ${getRequestUrl(error.config)}. Revisa que la ruta exista en el ${backendLabel}.`;
+    return 'No encontramos lo que buscas. Intenta de nuevo mas tarde.';
   }
 
   if (status === 409 && typeof apiMessage === 'string' && apiMessage.trim()) {
@@ -299,13 +270,11 @@ export function getApiErrorMessage(
   }
 
   if (status === 502 || status === 503 || status === 504) {
-    return isProductionBackendUrl(apiUrl)
-      ? `Despertando servidor, intentando de nuevo. Si continua, revisa Render. ${traceSuffix}`.trim()
-      : `El backend configurado no respondio (${status}).${traceSuffix}`;
+    return 'El servidor esta temporalmente fuera de servicio. Intenta de nuevo en unos segundos.';
   }
 
   if (status && status >= 500) {
-    return `Error interno del servidor (${status}). Revisa la consola del backend.${traceSuffix}`;
+    return 'Ocurrio un error en el servidor. Intenta de nuevo mas tarde.';
   }
 
   if (typeof apiMessage === 'string' && apiMessage.trim()) {
@@ -544,6 +513,20 @@ export async function refreshSessionRequest(refreshToken: string) {
   return response.data;
 }
 
+export async function forgotPasswordRequest(email: string) {
+  const response = await apiClient.post<{ ok: boolean; message: string }>('/auth/forgot-password', { email }, {
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
+  return response.data;
+}
+
+export async function resetPasswordRequest(token: string, password: string) {
+  const response = await apiClient.post<{ ok: boolean; message: string }>('/auth/reset-password', { token, password }, {
+    _skipAuthRefresh: true,
+  } as RetryableRequestConfig);
+  return response.data;
+}
+
 export async function healthRequest() {
   const response = await apiClient.get('/health', {
     _allowRetry: true,
@@ -557,40 +540,6 @@ export async function logoutRequest(refreshToken?: string | null) {
   await apiClient.post('/auth/logout', {
     refreshToken,
   });
-}
-
-export async function logoutAllRequest(keepCurrent = false) {
-  await apiClient.post('/auth/logout-all', {
-    keepCurrent,
-  });
-}
-
-export async function getE2eeBackupRequest(deviceId?: string) {
-  const response = await apiClient.get<{ ok: boolean; data: E2eeBackupRecord | null }>(
-    '/auth/e2ee-backup',
-    {
-      params: deviceId ? { deviceId } : undefined,
-    }
-  );
-
-  return response.data.data;
-}
-
-export async function upsertE2eeBackupRequest(payload: {
-  deviceId: string;
-  publicKey: string;
-  backupCipher: string;
-  backupVersion?: string;
-  platform?: string;
-  label?: string;
-  restoredAt?: string | null;
-}) {
-  const response = await apiClient.put<{ ok: boolean; data: E2eeBackupRecord }>(
-    '/auth/e2ee-backup',
-    payload
-  );
-
-  return response.data.data;
 }
 
 export async function getLocationsRequest() {
@@ -724,22 +673,6 @@ export async function sendMediaMessageRequest(conversationId: string, formData: 
   return response.data.data;
 }
 
-export async function transcribeVoiceSearchRequest(formData: FormData) {
-  const response = await apiClient.post<{ ok: boolean; data: { transcript: string } }>(
-    '/chat/transcribe-search',
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      timeout: 45000,
-      _allowRetry: true,
-    } as RetryableRequestConfig
-  );
-
-  return response.data.data.transcript || '';
-}
-
 export async function getDocumentsRequest() {
   const response = await apiClient.get<{ ok: boolean; data: DocumentItem[] }>('/documents');
   return response.data.data;
@@ -814,6 +747,8 @@ export async function updateVehicleLocationRequest(payload: {
   speed?: number | null;
   accuracy?: number | null;
   timestamp?: string | null;
+  packetId?: string | null;
+  sessionId?: string | null;
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/locations/update', payload);
   return response.data.data;
@@ -871,18 +806,32 @@ export async function createNavigationRouteRequest(payload: {
   return response.data.data;
 }
 
+export async function updateNavigationRouteRequest(routeId: string, payload: {
+  name: string;
+  origin: GeoPoint;
+  destination: GeoPoint;
+  route: NavigationPlan['routes'][number];
+  stops?: NavigationStop[];
+}) {
+  const response = await apiClient.patch<{ ok: boolean; data: RouteShape }>(
+    `/navigation/routes/${encodeURIComponent(routeId)}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function deleteNavigationRouteRequest(routeId: string) {
+  const response = await apiClient.delete<{ ok: boolean; data: RouteShape }>(
+    `/navigation/routes/${encodeURIComponent(routeId)}`
+  );
+  return response.data.data;
+}
+
 export async function assignVehicleRouteRequest(payload: {
   vehicleId: string;
   routeId: string;
 }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/navigation/assign', payload);
-  return response.data.data;
-}
-
-export async function clearAssignedVehicleRouteRequest(vehicleId: string) {
-  const response = await apiClient.delete<{ ok: boolean; data: Vehicle }>(
-    `/navigation/assign/${encodeURIComponent(vehicleId)}`
-  );
   return response.data.data;
 }
 
@@ -921,13 +870,6 @@ export async function getRouteSessionHistoryRequest(params?: RouteSessionHistory
   const response = await apiClient.get<{ ok: boolean; data: RouteSession[] }>('/navigation/sessions/history', {
     params,
   });
-  return response.data.data;
-}
-
-export async function recalculateRouteSessionMetricsRequest(sessionId: string) {
-  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>(
-    `/navigation/sessions/${encodeURIComponent(sessionId)}/recalculate`,
-  );
   return response.data.data;
 }
 
@@ -1042,39 +984,6 @@ export async function updateUserRequest(userId: string, payload: UserMutationPay
 
 export async function deleteUserRequest(userId: string) {
   await apiClient.delete(`/users/${userId}`);
-}
-
-export async function getAllDocumentsRequest(params?: {
-  ownerType?: 'driver' | 'vehicle';
-  reviewStatus?: string;
-}) {
-  const response = await apiClient.get<{ ok: boolean; data: DocumentItem[] }>('/documents/admin', {
-    params,
-  });
-
-  return response.data.data;
-}
-
-export async function reviewDocumentRequest(documentId: string, payload: DocumentReviewPayload) {
-  const response = await apiClient.patch<{ ok: boolean; data: DocumentItem }>(
-    `/documents/${documentId}/review`,
-    payload
-  );
-
-  return response.data.data;
-}
-
-export async function getRtcConfigRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: RtcIceConfig }>('/rtc/config');
-  return response.data.data;
-}
-
-export async function getRtcSessionsRequest(params?: { roomId?: string; limit?: number }) {
-  const response = await apiClient.get<{ ok: boolean; data: RtcSessionRecord[] }>('/rtc/sessions', {
-    params,
-  });
-
-  return response.data.data;
 }
 
 export async function getOperationalObservabilityRequest(params?: {

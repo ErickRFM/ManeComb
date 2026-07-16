@@ -201,19 +201,15 @@ if (!fs.existsSync(androidDir)) {
 console.log('[apk] Parcheando rutas de Node...');
 patchAndroidNodePath(androidDir, env.NODE_BINARY);
 
-// 3.5 Remove stale native build caches before Gradle clean. CMake/Ninja can keep
-// references to generated codegen folders that are intentionally recreated later.
-removeInsideAndroidDir(path.join(androidDir, 'build', 'generated', 'autolinking'));
+// 3.5 Remove stale CMake state before Gradle clean. The generated autolinking
+// metadata must remain available while Gradle configures the clean task.
 removeInsideAndroidDir(path.join(androidDir, 'app', '.cxx'));
 
-// 4. Build Clean and Assemble
-console.log('[apk] Limpiando y compilando...');
+// 4. Assemble release artifacts. Avoid Gradle's global clean because third-party
+// native modules under node_modules can be locked by Windows; app CMake state was
+// already cleared above.
+console.log('[apk] Compilando release...');
 const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
-
-run(gradlew, ['clean', '--no-daemon', ...gradlePassthroughArgs], {
-  cwd: androidDir,
-  env,
-});
 
 run(gradlew, ['assembleRelease', '--no-daemon', ...gradlePassthroughArgs], {
   cwd: androidDir,

@@ -1,7 +1,14 @@
-import axios, { AxiosHeaders, isAxiosError, type AxiosError } from 'axios';
+import axios, { AxiosHeaders, isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type {
   CheckpointVisit,
   PaginatedResult,
+  PortalActivationKeysResponse,
+  PortalInvoice,
+  PortalOnboarding,
+  PortalOverview,
+  PortalPaymentMethod,
+  PortalSession,
+  PortalSubscription,
   RouteEvent,
   RouteSession,
   RouteSessionHistoryFilters,
@@ -64,6 +71,30 @@ export const apiClient = axios.create({
   timeout: REQUEST_TIMEOUT_MS,
 });
 
+type AuthSessionPayload = {
+  token: string;
+  refreshToken?: string | null;
+  user?: unknown;
+};
+
+type AuthRetryConfig = InternalAxiosRequestConfig & {
+  _authRetry?: boolean;
+  _skipAuthRefresh?: boolean;
+};
+
+type SessionRecoveryConfig = {
+  getRefreshToken: () => string | null | Promise<string | null>;
+  onTokenRefresh: (session: AuthSessionPayload) => void | Promise<void>;
+  onSessionExpired: () => void | Promise<void>;
+};
+
+let sessionRecoveryConfig: SessionRecoveryConfig | null = null;
+let refreshTokenPromise: Promise<string | null> | null = null;
+
+export function configureApiSessionRecovery(config: SessionRecoveryConfig) {
+  sessionRecoveryConfig = config;
+}
+
 apiClient.interceptors.request.use((config) => {
   config.headers = AxiosHeaders.from(config.headers);
   config.headers.set('x-client-platform', 'ventas-web');
@@ -76,6 +107,56 @@ apiClient.interceptors.request.use((config) => {
 
   return config;
 });
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: unknown) => {
+    if (!isAxiosError(error) || error.response?.status !== 401 || !error.config) {
+      return Promise.reject(error);
+    }
+
+    const config = error.config as AuthRetryConfig;
+    const url = String(config.url || '');
+    const excluded = ['/auth/login', '/auth/register', '/auth/logout', '/auth/refresh', '/auth/forgot-password'];
+    if (config._authRetry || config._skipAuthRefresh || excluded.some((path) => url.includes(path))) {
+      return Promise.reject(error);
+    }
+
+    try {
+      if (!refreshTokenPromise) {
+        refreshTokenPromise = Promise.resolve(sessionRecoveryConfig?.getRefreshToken() || null)
+          .then(async (refreshToken) => {
+            if (!refreshToken || !sessionRecoveryConfig) return null;
+            const response = await apiClient.post<AuthSessionPayload>(
+              '/auth/refresh',
+              { refreshToken },
+              { _skipAuthRefresh: true } as AuthRetryConfig
+            );
+            setAuthToken(response.data.token);
+            await sessionRecoveryConfig.onTokenRefresh(response.data);
+            return response.data.token;
+          })
+          .finally(() => {
+            refreshTokenPromise = null;
+          });
+      }
+
+      const token = await refreshTokenPromise;
+      if (!token) {
+        await sessionRecoveryConfig?.onSessionExpired();
+        return Promise.reject(error);
+      }
+
+      config._authRetry = true;
+      config.headers = AxiosHeaders.from(config.headers);
+      config.headers.set('Authorization', `Bearer ${token}`);
+      return apiClient(config);
+    } catch (refreshError) {
+      await sessionRecoveryConfig?.onSessionExpired();
+      return Promise.reject(refreshError);
+    }
+  }
+);
 
 export function setAuthToken(token: string | null) {
   if (token) {
@@ -99,11 +180,11 @@ export function getApiErrorMessage(error: unknown, fallbackMessage = 'No fue pos
   }
 
   if (!error.response) {
-    return `No se pudo conectar con el backend: ${API_URL}`;
+    return 'No pudimos conectar con el servidor. Revisa tu conexion e intenta nuevamente.';
   }
 
   if ([502, 503, 504].includes(error.response.status)) {
-    return 'El servidor esta iniciando o tardo demasiado. Intenta de nuevo en unos segundos.';
+    return 'El servidor esta temporalmente fuera de servicio. Intenta de nuevo en unos segundos.';
   }
 
   if (error.response.status === 401) {
@@ -115,7 +196,7 @@ export function getApiErrorMessage(error: unknown, fallbackMessage = 'No fue pos
   }
 
   if (error.response.status >= 500) {
-    return `Error interno del servidor (${error.response.status}).`;
+    return 'Ocurrio un error en el servidor. Intenta de nuevo mas tarde.';
   }
 
   return fallbackMessage;
@@ -153,12 +234,20 @@ export async function getSessionRequest() {
   return await unwrapData<any>(apiClient.get('/auth/session'));
 }
 
-export async function refreshSessionRequest(refreshToken: string) {
-  return await unwrapData<any>(apiClient.post('/auth/refresh', { refreshToken }));
-}
-
 export async function logoutRequest(refreshToken?: string | null) {
   await apiClient.post('/auth/logout', { refreshToken });
+}
+
+export async function forgotPasswordRequest(email: string) {
+  return await unwrapData<{ ok: boolean; message: string }>(
+    apiClient.post('/auth/forgot-password', { email })
+  );
+}
+
+export async function resetPasswordRequest(token: string, password: string) {
+  return await unwrapData<{ ok: boolean; message: string }>(
+    apiClient.post('/auth/reset-password', { token, password })
+  );
 }
 
 export async function getCommercialPlansRequest() {
@@ -231,12 +320,6 @@ export async function getRouteSessionMetricsRequest(sessionId: string) {
   );
 }
 
-export async function recalculateRouteSessionMetricsRequest(sessionId: string) {
-  return await unwrapData<RouteSession>(
-    apiClient.post(`/navigation/sessions/${encodeURIComponent(sessionId)}/recalculate`)
-  );
-}
-
 export async function getRouteSessionEventsRequest(sessionId: string, params?: { type?: RouteEvent['eventType']; limit?: number }) {
   return await unwrapData<RouteEvent[]>(
     apiClient.get(`/navigation/sessions/${encodeURIComponent(sessionId)}/events`, { params })
@@ -259,33 +342,33 @@ export async function getRouteSessionPositionsRequest(sessionId: string, params?
 }
 
 export async function getPortalOverviewRequest() {
-  return await unwrapData<any>(apiClient.get('/portal/overview'));
+  return await unwrapData<PortalOverview>(apiClient.get('/portal/overview'));
 }
 
 export async function getPortalOnboardingRequest() {
-  return await unwrapData<any>(apiClient.get('/portal/onboarding'));
+  return await unwrapData<PortalOnboarding>(apiClient.get('/portal/onboarding'));
 }
 
 export async function getAdminActivationKeysRequest() {
-  return await unwrapData<any>(apiClient.get('/admin/activation-keys'));
+  return await unwrapData<PortalActivationKeysResponse>(apiClient.get('/admin/activation-keys'));
 }
 
 export async function generateAdminActivationKeyRequest() {
-  return await unwrapData<any>(apiClient.post('/admin/activation-keys/generate'));
+  return await unwrapData<PortalActivationKeysResponse>(apiClient.post('/admin/activation-keys/generate'));
 }
 
 export async function revokeAdminActivationKeyRequest(activationKeyId: string) {
-  return await unwrapData<any>(
+  return await unwrapData<PortalActivationKeysResponse>(
     apiClient.patch(`/admin/activation-keys/${encodeURIComponent(activationKeyId)}/revoke`)
   );
 }
 
 export async function getAccountSubscriptionRequest() {
-  return await unwrapData<any>(apiClient.get('/account/subscription'));
+  return await unwrapData<PortalSubscription>(apiClient.get('/account/subscription'));
 }
 
 export async function changeAccountPlanRequest(planId: string, selectedAddOns: string[] = []) {
-  return await unwrapData<any>(
+  return await unwrapData<PortalSubscription>(
     apiClient.patch('/account/subscription/plan', {
       planId,
       selectedAddOns,
@@ -294,41 +377,41 @@ export async function changeAccountPlanRequest(planId: string, selectedAddOns: s
 }
 
 export async function cancelAccountSubscriptionRequest(reason?: string) {
-  return await unwrapData<any>(apiClient.post('/account/subscription/cancel', { reason }));
+  return await unwrapData<PortalSubscription>(apiClient.post('/account/subscription/cancel', { reason }));
 }
 
 export async function getAccountInvoicesRequest() {
-  return await unwrapData<any[]>(apiClient.get('/account/invoices'));
+  return await unwrapData<PortalInvoice[]>(apiClient.get('/account/invoices'));
 }
 
 export async function getAccountPaymentMethodsRequest() {
-  return await unwrapData<any[]>(apiClient.get('/account/payment-methods'));
+  return await unwrapData<PortalPaymentMethod[]>(apiClient.get('/account/payment-methods'));
 }
 
 export async function createAccountPaymentMethodRequest(payload: any) {
-  return await unwrapData<any[]>(apiClient.post('/account/payment-methods', payload));
+  return await unwrapData<PortalPaymentMethod[]>(apiClient.post('/account/payment-methods', payload));
 }
 
 export async function updateAccountPaymentMethodRequest(paymentMethodId: string, payload: any) {
-  return await unwrapData<any[]>(
+  return await unwrapData<PortalPaymentMethod[]>(
     apiClient.patch(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}`, payload)
   );
 }
 
 export async function deleteAccountPaymentMethodRequest(paymentMethodId: string) {
-  return await unwrapData<any[]>(
+  return await unwrapData<PortalPaymentMethod[]>(
     apiClient.delete(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}`)
   );
 }
 
 export async function setDefaultAccountPaymentMethodRequest(paymentMethodId: string) {
-  return await unwrapData<any[]>(
+  return await unwrapData<PortalPaymentMethod[]>(
     apiClient.post(`/account/payment-methods/${encodeURIComponent(paymentMethodId)}/default`)
   );
 }
 
 export async function getAccountSessionsRequest() {
-  return await unwrapData<any[]>(apiClient.get('/account/sessions'));
+  return await unwrapData<PortalSession[]>(apiClient.get('/account/sessions'));
 }
 
 export async function revokeAccountSessionRequest(sessionId: string) {

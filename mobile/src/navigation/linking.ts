@@ -13,7 +13,7 @@ export const linking: LinkingOptions<any> = {
       '/portal/pagos': 'portal/pagos', '/portal/facturacion': 'portal/facturacion',
       '/portal/perfil': 'portal/perfil', '/portal/onboarding': 'portal/onboarding',
       '/portal/comercial': 'portal/comercial', '/perfil-comprador': 'perfil-comprador',
-      '/terminos': 'terminos', '/privacidad': 'privacidad', '/modal': 'modal',
+      '/terminos': 'terminos', '/privacidad': 'privacidad',
       [MODULE_ROUTE_NAMES.map]: { screens: { '/mapa': 'mapa' } },
       [MODULE_ROUTE_NAMES.incidents]: { screens: { '/incidencias': 'incidencias' } },
       [MODULE_ROUTE_NAMES.users]: { screens: { '/usuarios': 'usuarios' } },

@@ -316,14 +316,14 @@ export function RadioScreen() {
     radioSession.phase === 'UNAUTHORIZED'
         ? 'Sesion expirada'
         : radioSession.phase === 'RECONNECTING' || radioSession.phase === 'CONNECTING' || radioSession.phase === 'JOIN_SENT'
-          ? 'Reconectando canal de Radio'
+          ? 'Reconectando'
           : radioSession.phase === 'REQUESTING'
-            ? 'Solicitando acceso al canal'
+            ? 'Solicitando'
           : radioSession.phase === 'ERROR'
-            ? 'Canal de Radio no disponible'
+            ? 'No disponible'
             : !activeChannel
-              ? 'Sin canal activo'
-              : 'Canal conectado';
+              ? 'Sin canal'
+              : 'Listo';
   const isBusy = radioSession.phase === 'UPLOADING';
   const pttBlockReason = !supportsTapToTalk
     ? 'Audio API no disponible'
@@ -937,10 +937,6 @@ export function RadioScreen() {
       return;
     }
 
-    if (Platform.OS !== 'web') {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }
-
     transitionSession({ phase: 'REQUESTING', message: 'Solicitando canal', operator: null, transmissionId: null });
     const ack = await realtimeServiceRef.current?.requestTransmission();
     if (ack?.error === 'radio_request_stale') return;
@@ -987,6 +983,7 @@ export function RadioScreen() {
       message: `Transmitiendo: ${user?.name || 'Operador'}`,
     });
     waveformLevels.value = Array(18).fill(0);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
       await startPttAudioCapture(ack.transmissionId);
       const activeSession = radioSessionRef.current;
@@ -1006,6 +1003,7 @@ export function RadioScreen() {
     }
     startRecordingTicker();
     setAudioPermissionState('granted');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   };
 
   const stopNativeRecording = async () => {
@@ -1029,6 +1027,8 @@ export function RadioScreen() {
         operator: null,
         transmissionId: null,
       });
+    } else if (ack?.ok) {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
@@ -1154,6 +1154,7 @@ export function RadioScreen() {
 
       uploadStartedAtRef.current = null;
       transitionSession({ phase: 'READY', message: 'Enviado', operator: null, transmissionId: null });
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       scheduleMessageClear();
     } finally {
       webRecorderRef.current = null;
@@ -1323,21 +1324,21 @@ export function RadioScreen() {
     switch (radioPhase) {
       case 'TRANSMITTING':
       return {
-        detail: 'Transmitiendo en el canal activo',
+        detail: 'Transmitiendo',
         icon: 'microphone' as const,
         label: 'Transmitiendo',
         tone: 'danger' as const,
       };
       case 'REQUESTING':
         return {
-          detail: 'Esperando autorizacion para transmitir',
+          detail: 'Solicitando',
           icon: 'sync' as const,
-          label: 'Solicitando canal',
+          label: 'Solicitando',
           tone: 'info' as const,
         };
       case 'UPLOADING':
       return {
-        detail: 'Enviando audio al canal',
+        detail: 'Enviando',
         icon: 'cloud-upload-outline' as const,
         label: 'Enviando',
         tone: 'info' as const,
@@ -1351,14 +1352,14 @@ export function RadioScreen() {
         };
       case 'CHANNEL_BUSY':
         return {
-          detail: `Transmitiendo: ${liveOperator?.name || 'Otro operador'}`,
-          icon: 'account-voice' as const,
-          label: 'Canal ocupado',
+        detail: `Ocupado: ${liveOperator?.name || 'Otro'}`,
+        icon: 'account-voice' as const,
+        label: 'Canal ocupado',
           tone: 'warning' as const,
         };
       case 'RECONNECTING':
         return {
-          detail: 'Recuperando conexion de Radio',
+          detail: 'Reconectando',
           icon: 'sync' as const,
           label: 'Reconectando',
           tone: 'info' as const,
@@ -1379,28 +1380,28 @@ export function RadioScreen() {
       };
       case 'CONNECTING':
         return {
-          detail: 'Conectando con Radio',
+          detail: 'Conectando',
           icon: 'sync' as const,
           label: 'Conectando',
           tone: 'info' as const,
         };
       case 'JOIN_SENT':
         return {
-          detail: 'Validando acceso al canal',
+          detail: 'Validando',
           icon: 'sync' as const,
-          label: 'Validando canal',
+          label: 'Validando',
           tone: 'info' as const,
         };
       case 'OFFLINE':
         return {
-          detail: 'Sin conexion con Radio',
+          detail: 'Sin conexion',
           icon: 'access-point-off' as const,
           label: 'Sin conexion',
           tone: 'warning' as const,
         };
       case 'READY':
         return {
-          detail: activeChannel?.title || 'Canal operativo listo',
+          detail: activeChannel?.title || 'Listo',
           icon: 'check-circle-outline' as const,
           label: 'Listo',
           tone: 'positive' as const,
@@ -1428,13 +1429,7 @@ export function RadioScreen() {
   const activeOperatorCount = activeChannel?.participants.length || 0;
   const radioActionText =
     recorderMessage ||
-    (radioPhase === 'OFFLINE'
-      ? 'Verifica Internet antes de transmitir.'
-      : radioPhase === 'CONNECTING'
-        ? 'Espera la reconexion del servidor.'
-        : audioPermissionState === 'denied'
-          ? 'Habilita el microfono para usar PTT.'
-          : null);
+    (audioPermissionState === 'denied' ? 'Microfono bloqueado' : null);
   const pttDisabledText =
     radioPhase === 'RECEIVING' || radioPhase === 'CHANNEL_BUSY'
       ? liveStatus.label
@@ -1539,12 +1534,6 @@ export function RadioScreen() {
             </Text>
             <View style={styles.headerPills}>
               <StatusPill label={liveStatus.label} tone={liveStatus.tone} />
-              <View style={styles.headerMiniChip}>
-                <MaterialCommunityIcons name="server-network" size={14} color={theme.colors.muted} />
-                <Text style={styles.headerMiniText} numberOfLines={1}>
-                  {radioSession.phase.toLowerCase()}
-                </Text>
-              </View>
               <View style={styles.headerMiniChip}>
                 <MaterialCommunityIcons name="account-group" size={14} color={theme.colors.muted} />
                 <Text style={styles.headerMiniText} numberOfLines={1}>
@@ -1819,12 +1808,10 @@ export function RadioScreen() {
                   </Text>
                   <Text style={styles.pttButtonSubtitle}>
                     {radioSession.phase === 'TRANSMITTING'
-                      ? 'Suelta para enviar'
+                      ? 'Soltar'
                       : isPttDisabled
                         ? pttDisabledText
-                        : Platform.OS === 'web'
-                          ? 'Toca para transmitir'
-                          : 'Mantener o tocar'}
+                        : 'PTT'}
                   </Text>
                 </Pressable>
               </Animated.View>
@@ -1868,7 +1855,7 @@ export function RadioScreen() {
           <View style={styles.historyPanel}>
             <View style={styles.audioPageHeader}>
               <View style={styles.sectionRow}>
-                <Text style={styles.sectionTitle}>Actividad / Audios</Text>
+                <Text style={styles.sectionTitle}>Audios</Text>
                 <StatusPill label={`${filteredVoiceNotes.length}`} tone="info" />
               </View>
 
@@ -1916,8 +1903,7 @@ export function RadioScreen() {
                   <View style={styles.emptyIconShell}>
                     <MaterialCommunityIcons name="radio-handheld" size={28} color={theme.colors.muted} />
                   </View>
-                  <Text style={styles.emptyTitle}>En espera</Text>
-                  <Text style={styles.emptyText}>Las transmisiones apareceran cuando haya audios cargados.</Text>
+                  <Text style={styles.emptyTitle}>Sin audios</Text>
                 </View>
               }
             />

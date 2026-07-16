@@ -191,6 +191,7 @@ function buildMetrics({ events, positions, session, visits }) {
   const finishedAt = session.finishedAt || new Date().toISOString();
   const totalDuration = secondsBetween(session.startedAt, finishedAt);
   const stopped = sumPairedDurations(orderedEvents, "VEHICLE_STOPPED", "VEHICLE_MOVING", finishedAt);
+  const paused = sumPairedDurations(orderedEvents, "SESSION_PAUSED", "SESSION_RESUMED", finishedAt);
   const gpsLost = sumPairedDurations(orderedEvents, "GPS_LOST", "GPS_RECOVERED", finishedAt);
   const offRoute = sumPairedDurations(orderedEvents, "OFF_ROUTE", "ON_ROUTE", finishedAt);
   const speeds = orderedPositions.map((position) => normalizeSpeed(position.speed)).filter((speed) => speed !== null);
@@ -200,7 +201,7 @@ function buildMetrics({ events, positions, session, visits }) {
   const quality = getQualityBreakdown(orderedPositions);
   const laps = calculateLapMetrics(visits);
   const totalDistance = calculateDistance(orderedPositions);
-  const movingTime = Math.max(0, totalDuration - stopped.totalSeconds);
+  const movingTime = Math.max(0, totalDuration - stopped.totalSeconds - paused.totalSeconds);
   const effectiveTimePercent = totalDuration ? roundMetric((movingTime / totalDuration) * 100, 2) : 0;
   const gpsCoveragePercent = totalDuration
     ? roundMetric(((totalDuration - gpsLost.totalSeconds) / totalDuration) * 100, 2)
@@ -242,6 +243,7 @@ function buildMetrics({ events, positions, session, visits }) {
       minSpeed: speeds.length ? roundMetric(Math.min(...speeds)) : null,
       p95Speed: roundMetric(percentile(speeds, 95)),
       positionCount: orderedPositions.length,
+      pausedTime: paused.totalSeconds,
       stoppedSpeedThresholdMetersPerSecond: STOPPED_SPEED_THRESHOLD_MPS,
       totalDistance: roundMetric(totalDistance),
       totalDuration

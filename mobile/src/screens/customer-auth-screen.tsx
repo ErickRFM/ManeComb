@@ -2,7 +2,6 @@ import { Link, Redirect, router } from '@/src/navigation/router';
 import { useMemo, useRef, useState, type Ref } from 'react';
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,10 +18,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import * as Haptics from '@/src/native/haptics';
 import {
   API_URL,
   getApiErrorMessage,
-  healthRequest,
   validateDriverActivationKeyRequest,
 } from '@/src/api/client';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -41,14 +40,12 @@ type AuthIdentity = {
   displayName: string;
 };
 
-const fasterArtwork = require('../../assets/images/faster.png');
-
 function normalizeIdentity(rawValue: string): AuthIdentity {
   const value = rawValue.trim();
   const normalizedEmail = value.toLowerCase();
 
   if (normalizedEmail.includes('@')) {
-    const displayName = normalizedEmail.split('@')[0]?.replace(/[._-]+/g, ' ').trim() || 'Usuario ManeComb';
+    const displayName = normalizedEmail.split('@')[0]?.replace(/[._-]+/g, ' ').trim() || 'Usuario';
 
     return {
       email: normalizedEmail,
@@ -67,7 +64,7 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 }
 
 export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const { activateDriverWithKey, authContext, isSubmitting, register, signIn, user } = useAppStore(
     useShallow((state) => ({
       activateDriverWithKey: state.activateDriverWithKey,
@@ -89,10 +86,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const [registerIdentity, setRegisterIdentity] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+
   const [rememberSession, setRememberSession] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
   const [helperTone, setHelperTone] = useState<'error' | 'success'>('error');
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isValidatingDriverKey, setIsValidatingDriverKey] = useState(false);
   const driverNameInputRef = useRef<TextInput>(null);
   const identityInputRef = useRef<TextInput>(null);
@@ -103,19 +100,15 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
   const isRegister = mode === 'register';
   const isDriverRegister = isRegister && registerProfile === 'driver';
-  const isShortViewport = height < 720;
+
   const isNarrow = width < 390;
 
   const sizing = useMemo(
     () => ({
       logoSize: isNarrow ? ('md' as const) : ('lg' as const),
-      artworkWidth: isShortViewport ? 142 : 166,
-      artworkHeight: isShortViewport ? 100 : 118,
-      topGap: isShortViewport ? 26 : 70,
-      formGap: isShortViewport ? 16 : 24,
       contentPadding: isNarrow ? 16 : 20,
     }),
-    [isNarrow, isShortViewport]
+    [isNarrow]
   );
 
   if (user) {
@@ -146,7 +139,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
       const result = await signIn(identity.email, loginPassword, rememberSession);
 
       if (!result.ok) {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         setHelperMessage(result.message || 'No fue posible iniciar sesión.');
+      } else {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
       return;
@@ -225,36 +221,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     }
   };
 
-  const handleTestConnection = async () => {
-    setHelperMessage(null);
-    setHelperTone('error');
-    setIsTestingConnection(true);
-    const startedAt = Date.now();
-
-    try {
-      const health = (await healthRequest()) as {
-        mode?: string;
-        status?: string;
-      };
-      const pingMs = Date.now() - startedAt;
-      setHelperTone('success');
-      setHelperMessage(
-        `Conexion OK (${pingMs} ms). Servicio: ${health.status || 'ok'} / ${health.mode || 'online'}.`
-      );
-    } catch (error) {
-      setHelperMessage(
-        `${getApiErrorMessage(error, 'No fue posible probar la conexión.', {
-          apiUrl: API_URL,
-        })}`
-      );
-    } finally {
-      setIsTestingConnection(false);
-    }
-  };
   const scrollContentDynamicStyle = {
     paddingHorizontal: sizing.contentPadding,
     paddingTop: Math.max(18, sizing.contentPadding),
-    paddingBottom: isShortViewport ? 18 : 30,
+    paddingBottom: 22,
   };
 
   return (
@@ -276,21 +246,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               <BrandLogo size={sizing.logoSize} tone="dark" plain />
             </View>
 
-            <View style={[styles.artworkWrap, { marginTop: sizing.topGap }]}>
-              <Image
-                source={fasterArtwork}
-                resizeMode="contain"
-                style={[
-                  styles.artwork,
-                  {
-                    width: sizing.artworkWidth,
-                    height: sizing.artworkHeight,
-                  },
-                ]}
-              />
-            </View>
 
-            <View style={[styles.form, { gap: sizing.formGap }]}>
+
+            <View style={styles.form}>
               <View style={styles.segmentedControl}>
                 <SegmentButton
                   label="Iniciar sesión"
@@ -358,7 +316,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                 />
                 <AuthField
                   label="Contraseña"
-                  placeholder="Ingreso de contraseña"
+                  placeholder="Contraseña"
                   value={isRegister ? registerPassword : loginPassword}
                   onChangeText={isRegister ? setRegisterPassword : setLoginPassword}
                   secureTextEntry
@@ -378,7 +336,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                 {isRegister ? (
                   <AuthField
                     label="Confirmar contraseña"
-                    placeholder="Ingresa nuevamente tu contraseña"
+                    placeholder="Repetir contraseña"
                     value={registerConfirmPassword}
                     onChangeText={setRegisterConfirmPassword}
                     secureTextEntry
@@ -432,12 +390,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     </View>
                     <Text style={styles.smallActionText}>Recordarme</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() =>
-                      setHelperMessage('Contacta al administrador para recuperar tu acceso.')
-                    }>
-                    <Text style={styles.smallActionText}>Recuperar acceso</Text>
-                  </Pressable>
                 </View>
               ) : null}
 
@@ -470,35 +422,18 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                 )}
               </Pressable>
 
-              <Pressable
-                onPress={() => { handleTestConnection(); }}
-                disabled={isSubmitting || isValidatingDriverKey || isTestingConnection}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  pressed && !isSubmitting && !isValidatingDriverKey && !isTestingConnection ? styles.pressed : undefined,
-                  isSubmitting || isValidatingDriverKey || isTestingConnection ? styles.disabled : undefined,
-                ]}>
-                {isTestingConnection ? (
-                  <ActivityIndicator color="#EA1F23" />
-                ) : (
-                  <Text style={styles.secondaryButtonText}>Probar conexión</Text>
-                )}
-              </Pressable>
-
               <View style={styles.legalBlock}>
-                <View style={styles.legalLine}>
-                  <Text style={styles.legalText}>Al iniciar sesión, aceptas nuestros</Text>
+                <Text style={styles.legalText}>
+                  Al continuar, aceptas los{' '}
                   <Link href="/terminos" style={styles.legalLink}>
-                    Terminos y Condiciones
+                    Terminos
                   </Link>
-                  <Text style={styles.legalText}>ademas de</Text>
-                </View>
-                <View style={styles.legalLine}>
-                  <Text style={styles.legalText}>nuestra</Text>
+                  {' '}y la{' '}
                   <Link href="/privacidad" style={styles.legalLink}>
-                    Politica de Privacidad.
+                    Politica de Privacidad
                   </Link>
-                </View>
+                  .
+                </Text>
               </View>
             </View>
           </View>
@@ -632,15 +567,10 @@ const styles = StyleSheet.create({
   brandRow: {
     alignItems: 'flex-start',
   },
-  artworkWrap: {
-    alignItems: 'center',
-  },
-  artwork: {
-    overflow: 'visible',
-  },
   form: {
     marginTop: 'auto',
     paddingTop: 24,
+    gap: 18,
   },
   segmentedControl: {
     minHeight: 42,
@@ -789,22 +719,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 16,
     fontWeight: '500',
-    textAlign: 'center',
-  },
-  secondaryButton: {
-    minHeight: 38,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#EA1F23',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    color: '#EA1F23',
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '700',
     textAlign: 'center',
   },
   legalBlock: {

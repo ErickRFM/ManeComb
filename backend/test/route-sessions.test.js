@@ -76,7 +76,9 @@ function testMetricsEngineScenarios() {
     { eventType: "OFF_ROUTE", timestamp: "2026-01-01T08:03:00.000Z" },
     { eventType: "ON_ROUTE", timestamp: "2026-01-01T08:04:30.000Z" },
     { eventType: "GPS_LOST", timestamp: "2026-01-01T08:08:00.000Z" },
-    { eventType: "GPS_RECOVERED", timestamp: "2026-01-01T08:09:00.000Z" }
+    { eventType: "GPS_RECOVERED", timestamp: "2026-01-01T08:09:00.000Z" },
+    { eventType: "SESSION_PAUSED", timestamp: "2026-01-01T08:02:00.000Z" },
+    { eventType: "SESSION_RESUMED", timestamp: "2026-01-01T08:04:00.000Z" }
   ];
   const visits = [
     { checkpointId: "checkpoint-1", visitOrder: 1, timestamp: "2026-01-01T08:01:00.000Z" },
@@ -89,7 +91,8 @@ function testMetricsEngineScenarios() {
   const metrics = buildMetrics({ events, positions, session, visits });
   assert.equal(metrics.totalDuration, 600);
   assert.equal(metrics.stoppedTime, 180);
-  assert.equal(metrics.movingTime, 420);
+  assert.equal(metrics.movingTime, 300);
+  assert.equal(metrics.metrics.pausedTime, 120);
   assert.equal(metrics.offRouteTime, 90);
   assert.equal(metrics.gpsLostTime, 60);
   assert.equal(metrics.stopEvents, 2);
@@ -204,13 +207,19 @@ async function main() {
       vehicleId: "vehicle-101", status: "RUNNING"
     });
     assert.equal(resumed.data.data.status, "RUNNING");
-    const baseTime = new Date("2026-01-01T08:00:00.000Z");
+    const baseTime = new Date(new Date(session.startedAt).getTime() + 1_000);
     await request(context, "/locations/update", "POST", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.415, longitude: -99.073 }, accuracy: 7,
-      speed: 0,
+      speed: 0, sessionId: session.id, packetId: "gps-packet-1",
       timestamp: baseTime.toISOString()
     });
     assert.equal(persistedPositions, 1);
+    await request(context, "/locations/update", "POST", {
+      vehicleId: "vehicle-101", coordinates: { latitude: 19.415, longitude: -99.073 }, accuracy: 7,
+      speed: 0, sessionId: session.id, packetId: "gps-packet-1",
+      timestamp: baseTime.toISOString()
+    });
+    assert.equal(context.store.listRouteSessionPositions({ sessionId: session.id, limit: 10 }).length, 1);
     await request(context, "/locations/update", "POST", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.4452, longitude: -99.1513 }, accuracy: 9,
       speed: 0,
@@ -266,6 +275,18 @@ async function main() {
     assert.equal(context.store.listRouteSessions({ vehicleId: "vehicle-101" }).length, 1);
     const finishedEvents = await request(context, `/navigation/sessions/${session.id}/events?type=SESSION_FINISHED`);
     assert.equal(finishedEvents.data.data.length, 1);
+    const latePacket = {
+      vehicleId: "vehicle-101",
+      sessionId: "pending:vehicle-101",
+      packetId: "late-gps-packet-01",
+      coordinates: { latitude: 19.416, longitude: -99.074 },
+      accuracy: 10,
+      speed: 2,
+      timestamp: session.startedAt
+    };
+    assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
+    assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
+    assert.equal(context.store.listRouteSessionPositions({ sessionId: session.id, limit: 20 }).length, 5);
 
     const persistedSession = context.store.getRouteSessionById(session.id);
     assert.equal(persistedSession.statisticsReady, true);
@@ -276,7 +297,7 @@ async function main() {
     assert.equal(persistedSession.gpsLostEvents, 1);
     assert.equal(persistedSession.offRouteEvents, 1);
     assert.equal(persistedSession.completedCheckpoints, 1);
-    assert.equal(persistedSession.metrics.positionCount, 4);
+    assert.equal(persistedSession.metrics.positionCount, 5);
     assert.equal(persistedSession.metrics.gpsQuality.counts.BAD, 1);
 
     const metricsResponse = await request(context, `/navigation/sessions/${session.id}/metrics`);
@@ -284,7 +305,7 @@ async function main() {
     assert.equal(metricsResponse.data.data.statisticsReady, true);
     assert.equal(metricsResponse.data.data.processingStatus, "COMPLETED");
     assert.equal(metricsResponse.data.data.sessionId, session.id);
-    assert.equal(metricsResponse.data.data.metrics.positionCount, 4);
+    assert.equal(metricsResponse.data.data.metrics.positionCount, 5);
 
     const historyResponse = await request(context, "/navigation/sessions/history?vehicleId=vehicle-101&status=FINISHED");
     assert.equal(historyResponse.status, 200);

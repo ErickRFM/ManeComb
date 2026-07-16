@@ -1,8 +1,10 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import * as Haptics from '@/src/native/haptics';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   PanResponder,
   Modal,
@@ -15,16 +17,17 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
+import { isAxiosError } from 'axios';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { assignVehicleRouteRequest, clearAssignedVehicleRouteRequest, createNavigationRouteRequest, getActiveRouteSessionRequest, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
+import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionCheckpointVisitsRequest, getRouteSessionEventsRequest, getRouteSessionHistoryRequest, getRouteSessionMetricsRequest, startRouteSessionRequest, updateNavigationRouteRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import { useUserLocation } from '@/src/hooks/use-user-location';
 import { useAppStore } from '@/src/store/use-app-store';
+import { enqueuePendingSyncOperation } from '@/src/api/offline-cache';
 import type {
   AssignedRoute,
   FleetControlLog,
@@ -62,15 +65,24 @@ type OperationalRecord = {
 type FinalizedRouteSummary = {
   distanceLabel: string;
   durationLabel: string;
+  movingTimeLabel: string;
+  stoppedTimeLabel: string;
   finishedAt: string;
   originLabel: string;
   destinationLabel: string;
   stopCount: number;
+  lapCount: number;
+  eventCount: number;
+  incidentCount: number;
   vehicleId: string;
 } | null;
 
 const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
 const MANECOMB_ROUTE_COLOR = '#E31E24';
+
+function isOfflineError(error: unknown) {
+  return isAxiosError(error) && !error.response;
+}
 
 function RouteSlider({ label, disabled, onComplete }: { label: string; disabled?: boolean; onComplete: () => void }) {
   const offset = useRef(new Animated.Value(0)).current;
@@ -144,16 +156,16 @@ function getActiveLog(logs: FleetControlLog[], vehicleId: string) {
   return logs.find((log) => log.vehicleId === vehicleId && log.status !== 'completed') || null;
 }
 
-function getVehicleOperationalStatus(vehicle: Vehicle, manualLog: FleetControlLog | null): OperationalStatus {
-  if (manualLog?.status === 'completed') {
+function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlLog | null): OperationalStatus {
+  if (sessionLog?.status === 'completed') {
     return 'completed';
   }
 
-  if (manualLog?.status === 'delayed') {
+  if (sessionLog?.status === 'delayed') {
     return 'delayed';
   }
 
-  if (manualLog?.status === 'active') {
+  if (sessionLog?.status === 'active') {
     return vehicle.delayMinutes > 0 ? 'delayed' : 'active';
   }
 
@@ -164,9 +176,9 @@ function getVehicleOperationalStatus(vehicle: Vehicle, manualLog: FleetControlLo
   return 'available';
 }
 
-function buildOperationalRecord(vehicle: Vehicle, manualLogs: FleetControlLog[]): OperationalRecord {
-  const latestLog = getLatestLog(manualLogs, vehicle.id);
-  const activeLog = getActiveLog(manualLogs, vehicle.id);
+function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[]): OperationalRecord {
+  const latestLog = getLatestLog(sessionLogs, vehicle.id);
+  const activeLog = getActiveLog(sessionLogs, vehicle.id);
   const status = getVehicleOperationalStatus(vehicle, activeLog || latestLog);
   const activeRoute = buildActiveRouteSnapshot({ vehicle });
   const departureAt = activeLog?.departureAt || latestLog?.departureAt || null;
@@ -863,7 +875,7 @@ function createStyles(
       paddingHorizontal: 12,
     },
     routePreview: {
-      height: 230,
+      height: isPhone ? 170 : 230,
       borderRadius: 22,
       overflow: 'hidden',
       backgroundColor: theme.mode === 'light' ? '#F2F6FB' : '#101A27',
@@ -1083,7 +1095,13 @@ function createStyles(
     savedRoutesList: {
       gap: 8,
     },
+    savedRouteRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
     savedRouteButton: {
+      flex: 1,
       minHeight: 42,
       borderRadius: 14,
       borderWidth: 1,
@@ -1093,6 +1111,16 @@ function createStyles(
       alignItems: 'center',
       gap: 8,
       paddingHorizontal: 12,
+    },
+    savedRouteDelete: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.danger,
+      backgroundColor: theme.colors.dangerSoft,
     },
     savedRouteName: {
       flex: 1,
@@ -1253,23 +1281,25 @@ export function ChecklistScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1120;
   const isPhone = width < 640;
-  const { coordinates } = useUserLocation();
-  const { activeRouteSession: syncedActiveSession, mapData, refreshAll, user } = useAppStore(
+  const { activeRouteSession: syncedActiveSession, coordinates, incidents, mapData, refreshAll, sessionHistory, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
       activeRouteSession: state.activeRouteSession,
+      coordinates: state.deviceLocation.coordinates,
+      incidents: state.incidents,
       refreshAll: state.refreshAll,
+      sessionHistory: state.routeSessionHistory,
       user: state.user,
     }))
   );
   const params = useLocalSearchParams();
-  const [manualLogs, setManualLogs] = useState<FleetControlLog[]>([]);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
   const [routeNameDraft, setRouteNameDraft] = useState('');
   const [routeNamePromptOpen, setRouteNamePromptOpen] = useState(false);
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [isChangingSession, setIsChangingSession] = useState(false);
@@ -1277,13 +1307,41 @@ export function ChecklistScreen() {
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   const vehicles = useMemo(
-    () => [...(mapData?.vehicles || [])].sort((left, right) => left.code.localeCompare(right.code)),
-    [mapData?.vehicles]
+    () => [...(mapData?.vehicles || [])]
+      .filter((vehicle) => user?.role !== 'driver' || vehicle.id === user.vehicleId)
+      .sort((left, right) => left.code.localeCompare(right.code)),
+    [mapData?.vehicles, user?.role, user?.vehicleId]
   );
   const savedRoutes = useMemo(
     () => [...(mapData?.routes || [])].sort((left, right) => left.name.localeCompare(right.name)),
     [mapData?.routes]
   );
+  const persistentLogs = useMemo<FleetControlLog[]>(
+    () => sessionHistory.map((session) => {
+      const vehicle = vehicles.find((entry) => entry.id === session.vehicleId);
+      return {
+        id: session.id,
+        vehicleId: session.vehicleId,
+        vehicleCode: vehicle?.code || session.vehicleId,
+        driverName: vehicle?.driverName || 'Operador sin asignar',
+        departureAt: session.startedAt,
+        arrivalAt: session.finishedAt,
+        status: session.status === 'FINISHED' || session.status === 'CANCELLED' ? 'completed' : 'active',
+      };
+    }),
+    [sessionHistory, vehicles]
+  );
+  const loadSessionHistory = useCallback(async () => {
+    try {
+      useAppStore.setState({ routeSessionHistory: await getRouteSessionHistoryRequest({ limit: 500 }) });
+    } catch {
+      // Never replace persisted history with volatile records when the API is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) loadSessionHistory();
+  }, [loadSessionHistory, user]);
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
   const selectedAssignedRoute = useMemo<AssignedRoute | null>(
@@ -1361,9 +1419,17 @@ export function ChecklistScreen() {
   }, [routeModalOpen, selectedVehicle]);
 
   useEffect(() => {
+    const requestedVehicleId = String(params.vehicleId || '').trim();
+    if (requestedVehicleId && vehicles.some((vehicle) => vehicle.id === requestedVehicleId)) {
+      setSelectedVehicleId(requestedVehicleId);
+    }
+  }, [params.vehicleId, vehicles]);
+
+  useEffect(() => {
     const actionValue = String(params.action || '').trim();
     const returnToMap = String(params.returnToMap || '').trim();
     if (!actionValue || !selectedVehicle || routeModalOpen) return;
+    if (params.vehicleId && String(params.vehicleId) !== selectedVehicle.id) return;
 
     const actionKey = `${actionValue}:${selectedVehicle.id}`;
     if (processedActionRef.current === actionKey) return;
@@ -1425,6 +1491,8 @@ export function ChecklistScreen() {
     ? 'navigation'
     : isRoutePaused
       ? 'paused'
+      : editingRouteId
+        ? 'editing'
       : isCalculatedRouteSaved
         ? 'ready'
         : hasDraftRoute
@@ -1473,14 +1541,14 @@ export function ChecklistScreen() {
   const destinationLabel = getPlaceLabel(tracker.pointSelection.destination, 'Punto final');
   const routeHeaderSubtitle =
     routeUiState === 'empty'
-      ? 'Sin ruta creada'
+      ? 'Gestion de rutas'
       : routeUiState === 'finalized'
         ? 'Resumen de la ultima ruta'
         : `${originLabel} - ${destinationLabel}`;
 
   const records = useMemo(
-    () => vehicles.map((vehicle) => buildOperationalRecord(vehicle, manualLogs)),
-    [manualLogs, vehicles]
+    () => vehicles.map((vehicle) => buildOperationalRecord(vehicle, persistentLogs)),
+    [persistentLogs, vehicles]
   );
   const filteredRecords = useMemo(
     () =>
@@ -1497,60 +1565,56 @@ export function ChecklistScreen() {
   );
 
   const finishTrip = async (vehicle: Vehicle) => {
-    const activeLog = getActiveLog(manualLogs, vehicle.id);
-    const summary: NonNullable<FinalizedRouteSummary> = {
-      destinationLabel,
-      distanceLabel: formatDistance(routeDistanceMeters),
-      durationLabel: routeDurationSeconds ? formatDuration(routeDurationSeconds) : '--',
-      finishedAt: new Date().toISOString(),
-      originLabel,
-      stopCount: waypointCount,
-      vehicleId: vehicle.id,
-    };
-
-    if (activeLog) {
-      setManualLogs((current) =>
-        current.map((log) =>
-          log.id === activeLog.id
-            ? { ...log, status: 'completed', arrivalAt: new Date().toISOString() }
-            : log
-        )
-      );
-    } else {
-      setManualLogs((current) => [
-        {
-          id: `fleet-log-${Date.now()}`,
-          vehicleId: vehicle.id,
-          vehicleCode: vehicle.code,
-          driverName: vehicle.driverName || 'Operador sin asignar',
-          departureAt: vehicle.updatedAt || new Date().toISOString(),
-          arrivalAt: new Date().toISOString(),
-          status: 'completed',
-        },
-        ...current,
-      ]);
-    }
-
-    if (!normalizeAssignedRoute(vehicle.assignedRoute)) {
-      if (selectedVehicle?.id === vehicle.id) {
-        tracker.resetPointToPointSession();
-        setFinalizedRouteSummary(summary);
-      }
-      return;
-    }
+    if (!activeSession || !normalizeAssignedRoute(vehicle.assignedRoute)) return;
 
     try {
-      if (activeSession) {
-        await updateRouteSessionStatusRequest(activeSession.id, vehicle.id, 'FINISHED');
-      }
+      const finishedSession = await updateRouteSessionStatusRequest(activeSession.id, vehicle.id, 'FINISHED');
+      const [metrics, events, checkpoints] = await Promise.all([
+        getRouteSessionMetricsRequest(finishedSession.id),
+        getRouteSessionEventsRequest(finishedSession.id, { limit: 2000 }),
+        getRouteSessionCheckpointVisitsRequest(finishedSession.id, 2000),
+      ]);
+      const finishedAt = finishedSession.finishedAt || new Date().toISOString();
+      const incidentCount = incidents.filter((incident) =>
+        incident.vehicleId === vehicle.id &&
+        new Date(incident.createdAt).getTime() >= new Date(finishedSession.startedAt).getTime() &&
+        new Date(incident.createdAt).getTime() <= new Date(finishedAt).getTime()
+      ).length;
+      const summary: NonNullable<FinalizedRouteSummary> = {
+        destinationLabel,
+        distanceLabel: formatDistance(metrics.totalDistance || 0),
+        durationLabel: typeof metrics.totalDuration === 'number' ? formatDuration(metrics.totalDuration) : '--',
+        movingTimeLabel: typeof metrics.movingTime === 'number' ? formatDuration(metrics.movingTime) : '--',
+        stoppedTimeLabel: typeof metrics.stoppedTime === 'number' ? formatDuration(metrics.stoppedTime) : '--',
+        finishedAt,
+        originLabel,
+        stopCount: metrics.stopEvents ?? checkpoints.length,
+        lapCount: metrics.completedLaps || 0,
+        eventCount: events.length,
+        incidentCount,
+        vehicleId: vehicle.id,
+      };
       setActiveSession(null);
-      await refreshAll();
+      useAppStore.setState({ activeRouteSession: null });
+      await Promise.all([refreshAll(), loadSessionHistory()]);
 
       if (selectedVehicle?.id === vehicle.id) {
         tracker.resetPointToPointSession();
         setFinalizedRouteSummary(summary);
       }
-    } catch {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } catch (error) {
+      if (isOfflineError(error)) {
+        await enqueuePendingSyncOperation({
+          type: 'control:sessionStatus',
+          payload: { sessionId: activeSession.id.startsWith('pending:') ? null : activeSession.id, vehicleId: vehicle.id, status: 'FINISHED' },
+        });
+        setActiveSession(null);
+        useAppStore.setState({ activeRouteSession: null });
+        tracker.resetPointToPointSession();
+        tracker.setPointMessage('Finalizacion guardada. Se confirmara y cargara desde el servidor al recuperar conexion.');
+        return;
+      }
       tracker.setPointMessage('No fue posible finalizar la jornada.');
     }
   };
@@ -1561,9 +1625,32 @@ export function ChecklistScreen() {
     try {
       const session = await startRouteSessionRequest(selectedVehicle.id);
       setActiveSession(session);
+      useAppStore.setState({ activeRouteSession: session });
       restoredSessionIdRef.current = session.id;
       tracker.restoreTrackerSession({ startedAt: session.startedAt, status: 'RUNNING', vehicleId: session.vehicleId });
-    } catch {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (error) {
+      if (isOfflineError(error)) {
+        await enqueuePendingSyncOperation({ type: 'control:sessionStart', payload: { vehicleId: selectedVehicle.id } });
+        const now = new Date().toISOString();
+        const pendingSession: RouteSession = {
+          id: `pending:${selectedVehicle.id}`,
+          organizationId: user?.organizationId || '',
+          routeId: selectedVehicle.routeId || '',
+          vehicleId: selectedVehicle.id,
+          driverId: selectedVehicle.driverId || user?.id || '',
+          startedAt: now,
+          finishedAt: null,
+          status: 'RUNNING',
+          createdAt: now,
+          updatedAt: now,
+        };
+        setActiveSession(pendingSession);
+        useAppStore.setState({ activeRouteSession: pendingSession });
+        tracker.restoreTrackerSession({ startedAt: now, status: 'RUNNING', vehicleId: selectedVehicle.id });
+        tracker.setPointMessage('Inicio guardado. Se sincronizara al recuperar conexion.');
+        return;
+      }
       tracker.setPointMessage('No fue posible iniciar la jornada.');
     } finally {
       setIsChangingSession(false);
@@ -1575,9 +1662,27 @@ export function ChecklistScreen() {
     setIsChangingSession(true);
     try {
       const nextStatus = activeSession.status === 'PAUSED' ? 'RUNNING' : 'PAUSED';
-      setActiveSession(await updateRouteSessionStatusRequest(activeSession.id, selectedVehicle.id, nextStatus));
+      const updatedSession = await updateRouteSessionStatusRequest(activeSession.id, selectedVehicle.id, nextStatus);
+      setActiveSession(updatedSession);
+      useAppStore.setState({ activeRouteSession: updatedSession });
       tracker.toggleTracker();
-    } catch {
+      await Haptics.impactAsync(
+        nextStatus === 'PAUSED' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
+      );
+    } catch (error) {
+      if (isOfflineError(error)) {
+        const nextStatus: 'RUNNING' | 'PAUSED' = activeSession.status === 'PAUSED' ? 'RUNNING' : 'PAUSED';
+        await enqueuePendingSyncOperation({
+          type: 'control:sessionStatus',
+          payload: { sessionId: activeSession.id.startsWith('pending:') ? null : activeSession.id, vehicleId: selectedVehicle.id, status: nextStatus },
+        });
+        const pendingSession = { ...activeSession, status: nextStatus, updatedAt: new Date().toISOString() };
+        setActiveSession(pendingSession);
+        useAppStore.setState({ activeRouteSession: pendingSession });
+        tracker.toggleTracker();
+        tracker.setPointMessage(`${nextStatus === 'PAUSED' ? 'Pausa' : 'Reanudacion'} guardada para sincronizar.`);
+        return;
+      }
       tracker.setPointMessage('No fue posible cambiar el estado de la jornada.');
     } finally {
       setIsChangingSession(false);
@@ -1617,6 +1722,7 @@ export function ChecklistScreen() {
     pendingStopPersistRef.current = false;
     setRouteNamePromptOpen(false);
     setRouteNameDraft('');
+    setEditingRouteId(null);
     setFinalizedRouteSummary(null);
     trackerState.resetPointToPointSession();
     syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
@@ -1673,14 +1779,15 @@ export function ChecklistScreen() {
       return;
     }
 
-    if (isCalculatedRouteSaved) {
+    if (isCalculatedRouteSaved && !editingRouteId) {
       trackerState.setPointMessage('La ruta ya esta guardada para esta unidad.');
       return;
     }
 
-    setRouteNameDraft(route.label && route.label !== 'Ruta recomendada' ? route.label : '');
+    const savedRoute = editingRouteId ? savedRoutes.find((entry) => entry.id === editingRouteId) : null;
+    setRouteNameDraft(savedRoute?.name || (route.label && route.label !== 'Ruta recomendada' ? route.label : ''));
     setRouteNamePromptOpen(true);
-  }, [isCalculatedRouteSaved, selectedVehicle?.id]);
+  }, [editingRouteId, isCalculatedRouteSaved, savedRoutes, selectedVehicle?.id]);
 
   const saveAssignedRoute = useCallback(async () => {
     const trackerState = trackerRef.current;
@@ -1703,13 +1810,16 @@ export function ChecklistScreen() {
     setFinalizedRouteSummary(null);
 
     try {
-      const savedRoute = await createNavigationRouteRequest({
+      const payload = {
         name: routeName,
         origin: origin.location,
         destination: destination.location,
         route,
         stops: trackerState.pointStops,
-      });
+      };
+      const savedRoute = editingRouteId
+        ? await updateNavigationRouteRequest(editingRouteId, payload)
+        : await createNavigationRouteRequest(payload);
       await assignVehicleRouteRequest({
         vehicleId: selectedVehicle.id,
         routeId: savedRoute.id,
@@ -1717,13 +1827,14 @@ export function ChecklistScreen() {
       await refreshAll();
       setRouteNamePromptOpen(false);
       setRouteNameDraft('');
-      trackerState.setPointMessage('Ruta guardada y asignada a la unidad.');
+      setEditingRouteId(null);
+      trackerState.setPointMessage(editingRouteId ? 'Ruta actualizada y asignada a la unidad.' : 'Ruta guardada y asignada a la unidad.');
     } catch {
       trackerState.setPointMessage('No fue posible guardar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [refreshAll, routeNameDraft, selectedVehicle?.id]);
+  }, [editingRouteId, refreshAll, routeNameDraft, selectedVehicle?.id]);
 
   const assignSavedRoute = useCallback(async (route: RouteShape) => {
     if (!selectedVehicle?.id) {
@@ -1746,6 +1857,32 @@ export function ChecklistScreen() {
       setIsSavingAssignedRoute(false);
     }
   }, [refreshAll, selectedVehicle?.id]);
+
+  const deleteSavedRoute = useCallback((route: RouteShape) => {
+    Alert.alert(
+      'Eliminar ruta',
+      `Se eliminara ${route.name} y se limpiara de las unidades asignadas.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSavingAssignedRoute(true);
+            try {
+              await deleteNavigationRouteRequest(route.id);
+              await refreshAll();
+              trackerRef.current.setPointMessage(`Ruta ${route.name} eliminada.`);
+            } catch {
+              trackerRef.current.setPointMessage('No fue posible eliminar la ruta.');
+            } finally {
+              setIsSavingAssignedRoute(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [refreshAll]);
 
   const navParams = useLocalSearchParams<{
     vehicleId?: string;
@@ -1966,21 +2103,15 @@ export function ChecklistScreen() {
     tracker.pointPlan,
   ]);
 
-  const editAssignedRoute = useCallback(async () => {
-    if (!selectedVehicle?.id) {
+  const editAssignedRoute = useCallback(() => {
+    if (!selectedVehicle?.id || !selectedVehicle.routeId) {
       return;
     }
 
     setFinalizedRouteSummary(null);
-
-    try {
-      await clearAssignedVehicleRouteRequest(selectedVehicle.id);
-      await refreshAll();
-      syncedVehicleRouteRef.current = `${selectedVehicle.id}:empty`;
-    } catch {
-      tracker.setPointMessage('No fue posible desbloquear la ruta.');
-    }
-  }, [refreshAll, selectedVehicle?.id, tracker]);
+    setEditingRouteId(selectedVehicle.routeId);
+    tracker.setPointMessage('Edita la ruta y guarda los cambios sobre la misma ruta.');
+  }, [selectedVehicle?.id, selectedVehicle?.routeId, tracker]);
 
   if (!user || !mapData) {
     return (
@@ -1996,7 +2127,6 @@ export function ChecklistScreen() {
       mobileTitle="Checklist"
       header={
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>SISTEMA DE CONTROL</Text>
           <Text style={styles.title}>Checklist</Text>
         </View>
       }>
@@ -2104,10 +2234,7 @@ export function ChecklistScreen() {
           ) : (
             <View style={styles.emptyState}>
               <MaterialCommunityIcons name="clipboard-check-outline" size={28} color={theme.colors.muted} />
-              <Text style={styles.emptyTitle}>Sin registros filtrados</Text>
-              <Text style={styles.emptyBody}>
-                Ajusta la busqueda o cambia el filtro para encontrar salidas y llegadas.
-              </Text>
+              <Text style={styles.emptyTitle}>Sin registros</Text>
             </View>
           )}
         </View>
@@ -2129,33 +2256,27 @@ export function ChecklistScreen() {
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' ? (
-                <>
-                  <RoutePreview
-                    points={[]}
-                    route={null}
-                    vehicle={selectedVehicle}
-                    onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
-                  />
-                  <View style={styles.configCard}>
-                    <View style={styles.configTitleRow}>
-                      <Text style={styles.configTitle}>Sin ruta creada</Text>
-                      <StatusPill label={routeStateLabel} tone="neutral" />
-                    </View>
-                    <Text style={styles.messageText}>
-                      Esta unidad no tiene una ruta punto a punto activa.
-                    </Text>
+                <View style={styles.configCard}>
                     {savedRoutes.length ? (
                       <View style={styles.savedRoutesList}>
                         <Text style={styles.fieldLabel}>Rutas guardadas</Text>
                         {savedRoutes.map((route) => (
-                          <Pressable
-                            key={route.id}
-                            style={styles.savedRouteButton}
-                            onPress={() => assignSavedRoute(route)}
-                            disabled={isSavingAssignedRoute}>
-                            <MaterialCommunityIcons name="routes" size={17} color={theme.colors.text} />
-                            <Text style={styles.savedRouteName} numberOfLines={1}>{route.name}</Text>
-                          </Pressable>
+                          <View key={route.id} style={styles.savedRouteRow}>
+                            <Pressable
+                              style={styles.savedRouteButton}
+                              onPress={() => assignSavedRoute(route)}
+                              disabled={isSavingAssignedRoute}>
+                              <MaterialCommunityIcons name="routes" size={17} color={theme.colors.text} />
+                              <Text style={styles.savedRouteName} numberOfLines={1}>{route.name}</Text>
+                            </Pressable>
+                            <Pressable
+                              style={styles.savedRouteDelete}
+                              onPress={() => deleteSavedRoute(route)}
+                              disabled={isSavingAssignedRoute}
+                              accessibilityLabel={`Eliminar ruta ${route.name}`}>
+                              <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
+                            </Pressable>
+                          </View>
                         ))}
                       </View>
                     ) : null}
@@ -2165,8 +2286,7 @@ export function ChecklistScreen() {
                       <MaterialCommunityIcons name="map-plus" size={18} color="#FFFFFF" />
                       <Text style={styles.primaryWideText}>Crear ruta</Text>
                     </Pressable>
-                  </View>
-                </>
+                </View>
               ) : null}
 
               {routeUiState === 'editing' ? (
@@ -2334,7 +2454,6 @@ export function ChecklistScreen() {
                     points={routeStops}
                     route={routeOption}
                     vehicle={selectedVehicle}
-                    onPress={() => undefined}
                   />
                   <View style={styles.progressCard}>
                     <View style={styles.progressTop}>
@@ -2420,14 +2539,17 @@ export function ChecklistScreen() {
                       <Text style={styles.summaryValue}>{finalizedRouteSummary.distanceLabel}</Text>
                     </View>
                     <View style={styles.routeSummaryItem}>
-                      <Text style={styles.summaryLabel}>Paradas</Text>
-                      <Text style={styles.summaryValue}>{finalizedRouteSummary.stopCount}</Text>
+                      <Text style={styles.summaryLabel}>Vueltas</Text>
+                      <Text style={styles.summaryValue}>{finalizedRouteSummary.lapCount}</Text>
                     </View>
                     <View style={styles.routeSummaryItem}>
-                      <Text style={styles.summaryLabel}>Estimado</Text>
+                      <Text style={styles.summaryLabel}>Duracion real</Text>
                       <Text style={styles.summaryValue}>{finalizedRouteSummary.durationLabel}</Text>
                     </View>
                   </View>
+                  <Text style={styles.messageText}>
+                    {`Movimiento ${finalizedRouteSummary.movingTimeLabel} · Detenido ${finalizedRouteSummary.stoppedTimeLabel} · Paradas ${finalizedRouteSummary.stopCount} · Eventos ${finalizedRouteSummary.eventCount} · Incidencias ${finalizedRouteSummary.incidentCount}`}
+                  </Text>
                   <View style={styles.routeEndpoints}>
                     <Text style={styles.fieldLabel}>Origen</Text>
                     <Text style={styles.endpointText} numberOfLines={1}>{finalizedRouteSummary.originLabel}</Text>

@@ -40,8 +40,8 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderRadius: DesignSystem.radius.card,
-    padding: DesignSystem.spacing.md,
-    gap: DesignSystem.spacing.sm,
+    padding: 12,
+    gap: 8,
     minWidth: 0,
   },
 });

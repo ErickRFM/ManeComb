@@ -349,6 +349,23 @@ function registerSocketServer(server, store) {
         socket.join(`account:${resolvedAccountType}`);
       }
 
+      socket.data.presenceJoined = true;
+      const onlineUserIds = Array.from(io.sockets.sockets.values())
+        .filter(
+          (candidate) =>
+            candidate.data.presenceJoined &&
+            getOrganizationId(candidate.data.user) === resolvedOrganizationId
+        )
+        .map((candidate) => candidate.data.user?.id)
+        .filter(Boolean);
+      socket.emit("presence:snapshot", { userIds: [...new Set(onlineUserIds)] });
+      if (resolvedOrganizationId && resolvedUserId) {
+        io.to(`org:${resolvedOrganizationId}`).emit("presence:updated", {
+          userId: resolvedUserId,
+          status: "online"
+        });
+      }
+
       acknowledge(ack, {
         ok: true,
         packetId: String(payload?.packetId || ""),
@@ -814,9 +831,19 @@ function registerSocketServer(server, store) {
       socket.to(`conversation:${conversationId}`).emit("chat:delivered", { conversationId, messageId, userId });
     });
 
-    socket.on("chat:read", ({ conversationId, messageId, userId } = {}) => {
-      if (!conversationId || !messageId || !userId) return;
-      socket.to(`conversation:${conversationId}`).emit("chat:read", { conversationId, messageId, userId });
+    socket.on("chat:read", async ({ conversationId, messageId } = {}, ack) => {
+      const userId = socket.data.user?.id;
+      if (!conversationId || !messageId || !userId) {
+        acknowledge(ack, { ok: false, error: "unauthorized_or_invalid_payload" });
+        return;
+      }
+      const message = await store.markConversationMessageRead?.(conversationId, messageId, userId);
+      if (!message) {
+        acknowledge(ack, { ok: false, error: "message_not_found" });
+        return;
+      }
+      io.to(`conversation:${conversationId}`).emit("chat:read", { conversationId, messageId, userId });
+      acknowledge(ack, { ok: true });
     });
 
     socket.on("chat:send", async ({ conversationId, senderId, text, ...payload } = {}, ack) => {
@@ -1028,6 +1055,20 @@ function registerSocketServer(server, store) {
         status: "disconnected",
         userId: socket.data.user?.id
       });
+      const disconnectedUserId = socket.data.user?.id;
+      const disconnectedOrganizationId = getOrganizationId(socket.data.user);
+      const hasAnotherPresenceSocket = Array.from(io.sockets.sockets.values()).some(
+        (candidate) =>
+          candidate.id !== socket.id &&
+          candidate.data.presenceJoined &&
+          candidate.data.user?.id === disconnectedUserId
+      );
+      if (socket.data.presenceJoined && disconnectedOrganizationId && disconnectedUserId && !hasAnotherPresenceSocket) {
+        io.to(`org:${disconnectedOrganizationId}`).emit("presence:updated", {
+          userId: disconnectedUserId,
+          status: "offline"
+        });
+      }
       const joinedRtcRoomIds = Array.from(rtcRooms.keys()).filter((roomId) =>
         isSocketInRtcRoom(socket, roomId)
       );

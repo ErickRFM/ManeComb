@@ -614,6 +614,8 @@ function createEmbeddedStore() {
               ? text || "Video"
               : text),
       audioUrl: String(safeInput.audioUrl || "").trim() || null,
+      imageUrl: String(safeInput.imageUrl || "").trim() || null,
+      videoUrl: String(safeInput.videoUrl || "").trim() || null,
       transcript: String(safeInput.transcript || "").trim(),
       durationSeconds: Math.max(0, Number(safeInput.durationSeconds) || 0),
       mimeType: String(safeInput.mimeType || "").trim(),
@@ -623,6 +625,9 @@ function createEmbeddedStore() {
           ? clone(safeInput.e2eeEnvelope)
           : null,
       encrypted: Boolean(safeInput.e2eeEnvelope || safeInput.encrypted),
+      status: ["sent", "delivered", "read", "failed"].includes(safeInput.status)
+        ? safeInput.status
+        : "sent",
       createdAt: safeInput.createdAt || new Date().toISOString()
     };
   }
@@ -1715,7 +1720,7 @@ function createEmbeddedStore() {
       ownerAccountEmail: String(payload.ownerAccountEmail || payload.email || "")
         .trim()
         .toLowerCase(),
-      accountStatus: String(payload.accountStatus || "lead").trim() || "lead",
+      accountStatus: String(payload.accountStatus || "registered").trim() || "registered",
       organizationId: resolveOrganizationId(payload, payload.ownerAccountEmail || payload.email),
       organizationSlug: String(payload.organizationSlug || payload.companyName || "")
         .trim()
@@ -2241,8 +2246,25 @@ function createEmbeddedStore() {
       .some(
         (conversation) =>
           canUserAccessConversation(userId, conversation) &&
-          getStoredConversationMessages(conversation.id).some((message) => message.audioUrl === mediaPath)
+          getStoredConversationMessages(conversation.id).some(
+            (message) =>
+              message.audioUrl === mediaPath ||
+              message.imageUrl === mediaPath ||
+              message.videoUrl === mediaPath
+          )
       );
+  }
+
+  function markConversationMessageRead(conversationId, messageId, userId) {
+    const conversation = getConversationById(conversationId);
+    if (!canUserAccessConversation(userId, conversation)) return null;
+    const message = getStoredConversationMessages(conversationId).find(
+      (entry) => entry.id === messageId
+    );
+    if (!message) return null;
+    message.status = "read";
+    conversation.unreadBy[userId] = 0;
+    return clone(serializeConversationMessage(message, conversationId));
   }
 
   function listChatContactsForUser(userId) {
@@ -2533,6 +2555,12 @@ function createEmbeddedStore() {
   }
 
   function createRouteSessionPosition(payload) {
+    if (payload.packetId) {
+      const existing = state.routeSessionPositions.find(
+        (entry) => entry.sessionId === payload.sessionId && entry.packetId === payload.packetId
+      );
+      if (existing) return { ...clone(existing), duplicateSkipped: true };
+    }
     const position = { id: randomUUID(), ...clone(payload), createdAt: new Date().toISOString() };
     state.routeSessionPositions.push(position);
     return clone(position);
@@ -2668,6 +2696,7 @@ function createEmbeddedStore() {
     getMessages,
     getNotificationsForUser,
     getOperationalInsights,
+    getRouteById,
     getUserE2eeBackup,
     getUserById,
     getUserProfile,
@@ -2685,6 +2714,7 @@ function createEmbeddedStore() {
     listRtcSessions,
     listTripLogs,
     markNotificationAsRead,
+    markConversationMessageRead,
     markActivationKeyUsed,
     recordAppEvent,
     registerPushSubscription,

@@ -329,7 +329,7 @@ export function ProfileEditScreen() {
     <AppShell
       sectionKey="perfil"
       mobileTitle="Editar perfil"
-      mobileSubtitle="Datos, acceso, facturacion y cobro mejor separados."
+
       mobileBadges={[
         { label: formatRole(user.role), tone: 'info' },
         { label: 'Cuenta activa', tone: 'positive' },
@@ -352,9 +352,7 @@ export function ProfileEditScreen() {
             <Text style={styles.backButtonText}>Volver a perfil</Text>
           </Pressable>
           <Text style={styles.title}>Editar perfil</Text>
-          <Text style={styles.subtitle}>
-            Ajusta foto, contacto y acceso desde una vista dedicada para que el perfil principal se mantenga limpio.
-          </Text>
+
         </View>
       }>
       <AppCard style={styles.editorCard}>
@@ -374,13 +372,7 @@ export function ProfileEditScreen() {
           <View style={styles.identityBlock}>
             <Text style={styles.userName}>{profileForm.name || user.name}</Text>
             <Text style={styles.userMeta}>{formatRole(user.role)}</Text>
-            <Text style={styles.identityText}>
-              Los cambios se reflejan en tu cuenta, chat, perfil y vistas operativas sin tocar el login.
-            </Text>
-            <View style={styles.identityPills}>
-              <StatusPill label="Cuenta activa" tone="info" />
-              <StatusPill label="Vista dedicada" tone="positive" />
-            </View>
+
           </View>
         </View>
 
@@ -416,7 +408,7 @@ export function ProfileEditScreen() {
             label="Nueva contrasena"
             value={profileForm.password}
             onChangeText={(value) => updateField('password', value)}
-            placeholder="Deja vacio para conservar la actual"
+            placeholder="Nueva contrasena"
             secureTextEntry
           />
           {profileForm.password.trim() ? (
@@ -433,9 +425,7 @@ export function ProfileEditScreen() {
                 ]}>
                 {passwordStrength.label}
               </Text>
-              <Text style={styles.passwordHelperText}>
-                Usa letras, numeros y un caracter especial para proteger el acceso.
-              </Text>
+
             </View>
           ) : null}
         </View>
@@ -489,9 +479,7 @@ export function ProfileEditScreen() {
             sectionsRef.current.payment = e.target;
           }}>
           <Text style={styles.sectionHeading}>Metodo de pago</Text>
-          <Text style={styles.sectionCaption}>
-            Guardamos solo una referencia de cobro. El pago real se completa desde el portal web.
-          </Text>
+
           <View style={styles.methodRow}>
             {[
               { id: 'spei', label: 'SPEI' },
@@ -576,9 +564,7 @@ export function ProfileEditScreen() {
             sectionsRef.current.schedule = e.target;
           }}>
           <Text style={styles.sectionHeading}>Horario operativo</Text>
-          <Text style={styles.sectionCaption}>
-            Controla cuando la app puede operar GPS y radio. Si lo dejas vacio, se conserva el comportamiento actual.
-          </Text>
+
           <View style={styles.identityPills}>
             <StatusPill
               label={scheduleState.label}
@@ -789,13 +775,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       fontFamily: Typography.body,
       fontSize: 14,
     },
-    identityText: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 22,
-      maxWidth: 520,
-    },
     identityPills: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -830,12 +809,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
     passwordHelperValueStrong: {
       color: theme.colors.success,
     },
-    passwordHelperText: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      lineHeight: 20,
-    },
     formGrid: {
       gap: 12,
       padding: AppTheme.spacing.md,
@@ -855,12 +828,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       fontSize: 22,
       fontWeight: '800',
       marginTop: 4,
-    },
-    sectionCaption: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      lineHeight: 21,
     },
     field: {
       gap: 8,

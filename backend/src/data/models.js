@@ -187,7 +187,9 @@ const userSchema = new mongoose.Schema(
     pushSubscriptions: { type: [pushSubscriptionSchema], default: [] },
     companyProfile: { type: companyProfileSchema, default: () => ({}) },
     paymentProfile: { type: paymentProfileSchema, default: () => ({}) },
-    operationalSchedule: { type: operationalScheduleSchema, default: null }
+    operationalSchedule: { type: operationalScheduleSchema, default: null },
+    resetToken: { type: String, default: null, index: true },
+    resetTokenExpiresAt: { type: Date, default: null }
   },
   {
     collection: "users",
@@ -239,6 +241,7 @@ const routeSessionSchema = new mongoose.Schema(
     organizationId: { type: String, default: "", index: true },
     routeId: { type: String, required: true, index: true },
     vehicleId: { type: String, required: true, index: true },
+    packetId: { type: String, default: null },
     activeKey: { type: String, default: null },
     driverId: { type: String, required: true, index: true },
     status: {
@@ -304,6 +307,7 @@ const routeSessionPositionSchema = new mongoose.Schema(
     organizationId: { type: String, default: "", index: true },
     sessionId: { type: String, required: true, index: true },
     vehicleId: { type: String, required: true, index: true },
+    packetId: { type: String, default: null },
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
     timestamp: { type: Date, required: true },
@@ -317,6 +321,10 @@ const routeSessionPositionSchema = new mongoose.Schema(
 );
 
 routeSessionPositionSchema.index({ sessionId: 1, timestamp: 1 });
+routeSessionPositionSchema.index(
+  { sessionId: 1, packetId: 1 },
+  { unique: true, partialFilterExpression: { packetId: { $type: "string" } } }
+);
 
 const routeEventSchema = new mongoose.Schema(
   {
@@ -412,6 +420,8 @@ const messageSchema = new mongoose.Schema(
     isEncrypted: { type: Boolean, default: false },
     transcript: { type: String, default: "" },
     audioUrl: { type: String, default: null },
+    imageUrl: { type: String, default: null },
+    videoUrl: { type: String, default: null },
     mimeType: { type: String, default: "" },
     durationSeconds: { type: Number, default: 0 },
     transmissionId: { type: String },
@@ -433,6 +443,8 @@ const chatMessageSchema = new mongoose.Schema(
     isEncrypted: { type: Boolean, default: false },
     transcript: { type: String, default: "" },
     audioUrl: { type: String, default: null },
+    imageUrl: { type: String, default: null },
+    videoUrl: { type: String, default: null },
     mimeType: { type: String, default: "" },
     durationSeconds: { type: Number, default: 0 },
     transmissionId: { type: String },

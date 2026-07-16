@@ -19,7 +19,6 @@ export {
   getRouteSessionPositionsRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
-  recalculateRouteSessionMetricsRequest,
   setDefaultAccountPaymentMethodRequest,
   updateAccountPaymentMethodRequest,
 } from '@/src/api/client';

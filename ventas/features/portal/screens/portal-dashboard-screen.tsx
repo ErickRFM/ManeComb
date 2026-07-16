@@ -24,7 +24,7 @@ import type {
   User,
   Vehicle,
 } from '@/src/types/app';
-import { formatDate } from '@/src/utils/format';
+import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { AccountSummaryCard, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
@@ -70,19 +70,8 @@ function numberOrZero(value: unknown) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function formatDuration(seconds?: number | null) {
-  const value = Math.max(0, Math.round(Number(seconds) || 0));
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.floor((value % 3600) / 60);
-  if (hours > 0) return `${hours} h ${minutes} min`;
-  return `${minutes} min`;
-}
-
-function formatDistance(meters?: number | null) {
-  const value = Number(meters);
-  if (!Number.isFinite(value) || value <= 0) return '0 km';
-  return `${(value / 1000).toLocaleString('es-MX', { maximumFractionDigits: 1 })} km`;
-}
+const formatDuration = formatDurationFromSeconds;
+const formatDistance = formatDistanceFromMeters;
 
 // Contrato: el backend siempre entrega velocidad en metros/segundo
 // (ver normalizeSpeedMetersPerSecond en backend/src/services/route-progress.js

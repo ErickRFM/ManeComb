@@ -14,7 +14,7 @@ export function ChatHeader({
   return (
     <View style={styles.header}>
       <View style={styles.headerTitleRow}>
-        <Text style={styles.title}>Mensajeria operativa</Text>
+        <Text style={styles.title}>Mensajes</Text>
         <Pressable
           onPress={() => {
             setAttachmentMenuOpen(true);

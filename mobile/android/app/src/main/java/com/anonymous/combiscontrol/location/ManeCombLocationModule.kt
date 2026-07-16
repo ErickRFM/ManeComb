@@ -18,6 +18,7 @@ class ManeCombLocationModule(
     apiUrl: String,
     token: String,
     vehicleId: String,
+    sessionId: String,
     scheduleEnabled: Boolean,
     scheduleStart: String,
     scheduleEnd: String,
@@ -29,6 +30,7 @@ class ManeCombLocationModule(
         putExtra(ManeCombLocationService.EXTRA_API_URL, apiUrl)
         putExtra(ManeCombLocationService.EXTRA_TOKEN, token)
         putExtra(ManeCombLocationService.EXTRA_VEHICLE_ID, vehicleId)
+        putExtra(ManeCombLocationService.EXTRA_SESSION_ID, sessionId)
         putExtra(ManeCombLocationService.EXTRA_SCHEDULE_ENABLED, scheduleEnabled)
         putExtra(ManeCombLocationService.EXTRA_SCHEDULE_START, scheduleStart)
         putExtra(ManeCombLocationService.EXTRA_SCHEDULE_END, scheduleEnd)

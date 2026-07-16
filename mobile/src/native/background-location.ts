@@ -6,6 +6,7 @@ type ManeCombLocationModule = {
     apiUrl: string,
     token: string,
     vehicleId: string,
+    sessionId: string,
     scheduleEnabled: boolean,
     scheduleStart: string,
     scheduleEnd: string,
@@ -24,11 +25,13 @@ export async function startBackgroundLocationServiceAsync({
   schedule,
   token,
   vehicleId,
+  sessionId,
 }: {
   apiUrl: string;
   schedule: OperationalSchedule | null | undefined;
   token: string;
   vehicleId: string;
+  sessionId: string;
 }) {
   if (!NativeLocation || !apiUrl || !token || !vehicleId) {
     return false;
@@ -38,6 +41,7 @@ export async function startBackgroundLocationServiceAsync({
     apiUrl,
     token,
     vehicleId,
+    sessionId,
     schedule?.enabled !== false,
     schedule?.startTime || '',
     schedule?.endTime || '',

@@ -325,6 +325,18 @@ function serializeChatMessageEntry(message, conversationId, userMap = null) {
         : typeof plainMessage.audioUrl === "string"
           ? plainMessage.audioUrl
           : null,
+    imageUrl:
+      typeof decryptedPayload.imageUrl === "string"
+        ? decryptedPayload.imageUrl
+        : typeof plainMessage.imageUrl === "string"
+          ? plainMessage.imageUrl
+          : null,
+    videoUrl:
+      typeof decryptedPayload.videoUrl === "string"
+        ? decryptedPayload.videoUrl
+        : typeof plainMessage.videoUrl === "string"
+          ? plainMessage.videoUrl
+          : null,
     transcript,
     durationSeconds: Number(
       decryptedPayload.durationSeconds || plainMessage.durationSeconds || 0
@@ -334,6 +346,7 @@ function serializeChatMessageEntry(message, conversationId, userMap = null) {
     transmissionId: String(plainMessage.transmissionId || "").trim() || null,
     e2eeEnvelope,
     encrypted: Boolean(plainMessage.isEncrypted || plainMessage.payloadEncrypted),
+    status: String(plainMessage.status || "sent"),
     createdAt: plainMessage.createdAt,
     sender: userMap?.get(plainMessage.senderId) || null
   };
@@ -364,6 +377,8 @@ function buildStoredChatMessage(senderId, input) {
   const payload = {
     text: e2eeEnvelope ? "" : text,
     audioUrl: String(safeInput.audioUrl || "").trim() || null,
+    imageUrl: String(safeInput.imageUrl || "").trim() || null,
+    videoUrl: String(safeInput.videoUrl || "").trim() || null,
     transcript,
     mimeType: String(safeInput.mimeType || "").trim() || "",
     durationSeconds: Math.max(0, Number(safeInput.durationSeconds) || 0),
@@ -391,6 +406,8 @@ function buildStoredChatMessage(senderId, input) {
     isEncrypted: true,
     transcript,
     audioUrl: payload.audioUrl,
+    imageUrl: payload.imageUrl,
+    videoUrl: payload.videoUrl,
     mimeType: payload.mimeType,
     durationSeconds: payload.durationSeconds,
     transmissionId: String(safeInput.transmissionId || "").trim() || undefined,
@@ -411,6 +428,8 @@ function buildChatMessageDocument(message, conversation) {
     isEncrypted: Boolean(message.isEncrypted || message.payloadEncrypted),
     transcript: message.transcript || "",
     audioUrl: message.audioUrl || null,
+    imageUrl: message.imageUrl || null,
+    videoUrl: message.videoUrl || null,
     mimeType: message.mimeType || "",
     durationSeconds: Number(message.durationSeconds || 0),
     transmissionId: message.transmissionId || undefined,
@@ -1686,6 +1705,56 @@ async function createMongoStore() {
     return sanitizeUser(user.toObject());
   }
 
+  async function generatePasswordResetToken(email) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await UserModel.findOne({ email: normalizedEmail }).lean();
+
+    if (!user) {
+      return null;
+    }
+
+    const { randomBytes } = require("crypto");
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { resetToken: token, resetTokenExpiresAt: expiresAt } }
+    );
+
+    return { token, email: user.email, name: user.name };
+  }
+
+  async function resetPasswordWithToken(token, newPassword) {
+    if (!token || !newPassword) {
+      throw new Error("Token y nueva contrasena son obligatorios");
+    }
+
+    const passwordValidationError = validatePasswordStrength(newPassword);
+    if (passwordValidationError) {
+      throw new Error(passwordValidationError);
+    }
+
+    const user = await UserModel.findOne({
+      resetToken: token,
+      resetTokenExpiresAt: { $gt: new Date() }
+    }).lean();
+
+    if (!user) {
+      throw new Error("El enlace de recuperacion ha expirado o es invalido");
+    }
+
+    await UserModel.updateOne(
+      { _id: user._id },
+      {
+        $set: { passwordHash: bcrypt.hashSync(newPassword, 10) },
+        $unset: { resetToken: "", resetTokenExpiresAt: "" }
+      }
+    );
+
+    return sanitizeUser({ ...user });
+  }
+
   async function deleteUser(userId) {
     const user = await UserModel.findById(userId).lean();
 
@@ -2923,17 +2992,26 @@ async function createMongoStore() {
     const conversationIds = conversations.map((conversation) => conversation._id);
     const storedMessages = await ChatMessageModel.find({
       conversationId: { $in: conversationIds },
-      $or: [{ audioUrl: mediaPath }, { payloadEncrypted: { $ne: "" } }]
+      $or: [
+        { audioUrl: mediaPath },
+        { imageUrl: mediaPath },
+        { videoUrl: mediaPath },
+        { payloadEncrypted: { $ne: "" } }
+      ]
     }).lean();
 
     if (
       storedMessages.some((message) => {
-        if (message.audioUrl === mediaPath) {
+        if (
+          message.audioUrl === mediaPath ||
+          message.imageUrl === mediaPath ||
+          message.videoUrl === mediaPath
+        ) {
           return true;
         }
 
         const payload = decryptChatPayload(message.payloadEncrypted);
-        return payload?.audioUrl === mediaPath;
+        return [payload?.audioUrl, payload?.imageUrl, payload?.videoUrl].includes(mediaPath);
       })
     ) {
       return true;
@@ -2942,9 +3020,26 @@ async function createMongoStore() {
     return conversations.some((conversation) =>
       conversation.messages.some((message) => {
         const payload = decryptChatPayload(message.payloadEncrypted);
-        return payload?.audioUrl === mediaPath;
+        return [payload?.audioUrl, payload?.imageUrl, payload?.videoUrl].includes(mediaPath);
       })
     );
+  }
+
+  async function markConversationMessageRead(conversationId, messageId, userId) {
+    const conversation = await ConversationModel.findById(conversationId);
+    if (!conversation || !(await canUserAccessConversation(userId, conversation))) return null;
+    const message = await ChatMessageModel.findOneAndUpdate(
+      { _id: messageId, conversationId },
+      { $set: { status: "read" } },
+      { new: true }
+    ).lean();
+    if (!message) return null;
+    const unreadBy = toUnreadByObject(conversation.unreadBy);
+    unreadBy[userId] = 0;
+    conversation.unreadBy = new Map(Object.entries(unreadBy));
+    conversation.markModified("unreadBy");
+    await conversation.save();
+    return serializeChatMessageEntry(message, conversationId);
   }
 
   async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
@@ -2991,13 +3086,21 @@ async function createMongoStore() {
       update.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
-    const vehicle = await VehicleModel.findByIdAndUpdate(
-      vehicleId,
+    const incomingTimestamp = update.locationTimestamp || update.updatedAt;
+    const vehicle = await VehicleModel.findOneAndUpdate(
+      {
+        _id: vehicleId,
+        $or: [
+          { locationTimestamp: null },
+          { locationTimestamp: { $exists: false } },
+          { locationTimestamp: { $lte: incomingTimestamp } }
+        ]
+      },
       {
         $set: update
       },
       { returnDocument: "after" }
-    ).lean();
+    ).lean() || currentVehicle;
 
     if (!vehicle) {
       return null;
@@ -3129,7 +3232,19 @@ async function createMongoStore() {
   }
 
   async function createRouteSessionPosition(payload) {
-    const doc = await RouteSessionPositionModel.create({ _id: randomUUID(), ...payload });
+    if (payload.packetId) {
+      const existing = await RouteSessionPositionModel.findOne({ sessionId: payload.sessionId, packetId: payload.packetId }).lean();
+      if (existing) return { ...existing, id: String(existing._id), _id: undefined, duplicateSkipped: true };
+    }
+    let doc;
+    try {
+      doc = await RouteSessionPositionModel.create({ _id: randomUUID(), ...payload });
+    } catch (error) {
+      if (error?.code !== 11000 || !payload.packetId) throw error;
+      const existing = await RouteSessionPositionModel.findOne({ sessionId: payload.sessionId, packetId: payload.packetId }).lean();
+      if (existing) return { ...existing, id: String(existing._id), _id: undefined, duplicateSkipped: true };
+      throw error;
+    }
     const plain = doc.toObject();
     return { ...plain, id: String(plain._id), _id: undefined };
   }
@@ -3252,6 +3367,7 @@ async function createMongoStore() {
     getMessages,
     getNotificationsForUser,
     getOperationalInsights,
+    getRouteById,
     getUserE2eeBackup,
     getUserProfile,
     getVehicleById,
@@ -3265,6 +3381,7 @@ async function createMongoStore() {
     listUsers,
     markActivationKeyUsed,
     markNotificationAsRead,
+    markConversationMessageRead,
     registerPushSubscription,
     registerUser,
     reviewDocument,
@@ -3276,6 +3393,8 @@ async function createMongoStore() {
     updateVehicleLocation,
     updateVehicle,
     createDocument,
+    generatePasswordResetToken,
+    resetPasswordWithToken,
     createRouteSession,
     createRouteSessionPosition,
     createRouteEvent,

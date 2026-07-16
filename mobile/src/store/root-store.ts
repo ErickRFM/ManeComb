@@ -1,4 +1,5 @@
 import * as SecureStore from '@/src/native/secure-store';
+import * as Haptics from '@/src/native/haptics';
 import { AppState as NativeAppState, Platform } from 'react-native';
 import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
@@ -23,6 +24,8 @@ import {
   createVehicleRequest,
   createUserRequest,
   deleteUserRequest,
+  forgotPasswordRequest,
+  resetPasswordRequest,
   registerDriverActivationRequest,
   getChatContactsRequest,
   getConversationsRequest,
@@ -31,6 +34,7 @@ import {
   getLastApiTraceId,
   getLocationsRequest,
   getActiveRouteSessionRequest,
+  getRouteSessionHistoryRequest,
   getMessagesRequest,
   getNotificationsRequest,
   getOperationalObservabilityRequest,
@@ -49,12 +53,14 @@ import {
   sendMediaMessageRequest,
   sendVoiceMessageRequest,
   setAuthToken,
+  startRouteSessionRequest,
   registerPushSubscriptionRequest,
   unregisterPushSubscriptionRequest,
   updateVehicleLocationRequest,
   uploadDocumentRequest,
   updateIncidentStatusRequest,
   updateProfileRequest,
+  updateRouteSessionStatusRequest,
   updateUserRequest,
 } from '@/src/api/client';
 import {
@@ -92,6 +98,7 @@ import type {
   SessionResult,
   RouteSession,
 } from '@/src/types/app';
+import type { LocationEngineState } from '@/src/screens/map/types/location-engine';
 import {
   decryptDirectChatText,
   type DirectMessageEnvelope,
@@ -184,20 +191,28 @@ export type AppState = {
   incidents: Incident[];
   conversations: ConversationSummary[];
   chatContacts: ChatDirectoryContact[];
+  presenceByUser: Record<string, 'online' | 'offline'>;
   messagesByConversation: Record<string, ChatMessage[]>;
   documents: DocumentItem[];
   notifications: NotificationItem[];
   observability: OperationalObservabilitySnapshot | null;
   users: User[];
   activeRouteSession: RouteSession | null;
+  routeSessionHistory: RouteSession[];
+  deviceLocation: LocationEngineState;
+  refreshDeviceLocation: () => Promise<void>;
   activeConversationId: string | null;
   focusedIncidentId: string | null;
   typingByConversation: Record<string, { userId: string; userName: string; startedAt: number }[]>;
   readByConversation: Record<string, Set<string>>;
+  isLoadingConversation: boolean;
+  isLoadingChatContacts: boolean;
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
   register: (payload: RegisterPayload, rememberSession?: boolean) => Promise<ActionResult>;
+  forgotPassword: (email: string) => Promise<ActionResult>;
+  resetPassword: (token: string, password: string) => Promise<ActionResult>;
   activateDriverWithKey: (
     payload: DriverActivationRegisterPayload,
     rememberSession?: boolean
@@ -215,6 +230,8 @@ export type AppState = {
     heading?: number | null;
     speed?: number | null;
     timestamp?: string | null;
+    packetId?: string | null;
+    sessionId?: string | null;
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
   createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
@@ -257,12 +274,14 @@ function getEmptyOperationalState(): Partial<AppState> {
     incidents: [],
     conversations: [],
     chatContacts: [],
+    presenceByUser: {},
     messagesByConversation: {},
     documents: [],
     notifications: [],
     observability: null,
     users: [],
     activeRouteSession: null,
+    routeSessionHistory: [],
     activeConversationId: null,
     focusedIncidentId: null,
     typingByConversation: {},
@@ -486,6 +505,7 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
     observability: state.observability,
     users: state.users,
     activeRouteSession: state.activeRouteSession,
+    routeSessionHistory: state.routeSessionHistory,
   };
 }
 
@@ -507,6 +527,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     observability: snapshot.observability || null,
     users: snapshot.users || [],
     activeRouteSession: snapshot.activeRouteSession || null,
+    routeSessionHistory: snapshot.routeSessionHistory || [],
     lastCacheAt: snapshot.savedAt,
   };
 }
@@ -980,11 +1001,16 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       };
     });
 
+    const isRadio =
+      hydrated.kind === 'audio' ||
+      get().conversations.find((conversation) => conversation.id === conversationId)
+        ?.channelMode === 'radio';
+
+    if (insertedMessage && !isOwnMessageBefore && !isRadio) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    }
+
     if (insertedMessage && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
-      const isRadio =
-        hydrated.kind === 'audio' ||
-        get().conversations.find((conversation) => conversation.id === conversationId)
-          ?.channelMode === 'radio';
       showInAppNotification({
         title: isRadio ? 'Audio de radio recibido' : 'Mensaje nuevo',
         body: hydrated.sender?.name || 'ManeComb operativo',
@@ -1066,6 +1092,28 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         },
       };
     });
+  });
+
+  socket.on('presence:snapshot', ({ userIds }: { userIds: string[] }) => {
+    const online = new Set(userIds || []);
+    set(state => ({
+      presenceByUser: Object.fromEntries(
+        state.chatContacts.map(contact => [contact.id, online.has(contact.id) ? 'online' : 'offline'])
+      ),
+      chatContacts: state.chatContacts.map(contact => ({
+        ...contact,
+        status: online.has(contact.id) ? 'online' : 'offline',
+      })),
+    }));
+  });
+
+  socket.on('presence:updated', ({ userId, status }: { userId: string; status: 'online' | 'offline' }) => {
+    set(state => ({
+      presenceByUser: { ...state.presenceByUser, [userId]: status },
+      chatContacts: state.chatContacts.map(contact =>
+        contact.id === userId ? { ...contact, status } : contact
+      ),
+    }));
   });
 
   socket.on('location:updated', (v: Vehicle) => {
@@ -1251,7 +1299,20 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
     for (const operation of queue) {
       try {
-        if (operation.type === 'incident:create') {
+        if (operation.type === 'control:sessionStart') {
+          const session = await startRouteSessionRequest(operation.payload.vehicleId);
+          set({ activeRouteSession: session });
+        } else if (operation.type === 'control:sessionStatus') {
+          const sessionId = operation.payload.sessionId ||
+            (await getActiveRouteSessionRequest(operation.payload.vehicleId))?.id;
+          if (!sessionId) throw new Error('No existe una jornada activa para sincronizar');
+          const session = await updateRouteSessionStatusRequest(
+            sessionId,
+            operation.payload.vehicleId,
+            operation.payload.status
+          );
+          set({ activeRouteSession: ['RUNNING', 'PAUSED'].includes(session.status) ? session : null });
+        } else if (operation.type === 'incident:create') {
           await createIncidentRequest(operation.payload);
         } else if (operation.type === 'incident:updateStatus') {
           await updateIncidentStatusRequest(
@@ -1262,6 +1323,23 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
           await sendMessageRequest(operation.payload.conversationId, {
             text: operation.payload.text,
           });
+        } else if (operation.type === 'chat:sendVoice') {
+          const { conversationId, fileUri, fileName, fileType, durationSeconds, caption } = operation.payload;
+          const formData = new FormData();
+          formData.append('durationSeconds', String(durationSeconds));
+          formData.append('caption', caption);
+          formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
+          await sendVoiceMessageRequest(conversationId, formData);
+        } else if (operation.type === 'chat:sendMedia') {
+          const { conversationId, fileUri, fileName, fileType, caption } = operation.payload;
+          const formData = new FormData();
+          formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
+          if (caption) formData.append('caption', caption);
+          await sendMediaMessageRequest(conversationId, formData);
+        } else if (operation.type === 'notification:markRead') {
+          await markNotificationReadRequest(operation.payload.notificationId);
+        } else if (operation.type === 'user:updateProfile') {
+          await updateProfileRequest(operation.payload);
         } else if (operation.type === 'vehicle:location') {
           await updateVehicleLocationRequest(operation.payload);
         }
@@ -1292,8 +1370,10 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
-  authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null,
-  activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, error: null,
+  authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
+  deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
+  refreshDeviceLocation: async () => undefined,
+  activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },
   setFocusedIncidentId: (id) => set({ focusedIncidentId: id }),
@@ -1301,7 +1381,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get();
     const existing = s.readByConversation[conversationId] || new Set();
     if (existing.has(messageId)) return;
-    socket?.emit('chat:read', { conversationId, messageId, userId: s.user?.id });
+    socket?.emit('chat:read', { conversationId, messageId }, (ack: { ok?: boolean } = {}) => {
+      if (!ack.ok) return;
+      set(current => ({
+        conversations: current.conversations.map(conversation =>
+          conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
+        ),
+      }));
+    });
   },
   emitTyping: (conversationId, isTyping) => {
     const s = get();
@@ -1448,10 +1535,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
         user.role === 'admin' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
-        user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null)
+        user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
+        getRouteSessionHistoryRequest({ limit: 500 })
       ]);
       const data: any = {};
-      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession'];
+      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
@@ -1499,6 +1587,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (data.conversations) data.conversations = sortConversations(data.conversations);
+      if (data.chatContacts) {
+        data.chatContacts = data.chatContacts.map((contact: ChatDirectoryContact) => ({
+          ...contact,
+          status: curr.presenceByUser[contact.id] || 'offline',
+        }));
+      }
       const aid = curr.activeConversationId || data.conversations?.[0]?.id || null;
       if (aid) {
         try {
@@ -1534,8 +1628,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     await processPendingSyncQueue(set, get);
   },
   sendVehicleLocation: async (payload) => {
+    const durablePayload = {
+      ...payload,
+      packetId: payload.packetId || createRealtimePacketId('gps'),
+      sessionId: payload.sessionId || get().activeRouteSession?.id || null,
+    };
     try {
-      const vehicle = normalizeVehicle(await updateVehicleLocationRequest(payload));
+      const vehicle = normalizeVehicle(await updateVehicleLocationRequest(durablePayload));
       set(s => ({
         mapData: s.mapData
           ? {
@@ -1552,7 +1651,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (isProbablyNetworkError(error)) {
         await enqueuePendingSyncOperation({
           type: 'vehicle:location',
-          payload,
+          payload: durablePayload,
         });
         await refreshPendingSyncCount(set);
         set({ networkStatus: 'offline' });
@@ -1672,6 +1771,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isSubmitting: false });
     }
   },
+  forgotPassword: async (email) => {
+    set({ isSubmitting: true, error: null });
+    try {
+      const res = await forgotPasswordRequest(email);
+      set({ error: null });
+      return { ok: true, message: res.message };
+    } catch (err) {
+      const msg = getReadableErrorMessage(err, 'No fue posible procesar la solicitud.');
+      logStoreError('forgotPassword', err);
+      set({ error: msg });
+      return { ok: false, message: msg };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  resetPassword: async (token, password) => {
+    set({ isSubmitting: true, error: null });
+    try {
+      const res = await resetPasswordRequest(token, password);
+      set({ error: null });
+      return { ok: true, message: res.message };
+    } catch (err) {
+      const msg = getReadableErrorMessage(err, 'No fue posible restablecer la contrasena.');
+      logStoreError('resetPassword', err);
+      set({ error: msg });
+      return { ok: false, message: msg };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
   updateProfile: async (p) => {
     set({ isSubmitting: true });
     try {
@@ -1682,8 +1811,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       return { ok: true };
     } catch (error) {
-      const message = getReadableErrorMessage(error, 'Error al actualizar.');
       logStoreError('updateProfile', error);
+      if (isProbablyNetworkError(error)) {
+        await enqueuePendingSyncOperation({
+          type: 'user:updateProfile',
+          payload: p,
+        });
+        await refreshPendingSyncCount(set);
+        set({ networkStatus: 'offline', error: 'Cambio guardado para sincronizar.' });
+        return { ok: true, message: 'Cambio guardado para sincronizar cuando haya conexion.' };
+      }
+      const message = getReadableErrorMessage(error, 'Error al actualizar.');
       set({ error: message });
       return { ok: false, message };
     }
@@ -1697,6 +1835,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ users: await getUsersRequest() });
     } catch (error) {
       logStoreError('loadUsers', error);
+      if (isProbablyNetworkError(error)) {
+        const cached = get().users;
+        if (cached.length) {
+          set({ networkStatus: 'offline', error: 'Mostrando datos guardados. Conectate para actualizar.' });
+          return;
+        }
+      }
       throw error;
     }
   },
@@ -1741,6 +1886,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteUser: async (id) => { try { await deleteUserRequest(id); set(s => ({ users: s.users.filter(eu => eu.id !== id) })); return { ok: true }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible eliminar el usuario.'); logStoreError('deleteUser', error); return { ok: false, message }; } },
   uploadDocument: async (f) => { try { const d = await uploadDocumentRequest(f); set(s => ({ documents: [d, ...s.documents].sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()) })); persistOfflineSnapshot(get); return { ok: true, document: d }; } catch (error) { const message = getReadableErrorMessage(error, 'No fue posible subir el documento.'); logStoreError('uploadDocument', error); return { ok: false, message }; } },
   loadConversation: async (id) => {
+    set({ isLoadingConversation: true });
     try {
       const ms = await getMessagesRequest(id);
       const hms = await hydrateMessages(ms, get().conversations, get().user, id);
@@ -1752,14 +1898,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       socket?.emit('conversation:join', id);
     } catch (error) { logStoreError('loadConversation', error); }
+    finally { set({ isLoadingConversation: false }); }
   },
   loadChatContacts: async () => {
+    set({ isLoadingChatContacts: true });
     try {
-      set({ chatContacts: await getChatContactsRequest() });
+      const contacts = await getChatContactsRequest();
+      set(state => ({
+        chatContacts: contacts.map(contact => ({
+          ...contact,
+          status: state.presenceByUser[contact.id] || 'offline',
+        })),
+      }));
     } catch (error) {
       logStoreError('loadChatContacts', error);
       throw error;
     }
+    finally { set({ isLoadingChatContacts: false }); }
   },
   openDirectConversation: async (tid, m = 'chat') => {
     try {
@@ -1782,28 +1937,82 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) { logStoreError('openGeneralConversation', error); return null; }
   },
   sendVoiceMessage: async (cid, f) => {
+    const { user } = get();
+    if (!user) {
+      return { ok: false, message: 'Debes iniciar sesion para enviar notas de voz.' };
+    }
+    set({ isSubmitting: true });
     try {
       const m = await sendVoiceMessageRequest(cid, f);
-      const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, get().user);
+      const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, user);
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
       return { ok: true, messageRecord: h };
     } catch (error) {
-      const message = getReadableErrorMessage(error, 'No fue posible enviar la nota de voz.');
       logStoreError('sendVoiceMessage', error);
-      return { ok: false, message };
-    }
+      if (isProbablyNetworkError(error)) {
+        const durationSeconds = Number(f.get('durationSeconds')) || 0;
+        const caption = String(f.get('caption') || '');
+        const file = f.get('file') as any;
+        if (file?.uri) {
+          await enqueuePendingSyncOperation({
+            type: 'chat:sendVoice',
+            payload: {
+              conversationId: cid,
+              fileUri: file.uri,
+              fileName: file.name || `voice-note-${Date.now()}.m4a`,
+              fileType: file.type || 'audio/mp4',
+              durationSeconds,
+              caption,
+            },
+          });
+          await refreshPendingSyncCount(set);
+          set({ networkStatus: 'offline', error: 'Nota de voz guardada para sincronizar.' });
+          return { ok: true, message: 'Nota de voz guardada para sincronizar.' };
+        }
+      }
+      return {
+        ok: false,
+        message: getReadableErrorMessage(error, 'No fue posible enviar la nota de voz.'),
+      };
+    } finally { set({ isSubmitting: false }); }
   },
   sendMediaMessage: async (cid, f) => {
+    const { user } = get();
+    if (!user) {
+      return { ok: false, message: 'Debes iniciar sesion para enviar archivos.' };
+    }
+    set({ isSubmitting: true });
     try {
       const m = await sendMediaMessageRequest(cid, f);
-      const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, get().user);
+      const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, user);
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
       return { ok: true, messageRecord: h };
     } catch (error) {
-      const message = getReadableErrorMessage(error, 'No fue posible enviar el archivo.');
       logStoreError('sendMediaMessage', error);
-      return { ok: false, message };
-    }
+      if (isProbablyNetworkError(error)) {
+        const caption = String(f.get('caption') || '');
+        const file = f.get('file') as any;
+        if (file?.uri) {
+          await enqueuePendingSyncOperation({
+            type: 'chat:sendMedia',
+            payload: {
+              conversationId: cid,
+              fileUri: file.uri,
+              fileName: file.name || `media-${Date.now()}`,
+              fileType: file.type || 'application/octet-stream',
+              caption,
+            },
+          });
+          await refreshPendingSyncCount(set);
+          set({ networkStatus: 'offline', error: 'Archivo guardado para sincronizar.' });
+          return { ok: true, message: 'Archivo guardado para sincronizar.' };
+        }
+      }
+      return {
+        ok: false,
+        message: getReadableErrorMessage(error, 'No fue posible enviar el archivo.'),
+      };
+    } finally { set({ isSubmitting: false }); }
   },
   updateIncidentStatus: async (id, st) => {
     try {
@@ -1827,14 +2036,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         await refreshPendingSyncCount(set);
         set({ networkStatus: 'offline', error: 'Cambio guardado para sincronizar.' });
+      } else {
+        set({ error: getReadableErrorMessage(error, 'No fue posible actualizar el estado de la incidencia.') });
       }
     }
   },
   markNotificationRead: async (id) => {
+    set(s => ({ notifications: s.notifications.map(e => e.id === id ? { ...e, isRead: true } : e) }));
     try {
-      const n = await markNotificationReadRequest(id);
-      set(s => ({ notifications: s.notifications.map(e => e.id === n.id ? { ...e, isRead: true } : e) }));
-    } catch (error) { logStoreError('markNotificationRead', error); }
+      await markNotificationReadRequest(id);
+    } catch (error) {
+      logStoreError('markNotificationRead', error);
+      if (isProbablyNetworkError(error)) {
+        await enqueuePendingSyncOperation({
+          type: 'notification:markRead',
+          payload: { notificationId: id },
+        });
+        await refreshPendingSyncCount(set);
+      } else {
+        set({ error: getReadableErrorMessage(error, 'No fue posible marcar la notificacion como leida.') });
+      }
+    }
   },
   handlePushIntent: async (i) => {
     if (!i) return;
