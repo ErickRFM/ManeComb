@@ -188,7 +188,7 @@ const userSchema = new mongoose.Schema(
     companyProfile: { type: companyProfileSchema, default: () => ({}) },
     paymentProfile: { type: paymentProfileSchema, default: () => ({}) },
     operationalSchedule: { type: operationalScheduleSchema, default: null },
-    resetToken: { type: String, default: null, index: true },
+    resetTokenHash: { type: String, default: null, index: true },
     resetTokenExpiresAt: { type: Date, default: null }
   },
   {

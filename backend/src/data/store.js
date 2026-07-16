@@ -1,5 +1,5 @@
 const bcrypt = require("bcryptjs");
-const { randomUUID } = require("crypto");
+const { createHash, randomBytes, randomUUID } = require("crypto");
 const {
   getCommercialPlanById,
   getCommercialPlanPricing
@@ -51,6 +51,38 @@ function createEmbeddedStore() {
     return sanitizeUser(
       state.users.find((user) => user.email.toLowerCase() === normalizedEmail) || null
     );
+  }
+
+  function generatePasswordResetToken(email) {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const user = state.users.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+
+    if (!user) return null;
+
+    const token = randomBytes(32).toString("hex");
+    user.resetTokenHash = createHash("sha256").update(token).digest("hex");
+    user.resetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    return { token, email: user.email, name: user.name };
+  }
+
+  function resetPasswordWithToken(token, newPassword) {
+    if (!token || !newPassword) throw new Error("Token y nueva contrasena son obligatorios");
+
+    const passwordValidationError = validatePasswordStrength(newPassword);
+    if (passwordValidationError) throw new Error(passwordValidationError);
+
+    const tokenHash = createHash("sha256").update(String(token)).digest("hex");
+    const user = state.users.find(
+      (entry) => entry.resetTokenHash === tokenHash
+        && new Date(entry.resetTokenExpiresAt || 0).getTime() > Date.now()
+    );
+
+    if (!user) throw new Error("El enlace de recuperacion ha expirado o es invalido");
+
+    user.passwordHash = bcrypt.hashSync(newPassword, 10);
+    delete user.resetTokenHash;
+    delete user.resetTokenExpiresAt;
+    return sanitizeUser(user);
   }
 
   function getVehicleById(vehicleId) {
@@ -2708,6 +2740,7 @@ function createEmbeddedStore() {
     findCommercialOrderByExternalReference,
     findActivationKeyByKey,
     findUserByEmail,
+    generatePasswordResetToken,
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,
@@ -2741,6 +2774,7 @@ function createEmbeddedStore() {
     recordAppEvent,
     registerPushSubscription,
     registerUser,
+    resetPasswordWithToken,
     createDocument,
     reviewDocument,
     upsertUserE2eeBackup,

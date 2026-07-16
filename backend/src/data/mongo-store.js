@@ -1,5 +1,5 @@
 const bcrypt = require("bcryptjs");
-const { randomUUID } = require("crypto");
+const { createHash, randomBytes, randomUUID } = require("crypto");
 const {
   getCommercialPlanById,
   getCommercialPlanPricing
@@ -1713,13 +1713,16 @@ async function createMongoStore() {
       return null;
     }
 
-    const { randomBytes } = require("crypto");
     const token = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
     await UserModel.updateOne(
       { _id: user._id },
-      { $set: { resetToken: token, resetTokenExpiresAt: expiresAt } }
+      {
+        $set: { resetTokenHash: tokenHash, resetTokenExpiresAt: expiresAt },
+        $unset: { resetToken: "" }
+      }
     );
 
     return { token, email: user.email, name: user.name };
@@ -1735,8 +1738,9 @@ async function createMongoStore() {
       throw new Error(passwordValidationError);
     }
 
+    const tokenHash = createHash("sha256").update(String(token)).digest("hex");
     const user = await UserModel.findOne({
-      resetToken: token,
+      resetTokenHash: tokenHash,
       resetTokenExpiresAt: { $gt: new Date() }
     }).lean();
 
@@ -1748,7 +1752,7 @@ async function createMongoStore() {
       { _id: user._id },
       {
         $set: { passwordHash: bcrypt.hashSync(newPassword, 10) },
-        $unset: { resetToken: "", resetTokenExpiresAt: "" }
+        $unset: { resetTokenHash: "", resetToken: "", resetTokenExpiresAt: "" }
       }
     );
 

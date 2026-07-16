@@ -227,7 +227,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
     const resetUrl = `${APP_URL.replace(/\/$/, "")}/reset-password?token=${result.token}`;
 
     if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
-      await fetch("https://api.resend.com/emails", {
+      const emailResponse = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -243,10 +243,16 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
             `<p>Haz clic en el siguiente enlace para crear una nueva contrasena:</p>`,
             `<p><a href="${resetUrl}">${resetUrl}</a></p>`,
             `<p>Este enlace expira en 1 hora.</p>`,
+            `<p><strong>Importante:</strong> si usas un dispositivo nuevo, el cambio de contrasena puede impedir recuperar mensajes cifrados anteriores. Conserva acceso a un dispositivo donde ya hayas iniciado sesion para volver a respaldar tu clave privada.</p>`,
             `<p>Si no solicitaste este cambio, ignora este mensaje.</p>`
           ].join("\n")
         })
       });
+
+      if (!emailResponse.ok) {
+        const providerMessage = await emailResponse.text().catch(() => "");
+        throw new Error(`Resend error ${emailResponse.status}: ${providerMessage.slice(0, 300)}`);
+      }
     }
 
     await recordAuditLog(req, {
@@ -280,17 +286,19 @@ router.post("/reset-password", authLimiter, async (req, res) => {
   }
 
   try {
-    await req.app.locals.store.resetPasswordWithToken(token, password);
+    const user = await req.app.locals.store.resetPasswordWithToken(token, password);
+    await revokeAllSessions(user.id, null, "password_reset");
 
     await recordAuditLog(req, {
       action: "auth.reset_password",
       severity: "info",
-      targetType: "user"
+      targetType: "user",
+      targetId: user.id
     });
 
     return res.json({
       ok: true,
-      message: "Contrasena actualizada correctamente"
+      message: "Contrasena actualizada correctamente. En un dispositivo nuevo, tus mensajes cifrados anteriores pueden requerir que vuelvas a respaldar la clave desde un dispositivo donde ya tenias sesion."
     });
   } catch (error) {
     const status = error.message.includes("expirado") || error.message.includes("invalido") ? 400 : 500;
