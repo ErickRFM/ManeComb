@@ -1469,7 +1469,17 @@ function createEmbeddedStore() {
           )
       )
       .map((vehicle) => {
-        return enrichVehicle(vehicle);
+        if (vehicle.locationTimestamp) return enrichVehicle(vehicle);
+        const position = state.routeSessionPositions
+          .filter((entry) => entry.vehicleId === vehicle.id)
+          .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0];
+        return enrichVehicle(position ? {
+          ...vehicle,
+          location: { latitude: position.latitude, longitude: position.longitude },
+          locationTimestamp: position.timestamp,
+          heading: position.heading ?? vehicle.heading,
+          speed: position.speed ?? vehicle.speed
+        } : vehicle);
       });
   }
 
@@ -2267,6 +2277,17 @@ function createEmbeddedStore() {
     return clone(serializeConversationMessage(message, conversationId));
   }
 
+  function markConversationMessageDelivered(conversationId, messageId, userId) {
+    const conversation = getConversationById(conversationId);
+    if (!canUserAccessConversation(userId, conversation)) return null;
+    const message = getStoredConversationMessages(conversationId).find(
+      (entry) => entry.id === messageId
+    );
+    if (!message || message.senderId === userId) return null;
+    if (message.status === 'sent') message.status = 'delivered';
+    return clone(serializeConversationMessage(message, conversationId));
+  }
+
   function listChatContactsForUser(userId) {
     const organizationId = getUserOrganizationId(getUserById(userId));
     const safeConversations = state.conversations.map((conversation) => ensureConversationRecord(conversation));
@@ -2714,6 +2735,7 @@ function createEmbeddedStore() {
     listRtcSessions,
     listTripLogs,
     markNotificationAsRead,
+    markConversationMessageDelivered,
     markConversationMessageRead,
     markActivationKeyUsed,
     recordAppEvent,

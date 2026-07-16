@@ -231,6 +231,7 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const resolvedUrl = resolveAssetUrl(message.imageUrl);
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
 
@@ -239,10 +240,18 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
   return (
     <View style={styles.mediaContainer}>
       <Pressable
-        disabled={hasError}
-        onPress={() => setIsFullscreen(true)}
+        onPress={() => {
+          if (hasError) {
+            setRetryKey(current => current + 1);
+            setHasError(false);
+            setIsLoading(true);
+            return;
+          }
+          setIsFullscreen(true);
+        }}
         style={styles.mediaPreviewShell}>
         <Image
+          key={retryKey}
           source={{ uri: resolvedUrl, headers }}
           style={styles.messageImage}
           resizeMode="cover"
@@ -269,7 +278,7 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
           <View style={styles.mediaErrorBox}>
             <MaterialCommunityIcons name="image-off-outline" size={24} color={theme.colors.warning} />
             <Text style={[styles.mediaStateText, { color: theme.colors.warning }]}>
-              No se pudo cargar la imagen.
+              No se pudo cargar la imagen. Toca para reintentar.
             </Text>
           </View>
         ) : null}
@@ -283,10 +292,11 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
           </Pressable>
           <Pressable
             style={styles.downloadFullscreen}
+            accessibilityLabel="Compartir imagen"
             onPress={() => {
               Share.share({ url: resolvedUrl, message: resolvedUrl }).catch(() => undefined);
             }}>
-            <MaterialCommunityIcons name="download" size={26} color="#FFFFFF" />
+            <MaterialCommunityIcons name="share-variant" size={26} color="#FFFFFF" />
           </Pressable>
           <Image source={{ uri: resolvedUrl, headers }} style={styles.fullscreenImage} resizeMode="contain" />
         </View>
@@ -302,7 +312,11 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const player = useVideoPlayer(resolvedUrl ? { uri: resolvedUrl, headers } : null, (videoPlayer) => {
+  const [retryKey, setRetryKey] = useState(0);
+  const playbackUrl = resolvedUrl
+    ? `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}retry=${retryKey}`
+    : null;
+  const player = useVideoPlayer(playbackUrl ? { uri: playbackUrl, headers } : null, (videoPlayer) => {
     videoPlayer.loop = false;
   });
 
@@ -327,6 +341,7 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
           if (hasError) {
             setHasError(false);
             setIsLoading(true);
+            setRetryKey(current => current + 1);
           }
         }}
         style={styles.mediaPreviewShell}>
@@ -341,7 +356,7 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
           <View style={styles.mediaErrorBox}>
             <MaterialCommunityIcons name="video-off-outline" size={24} color={theme.colors.warning} />
             <Text style={[styles.mediaStateText, { color: theme.colors.warning }]}>
-              No se pudo cargar el video.
+              No se pudo cargar el video. Toca para reintentar.
             </Text>
           </View>
         ) : null}

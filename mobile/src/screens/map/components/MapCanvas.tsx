@@ -17,11 +17,6 @@ const SELECTOR_STOP_MARKER_OFFSETS = [
 ];
 
 type MapCanvasProps = {
-  compassPosition?:
-    | { bottom: number; left: number }
-    | { bottom: number; right: number }
-    | { left: number; top: number }
-    | { right: number; top: number };
   coordinates: GeoPoint | null;
   mapData: LiveLocationsData;
   mapPadding: AppMapPadding;
@@ -47,7 +42,6 @@ type MapCanvasProps = {
 };
 
 export function MapCanvas({
-  compassPosition,
   coordinates,
   mapData,
   mapPadding,
@@ -82,8 +76,7 @@ export function MapCanvas({
         longitudeDelta: 0.08,
       }}
       mapPadding={mapPadding}
-      compassEnabled
-      compassPosition={compassPosition}
+      compassEnabled={false}
       scaleBarPosition={scaleBarPosition}
       scaleEnabled
       showsTraffic={trafficEnabled}

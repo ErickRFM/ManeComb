@@ -88,6 +88,7 @@ const appSections: AppSection[] = [
     title: 'Checklist de flota',
     description: 'Control automático de tiempos, aforo y estado de unidades al entrar o salir.',
     icon: 'clipboard-list-outline',
+    roles: DIRECTORY_ALLOWED_ROLES,
   },
   {
     key: 'perfil',

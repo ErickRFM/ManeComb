@@ -826,9 +826,19 @@ function registerSocketServer(server, store) {
       socket.to(`conversation:${conversationId}`).emit("chat:typing:stop", { conversationId, userId });
     });
 
-    socket.on("chat:delivered", ({ conversationId, messageId, userId } = {}) => {
-      if (!conversationId || !messageId || !userId) return;
-      socket.to(`conversation:${conversationId}`).emit("chat:delivered", { conversationId, messageId, userId });
+    socket.on("chat:delivered", async ({ conversationId, messageId } = {}, ack) => {
+      const userId = socket.data.user?.id;
+      if (!conversationId || !messageId || !userId) {
+        acknowledge(ack, { ok: false, error: "unauthorized_or_invalid_payload" });
+        return;
+      }
+      const message = await store.markConversationMessageDelivered?.(conversationId, messageId, userId);
+      if (!message) {
+        acknowledge(ack, { ok: false, error: "message_not_found" });
+        return;
+      }
+      io.to(`conversation:${conversationId}`).emit("chat:delivered", { conversationId, messageId, userId });
+      acknowledge(ack, { ok: true });
     });
 
     socket.on("chat:read", async ({ conversationId, messageId } = {}, ack) => {

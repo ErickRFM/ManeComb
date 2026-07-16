@@ -22,6 +22,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     activeConversation,
     activeMessageItems,
     attachmentMenuOpen,
+    attachmentMenuMode,
     callElapsedSeconds,
     callNotice,
     callParticipants,
@@ -244,7 +245,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                             <View
                               style={[
                                 styles.tileStatusDot,
-                                getOperationalStatusRank(contact?.status || 'online') === 3
+                                getOperationalStatusRank(contact?.status || 'offline') === 3
                                   ? styles.tileStatusDotMuted
                                   : undefined,
                               ]}
@@ -663,10 +664,12 @@ export function ChatScreenView(props: ChatScreenViewProps) {
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHeaderCopy}>
-                <Text style={styles.sheetTitle}>Contactos</Text>
+                <Text style={styles.sheetTitle}>
+                  {attachmentMenuMode === 'directory' ? 'Nuevo chat' : 'Adjuntos'}
+                </Text>
               </View>
             </View>
-            <View style={styles.sheetMediaOptions}>
+            {attachmentMenuMode === 'conversation' ? <View style={styles.sheetMediaOptions}>
               <Pressable
                 style={styles.sheetMediaButton}
                 onPress={() => {
@@ -685,9 +688,9 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                 <MaterialCommunityIcons name="image-multiple-outline" size={22} color={theme.colors.text} />
                 <Text style={styles.sheetMediaLabel}>Galeria</Text>
               </Pressable>
-            </View>
+            </View> : null}
 
-            <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
+            {attachmentMenuMode === 'directory' ? <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
               {sortedOperationalContacts.map((contact) => {
                 const unitLabel =
                   (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
@@ -727,7 +730,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </ScrollView> : null}
           </Pressable>
         </Pressable>
       </Modal>

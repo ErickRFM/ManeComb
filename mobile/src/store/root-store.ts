@@ -1001,10 +1001,17 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       };
     });
 
-    const isRadio =
-      hydrated.kind === 'audio' ||
+    const isRadioConversation =
       get().conversations.find((conversation) => conversation.id === conversationId)
         ?.channelMode === 'radio';
+    const isRadio = hydrated.kind === 'audio' || isRadioConversation;
+
+    if (!isOwnMessageBefore && !isRadioConversation) {
+      socket?.emit('chat:delivered', {
+        conversationId,
+        messageId: hydrated.id,
+      });
+    }
 
     if (insertedMessage && !isOwnMessageBefore && !isRadio) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
@@ -1060,23 +1067,30 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('chat:delivered', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    let messageFound = false;
     set(s => {
       const messages = s.messagesByConversation[conversationId];
       if (!messages) return s;
+      messageFound = messages.some(message => message.id === messageId);
       return {
         ...s,
         messagesByConversation: {
           ...s.messagesByConversation,
-          [conversationId]: messages.map(m => m.id === messageId && (m as any).status === 'sent' ? { ...(m as any), status: 'delivered' } : m),
+          [conversationId]: messages.map(m =>
+            m.id === messageId && m.status === 'sent' ? { ...m, status: 'delivered' } : m
+          ),
         },
       };
     });
+    if (!messageFound) get().loadConversation(conversationId).catch(() => undefined);
   });
 
   socket.on('chat:read', ({ conversationId, messageId, userId: _userId }: { conversationId: string; messageId: string; userId: string }) => {
+    let messageFound = false;
     set(s => {
       const messages = s.messagesByConversation[conversationId];
       if (!messages) return s;
+      messageFound = messages.some(message => message.id === messageId);
       const existing = s.readByConversation[conversationId] || new Set();
       const next = new Set(existing);
       next.add(messageId);
@@ -1084,7 +1098,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         ...s,
         messagesByConversation: {
           ...s.messagesByConversation,
-          [conversationId]: messages.map(m => m.id === messageId && (m as any).status !== 'read' ? { ...(m as any), status: 'read' } : m),
+          [conversationId]: messages.map(m => m.id === messageId && m.status !== 'read' ? { ...m, status: 'read' } : m),
         },
         readByConversation: {
           ...s.readByConversation,
@@ -1092,6 +1106,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         },
       };
     });
+    if (!messageFound) get().loadConversation(conversationId).catch(() => undefined);
   });
 
   socket.on('presence:snapshot', ({ userIds }: { userIds: string[] }) => {
@@ -1104,6 +1119,25 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         ...contact,
         status: online.has(contact.id) ? 'online' : 'offline',
       })),
+      conversations: state.conversations.map(conversation => ({
+        ...conversation,
+        participants: conversation.participants.map(participant => ({
+          ...participant,
+          status: online.has(participant.id) ? 'online' : 'offline',
+        })),
+      })),
+      messagesByConversation: Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
+          conversationId,
+          messages.map(message => message.sender ? {
+            ...message,
+            sender: {
+              ...message.sender,
+              status: online.has(message.sender.id) ? 'online' : 'offline',
+            },
+          } : message),
+        ])
+      ),
     }));
   });
 
@@ -1112,6 +1146,21 @@ function connectSocket(set: StoreSet, get: () => AppState) {
       presenceByUser: { ...state.presenceByUser, [userId]: status },
       chatContacts: state.chatContacts.map(contact =>
         contact.id === userId ? { ...contact, status } : contact
+      ),
+      conversations: state.conversations.map(conversation => ({
+        ...conversation,
+        participants: conversation.participants.map(participant =>
+          participant.id === userId ? { ...participant, status } : participant
+        ),
+      })),
+      messagesByConversation: Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
+          conversationId,
+          messages.map(message => message.sender?.id === userId ? {
+            ...message,
+            sender: { ...message.sender, status },
+          } : message),
+        ])
       ),
     }));
   });
@@ -1586,7 +1635,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
-      if (data.conversations) data.conversations = sortConversations(data.conversations);
+      if (data.conversations) {
+        data.conversations = sortConversations(data.conversations.map((conversation: ConversationSummary) => ({
+          ...conversation,
+          participants: conversation.participants.map(participant => ({
+            ...participant,
+            status: curr.presenceByUser[participant.id] || 'offline',
+          })),
+        })));
+      }
       if (data.chatContacts) {
         data.chatContacts = data.chatContacts.map((contact: ChatDirectoryContact) => ({
           ...contact,
@@ -1918,17 +1975,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   openDirectConversation: async (tid, m = 'chat') => {
     try {
-      const c = await openDirectConversationRequest(tid, m);
+      const responseConversation = await openDirectConversationRequest(tid, m);
+      const c = {
+        ...responseConversation,
+        participants: responseConversation.participants.map(participant => ({
+          ...participant,
+          status: get().presenceByUser[participant.id] || 'offline',
+        })),
+      };
       const [ms, cc] = await Promise.all([getMessagesRequest(c.id), getChatContactsRequest()]);
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, chatContacts: cc, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
+      set(s => ({ conversations: ncs, chatContacts: cc.map(contact => ({ ...contact, status: s.presenceByUser[contact.id] || 'offline' })), activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openDirectConversation', error); return null; }
   },
   openGeneralConversation: async (m = 'chat') => {
     try {
-      const c = await openGeneralConversationRequest(m);
+      const responseConversation = await openGeneralConversationRequest(m);
+      const c = {
+        ...responseConversation,
+        participants: responseConversation.participants.map(participant => ({
+          ...participant,
+          status: get().presenceByUser[participant.id] || 'offline',
+        })),
+      };
       const ms = await getMessagesRequest(c.id);
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(ms, ncs, get().user, c.id);

@@ -2246,10 +2246,36 @@ async function createMongoStore() {
       UserModel.find().lean()
     ]);
 
+    const vehiclesMissingGpsTime = vehicles
+      .filter((vehicle) => !vehicle.locationTimestamp)
+      .map((vehicle) => String(vehicle._id));
+    const recoveredPositions = vehiclesMissingGpsTime.length
+      ? await RouteSessionPositionModel.aggregate([
+          { $match: { vehicleId: { $in: vehiclesMissingGpsTime } } },
+          { $sort: { timestamp: -1 } },
+          { $group: { _id: "$vehicleId", position: { $first: "$$ROOT" } } }
+        ])
+      : [];
+    const recoveredPositionByVehicle = new Map(
+      recoveredPositions.map((entry) => [String(entry._id), entry.position])
+    );
+    const recoveredVehicles = vehicles.map((vehicle) => {
+      if (vehicle.locationTimestamp) return vehicle;
+      const position = recoveredPositionByVehicle.get(String(vehicle._id));
+      if (!position) return vehicle;
+      return {
+        ...vehicle,
+        location: { latitude: position.latitude, longitude: position.longitude },
+        locationTimestamp: position.timestamp,
+        heading: position.heading ?? vehicle.heading,
+        speed: position.speed ?? vehicle.speed
+      };
+    });
+
     const routeMap = new Map(routes.map((route) => [route._id, serializeRoute(route)]));
     const userMap = new Map(users.map((entry) => [entry._id, sanitizeUser(entry)]));
 
-    return Promise.all(vehicles.map((vehicle) => enrichVehicle(vehicle, routeMap, userMap)));
+    return Promise.all(recoveredVehicles.map((vehicle) => enrichVehicle(vehicle, routeMap, userMap)));
   }
 
   async function getLiveLocations() {
@@ -3042,6 +3068,26 @@ async function createMongoStore() {
     return serializeChatMessageEntry(message, conversationId);
   }
 
+  async function markConversationMessageDelivered(conversationId, messageId, userId) {
+    const conversation = await ConversationModel.findById(conversationId);
+    if (!conversation || !(await canUserAccessConversation(userId, conversation))) return null;
+    const message = await ChatMessageModel.findOneAndUpdate(
+      {
+        _id: messageId,
+        conversationId,
+        senderId: { $ne: userId },
+        status: 'sent'
+      },
+      { $set: { status: 'delivered' } },
+      { new: true }
+    ).lean();
+    if (message) return serializeChatMessageEntry(message, conversationId);
+    const current = await ChatMessageModel.findOne({ _id: messageId, conversationId }).lean();
+    return current && current.senderId !== userId
+      ? serializeChatMessageEntry(current, conversationId)
+      : null;
+  }
+
   async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
     const currentVehicle = await VehicleModel.findById(vehicleId).lean();
 
@@ -3381,6 +3427,7 @@ async function createMongoStore() {
     listUsers,
     markActivationKeyUsed,
     markNotificationAsRead,
+    markConversationMessageDelivered,
     markConversationMessageRead,
     registerPushSubscription,
     registerUser,

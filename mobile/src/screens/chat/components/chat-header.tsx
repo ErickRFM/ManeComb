@@ -4,11 +4,11 @@ import type { useChatController } from '../hooks/use-chat-controller';
 
 type ChatHeaderProps = Pick<
   ReturnType<typeof useChatController>,
-  'setAttachmentMenuOpen' | 'styles'
+  'openDirectoryMenu' | 'styles'
 >;
 
 export function ChatHeader({
-  setAttachmentMenuOpen,
+  openDirectoryMenu,
   styles,
 }: ChatHeaderProps) {
   return (
@@ -16,11 +16,9 @@ export function ChatHeader({
       <View style={styles.headerTitleRow}>
         <Text style={styles.title}>Mensajes</Text>
         <Pressable
-          onPress={() => {
-            setAttachmentMenuOpen(true);
-          }}
+          onPress={openDirectoryMenu}
           style={styles.headerActionButton}
-          accessibilityLabel="Nueva accion operativa">
+          accessibilityLabel="Nuevo chat">
           <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
         </Pressable>
       </View>

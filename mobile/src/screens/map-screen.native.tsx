@@ -5,9 +5,11 @@ import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
+import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
 import { getLocationStatus } from '@/src/utils/location-status';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
@@ -181,6 +183,8 @@ export function MapScreen() {
     error,
     isRefreshing,
     mapData,
+    lastSyncedAt,
+    sessionHistory,
     refreshAll,
     deviceLocation,
     refreshDeviceLocation,
@@ -193,6 +197,8 @@ export function MapScreen() {
       error: state.error,
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
+      lastSyncedAt: state.lastSyncedAt,
+      sessionHistory: state.routeSessionHistory,
       refreshAll: state.refreshAll,
       deviceLocation: state.deviceLocation,
       refreshDeviceLocation: state.refreshDeviceLocation,
@@ -214,6 +220,8 @@ export function MapScreen() {
   const [followMode, setFollowMode] = useState(true);
   const [trafficEnabled, setTrafficEnabled] = useState(true);
   const [activeAlertIndex, setActiveAlertIndex] = useState(0);
+  const [pendingJourneyAction, setPendingJourneyAction] = useState<RouteSessionAction | null>(null);
+  const [isChangingJourney, setIsChangingJourney] = useState(false);
   const selectorFocusedVehicleIdRef = useRef<string | null>(null);
 
   const selectorMode = isSelectorMode(params.point);
@@ -399,16 +407,39 @@ export function MapScreen() {
 
   const journeyStatus: 'none' | 'running' | 'paused' = !activeRouteSession ? 'none' : activeRouteSession.status === 'RUNNING' ? 'running' : activeRouteSession.status === 'PAUSED' ? 'paused' : 'none';
   const journeyVehicleId = user.vehicleId || selectedVehicle?.id || '';
-  const handleStartJourney = () => router.push({ pathname: '/checklist', params: { action: 'start', returnToMap: 'true', vehicleId: journeyVehicleId } });
-  const handleFinishJourney = () => router.push({ pathname: '/checklist', params: { action: 'finish', returnToMap: 'true', vehicleId: journeyVehicleId } });
-  const handlePauseJourney = () => router.push({ pathname: '/checklist', params: { action: 'pause', returnToMap: 'true', vehicleId: journeyVehicleId } });
+  const handleJourneyAction = async () => {
+    const action = pendingJourneyAction;
+    const vehicle = vehicleById.get(journeyVehicleId);
+    if (!action || !vehicle || isChangingJourney) return;
+    setIsChangingJourney(true);
+    try {
+      const result = await executeRouteSessionAction({
+        action,
+        currentSession: activeRouteSession,
+        organizationId: user.organizationId || '',
+        routeId: vehicle.routeId || '',
+        userId: user.id,
+        vehicleId: vehicle.id,
+        driverId: vehicle.driverId,
+      });
+      useAppStore.setState({ activeRouteSession: result.session });
+      setPendingJourneyAction(null);
+      if (!result.offline) await refreshAll();
+    } catch {
+      useAppStore.setState({ error: 'No fue posible actualizar la jornada.' });
+    } finally {
+      setIsChangingJourney(false);
+    }
+  };
+  const handleStartJourney = () => setPendingJourneyAction('start');
+  const handleFinishJourney = () => setPendingJourneyAction('finish');
+  const handlePauseJourney = () => setPendingJourneyAction(journeyStatus === 'paused' ? 'resume' : 'pause');
 
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <StatusBar style={theme.statusBar} />
       <View style={styles.root}>
         <MapCanvas
-          compassPosition={{ right: 66, top: insets.top + 10 }}
           coordinates={coordinates}
           mapData={mapDataForDisplay}
           mapPadding={mapPadding}
@@ -463,7 +494,6 @@ export function MapScreen() {
           <>
             <TrackingHud
               activeRouteCount={activeRouteCount}
-              compassReserved
               incidentCount={visibleIncidents.length}
               locationStatusColor={locationStatusColor}
               locationStatusLabel={locationStatus.hudLabel}
@@ -476,13 +506,13 @@ export function MapScreen() {
               followMode={followMode}
               incidentCount={visibleIncidents.length}
               isRefreshing={isRefreshing}
-              journeyStatus={journeyStatus}
-              onFinishJourney={handleFinishJourney}
+              journeyStatus={user.role === 'driver' ? journeyStatus : undefined}
+              onFinishJourney={user.role === 'driver' ? handleFinishJourney : undefined}
               onFocusNextAlert={focusNextAlert}
-              onPauseJourney={handlePauseJourney}
+              onPauseJourney={user.role === 'driver' ? handlePauseJourney : undefined}
               onRefresh={handleRefresh}
               onRetryLocation={refresh}
-              onStartJourney={handleStartJourney}
+              onStartJourney={user.role === 'driver' ? handleStartJourney : undefined}
               onToggleFollow={() => setFollowMode((current) => !current)}
               onToggleTraffic={() => setTrafficEnabled((current) => !current)}
               top={insets.top + 118}
@@ -520,11 +550,26 @@ export function MapScreen() {
             }}
               selectedVehicle={selectedVehicle}
               trackingVehicles={visiblePanelVehicles}
+              userRole={user.role}
+              activeSession={activeRouteSession}
+              sessionHistory={sessionHistory}
+              incidents={visibleIncidents}
+              lastSyncedAt={lastSyncedAt}
             />
           </>
         )}
 
         <OperationalMenuDrawer visible={menuOpen && !selectorMode} onClose={() => setMenuOpen(false)} activeKey="mapa" />
+        <ConfirmModal
+          visible={Boolean(pendingJourneyAction)}
+          title={pendingJourneyAction === 'finish' ? 'Finalizar jornada' : pendingJourneyAction === 'pause' ? 'Pausar jornada' : pendingJourneyAction === 'resume' ? 'Reanudar jornada' : 'Iniciar jornada'}
+          description="La unidad permanecera en Seguimiento y el cambio se sincronizara con Control."
+          confirmLabel={pendingJourneyAction === 'finish' ? 'Finalizar' : pendingJourneyAction === 'pause' ? 'Pausar' : pendingJourneyAction === 'resume' ? 'Reanudar' : 'Iniciar'}
+          danger={pendingJourneyAction === 'finish'}
+          processing={isChangingJourney}
+          onCancel={() => setPendingJourneyAction(null)}
+          onConfirm={handleJourneyAction}
+        />
       </View>
     </View>
   );

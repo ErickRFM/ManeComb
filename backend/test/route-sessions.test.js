@@ -287,6 +287,22 @@ async function main() {
     assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
     assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
     assert.equal(context.store.listRouteSessionPositions({ sessionId: session.id, limit: 20 }).length, 5);
+    const recoveryTimestamp = new Date(baseTime.getTime() + 150_000).toISOString();
+    context.store.createRouteSessionPosition({
+      organizationId: "manecomb-demo",
+      sessionId: "recovery-session-204",
+      vehicleId: "vehicle-204",
+      latitude: 19.5,
+      longitude: -99.25,
+      timestamp: recoveryTimestamp,
+      heading: 90,
+      speed: 4,
+      accuracy: 10,
+      gpsQuality: "GOOD"
+    });
+    const recoveredVehicle = context.store.getLiveLocations().vehicles.find((entry) => entry.id === "vehicle-204");
+    assert.equal(recoveredVehicle.locationTimestamp, recoveryTimestamp);
+    assert.deepEqual(recoveredVehicle.location, { latitude: 19.5, longitude: -99.25 });
 
     const persistedSession = context.store.getRouteSessionById(session.id);
     assert.equal(persistedSession.statisticsReady, true);

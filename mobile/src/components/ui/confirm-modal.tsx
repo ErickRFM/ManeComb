@@ -1,4 +1,4 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DesignSystem, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 
@@ -9,6 +9,7 @@ type ConfirmModalProps = {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  processing?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -20,13 +21,14 @@ export function ConfirmModal({
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   danger,
+  processing = false,
   onCancel,
   onConfirm,
 }: ConfirmModalProps) {
   const { theme } = useAppTheme();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={processing ? undefined : onCancel}>
       <View style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}>
         <View style={[styles.modal, { backgroundColor: theme.colors.card, borderColor: theme.colors.line }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
@@ -34,17 +36,19 @@ export function ConfirmModal({
           <View style={styles.actions}>
             <Pressable
               onPress={onCancel}
+              disabled={processing}
               style={[styles.button, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line }]}>
               <Text style={[styles.cancelText, { color: theme.colors.text }]}>{cancelLabel}</Text>
             </Pressable>
             <Pressable
               onPress={onConfirm}
+              disabled={processing}
               style={[
                 styles.button,
                 styles.primary,
                 { backgroundColor: danger ? theme.colors.danger : theme.colors.accent },
               ]}>
-              <Text style={styles.primaryText}>{confirmLabel}</Text>
+              {processing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>{confirmLabel}</Text>}
             </Pressable>
           </View>
         </View>

@@ -756,6 +756,7 @@ export type ChatMessage = {
   sender?: User | null;
   conversationId?: string;
   transmissionId?: string | null;
+  status?: 'sent' | 'delivered' | 'read' | 'failed';
 };
 
 export type RouteSessionStatus = 'ASSIGNED' | 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED';

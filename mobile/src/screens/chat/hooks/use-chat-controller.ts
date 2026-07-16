@@ -84,7 +84,8 @@ export function useChatController() {
   const [directoryMode, setDirectoryMode] = useState<DirectoryMode>('all');
   const [mobilePane, setMobilePane] = useState<MobilePane>('directory');
   const [draft, setDraft] = useState('');
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuVisible] = useState(false);
+  const [attachmentMenuMode, setAttachmentMenuMode] = useState<'conversation' | 'directory'>('conversation');
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -617,6 +618,16 @@ export function useChatController() {
       }),
     [chatContacts]
   );
+  const setAttachmentMenuOpen = useCallback((open: boolean) => {
+    if (open) {
+      setAttachmentMenuMode('conversation');
+    }
+    setAttachmentMenuVisible(open);
+  }, []);
+  const openDirectoryMenu = useCallback(() => {
+    setAttachmentMenuMode('directory');
+    setAttachmentMenuVisible(true);
+  }, []);
   const {
     handleMessagesContentSizeChange,
     handleMessagesLayout,
@@ -1291,11 +1302,11 @@ export function useChatController() {
   const handleMediaPicked = useCallback(async (source: 'camera' | 'gallery') => {
     if (!activeConversation) return;
     try {
-      const result = source === 'camera'
-        ? await launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 })
+      const pickerResult = source === 'camera'
+        ? await launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
         : await launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
-      if (result.canceled || !result.assets.length) return;
-      const asset = result.assets[0];
+      if (pickerResult.canceled || !pickerResult.assets.length) return;
+      const asset = pickerResult.assets[0];
       const formData = new FormData();
       formData.append('file', {
         uri: asset.uri,
@@ -1305,10 +1316,17 @@ export function useChatController() {
       if (asset.mimeType?.startsWith('image/')) {
         formData.append('caption', draft || '');
       }
+      const sendResult = await sendMediaMessage(activeConversation.id, formData);
+      if (!sendResult.ok) {
+        throw new Error(sendResult.message || 'No fue posible subir el archivo.');
+      }
       setDraft('');
-      await sendMediaMessage(activeConversation.id, formData);
-    } catch {
-      setAttachmentNotice('No fue posible subir el archivo. Verifica tu conexion.');
+    } catch (error) {
+      setAttachmentNotice(
+        error instanceof Error
+          ? error.message
+          : 'No fue posible subir el archivo. Verifica tu conexion.'
+      );
     }
   }, [activeConversation, draft, sendMediaMessage, setDraft, setAttachmentNotice]);
 
@@ -1324,6 +1342,7 @@ export function useChatController() {
     activeConversationCallMode,
     activeMessageItems,
     attachmentMenuOpen,
+    attachmentMenuMode,
     attachmentNotice,
     callElapsedSeconds,
     callNotice,
@@ -1346,6 +1365,7 @@ export function useChatController() {
     handleMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
+    openDirectoryMenu,
     handleOpenRadioFromChat,
     handleSelectConversation,
     handleRetryTextMessage,

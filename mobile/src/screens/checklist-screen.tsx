@@ -4,10 +4,10 @@ import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
-  PanResponder,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,17 +17,17 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { isAxiosError } from 'axios';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionCheckpointVisitsRequest, getRouteSessionEventsRequest, getRouteSessionHistoryRequest, getRouteSessionMetricsRequest, startRouteSessionRequest, updateNavigationRouteRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
+import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionCheckpointVisitsRequest, getRouteSessionEventsRequest, getRouteSessionHistoryRequest, getRouteSessionMetricsRequest, updateNavigationRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { enqueuePendingSyncOperation } from '@/src/api/offline-cache';
+import { executeRouteSessionAction } from '@/src/services/route-session-actions';
 import type {
   AssignedRoute,
   FleetControlLog,
@@ -80,36 +80,6 @@ type FinalizedRouteSummary = {
 const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
 const MANECOMB_ROUTE_COLOR = '#E31E24';
 
-function isOfflineError(error: unknown) {
-  return isAxiosError(error) && !error.response;
-}
-
-function RouteSlider({ label, disabled, onComplete }: { label: string; disabled?: boolean; onComplete: () => void }) {
-  const offset = useRef(new Animated.Value(0)).current;
-  const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => !disabled,
-    onMoveShouldSetPanResponder: (_, gesture) => !disabled && Math.abs(gesture.dx) > 4,
-    onPanResponderMove: (_, gesture) => offset.setValue(Math.max(0, Math.min(230, gesture.dx))),
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx >= 180) Animated.timing(offset, { toValue: 230, duration: 120, useNativeDriver: true }).start(() => { onComplete(); offset.setValue(0); });
-      else Animated.spring(offset, { toValue: 0, useNativeDriver: true }).start();
-    },
-  }), [disabled, offset, onComplete]);
-  return <View style={[routeSliderStyles.track, disabled && routeSliderStyles.disabled]}>
-    <Text style={routeSliderStyles.label}>{label}</Text>
-    <Animated.View {...responder.panHandlers} style={[routeSliderStyles.thumb, { transform: [{ translateX: offset }] }]}>
-      <MaterialCommunityIcons name="chevron-double-right" size={24} color="#FFFFFF" />
-    </Animated.View>
-  </View>;
-}
-
-const routeSliderStyles = StyleSheet.create({
-  track: { height: 58, borderRadius: 29, backgroundColor: '#1F2937', justifyContent: 'center', paddingHorizontal: 6, overflow: 'hidden' },
-  disabled: { opacity: 0.55 },
-  label: { color: '#FFFFFF', textAlign: 'center', fontWeight: '700' },
-  thumb: { position: 'absolute', left: 6, width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: MANECOMB_ROUTE_COLOR },
-});
-
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.round(totalSeconds));
   const hours = Math.floor(safeSeconds / 3600);
@@ -124,7 +94,7 @@ function formatDuration(totalSeconds: number) {
 
 function formatDistance(meters: number) {
   if (!Number.isFinite(meters) || meters <= 0) {
-    return '--';
+    return 'Sin datos';
   }
 
   if (meters < 1000) {
@@ -609,6 +579,11 @@ function createStyles(
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 12,
+    },
+    centeredText: {
+      color: theme.colors.muted,
+      fontSize: 14,
     },
     header: {
       paddingTop: 4,
@@ -726,6 +701,7 @@ function createStyles(
       color: theme.colors.muted,
       fontSize: 13,
       lineHeight: 18,
+      flexShrink: 1,
     },
     recordTimeline: {
       flexDirection: 'row',
@@ -737,7 +713,8 @@ function createStyles(
       paddingTop: 10,
     },
     timeBlock: {
-      minWidth: 76,
+      flex: 1,
+      minWidth: 0,
       gap: 3,
     },
     timeLabel: {
@@ -812,13 +789,9 @@ function createStyles(
       paddingBottom: 18,
       gap: 14,
     },
-    modalHandle: {
-      width: 38,
-      height: 4,
-      borderRadius: 999,
-      backgroundColor: theme.colors.line,
-      alignSelf: 'center',
-      marginBottom: 2,
+    modalKeyboard: {
+      flex: 1,
+      justifyContent: 'flex-end',
     },
     modalHeader: {
       flexDirection: 'row',
@@ -826,16 +799,22 @@ function createStyles(
       justifyContent: 'space-between',
       gap: 12,
     },
+    modalHeaderCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
     modalTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
       fontSize: 21,
       fontWeight: '900',
+      flexShrink: 1,
     },
     modalSubtitle: {
       color: theme.colors.muted,
       fontSize: 13,
       lineHeight: 18,
+      flexShrink: 1,
     },
     modalClose: {
       width: 42,
@@ -891,6 +870,11 @@ function createStyles(
       borderColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
+      flexShrink: 0,
+    },
+    recordCopy: {
+      flex: 1,
+      minWidth: 0,
     },
     miniMapMarkerShell: {
       width: 30,
@@ -1005,6 +989,7 @@ function createStyles(
       color: theme.colors.text,
       fontSize: 16,
       fontWeight: '900',
+      flexShrink: 1,
     },
     progressCard: {
       borderRadius: 18,
@@ -1272,6 +1257,8 @@ function createStyles(
       color: '#FFFFFF',
       fontSize: 14,
       fontWeight: '900',
+      flexShrink: 1,
+      textAlign: 'center',
     },
   });
 }
@@ -1299,6 +1286,8 @@ export function ChecklistScreen() {
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
   const [routeNameDraft, setRouteNameDraft] = useState('');
   const [routeNamePromptOpen, setRouteNamePromptOpen] = useState(false);
+  const [routePendingDelete, setRoutePendingDelete] = useState<RouteShape | null>(null);
+  const [isDeletingRoute, setIsDeletingRoute] = useState(false);
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [finalizedRouteSummary, setFinalizedRouteSummary] = useState<FinalizedRouteSummary>(null);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
@@ -1426,6 +1415,12 @@ export function ChecklistScreen() {
   }, [params.vehicleId, vehicles]);
 
   useEffect(() => {
+    if (user?.role === 'driver' && !String(params.action || '').trim()) {
+      router.replace('/mapa');
+    }
+  }, [params.action, user?.role]);
+
+  useEffect(() => {
     const actionValue = String(params.action || '').trim();
     const returnToMap = String(params.returnToMap || '').trim();
     if (!actionValue || !selectedVehicle || routeModalOpen) return;
@@ -1437,6 +1432,11 @@ export function ChecklistScreen() {
 
     processedActionRef.current = actionKey;
 
+    if (user?.role !== 'driver') {
+      if (returnToMap === 'true') router.back();
+      return;
+    }
+
     (async () => {
       try {
         if (actionValue === 'start') await startTrip();
@@ -1447,7 +1447,7 @@ export function ChecklistScreen() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.action, params.returnToMap, selectedVehicle, routeModalOpen, isSessionLoaded]);
+  }, [params.action, params.returnToMap, selectedVehicle, routeModalOpen, isSessionLoaded, user?.role]);
 
   const routeOption = tracker.pointPlan?.routes[0] || selectedAssignedRoute?.route || null;
   const routeStops = useMemo(
@@ -1530,10 +1530,10 @@ export function ChecklistScreen() {
         ? formatDuration(tracker.routeProgress.timeRemainingSeconds)
         : routeDurationSeconds
           ? formatDuration(routeDurationSeconds)
-          : '--'
+          : 'No disponible'
       : routeDurationSeconds
         ? formatDuration(routeDurationSeconds)
-        : '--';
+        : 'No disponible';
   const checkpointProgressLabel = tracker.routeProgress
     ? `${tracker.routeProgress.currentCheckpointIndex} / ${tracker.routeProgress.checkpointCount}`
     : 'Pendiente';
@@ -1568,7 +1568,23 @@ export function ChecklistScreen() {
     if (!activeSession || !normalizeAssignedRoute(vehicle.assignedRoute)) return;
 
     try {
-      const finishedSession = await updateRouteSessionStatusRequest(activeSession.id, vehicle.id, 'FINISHED');
+      const result = await executeRouteSessionAction({
+        action: 'finish',
+        currentSession: activeSession,
+        organizationId: user?.organizationId || '',
+        routeId: vehicle.routeId || '',
+        userId: user?.id || '',
+        vehicleId: vehicle.id,
+        driverId: vehicle.driverId,
+      });
+      if (result.offline || !result.record) {
+        setActiveSession(null);
+        useAppStore.setState({ activeRouteSession: null });
+        tracker.resetPointToPointSession();
+        tracker.setPointMessage('Finalizacion guardada. Se confirmara al recuperar conexion.');
+        return;
+      }
+      const finishedSession = result.record;
       const [metrics, events, checkpoints] = await Promise.all([
         getRouteSessionMetricsRequest(finishedSession.id),
         getRouteSessionEventsRequest(finishedSession.id, { limit: 2000 }),
@@ -1583,9 +1599,9 @@ export function ChecklistScreen() {
       const summary: NonNullable<FinalizedRouteSummary> = {
         destinationLabel,
         distanceLabel: formatDistance(metrics.totalDistance || 0),
-        durationLabel: typeof metrics.totalDuration === 'number' ? formatDuration(metrics.totalDuration) : '--',
-        movingTimeLabel: typeof metrics.movingTime === 'number' ? formatDuration(metrics.movingTime) : '--',
-        stoppedTimeLabel: typeof metrics.stoppedTime === 'number' ? formatDuration(metrics.stoppedTime) : '--',
+        durationLabel: typeof metrics.totalDuration === 'number' ? formatDuration(metrics.totalDuration) : 'Sin datos',
+        movingTimeLabel: typeof metrics.movingTime === 'number' ? formatDuration(metrics.movingTime) : 'Sin datos',
+        stoppedTimeLabel: typeof metrics.stoppedTime === 'number' ? formatDuration(metrics.stoppedTime) : 'Sin datos',
         finishedAt,
         originLabel,
         stopCount: metrics.stopEvents ?? checkpoints.length,
@@ -1603,18 +1619,7 @@ export function ChecklistScreen() {
         setFinalizedRouteSummary(summary);
       }
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    } catch (error) {
-      if (isOfflineError(error)) {
-        await enqueuePendingSyncOperation({
-          type: 'control:sessionStatus',
-          payload: { sessionId: activeSession.id.startsWith('pending:') ? null : activeSession.id, vehicleId: vehicle.id, status: 'FINISHED' },
-        });
-        setActiveSession(null);
-        useAppStore.setState({ activeRouteSession: null });
-        tracker.resetPointToPointSession();
-        tracker.setPointMessage('Finalizacion guardada. Se confirmara y cargara desde el servidor al recuperar conexion.');
-        return;
-      }
+    } catch {
       tracker.setPointMessage('No fue posible finalizar la jornada.');
     }
   };
@@ -1623,34 +1628,23 @@ export function ChecklistScreen() {
     if (!selectedVehicle || activeSession || isChangingSession) return;
     setIsChangingSession(true);
     try {
-      const session = await startRouteSessionRequest(selectedVehicle.id);
+      const result = await executeRouteSessionAction({
+        action: 'start',
+        currentSession: null,
+        organizationId: user?.organizationId || '',
+        routeId: selectedVehicle.routeId || '',
+        userId: user?.id || '',
+        vehicleId: selectedVehicle.id,
+        driverId: selectedVehicle.driverId,
+      });
+      const session = result.session;
+      if (!session) throw new Error('No fue posible iniciar la jornada');
       setActiveSession(session);
       useAppStore.setState({ activeRouteSession: session });
       restoredSessionIdRef.current = session.id;
       tracker.restoreTrackerSession({ startedAt: session.startedAt, status: 'RUNNING', vehicleId: session.vehicleId });
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (error) {
-      if (isOfflineError(error)) {
-        await enqueuePendingSyncOperation({ type: 'control:sessionStart', payload: { vehicleId: selectedVehicle.id } });
-        const now = new Date().toISOString();
-        const pendingSession: RouteSession = {
-          id: `pending:${selectedVehicle.id}`,
-          organizationId: user?.organizationId || '',
-          routeId: selectedVehicle.routeId || '',
-          vehicleId: selectedVehicle.id,
-          driverId: selectedVehicle.driverId || user?.id || '',
-          startedAt: now,
-          finishedAt: null,
-          status: 'RUNNING',
-          createdAt: now,
-          updatedAt: now,
-        };
-        setActiveSession(pendingSession);
-        useAppStore.setState({ activeRouteSession: pendingSession });
-        tracker.restoreTrackerSession({ startedAt: now, status: 'RUNNING', vehicleId: selectedVehicle.id });
-        tracker.setPointMessage('Inicio guardado. Se sincronizara al recuperar conexion.');
-        return;
-      }
+    } catch {
       tracker.setPointMessage('No fue posible iniciar la jornada.');
     } finally {
       setIsChangingSession(false);
@@ -1661,28 +1655,26 @@ export function ChecklistScreen() {
     if (!selectedVehicle || !activeSession || isChangingSession) return;
     setIsChangingSession(true);
     try {
-      const nextStatus = activeSession.status === 'PAUSED' ? 'RUNNING' : 'PAUSED';
-      const updatedSession = await updateRouteSessionStatusRequest(activeSession.id, selectedVehicle.id, nextStatus);
+      const action = activeSession.status === 'PAUSED' ? 'resume' : 'pause';
+      const result = await executeRouteSessionAction({
+        action,
+        currentSession: activeSession,
+        organizationId: user?.organizationId || '',
+        routeId: selectedVehicle.routeId || '',
+        userId: user?.id || '',
+        vehicleId: selectedVehicle.id,
+        driverId: selectedVehicle.driverId,
+      });
+      const updatedSession = result.session;
+      if (!updatedSession) throw new Error('No fue posible cambiar el estado de la jornada');
+      const nextStatus = updatedSession.status;
       setActiveSession(updatedSession);
       useAppStore.setState({ activeRouteSession: updatedSession });
       tracker.toggleTracker();
       await Haptics.impactAsync(
         nextStatus === 'PAUSED' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
       );
-    } catch (error) {
-      if (isOfflineError(error)) {
-        const nextStatus: 'RUNNING' | 'PAUSED' = activeSession.status === 'PAUSED' ? 'RUNNING' : 'PAUSED';
-        await enqueuePendingSyncOperation({
-          type: 'control:sessionStatus',
-          payload: { sessionId: activeSession.id.startsWith('pending:') ? null : activeSession.id, vehicleId: selectedVehicle.id, status: nextStatus },
-        });
-        const pendingSession = { ...activeSession, status: nextStatus, updatedAt: new Date().toISOString() };
-        setActiveSession(pendingSession);
-        useAppStore.setState({ activeRouteSession: pendingSession });
-        tracker.toggleTracker();
-        tracker.setPointMessage(`${nextStatus === 'PAUSED' ? 'Pausa' : 'Reanudacion'} guardada para sincronizar.`);
-        return;
-      }
+    } catch {
       tracker.setPointMessage('No fue posible cambiar el estado de la jornada.');
     } finally {
       setIsChangingSession(false);
@@ -1859,30 +1851,37 @@ export function ChecklistScreen() {
   }, [refreshAll, selectedVehicle?.id]);
 
   const deleteSavedRoute = useCallback((route: RouteShape) => {
-    Alert.alert(
-      'Eliminar ruta',
-      `Se eliminara ${route.name} y se limpiara de las unidades asignadas.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            setIsSavingAssignedRoute(true);
-            try {
-              await deleteNavigationRouteRequest(route.id);
-              await refreshAll();
-              trackerRef.current.setPointMessage(`Ruta ${route.name} eliminada.`);
-            } catch {
-              trackerRef.current.setPointMessage('No fue posible eliminar la ruta.');
-            } finally {
-              setIsSavingAssignedRoute(false);
+    setRoutePendingDelete(route);
+  }, []);
+
+  const confirmDeleteSavedRoute = useCallback(async () => {
+    const route = routePendingDelete;
+    if (!route || isDeletingRoute) return;
+
+    setIsDeletingRoute(true);
+    try {
+      await deleteNavigationRouteRequest(route.id);
+      useAppStore.setState((state) => ({
+        mapData: state.mapData
+          ? {
+              ...state.mapData,
+              routes: state.mapData.routes.filter((entry) => entry.id !== route.id),
+              vehicles: state.mapData.vehicles.map((vehicle) =>
+                vehicle.routeId === route.id
+                  ? { ...vehicle, routeId: null, route: null, assignedRoute: null, routeName: undefined, routeCode: undefined }
+                  : vehicle
+              ),
             }
-          },
-        },
-      ]
-    );
-  }, [refreshAll]);
+          : state.mapData,
+      }));
+      setRoutePendingDelete(null);
+      trackerRef.current.setPointMessage(`Ruta ${route.name} eliminada.`);
+    } catch {
+      trackerRef.current.setPointMessage('No fue posible eliminar la ruta.');
+    } finally {
+      setIsDeletingRoute(false);
+    }
+  }, [isDeletingRoute, routePendingDelete]);
 
   const navParams = useLocalSearchParams<{
     vehicleId?: string;
@@ -2121,6 +2120,15 @@ export function ChecklistScreen() {
     );
   }
 
+  if (user.role === 'driver') {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator color={theme.colors.accent} size="large" />
+        <Text style={styles.centeredText}>Actualizando jornada...</Text>
+      </View>
+    );
+  }
+
   return (
     <AppShell
       sectionKey="checklist"
@@ -2153,8 +2161,8 @@ export function ChecklistScreen() {
 
       <AppCard style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Registros operativos</Text>
-          <Text style={styles.sectionLink}>{filteredRecords.length} registros</Text>
+          <Text style={styles.sectionTitle} numberOfLines={2}>Registros operativos</Text>
+          <Text style={styles.sectionLink} numberOfLines={1}>{filteredRecords.length} registros</Text>
         </View>
 
         <View style={styles.recordsList}>
@@ -2187,8 +2195,8 @@ export function ChecklistScreen() {
                           color={statusColor}
                         />
                       </View>
-                      <View>
-                        <Text style={styles.recordTitle}>{record.vehicleCode}</Text>
+                      <View style={styles.recordCopy}>
+                        <Text style={styles.recordTitle} numberOfLines={1} ellipsizeMode="tail">{record.vehicleCode}</Text>
                         <Text style={styles.recordDriver} numberOfLines={1}>
                           {record.driverName}
                         </Text>
@@ -2200,18 +2208,18 @@ export function ChecklistScreen() {
                   <View style={styles.recordTimeline}>
                     <View style={styles.timeBlock}>
                       <Text style={styles.timeLabel}>SAL</Text>
-                      <Text style={styles.timeValue}>
-                        {record.departureAt ? formatTime(record.departureAt) : '--:--'}
+                      <Text style={styles.timeValue} numberOfLines={1} ellipsizeMode="tail">
+                        {record.departureAt ? formatTime(record.departureAt) : 'Sin salida'}
                       </Text>
                     </View>
                     <View style={styles.timeBlock}>
                       <Text style={styles.timeLabel}>{etaLabel}</Text>
-                      <Text style={styles.timeValue}>
+                      <Text style={styles.timeValue} numberOfLines={1} ellipsizeMode="tail">
                         {record.arrivalAt
                           ? formatTime(record.arrivalAt)
                           : record.etaAt
                             ? formatTime(record.etaAt)
-                            : '--:--'}
+                            : 'Pendiente'}
                       </Text>
                     </View>
                     <View style={styles.timeBlock}>
@@ -2242,12 +2250,15 @@ export function ChecklistScreen() {
 
       <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
         <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+            style={styles.modalKeyboard}>
           <View style={styles.modalCard}>
-            <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
-                <Text style={styles.modalSubtitle}>{routeHeaderSubtitle}</Text>
+              <View style={styles.modalHeaderCopy}>
+                <Text style={styles.modalTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
+                <Text style={styles.modalSubtitle} numberOfLines={2} ellipsizeMode="tail">{routeHeaderSubtitle}</Text>
               </View>
               <Pressable style={styles.modalClose} onPress={closeRouteModal}>
                 <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
@@ -2301,7 +2312,7 @@ export function ChecklistScreen() {
                     <View style={styles.routeSummary}>
                       <View style={styles.routeSummaryItem}>
                         <Text style={styles.summaryLabel}>Distancia</Text>
-                        <Text style={styles.summaryValue}>{formatDistance(routeDistanceMeters)}</Text>
+                        <Text style={styles.summaryValue} numberOfLines={2}>{formatDistance(routeDistanceMeters)}</Text>
                       </View>
                       <View style={styles.routeSummaryItem}>
                         <Text style={styles.summaryLabel}>Paradas</Text>
@@ -2309,7 +2320,7 @@ export function ChecklistScreen() {
                       </View>
                       <View style={styles.routeSummaryItem}>
                         <Text style={styles.summaryLabel}>Estimado</Text>
-                        <Text style={styles.summaryValue}>{dynamicEtaLabel}</Text>
+                        <Text style={styles.summaryValue} numberOfLines={2}>{dynamicEtaLabel}</Text>
                       </View>
                     </View>
                   ) : null}
@@ -2439,11 +2450,6 @@ export function ChecklistScreen() {
                         <Text style={styles.secondaryWideText}>Cambiar ruta</Text>
                       </Pressable>
                     </View>
-                    <RouteSlider
-                      label="Deslizar para iniciar ruta"
-                      disabled={isChangingSession || Boolean(activeSession)}
-                      onComplete={startTrip}
-                    />
                   </View>
                 </>
               ) : null}
@@ -2498,31 +2504,14 @@ export function ChecklistScreen() {
                   </View>
                   <View style={styles.configCard}>
                     <View style={styles.unitRouteCard}>
-                      <View>
-                        <Text style={styles.recordTitle}>{selectedVehicle?.code || 'Unidad'}</Text>
+                      <View style={styles.recordCopy}>
+                        <Text style={styles.recordTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Unidad'}</Text>
                         <Text style={styles.recordDriver} numberOfLines={1}>
                           {selectedVehicle?.driverName || 'Operador sin asignar'}
                         </Text>
                       </View>
                       <StatusPill label={routeStateLabel} tone={routeUiState === 'paused' || isRouteOffRoute ? 'warning' : 'info'} />
                     </View>
-                    <View style={styles.routeActionRow}>
-                      <Pressable style={styles.secondaryWide} onPress={toggleSessionPause} disabled={isChangingSession}>
-                        <MaterialCommunityIcons
-                          name={routeUiState === 'paused' ? 'play' : 'pause'}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                        <Text style={styles.secondaryWideText}>
-                          {routeUiState === 'paused' ? 'Continuar' : 'Pausar'}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <RouteSlider
-                      label="Deslizar para finalizar"
-                      disabled={isChangingSession || !activeSession}
-                      onComplete={() => selectedVehicle && finishTrip(selectedVehicle)}
-                    />
                   </View>
                 </>
               ) : null}
@@ -2606,8 +2595,19 @@ export function ChecklistScreen() {
               </View>
             ) : null}
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
+      <ConfirmModal
+        visible={Boolean(routePendingDelete)}
+        title="Eliminar ruta"
+        description={routePendingDelete ? `Se eliminara ${routePendingDelete.name} y se limpiara de las unidades asignadas.` : undefined}
+        confirmLabel="Eliminar"
+        danger
+        processing={isDeletingRoute}
+        onCancel={() => setRoutePendingDelete(null)}
+        onConfirm={confirmDeleteSavedRoute}
+      />
     </AppShell>
   );
 }

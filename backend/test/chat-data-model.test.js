@@ -76,6 +76,22 @@ async function run() {
   assert.strictEqual(page.items.length, 1, "cursor pagination returns requested page size");
   assert.strictEqual(typeof page.pageInfo.hasMore, "boolean");
 
+  const recipientId = storedConversation.participants.find(
+    (participantId) => participantId !== userId
+  );
+  assert.ok(recipientId, "general conversation has a delivery recipient");
+  const deliveredMessage = store.markConversationMessageDelivered(
+    conversation.id,
+    added.id,
+    recipientId
+  );
+  assert.strictEqual(deliveredMessage.status, "delivered");
+  assert.strictEqual(
+    store.getMessages(conversation.id, userId).find((message) => message.id === added.id).status,
+    "delivered",
+    "delivered receipt is persistent"
+  );
+
   const imageMessage = store.addMessage(conversation.id, userId, {
     kind: "image",
     imageUrl: "/api/chat/media/image-test.jpg",
@@ -93,7 +109,7 @@ async function run() {
   assert.equal(store.canUserAccessChatMedia(userId, "image-test.jpg"), true);
   assert.equal(store.canUserAccessChatMedia(userId, "video-test.mp4"), true);
 
-  const readMessage = store.markConversationMessageRead(conversation.id, added.id, userId);
+  const readMessage = store.markConversationMessageRead(conversation.id, added.id, recipientId);
   assert.strictEqual(readMessage.status, "read");
 
   const radioConversation = store.ensureGeneralConversation(userId, "radio");

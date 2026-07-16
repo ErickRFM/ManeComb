@@ -5,6 +5,7 @@ import {
   type CameraOptions,
   type ImageLibraryOptions,
 } from 'react-native-image-picker';
+import { PermissionsAndroid, Platform } from 'react-native';
 
 type PickerMediaType = 'images' | 'videos';
 
@@ -77,7 +78,23 @@ export async function launchImageLibraryAsync(options: ImagePickerOptions = {}) 
   };
 }
 
+export async function requestCameraPermissionAsync() {
+  if (Platform.OS !== 'android') return true;
+
+  const permission = PermissionsAndroid.PERMISSIONS.CAMERA;
+  const alreadyGranted = await PermissionsAndroid.check(permission);
+
+  if (alreadyGranted) return true;
+
+  const result = await PermissionsAndroid.request(permission);
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}
+
 export async function launchCameraAsync(options: ImagePickerOptions = {}) {
+  if (!(await requestCameraPermissionAsync())) {
+    throw new Error('Se necesita permiso de camara para tomar una foto o video.');
+  }
+
   const response = await launchCamera({
     mediaType: toMediaType(options.mediaTypes) as CameraOptions['mediaType'],
     includeBase64: Boolean(options.base64),
