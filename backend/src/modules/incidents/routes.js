@@ -60,7 +60,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
   req.app.locals.io?.to("platform:admin").emit("incident:created", incident);
 
-  const isSos = incident.severity === "critical" || /^sos/i.test(incident.title);
+  const isSos = incident.severity === "critical" || /^sos\b/i.test(incident.title);
   const notification = await deliverOperationalNotification({
     io: req.app.locals.io,
     store: req.app.locals.store,

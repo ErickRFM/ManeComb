@@ -191,7 +191,7 @@ export function PortalUsersScreen() {
             {administrativeUsers.map((item) => (
               <View key={item.id} style={[styles.userRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
                 <View style={[styles.avatar, { backgroundColor: theme.colors.accentSoft }]}>
-                  <Text style={[styles.avatarText, { color: theme.colors.accent }]}>{item.avatar || item.name.slice(0, 2)}</Text>
+                  <Text style={[styles.avatarText, { color: theme.colors.accent }]}>{item.avatar && !item.avatar.startsWith('http') ? item.avatar : item.name.slice(0, 2)}</Text>
                 </View>
                 <View style={styles.userBody}>
                   <Text style={[styles.userName, { color: theme.colors.text }]}>{item.name}</Text>
@@ -242,8 +242,28 @@ export function PortalUsersScreen() {
         confirmLabel="Guardar"
         processing={isSubmitting}
         onCancel={() => setEditTarget(null)}
-        onConfirm={confirmEdit}
-      />
+        onConfirm={confirmEdit}>
+        <View style={styles.statusSelector}>
+          {(['active', 'suspended', 'pending'] as const).map((status) => (
+            <Pressable
+              key={status}
+              accessibilityRole="button"
+              onPress={() => setEditStatus(status)}
+              style={[
+                styles.statusOption,
+                { borderColor: editStatus === status ? theme.colors.info : theme.colors.line },
+                editStatus === status ? { backgroundColor: theme.colors.infoSoft } : { backgroundColor: theme.colors.surface },
+              ]}>
+              <Text style={[
+                styles.statusOptionText,
+                { color: editStatus === status ? theme.colors.info : theme.colors.text },
+              ]}>
+                {status === 'active' ? 'Activo' : status === 'suspended' ? 'Suspendido' : 'Pendiente'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </ConfirmModal>
     </PortalLayout>
   );
 }
@@ -417,5 +437,26 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '900',
+  },
+  statusSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minWidth: 0,
+    paddingVertical: 8,
+  },
+  statusOption: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexGrow: 1,
+    minHeight: 38,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  statusOptionText: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
   },
 });

@@ -8,7 +8,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Vehicle, VehicleStatus } from '@/src/types/app';
+import type { Vehicle, VehicleMutationPayload, VehicleStatus } from '@/src/types/app';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
@@ -30,7 +30,7 @@ type UnitEditor = {
   code: string;
   plate: string;
   currentKilometers: string;
-  status: Exclude<VehicleStatus, 'assigned'>;
+  status: string;
 };
 
 const editableStatuses: UnitEditor['status'][] = ['available', 'maintenance'];
@@ -86,6 +86,7 @@ export function PortalUnitsScreen() {
   const [editor, setEditor] = useState<UnitEditor>(createBlankEditor);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [statusTouched, setStatusTouched] = useState(false);
+  const [showCreationBanner, setShowCreationBanner] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export function PortalUnitsScreen() {
         typeof vehicle.currentKilometers === 'number' && vehicle.currentKilometers > 0
           ? String(vehicle.currentKilometers)
           : '',
-      status: vehicle.status === 'maintenance' ? 'maintenance' : 'available',
+      status: vehicle.status,
     });
   };
 
@@ -135,12 +136,13 @@ export function PortalUnitsScreen() {
       return;
     }
 
+    const statusPayload = !editingId || statusTouched ? { status: editor.status as VehicleStatus } : {};
     const payload = {
       code: editor.code.trim(),
       plate: editor.plate.trim().toUpperCase(),
       currentKilometers: kilometers,
-      ...(!editingId || statusTouched ? { status: editor.status } : {}),
-    };
+      ...statusPayload,
+    } as VehicleMutationPayload;
     const result = editingId ? await updateVehicle(editingId, payload) : await createVehicle(payload);
 
     if (!result.ok) {
@@ -150,6 +152,7 @@ export function PortalUnitsScreen() {
 
     resetEditor();
     setMessage(editingId ? 'Unidad actualizada.' : 'Unidad creada.');
+    if (!editingId) setShowCreationBanner(true);
   };
 
   return (
@@ -223,9 +226,9 @@ export function PortalUnitsScreen() {
         </PortalSectionCard>
       ) : null}
 
-        {sortedVehicles.length && canManageUnits ? (
+        {showCreationBanner && canManageUnits ? (
           <View style={[styles.continuityBanner, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-            <MaterialCommunityIcons name="routes" size={18} color={theme.colors.info} />
+            <MaterialCommunityIcons name="check-circle" size={18} color={theme.colors.info} />
             <Text style={[styles.continuityText, { color: theme.colors.text }]}>Unidad creada. El siguiente paso es asignar una ruta.</Text>
             <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.continuityButton, portalButtonGradient()]}>
               <Text style={styles.continuityButtonText}>Asignar ruta</Text>

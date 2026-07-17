@@ -26,7 +26,7 @@ export function PortalBillingScreen() {
             <SkeletonBlock height={80} />
           </View>
         ) : invoices.length ? (
-          <InvoiceList invoices={invoices} onDownload={(invoice) => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} />
+          <InvoiceList invoices={invoices} onDownload={(invoice) => { Linking.openURL(resolveInvoiceDownloadUrl(invoice)).catch(() => {}); }} />
         ) : (
           <EmptyState
             icon="file-document-outline"

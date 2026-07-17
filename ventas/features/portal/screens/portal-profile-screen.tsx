@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -153,14 +153,18 @@ export function PortalProfileScreen() {
             ))}
           </View>
           <View style={styles.actions}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={isProfileSubmitting}
-              onPress={() => void saveProfile()}
-              style={[styles.primaryButton, portalButtonGradient(), isProfileSubmitting ? styles.disabledButton : undefined]}>
-              <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryText}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</Text>
-            </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isProfileSubmitting}
+                onPress={() => void saveProfile()}
+                style={[styles.primaryButton, portalButtonGradient(), isProfileSubmitting ? styles.disabledButton : undefined]}>
+                {isProfileSubmitting ? (
+                  <ActivityIndicator size={18} color="#FFFFFF" />
+                ) : (
+                  <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
+                )}
+                <Text style={styles.primaryText}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</Text>
+              </Pressable>
           </View>
         </PortalSectionCard>
       ) : null}

@@ -119,6 +119,12 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
     }
   }, [loadAll, setThemeMode, user]);
 
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = title ? `ManeComb — ${title}` : 'ManeComb';
+    }
+  }, [title]);
+
   if (!user) {
     return <Redirect href={'/ventas/login' as never} />;
   }
@@ -214,8 +220,10 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
 
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <View accessibilityRole="text" style={styles.breadcrumb}>
-            <Text style={styles.breadcrumbMuted}>Portal</Text>
+          <View style={styles.breadcrumb}>
+            <Pressable accessibilityRole="link" onPress={() => router.push('/portal' as never)}>
+              <Text style={styles.breadcrumbMuted}>Portal</Text>
+            </Pressable>
             <MaterialCommunityIcons name="chevron-right" size={14} color={portalPalette.mutedSoft} />
             <Text style={styles.breadcrumbCurrent}>{title}</Text>
           </View>

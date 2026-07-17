@@ -92,6 +92,8 @@ export function PortalRoutesScreen() {
   const [routeToClear, setRouteToClear] = useState<Vehicle | null>(null);
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
   const [mapSelectMode, setMapSelectMode] = useState<'origin' | 'destination' | null>(null);
+  const [showAssignmentBanner, setShowAssignmentBanner] = useState(false);
+  const [routeOverwriteTarget, setRouteOverwriteTarget] = useState<Vehicle | null>(null);
 
   useEffect(() => {
     void loadVehicles();
@@ -163,6 +165,23 @@ export function PortalRoutesScreen() {
       return;
     }
 
+    const targetVehicle = vehicles.find((v) => v.id === editor.vehicleId);
+    if (targetVehicle?.assignedRoute) {
+      setRouteOverwriteTarget(targetVehicle);
+      return;
+    }
+
+    await executeAssignRoute();
+  };
+
+  const executeAssignRoute = async () => {
+    if (!editor.vehicleId) return;
+
+    const originLatitude = parseCoordinate(editor.originLatitude, -90, 90);
+    const originLongitude = parseCoordinate(editor.originLongitude, -180, 180);
+    const destinationLatitude = parseCoordinate(editor.destinationLatitude, -90, 90);
+    const destinationLongitude = parseCoordinate(editor.destinationLongitude, -180, 180);
+
     const result = await assignRoute({
       vehicleId: editor.vehicleId,
       originLabel: editor.originLabel.trim(),
@@ -184,6 +203,7 @@ export function PortalRoutesScreen() {
 
     setEditor(createBlankEditor(editor.vehicleId));
     setMessage('Ruta asignada.');
+    setShowAssignmentBanner(true);
   };
 
   const clearRoute = async (vehicleId: string) => {
@@ -201,9 +221,9 @@ export function PortalRoutesScreen() {
 
   return (
     <PortalLayout title="Rutas" subtitle="Asignacion real de origen y destino por unidad.">
-      {vehiclesWithRoutes.length && canManageRoutes ? (
+      {showAssignmentBanner && canManageRoutes ? (
         <View style={styles.continuityBanner}>
-          <MaterialCommunityIcons name="view-dashboard-outline" size={18} color="#FFFFFF" />
+          <MaterialCommunityIcons name="check-circle" size={18} color="#FFFFFF" />
           <Text style={styles.continuityText}>Ruta asignada. Abre el centro de operaciones para monitorear la unidad.</Text>
           <Pressable accessibilityRole="button" onPress={() => router.push('/portal' as never)} style={styles.continuityButton}>
             <Text style={styles.continuityButtonText}>Ir a operaciones</Text>
@@ -426,6 +446,20 @@ export function PortalRoutesScreen() {
           void clearRoute(routeToClear.id).then((cleared) => {
             if (cleared) setRouteToClear(null);
           });
+        }}
+      />
+
+      <ConfirmModal
+        visible={Boolean(routeOverwriteTarget)}
+        title="Sobrescribir ruta"
+        description={`${routeOverwriteTarget?.code || 'La unidad'} ya tiene una ruta asignada. ¿Sobrescribirla?`}
+        confirmLabel="Sobrescribir"
+        destructive
+        processing={isSubmitting}
+        onCancel={() => setRouteOverwriteTarget(null)}
+        onConfirm={() => {
+          setRouteOverwriteTarget(null);
+          void executeAssignRoute();
         }}
       />
     </PortalLayout>

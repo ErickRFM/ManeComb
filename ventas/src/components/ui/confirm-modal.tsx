@@ -12,6 +12,7 @@ type ConfirmModalProps = {
   processing?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  children?: React.ReactNode;
 };
 
 export function ConfirmModal({
@@ -24,6 +25,7 @@ export function ConfirmModal({
   processing = false,
   onConfirm,
   onCancel,
+  children,
 }: ConfirmModalProps) {
   const { theme } = useAppTheme();
 
@@ -33,6 +35,7 @@ export function ConfirmModal({
         <View style={[styles.panel, { backgroundColor: theme.colors.card, borderColor: theme.colors.line }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
           {description ? <Text style={[styles.description, { color: theme.colors.muted }]}>{description}</Text> : null}
+          {children}
           <View style={styles.actions}>
             <Pressable accessibilityRole="button" disabled={processing} onPress={onCancel} style={[styles.button, processing ? styles.disabled : undefined, { borderColor: theme.colors.line }]}>
               <Text style={[styles.cancelText, { color: theme.colors.text }]}>{cancelLabel}</Text>

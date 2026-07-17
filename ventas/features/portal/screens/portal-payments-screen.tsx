@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
@@ -13,8 +14,9 @@ import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalPaymentsScreen() {
-  const { invoices, isLoading, subscription } = usePortalStore(
+  const { error, invoices, isLoading, subscription } = usePortalStore(
     useShallow((state) => ({
+      error: state.error,
       invoices: state.invoices,
       isLoading: state.isLoading,
       subscription: state.subscription,
@@ -27,9 +29,14 @@ export function PortalPaymentsScreen() {
   const nextChargeAmount = subscription?.monthlyPrice;
 
   const retryPayment = () => {
-    if (!subscription?.planId) return;
+    if (!subscription?.planId) {
+      setMessage('No hay un plan activo para renovar.');
+      return;
+    }
     router.push({ pathname: '/ventas/pago', params: { planId: subscription.planId } } as never);
   };
+
+  const [message, setMessage] = useState<string | null>(null);
 
   return (
     <PortalLayout title="Administración comercial" subtitle="Estado del plan, pagos, facturas y referencias de tu cuenta.">
@@ -42,7 +49,8 @@ export function PortalPaymentsScreen() {
           </View>
         </PortalSectionCard>
       ) : subscription?.id ? (
-        <PortalSectionCard title="Estado del plan" subtitle="Información actual de tu suscripción.">
+        <PortalSectionCard title="Estado del plan" subtitle={message || error || 'Información actual de tu suscripción.'}>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
           <View style={styles.headerRow}>
             <View style={styles.identity}>
               <Text style={styles.kicker}>Plan contratado</Text>
@@ -98,7 +106,7 @@ export function PortalPaymentsScreen() {
       {subscription?.id ? (
         <PortalSectionCard title="Facturas" subtitle="Comprobantes asociados a tu cuenta.">
           {invoices.length ? (
-            <InvoiceList invoices={invoices} onDownload={(invoice) => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} />
+            <InvoiceList invoices={invoices} onDownload={(invoice) => { Linking.openURL(resolveInvoiceDownloadUrl(invoice)).catch(() => {}); }} />
           ) : (
             <View style={styles.emptyInline}>
               <Text style={styles.emptyInlineText}>No hay facturas disponibles. Aparecerán después del primer cobro.</Text>
@@ -129,4 +137,5 @@ const styles = StyleSheet.create({
   secondaryText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
   emptyInline: { padding: AppTheme.spacing.md },
   emptyInlineText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
+  errorText: { color: portalPalette.danger, fontFamily: Typography.body, fontSize: 12, lineHeight: 18, marginBottom: 8 },
 });

@@ -36,16 +36,22 @@ jobs:
       REQUIRE_MONGO: "false"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: |
+            backend/package-lock.json
+            communication-service/package-lock.json
 
-      - name: Install dependencies
+      - name: Install communication service dependencies
+        working-directory: communication-service
+        run: npm ci
+
+      - name: Install backend dependencies
         run: npm ci
 
       - name: Run tests
@@ -60,10 +66,10 @@ jobs:
         working-directory: mobile
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -93,10 +99,10 @@ jobs:
       VITE_SOCKET_URL: https://manecomb.onrender.com
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm

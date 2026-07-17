@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
@@ -288,11 +288,15 @@ function ChangePreview({
             actionDisabled ? styles.disabledButton : undefined,
           ]}>
           <Text style={styles.continueButtonText}>{isSubmitting ? 'Aplicando...' : action.label}</Text>
-          <MaterialCommunityIcons
-            name={isSubmitting ? 'progress-clock' : action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
-            size={18}
-            color={portalPalette.text}
-          />
+          {isSubmitting ? (
+            <ActivityIndicator size={18} color={portalPalette.text} />
+          ) : (
+            <MaterialCommunityIcons
+              name={action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
+              size={18}
+              color={portalPalette.text}
+            />
+          )}
         </Pressable>
       </View>
     </PortalSectionCard>
