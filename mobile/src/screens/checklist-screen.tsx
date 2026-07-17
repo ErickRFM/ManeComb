@@ -1647,7 +1647,7 @@ export function ChecklistScreen() {
     });
   }
 
-  const createRouteFromMap = useCallback(() => {
+  const createRouteFromMap = () => {
     if (!selectedVehicle) return;
 
     pendingStopPersistRef.current = false;
@@ -1657,7 +1657,7 @@ export function ChecklistScreen() {
     setRouteLibraryOpen(false);
     trackerRef.current.resetPointToPointSession();
     openMapForVehicle(selectedVehicle, 'origin');
-  }, [selectedVehicle]);
+  };
 
   const handleRemoveRouteStop = (stopId: string) => {
     pendingStopPersistRef.current = true;

@@ -25,15 +25,17 @@ type SummaryCardProps = {
 };
 
 function getStatusTone(status?: string): StatusBadgeTone {
-  if (['active', 'completed', 'paid', 'ready', 'ready_for_activation', 'trial'].includes(String(status || ''))) {
+  const normalized = String(status || '').toLowerCase();
+
+  if (['active', 'completed', 'finished', 'paid', 'ready', 'ready_for_activation', 'running', 'trial'].includes(normalized)) {
     return 'positive';
   }
 
-  if (['pending', 'pending_payment', 'trial_active'].includes(String(status || ''))) {
+  if (['paused', 'pending', 'pending_payment', 'trial_active'].includes(normalized)) {
     return 'warning';
   }
 
-  if (['cancelled', 'canceled', 'suspended', 'failed', 'error'].includes(String(status || ''))) {
+  if (['cancelled', 'canceled', 'suspended', 'failed', 'error'].includes(normalized)) {
     return 'danger';
   }
 
@@ -181,7 +183,7 @@ export function getPortalStatusTone(status?: string) {
 const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: AppTheme.radius.sm,
-    gap: AppTheme.spacing.md,
+    gap: 12,
     minWidth: 0,
   },
   sectionHeader: {
@@ -215,8 +217,8 @@ const styles = StyleSheet.create({
   summaryCard: {
     borderRadius: AppTheme.radius.sm,
     flex: 1,
-    flexBasis: 230,
-    minHeight: 136,
+    flexBasis: 200,
+    minHeight: 100,
     minWidth: 0,
   },
   summaryTop: {
@@ -230,15 +232,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: AppTheme.radius.xs,
     flexShrink: 0,
-    height: 38,
+    height: 32,
     justifyContent: 'center',
-    width: 38,
+    width: 32,
   },
   summaryValue: {
     fontFamily: Typography.display,
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '900',
-    lineHeight: 34,
+    lineHeight: 26,
     minWidth: 0,
   },
   summaryDetail: {

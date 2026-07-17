@@ -26,7 +26,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
-import { AccountSummaryCard, formatPortalStatus, PortalSectionCard } from '../components/portal-cards';
+import { AccountSummaryCard, formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
@@ -240,10 +240,7 @@ function getJourneyState(vehicle: Vehicle, session?: RouteSession | null): Journ
   if (vehicle.activeRouteProgress?.isOffRoute) return { label: 'Fuera de ruta', tone: 'danger' };
   if (getGpsState(vehicle, session).stale && session && session.status !== 'FINISHED') return { label: 'GPS perdido', tone: 'warning' };
   if (!session) return { label: 'Esperando salida', tone: 'neutral' };
-  if (session.status === 'RUNNING') return { label: 'En ruta', tone: 'positive' };
-  if (session.status === 'PAUSED') return { label: 'Pausado', tone: 'warning' };
-  if (session.status === 'FINISHED') return { label: 'Finalizado', tone: 'info' };
-  return { label: session.status, tone: session.status === 'CANCELLED' ? 'danger' : 'neutral' };
+  return { label: formatPortalStatus(session.status), tone: getPortalStatusTone(session.status) };
 }
 
 function getRouteGeometry(vehicle?: Vehicle | null) {
@@ -601,10 +598,11 @@ export function PortalDashboardScreen() {
       </View>
 
       <View style={styles.operationsGrid}>
-        <PortalSectionCard title="Mapa operativo" subtitle="Posición disponible por unidad y ruta asignada.">
-          <Suspense fallback={<MapFallback />}>
+        <PortalSectionCard title="Mapa operativo">
+          <Suspense fallback={<MapFallback height={280} />}>
             <OperationsMap
               checkpoints={routeCheckpoints}
+              height={280}
               onVehiclePress={openVehicle}
               routeCoordinates={routeCoordinates}
               selectedVehicleId={selectedVehicle?.id}
@@ -700,7 +698,7 @@ export function PortalDashboardScreen() {
       <PortalSectionCard
         title="Detalle de jornada"
         subtitle={selectedSession ? `${vehicles.find((vehicle) => vehicle.id === selectedSession.vehicleId)?.code || 'Unidad'} / ${formatDate(selectedSession.startedAt)}` : 'Selecciona una jornada'}
-        right={selectedSession ? <StatusBadge label={formatPortalStatus(selectedSession.status)} tone={selectedSession.status === 'FINISHED' ? 'positive' : 'info'} /> : null}>
+        right={selectedSession ? <StatusBadge label={formatPortalStatus(selectedSession.status)} tone={getPortalStatusTone(selectedSession.status)} /> : null}>
         {selectedSession ? (
           <SessionDetailView
             detail={sessionDetail}
@@ -1080,7 +1078,7 @@ function SessionHistoryCard({
           <Text style={styles.historyTitle}>{vehicleCode} / {formatDate(session.startedAt)}</Text>
           <Text style={styles.unitMeta}>{driverName} / {routeLabel}</Text>
         </View>
-        <StatusBadge label={formatPortalStatus(session.status)} tone={session.status === 'FINISHED' ? 'positive' : session.status === 'CANCELLED' ? 'danger' : 'info'} />
+        <StatusBadge label={formatPortalStatus(session.status)} tone={getPortalStatusTone(session.status)} />
       </View>
       <View style={styles.unitFacts}>
         <Fact label="Duracion" value={formatDuration(session.totalDuration)} />
@@ -1312,7 +1310,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 10,
     minWidth: 0,
   },
   disabledAction: {
@@ -1533,7 +1531,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 10,
     minWidth: 0,
   },
   optionRow: {
@@ -1706,7 +1704,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
-    gap: 12,
+    gap: 8,
   },
   sideHighlightRow: {
     flexDirection: 'row',
@@ -1734,7 +1732,7 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 10,
     minWidth: 0,
   },
   timelineDot: {
@@ -1770,8 +1768,8 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 10,
-    padding: 12,
+    gap: 8,
+    padding: 10,
   },
   unitCardActive: {
     borderColor: portalPalette.accent,

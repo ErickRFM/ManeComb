@@ -4,6 +4,7 @@ import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
 import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
+import { ScreenErrorBoundary } from '@/src/components/screen-error-boundary';
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
 const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
@@ -93,23 +94,23 @@ function Routes() {
     case '/ventas/pago':
       return <PlanCheckoutScreen />;
     case '/portal':
-      return <PortalDashboardScreen />;
+      return <ScreenErrorBoundary name="Operaciones"><PortalDashboardScreen /></ScreenErrorBoundary>;
     case '/portal/usuarios':
-      return <PortalUsersScreen />;
+      return <ScreenErrorBoundary name="Equipo"><PortalUsersScreen /></ScreenErrorBoundary>;
     case '/portal/unidades':
-      return <PortalUnitsScreen />;
+      return <ScreenErrorBoundary name="Unidades"><PortalUnitsScreen /></ScreenErrorBoundary>;
     case '/portal/rutas':
-      return <PortalRoutesScreen />;
+      return <ScreenErrorBoundary name="Rutas"><PortalRoutesScreen /></ScreenErrorBoundary>;
     case '/portal/plan':
-      return <PortalPlanScreen />;
+      return <ScreenErrorBoundary name="Plan"><PortalPlanScreen /></ScreenErrorBoundary>;
     case '/portal/facturacion':
-      return <PortalBillingScreen />;
+      return <ScreenErrorBoundary name="Facturación"><PortalBillingScreen /></ScreenErrorBoundary>;
     case '/portal/pagos':
-      return <PortalPaymentsScreen />;
+      return <ScreenErrorBoundary name="Pagos"><PortalPaymentsScreen /></ScreenErrorBoundary>;
     case '/portal/perfil':
-      return <PortalProfileScreen />;
+      return <ScreenErrorBoundary name="Perfil"><PortalProfileScreen /></ScreenErrorBoundary>;
     case '/portal/onboarding':
-      return <PortalOnboardingScreen />;
+      return <ScreenErrorBoundary name="Activación"><PortalOnboardingScreen /></ScreenErrorBoundary>;
     case '/mapa':
       return <OperationalPlaceholder title="Panel operativo" />;
     case '/radio':
