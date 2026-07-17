@@ -153,9 +153,9 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
             <MaterialCommunityIcons name="file-document-outline" size={21} color={theme.colors.accent} />
           </View>
           <View style={styles.listBody}>
-            <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={1}>{invoice.referenceCode || 'Factura'}</Text>
+            <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={1}>{invoice.label || 'Factura'}</Text>
             <Text style={[styles.itemDescription, { color: theme.colors.muted }]} numberOfLines={2}>
-              ${Number(invoice.total || 0).toLocaleString('es-MX')} {invoice.currency}
+              {[invoice.referenceCode, `$${Number(invoice.total || 0).toLocaleString('es-MX')} ${invoice.currency}`, invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleDateString('es-MX') : null].filter(Boolean).join(' · ')}
             </Text>
           </View>
           <View style={styles.statusActionGroup}>

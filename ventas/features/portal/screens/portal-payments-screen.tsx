@@ -6,7 +6,7 @@ import { formatCurrency, formatDate } from '@/src/utils/format';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { resolveInvoiceDownloadUrl } from '@/features/commercial';
-import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
+import { InvoiceList, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
@@ -97,26 +97,7 @@ export function PortalPaymentsScreen() {
       {subscription?.id ? (
         <PortalSectionCard title="Facturas" subtitle="Comprobantes asociados a tu cuenta.">
           {invoices.length ? (
-            <View style={styles.invoiceList}>
-              {invoices.slice(0, 5).map((invoice) => (
-                <View key={invoice.id} style={[styles.invoiceRow, { borderColor: portalPalette.line, backgroundColor: portalPalette.surface }]}>
-                  <View style={styles.invoiceBody}>
-                    <Text style={styles.invoiceTitle}>{invoice.label || 'Factura'}</Text>
-                    <Text style={styles.invoiceMeta}>
-                      {invoice.referenceCode} · {formatCurrency(Number(invoice.total || 0), invoice.currency || 'MXN')} · {formatDate(invoice.issuedAt, { fallback: '' })}
-                    </Text>
-                  </View>
-                  <StatusBadge label={formatPortalStatus(invoice.status)} tone={getPortalStatusTone(invoice.status)} />
-                  <Pressable onPress={() => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} style={styles.iconAction}>
-                    <MaterialCommunityIcons name="download-outline" size={18} color={portalPalette.text} />
-                  </Pressable>
-                </View>
-              ))}
-              <Pressable onPress={() => router.push('/portal/facturacion' as never)} style={styles.viewAllButton}>
-                <Text style={styles.viewAllText}>Ver todas las facturas</Text>
-                <MaterialCommunityIcons name="arrow-right" size={16} color={portalPalette.text} />
-              </Pressable>
-            </View>
+            <InvoiceList invoices={invoices} onDownload={(invoice) => void Linking.openURL(resolveInvoiceDownloadUrl(invoice))} />
           ) : (
             <View style={styles.emptyInline}>
               <Text style={styles.emptyInlineText}>No hay facturas disponibles. Aparecerán después del primer cobro.</Text>
@@ -145,14 +126,6 @@ const styles = StyleSheet.create({
   emptyText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 13, textAlign: 'center' },
   secondaryButton: { borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm, borderWidth: 1, marginTop: 6, paddingHorizontal: 16, paddingVertical: 10 },
   secondaryText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
-  invoiceList: { gap: 10 },
-  invoiceRow: { alignItems: 'flex-start', borderRadius: AppTheme.radius.sm, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 12, minWidth: 0, padding: 12 },
-  invoiceBody: { flex: 1, flexBasis: 190, gap: 2, minWidth: 0 },
-  invoiceTitle: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 14, fontWeight: '900' },
-  invoiceMeta: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 12, lineHeight: 17 },
-  iconAction: { alignItems: 'center', borderRadius: AppTheme.radius.xs, flexShrink: 0, height: 36, justifyContent: 'center', width: 36, backgroundColor: portalPalette.surfaceSoft },
-  viewAllButton: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 6, minHeight: 36, paddingHorizontal: 12 },
-  viewAllText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   emptyInline: { padding: AppTheme.spacing.md },
   emptyInlineText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
 });

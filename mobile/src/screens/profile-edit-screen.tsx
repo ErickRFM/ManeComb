@@ -343,7 +343,7 @@ export function ProfileEditScreen() {
       header={
         <View style={styles.header}>
           <Pressable
-            onPress={() => router.push('/perfil')}
+            onPress={() => router.replace('/perfil')}
             style={[
               styles.backButton,
               {
