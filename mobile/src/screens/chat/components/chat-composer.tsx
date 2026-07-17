@@ -122,7 +122,7 @@ export function ChatComposer({
             style={styles.composerInput}
             onFocus={() => {
               if (isNearMessagesBottomRef.current) {
-                setTimeout(() => scrollMessagesToEnd(true), 350);
+                scrollMessagesToEnd(false);
               }
             }}
             onSubmitEditing={handleSendText}

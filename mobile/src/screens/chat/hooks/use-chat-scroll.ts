@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import {
   FlatList,
+  Keyboard,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -63,6 +64,16 @@ export function useChatScroll({
 
     previousMessageCountRef.current = messageCount;
   }, [activeMessageItems]);
+
+  useEffect(() => {
+    const keyboardShown = Keyboard.addListener('keyboardDidShow', () => {
+      if (isNearMessagesBottomRef.current) {
+        scrollMessagesToEnd(false);
+      }
+    });
+
+    return () => keyboardShown.remove();
+  }, []);
 
   return {
     handleMessagesContentSizeChange,

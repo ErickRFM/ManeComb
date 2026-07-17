@@ -365,6 +365,37 @@ function buildAssignedRouteSelection(vehicle: Vehicle): {
   };
 }
 
+function buildSavedRouteSelection(route: RouteShape): {
+  destination: NavigationPlaceResult;
+  origin: NavigationPlaceResult;
+  plan: NavigationPlan;
+} | null {
+  const origin = route.origin || route.polyline[0] || null;
+  const destination = route.destination || route.polyline[route.polyline.length - 1] || null;
+
+  if (!origin || !destination || route.polyline.length < 2) return null;
+
+  return {
+    origin: { id: `route-origin-${route.id}`, label: 'Punto inicial', address: 'Punto inicial', location: origin },
+    destination: { id: `route-destination-${route.id}`, label: 'Punto final', address: 'Punto final', location: destination },
+    plan: {
+      provider: 'system',
+      origin,
+      destination,
+      stops: route.stops || [],
+      routes: [{
+        label: route.name,
+        distanceMeters: route.distanceMeters || 0,
+        durationSeconds: route.durationSeconds || 0,
+        durationInTrafficSeconds: route.durationInTrafficSeconds || route.durationSeconds || 0,
+        trafficLevel: 'low',
+        polyline: route.polyline,
+      }],
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
 function buildRouteStops(
   origin: NavigationPlaceResult | null,
   destination: NavigationPlaceResult | null,
@@ -808,6 +839,7 @@ function createStyles(
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
+      paddingBottom: 4,
     },
     modalHeaderCopy: {
       flex: 1,
@@ -840,8 +872,8 @@ function createStyles(
       flexGrow: 0,
     },
     modalScrollContent: {
-      gap: 10,
-      paddingBottom: 4,
+      gap: 16,
+      paddingBottom: 12,
     },
     routeNameInput: {
       minHeight: 46,
@@ -1051,8 +1083,8 @@ function createStyles(
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      padding: 12,
-      gap: 10,
+      padding: 16,
+      gap: 14,
     },
     configTitleRow: {
       flexDirection: 'row',
@@ -1077,10 +1109,10 @@ function createStyles(
       textTransform: 'uppercase',
     },
     routeEndpoints: {
-      gap: 6,
+      gap: 9,
     },
     savedRoutesList: {
-      gap: 8,
+      gap: 10,
     },
     savedRouteRow: {
       flexDirection: 'row',
@@ -1108,6 +1140,16 @@ function createStyles(
       borderWidth: 1,
       borderColor: theme.colors.danger,
       backgroundColor: theme.colors.dangerSoft,
+    },
+    savedRouteEdit: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
     },
     savedRouteName: {
       flex: 1,
@@ -1321,8 +1363,8 @@ export function ChecklistScreen() {
   const [routeNameDraft, setRouteNameDraft] = useState(String(params.routeNameDraft || ''));
   const [routePendingDelete, setRoutePendingDelete] = useState<RouteShape | null>(null);
   const [isDeletingRoute, setIsDeletingRoute] = useState(false);
-  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
-  const [isCreatingRouteDraft, setIsCreatingRouteDraft] = useState(hasReturnedMapDraft);
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(String(params.editingRouteId || '').trim() || null);
+  const [isCreatingRouteDraft, setIsCreatingRouteDraft] = useState(hasReturnedMapDraft && !params.editingRouteId);
   const [routeLibraryOpen, setRouteLibraryOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [historyLoadError, setHistoryLoadError] = useState(false);
@@ -1598,7 +1640,7 @@ export function ChecklistScreen() {
   const cancelRouteDraft = () => {
     const trackerState = trackerRef.current;
 
-    if (trackerState.trackerStatus !== 'off' || isCalculatedRouteSaved) {
+    if (trackerState.trackerStatus !== 'off' || (isCalculatedRouteSaved && !editingRouteId)) {
       return;
     }
 
@@ -1608,7 +1650,7 @@ export function ChecklistScreen() {
     setIsCreatingRouteDraft(false);
     setRouteLibraryOpen(false);
     trackerState.resetPointToPointSession();
-    syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
+    syncedVehicleRouteRef.current = null;
   };
 
   function openMapForVehicle(vehicle: Vehicle, point: MapPointRole) {
@@ -1622,6 +1664,7 @@ export function ChecklistScreen() {
       historyScrollY: String(historyScrollYRef.current),
       routeNameDraft,
     };
+    if (editingRouteId) routeParams.editingRouteId = editingRouteId;
     const origin = tracker.pointSelection.origin;
     const destination = tracker.pointSelection.destination;
 
@@ -1658,6 +1701,27 @@ export function ChecklistScreen() {
     trackerRef.current.resetPointToPointSession();
     openMapForVehicle(selectedVehicle, 'origin');
   };
+
+  const editSavedRoute = useCallback((route: RouteShape) => {
+    const selection = buildSavedRouteSelection(route);
+
+    if (!selection) {
+      trackerRef.current.setPointMessage('La ruta no contiene puntos suficientes para editarla.');
+      return;
+    }
+
+    setEditingRouteId(route.id);
+    setIsCreatingRouteDraft(false);
+    setRouteNameDraft(route.name);
+    setRouteLibraryOpen(false);
+    trackerRef.current.applyPointToPointSelection(
+      selection.origin,
+      selection.destination,
+      selection.plan,
+      selection.plan.stops || []
+    );
+    trackerRef.current.setPointMessage('Modifica solo lo necesario y guarda los cambios.');
+  }, []);
 
   const handleRemoveRouteStop = (stopId: string) => {
     pendingStopPersistRef.current = true;
@@ -1757,14 +1821,20 @@ export function ChecklistScreen() {
             }
           : state.mapData,
       }));
+      if (selectedVehicle?.routeId === route.id) {
+        trackerRef.current.resetPointToPointSession();
+        syncedVehicleRouteRef.current = `${selectedVehicle.id}:empty`;
+      }
       setRoutePendingDelete(null);
+      setEditingRouteId((current) => current === route.id ? null : current);
+      setRouteLibraryOpen(true);
       trackerRef.current.setPointMessage(`Ruta ${route.name} eliminada.`);
     } catch {
       trackerRef.current.setPointMessage('No fue posible eliminar la ruta.');
     } finally {
       setIsDeletingRoute(false);
     }
-  }, [isDeletingRoute, routePendingDelete]);
+  }, [isDeletingRoute, routePendingDelete, selectedVehicle]);
 
   const navParams = useLocalSearchParams<{
     vehicleId?: string;
@@ -2202,9 +2272,16 @@ export function ChecklistScreen() {
                                 </Text>
                               </Pressable>
                               <Pressable
+                                style={styles.savedRouteEdit}
+                                onPress={() => editSavedRoute(route)}
+                                disabled={isSavingAssignedRoute || isDeletingRoute}
+                                accessibilityLabel={`Editar ruta ${route.name}`}>
+                                <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
+                              </Pressable>
+                              <Pressable
                                 style={styles.savedRouteDelete}
                                 onPress={() => deleteSavedRoute(route)}
-                                disabled={isSavingAssignedRoute}
+                                disabled={isSavingAssignedRoute || isDeletingRoute}
                                 accessibilityLabel={`Eliminar ruta ${route.name}`}>
                                 <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
                               </Pressable>
@@ -2340,7 +2417,7 @@ export function ChecklistScreen() {
                           <MaterialCommunityIcons name="content-save-check-outline" size={18} color="#FFFFFF" />
                           <Text style={styles.primaryWideText}>
                             {tracker.pointPlan
-                              ? 'Guardar ruta'
+                              ? editingRouteId ? 'Guardar cambios' : 'Guardar ruta'
                               : 'Abrir mapa'}
                           </Text>
                         </>
@@ -2377,18 +2454,22 @@ export function ChecklistScreen() {
                       <Text style={styles.configTitle}>Ruta lista</Text>
                       <StatusPill label={progressLabel} tone="positive" />
                     </View>
-                    <View style={styles.routeEndpoints}>
-                      <Text style={styles.fieldLabel}>Origen</Text>
-                      <Text style={styles.endpointText} numberOfLines={1}>{originLabel}</Text>
-                      <MaterialCommunityIcons name="arrow-down" size={18} color={theme.colors.muted} />
-                      <Text style={styles.fieldLabel}>Destino</Text>
-                      <Text style={styles.endpointText} numberOfLines={1}>{destinationLabel}</Text>
-                    </View>
                     <View style={styles.routeActionRow}>
                       <Pressable style={styles.secondaryWide} onPress={openRouteLibrary}>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
-                        <Text style={styles.secondaryWideText}>Cambiar ruta</Text>
+                        <MaterialCommunityIcons name="routes" size={18} color={theme.colors.text} />
+                        <Text style={styles.secondaryWideText}>Seleccionar ruta</Text>
                       </Pressable>
+                      {selectedVehicle?.routeId ? (
+                        <Pressable
+                          style={styles.secondaryWide}
+                          onPress={() => {
+                            const route = savedRoutes.find((entry) => entry.id === selectedVehicle.routeId);
+                            if (route) editSavedRoute(route);
+                          }}>
+                          <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.text} />
+                          <Text style={styles.secondaryWideText}>Editar ruta</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 </>

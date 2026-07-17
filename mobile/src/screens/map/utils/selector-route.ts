@@ -112,14 +112,14 @@ export function getSelectorCopy(hasOrigin: boolean, hasDestination: boolean, sto
       : step === 2
         ? 'Toca el mapa para fijar el destino y calcular la ruta.'
         : stopCount
-          ? 'Cada toque agrega otro waypoint. Puedes deshacer el ultimo o aceptar.'
-          : 'Las paradas son opcionales. Toca el mapa para agregar una o acepta la ruta.';
+          ? 'Cada toque agrega otro waypoint. Puedes deshacer el ultimo o continuar.'
+          : 'Las paradas son opcionales. Toca el mapa para agregar una o continua.';
 
   return { step, title, hint };
 }
 
 export function buildConfirmSelectionParams(
-  params: Pick<MapSelectorParams, 'vehicleId' | 'returnFilter' | 'historyScrollY' | 'routeNameDraft'>,
+  params: Pick<MapSelectorParams, 'vehicleId' | 'returnFilter' | 'historyScrollY' | 'routeNameDraft' | 'editingRouteId'>,
   origin: NavigationPlaceResult,
   destination: NavigationPlaceResult,
   stops: NavigationStop[],
@@ -134,6 +134,7 @@ export function buildConfirmSelectionParams(
   if (params.returnFilter) paramsToSet.returnFilter = params.returnFilter;
   if (params.historyScrollY) paramsToSet.historyScrollY = params.historyScrollY;
   if (params.routeNameDraft) paramsToSet.routeNameDraft = params.routeNameDraft;
+  if (params.editingRouteId) paramsToSet.editingRouteId = params.editingRouteId;
   paramsToSet.originLatitude = String(origin.location.latitude);
   paramsToSet.originLongitude = String(origin.location.longitude);
   paramsToSet.originAddress = origin.address;

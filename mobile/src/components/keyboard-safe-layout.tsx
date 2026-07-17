@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 export function KeyboardSafeView({
+  behavior = Platform.OS === 'ios' ? 'padding' : undefined,
   children,
   keyboardVerticalOffset = 0,
   ...props
@@ -16,7 +17,7 @@ export function KeyboardSafeView({
   return (
     <KeyboardAvoidingView
       {...props}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={behavior}
       enabled={Platform.OS !== 'web'}
       keyboardVerticalOffset={keyboardVerticalOffset}>
       {children}

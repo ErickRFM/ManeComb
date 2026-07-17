@@ -51,7 +51,7 @@ export function SelectorRouteOverlay({
       </View>
 
       {hasEditableSelection ? (
-        <View style={[styles.selectorEditWrap, { top: top + 64 }]}>
+        <View style={[styles.selectorEditWrap, { top: top + 80 }]}>
           {points.origin ? (
             <Pressable
               onPress={() => onRemovePoint('origin')}
@@ -97,7 +97,7 @@ export function SelectorRouteOverlay({
             ]}>
             <MaterialCommunityIcons name="flag-checkered" size={18} color="#FFFFFF" />
             <Text style={styles.selectorConfirmText}>
-              {isPlanningSelectorRoute ? 'Calculando ruta...' : 'Aceptar ruta'}
+              {isPlanningSelectorRoute ? 'Calculando ruta...' : 'Continuar'}
             </Text>
           </Pressable>
         </View>

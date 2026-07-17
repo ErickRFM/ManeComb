@@ -1348,9 +1348,9 @@ export function RadioScreen() {
       };
       case 'RECEIVING':
         return {
-          detail: `Recibiendo: ${liveOperator?.name || 'Operador'}`,
+          detail: `Reproduciendo: ${liveOperator?.name || 'Operador'}`,
           icon: 'volume-high' as const,
-          label: 'Recibiendo',
+          label: 'Reproduciendo',
           tone: 'info' as const,
         };
       case 'CHANNEL_BUSY':
@@ -1390,16 +1390,16 @@ export function RadioScreen() {
         };
       case 'JOIN_SENT':
         return {
-          detail: 'Validando',
-          icon: 'sync' as const,
-          label: 'Validando',
+          detail: 'Preparando canal',
+          icon: 'access-point-check' as const,
+          label: 'Conectado',
           tone: 'info' as const,
         };
       case 'OFFLINE':
         return {
-          detail: 'Sin conexion',
+          detail: 'Radio desconectado',
           icon: 'access-point-off' as const,
-          label: 'Sin conexion',
+          label: 'Desconectado',
           tone: 'warning' as const,
         };
       case 'READY':
@@ -1454,6 +1454,21 @@ export function RadioScreen() {
             : radioPhase === 'OFFLINE'
               ? styles.pttButtonOffline
               : styles.pttButtonIdle;
+  const pttIcon = liveStatus.icon;
+  const pttButtonTitle =
+    radioPhase === 'TRANSMITTING'
+      ? formatDuration(recordingSeconds)
+      : liveStatus.label;
+  const pttButtonSubtitle =
+    radioPhase === 'TRANSMITTING'
+      ? 'Soltar para finalizar'
+      : radioPhase === 'READY'
+        ? 'Mantener para hablar'
+        : radioPhase === 'RECEIVING'
+          ? 'Reproduciendo'
+          : isPttDisabled
+            ? pttDisabledText
+            : liveStatus.detail;
   const pageWidth = pagerWidth || width;
   const audioSettingsPanel =
     showSettings && Platform.OS === 'web' ? (
@@ -1796,25 +1811,13 @@ export function RadioScreen() {
                   {radioSession.phase === 'UPLOADING' || radioSession.phase === 'REQUESTING' ? (
                     <ActivityIndicator color="#FFFFFF" size="large" />
                   ) : (
-                    <MaterialCommunityIcons name="microphone" size={isPhone ? 42 : 48} color="#FFFFFF" />
+                    <MaterialCommunityIcons name={pttIcon} size={isPhone ? 42 : 48} color="#FFFFFF" />
                   )}
                   <Text style={styles.pttButtonTitle}>
-                    {radioSession.phase === 'TRANSMITTING'
-                      ? formatDuration(recordingSeconds)
-                      : radioSession.phase === 'UPLOADING'
-                        ? 'Enviando'
-                        : radioSession.phase === 'REQUESTING'
-                          ? 'Solicitando'
-                        : radioSession.phase === 'ERROR'
-                          ? 'Error'
-                          : 'PTT'}
+                    {pttButtonTitle}
                   </Text>
                   <Text style={styles.pttButtonSubtitle}>
-                    {radioSession.phase === 'TRANSMITTING'
-                      ? 'Soltar'
-                      : isPttDisabled
-                        ? pttDisabledText
-                        : 'PTT'}
+                    {pttButtonSubtitle}
                   </Text>
                 </Pressable>
               </Animated.View>

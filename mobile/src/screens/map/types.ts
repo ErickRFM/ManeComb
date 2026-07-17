@@ -16,6 +16,7 @@ export type MapSelectorParams = {
   returnFilter?: string;
   historyScrollY?: string;
   routeNameDraft?: string;
+  editingRouteId?: string;
   originLatitude?: string;
   originLongitude?: string;
   originAddress?: string;

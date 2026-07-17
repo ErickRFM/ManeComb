@@ -37,6 +37,15 @@ describe('shared input infrastructure', () => {
     expect(manifest).not.toContain('android:screenOrientation="portrait"');
   });
 
+  it('scopes Android height avoidance to chat without changing scroll-based forms', () => {
+    const keyboardLayout = fs.readFileSync(path.join(mobileRoot, 'src', 'components', 'keyboard-safe-layout.tsx'), 'utf8');
+    const chatView = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'chat', 'components', 'chat-screen-view.tsx'), 'utf8');
+
+    expect(keyboardLayout).toContain("behavior = Platform.OS === 'ios' ? 'padding' : undefined");
+    expect(keyboardLayout).toContain('behavior={behavior}');
+    expect(chatView).toContain("Platform.OS === 'android' ? 'height' : undefined");
+  });
+
   it('renders the existing login illustration instead of reserving empty space', () => {
     const authScreen = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'customer-auth-screen.tsx'), 'utf8');
     expect(fs.existsSync(path.join(mobileRoot, 'assets', 'images', 'faster.png'))).toBe(true);
