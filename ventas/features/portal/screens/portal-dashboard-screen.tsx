@@ -617,101 +617,109 @@ export function PortalDashboardScreen() {
       </View>
 
       <View style={styles.operationsGrid}>
-        <PortalSectionCard title="Mapa operativo">
-          <Suspense fallback={<MapFallback height={280} />}>
-            <OperationsMap
-              checkpoints={routeCheckpoints}
-              height={280}
-              onVehiclePress={openVehicle}
-              routeCoordinates={routeCoordinates}
-              selectedVehicleId={selectedVehicle?.id}
-              vehicles={vehicles}
-            />
-          </Suspense>
-        </PortalSectionCard>
+        <View style={styles.operationsMapCol}>
+          <PortalSectionCard title="Mapa operativo">
+            <Suspense fallback={<MapFallback height={240} />}>
+              <OperationsMap
+                checkpoints={routeCheckpoints}
+                height={240}
+                onVehiclePress={openVehicle}
+                routeCoordinates={routeCoordinates}
+                selectedVehicleId={selectedVehicle?.id}
+                vehicles={vehicles}
+              />
+            </Suspense>
+          </PortalSectionCard>
+        </View>
 
-        <PortalSectionCard title="Unidades" subtitle={`${vehicles.length} unidades registradas`}>
-          {vehicles.length ? (
-            <View style={styles.unitList}>
-              {vehicles.map((vehicle) => (
-                <OperationalUnitCard
-                  key={vehicle.id}
-                  active={vehicle.id === selectedVehicle?.id}
-                  activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
-                  latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
-                  users={users}
-                  vehicle={vehicle}
-                  onCenter={() => openVehicle(vehicle)}
-                  onHistory={() => {
-                    setSelectedVehicleId(vehicle.id);
-                    setFilter('vehicleId', vehicle.id);
-                  }}
-                  onRoute={() => showRoute(vehicle)}
-                  onDriver={() => {
-                    setSelectedVehicleId(vehicle.id);
-                    setDriverSelectorVehicleId(vehicle.id);
-                  }}
-                />
-              ))}
-            </View>
-          ) : (
-            <EmptyState icon="bus-alert" title="Sin unidades" description="Registra unidades para iniciar la operación." />
-          )}
-        </PortalSectionCard>
+        <View style={styles.operationsUnitsCol}>
+          <PortalSectionCard title="Unidades" subtitle={`${vehicles.length} unidades registradas`}>
+            {vehicles.length ? (
+              <View style={styles.unitList}>
+                {vehicles.map((vehicle) => (
+                  <OperationalUnitCard
+                    key={vehicle.id}
+                    active={vehicle.id === selectedVehicle?.id}
+                    activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
+                    latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
+                    users={users}
+                    vehicle={vehicle}
+                    onCenter={() => openVehicle(vehicle)}
+                    onHistory={() => {
+                      setSelectedVehicleId(vehicle.id);
+                      setFilter('vehicleId', vehicle.id);
+                    }}
+                    onRoute={() => showRoute(vehicle)}
+                    onDriver={() => {
+                      setSelectedVehicleId(vehicle.id);
+                      setDriverSelectorVehicleId(vehicle.id);
+                    }}
+                  />
+                ))}
+              </View>
+            ) : (
+              <EmptyState icon="bus-alert" title="Sin unidades" description="Registra unidades para iniciar la operación." />
+            )}
+          </PortalSectionCard>
+        </View>
       </View>
 
       <View style={styles.detailGrid}>
-        <PortalSectionCard title="Panel lateral de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
-          {selectedVehicle ? (
-            <VehicleSidePanel
-              activeSession={activeSession}
-              latestSession={latestSession}
-              users={users}
-              vehicle={selectedVehicle}
-              driverChangeMessage={driverChangeMessage}
-              driverSelectorOpen={driverSelectorVehicleId === selectedVehicle.id}
-              isChangingDriver={isSubmitting}
-              onChangeDriver={(driver) => void changeDriver(selectedVehicle, driver)}
-              onCloseDriverSelector={() => setDriverSelectorVehicleId(null)}
-              onDriverSelectorOpen={() => setDriverSelectorVehicleId(selectedVehicle.id)}
-              onHistory={() => setFilter('vehicleId', selectedVehicle.id)}
-              onOpenSession={(session) => void openSession(session)}
-              onRoute={() => showRoute(selectedVehicle)}
-              onCenter={() => openVehicle(selectedVehicle)}
-            />
-          ) : (
-            <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrará estado, ruta, métricas y jornada activa." />
-          )}
-        </PortalSectionCard>
+        <View style={styles.detailPanelCol}>
+          <PortalSectionCard title="Panel lateral de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
+            {selectedVehicle ? (
+              <VehicleSidePanel
+                activeSession={activeSession}
+                latestSession={latestSession}
+                users={users}
+                vehicle={selectedVehicle}
+                driverChangeMessage={driverChangeMessage}
+                driverSelectorOpen={driverSelectorVehicleId === selectedVehicle.id}
+                isChangingDriver={isSubmitting}
+                onChangeDriver={(driver) => void changeDriver(selectedVehicle, driver)}
+                onCloseDriverSelector={() => setDriverSelectorVehicleId(null)}
+                onDriverSelectorOpen={() => setDriverSelectorVehicleId(selectedVehicle.id)}
+                onHistory={() => setFilter('vehicleId', selectedVehicle.id)}
+                onOpenSession={(session) => void openSession(session)}
+                onRoute={() => showRoute(selectedVehicle)}
+                onCenter={() => openVehicle(selectedVehicle)}
+              />
+            ) : (
+              <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrará estado, ruta, métricas y jornada activa." />
+            )}
+          </PortalSectionCard>
+        </View>
 
-        <PortalSectionCard title="Historial de jornadas" subtitle="Consulta los datos guardados por fecha, unidad, conductor y estado.">
-          <HistoryFilters filters={filters} sessions={history} users={users} vehicles={vehicles} onChange={setFilter} />
-          <Text style={styles.unitMeta}>
-            Mostrando {history.length} de {historyTotal || history.length} jornadas. Página de {historyLimit}.
-          </Text>
-          {filteredSessions.length ? (
-            <View style={styles.historyList}>
-              {filteredSessions.map((session) => (
-                <SessionHistoryCard
-                  key={session.id}
-                  active={session.id === selectedSessionId}
-                  driverName={getDriverName(users, session.driverId)}
-                  routeLabel={getRouteLabel(vehicles.find((vehicle) => vehicle.id === session.vehicleId), session)}
-                  session={session}
-                   vehicleCode={vehicles.find((vehicle) => vehicle.id === session.vehicleId)?.code || 'Unidad'}
-                  onOpen={() => void openSession(session)}
-                />
-              ))}
-              {history.length < historyTotal ? (
-                <Pressable accessibilityRole="button" onPress={() => void loadHistory({ append: true })} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar más (${historyTotal - history.length})`}</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : (
-            <EmptyState icon="history" title="Sin jornadas" description="Ajusta filtros o espera a que existan jornadas finalizadas." />
-          )}
-        </PortalSectionCard>
+        <View style={styles.detailHistoryCol}>
+          <PortalSectionCard title="Historial de jornadas" subtitle="Consulta los datos guardados por fecha, unidad, conductor y estado.">
+            <HistoryFilters filters={filters} sessions={history} users={users} vehicles={vehicles} onChange={setFilter} />
+            <Text style={styles.unitMeta}>
+              Mostrando {history.length} de {historyTotal || history.length} jornadas. Página de {historyLimit}.
+            </Text>
+            {filteredSessions.length ? (
+              <View style={styles.historyList}>
+                {filteredSessions.map((session) => (
+                  <SessionHistoryCard
+                    key={session.id}
+                    active={session.id === selectedSessionId}
+                    driverName={getDriverName(users, session.driverId)}
+                    routeLabel={getRouteLabel(vehicles.find((vehicle) => vehicle.id === session.vehicleId), session)}
+                    session={session}
+                     vehicleCode={vehicles.find((vehicle) => vehicle.id === session.vehicleId)?.code || 'Unidad'}
+                    onOpen={() => void openSession(session)}
+                  />
+                ))}
+                {history.length < historyTotal ? (
+                  <Pressable accessibilityRole="button" onPress={() => void loadHistory({ append: true })} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar más (${historyTotal - history.length})`}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <EmptyState icon="history" title="Sin jornadas" description="Ajusta filtros o espera a que existan jornadas finalizadas." />
+            )}
+          </PortalSectionCard>
+        </View>
       </View>
 
       <PortalSectionCard
@@ -1302,7 +1310,7 @@ const styles = StyleSheet.create({
   alertRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   compactRow: {
     borderColor: portalPalette.line,
@@ -1322,14 +1330,24 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 8,
-    padding: 12,
+    gap: 6,
+    padding: 10,
   },
   detailGrid: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
+    minWidth: 0,
+  },
+  detailPanelCol: {
+    flex: 1,
+    flexBasis: 320,
+    minWidth: 0,
+  },
+  detailHistoryCol: {
+    flex: 1.6,
+    flexBasis: 420,
     minWidth: 0,
   },
   disabledAction: {
@@ -1376,8 +1394,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    padding: 12,
+    gap: 10,
+    padding: 10,
   },
   driverRow: {
     alignItems: 'center',
@@ -1403,10 +1421,10 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
     flex: 1,
-    flexBasis: 130,
-    gap: 3,
+    flexBasis: 120,
+    gap: 2,
     minWidth: 0,
-    padding: 10,
+    padding: 8,
   },
   factLabel: {
     color: portalPalette.muted,
@@ -1488,14 +1506,14 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 8,
-    padding: 10,
+    gap: 6,
+    padding: 8,
   },
   historyCardActive: {
     borderColor: portalPalette.accent,
   },
   historyList: {
-    gap: 10,
+    gap: 8,
   },
   historyTitle: {
     color: portalPalette.text,
@@ -1520,7 +1538,7 @@ const styles = StyleSheet.create({
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   notice: {
@@ -1564,7 +1582,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
+    minWidth: 0,
+  },
+  operationsMapCol: {
+    flex: 1.5,
+    flexBasis: 400,
+    minWidth: 0,
+  },
+  operationsUnitsCol: {
+    flex: 1,
+    flexBasis: 300,
     minWidth: 0,
   },
   optionRow: {
@@ -1636,7 +1664,7 @@ const styles = StyleSheet.create({
   quickActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   replayControls: {
     flexDirection: 'row',
@@ -1646,7 +1674,7 @@ const styles = StyleSheet.create({
   replayPanel: {
     flex: 1.2,
     flexBasis: 430,
-    gap: 12,
+    gap: 8,
     minWidth: 0,
   },
   replaySteps: {
@@ -1669,8 +1697,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 10,
-    padding: 10,
+    gap: 8,
+    padding: 8,
   },
   routeSummaryLarge: {
     alignItems: 'flex-start',
@@ -1679,8 +1707,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 10,
-    padding: 12,
+    gap: 8,
+    padding: 10,
   },
   routeTitle: {
     color: portalPalette.text,
@@ -1737,12 +1765,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
-    gap: 8,
+    gap: 6,
   },
   sideHighlightRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   sideTitle: {
@@ -1765,7 +1793,7 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     minWidth: 0,
   },
   timelineDot: {
@@ -1787,7 +1815,7 @@ const styles = StyleSheet.create({
   timelinePanel: {
     flex: 1,
     flexBasis: 320,
-    gap: 12,
+    gap: 8,
     minWidth: 0,
   },
   timelineTitle: {
@@ -1801,8 +1829,8 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 8,
-    padding: 10,
+    gap: 6,
+    padding: 8,
   },
   unitCardActive: {
     borderColor: portalPalette.accent,
@@ -1810,20 +1838,20 @@ const styles = StyleSheet.create({
   unitCode: {
     color: portalPalette.text,
     fontFamily: Typography.display,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
   },
   unitFacts: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   unitHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     justifyContent: 'space-between',
   },
   unitList: {

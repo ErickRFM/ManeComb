@@ -1,4 +1,5 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useShallow } from 'zustand/react/shallow';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { AppTheme, Typography } from '@/constants/theme';
@@ -13,11 +14,11 @@ import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalPaymentsScreen() {
   const { invoices, isLoading, subscription } = usePortalStore(
-    (state) => ({
+    useShallow((state) => ({
       invoices: state.invoices,
       isLoading: state.isLoading,
       subscription: state.subscription,
-    })
+    }))
   );
 
   const status = subscription?.status || '';

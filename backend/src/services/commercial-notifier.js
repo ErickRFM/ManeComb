@@ -1,15 +1,9 @@
 const {
-  RESEND_API_KEY,
-  RESEND_FROM_EMAIL,
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   TWILIO_WHATSAPP_FROM
 } = require("../config/env");
 const communication = require("../../modules/communication");
-
-function canSendEmail() {
-  return Boolean(RESEND_API_KEY && RESEND_FROM_EMAIL);
-}
 
 function canSendWhatsapp() {
   return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_WHATSAPP_FROM);
@@ -18,8 +12,8 @@ function canSendWhatsapp() {
 function getNotifierReadiness() {
   return {
     email: {
-      ready: communication.isConfigured() || canSendEmail(),
-      missing: canSendEmail() ? [] : ["RESEND_API_KEY", "RESEND_FROM_EMAIL"]
+      ready: communication.isConfigured(),
+      missing: communication.isConfigured() ? [] : ["RESEND_API_KEY", "RESEND_FROM_EMAIL"]
     },
     whatsapp: {
       ready: canSendWhatsapp(),
@@ -41,47 +35,29 @@ function normalizePhone(phone) {
 }
 
 async function sendEmailNotification(order, message) {
-  if (communication.isConfigured()) {
-    try {
-      await communication.sendEmail({
-        to: order.email,
-        template: "payment-approved",
-        data: {
-          name: order.contactName,
-          referenceCode: order.referenceCode,
-          planName: order.planName,
-          amount: `$${order.totalPrice} MXN`,
-          date: new Date().toLocaleDateString("es-MX"),
-          dashboardUrl: order.dashboardUrl,
-          userId: order.userId,
-          organizationId: order.organizationId
-        }
-      });
-      return "sent";
-    } catch {
-      return "failed";
-    }
-  }
-
-  if (!canSendEmail()) {
+  if (!communication.isConfigured()) {
     return "skipped_not_configured";
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [order.email],
-      subject: `ManeComb ${order.referenceCode}`,
-      html: `<p>${message.replace(/\n/g, "<br />")}</p>`
-    })
-  });
-
-  return response.ok ? "sent" : "failed";
+  try {
+    await communication.sendEmail({
+      to: order.email,
+      template: "payment-approved",
+      data: {
+        name: order.contactName,
+        referenceCode: order.referenceCode,
+        planName: order.planName,
+        amount: `$${order.totalPrice} MXN`,
+        date: new Date().toLocaleDateString("es-MX"),
+        dashboardUrl: order.dashboardUrl,
+        userId: order.userId,
+        organizationId: order.organizationId
+      }
+    });
+    return "sent";
+  } catch {
+    return "failed";
+  }
 }
 
 async function sendWhatsappNotification(order, message) {

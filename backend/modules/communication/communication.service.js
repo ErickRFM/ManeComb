@@ -1,77 +1,68 @@
-const { validateSendEmailInput, normalizePriority, validateProviderConfig } = require("./communication.validators");
-const { getTemplateBuilder } = require("./communication.templates");
-const { renderTemplate, extractSubject } = require("./communication.renderer");
-const { createProvider } = require("./communication.provider");
-const { getQueue, configure: configureQueue } = require("./communication.queue");
-const { setSendFunction, createEmailWorker } = require("./communication.jobs");
-const history = require("./communication.history");
-const metrics = require("./communication.metrics");
-const logger = require("./communication.logger");
-const events = require("./communication.events");
-const retry = require("./communication.retry");
-const { PRIORITY, TEMPLATE_PRIORITY, QUEUE_NAMES, PROVIDER, CHANNEL } = require("./communication.types");
+const logger = require("../../../communication-service/src/logger");
+const types = require("../../../communication-service/src/core/types");
+const validators = require("../../../communication-service/src/core/validators");
+const retry = require("../../../communication-service/src/core/retry");
+const { createProvider } = require("../../../communication-service/src/providers");
+const { getTemplateBuilder } = require("../../../communication-service/src/templates");
+const { renderTemplate, extractSubject } = require("../../../communication-service/src/renderer");
+const queue = require("../../../communication-service/src/queue");
+const workers = require("../../../communication-service/src/workers");
+const history = require("../../../communication-service/src/history");
+const metrics = require("../../../communication-service/src/metrics");
+const events = require("../../../communication-service/src/events");
+const config = require("../../../communication-service/src/config");
+const health = require("../../../communication-service/src/health");
+
+const { PRIORITY, TEMPLATE_PRIORITY, QUEUE_NAMES, PROVIDER } = types;
 
 let provider = null;
 let providerName = null;
 let configured = false;
-let config = {};
 
 function configure(cfg) {
-  config = {
-    provider: cfg.provider || PROVIDER.RESEND,
-    providerConfig: cfg.providerConfig || {},
-    queue: {
-      enabled: cfg.queue?.enabled || false,
-      redisUrl: cfg.queue?.redisUrl || ""
-    },
-    socketIO: cfg.socketIO || null,
-    defaultFrom: cfg.defaultFrom || "",
-    supportEmail: cfg.supportEmail || "",
-    docsUrl: cfg.docsUrl || "",
-    brandName: cfg.brandName || "ManeComb",
-    legalName: cfg.legalName || "ManeComb"
-  };
+  config.configure(cfg);
 
-  if (config.socketIO) {
-    events.setSocketIO(config.socketIO);
+  if (cfg.socketIO) {
+    events.setSocketIO(cfg.socketIO);
   }
 
+  const conf = config.getConfig();
+
   const providerCfg = {
-    apiKey: config.providerConfig.apiKey,
-    fromEmail: config.providerConfig.fromEmail || config.defaultFrom,
-    fromName: config.brandName,
-    host: config.providerConfig.host,
-    port: config.providerConfig.port,
-    secure: config.providerConfig.secure,
-    auth: config.providerConfig.auth,
-    region: config.providerConfig.region,
-    accessKeyId: config.providerConfig.accessKeyId,
-    secretAccessKey: config.providerConfig.secretAccessKey,
-    domain: config.providerConfig.domain,
-    serverToken: config.providerConfig.serverToken
+    apiKey: conf.providerConfig.apiKey,
+    fromEmail: conf.providerConfig.fromEmail || conf.defaultFrom,
+    fromName: conf.brandName,
+    host: conf.providerConfig.host,
+    port: conf.providerConfig.port,
+    secure: conf.providerConfig.secure,
+    auth: conf.providerConfig.auth,
+    region: conf.providerConfig.region,
+    accessKeyId: conf.providerConfig.accessKeyId,
+    secretAccessKey: conf.providerConfig.secretAccessKey,
+    domain: conf.providerConfig.domain,
+    serverToken: conf.providerConfig.serverToken
   };
 
-  const providerValidation = validateProviderConfig(config.provider, providerCfg);
+  const providerValidation = validators.validateProviderConfig(conf.provider, providerCfg);
   if (!providerValidation.valid) {
-    logger.logWarn("ProviderConfigInvalid", `Proveedor ${config.provider} no configurado: ${providerValidation.errors.join(", ")}. Comunicación deshabilitada.`, {
-      provider: config.provider,
+    logger.logWarn("ProviderConfigInvalid", `Proveedor ${conf.provider} no configurado: ${providerValidation.errors.join(", ")}. Comunicación deshabilitada.`, {
+      provider: conf.provider,
       errors: providerValidation.errors
     });
     provider = null;
     providerName = null;
   } else {
-    provider = createProvider(config.provider, providerCfg);
-    providerName = config.provider;
+    provider = createProvider(conf.provider, providerCfg);
+    providerName = conf.provider;
   }
 
-  configureQueue({
-    enabled: config.queue.enabled,
-    redisUrl: config.queue.redisUrl
+  queue.configure({
+    enabled: conf.queue.enabled,
+    redisUrl: conf.queue.redisUrl
   });
 
-  setSendFunction(sendDirect);
-
-  createEmailWorker();
+  workers.setSendFunction(sendDirect);
+  workers.createEmailWorker();
 
   configured = true;
 }
@@ -85,7 +76,7 @@ function getReadiness() {
     configured,
     provider: providerName,
     ready: isConfigured(),
-    queue: require("./communication.queue").getReadiness(),
+    queue: queue.getReadiness(),
     metrics: metrics.getSnapshot()
   };
 }
@@ -95,14 +86,14 @@ async function sendEmail({ to, template, data, priority, from, subject }) {
     throw new Error("Módulo de comunicaciones no configurado");
   }
 
-  const resolvedPriority = priority != null ? normalizePriority(priority) : (TEMPLATE_PRIORITY[template] || PRIORITY.NORMAL);
+  const resolvedPriority = priority != null ? validators.normalizePriority(priority) : (TEMPLATE_PRIORITY[template] || PRIORITY.NORMAL);
 
   const enrichedData = {
     ...data,
     _template: template,
-    supportEmail: data?.supportEmail || config.supportEmail,
-    docsUrl: data?.docsUrl || config.docsUrl,
-    brandName: config.brandName
+    supportEmail: data?.supportEmail || config.getConfig().supportEmail,
+    docsUrl: data?.docsUrl || config.getConfig().docsUrl,
+    brandName: config.getConfig().brandName
   };
 
   if (resolvedPriority >= PRIORITY.CRITICAL) {
@@ -110,12 +101,12 @@ async function sendEmail({ to, template, data, priority, from, subject }) {
     return result;
   }
 
-  const queue = getQueue(QUEUE_NAMES.EMAILS);
+  const q = queue.getQueue(QUEUE_NAMES.EMAILS);
   const jobOptions = retry.getJobOptions(resolvedPriority);
 
   let job;
   try {
-    job = await queue.add(
+    job = await q.add(
       "send-email",
       {
         to,
@@ -175,7 +166,7 @@ async function sendDirect({ to, template, data, from, subject }) {
 
     const result = await provider.send({
       to,
-      from: from || config.defaultFrom,
+      from: from || config.getConfig().defaultFrom,
       subject: resolvedSubject,
       html
     });
