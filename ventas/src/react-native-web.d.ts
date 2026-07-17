@@ -14,7 +14,6 @@ declare module 'react-native' {
   export type NativeSyntheticEvent<T> = { nativeEvent: T };
 
   export const ActivityIndicator: ComponentType<any>;
-  export const KeyboardAvoidingView: ComponentType<any>;
   export const Modal: ComponentType<any>;
   export const Pressable: ComponentType<any>;
   export class ScrollView extends Component<any> {

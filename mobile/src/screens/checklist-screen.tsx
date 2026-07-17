@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   Modal,
   Pressable,
   ScrollView,
@@ -24,7 +25,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
-import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
+import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
@@ -1706,15 +1707,23 @@ export function ChecklistScreen() {
         return;
       }
 
-      Animated.spring(routeSheetTranslateY, {
+      Animated.timing(routeSheetTranslateY, {
         toValue: 0,
-        damping: 22,
-        stiffness: 240,
-        mass: 0.9,
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
     },
     [dismissRouteSheet, routeSheetTranslateY]
+  );
+
+  const routeSheetVisualTranslateY = useMemo(
+    () => routeSheetTranslateY.interpolate({
+      inputRange: [0, 640],
+      outputRange: [0, 640],
+      extrapolate: 'clamp',
+    }),
+    [routeSheetTranslateY]
   );
 
   const routeSheetGestureEvent = useMemo(
@@ -1896,19 +1905,12 @@ export function ChecklistScreen() {
       setIsCreatingRouteDraft(false);
       setRouteLibraryOpen(false);
       closeRouteModal();
-      router.replace({
-        pathname: '/checklist',
-        params: {
-          returnFilter: filterMode,
-          historyScrollY: String(historyScrollYRef.current),
-        },
-      });
     } catch {
       trackerState.setPointMessage('No fue posible guardar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [closeRouteModal, editingRouteId, filterMode, refreshAll, routeNameDraft, selectedVehicle?.id]);
+  }, [closeRouteModal, editingRouteId, refreshAll, routeNameDraft, selectedVehicle?.id]);
 
   const assignSavedRoute = useCallback(async (route: RouteShape) => {
     if (!selectedVehicle?.id) {
@@ -2361,10 +2363,8 @@ export function ChecklistScreen() {
 
       <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
         <GestureHandlerRootView style={styles.modalBackdrop}>
-          <KeyboardSafeView
-            keyboardVerticalOffset={12}
-            style={styles.modalKeyboard}>
-          <Animated.View style={[styles.modalCard, { transform: [{ translateY: routeSheetTranslateY }] }]}>
+          <View style={styles.modalKeyboard}>
+          <Animated.View style={[styles.modalCard, { transform: [{ translateY: routeSheetVisualTranslateY }] }]}>
             <PanGestureHandler
               activeOffsetY={5}
               failOffsetX={[-24, 24]}
@@ -2388,7 +2388,7 @@ export function ChecklistScreen() {
               </Animated.View>
             </PanGestureHandler>
 
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            <KeyboardSafeScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' || routeLibraryOpen ? (
                 <View style={styles.configCard}>
                     {savedRoutes.length ? (
@@ -2686,9 +2686,9 @@ export function ChecklistScreen() {
               ) : null}
 
 
-            </ScrollView>
+            </KeyboardSafeScrollView>
           </Animated.View>
-          </KeyboardSafeView>
+          </View>
         </GestureHandlerRootView>
       </Modal>
       <ConfirmModal

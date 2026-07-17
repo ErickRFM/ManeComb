@@ -4,6 +4,7 @@ import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { CustomerAuthScreen } from '@/src/screens/customer-auth-screen';
@@ -85,7 +86,7 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: user?.role !== 'driver' || activeRouteSession?.status === 'RUNNING',
+    enabled: Boolean(user?.vehicleId),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,
@@ -683,8 +684,9 @@ export default function App() {
         }
       }}
       style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <SafeAreaProvider>
-        <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
+      <KeyboardProvider preload={false}>
+        <SafeAreaProvider>
+          <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
           <ThemeProvider value={navigationTheme}>
             {isReady && user && authContext?.canAccessMobile ? <OperationalBackgroundServices /> : null}
             <MobileErrorBoundary styles={styles} theme={theme}>
@@ -714,8 +716,9 @@ export default function App() {
             </MobileErrorBoundary>
             <StatusBar style={theme.statusBar} backgroundColor={theme.colors.background} />
           </ThemeProvider>
-        </NavigationContainer>
-      </SafeAreaProvider>
+          </NavigationContainer>
+        </SafeAreaProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

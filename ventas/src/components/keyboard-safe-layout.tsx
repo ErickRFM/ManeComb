@@ -1,19 +1,11 @@
 import { forwardRef, type ComponentProps, type PropsWithChildren } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 
-type KeyboardAvoidingViewProps = ComponentProps<typeof KeyboardAvoidingView>;
+type ViewProps = ComponentProps<typeof View>;
 type ScrollViewProps = ComponentProps<typeof ScrollView>;
 
-export function KeyboardSafeView({ children, keyboardVerticalOffset = 0, ...props }: PropsWithChildren<KeyboardAvoidingViewProps>) {
-  return (
-    <KeyboardAvoidingView
-      {...props}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      enabled={Platform.OS !== 'web'}
-      keyboardVerticalOffset={keyboardVerticalOffset}>
-      {children}
-    </KeyboardAvoidingView>
-  );
+export function KeyboardSafeView({ children, ...props }: PropsWithChildren<ViewProps>) {
+  return <View {...props}>{children}</View>;
 }
 
 export const KeyboardSafeScrollView = forwardRef<ScrollView, ScrollViewProps>(function KeyboardSafeScrollView(

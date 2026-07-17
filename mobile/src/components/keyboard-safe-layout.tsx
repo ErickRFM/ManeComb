@@ -1,31 +1,30 @@
-import { forwardRef, type PropsWithChildren } from 'react';
+import { forwardRef, type ComponentProps, type PropsWithChildren } from 'react';
+import { Platform, StyleSheet, type ScrollViewProps } from 'react-native';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  type KeyboardAvoidingViewProps,
-  type ScrollViewProps,
-} from 'react-native';
+  KeyboardAvoidingView as KeyboardControllerAvoidingView,
+  KeyboardAwareScrollView,
+  type KeyboardAwareScrollViewRef,
+} from 'react-native-keyboard-controller';
+
+type KeyboardSafeViewProps = ComponentProps<typeof KeyboardControllerAvoidingView>;
 
 export function KeyboardSafeView({
-  behavior = Platform.OS === 'ios' ? 'padding' : undefined,
+  behavior = 'padding',
   children,
-  keyboardVerticalOffset = 0,
   ...props
-}: PropsWithChildren<KeyboardAvoidingViewProps>) {
+}: PropsWithChildren<KeyboardSafeViewProps>) {
   return (
-    <KeyboardAvoidingView
+    <KeyboardControllerAvoidingView
       {...props}
       behavior={behavior}
-      enabled={Platform.OS !== 'web'}
-      keyboardVerticalOffset={keyboardVerticalOffset}>
+      automaticOffset
+      enabled={Platform.OS !== 'web'}>
       {children}
-    </KeyboardAvoidingView>
+    </KeyboardControllerAvoidingView>
   );
 }
 
-export const KeyboardSafeScrollView = forwardRef<ScrollView, ScrollViewProps>(
+export const KeyboardSafeScrollView = forwardRef<KeyboardAwareScrollViewRef, ScrollViewProps>(
   function KeyboardSafeScrollViewComponent(
     {
       children,
@@ -36,18 +35,18 @@ export const KeyboardSafeScrollView = forwardRef<ScrollView, ScrollViewProps>(
     ref
   ) {
     return (
-      <KeyboardSafeView style={styles.fill}>
-        <ScrollView
-          {...props}
-          ref={ref}
-          automaticallyAdjustKeyboardInsets={false}
-          keyboardDismissMode={
-            keyboardDismissMode || (Platform.OS === 'ios' ? 'interactive' : 'on-drag')
-          }
-          keyboardShouldPersistTaps={keyboardShouldPersistTaps}>
-          {children}
-        </ScrollView>
-      </KeyboardSafeView>
+      <KeyboardAwareScrollView
+        {...props}
+        ref={ref}
+        automaticallyAdjustKeyboardInsets={false}
+        keyboardDismissMode={
+          keyboardDismissMode || (Platform.OS === 'ios' ? 'interactive' : 'on-drag')
+        }
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        mode="insets"
+        style={[styles.fill, props.style]}>
+        {children}
+      </KeyboardAwareScrollView>
     );
   }
 );

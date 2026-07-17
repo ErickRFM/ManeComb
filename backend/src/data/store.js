@@ -2365,6 +2365,9 @@ function createEmbeddedStore() {
   function ensureGeneralConversation(userId, channelMode = "chat") {
     const normalizedChannelMode = normalizeConversationChannelMode(channelMode);
     const organizationId = getUserOrganizationId(getUserById(userId));
+    const participantIds = state.users
+      .filter((user) => getUserOrganizationId(user) === organizationId)
+      .map((user) => user.id);
     let conversation = state.conversations
       .map((entry) => ensureConversationRecord(entry))
       .find(
@@ -2375,9 +2378,6 @@ function createEmbeddedStore() {
       );
 
     if (!conversation) {
-      const participantIds = state.users
-        .filter((user) => getUserOrganizationId(user) === organizationId)
-        .map((user) => user.id);
       conversation = ensureConversationRecord({
         id: `${normalizedChannelMode === "radio" ? "conversation-radio-general" : "conversation-ops"}:${organizationId}`,
         organizationId,
@@ -2404,6 +2404,14 @@ function createEmbeddedStore() {
         ]
       });
       state.conversations.unshift(conversation);
+    } else {
+      conversation.participants = participantIds;
+      conversation.unreadBy = {
+        ...Object.fromEntries(participantIds.map((participantId) => [participantId, 0])),
+        ...Object.fromEntries(
+          Object.entries(conversation.unreadBy || {}).filter(([participantId]) => participantIds.includes(participantId))
+        )
+      };
     }
 
     return clone(buildConversationSummary(conversation, userId));

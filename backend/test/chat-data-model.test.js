@@ -113,6 +113,24 @@ async function run() {
   assert.strictEqual(readMessage.status, "read");
 
   const radioConversation = store.ensureGeneralConversation(userId, "radio");
+  const lateDriver = store.registerUser({
+    accountType: "operations",
+    email: "late-driver@combis.test",
+    name: "Pepe",
+    organizationId: seed.users[0].organizationId,
+    password: "Ruta123!",
+    role: "driver"
+  });
+  const refreshedRadioConversation = store.ensureGeneralConversation(lateDriver.id, "radio");
+  assert.ok(
+    refreshedRadioConversation.participants.some((participant) => participant.id === lateDriver.id),
+    "a driver created after the general channel joins the same organization channel"
+  );
+  assert.equal(
+    store.canUserAccessConversation(lateDriver.id, refreshedRadioConversation.id),
+    true,
+    "general radio membership and socket authorization use the same participants"
+  );
   const radioInput = {
     messageId: "radio:transmission-test-1",
     transmissionId: "transmission-test-1",

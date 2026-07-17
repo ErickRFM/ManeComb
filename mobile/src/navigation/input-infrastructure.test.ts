@@ -31,19 +31,25 @@ describe('shared input infrastructure', () => {
     expect(violations).toEqual([]);
   });
 
-  it('uses one resize owner and supports orientation changes on Android', () => {
+  it('uses IME insets through the keyboard controller and supports orientation changes on Android', () => {
     const manifest = fs.readFileSync(path.join(mobileRoot, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+    const app = fs.readFileSync(path.join(mobileRoot, 'App.tsx'), 'utf8');
     expect(manifest).toContain('android:windowSoftInputMode="adjustResize"');
     expect(manifest).not.toContain('android:screenOrientation="portrait"');
+    expect(app).toContain("import { KeyboardProvider } from 'react-native-keyboard-controller'");
+    expect(app).toContain('<KeyboardProvider preload={false}>');
   });
 
-  it('keeps the Android chat composer visible while adjustResize dispatches keyboard changes', () => {
+  it('keeps forms and the chat composer on the shared keyboard-controller path', () => {
     const keyboardLayout = fs.readFileSync(path.join(mobileRoot, 'src', 'components', 'keyboard-safe-layout.tsx'), 'utf8');
     const chatView = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'chat', 'components', 'chat-screen-view.tsx'), 'utf8');
 
-    expect(keyboardLayout).toContain("behavior = Platform.OS === 'ios' ? 'padding' : undefined");
-    expect(keyboardLayout).toContain('behavior={behavior}');
-    expect(chatView).toContain("Platform.OS === 'android' ? 'height' : undefined");
+    expect(keyboardLayout).toContain("from 'react-native-keyboard-controller'");
+    expect(keyboardLayout).toContain('<KeyboardAwareScrollView');
+    expect(keyboardLayout).toContain('mode="insets"');
+    expect(keyboardLayout).not.toMatch(/from 'react-native'.*KeyboardAvoidingView/);
+    expect(chatView).not.toContain("Platform.OS === 'android' ? 'height' : undefined");
+    expect(chatView).toContain('<KeyboardSafeView');
   });
 
   it('renders the existing login illustration instead of reserving empty space', () => {

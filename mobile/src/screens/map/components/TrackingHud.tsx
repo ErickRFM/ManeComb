@@ -30,10 +30,10 @@ export function TrackingHud({
       <View style={styles.topBar}>
         <Pressable
           hitSlop={10}
-          onPress={onOpenMenu}
+          onPress={() => router.push('/incidencias')}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
-          accessibilityLabel="Abrir menu operativo">
-          <MaterialCommunityIcons name="menu" size={22} color={theme.colors.text} />
+          accessibilityLabel="Abrir incidencias">
+          <MaterialCommunityIcons name={incidentCount ? 'alert-decagram' : 'alert-outline'} size={22} color={incidentCount ? theme.colors.danger : theme.colors.text} />
         </Pressable>
 
         <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
@@ -49,10 +49,10 @@ export function TrackingHud({
 
         <Pressable
           hitSlop={10}
-          onPress={() => router.push('/incidencias')}
+          onPress={onOpenMenu}
           style={[styles.iconButton, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}
-          accessibilityLabel="Abrir incidencias">
-          <MaterialCommunityIcons name={incidentCount ? 'alert-decagram' : 'alert-outline'} size={22} color={incidentCount ? theme.colors.danger : theme.colors.text} />
+          accessibilityLabel="Abrir menu operativo">
+          <MaterialCommunityIcons name="menu" size={22} color={theme.colors.text} />
         </Pressable>
       </View>
     </View>

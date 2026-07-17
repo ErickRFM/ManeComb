@@ -194,6 +194,10 @@ export function RadioScreen() {
     () => conversations.filter((conversation) => conversation.channelMode === 'radio'),
     [conversations]
   );
+  const generalRadioChannel = useMemo(
+    () => radioChannels.find((conversation) => conversation.kind === 'group') || null,
+    [radioChannels]
+  );
   const activeChannel =
     radioChannels.find((conversation) => conversation.id === activeConversationId) || null;
   const loadedVoiceNotes = useMemo(
@@ -728,7 +732,7 @@ export function RadioScreen() {
           : activeConversationId &&
         radioChannels.some((conversation) => conversation.id === activeConversationId)
           ? activeConversationId
-          : radioChannels[0].id;
+          : generalRadioChannel?.id || radioChannels[0].id;
 
       bootstrappedRef.current = true;
       setActiveConversationId(preferredChannelId);
@@ -741,7 +745,7 @@ export function RadioScreen() {
         setActiveConversationId(conversation.id);
       }
     });
-  }, [activeConversationId, openGeneralConversation, params.channelId, radioChannels, setActiveConversationId]);
+  }, [activeConversationId, generalRadioChannel?.id, openGeneralConversation, params.channelId, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
     if (!radioChannels.length) {
@@ -754,8 +758,8 @@ export function RadioScreen() {
       return;
     }
 
-    setActiveConversationId(radioChannels[0].id);
-  }, [activeConversationId, radioChannels, setActiveConversationId]);
+    setActiveConversationId(generalRadioChannel?.id || radioChannels[0].id);
+  }, [activeConversationId, generalRadioChannel?.id, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
     stopActiveAudioPlaybackAsync().catch(() => undefined);

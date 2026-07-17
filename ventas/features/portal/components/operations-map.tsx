@@ -70,10 +70,7 @@ function createMarkerElement({ active, label, tone }: { active?: boolean; label:
 }
 
 function getVehiclePoint(vehicle: Vehicle): GeoPoint | null {
-  if (isValidPoint(vehicle.location)) return vehicle.location || null;
-  if (isValidPoint(vehicle.assignedRoute?.origin)) return vehicle.assignedRoute?.origin || null;
-  if (isValidPoint(vehicle.assignedRoute?.destination)) return vehicle.assignedRoute?.destination || null;
-  return null;
+  return vehicle.locationTimestamp && isValidPoint(vehicle.location) ? vehicle.location || null : null;
 }
 
 function getBoundsPoints({

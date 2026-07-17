@@ -1567,7 +1567,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
   clearError: () => set({ error: null }),
-  setActiveConversationId: (id) => { set({ activeConversationId: id }); socket?.emit('conversation:join', id); },
+  setActiveConversationId: (id) => {
+    if (get().activeConversationId === id) return;
+    set({ activeConversationId: id });
+    socket?.emit('conversation:join', id);
+  },
   setFocusedIncidentId: (id) => set({ focusedIncidentId: id }),
   markAsRead: (conversationId, messageId) => {
     const s = get();

@@ -287,7 +287,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
             styles.scrollContent,
             scrollContentDynamicStyle,
           ]}>
-          <View style={styles.panel}>
+          <View style={[styles.panel, !isRegister ? styles.loginPanel : undefined]}>
             <View style={styles.brandRow}>
               <BrandLogo size={sizing.logoSize} tone="dark" plain />
             </View>
@@ -297,6 +297,9 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                 resizeMode="contain"
                 style={{ height: sizing.artworkHeight, width: sizing.artworkWidth }}
               />
+              {!isRegister ? (
+                <Text style={styles.slogan}>Siguiendo lo importante.</Text>
+              ) : null}
             </View>
             <View style={styles.form}>
               <View style={styles.segmentedControl}>
@@ -692,12 +695,23 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     flexGrow: 1,
   },
+  loginPanel: {
+    justifyContent: 'center',
+  },
   brandRow: {
     alignItems: 'flex-start',
   },
   artworkWrap: {
     alignItems: 'center',
     marginTop: 14,
+  },
+  slogan: {
+    marginTop: 2,
+    color: '#71788A',
+    fontFamily: Typography.body,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   form: {
     marginTop: 18,
