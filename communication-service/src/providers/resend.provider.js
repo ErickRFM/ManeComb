@@ -8,6 +8,7 @@ class ResendProvider extends BaseProvider {
     this.apiKey = config.apiKey;
     this.fromEmail = config.fromEmail;
     this.fromName = config.fromName || "ManeComb";
+    this.replyTo = config.replyTo || "";
   }
 
   async send({ to, from, subject, html, text }) {
@@ -23,7 +24,8 @@ class ResendProvider extends BaseProvider {
           to: Array.isArray(to) ? to : [to],
           subject,
           html,
-          text: text || ""
+          text: text || "",
+          ...(this.replyTo ? { reply_to: this.replyTo } : {})
         })
       });
 

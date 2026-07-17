@@ -25,7 +25,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
-import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
+import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
@@ -1916,12 +1916,19 @@ export function ChecklistScreen() {
       setIsCreatingRouteDraft(false);
       setRouteLibraryOpen(false);
       closeRouteModal();
+      router.replace({
+        pathname: '/checklist',
+        params: {
+          returnFilter: filterMode,
+          historyScrollY: String(historyScrollYRef.current),
+        },
+      });
     } catch {
       trackerState.setPointMessage('No fue posible guardar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [closeRouteModal, editingRouteId, refreshAll, routeNameDraft, selectedVehicle?.id]);
+  }, [closeRouteModal, editingRouteId, filterMode, refreshAll, routeNameDraft, selectedVehicle?.id]);
 
   const assignSavedRoute = useCallback(async (route: RouteShape) => {
     if (!selectedVehicle?.id) {
@@ -2374,7 +2381,9 @@ export function ChecklistScreen() {
 
       <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
         <GestureHandlerRootView style={styles.modalBackdrop}>
-          <View style={styles.modalKeyboard}>
+          <KeyboardSafeView
+            keyboardVerticalOffset={12}
+            style={styles.modalKeyboard}>
           <Animated.View style={[styles.modalCard, { transform: [{ translateY: routeSheetVisualTranslateY }] }]}>
             <PanGestureHandler
               activeOffsetY={5}
@@ -2399,7 +2408,7 @@ export function ChecklistScreen() {
               </Animated.View>
             </PanGestureHandler>
 
-            <KeyboardSafeScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' || routeLibraryOpen ? (
                 <View style={styles.configCard}>
                     {savedRoutes.length ? (
@@ -2697,9 +2706,9 @@ export function ChecklistScreen() {
               ) : null}
 
 
-            </KeyboardSafeScrollView>
+            </ScrollView>
           </Animated.View>
-          </View>
+          </KeyboardSafeView>
         </GestureHandlerRootView>
       </Modal>
       <ConfirmModal

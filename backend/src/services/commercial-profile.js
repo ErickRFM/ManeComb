@@ -69,8 +69,11 @@ function enrichCommercialOrder(order, options = {}) {
     return order;
   }
 
+  const publicOrder = { ...order };
+  delete publicOrder.lastEmailError;
+
   return {
-    ...order,
+    ...publicOrder,
     merchantProfile: getCommercialProfile(),
     paymentInstructions: getManualPaymentInstructions(order),
     invoiceSummary: buildCommercialInvoiceSummary(order),

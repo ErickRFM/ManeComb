@@ -20,8 +20,8 @@ class DeliveryEngine {
       .use(new ValidateStage())
       .use(new ResolveTemplateStage())
       .use(new RateLimitStage())
-      .use(new ErrorClassificationStage())
       .use(new SendStage())
+      .use(new ErrorClassificationStage())
       .use(new MetricsStage())
       .use(new HistoryStage())
       .use(new EventsStage());
@@ -36,6 +36,7 @@ class DeliveryEngine {
       throw new Error("sendFn not configured in DeliveryEngine");
     }
 
+    const deliveryId = `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const ctx = {
       to,
       template,
@@ -53,6 +54,7 @@ class DeliveryEngine {
       sendFn: this.sendFn,
       attempts: attempts || 1,
       maxAttempts: retry.getMaxRetries(priority != null ? validators.normalizePriority(priority) : 1) + 1,
+      deliveryId,
       rateLimitTokens: 10,
       rateLimitRefillRate: 1,
       rateLimitInterval: 1000
@@ -84,6 +86,7 @@ class DeliveryEngine {
 
   async sendViaQueue({ to, template, data, priority, from, subject, provider }) {
     const resolvedPriority = priority != null ? validators.normalizePriority(priority) : 1;
+    const deliveryId = `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     const enrichedData = {
       ...data,
@@ -106,7 +109,8 @@ class DeliveryEngine {
           data: enrichedData,
           priority: resolvedPriority,
           provider: provider || config.getConfig().provider,
-          from
+          from,
+          deliveryId
         },
         { ...jobOptions, priority: resolvedPriority }
       );
@@ -125,7 +129,7 @@ class DeliveryEngine {
       status: "queued",
       priority: resolvedPriority,
       subject: subject || "",
-      metadata: { userId: data?.userId, organizationId: data?.organizationId }
+      metadata: { deliveryId, userId: data?.userId, organizationId: data?.organizationId }
     });
 
     metrics.increment("emails_enqueued", 1, {
@@ -135,6 +139,7 @@ class DeliveryEngine {
 
     return {
       queued: true,
+      deliveryId,
       jobId: job.id,
       template,
       provider: provider || config.getConfig().provider,

@@ -223,6 +223,10 @@ const vehicleSchema = new mongoose.Schema(
     updatedAt: { type: Date, default: Date.now },
     location: { type: pointSchema, default: null },
     locationTimestamp: { type: Date, default: null },
+    locationClientTimestamp: { type: Date, default: null },
+    locationReceivedAt: { type: Date, default: null },
+    locationTimestampSource: { type: String, default: "server" },
+    locationClockSkewMs: { type: Number, default: null },
     activeRouteProgress: { type: mongoose.Schema.Types.Mixed, default: null },
     assignedRoute: { type: assignedRouteSchema, default: null }
   },
@@ -749,6 +753,9 @@ const commercialLeadSchema = new mongoose.Schema(
     starterFleet: { type: [commercialStarterFleetSchema], default: [] },
     launchSummary: { type: String, default: "" },
     lastEmailStatus: { type: String, default: "pending" },
+    lastEmailError: { type: String, default: null },
+    lastEmailProvider: { type: String, default: null },
+    lastEmailTemplate: { type: String, default: null },
     lastWhatsappStatus: { type: String, default: "pending" },
     lastContactedAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now }

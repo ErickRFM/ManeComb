@@ -34,29 +34,78 @@ function normalizePhone(phone) {
   return digits.startsWith("+") ? digits : `+${digits}`;
 }
 
-async function sendEmailNotification(order, message) {
+const REJECTED_PAYMENT_STATUSES = new Set(["cancelled", "failed", "rejected"]);
+const PENDING_PAYMENT_STATUSES = new Set([
+  "pending",
+  "pending_configuration",
+  "pending_manual_confirmation",
+  "pending_payment"
+]);
+
+function selectCommercialEmailTemplate(order, event = "payment_status") {
+  if (event === "order_created") return "order-created";
+  if (event === "subscription_cancelled") return "subscription-cancelled";
+  if (event === "subscription_activated") return "subscription-activated";
+
+  const status = String(order?.paymentStatus || "").trim().toLowerCase();
+  if (["paid", "paid_test", "approved"].includes(status)) return "payment-approved";
+  if (REJECTED_PAYMENT_STATUSES.has(status)) return "payment-rejected";
+  if (PENDING_PAYMENT_STATUSES.has(status) || !status) return "payment-pending";
+  return "payment-pending";
+}
+
+function getEmailDeliveryState(result) {
+  if (result?.queued) return { error: null, status: "pending" };
+  if (result?.success === true) return { error: null, status: "sent" };
+  return {
+    error: String(result?.error || "El proveedor no confirmó el envío"),
+    status: result?.errorCategory === "rate_limit" ? "retry" : "failed"
+  };
+}
+
+async function sendEmailNotification(order, event) {
   if (!communication.isConfigured()) {
-    return "skipped_not_configured";
+    return {
+      lastEmailError: "RESEND_API_KEY o RESEND_FROM_EMAIL no configurados",
+      lastEmailProvider: "resend",
+      lastEmailStatus: "skipped_not_configured",
+      lastEmailTemplate: selectCommercialEmailTemplate(order, event)
+    };
   }
 
+  const template = selectCommercialEmailTemplate(order, event);
   try {
-    await communication.sendEmail({
+    const result = await communication.sendEmail({
       to: order.email,
-      template: "payment-approved",
+      template,
       data: {
         name: order.contactName,
         referenceCode: order.referenceCode,
         planName: order.planName,
         amount: `$${order.totalPrice} MXN`,
+        paymentMethod: order.paymentMethod,
+        checkoutUrl: order.checkoutUrl,
+        statusLabel: order.paymentStatus,
         date: new Date().toLocaleDateString("es-MX"),
         dashboardUrl: order.dashboardUrl,
         userId: order.userId,
         organizationId: order.organizationId
       }
     });
-    return "sent";
-  } catch {
-    return "failed";
+    const delivery = getEmailDeliveryState(result);
+    return {
+      lastEmailError: delivery.error,
+      lastEmailProvider: result?.provider || "resend",
+      lastEmailStatus: delivery.status,
+      lastEmailTemplate: template
+    };
+  } catch (error) {
+    return {
+      lastEmailError: error?.message || String(error),
+      lastEmailProvider: "resend",
+      lastEmailStatus: "failed",
+      lastEmailTemplate: template
+    };
   }
 }
 
@@ -110,15 +159,20 @@ function buildOrderMessage(order, nextStep) {
     .join("\n");
 }
 
-async function notifyCommercialOrder(order, nextStep) {
+async function notifyCommercialOrder(order, nextStep, event = "payment_status") {
   const message = buildOrderMessage(order, nextStep);
-  const [lastEmailStatus, lastWhatsappStatus] = await Promise.all([
-    sendEmailNotification(order, message).catch(() => "failed"),
+  const [emailStatus, lastWhatsappStatus] = await Promise.all([
+    sendEmailNotification(order, event).catch((error) => ({
+      lastEmailError: error?.message || String(error),
+      lastEmailProvider: "resend",
+      lastEmailStatus: "failed",
+      lastEmailTemplate: selectCommercialEmailTemplate(order, event)
+    })),
     sendWhatsappNotification(order, message).catch(() => "failed")
   ]);
 
   return {
-    lastEmailStatus,
+    ...emailStatus,
     lastWhatsappStatus,
     lastContactedAt: new Date().toISOString()
   };
@@ -126,5 +180,7 @@ async function notifyCommercialOrder(order, nextStep) {
 
 module.exports = {
   getNotifierReadiness,
-  notifyCommercialOrder
+  getEmailDeliveryState,
+  notifyCommercialOrder,
+  selectCommercialEmailTemplate
 };

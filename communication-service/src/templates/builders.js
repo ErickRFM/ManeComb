@@ -182,6 +182,56 @@ function paymentRejected(data) {
   ]);
 }
 
+function orderCreated(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Orden registrada", subtitle: `Referencia: ${C.escapeHtml(data.referenceCode || "")}` }),
+    C.greeting(data.name),
+    C.textBlock("Tu orden fue registrada correctamente. Conserva esta referencia para cualquier aclaración."),
+    C.card({
+      title: "Resumen de la orden",
+      items: [["Plan", data.planName], ["Monto", data.amount], ["Estado", data.statusLabel || "Pendiente"]]
+    }),
+    data.checkoutUrl ? C.button({ text: "Continuar con el pago", url: data.checkoutUrl }) : "",
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function paymentPending(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Pago pendiente", subtitle: `Referencia: ${C.escapeHtml(data.referenceCode || "")}` }),
+    C.greeting(data.name),
+    C.alert({ variant: "warning", message: "Tu pago todavía no ha sido confirmado." }),
+    C.card({ title: "Resumen", items: [["Plan", data.planName], ["Monto", data.amount], ["Estado", "Pendiente"]] }),
+    data.checkoutUrl ? C.button({ text: "Completar pago", url: data.checkoutUrl }) : "",
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function subscriptionActivated(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Suscripción activada" }),
+    C.greeting(data.name),
+    C.alert({ variant: "success", message: "Tu suscripción de ManeComb ya está activa." }),
+    C.card({ title: "Plan activo", items: [["Plan", data.planName], ["Referencia", data.referenceCode]] }),
+    C.button({ text: "Ir al panel", url: data.dashboardUrl || "https://manecomb.com" }),
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function subscriptionCancelled(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Suscripción cancelada" }),
+    C.greeting(data.name),
+    C.textBlock("Confirmamos la cancelación de tu suscripción de ManeComb."),
+    C.card({ title: "Detalle", items: [["Plan", data.planName], ["Referencia", data.referenceCode], ["Fecha", data.date]] }),
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
 function invoiceAvailable(data) {
   return buildContent([
     C.logo(),
@@ -467,6 +517,10 @@ const TEMPLATE_BUILDERS = {
   "driver-invitation": driverInvitation,
   "payment-approved": paymentApproved,
   "payment-rejected": paymentRejected,
+  "order-created": orderCreated,
+  "payment-pending": paymentPending,
+  "subscription-activated": subscriptionActivated,
+  "subscription-cancelled": subscriptionCancelled,
   "invoice-available": invoiceAvailable,
   "plan-renewal": planRenewal,
   "plan-expiring": planExpiring,

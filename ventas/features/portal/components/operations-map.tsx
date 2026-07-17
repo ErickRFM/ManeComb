@@ -1,12 +1,13 @@
 import mapboxgl, { type Map as MapboxMap, type Marker as MapboxMarker } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
 import { portalPalette } from '../portal-theme';
 
 type OperationsMapProps = {
+  autoFit?: boolean;
   checkpoints?: NavigationStop[];
   height?: number;
   onClickPoint?: (point: GeoPoint) => void;
@@ -47,10 +48,15 @@ function positionToPoint(position?: RouteSessionPosition | null): GeoPoint | nul
   return isValidPoint(point) ? point : null;
 }
 
-function createMarkerElement({ active, label, tone }: { active?: boolean; label: string; tone: 'checkpoint' | 'replay' | 'vehicle' }) {
+function getDriverName(vehicle: Vehicle) {
+  return vehicle.driver?.name || vehicle.driverName || 'Sin conductor';
+}
+
+function createMarkerElement({ active, label, title, tone }: { active?: boolean; label: string; title?: string; tone: 'checkpoint' | 'replay' | 'vehicle' }) {
   const element = document.createElement('button');
   element.type = 'button';
   element.textContent = label;
+  if (title) element.title = title;
   element.style.alignItems = 'center';
   element.style.background = tone === 'checkpoint' ? portalPalette.warning : tone === 'replay' ? portalPalette.accent : active ? portalPalette.accent : portalPalette.info;
   element.style.border = '2px solid #fff';
@@ -128,6 +134,7 @@ function removeLine(map: MapboxMap, id: string) {
 }
 
 export function OperationsMap({
+  autoFit = true,
   checkpoints = [],
   height = 410,
   onClickPoint,
@@ -141,6 +148,9 @@ export function OperationsMap({
 }: OperationsMapProps) {
   const hostRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
+  const onClickPointRef = useRef(onClickPoint);
+  const onVehiclePressRef = useRef(onVehiclePress);
+  const vehiclesRef = useRef(vehicles);
   const vehicleMarkersRef = useRef(new Map<string, MapboxMarker>());
   const checkpointMarkersRef = useRef(new Map<string, MapboxMarker>());
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
@@ -151,6 +161,12 @@ export function OperationsMap({
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
     [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
   );
+
+  useEffect(() => {
+    onClickPointRef.current = onClickPoint;
+    onVehiclePressRef.current = onVehiclePress;
+    vehiclesRef.current = vehicles;
+  });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -168,11 +184,9 @@ export function OperationsMap({
     });
     const handleMapError = () => setMapUnavailable(true);
     map.on('error', handleMapError);
-    if (onClickPoint) {
-      map.on('click', (event) => {
-        onClickPoint({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
-      });
-    }
+    map.on('click', (event) => {
+      onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
+    });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     mapRef.current = map;
@@ -223,14 +237,24 @@ export function OperationsMap({
       nextIds.add(vehicle.id);
       let marker = vehicleMarkersRef.current.get(vehicle.id);
       if (!marker) {
-        const element = createMarkerElement({ active: vehicle.id === selectedVehicleId, label: vehicle.code, tone: 'vehicle' });
-        element.addEventListener('click', () => onVehiclePress?.(vehicle));
+        const element = createMarkerElement({
+          active: vehicle.id === selectedVehicleId,
+          label: vehicle.code,
+          title: `${vehicle.code} · ${getDriverName(vehicle)}`,
+          tone: 'vehicle',
+        });
+        element.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const latest = vehiclesRef.current.find((item) => item.id === vehicle.id) || vehicle;
+          onVehiclePressRef.current?.(latest);
+        });
         marker = new mapboxgl.Marker({ element }).setLngLat(toLngLat(point)).addTo(map);
         vehicleMarkersRef.current.set(vehicle.id, marker);
       } else {
         marker.setLngLat(toLngLat(point));
         const element = marker.getElement();
         element.textContent = vehicle.code;
+        element.title = `${vehicle.code} · ${getDriverName(vehicle)}`;
         element.style.background = vehicle.id === selectedVehicleId ? portalPalette.accent : portalPalette.info;
       }
     });
@@ -241,7 +265,7 @@ export function OperationsMap({
         vehicleMarkersRef.current.delete(vehicleId);
       }
     });
-  }, [onVehiclePress, selectedVehicleId, vehicles]);
+  }, [selectedVehicleId, vehicles]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -293,7 +317,7 @@ export function OperationsMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !boundsPoints.length) return;
+    if (!map || !autoFit || !boundsPoints.length) return;
     const fitKey = boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
     if (fitKey === fittedKeyRef.current) return;
     fittedKeyRef.current = fitKey;
@@ -308,7 +332,7 @@ export function OperationsMap({
       new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
     );
     map.fitBounds(bounds, { duration: 450, padding: 52 });
-  }, [boundsPoints]);
+  }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
     const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));
@@ -327,10 +351,21 @@ export function OperationsMap({
           <View style={styles.fallbackList}>
             {locatedVehicles.map((vehicle) => {
               const point = getVehiclePoint(vehicle);
+              const active = vehicle.id === selectedVehicleId;
               return (
-                <Text key={vehicle.id} style={styles.fallbackUnit} onPress={() => onVehiclePress?.(vehicle)}>
-                  {vehicle.code} · {Number(point?.latitude).toFixed(5)}, {Number(point?.longitude).toFixed(5)}
-                </Text>
+                <Pressable
+                  key={vehicle.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ver ${vehicle.code} de ${getDriverName(vehicle)}`}
+                  onPress={() => onVehiclePress?.(vehicle)}
+                  style={[styles.fallbackUnit, active ? styles.fallbackUnitActive : undefined]}>
+                  <Text style={[styles.fallbackUnitCode, active ? styles.fallbackUnitTextActive : undefined]}>
+                    {vehicle.code} · {getDriverName(vehicle)}
+                  </Text>
+                  <Text style={[styles.fallbackUnitCoords, active ? styles.fallbackUnitTextActive : undefined]}>
+                    {Number(point?.latitude).toFixed(5)}, {Number(point?.longitude).toFixed(5)}
+                  </Text>
+                </Pressable>
               );
             })}
           </View>
@@ -377,15 +412,31 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
+    flexBasis: 180,
+    flexGrow: 1,
+    gap: 2,
+    minWidth: 0,
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  fallbackUnitActive: {
+    backgroundColor: portalPalette.infoSoft,
+    borderColor: portalPalette.info,
+  },
+  fallbackUnitCode: {
     color: portalPalette.text,
     fontFamily: Typography.body,
     fontSize: 13,
     fontWeight: '800',
-    overflow: 'hidden',
-    flexGrow: 1,
-    flexBasis: 180,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  },
+  fallbackUnitCoords: {
+    color: portalPalette.muted,
+    fontFamily: Typography.mono,
+    fontSize: 11,
+  },
+  fallbackUnitTextActive: {
+    color: portalPalette.info,
   },
   map: {
     borderColor: portalPalette.line,

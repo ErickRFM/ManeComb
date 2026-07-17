@@ -2,13 +2,12 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { resolveDocumentUrl } from '@/src/api/client';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
@@ -32,7 +31,6 @@ function getStatusMeta(status: string) {
 }
 
 export function PortalDocumentsScreen() {
-  const { theme } = useAppTheme();
   const { user, vehicles } = useAppStore(
     useShallow((state) => ({
       user: state.user,
@@ -83,13 +81,13 @@ export function PortalDocumentsScreen() {
   return (
     <PortalLayout title="Documentos" subtitle="Administración de documentos de conductores y unidades.">
       {canManageDocuments ? (
-        <View style={[styles.contextNotice, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-          <View style={[styles.contextIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-            <MaterialCommunityIcons name="file-document-outline" size={20} color={theme.colors.info} />
+        <View style={[styles.contextNotice, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
+          <View style={[styles.contextIcon, { backgroundColor: palette.surfaceAlt }]}>
+            <MaterialCommunityIcons name="file-document-outline" size={20} color={palette.info} />
           </View>
           <View style={styles.contextCopy}>
-            <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Gestión de documentos</Text>
-            <Text style={[styles.contextText, { color: theme.colors.muted }]}>
+            <Text style={[styles.contextTitle, { color: palette.text }]}>Gestión de documentos</Text>
+            <Text style={[styles.contextText, { color: palette.muted }]}>
               Revisa, aprueba o rechaza los documentos subidos por conductores y unidades.
             </Text>
           </View>
@@ -116,16 +114,16 @@ export function PortalDocumentsScreen() {
             {filtered.map((doc) => {
               const meta = getStatusMeta(doc.reviewStatus || doc.status);
               return (
-                <View key={doc.id} style={[styles.docRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
+                <View key={doc.id} style={[styles.docRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
                   <View style={styles.docIcon}>
-                    <MaterialCommunityIcons name="file-document-outline" size={24} color={theme.colors.accent} />
+                    <MaterialCommunityIcons name="file-document-outline" size={24} color={palette.accent} />
                   </View>
                   <View style={styles.docBody}>
-                    <Text style={[styles.docName, { color: theme.colors.text }]}>{doc.name}</Text>
-                    <Text style={[styles.docMeta, { color: theme.colors.muted }]}>
+                    <Text style={[styles.docName, { color: palette.text }]}>{doc.name}</Text>
+                    <Text style={[styles.docMeta, { color: palette.muted }]}>
                       {doc.ownerType === 'vehicle' ? 'Unidad' : 'Conductor'}: {doc.ownerName || doc.ownerId} · {doc.category}
                     </Text>
-                    <Text style={[styles.docMeta, { color: theme.colors.muted }]}>
+                    <Text style={[styles.docMeta, { color: palette.muted }]}>
                       Subido: {formatDate(doc.uploadedAt, { fallback: '—' })} · Vence: {formatDate(doc.expiresAt, { fallback: 'Sin vencimiento' })}
                     </Text>
                   </View>
@@ -140,8 +138,8 @@ export function PortalDocumentsScreen() {
                             const url = doc.fileUrl || (doc.storageKey ? resolveDocumentUrl(doc.storageKey) : null);
                             if (url) Linking.openURL(url).catch(() => {});
                           }}
-                          style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
-                          <MaterialCommunityIcons name="download" size={16} color={theme.colors.info} />
+                          style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
+                          <MaterialCommunityIcons name="download" size={16} color={palette.info} />
                         </Pressable>
                       ) : null}
                       {canManageDocuments ? (
@@ -149,8 +147,8 @@ export function PortalDocumentsScreen() {
                           accessibilityRole="button"
                           accessibilityLabel="Revisar documento"
                           onPress={() => { setReviewTarget(doc); setReviewStatus(doc.reviewStatus || 'pending_review'); setReviewNotes(''); }}
-                          style={[styles.iconAction, { backgroundColor: theme.colors.accentSoft }]}>
-                          <MaterialCommunityIcons name="check-circle-outline" size={16} color={theme.colors.accent} />
+                          style={[styles.iconAction, { backgroundColor: palette.accentSoft }]}>
+                          <MaterialCommunityIcons name="check-circle-outline" size={16} color={palette.accent} />
                         </Pressable>
                       ) : null}
                     </View>
@@ -180,10 +178,10 @@ export function PortalDocumentsScreen() {
               onPress={() => setReviewStatus(status)}
               style={[
                 styles.reviewOption,
-                { borderColor: reviewStatus === status ? theme.colors.info : theme.colors.line },
-                reviewStatus === status ? { backgroundColor: theme.colors.infoSoft } : { backgroundColor: theme.colors.surface },
+                { borderColor: reviewStatus === status ? palette.info : palette.line },
+                reviewStatus === status ? { backgroundColor: palette.infoSoft } : { backgroundColor: palette.surface },
               ]}>
-              <Text style={[styles.reviewOptionText, { color: reviewStatus === status ? theme.colors.info : theme.colors.text }]}>
+              <Text style={[styles.reviewOptionText, { color: reviewStatus === status ? palette.info : palette.text }]}>
                 {status === 'approved' ? 'Aprobar' : status === 'rejected' ? 'Rechazar' : 'Pendiente'}
               </Text>
             </Pressable>
@@ -193,9 +191,9 @@ export function PortalDocumentsScreen() {
           value={reviewNotes}
           onChangeText={setReviewNotes}
           placeholder="Notas de revisión (opcional)"
-          placeholderTextColor={theme.colors.muted}
+          placeholderTextColor={palette.muted}
           multiline
-          style={[styles.reviewInput, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+          style={[styles.reviewInput, { borderColor: palette.lineStrong, color: palette.text }]}
         />
       </ConfirmModal>
     </PortalLayout>

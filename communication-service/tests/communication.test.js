@@ -11,7 +11,7 @@ function testTypesConstants() {
   assert.equal(typeof TEMPLATE, "object");
   assert.equal(TEMPLATE.PASSWORD_RESET, "password-reset");
   assert.equal(TEMPLATE.WELCOME, "welcome");
-  assert.equal(Object.keys(TEMPLATE).length, 22, "Deben existir 22 plantillas");
+  assert.equal(Object.keys(TEMPLATE).length, 26, "Deben existir 26 plantillas");
 
   assert.equal(PRIORITY.CRITICAL, 10);
   assert.equal(PRIORITY.HIGH, 5);
@@ -38,7 +38,7 @@ function testTypesConstants() {
 
 function testTemplateRegistry() {
   const names = comm.getTemplateNames();
-  assert.equal(names.length, 22, "Deben registrarse 22 plantillas");
+  assert.equal(names.length, 26, "Deben registrarse 26 plantillas");
   assert.ok(names.includes("welcome"));
   assert.ok(names.includes("password-reset"));
   assert.ok(names.includes("payment-approved"));
@@ -534,8 +534,8 @@ async function testDeliveryPipelineStages() {
   pipeline
     .use(new ValidateStage())
     .use(new ResolveTemplateStage())
-    .use(new ErrorClassificationStage())
     .use(new SendStage())
+    .use(new ErrorClassificationStage())
     .use(new HistoryStage())
     .use(new MetricsStage())
     .use(new EventsStage());
@@ -557,6 +557,17 @@ async function testDeliveryPipelineStages() {
   const result = await pipeline.execute(ctx);
   assert.equal(result.status, "sent");
   assert.ok(result.historyId, "historyId must be set");
+
+  const failed = await pipeline.execute({
+    ...ctx,
+    sendFn: async () => ({ success: false, error: "Resend error 429: rate limit" }),
+    status: "initial"
+  });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.classifiedError.category, "rate_limit");
+  assert.ok(failed.historyId, "failed deliveries must be auditable");
+  const failedEntries = await comm.history.query({ status: "failed", template: "welcome" });
+  assert.ok(failedEntries.some((entry) => entry.error));
   console.log("ok - delivery pipeline stages work correctly");
 }
 

@@ -3,11 +3,10 @@ import { router } from '@/src/navigation/router';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { GeoPoint, Vehicle } from '@/src/types/app';
 import { PortalSectionCard } from '../components/portal-cards';
@@ -39,8 +38,21 @@ function createBlankEditor(vehicleId = ''): RouteEditor {
 }
 
 function parseCoordinate(value: string, min: number, max: number) {
-  const coordinate = Number(value);
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return null;
+  const coordinate = Number(trimmed);
   return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max ? coordinate : null;
+}
+
+function getRouteGeometry(vehicle?: Vehicle | null): GeoPoint[] {
+  if (!vehicle?.assignedRoute) return [];
+  const polyline = vehicle.assignedRoute.route?.polyline || [];
+  if (polyline.length >= 2) return polyline;
+  return [vehicle.assignedRoute.origin, vehicle.assignedRoute.destination].filter(Boolean) as GeoPoint[];
+}
+
+function getDriverName(vehicle: Vehicle) {
+  return vehicle.driver?.name || vehicle.driverName || 'Sin conductor';
 }
 
 function getRouteLabel(vehicle: Vehicle) {
@@ -56,7 +68,6 @@ function getRouteLabel(vehicle: Vehicle) {
 }
 
 export function PortalRoutesScreen() {
-  const { theme } = useAppTheme();
   const {
     assignRoute,
     clearRouteAssignment,
@@ -88,6 +99,27 @@ export function PortalRoutesScreen() {
     [sortedVehicles]
   );
   const [editor, setEditor] = useState<RouteEditor>(() => createBlankEditor(routeVehicles[0]?.id));
+  const selectedVehicle = useMemo(
+    () => routeVehicles.find((vehicle) => vehicle.id === editor.vehicleId) || null,
+    [editor.vehicleId, routeVehicles]
+  );
+  const editorPoints = useMemo(() => {
+    const originLatitude = parseCoordinate(editor.originLatitude, -90, 90);
+    const originLongitude = parseCoordinate(editor.originLongitude, -180, 180);
+    const destinationLatitude = parseCoordinate(editor.destinationLatitude, -90, 90);
+    const destinationLongitude = parseCoordinate(editor.destinationLongitude, -180, 180);
+    const points: GeoPoint[] = [];
+    if (originLatitude !== null && originLongitude !== null) {
+      points.push({ latitude: originLatitude, longitude: originLongitude });
+    }
+    if (destinationLatitude !== null && destinationLongitude !== null) {
+      points.push({ latitude: destinationLatitude, longitude: destinationLongitude });
+    }
+    return points;
+  }, [editor.destinationLatitude, editor.destinationLongitude, editor.originLatitude, editor.originLongitude]);
+  // Mientras el editor tenga puntos se dibuja el borrador; si no, la ruta ya asignada de la unidad.
+  const mapRouteCoordinates = editorPoints.length ? editorPoints : getRouteGeometry(selectedVehicle);
+  const mapCheckpoints = editorPoints.length ? [] : selectedVehicle?.assignedRoute?.stops || [];
   const [message, setMessage] = useState<string | null>(null);
   const [routeToClear, setRouteToClear] = useState<Vehicle | null>(null);
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
@@ -243,16 +275,20 @@ export function PortalRoutesScreen() {
                   <Pressable
                     key={vehicle.id}
                     accessibilityRole="button"
+                    accessibilityLabel={`${vehicle.code} · ${getDriverName(vehicle)}`}
                     onPress={() => setField('vehicleId', vehicle.id)}
                     style={[
                       styles.segment,
                       {
-                        backgroundColor: editor.vehicleId === vehicle.id ? theme.colors.infoSoft : theme.colors.surfaceAlt,
-                        borderColor: editor.vehicleId === vehicle.id ? theme.colors.info : theme.colors.line,
+                        backgroundColor: editor.vehicleId === vehicle.id ? palette.infoSoft : palette.surfaceAlt,
+                        borderColor: editor.vehicleId === vehicle.id ? palette.info : palette.line,
                       },
                     ]}>
-                    <Text style={[styles.segmentText, { color: editor.vehicleId === vehicle.id ? theme.colors.info : theme.colors.text }]}>
+                    <Text style={[styles.segmentText, { color: editor.vehicleId === vehicle.id ? palette.info : palette.text }]}>
                       {vehicle.code}
+                    </Text>
+                    <Text style={[styles.segmentDriver, { color: palette.muted }]} numberOfLines={1}>
+                      {getDriverName(vehicle)}
                     </Text>
                   </Pressable>
                 ))}
@@ -263,16 +299,16 @@ export function PortalRoutesScreen() {
                   onChangeText={(value) => setField('originLabel', value)}
                    placeholder="Origen"
                    accessibilityLabel="Origen"
-                  placeholderTextColor={theme.colors.muted}
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+                  placeholderTextColor={palette.muted}
+                  style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
                 />
                 <TextInput
                   value={editor.destinationLabel}
                   onChangeText={(value) => setField('destinationLabel', value)}
                    placeholder="Destino"
                    accessibilityLabel="Destino"
-                  placeholderTextColor={theme.colors.muted}
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+                  placeholderTextColor={palette.muted}
+                  style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
                 />
               </View>
               <View style={styles.mapSelectToggle}>
@@ -293,42 +329,39 @@ export function PortalRoutesScreen() {
                   </Text>
                 </Pressable>
               </View>
-              {(mapSelectMode || (editor.originLatitude && editor.originLongitude && editor.destinationLatitude && editor.destinationLongitude)) ? (
-                <View style={styles.mapContainer}>
-                  <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
-                    <RouteMap
-                      height={220}
-                      onClickPoint={(point) => {
-                        if (mapSelectMode === 'origin') {
-                          setField('originLatitude', String(point.latitude));
-                          setField('originLongitude', String(point.longitude));
-                          setMapSelectMode('destination');
-                        } else if (mapSelectMode === 'destination') {
-                          setField('destinationLatitude', String(point.latitude));
-                          setField('destinationLongitude', String(point.longitude));
-                          setMapSelectMode(null);
-                        }
-                      }}
-                      routeCoordinates={
-                        editor.originLatitude && editor.originLongitude && editor.destinationLatitude && editor.destinationLongitude
-                          ? [
-                              { latitude: parseCoordinate(editor.originLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.originLongitude, -180, 180) || 0 },
-                              { latitude: parseCoordinate(editor.destinationLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.destinationLongitude, -180, 180) || 0 },
-                            ]
-                          : editor.originLatitude && editor.originLongitude
-                            ? [{ latitude: parseCoordinate(editor.originLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.originLongitude, -180, 180) || 0 }]
-                            : []
+              <View style={styles.mapContainer}>
+                <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
+                  <RouteMap
+                    autoFit={!mapSelectMode}
+                    checkpoints={mapCheckpoints}
+                    height={260}
+                    onClickPoint={(point) => {
+                      if (mapSelectMode === 'origin') {
+                        setField('originLatitude', String(point.latitude));
+                        setField('originLongitude', String(point.longitude));
+                        setMapSelectMode('destination');
+                      } else if (mapSelectMode === 'destination') {
+                        setField('destinationLatitude', String(point.latitude));
+                        setField('destinationLongitude', String(point.longitude));
+                        setMapSelectMode(null);
                       }
-                      vehicles={[]}
-                    />
-                  </Suspense>
-                  {mapSelectMode ? (
-                    <Text style={styles.mapHint}>
-                      {mapSelectMode === 'origin' ? 'Haz clic en el mapa para marcar el origen' : 'Haz clic en el mapa para marcar el destino'}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
+                    }}
+                    onVehiclePress={(vehicle) => setField('vehicleId', vehicle.id)}
+                    routeCoordinates={mapRouteCoordinates}
+                    selectedVehicleId={editor.vehicleId}
+                    vehicles={routeVehicles}
+                  />
+                </Suspense>
+                <Text style={styles.mapHint}>
+                  {mapSelectMode === 'origin'
+                    ? 'Haz clic en el mapa para marcar el origen'
+                    : mapSelectMode === 'destination'
+                      ? 'Haz clic en el mapa para marcar el destino'
+                      : selectedVehicle
+                        ? `Viendo ${selectedVehicle.code} · ${getDriverName(selectedVehicle)}. Toca otra unidad en el mapa para cambiar.`
+                        : 'Selecciona una unidad para ver su ruta.'}
+                </Text>
+              </View>
               <View style={styles.coordPreview}>
                 <Text style={styles.coordText}>
                   Origen: {editor.originLatitude ? `${editor.originLatitude}, ${editor.originLongitude}` : 'Sin definir'}
@@ -369,14 +402,14 @@ export function PortalRoutesScreen() {
         ) : undefined}>
           <View style={styles.list}>
             {sortedVehicles.map((vehicle) => (
-              <View key={vehicle.id} style={[styles.routeRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                <View style={[styles.routeIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-                  <MaterialCommunityIcons name="routes" size={21} color={theme.colors.accent} />
+              <View key={vehicle.id} style={[styles.routeRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+                <View style={[styles.routeIcon, { backgroundColor: palette.surfaceAlt }]}>
+                  <MaterialCommunityIcons name="routes" size={21} color={palette.accent} />
                 </View>
                 <View style={styles.routeBody}>
-                  <Text style={[styles.routeName, { color: theme.colors.text }]}>{vehicle.code}</Text>
-                  <Text style={[styles.routeMeta, { color: theme.colors.muted }]}>{getRouteLabel(vehicle)}</Text>
-                  <Text style={[styles.routeMeta, { color: theme.colors.muted }]}>
+                  <Text style={[styles.routeName, { color: palette.text }]}>{vehicle.code}</Text>
+                  <Text style={[styles.routeMeta, { color: palette.muted }]}>{getRouteLabel(vehicle)}</Text>
+                  <Text style={[styles.routeMeta, { color: palette.muted }]}>
                     Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor'}
                   </Text>
                 </View>
@@ -392,16 +425,16 @@ export function PortalRoutesScreen() {
                           accessibilityRole="button"
                           accessibilityLabel={`Editar ruta de ${vehicle.code}`}
                           onPress={() => loadRoute(vehicle)}
-                          style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
-                          <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
+                          style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
+                          <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
                         </Pressable>
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={`Liberar ruta de ${vehicle.code}`}
                           onPress={() => setRouteToClear(vehicle)}
                           disabled={isSubmitting}
-                          style={[styles.iconAction, { backgroundColor: theme.colors.warningSoft }]}>
-                          <MaterialCommunityIcons name="link-off" size={18} color={theme.colors.warning} />
+                          style={[styles.iconAction, { backgroundColor: palette.warningSoft }]}>
+                          <MaterialCommunityIcons name="link-off" size={18} color={palette.warning} />
                         </Pressable>
                         {routeVehicles.length > 1 ? (
                           <Pressable
@@ -409,8 +442,8 @@ export function PortalRoutesScreen() {
                             accessibilityLabel={`Duplicar ruta de ${vehicle.code}`}
                             onPress={() => setDuplicateSourceId(vehicle.id)}
                             disabled={isSubmitting}
-                            style={[styles.iconAction, { backgroundColor: theme.colors.surfaceAlt }]}>
-                            <MaterialCommunityIcons name="content-copy" size={18} color={theme.colors.text} />
+                            style={[styles.iconAction, { backgroundColor: palette.surfaceAlt }]}>
+                            <MaterialCommunityIcons name="content-copy" size={18} color={palette.text} />
                           </Pressable>
                         ) : null}
                       </>
@@ -581,6 +614,11 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '900',
+  },
+  segmentDriver: {
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '700',
   },
   actions: {
     flexDirection: 'row',

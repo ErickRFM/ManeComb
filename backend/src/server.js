@@ -21,10 +21,11 @@ async function startServer() {
     provider: "resend",
     providerConfig: {
       apiKey: process.env.RESEND_API_KEY || "",
-      fromEmail: process.env.RESEND_FROM_EMAIL || ""
+      fromEmail: process.env.RESEND_FROM_EMAIL || "",
+      replyTo: process.env.RESEND_REPLY_TO || ""
     },
     queue: {
-      enabled: Boolean(process.env.ENABLE_QUEUES) && Boolean(process.env.REDIS_URL),
+      enabled: /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_QUEUES || "")) && Boolean(process.env.REDIS_URL),
       redisUrl: process.env.REDIS_URL || ""
     },
     defaultFrom: process.env.RESEND_FROM_EMAIL || "",

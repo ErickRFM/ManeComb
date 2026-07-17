@@ -637,6 +637,10 @@ export type Vehicle = {
   updatedAt: string;
   location: GeoPoint;
   locationTimestamp?: string | null;
+  gpsFreshness?: {
+    state: 'fresh' | 'stale' | 'missing'; isFresh: boolean; thresholdMs: number;
+    evaluatedAt: string; freshUntil: string | null;
+  };
   activeRouteProgress?: ActiveRouteProgress | null;
   assignedRoute?: AssignedRoute | null;
   routeName?: string;

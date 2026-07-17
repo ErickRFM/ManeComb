@@ -138,6 +138,33 @@ router.post("/register", authLimiter, async (req, res) => {
       accountType
     });
 
+    if (communication.isConfigured()) {
+      const delivery = await communication.sendEmail({
+        to: user.email,
+        template: "welcome",
+        data: {
+          name: user.name,
+          dashboardUrl: APP_URL,
+          userId: user.id,
+          organizationId: user.organizationId
+        }
+      }).catch((error) => ({ success: false, error: error?.message || String(error), provider: "resend" }));
+
+      if (delivery?.success === false) {
+        logger.error({
+          action: "WelcomeEmail",
+          module: "Auth",
+          message: "No fue posible confirmar el correo de bienvenida",
+          metadata: {
+            email: user.email,
+            error: delivery.error,
+            provider: delivery.provider || "resend",
+            template: "welcome"
+          }
+        });
+      }
+    }
+
     return buildLoginResponse(req, res, user, 201, "auth.register");
   } catch (error) {
     return res.status(error.message === "El correo ya existe" ? 409 : 400).json({
@@ -229,7 +256,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
     if (communication.isConfigured()) {
       try {
-        await communication.sendEmail({
+        const delivery = await communication.sendEmail({
           to: result.email,
           template: "password-reset",
           data: {
@@ -239,6 +266,35 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
             organizationId: result.organizationId
           }
         });
+
+        if (delivery?.success !== true) {
+          logger.error({
+            action: "ForgotPasswordEmail",
+            module: "Auth",
+            message: "El proveedor no confirmó el correo de recuperación",
+            metadata: {
+              email: result.email,
+              error: delivery?.error || "Resultado sin confirmación",
+              provider: delivery?.provider || "resend",
+              status: delivery?.queued ? "pending" : "failed",
+              template: "password-reset"
+            }
+          });
+          await req.app.locals.store.recordAppEvent?.({
+            type: "email_delivery_failed",
+            scope: "communication",
+            level: "warning",
+            status: delivery?.queued ? "pending" : "failed",
+            userId: result.userId,
+            organizationId: result.organizationId,
+            message: "Correo de recuperación no confirmado por el proveedor",
+            metadata: {
+              error: delivery?.error || null,
+              provider: delivery?.provider || "resend",
+              template: "password-reset"
+            }
+          });
+        }
       } catch (error) {
         logger.error({
           action: "ForgotPasswordEmail",
@@ -246,6 +302,20 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
           message: "Error enviando correo de recuperación",
           error,
           metadata: { email: result.email }
+        });
+        await req.app.locals.store.recordAppEvent?.({
+          type: "email_delivery_failed",
+          scope: "communication",
+          level: "warning",
+          status: "failed",
+          userId: result.userId,
+          organizationId: result.organizationId,
+          message: "Falló el correo de recuperación",
+          metadata: {
+            error: error?.message || String(error),
+            provider: "resend",
+            template: "password-reset"
+          }
         });
       }
     } else if (RESEND_API_KEY && RESEND_FROM_EMAIL) {

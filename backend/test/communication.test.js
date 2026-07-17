@@ -10,12 +10,16 @@ const PRIORITY = comm.types.PRIORITY;
 const PROVIDER = comm.types.PROVIDER;
 const CHANNEL = comm.types.CHANNEL;
 const STATUS = comm.types.STATUS;
+const {
+  getEmailDeliveryState,
+  selectCommercialEmailTemplate
+} = require("../src/services/commercial-notifier");
 
 function testTypesConstants() {
   assert.equal(typeof TEMPLATE, "object");
   assert.equal(TEMPLATE.PASSWORD_RESET, "password-reset");
   assert.equal(TEMPLATE.WELCOME, "welcome");
-  assert.equal(Object.keys(TEMPLATE).length, 22, "Deben existir 22 plantillas");
+  assert.equal(Object.keys(TEMPLATE).length, 26, "Deben existir 26 plantillas");
 
   assert.equal(PRIORITY.CRITICAL, 10);
   assert.equal(PRIORITY.HIGH, 5);
@@ -40,9 +44,24 @@ function testTypesConstants() {
   console.log("ok - types/constantes definidas correctamente");
 }
 
+function testCommercialEmailRouting() {
+  assert.equal(selectCommercialEmailTemplate({ paymentStatus: "pending" }, "order_created"), "order-created");
+  assert.equal(selectCommercialEmailTemplate({ paymentStatus: "pending" }), "payment-pending");
+  assert.equal(selectCommercialEmailTemplate({ paymentStatus: "paid" }), "payment-approved");
+  assert.equal(selectCommercialEmailTemplate({ paymentStatus: "rejected" }), "payment-rejected");
+  assert.equal(selectCommercialEmailTemplate({}, "subscription_activated"), "subscription-activated");
+  assert.equal(selectCommercialEmailTemplate({}, "subscription_cancelled"), "subscription-cancelled");
+
+  assert.deepEqual(getEmailDeliveryState({ queued: true }), { error: null, status: "pending" });
+  assert.deepEqual(getEmailDeliveryState({ success: true }), { error: null, status: "sent" });
+  assert.equal(getEmailDeliveryState({ success: false, error: "timeout" }).status, "failed");
+  assert.equal(getEmailDeliveryState({ success: false, error: "429", errorCategory: "rate_limit" }).status, "retry");
+  console.log("ok - estados comerciales usan template y resultado reales");
+}
+
 function testTemplateRegistry() {
   const names = comm.getTemplateNames();
-  assert.equal(names.length, 22, "Deben registrarse 22 plantillas");
+  assert.equal(names.length, 26, "Deben registrarse 26 plantillas");
   assert.ok(names.includes("welcome"));
   assert.ok(names.includes("password-reset"));
   assert.ok(names.includes("payment-approved"));
@@ -448,6 +467,7 @@ async function testHistoryUpdateStatus() {
 
 (async function run() {
   testTypesConstants();
+  testCommercialEmailRouting();
   testTemplateRegistry();
   testTemplateBuilderOutput();
   testPasswordResetTemplate();

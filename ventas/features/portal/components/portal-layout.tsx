@@ -14,8 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
+import { transition, fadeInUp } from '@/src/native/motion';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { ToastProvider } from '@/src/components/ui/toast';
+import { Toast } from '@/src/components/ui/toast';
 import { portalGlass, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -101,9 +102,8 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const currentSection = getParam(params.section);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { setThemeMode, signOut, user } = useAppStore(
+  const { signOut, user } = useAppStore(
     useShallow((state) => ({
-      setThemeMode: state.setThemeMode,
       signOut: state.signOut,
       user: state.user,
     }))
@@ -116,12 +116,15 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
     }))
   );
 
+  // Depende del id y no del objeto: el usuario se reemplaza en cada refresh de
+  // sesion y volvia a disparar la carga completa del portal.
+  const userId = user?.id;
+
   useEffect(() => {
-    if (user) {
-      void setThemeMode('dark');
+    if (userId) {
       void loadAll();
     }
-  }, [loadAll, setThemeMode, user]);
+  }, [loadAll, userId]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -162,7 +165,13 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
         accessibilityRole="button"
         accessibilityLabel={`Abrir ${item.label}`}
         accessibilityState={{ selected: active }}
-        style={[itemStyle, active ? activeStyle : undefined]}>
+        style={({ hovered, pressed }: any) => [
+          itemStyle,
+          active ? activeStyle : undefined,
+          transition('background-color, border-color, transform', 160),
+          !active && hovered ? styles.navItemHover : undefined,
+          pressed ? styles.navItemPressed : undefined,
+        ]}>
         <MaterialCommunityIcons
           name={item.icon}
           size={variant === 'desktop' ? 19 : 18}
@@ -222,7 +231,7 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
         </View>
       ) : null}
 
-      <View style={styles.header}>
+      <View style={[styles.header, fadeInUp(0)]}>
         <View style={styles.headerText}>
           <View style={styles.breadcrumb}>
             <Pressable accessibilityRole="link" onPress={() => router.push('/portal' as never)}>
@@ -237,7 +246,7 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
         {actions ? <View style={styles.actions}>{actions}</View> : null}
       </View>
 
-      <ToastProvider message={error} tone="danger" onDismiss={clearError} />
+      <Toast message={error} tone="danger" onDismiss={clearError} />
       {children}
     </>
   );
@@ -384,33 +393,6 @@ const styles = StyleSheet.create({
   navList: {
     gap: 14,
   },
-  contextBlock: {
-    backgroundColor: 'rgba(255, 255, 255, 0.045)',
-    borderColor: portalPalette.line,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 4,
-    padding: 12,
-  },
-  contextKicker: {
-    color: portalPalette.accent,
-    fontFamily: Typography.body,
-    fontSize: 10,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  contextTitle: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  contextBody: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 17,
-  },
   navSection: {
     gap: 6,
   },
@@ -437,6 +419,14 @@ const styles = StyleSheet.create({
   navItemActive: {
     backgroundColor: portalPalette.accentSoft,
     borderColor: 'rgba(255, 77, 125, 0.32)',
+  },
+  navItemHover: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+  },
+  navItemPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.98 }],
   },
   navText: {
     flex: 1,

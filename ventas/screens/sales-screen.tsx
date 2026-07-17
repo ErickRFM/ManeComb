@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,
   Easing,
@@ -16,6 +16,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { Typography } from '@/constants/theme';
+import { pulse as pulseDot } from '@/src/native/motion';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
 import { usePublicCommercialFlow, type PaymentReturnConfirmation } from '@/features/commercial';
@@ -246,6 +247,78 @@ function buildPlanParams(plan: CommercialPlan, requestTrial = false) {
   return buildCheckoutParams(plan.id, requestTrial);
 }
 
+type PointerVector = { x: number; y: number };
+
+function prefersReducedMotion() {
+  return (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+// El parallax sigue al puntero escribiendo el transform directamente en el nodo:
+// mantenerlo en estado de React re-renderizaba toda la landing en cada
+// pointermove. Cada frame escribe como mucho una vez (rAF).
+function usePointerParallax(enabled: boolean, toTransform: (cursor: PointerVector) => string) {
+  const nodeRef = useRef<unknown>(null);
+  const toTransformRef = useRef(toTransform);
+
+  useEffect(() => {
+    toTransformRef.current = toTransform;
+  });
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return;
+    }
+
+    const node = nodeRef.current as HTMLElement | null;
+
+    if (!enabled) {
+      if (node) {
+        node.style.transform = '';
+      }
+      return;
+    }
+
+    let frame: number | null = null;
+    let cursor: PointerVector = { x: 0, y: 0 };
+
+    const apply = () => {
+      frame = null;
+      const target = nodeRef.current as HTMLElement | null;
+      if (target) {
+        target.style.transform = toTransformRef.current(cursor);
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      cursor = {
+        x: (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2,
+        y: (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2,
+      };
+
+      if (frame === null) {
+        frame = window.requestAnimationFrame(apply);
+      }
+    };
+
+    apply();
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [enabled]);
+
+  return nodeRef;
+}
+
 function webStyle(style: Record<string, unknown>) {
   return Platform.OS === 'web' ? (style as any) : undefined;
 }
@@ -368,8 +441,8 @@ export function SalesScreen() {
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
-  const [scrollY, setScrollY] = useState(0);
-  const [cursor, setCursor] = useState({ x: 0, y: 0 });
+  const [headerCompact, setHeaderCompact] = useState(false);
+  const [nativeScrollY, setNativeScrollY] = useState(0);
   useEffect(() => {
     const bestValueIndex = Math.max(
       plans.findIndex((plan) => plan.badge.toLowerCase().includes('vendido')),
@@ -378,35 +451,42 @@ export function SalesScreen() {
     setActivePlanIndex(bestValueIndex);
   }, [plans]);
 
+  // El scroll solo alimenta el estado compacto del header: guardar la posicion
+  // exacta re-renderizaba toda la landing en cada frame. Las secciones se
+  // revelan con IntersectionObserver dentro de RevealView.
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
       return;
     }
 
+    let frame: number | null = null;
+
+    const readScroll = () => {
+      frame = null;
+      const offset = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      setHeaderCompact(offset > 36);
+    };
+
     const handleWindowScroll = () => {
-      setScrollY(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
+      if (frame === null) {
+        frame = window.requestAnimationFrame(readScroll);
+      }
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
-      const nextX = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2;
-      const nextY = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2;
-      setCursor({ x: nextX, y: nextY });
-    };
-
-    handleWindowScroll();
+    readScroll();
     window.addEventListener('scroll', handleWindowScroll, { passive: true });
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
 
     return () => {
       window.removeEventListener('scroll', handleWindowScroll);
-      window.removeEventListener('pointermove', handlePointerMove);
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
     };
   }, []);
 
   const cardWidth = isPhone ? Math.max(268, width - 42) : isDesktop ? 336 : 306;
   const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0] || null;
-  const headerCompact = scrollY > 36;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
     normalizePaymentReturnStatus(checkoutConfirm.paymentStatus) ||
@@ -440,8 +520,11 @@ export function SalesScreen() {
           contentContainerStyle: styles.content,
           showsVerticalScrollIndicator: false,
           scrollEventThrottle: 16,
-          onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-            setScrollY(event.nativeEvent.contentOffset.y),
+          onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const offset = event.nativeEvent.contentOffset.y;
+            setNativeScrollY(offset);
+            setHeaderCompact(offset > 36);
+          },
         };
 
   const scrollToSection = (target: string) => {
@@ -490,7 +573,7 @@ export function SalesScreen() {
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <ImmersiveBackground cursor={cursor} isPhone={isPhone} />
+      <ImmersiveBackground isPhone={isPhone} />
 
       <SiteHeader
         compact={headerCompact}
@@ -516,7 +599,7 @@ export function SalesScreen() {
               router.push((status === 'pending' ? '/portal/pagos' : '/portal') as never);
             }}
           />
-          <RevealView index={0} scrollY={scrollY} viewportHeight={height} immediate>
+          <RevealView index={0} scrollY={nativeScrollY} viewportHeight={height} immediate>
             <View
               nativeID="inicio"
               style={[
@@ -557,13 +640,13 @@ export function SalesScreen() {
                 </View>
               </View>
 
-              <DashboardMockup cursor={cursor} isPhone={isPhone} />
+              <DashboardMockup isPhone={isPhone} />
             </View>
           </RevealView>
 
           <RevealView
             index={1}
-            scrollY={scrollY}
+            scrollY={nativeScrollY}
             viewportHeight={height}
             style={styles.section}
           >
@@ -581,7 +664,7 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={2} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <View nativeID="planes" style={styles.anchorOffset}>
               <View style={styles.plansHeader}>
                 <View style={styles.sectionCopy}>
@@ -676,7 +759,7 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={3} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <SectionHeading
               eyebrow="¿CÓMO FUNCIONA?"
               title="Activa tu plan en 4 pasos simples"
@@ -696,7 +779,7 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={4} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={4} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <View
               nativeID="confianza"
               style={[
@@ -729,7 +812,7 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={5} scrollY={scrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={5} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <View
               nativeID="faq"
               style={[
@@ -864,14 +947,12 @@ function SiteHeader({
   );
 }
 
-function ImmersiveBackground({
-  cursor,
-  isPhone,
-}: {
-  cursor: { x: number; y: number };
-  isPhone: boolean;
-}) {
+const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isPhone: boolean }) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const parallaxRef = usePointerParallax(
+    Platform.OS === 'web' && !isPhone,
+    (cursor) => `translateX(${cursor.x * 14}px) translateY(${cursor.y * 12}px)`
+  );
 
   useEffect(() => {
     Animated.loop(
@@ -897,10 +978,6 @@ function ImmersiveBackground({
     outputRange: [1, 1.07],
   });
 
-  const parallax = Platform.OS === 'web' && !isPhone
-    ? [{ translateX: cursor.x * 14 }, { translateY: cursor.y * 12 }]
-    : [];
-
   return (
     <View pointerEvents="none" style={styles.backgroundLayer}>
       <View
@@ -914,7 +991,7 @@ function ImmersiveBackground({
           }),
         ]}
       />
-      <Animated.View style={[styles.parallaxField, { transform: parallax }]}>
+      <Animated.View ref={parallaxRef as never} style={styles.parallaxField}>
         <Animated.View
           style={[
             styles.backgroundOrb,
@@ -985,24 +1062,21 @@ function ImmersiveBackground({
       </View>
     </View>
   );
-}
+});
 
-function DashboardMockup({ cursor, isPhone }: { cursor: { x: number; y: number }; isPhone: boolean }) {
-  const mockupTransform = Platform.OS === 'web' && !isPhone
-    ? [
-        { perspective: 950 },
-        { rotateY: `${-10 + cursor.x * 2.4}deg` },
-        { rotateX: `${7 - cursor.y * 2}deg` },
-      ]
-    : [];
+const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: boolean }) {
+  const frameRef = usePointerParallax(
+    Platform.OS === 'web' && !isPhone,
+    (cursor) => `perspective(950px) rotateY(${-10 + cursor.x * 2.4}deg) rotateX(${7 - cursor.y * 2}deg)`
+  );
 
   return (
     <View style={[styles.heroVisual, isPhone ? styles.heroVisualPhone : undefined]}>
       <View
+        ref={frameRef as never}
         style={[
           styles.dashboardFrame,
           isPhone ? styles.dashboardFramePhone : undefined,
-          { transform: mockupTransform as any },
           webStyle({
             boxShadow:
               '0 0 0 1px rgba(0, 194, 255, 0.34), 0 0 44px rgba(0, 194, 255, 0.2), 0 42px 90px rgba(0,0,0,0.44)',
@@ -1024,7 +1098,7 @@ function DashboardMockup({ cursor, isPhone }: { cursor: { x: number; y: number }
               {isPhone ? 'Mapa en vivo' : 'Mapa en tiempo real'}
             </Text>
             <View style={styles.dashboardStatus}>
-              <View style={styles.liveDot} />
+              <View style={[styles.liveDot, pulseDot()]} />
               <Text style={styles.dashboardStatusText}>En vivo</Text>
             </View>
           </View>
@@ -1081,7 +1155,7 @@ function DashboardMockup({ cursor, isPhone }: { cursor: { x: number; y: number }
       />
     </View>
   );
-}
+});
 
 function FloatingIndicator({
   color,
@@ -1262,19 +1336,57 @@ function RevealView({
 }) {
   const opacity = useRef(new Animated.Value(immediate ? 1 : 0)).current;
   const translateY = useRef(new Animated.Value(immediate ? 0 : 22)).current;
+  const nodeRef = useRef<unknown>(null);
   const [layoutY, setLayoutY] = useState(0);
   const [measured, setMeasured] = useState(immediate);
   const [revealed, setRevealed] = useState(immediate);
+  const isWeb = Platform.OS === 'web';
+
+  // Un observer por seccion: el equivalente por scroll obligaba al padre a
+  // guardar la posicion en estado y re-renderizar la landing entera por frame.
+  useEffect(() => {
+    if (!isWeb || revealed) {
+      return;
+    }
+
+    const node = nodeRef.current as HTMLElement | null;
+
+    if (!node || typeof IntersectionObserver === 'undefined' || prefersReducedMotion()) {
+      setRevealed(true);
+      return;
+    }
+
+    // Lo que ya esta en pantalla al montar se revela sin esperar al observer:
+    // el contenido nunca queda invisible si el navegador no entrega el callback.
+    if (node.getBoundingClientRect().top < window.innerHeight * 0.9) {
+      setRevealed(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setRevealed(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '0px 0px -10% 0px' }
+    );
+
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [isWeb, revealed]);
 
   useEffect(() => {
-    if (revealed || !measured) {
+    if (isWeb || revealed || !measured) {
       return;
     }
 
     if (scrollY + viewportHeight * 0.9 >= layoutY) {
       setRevealed(true);
     }
-  }, [layoutY, measured, revealed, scrollY, viewportHeight]);
+  }, [isWeb, layoutY, measured, revealed, scrollY, viewportHeight]);
 
   useEffect(() => {
     if (!revealed) {
@@ -1301,10 +1413,15 @@ function RevealView({
 
   return (
     <Animated.View
-      onLayout={(event) => {
-        setLayoutY(event.nativeEvent.layout.y);
-        setMeasured(true);
-      }}
+      ref={nodeRef as never}
+      onLayout={
+        isWeb
+          ? undefined
+          : (event) => {
+              setLayoutY(event.nativeEvent.layout.y);
+              setMeasured(true);
+            }
+      }
       style={[
         style,
         {

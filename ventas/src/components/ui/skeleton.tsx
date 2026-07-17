@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
-import { DesignSystem, getSkeletonColor } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { DesignSystem, palette } from '@/constants/theme';
+import { shimmer } from '@/src/native/motion';
 
 type SkeletonBlockProps = {
   height?: number;
@@ -9,21 +9,20 @@ type SkeletonBlockProps = {
 };
 
 export function SkeletonBlock({ height = 18, width = '100%', radius = DesignSystem.radius.icon }: SkeletonBlockProps) {
-  const { theme } = useAppTheme();
-
   return (
     <View
       style={[
         styles.block,
         {
-          backgroundColor: getSkeletonColor(theme),
-          borderColor: theme.colors.line,
+          backgroundColor: palette.skeleton,
+          borderColor: palette.line,
           borderRadius: radius,
           height,
           width,
         },
-      ]}
-    />
+      ]}>
+      <View pointerEvents="none" style={[styles.shine, shimmer()]} />
+    </View>
   );
 }
 
@@ -32,5 +31,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
     opacity: DesignSystem.opacity.skeleton,
+  },
+  shine: {
+    ...StyleSheet.absoluteFillObject,
+    ...(({
+      backgroundImage:
+        'linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.09) 50%, transparent 80%)',
+    } as any)),
   },
 });

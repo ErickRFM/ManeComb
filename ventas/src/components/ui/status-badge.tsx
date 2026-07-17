@@ -1,6 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { DesignSystem, getToneColors, Typography, type DesignTone } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 
 export type StatusBadgeTone = DesignTone;
 
@@ -10,8 +9,7 @@ type StatusBadgeProps = {
 };
 
 export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
-  const { theme } = useAppTheme();
-  const colors = getToneColors(theme, tone);
+  const colors = getToneColors(tone);
 
   return (
     <View style={[styles.badge, { backgroundColor: colors.background }]}>

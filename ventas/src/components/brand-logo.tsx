@@ -1,7 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { DesignSystem, Typography } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { DesignSystem, palette, Typography } from '@/constants/theme';
 
 type BrandLogoProps = {
   size?: 'sm' | 'md' | 'lg';
@@ -25,7 +24,6 @@ const sizeMap = {
 } as const;
 
 export function BrandLogo({ size = 'md', subtitle, align = 'left', tone = 'light', plain = false }: BrandLogoProps) {
-  const { theme } = useAppTheme();
   const width = sizeMap[size];
 
   return (
@@ -34,11 +32,7 @@ export function BrandLogo({ size = 'md', subtitle, align = 'left', tone = 'light
         style={[
           plain ? styles.plainMark : styles.markShell,
           {
-            backgroundColor: plain
-              ? 'transparent'
-              : theme.mode === 'light'
-                ? 'rgba(227, 30, 36, 0.06)'
-                : 'rgba(255, 255, 255, 0.03)',
+            backgroundColor: plain ? 'transparent' : 'rgba(255, 255, 255, 0.03)',
           },
         ]}>
         <SvgXml xml={tone === 'dark' ? darkLogoXml : lightLogoXml} width={width} height={(width * 90) / 796} />
@@ -47,7 +41,7 @@ export function BrandLogo({ size = 'md', subtitle, align = 'left', tone = 'light
         <Text
           style={[
             styles.subtitle,
-            { color: theme.colors.muted },
+            { color: palette.muted },
             align === 'center' ? styles.centeredText : undefined,
           ]}>
           {subtitle}

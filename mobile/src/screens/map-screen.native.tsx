@@ -259,6 +259,18 @@ export function MapScreen() {
     return () => subscription.remove();
   }, [refreshToken, syncBackgroundLocationCredentials, token]);
 
+  // Reconciliacion de datos operativos: al montar la pantalla y al volver a
+  // primer plano se re-sincroniza mapData (incluida la ruta asignada) por si el
+  // evento socket `location:updated` se perdio mientras el usuario estaba
+  // desconectado o en segundo plano. refreshAll es idempotente.
+  useEffect(() => {
+    refreshAll().catch(() => undefined);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshAll().catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [refreshAll]);
+
   const selectorMode = isSelectorMode(params.point);
   const { fitRoute, focusMap, focusPoint, mapPadding, mapRef, routeFitPadding } = useMapCamera(insets);
   const locationStatus = useMemo(

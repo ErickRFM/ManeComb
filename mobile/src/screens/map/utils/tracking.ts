@@ -10,6 +10,12 @@ export function hasVehicleLiveLocation(vehicle: Vehicle | null | undefined) {
   );
 }
 
+export function isVehicleGpsFresh(vehicle: Vehicle | null | undefined, now = Date.now()) {
+  if (!hasVehicleLiveLocation(vehicle) || !vehicle?.gpsFreshness?.freshUntil) return false;
+  const freshUntil = new Date(vehicle.gpsFreshness.freshUntil).getTime();
+  return Number.isFinite(freshUntil) && now <= freshUntil;
+}
+
 export function getPrioritizedVehicles(vehicles: Vehicle[] = []) {
   return [...vehicles].sort((left, right) => {
     return right.delayMinutes - left.delayMinutes || left.code.localeCompare(right.code);
@@ -31,7 +37,7 @@ export function getSelectedVehicle(
 }
 
 export function getTrackingVehicles(vehicles: Vehicle[]) {
-  return vehicles.filter((vehicle) => ACTIVE_TRACKING_STATUSES.has(vehicle.status) && hasVehicleLiveLocation(vehicle));
+  return vehicles.filter((vehicle) => ACTIVE_TRACKING_STATUSES.has(vehicle.status) && isVehicleGpsFresh(vehicle));
 }
 
 export function getActiveRouteCount(vehicles: Vehicle[]) {

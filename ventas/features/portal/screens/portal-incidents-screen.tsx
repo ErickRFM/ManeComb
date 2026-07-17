@@ -2,11 +2,10 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
@@ -37,7 +36,6 @@ function getTypeIcon(type: string) {
 }
 
 export function PortalIncidentsScreen() {
-  const { theme } = useAppTheme();
   const { user } = useAppStore(
     useShallow((state) => ({
       user: state.user,
@@ -79,13 +77,13 @@ export function PortalIncidentsScreen() {
   return (
     <PortalLayout title="Incidencias" subtitle="Reportes operativos, SOS y gestión de eventos.">
       {canManage ? (
-        <View style={[styles.contextNotice, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-          <View style={[styles.contextIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={20} color={theme.colors.info} />
+        <View style={[styles.contextNotice, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
+          <View style={[styles.contextIcon, { backgroundColor: palette.surfaceAlt }]}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={20} color={palette.info} />
           </View>
           <View style={styles.contextCopy}>
-            <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Gestión de incidencias</Text>
-            <Text style={[styles.contextText, { color: theme.colors.muted }]}>
+            <Text style={[styles.contextTitle, { color: palette.text }]}>Gestión de incidencias</Text>
+            <Text style={[styles.contextText, { color: palette.muted }]}>
               Revisa, da seguimiento y cierra las incidencias reportadas durante las operaciones.
             </Text>
           </View>
@@ -97,8 +95,8 @@ export function PortalIncidentsScreen() {
           title={detail.title}
           subtitle={message || `${detail.type} · ${formatDate(detail.createdAt, { fallback: '' })}`}
           right={
-            <Pressable accessibilityRole="button" onPress={() => setDetailTarget(null)} style={[styles.iconAction, { backgroundColor: theme.colors.surfaceAlt }]}>
-              <MaterialCommunityIcons name="close" size={18} color={theme.colors.text} />
+            <Pressable accessibilityRole="button" onPress={() => setDetailTarget(null)} style={[styles.iconAction, { backgroundColor: palette.surfaceAlt }]}>
+              <MaterialCommunityIcons name="close" size={18} color={palette.text} />
             </Pressable>
           }>
           <View style={styles.detailGrid}>
@@ -112,33 +110,33 @@ export function PortalIncidentsScreen() {
             </View>
             <View style={styles.detailField}>
               <Text style={styles.detailLabel}>Tipo</Text>
-              <Text style={[styles.detailValue, { color: theme.colors.text }]}>{detail.type}</Text>
+              <Text style={[styles.detailValue, { color: palette.text }]}>{detail.type}</Text>
             </View>
             <View style={styles.detailField}>
               <Text style={styles.detailLabel}>Reportado por</Text>
-              <Text style={[styles.detailValue, { color: theme.colors.text }]}>{detail.reporter?.name || detail.reporterId}</Text>
+              <Text style={[styles.detailValue, { color: palette.text }]}>{detail.reporter?.name || detail.reporterId}</Text>
             </View>
             {detail.vehicleId ? (
               <View style={styles.detailField}>
                 <Text style={styles.detailLabel}>Unidad</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]}>{detail.vehicle?.code || detail.vehicleId}</Text>
+                <Text style={[styles.detailValue, { color: palette.text }]}>{detail.vehicle?.code || detail.vehicleId}</Text>
               </View>
             ) : null}
             {detail.location ? (
               <View style={styles.detailField}>
                 <Text style={styles.detailLabel}>Ubicación</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]}>
+                <Text style={[styles.detailValue, { color: palette.text }]}>
                   {detail.location.latitude.toFixed(5)}, {detail.location.longitude.toFixed(5)}
                 </Text>
               </View>
             ) : null}
           </View>
-          <Text style={[styles.detailDescription, { color: theme.colors.text }]}>{detail.description}</Text>
+          <Text style={[styles.detailDescription, { color: palette.text }]}>{detail.description}</Text>
           {detail.media?.length ? (
             <View style={styles.mediaRow}>
               {detail.media.map((url, idx) => (
-                <Pressable key={idx} accessibilityRole="button" style={[styles.mediaThumb, { backgroundColor: theme.colors.surfaceAlt }]}>
-                  <MaterialCommunityIcons name="image" size={20} color={theme.colors.muted} />
+                <Pressable key={idx} accessibilityRole="button" style={[styles.mediaThumb, { backgroundColor: palette.surfaceAlt }]}>
+                  <MaterialCommunityIcons name="image" size={20} color={palette.muted} />
                 </Pressable>
               ))}
             </View>
@@ -179,13 +177,13 @@ export function PortalIncidentsScreen() {
                     key={inc.id}
                     accessibilityRole="button"
                     onPress={() => setDetailTarget(inc)}
-                    style={[styles.incRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                    <View style={[styles.incIcon, { backgroundColor: inc.severity === 'critical' ? theme.colors.dangerSoft : theme.colors.surfaceAlt }]}>
-                      <MaterialCommunityIcons name={getTypeIcon(inc.type)} size={20} color={inc.severity === 'critical' ? theme.colors.danger : theme.colors.accent} />
+                    style={[styles.incRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+                    <View style={[styles.incIcon, { backgroundColor: inc.severity === 'critical' ? palette.dangerSoft : palette.surfaceAlt }]}>
+                      <MaterialCommunityIcons name={getTypeIcon(inc.type)} size={20} color={inc.severity === 'critical' ? palette.danger : palette.accent} />
                     </View>
                     <View style={styles.incBody}>
-                      <Text style={[styles.incTitle, { color: theme.colors.text }]}>{inc.title}</Text>
-                      <Text style={[styles.incMeta, { color: theme.colors.muted }]} numberOfLines={1}>
+                      <Text style={[styles.incTitle, { color: palette.text }]}>{inc.title}</Text>
+                      <Text style={[styles.incMeta, { color: palette.muted }]} numberOfLines={1}>
                         {inc.type} · {inc.vehicle?.code || inc.vehicleId || 'Sin unidad'} · {formatDate(inc.createdAt, { fallback: '' })}
                       </Text>
                     </View>
@@ -219,10 +217,10 @@ export function PortalIncidentsScreen() {
               onPress={() => setSelectedStatus(status)}
               style={[
                 styles.statusOption,
-                { borderColor: selectedStatus === status ? theme.colors.info : theme.colors.line },
-                selectedStatus === status ? { backgroundColor: theme.colors.infoSoft } : { backgroundColor: theme.colors.surface },
+                { borderColor: selectedStatus === status ? palette.info : palette.line },
+                selectedStatus === status ? { backgroundColor: palette.infoSoft } : { backgroundColor: palette.surface },
               ]}>
-              <Text style={[styles.statusOptionText, { color: selectedStatus === status ? theme.colors.info : theme.colors.text }]}>
+              <Text style={[styles.statusOptionText, { color: selectedStatus === status ? palette.info : palette.text }]}>
                 {getStatusMeta(status).label}
               </Text>
             </Pressable>

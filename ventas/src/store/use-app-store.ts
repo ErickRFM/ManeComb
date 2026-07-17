@@ -3,7 +3,6 @@ import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { hasPortalPermission } from '@/features/portal/utils/access';
-import type { ThemeMode } from '@/constants/theme';
 import type {
   ProfileMutationPayload,
   RegisterPayload,
@@ -38,7 +37,6 @@ import {
 
 const TOKEN_KEY = 'manecomb-ventas-token';
 const REFRESH_TOKEN_KEY = 'manecomb-ventas-refresh-token';
-const THEME_KEY = 'manecomb-ventas-theme-mode';
 
 type ActionResult = {
   ok: boolean;
@@ -54,7 +52,6 @@ type AppState = {
   socketStatus: SocketStatus;
   routeSessionVersion: number;
   lastRouteSessionUpdateId: string | null;
-  themeMode: ThemeMode;
   isHydrated: boolean;
   isBootstrapping: boolean;
   isSubmitting: boolean;
@@ -78,7 +75,6 @@ type AppState = {
   assignRoute: (payload: RouteAssignmentPayload) => Promise<ActionResult>;
   clearRouteAssignment: (vehicleId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
-  setThemeMode: (mode: ThemeMode) => Promise<void>;
   clearError: () => void;
 };
 
@@ -312,7 +308,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   socketStatus: 'idle',
   lastRouteSessionUpdateId: null,
   routeSessionVersion: 0,
-  themeMode: 'dark',
   isHydrated: false,
   isBootstrapping: true,
   isSubmitting: false,
@@ -324,13 +319,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialize: async () => {
     set({ isBootstrapping: true });
 
-    const storedTheme = getStoredItem(THEME_KEY);
     const token = getStoredItem(TOKEN_KEY);
     const refreshToken = getStoredItem(REFRESH_TOKEN_KEY);
-
-    if (storedTheme === 'light' || storedTheme === 'dark') {
-      set({ themeMode: storedTheme });
-    }
 
     if (!token) {
       await clearSession(set);
@@ -679,10 +669,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     } finally {
       set({ isSubmitting: false });
     }
-  },
-  setThemeMode: async (mode) => {
-    setStoredItem(THEME_KEY, mode);
-    set({ themeMode: mode });
   },
 }));
 

@@ -3,14 +3,13 @@ import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient } from '../portal-theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
 import { formatDate, formatRole } from '@/src/utils/format';
@@ -22,7 +21,6 @@ const statusLabels: Record<string, string> = {
 };
 
 export function PortalUsersScreen() {
-  const { theme } = useAppTheme();
   const { deleteUser, isSubmitting, loadUsers, loadVehicles, updateUser, user, users, vehicles } = useAppStore(
     useShallow((state) => ({
       deleteUser: state.deleteUser,
@@ -86,13 +84,13 @@ export function PortalUsersScreen() {
   return (
     <PortalLayout title="Equipo" subtitle="Administradores, supervisores, responsables de facturación, soporte y conductores.">
       {canManageUsers ? (
-        <View style={[styles.contextNotice, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-          <View style={[styles.contextIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-            <MaterialCommunityIcons name="key-variant" size={20} color={theme.colors.info} />
+        <View style={[styles.contextNotice, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
+          <View style={[styles.contextIcon, { backgroundColor: palette.surfaceAlt }]}>
+            <MaterialCommunityIcons name="key-variant" size={20} color={palette.info} />
           </View>
           <View style={styles.contextCopy}>
-            <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Invitar usuarios mediante keys</Text>
-            <Text style={[styles.contextText, { color: theme.colors.muted }]}>
+            <Text style={[styles.contextTitle, { color: palette.text }]}>Invitar usuarios mediante keys</Text>
+            <Text style={[styles.contextText, { color: palette.muted }]}>
               Genera keys de activación para conductores y usuarios de gestión. Cada key define rol y permisos. El usuario completa su registro y aparece automáticamente en el equipo.
             </Text>
           </View>
@@ -107,8 +105,8 @@ export function PortalUsersScreen() {
       ) : null}
 
       {message ? (
-        <View style={[styles.messageBar, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-          <Text style={[styles.messageText, { color: theme.colors.text }]}>{message}</Text>
+        <View style={[styles.messageBar, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
+          <Text style={[styles.messageText, { color: palette.text }]}>{message}</Text>
         </View>
       ) : null}
 
@@ -123,10 +121,10 @@ export function PortalUsersScreen() {
                 const assignedVehicle = vehicles.find((vehicle) => vehicle.id === driver.vehicleId);
 
                 return (
-                  <View key={driver.id} style={[styles.assignmentRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
+                  <View key={driver.id} style={[styles.assignmentRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
                     <View style={styles.userBody}>
-                      <Text style={[styles.userName, { color: theme.colors.text }]}>{driver.name}</Text>
-                      <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
+                      <Text style={[styles.userName, { color: palette.text }]}>{driver.name}</Text>
+                      <Text style={[styles.userMeta, { color: palette.muted }]}>
                         {driver.email} / Unidad: {assignedVehicle?.code || 'Sin unidad'}
                       </Text>
                     </View>
@@ -138,11 +136,11 @@ export function PortalUsersScreen() {
                         style={[
                           styles.assignmentChip,
                           {
-                            backgroundColor: !driver.vehicleId ? theme.colors.infoSoft : theme.colors.surfaceAlt,
-                            borderColor: !driver.vehicleId ? theme.colors.info : theme.colors.line,
+                            backgroundColor: !driver.vehicleId ? palette.infoSoft : palette.surfaceAlt,
+                            borderColor: !driver.vehicleId ? palette.info : palette.line,
                           },
                         ]}>
-                        <Text style={[styles.assignmentText, { color: !driver.vehicleId ? theme.colors.info : theme.colors.text }]}>
+                        <Text style={[styles.assignmentText, { color: !driver.vehicleId ? palette.info : palette.text }]}>
                           Sin unidad
                         </Text>
                       </Pressable>
@@ -155,14 +153,14 @@ export function PortalUsersScreen() {
                           style={[
                             styles.assignmentChip,
                             {
-                              backgroundColor: driver.vehicleId === vehicle.id ? theme.colors.successSoft : theme.colors.surfaceAlt,
-                              borderColor: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.line,
+                              backgroundColor: driver.vehicleId === vehicle.id ? palette.successSoft : palette.surfaceAlt,
+                              borderColor: driver.vehicleId === vehicle.id ? palette.success : palette.line,
                             },
                           ]}>
                           <Text
                             style={[
                               styles.assignmentText,
-                              { color: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.text },
+                              { color: driver.vehicleId === vehicle.id ? palette.success : palette.text },
                             ]}>
                             {vehicle.code}
                           </Text>
@@ -189,13 +187,13 @@ export function PortalUsersScreen() {
         {administrativeUsers.length ? (
           <View style={styles.list}>
             {administrativeUsers.map((item) => (
-              <View key={item.id} style={[styles.userRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                <View style={[styles.avatar, { backgroundColor: theme.colors.accentSoft }]}>
-                  <Text style={[styles.avatarText, { color: theme.colors.accent }]}>{item.avatar && !item.avatar.startsWith('http') ? item.avatar : item.name.slice(0, 2)}</Text>
+              <View key={item.id} style={[styles.userRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+                <View style={[styles.avatar, { backgroundColor: palette.accentSoft }]}>
+                  <Text style={[styles.avatarText, { color: palette.accent }]}>{item.avatar && !item.avatar.startsWith('http') ? item.avatar : item.name.slice(0, 2)}</Text>
                 </View>
                 <View style={styles.userBody}>
-                  <Text style={[styles.userName, { color: theme.colors.text }]}>{item.name}</Text>
-                  <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
+                  <Text style={[styles.userName, { color: palette.text }]}>{item.name}</Text>
+                  <Text style={[styles.userMeta, { color: palette.muted }]}>
                     {item.email} / {item.accountType === 'company_owner' && item.role === 'owner' ? 'Owner' : formatRole(item.role)} / Ultimo acceso: {formatDate(item.lastAccessAt, { fallback: 'Sin acceso' })}
                   </Text>
                 </View>
@@ -203,11 +201,11 @@ export function PortalUsersScreen() {
                 <View style={styles.rowActions}>
                   {canManageUsers && item.role !== 'owner' ? (
                     <>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
+                        <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
                       </Pressable>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: theme.colors.dangerSoft }]}>
-                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: palette.dangerSoft }]}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.danger} />
                       </Pressable>
                     </>
                   ) : null}
@@ -251,12 +249,12 @@ export function PortalUsersScreen() {
               onPress={() => setEditStatus(status)}
               style={[
                 styles.statusOption,
-                { borderColor: editStatus === status ? theme.colors.info : theme.colors.line },
-                editStatus === status ? { backgroundColor: theme.colors.infoSoft } : { backgroundColor: theme.colors.surface },
+                { borderColor: editStatus === status ? palette.info : palette.line },
+                editStatus === status ? { backgroundColor: palette.infoSoft } : { backgroundColor: palette.surface },
               ]}>
               <Text style={[
                 styles.statusOptionText,
-                { color: editStatus === status ? theme.colors.info : theme.colors.text },
+                { color: editStatus === status ? palette.info : palette.text },
               ]}>
                 {status === 'active' ? 'Activo' : status === 'suspended' ? 'Suspendido' : 'Pendiente'}
               </Text>

@@ -725,26 +725,40 @@ export function RadioScreen() {
       return;
     }
 
-    if (radioChannels.length) {
-      const preferredChannelId =
-        params.channelId && radioChannels.some((conversation) => conversation.id === params.channelId)
-          ? params.channelId
-          : activeConversationId &&
-        radioChannels.some((conversation) => conversation.id === activeConversationId)
-          ? activeConversationId
-          : generalRadioChannel?.id || radioChannels[0].id;
+    bootstrappedRef.current = true;
 
-      bootstrappedRef.current = true;
+    // Canal preferido solo si ya lo tenemos localmente (deep-link o canal activo).
+    const preferredChannelId =
+      params.channelId && radioChannels.some((conversation) => conversation.id === params.channelId)
+        ? params.channelId
+        : activeConversationId &&
+      radioChannels.some((conversation) => conversation.id === activeConversationId)
+        ? activeConversationId
+        : null;
+
+    if (preferredChannelId) {
       setActiveConversationId(preferredChannelId);
-      return;
     }
 
-    bootstrappedRef.current = true;
-    openGeneralConversation('radio').then((conversation) => {
-      if (conversation?.id) {
-        setActiveConversationId(conversation.id);
-      }
-    });
+    // Siempre aseguramos el canal general de radio (sin robar el canal activo): el
+    // backend resincroniza participantes, requisito para que `radio:join` autorice
+    // la sala del canal general. Sin esto, un usuario que ya tenia canales directos
+    // nunca se enrolaba y quedaba limitado a punto a punto.
+    openGeneralConversation('radio', { setActive: false })
+      .then((conversation) => {
+        if (preferredChannelId) return;
+        const nextChannelId = conversation?.id || generalRadioChannel?.id || radioChannels[0]?.id;
+        if (nextChannelId) {
+          setActiveConversationId(nextChannelId);
+        }
+      })
+      .catch(() => {
+        if (preferredChannelId) return;
+        const fallbackChannelId = generalRadioChannel?.id || radioChannels[0]?.id;
+        if (fallbackChannelId) {
+          setActiveConversationId(fallbackChannelId);
+        }
+      });
   }, [activeConversationId, generalRadioChannel?.id, openGeneralConversation, params.channelId, radioChannels, setActiveConversationId]);
 
   useEffect(() => {

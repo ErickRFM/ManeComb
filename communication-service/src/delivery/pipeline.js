@@ -99,9 +99,10 @@ class SendStage {
     ctx.durationMs = result.durationMs || 0;
 
     if (!result.success) {
-      throw new errors.ProviderError(result.error || "Send failed", {
+      ctx.error = new errors.ProviderError(result.error || "Send failed", {
         provider: ctx.provider
       });
+      ctx.classifiedError = errors.classifyError(ctx.error, ctx.provider);
     }
 
     return ctx;
@@ -151,7 +152,11 @@ class HistoryStage {
         attempts,
         maxAttempts: ctx.maxAttempts || 3,
         error: ctx.error ? ctx.error.message || String(ctx.error) : null,
-        metadata: ctx.data?.metadata || ctx.data?.userId ? { userId: ctx.data.userId, organizationId: ctx.data.organizationId } : null
+        metadata: {
+          deliveryId: ctx.deliveryId || null,
+          userId: ctx.data?.userId || null,
+          organizationId: ctx.data?.organizationId || null
+        }
       });
       ctx.historyId = doc._id;
     }

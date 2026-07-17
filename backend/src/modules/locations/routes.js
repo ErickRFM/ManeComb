@@ -13,6 +13,8 @@ const {
 const { classifyGpsQuality, processRoutePosition } = require("../../services/route-event-engine");
 const { calculateAndPersistRouteMetrics } = require("../../services/route-metrics-engine");
 const { getOperationalScheduleState } = require("../../utils/operational-schedule");
+const { buildGpsFreshness, normalizeTrackingTime } = require("../../services/tracking-time");
+const logger = require("../../services/logger");
 
 const router = Router();
 const gpsLimiter = enterpriseRateLimit({ scope: "gps", max: 120, windowMs: 60 * 1000 });
@@ -50,13 +52,14 @@ function filterLiveLocationsForTenant(user, live) {
   return {
     ...live,
     routes: (live.routes || []).filter((route) => {
-      if (!route.organizationId) {
-        return true;
-      }
-
-      return String(route.organizationId) === String(organizationId || "");
+      return canAccessAllTenants(user) || Boolean(
+        route.organizationId && String(route.organizationId) === String(organizationId || "")
+      );
     }),
-    vehicles,
+    vehicles: vehicles.map((vehicle) => ({
+      ...vehicle,
+      gpsFreshness: buildGpsFreshness(vehicle.locationTimestamp, live.updatedAt)
+    })),
     incidents: (live.incidents || []).filter((incident) => {
       if (user.role === "driver") {
         return incident.reporterId === user.id || incident.vehicleId === user.vehicleId;
@@ -124,11 +127,17 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
     });
   }
 
+  const temporal = normalizeTrackingTime(timestamp);
+  logger.info({ module: "Tracking", action: "location.temporal_decision", requestId: req.requestId,
+    userId: req.user.id, organizationId: getOrganizationId(req.user),
+    status: temporal.discardReason ? "normalized" : "accepted",
+    metadata: { vehicleId, packetId, origin: "http", ...temporal } });
   const update = await req.app.locals.store.updateVehicleLocation({
     vehicleId,
     coordinates,
     heading,
-    timestamp,
+    timestamp: temporal.processedTimestamp,
+    temporal,
     speed
   });
 
@@ -136,7 +145,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   const requestedSession = requestedSessionId
     ? await req.app.locals.store.getRouteSessionById(requestedSessionId)
     : null;
-  const positionTime = new Date(timestamp || Date.now());
+  const positionTime = new Date(temporal.processedTimestamp);
   const historicalSession = requestedSessionId && !requestedSession && !Number.isNaN(positionTime.getTime())
     ? (await req.app.locals.store.listRouteSessions({ vehicleId, limit: 50 })).find((session) =>
         positionTime.getTime() >= new Date(session.startedAt).getTime() &&
@@ -159,7 +168,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
       packetId,
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
-      timestamp: timestamp || new Date().toISOString(),
+      timestamp: temporal.processedTimestamp,
       heading: Number.isFinite(Number(heading)) ? Number(heading) : null,
       speed: Number.isFinite(Number(speed)) ? Number(speed) : null,
       accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
@@ -177,22 +186,24 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
     }
   }
 
+  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
   const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();
   if (organizationId) {
     getRolesWithPermission("canViewAnalytics").forEach((role) => {
-      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("location:updated", update);
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("location:updated", publicUpdate);
     });
     if (vehicle.driverId) {
-      req.app.locals.io?.to(`user:${vehicle.driverId}`).emit("location:updated", update);
+      req.app.locals.io?.to(`user:${vehicle.driverId}`).emit("location:updated", publicUpdate);
     }
-    req.app.locals.io?.to("platform:admin").emit("location:updated", update);
+    req.app.locals.io?.to("platform:admin").emit("location:updated", publicUpdate);
   } else {
-    req.app.locals.io?.to("platform:admin").emit("location:updated", update);
+    req.app.locals.io?.to("platform:admin").emit("location:updated", publicUpdate);
   }
 
   return res.json({
     ok: true,
-    data: update
+    data: publicUpdate,
+    trackingDecision: temporal
   });
 });
 

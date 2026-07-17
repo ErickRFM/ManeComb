@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { PropsWithChildren, ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
+import { transition } from '@/src/native/motion';
 import { AppCard } from '@/src/components/app-card';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { portalGlass, portalPalette } from '../portal-theme';
@@ -91,7 +92,7 @@ export function AccountSummaryCard({ icon, label, value, detail, tone = 'info' }
   const theme = { colors: portalColors };
 
   return (
-    <AppCard style={[styles.summaryCard, { backgroundColor: portalPalette.surfaceStrong, borderColor: portalPalette.line }]}>
+    <AppCard interactive style={[styles.summaryCard, { backgroundColor: portalPalette.surfaceStrong, borderColor: portalPalette.line }]}>
       <View style={styles.summaryTop}>
         <View style={[styles.summaryIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
           <MaterialCommunityIcons name={icon} size={20} color={theme.colors.accent} />
@@ -166,7 +167,13 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
               accessibilityRole="button"
               accessibilityLabel={`Descargar factura ${invoice.referenceCode || ''}`.trim()}
               onPress={() => onDownload?.(invoice)}
-              style={[styles.smallButton, { backgroundColor: theme.colors.surfaceAlt }]}>
+              style={({ hovered, pressed }: any) => [
+                styles.smallButton,
+                { backgroundColor: theme.colors.surfaceAlt },
+                transition('background-color, transform, opacity', 150),
+                hovered ? { backgroundColor: theme.colors.accentSoft } : undefined,
+                pressed ? { opacity: 0.7, transform: [{ scale: 0.92 }] } : undefined,
+              ]}>
               <MaterialCommunityIcons name="download-outline" size={18} color={theme.colors.text} />
             </Pressable>
           </View>

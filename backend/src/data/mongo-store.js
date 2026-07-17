@@ -1354,6 +1354,9 @@ async function createMongoStore() {
       starterFleet: [],
       launchSummary: "",
       lastEmailStatus: "pending",
+      lastEmailError: null,
+      lastEmailProvider: null,
+      lastEmailTemplate: null,
       lastWhatsappStatus: "pending",
       lastContactedAt: null,
       createdAt: new Date()
@@ -1742,7 +1745,13 @@ async function createMongoStore() {
       }
     );
 
-    return { token, email: user.email, name: user.name };
+    return {
+      token,
+      email: user.email,
+      name: user.name,
+      userId: String(user._id),
+      organizationId: user.organizationId ? String(user.organizationId) : null
+    };
   }
 
   async function resetPasswordWithToken(token, newPassword) {
@@ -3109,7 +3118,7 @@ async function createMongoStore() {
       : null;
   }
 
-  async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
+  async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null }) {
     const currentVehicle = await VehicleModel.findById(vehicleId).lean();
 
     if (!currentVehicle) {
@@ -3138,6 +3147,12 @@ async function createMongoStore() {
       if (!Number.isNaN(parsedTimestamp.getTime())) {
         update.locationTimestamp = parsedTimestamp;
       }
+    }
+    if (temporal) {
+      update.locationClientTimestamp = temporal.clientTimestamp;
+      update.locationReceivedAt = temporal.receivedAt;
+      update.locationTimestampSource = temporal.timestampSource;
+      update.locationClockSkewMs = temporal.clockSkewMs;
     }
 
     const routeProgress = calculateVehicleRouteProgress({

@@ -3,10 +3,9 @@ import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Vehicle, VehicleMutationPayload, VehicleStatus } from '@/src/types/app';
 import { formatDate } from '@/src/utils/format';
@@ -64,7 +63,6 @@ function getKilometersLabel(value: unknown) {
 }
 
 export function PortalUnitsScreen() {
-  const { theme } = useAppTheme();
   const {
     createVehicle,
     isSubmitting,
@@ -166,24 +164,24 @@ export function PortalUnitsScreen() {
               value={editor.code}
               onChangeText={(value) => setField('code', value)}
               placeholder="Nombre de unidad"
-              placeholderTextColor={theme.colors.muted}
-              style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
             />
             <TextInput
               value={editor.plate}
               onChangeText={(value) => setField('plate', value)}
               placeholder="Placas"
-              placeholderTextColor={theme.colors.muted}
+              placeholderTextColor={palette.muted}
               autoCapitalize="characters"
-              style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+              style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
             />
             <TextInput
               value={editor.currentKilometers}
               onChangeText={(value) => setField('currentKilometers', value.replace(/[^0-9.]/g, ''))}
               placeholder="Kilometros actuales"
-              placeholderTextColor={theme.colors.muted}
+              placeholderTextColor={palette.muted}
               keyboardType="numeric"
-              style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+              style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
             />
           </View>
           <View style={styles.segmentRow}>
@@ -198,11 +196,11 @@ export function PortalUnitsScreen() {
                 style={[
                   styles.segment,
                   {
-                    backgroundColor: editor.status === status ? theme.colors.infoSoft : theme.colors.surfaceAlt,
-                    borderColor: editor.status === status ? theme.colors.info : theme.colors.line,
+                    backgroundColor: editor.status === status ? palette.infoSoft : palette.surfaceAlt,
+                    borderColor: editor.status === status ? palette.info : palette.line,
                   },
                 ]}>
-                <Text style={[styles.segmentText, { color: editor.status === status ? theme.colors.info : theme.colors.text }]}>
+                <Text style={[styles.segmentText, { color: editor.status === status ? palette.info : palette.text }]}>
                   {status === 'maintenance' ? 'Mantenimiento' : 'Disponible'}
                 </Text>
               </Pressable>
@@ -210,8 +208,8 @@ export function PortalUnitsScreen() {
           </View>
           <View style={styles.actions}>
             {editingId ? (
-              <Pressable accessibilityRole="button" onPress={resetEditor} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
-                <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Cancelar</Text>
+              <Pressable accessibilityRole="button" onPress={resetEditor} style={[styles.secondaryButton, { borderColor: palette.line }]}>
+                <Text style={[styles.secondaryText, { color: palette.text }]}>Cancelar</Text>
               </Pressable>
             ) : null}
             <Pressable
@@ -227,9 +225,9 @@ export function PortalUnitsScreen() {
       ) : null}
 
         {showCreationBanner && canManageUnits ? (
-          <View style={[styles.continuityBanner, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-            <MaterialCommunityIcons name="check-circle" size={18} color={theme.colors.info} />
-            <Text style={[styles.continuityText, { color: theme.colors.text }]}>Unidad creada. El siguiente paso es asignar una ruta.</Text>
+          <View style={[styles.continuityBanner, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
+            <MaterialCommunityIcons name="check-circle" size={18} color={palette.info} />
+            <Text style={[styles.continuityText, { color: palette.text }]}>Unidad creada. El siguiente paso es asignar una ruta.</Text>
             <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.continuityButton, portalButtonGradient()]}>
               <Text style={styles.continuityButtonText}>Asignar ruta</Text>
               <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
@@ -241,8 +239,8 @@ export function PortalUnitsScreen() {
           title="Unidades registradas"
           subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad real' : 'unidades reales'}`}
           right={sortedVehicles.length && canManageUnits ? (
-            <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
-              <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Continuar a rutas</Text>
+            <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.secondaryButton, { borderColor: palette.line }]}>
+              <Text style={[styles.secondaryText, { color: palette.text }]}>Continuar a rutas</Text>
             </Pressable>
           ) : undefined}>
           {sortedVehicles.length ? (
@@ -253,25 +251,25 @@ export function PortalUnitsScreen() {
                 ? `${vehicle.assignedRoute.originLabel || 'Origen'} -> ${vehicle.assignedRoute.destinationLabel || 'Destino'}`
                 : null;
               return (
-                <View key={vehicle.id} style={[styles.unitRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                  <View style={[styles.unitIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-                    <MaterialCommunityIcons name="bus" size={21} color={theme.colors.accent} />
+                <View key={vehicle.id} style={[styles.unitRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+                  <View style={[styles.unitIcon, { backgroundColor: palette.surfaceAlt }]}>
+                    <MaterialCommunityIcons name="bus" size={21} color={palette.accent} />
                   </View>
                   <View style={styles.unitBody}>
-                    <Text style={[styles.unitName, { color: theme.colors.text }]}>{vehicle.code}</Text>
-                    <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
+                    <Text style={[styles.unitName, { color: palette.text }]}>{vehicle.code}</Text>
+                    <Text style={[styles.unitMeta, { color: palette.muted }]}>
                       {vehicle.plate} · {getKilometersLabel(vehicle.currentKilometers)}
                     </Text>
-                    <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
+                    <Text style={[styles.unitMeta, { color: palette.muted }]}>
                       Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor'}
                     </Text>
                     {routeLabel ? (
-                      <Text style={[styles.unitMeta, { color: theme.colors.muted }]} numberOfLines={1}>
+                      <Text style={[styles.unitMeta, { color: palette.muted }]} numberOfLines={1}>
                         Ruta: {routeLabel}
                       </Text>
                     ) : null}
                     {vehicle.locationTimestamp ? (
-                      <Text style={[styles.unitMeta, { color: theme.colors.muted }]}>
+                      <Text style={[styles.unitMeta, { color: palette.muted }]}>
                         Última actividad: {formatDate(vehicle.locationTimestamp, { fallback: 'Sin registro' })}
                       </Text>
                     ) : null}
@@ -279,13 +277,13 @@ export function PortalUnitsScreen() {
                       const maintenance = getMaintenanceInfo(vehicle);
                       if (!maintenance) return null;
                       return (
-                        <View style={[styles.maintenanceRow, { borderColor: maintenance.overdue ? theme.colors.dangerSoft : theme.colors.line }]}>
+                        <View style={[styles.maintenanceRow, { borderColor: maintenance.overdue ? palette.dangerSoft : palette.line }]}>
                           <MaterialCommunityIcons
                             name={maintenance.overdue ? 'alert-circle-outline' : 'wrench-outline'}
                             size={14}
-                            color={maintenance.overdue ? theme.colors.danger : theme.colors.muted}
+                            color={maintenance.overdue ? palette.danger : palette.muted}
                           />
-                          <Text style={[styles.unitMeta, { color: maintenance.overdue ? theme.colors.danger : theme.colors.muted }]}>
+                          <Text style={[styles.unitMeta, { color: maintenance.overdue ? palette.danger : palette.muted }]}>
                             {maintenance.overdue
                               ? `Mantenimiento vencido (${maintenance.kmRemaining.toLocaleString('es-MX')} km excedidos)`
                               : `Próximo mantenimiento: ${maintenance.kmRemaining.toLocaleString('es-MX')} km`}
@@ -301,8 +299,8 @@ export function PortalUnitsScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Editar unidad ${vehicle.code}`}
                         onPress={() => startEdit(vehicle)}
-                        style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
+                        style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
+                        <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
                       </Pressable>
                     </View>
                   ) : null}

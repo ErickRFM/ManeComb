@@ -1,7 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { DesignSystem, getAppPalette, Typography } from '@/constants/theme';
-
-const errorTheme = getAppPalette('dark');
+import { DesignSystem, palette as errorTheme, Typography } from '@/constants/theme';
 
 type ErrorBoundaryProps = {
   children: ReactNode;

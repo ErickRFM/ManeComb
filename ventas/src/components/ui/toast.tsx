@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { DesignSystem, getToneColors, Typography, type DesignTone } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { DesignSystem, getToneColors, palette, Typography, type DesignTone } from '@/constants/theme';
+import { slideInDown, transition } from '@/src/native/motion';
 
 type ToastProps = {
   message?: string | null;
@@ -9,29 +9,28 @@ type ToastProps = {
 };
 
 export function Toast({ message, tone = 'info', onDismiss }: ToastProps) {
-  const { theme } = useAppTheme();
-
   if (!message) {
     return null;
   }
 
   const normalizedTone = tone === 'success' ? 'positive' : tone;
-  const colors = getToneColors(theme, normalizedTone);
+  const colors = getToneColors(normalizedTone);
 
   return (
-    <View style={[styles.toast, { backgroundColor: colors.background, borderColor: colors.border }]}>
-      <Text style={[styles.message, { color: theme.colors.text }]}>{message}</Text>
+    <View
+      style={[
+        styles.toast,
+        { backgroundColor: colors.background, borderColor: colors.border },
+        slideInDown(),
+      ]}>
+      <Text style={[styles.message, { color: palette.text }]}>{message}</Text>
       {onDismiss ? (
-        <Pressable onPress={onDismiss} style={styles.closeButton}>
+        <Pressable onPress={onDismiss} style={[styles.closeButton, transition('opacity', 140)]}>
           <Text style={[styles.closeText, { color: colors.foreground }]}>Cerrar</Text>
         </Pressable>
       ) : null}
     </View>
   );
-}
-
-export function ToastProvider(props: ToastProps) {
-  return <Toast {...props} />;
 }
 
 const styles = StyleSheet.create({

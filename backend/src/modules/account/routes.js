@@ -7,6 +7,7 @@ const { authenticate } = require("../../middlewares/authenticate");
 const { getRolesWithPermission, requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const { recordAuditLog } = require("../../services/audit");
+const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { listSessionsForUser, revokeSession } = require("../../services/sessions");
 const {
   buildInvoices,
@@ -151,6 +152,12 @@ router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePe
     activationNotes: String(req.body?.reason || "").trim()
   });
   const subscription = buildSubscription(updatedOrder);
+  const deliveryStatus = await notifyCommercialOrder(
+    { ...activeOrder, ...updatedOrder },
+    "La cancelación de tu suscripción fue registrada.",
+    "subscription_cancelled"
+  );
+  await req.app.locals.store.updateCommercialOrder(activeOrder.id, deliveryStatus);
 
   await recordAudit(req, {
     type: "subscription_cancelled",

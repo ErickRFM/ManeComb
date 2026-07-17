@@ -1052,19 +1052,28 @@ function registerSocketServer(server, store) {
         return;
       }
 
+      const { buildGpsFreshness, normalizeTrackingTime } = require("../services/tracking-time");
+      const temporal = normalizeTrackingTime(timestamp);
+      logger.info({ module: "Tracking", action: "location.temporal_decision",
+        userId: authenticatedUser.id, organizationId: getOrganizationId(authenticatedUser),
+        status: temporal.discardReason ? "normalized" : "accepted",
+        metadata: { vehicleId, packetId: String(packetId || ""), origin: "socket", ...temporal } });
       const update = await store.updateVehicleLocation({
         vehicleId,
         coordinates: { latitude, longitude },
         heading: Number.isFinite(Number(heading)) ? Number(heading) : undefined,
-        timestamp,
+        timestamp: temporal.processedTimestamp,
+        temporal,
         speed: Number.isFinite(Number(speed)) ? Number(speed) : 0
       });
 
       if (update) {
+        const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
         acknowledge(ack, {
           ok: true,
           packetId: String(packetId || ""),
           serverTime: new Date().toISOString(),
+          trackingDecision: temporal,
           vehicleId
         });
         incrementMetric("gps_updates_total", 1, { transport: "socket" });
@@ -1073,14 +1082,14 @@ function registerSocketServer(server, store) {
 
         if (organizationId) {
           getRolesWithPermission("canViewAnalytics").forEach((role) => {
-            io.to(`org:${organizationId}:role:${role}`).emit("location:updated", update);
+            io.to(`org:${organizationId}:role:${role}`).emit("location:updated", publicUpdate);
           });
-          if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", update);
-          io.to("platform:admin").emit("location:updated", update);
+          if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", publicUpdate);
+          io.to("platform:admin").emit("location:updated", publicUpdate);
           return;
         }
 
-        io.to("platform:admin").emit("location:updated", update);
+        io.to("platform:admin").emit("location:updated", publicUpdate);
       }
     });
 

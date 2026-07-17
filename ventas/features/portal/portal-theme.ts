@@ -1,33 +1,30 @@
 import { Platform } from 'react-native';
-import { getAppPalette } from '@/constants/theme';
+import { palette } from '@/constants/theme';
 
-const darkPalette = getAppPalette('dark');
-
+/**
+ * Cromo del portal: los mismos colores de `palette` mas las superficies
+ * translucidas que solo usa el shell del portal.
+ */
 export const portalPalette = {
-  background: darkPalette.background,
-  backgroundAlt: darkPalette.surface,
+  background: palette.background,
   surface: 'rgba(18, 24, 33, 0.92)',
   surfaceStrong: 'rgba(20, 26, 34, 0.96)',
   surfaceSoft: 'rgba(255, 255, 255, 0.055)',
-  line: darkPalette.line,
-  lineStrong: darkPalette.lineStrong,
-  text: darkPalette.text,
-  muted: darkPalette.muted,
-  mutedSoft: darkPalette.mutedSoft,
-  accent: darkPalette.accent,
-  accentAlt: darkPalette.info,
-  accentSoft: darkPalette.accentSoft,
-  accentStrong: darkPalette.accentStrong,
-  success: darkPalette.success,
-  successSoft: darkPalette.successSoft,
-  warning: darkPalette.warning,
-  warningSoft: darkPalette.warningSoft,
-  danger: darkPalette.danger,
-  dangerSoft: darkPalette.dangerSoft,
-  info: darkPalette.info,
-  infoSoft: darkPalette.infoSoft,
-  violet: darkPalette.info,
-  violetSoft: 'rgba(139, 92, 246, 0.12)',
+  line: palette.line,
+  lineStrong: palette.lineStrong,
+  text: palette.text,
+  muted: palette.muted,
+  mutedSoft: palette.mutedSoft,
+  accent: palette.accent,
+  accentSoft: palette.accentSoft,
+  success: palette.success,
+  successSoft: palette.successSoft,
+  warning: palette.warning,
+  warningSoft: palette.warningSoft,
+  danger: palette.danger,
+  dangerSoft: palette.dangerSoft,
+  info: palette.info,
+  infoSoft: palette.infoSoft,
 };
 
 export function portalGlass(overrides?: Record<string, unknown>) {
@@ -44,7 +41,7 @@ export function portalGlass(overrides?: Record<string, unknown>) {
 
   return {
     backgroundColor: portalPalette.surface,
-    shadowColor: darkPalette.shadow,
+    shadowColor: palette.shadow,
     shadowOpacity: 0.22,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
@@ -62,7 +59,7 @@ export function portalButtonGradient() {
   }
 
   return {
-    backgroundColor: darkPalette.accent,
+    backgroundColor: palette.accent,
     shadowColor: portalPalette.accent,
     shadowOpacity: 0.24,
     shadowRadius: 14,

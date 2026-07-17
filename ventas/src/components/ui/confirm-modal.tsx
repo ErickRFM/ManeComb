@@ -1,6 +1,5 @@
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { DesignSystem, Typography } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { DesignSystem, palette, Typography } from '@/constants/theme';
 
 type ConfirmModalProps = {
   visible: boolean;
@@ -27,18 +26,17 @@ export function ConfirmModal({
   onCancel,
   children,
 }: ConfirmModalProps) {
-  const { theme } = useAppTheme();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={processing ? undefined : onCancel} accessibilityViewIsModal>
-      <View style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}>
-        <View style={[styles.panel, { backgroundColor: theme.colors.card, borderColor: theme.colors.line }]}>
-          <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-          {description ? <Text style={[styles.description, { color: theme.colors.muted }]}>{description}</Text> : null}
+      <View style={[styles.overlay, { backgroundColor: palette.overlay }]}>
+        <View style={[styles.panel, { backgroundColor: palette.card, borderColor: palette.line }]}>
+          <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
+          {description ? <Text style={[styles.description, { color: palette.muted }]}>{description}</Text> : null}
           {children}
           <View style={styles.actions}>
-            <Pressable accessibilityRole="button" disabled={processing} onPress={onCancel} style={[styles.button, processing ? styles.disabled : undefined, { borderColor: theme.colors.line }]}>
-              <Text style={[styles.cancelText, { color: theme.colors.text }]}>{cancelLabel}</Text>
+            <Pressable accessibilityRole="button" disabled={processing} onPress={onCancel} style={[styles.button, processing ? styles.disabled : undefined, { borderColor: palette.line }]}>
+              <Text style={[styles.cancelText, { color: palette.text }]}>{cancelLabel}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -48,7 +46,7 @@ export function ConfirmModal({
                 styles.button,
                 styles.confirmButton,
                 processing ? styles.disabled : undefined,
-                { backgroundColor: destructive ? theme.colors.danger : theme.colors.accent },
+                { backgroundColor: destructive ? palette.danger : palette.accent },
               ]}>
               <Text style={styles.confirmText}>{confirmLabel}</Text>
             </Pressable>

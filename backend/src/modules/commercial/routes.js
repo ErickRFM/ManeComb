@@ -286,8 +286,16 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
         totalPrice: presentedOrder.totalPrice
       }
     });
-    const notificationStatus = await notifyCommercialOrder(presentedOrder, checkout.nextStep);
+    const notificationStatus = await notifyCommercialOrder(presentedOrder, checkout.nextStep, "order_created");
     const hydratedOrder = await req.app.locals.store.updateCommercialOrder(order.id, notificationStatus);
+    if (["active", "trial"].includes(String(presentedOrder.activationStatus || "").toLowerCase())) {
+      const activationDelivery = await notifyCommercialOrder(
+        presentedOrder,
+        "Tu suscripción ya está activa.",
+        "subscription_activated"
+      );
+      await req.app.locals.store.updateCommercialOrder(order.id, activationDelivery);
+    }
     const responseOrder = enrichCommercialOrder(
       {
         ...hydratedOrder,
@@ -360,6 +368,14 @@ router.post("/confirm", async (req, res) => {
     });
     const notificationStatus = await notifyCommercialOrder(presentedOrder, confirmation.nextStep);
     const hydratedOrder = await req.app.locals.store.updateCommercialOrder(order.id, notificationStatus);
+    if (presentedOrder.activationStatus === "active" && order.activationStatus !== "active") {
+      const activationDelivery = await notifyCommercialOrder(
+        presentedOrder,
+        "Tu suscripción ya está activa.",
+        "subscription_activated"
+      );
+      await req.app.locals.store.updateCommercialOrder(order.id, activationDelivery);
+    }
     const responseOrder = enrichCommercialOrder(hydratedOrder);
     emitCommercialEvent(req, "payment:confirmed", responseOrder, {
       status: responseOrder.paymentStatus
@@ -457,6 +473,13 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       await notifyCommercialOrder(enrichCommercialOrder(activatedOrder), confirmation.nextStep).then((deliveryStatus) =>
         req.app.locals.store.updateCommercialOrder(activatedOrder.id, deliveryStatus)
       );
+      if (activatedOrder.activationStatus === "active" && order.activationStatus !== "active") {
+        await notifyCommercialOrder(
+          enrichCommercialOrder(activatedOrder),
+          "Tu suscripción ya está activa.",
+          "subscription_activated"
+        ).then((deliveryStatus) => req.app.locals.store.updateCommercialOrder(activatedOrder.id, deliveryStatus));
+      }
       emitCommercialEvent(req, "payment:confirmed", enrichCommercialOrder(activatedOrder), {
         status: activatedOrder.paymentStatus
       });

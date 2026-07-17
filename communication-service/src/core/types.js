@@ -61,6 +61,10 @@ const TEMPLATE = {
   DRIVER_INVITATION: "driver-invitation",
   PAYMENT_APPROVED: "payment-approved",
   PAYMENT_REJECTED: "payment-rejected",
+  ORDER_CREATED: "order-created",
+  PAYMENT_PENDING: "payment-pending",
+  SUBSCRIPTION_ACTIVATED: "subscription-activated",
+  SUBSCRIPTION_CANCELLED: "subscription-cancelled",
   INVOICE_AVAILABLE: "invoice-available",
   PLAN_RENEWAL: "plan-renewal",
   PLAN_EXPIRING: "plan-expiring",
@@ -82,6 +86,10 @@ TEMPLATE_PRIORITY[TEMPLATE.SUSPICIOUS_LOGIN] = PRIORITY.CRITICAL;
 TEMPLATE_PRIORITY[TEMPLATE.NEW_DEVICE_CONNECTED] = PRIORITY.CRITICAL;
 TEMPLATE_PRIORITY[TEMPLATE.PAYMENT_APPROVED] = PRIORITY.HIGH;
 TEMPLATE_PRIORITY[TEMPLATE.PAYMENT_REJECTED] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.ORDER_CREATED] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.PAYMENT_PENDING] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.SUBSCRIPTION_ACTIVATED] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.SUBSCRIPTION_CANCELLED] = PRIORITY.HIGH;
 TEMPLATE_PRIORITY[TEMPLATE.ACCOUNT_ACTIVATION] = PRIORITY.HIGH;
 TEMPLATE_PRIORITY[TEMPLATE.ADMIN_INVITATION] = PRIORITY.HIGH;
 TEMPLATE_PRIORITY[TEMPLATE.DRIVER_INVITATION] = PRIORITY.HIGH;
@@ -110,6 +118,10 @@ TEMPLATE_META[TEMPLATE.ADMIN_INVITATION] = { category: "invitation", subject: "I
 TEMPLATE_META[TEMPLATE.DRIVER_INVITATION] = { category: "invitation", subject: "Invitación de conductor - ManeComb" };
 TEMPLATE_META[TEMPLATE.PAYMENT_APPROVED] = { category: "billing", subject: "Pago aprobado - ManeComb" };
 TEMPLATE_META[TEMPLATE.PAYMENT_REJECTED] = { category: "billing", subject: "Pago rechazado - ManeComb" };
+TEMPLATE_META[TEMPLATE.ORDER_CREATED] = { category: "billing", subject: "Orden registrada - ManeComb" };
+TEMPLATE_META[TEMPLATE.PAYMENT_PENDING] = { category: "billing", subject: "Pago pendiente - ManeComb" };
+TEMPLATE_META[TEMPLATE.SUBSCRIPTION_ACTIVATED] = { category: "billing", subject: "Suscripción activada - ManeComb" };
+TEMPLATE_META[TEMPLATE.SUBSCRIPTION_CANCELLED] = { category: "billing", subject: "Suscripción cancelada - ManeComb" };
 TEMPLATE_META[TEMPLATE.INVOICE_AVAILABLE] = { category: "billing", subject: "Factura disponible - ManeComb" };
 TEMPLATE_META[TEMPLATE.PLAN_RENEWAL] = { category: "billing", subject: "Tu plan ha sido renovado - ManeComb" };
 TEMPLATE_META[TEMPLATE.PLAN_EXPIRING] = { category: "billing", subject: "Tu plan está por vencer - ManeComb" };

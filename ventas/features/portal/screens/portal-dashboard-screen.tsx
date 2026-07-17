@@ -29,6 +29,7 @@ import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from 
 import { AccountSummaryCard, formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
+import { isVehicleGpsFresh } from '../utils/tracking';
 
 type SessionDetail = {
   events: RouteEvent[];
@@ -163,15 +164,23 @@ function getActiveDriver(users: User[], vehicle: Vehicle, activeSession?: RouteS
   return users.find((user) => user.id === activeDriverId) || vehicle.driver || null;
 }
 
+// Los routeId son UUID opacos: nunca deben llegar a la interfaz como nombre de ruta.
+const opaqueIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isOpaqueId(value?: string | null) {
+  return opaqueIdPattern.test(String(value || '').trim());
+}
+
 function getRouteInfo(vehicle?: Vehicle | null, session?: RouteSession | null): RouteInfo {
   const assignedRoute = vehicle?.assignedRoute || null;
   const route = assignedRoute?.route || null;
-  const routeCode = vehicle?.routeCode || vehicle?.routeId || session?.routeId || '';
+  const rawCode = vehicle?.routeCode || vehicle?.routeId || session?.routeId || '';
+  const routeCode = isOpaqueId(rawCode) ? '' : rawCode;
   const rawLabel = route?.label || vehicle?.routeName || assignedRoute?.destinationLabel || routeCode || 'Sin ruta asignada';
   const label = /^sin ruta/i.test(String(rawLabel).trim()) ? 'Sin ruta asignada' : String(rawLabel);
   const origin = assignedRoute?.originLabel || '';
   const destination = assignedRoute?.destinationLabel || '';
-  const direction = origin && destination ? `${origin} -> ${destination}` : destination || origin || 'Sin sentido registrado';
+  const direction = origin && destination ? `${origin} → ${destination}` : destination || origin || '';
   const status =
     session?.status === 'RUNNING'
       ? 'En servicio'
@@ -183,7 +192,7 @@ function getRouteInfo(vehicle?: Vehicle | null, session?: RouteSession | null): 
             ? 'Asignada'
             : 'Sin ruta';
   return {
-    code: routeCode ? `Codigo ${routeCode}` : 'Sin codigo',
+    code: routeCode ? `Codigo ${routeCode}` : '',
     direction,
     label: label === 'Sin ruta asignada' || label.startsWith('Ruta') ? label : `Ruta ${label}`,
     status,
@@ -226,8 +235,7 @@ function getEtaLabel(vehicle: Vehicle) {
 
 function getGpsState(vehicle: Vehicle, session?: RouteSession | null): { label: string; stale: boolean; tone: StatusBadgeTone } {
   if (!vehicle.location || !vehicle.locationTimestamp) return { label: 'Sin GPS', stale: true, tone: 'warning' };
-  const ageMs = Date.now() - getTimestamp(vehicle.locationTimestamp);
-  if (Number.isFinite(ageMs) && ageMs > 120000 && session?.status !== 'FINISHED') {
+  if (!isVehicleGpsFresh(vehicle) && session?.status !== 'FINISHED') {
     return { label: 'GPS vencido', stale: true, tone: 'warning' };
   }
   if ((session?.gpsLostEvents || 0) > 0 && session?.status !== 'RUNNING') {
@@ -256,12 +264,13 @@ function downsamplePositions(positions: RouteSessionPosition[], maxPoints = maxR
   return positions.filter((_, index) => index % step === 0 || index === positions.length - 1);
 }
 
+// Solo alertas que no esten ya cubiertas por el badge de estado (getVehicleStatus /
+// getJourneyState): la pausa, por ejemplo, ya se muestra ahi.
 function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
   const alerts: { label: string; tone: StatusBadgeTone }[] = [];
   const gps = getGpsState(vehicle, session);
   if (vehicle.activeRouteProgress?.isOffRoute) alerts.push({ label: 'Fuera de ruta', tone: 'danger' });
   if (gps.stale) alerts.push({ label: gps.label, tone: 'warning' });
-  if (session?.status === 'PAUSED') alerts.push({ label: 'Pausado', tone: 'warning' });
   if (session && session.status !== 'FINISHED' && Number(vehicle.speed) <= 0.8 && Number(session.stoppedTime) > 300) {
     alerts.push({ label: 'Detenido demasiado tiempo', tone: 'warning' });
   }
@@ -644,16 +653,7 @@ export function PortalDashboardScreen() {
                     latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
                     users={users}
                     vehicle={vehicle}
-                    onCenter={() => openVehicle(vehicle)}
-                    onHistory={() => {
-                      setSelectedVehicleId(vehicle.id);
-                      setFilter('vehicleId', vehicle.id);
-                    }}
-                    onRoute={() => showRoute(vehicle)}
-                    onDriver={() => {
-                      setSelectedVehicleId(vehicle.id);
-                      setDriverSelectorVehicleId(vehicle.id);
-                    }}
+                    onOpen={() => showRoute(vehicle)}
                   />
                 ))}
               </View>
@@ -754,40 +754,39 @@ export function PortalDashboardScreen() {
   );
 }
 
+// Tarjeta de lista: solo lo que sirve para elegir una unidad de un vistazo.
+// El detalle completo y las acciones viven en VehicleSidePanel, que se abre al tocarla.
 function OperationalUnitCard({
   active,
   activeSession,
   latestSession,
-  onCenter,
-  onDriver,
-  onHistory,
-  onRoute,
+  onOpen,
   users,
   vehicle,
 }: {
   active: boolean;
   activeSession: RouteSession | null;
   latestSession: RouteSession | null;
-  onCenter: () => void;
-  onDriver: () => void;
-  onHistory: () => void;
-  onRoute: () => void;
+  onOpen: () => void;
   users: User[];
   vehicle: Vehicle;
 }) {
+  const session = activeSession || latestSession;
   const status = getVehicleStatus(vehicle, activeSession);
-  const routeInfo = getRouteInfo(vehicle, activeSession || latestSession);
-  const journeyState = getJourneyState(vehicle, activeSession || latestSession);
-  const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
+  const routeInfo = getRouteInfo(vehicle, session);
   const activeDriver = getActiveDriver(users, vehicle, activeSession);
-  const progress = getRouteProgressPercent(vehicle, activeSession || latestSession);
-  const alerts = getOperationalAlerts(vehicle, activeSession || latestSession);
+  const progress = getRouteProgressPercent(vehicle, session);
+  const alerts = getOperationalAlerts(vehicle, session);
   return (
-    <View style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Ver ${vehicle.code}`}
+      onPress={onOpen}
+      style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
       <View style={styles.unitHeader}>
-        <View>
+        <View style={styles.flex}>
           <Text style={styles.unitCode}>{vehicle.code}</Text>
-          <Text style={styles.unitMeta}>Placas {vehicle.plate}</Text>
+          <Text style={styles.unitMeta} numberOfLines={1}>{vehicle.plate} · {routeInfo.label}</Text>
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
       </View>
@@ -796,33 +795,13 @@ function OperationalUnitCard({
           {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
         </View>
       ) : null}
-      <View style={styles.routeSummary}>
-        <View style={styles.routeIcon}>
-          <MaterialCommunityIcons name="routes" size={18} color={portalPalette.text} />
-        </View>
-        <View style={styles.flex}>
-          <Text style={styles.routeTitle} numberOfLines={1}>{routeInfo.label}</Text>
-          <Text style={styles.unitMeta} numberOfLines={1}>{routeInfo.direction}</Text>
-          <Text style={styles.unitMeta}>{routeInfo.code} / {routeInfo.status}</Text>
-        </View>
-      </View>
-      <ProgressBar value={progress} />
+      {session ? <ProgressBar value={progress} /> : null}
       <View style={styles.unitFacts}>
-        <Fact label="Chofer activo" value={`${activeDriver?.name || vehicle.driverName || 'Sin chofer'}${activeDriver ? ` · ${activeDriver.status || activeDriver.userStatus || ''}` : ''}`} />
-        <Fact label="Choferes" value={assignedDrivers.length > 1 ? `${assignedDrivers.length} asignados` : assignedDrivers[0]?.name || 'Sin asignacion'} />
-        <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada'} />
+        <Fact label="Chofer" value={activeDriver?.name || vehicle.driverName || 'Sin chofer'} />
         <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
-        <Fact label="Avance" value={`${progress}%`} />
-        <Fact label="Jornada" value={journeyState.label} />
-        <Fact label="GPS" value={vehicle.location ? getLastGpsUpdate(vehicle) : 'Sin posicion'} />
+        <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada'} />
       </View>
-      <View style={styles.quickActions}>
-        <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
-        <QuickAction icon="history" label="Historial" onPress={onHistory} />
-        <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriver} />
-        <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
-      </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -863,14 +842,15 @@ function VehicleSidePanel({
   const routeInfo = getRouteInfo(vehicle, session);
   const journeyState = getJourneyState(vehicle, session);
   const progress = getRouteProgressPercent(vehicle, session);
-  const alerts = getOperationalAlerts(vehicle, session);
+  // El estado de jornada ya sale como badge en el encabezado; no repetirlo en las alertas.
+  const alerts = getOperationalAlerts(vehicle, session).filter((alert) => alert.label !== journeyState.label);
   return (
     <View style={styles.sidePanel}>
       <View style={styles.sideHeader}>
         <MaterialCommunityIcons name="bus" size={24} color={portalPalette.accent} />
         <View style={styles.flex}>
           <Text style={styles.sideTitle}>{vehicle.code}</Text>
-          <Text style={styles.sideMeta}>{routeInfo.label} / {vehicle.plate}</Text>
+          <Text style={styles.sideMeta}>Placas {vehicle.plate}</Text>
         </View>
         <StatusBadge label={journeyState.label} tone={journeyState.tone} />
       </View>
@@ -885,69 +865,69 @@ function VehicleSidePanel({
         </View>
         <View style={styles.flex}>
           <Text style={styles.routeTitle}>{routeInfo.label}</Text>
-          <Text style={styles.unitMeta}>{routeInfo.code}</Text>
-          <Text style={styles.unitMeta}>{routeInfo.direction}</Text>
-          <Text style={styles.unitMeta}>{routeInfo.status}</Text>
+          {routeInfo.direction ? <Text style={styles.unitMeta}>{routeInfo.direction}</Text> : null}
+          {routeInfo.code ? <Text style={styles.unitMeta}>{routeInfo.code}</Text> : null}
         </View>
       </View>
-      <ProgressBar value={progress} />
+      {session ? <ProgressBar value={progress} /> : null}
       <View style={styles.sideHighlightRow}>
         <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
-        <Fact label="Avance" value={`${progress}%`} />
         <Fact label="ETA" value={getEtaLabel(vehicle)} />
+        <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
       </View>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
-      <View style={styles.assignedDriversPanel}>
-        <View style={styles.inlineHeader}>
-          <Text style={styles.panelTitle}>Choferes asignados ({assignedDrivers.length})</Text>
+      {assignedDrivers.length > 1 || driverSelectorOpen ? (
+        <View style={styles.assignedDriversPanel}>
+          <View style={styles.inlineHeader}>
+            <Text style={styles.panelTitle}>Choferes asignados ({assignedDrivers.length})</Text>
+            {driverSelectorOpen ? (
+              <Pressable accessibilityRole="button" onPress={onCloseDriverSelector} style={styles.iconButton}>
+                <MaterialCommunityIcons name="close" size={16} color={portalPalette.text} />
+              </Pressable>
+            ) : null}
+          </View>
           {driverSelectorOpen ? (
-            <Pressable accessibilityRole="button" onPress={onCloseDriverSelector} style={styles.iconButton}>
-              <MaterialCommunityIcons name="close" size={16} color={portalPalette.text} />
-            </Pressable>
-          ) : null}
+            <View style={styles.driverSelector}>
+              {assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).length ? (
+                assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).map((driver) => (
+                  <Pressable
+                    key={driver.id}
+                    accessibilityRole="button"
+                    disabled={isChangingDriver}
+                    onPress={() => onChangeDriver(driver)}
+                    style={[styles.driverOption, isChangingDriver ? styles.disabledAction : undefined]}>
+                    <Text style={styles.driverRowText}>{driver.name}</Text>
+                    <MaterialCommunityIcons name="check-circle-outline" size={16} color={portalPalette.accent} />
+                  </Pressable>
+                ))
+              ) : (
+                <Text style={styles.unitMeta}>No hay otro chofer asignado disponible para esta unidad.</Text>
+              )}
+            </View>
+          ) : (
+            assignedDrivers.map((driver) => (
+              <View key={driver.id} style={styles.driverRow}>
+                <Text style={styles.driverRowText} numberOfLines={1}>{driver.name}</Text>
+                <StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />
+              </View>
+            ))
+          )}
+          {driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
         </View>
-        {assignedDrivers.length ? assignedDrivers.map((driver) => (
-          <View key={driver.id} style={styles.driverRow}>
-            <Text style={styles.driverRowText} numberOfLines={1}>
-              {driver.name}{driver.id === activeDriver?.id ? ' - Activo' : ''}
-            </Text>
-            <StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />
-          </View>
-        )) : (
-          <Text style={styles.unitMeta}>No hay choferes asignados a esta unidad.</Text>
-        )}
-        {driverSelectorOpen ? (
-          <View style={styles.driverSelector}>
-            {assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).length ? (
-              assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).map((driver) => (
-                <Pressable
-                  key={driver.id}
-                  accessibilityRole="button"
-                  disabled={isChangingDriver}
-                  onPress={() => onChangeDriver(driver)}
-                  style={[styles.driverOption, isChangingDriver ? styles.disabledAction : undefined]}>
-                  <Text style={styles.driverRowText}>{driver.name}</Text>
-                  <MaterialCommunityIcons name="check-circle-outline" size={16} color={portalPalette.accent} />
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.unitMeta}>No hay otro chofer asignado disponible para esta unidad.</Text>
-            )}
-          </View>
-        ) : null}
-        {driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
-      </View>
-      <View style={styles.metricGrid}>
-        <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
-        <Fact label="Distancia" value={formatDistance(session?.totalDistance)} />
-        <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
-        <Fact label="Checkpoints" value={String(session?.completedCheckpoints ?? 0)} />
-        <Fact label="Vueltas" value={String(session?.completedLaps ?? 0)} />
-        <Fact label="Detenido" value={formatDuration(session?.stoppedTime)} />
-        <Fact label="Fuera de ruta" value={formatDuration(session?.offRouteTime)} />
-        <Fact label="Cobertura GPS" value={formatPercent(session?.metrics?.gpsCoveragePercent)} />
-        <Fact label="Productividad" value={formatPercent(session?.metrics?.effectiveTimePercent)} />
-      </View>
+      ) : null}
+      {driverChangeMessage && assignedDrivers.length <= 1 && !driverSelectorOpen ? (
+        <Text style={styles.noticeInline}>{driverChangeMessage}</Text>
+      ) : null}
+      {session ? (
+        <View style={styles.metricGrid}>
+          <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
+          <Fact label="Distancia" value={formatDistance(session.totalDistance)} />
+          <Fact label="Vueltas" value={String(session.completedLaps ?? 0)} />
+          <Fact label="Checkpoints" value={String(session.completedCheckpoints ?? 0)} />
+          <Fact label="Detenido" value={formatDuration(session.stoppedTime)} />
+          <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
+        </View>
+      ) : null}
       {session ? (
         <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
           <Text style={styles.primaryText}>Ver jornada</Text>
@@ -1009,6 +989,14 @@ function MapFallback({ height = 410 }: { height?: number }) {
   );
 }
 
+function FilterChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={[styles.filterChip, active ? styles.filterChipActive : undefined]}>
+      <Text style={styles.filterChipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function HistoryFilters({
   filters,
   onChange,
@@ -1022,63 +1010,78 @@ function HistoryFilters({
   users: User[];
   vehicles: Vehicle[];
 }) {
-  const routes = Array.from(new Set(sessions.map((session) => session.routeId).filter(Boolean)));
-  const selectedVehicleLabel = vehicles.find((vehicle) => vehicle.id === filters.vehicleId)?.code || 'Todas';
-  const selectedDriverLabel = users.find((user) => user.id === filters.driverId)?.name || '';
-  const selectedRouteLabel = filters.routeId
-    ? getRouteLabel(vehicles.find((vehicle) => vehicle.routeId === filters.routeId), sessions.find((session) => session.routeId === filters.routeId))
-    : '';
+  const [expanded, setExpanded] = useState(false);
+  const drivers = users.filter((user) => user.role === 'driver');
+  // Solo rutas con nombre resoluble: las que no lo tienen quedan como "Sin ruta asignada"
+  // y como chip no filtran nada util.
+  const routes = Array.from(new Set(sessions.map((session) => session.routeId).filter(Boolean)))
+    .map((routeId) => ({
+      id: routeId,
+      label: getRouteLabel(vehicles.find((vehicle) => vehicle.routeId === routeId), sessions.find((session) => session.routeId === routeId)),
+    }))
+    .filter((route) => route.label !== 'Sin ruta asignada');
+  const advancedCount = [filters.driverId, filters.routeId, filters.productivity].filter(Boolean).length;
   return (
     <View style={styles.filters}>
       <View style={styles.optionRow}>
-        <SelectPill label="Unidad" value={selectedVehicleLabel} onClear={() => onChange('vehicleId', '')} />
-        {filters.driverId ? <SelectPill label="Chofer" value={selectedDriverLabel} onClear={() => onChange('driverId', '')} /> : null}
-        {filters.routeId ? <SelectPill label="Ruta" value={selectedRouteLabel} onClear={() => onChange('routeId', '')} /> : null}
-      </View>
-      <View style={styles.optionRow}>
+        <FilterChip label="Todas" active={!filters.vehicleId} onPress={() => onChange('vehicleId', '')} />
         {vehicles.map((vehicle) => (
-          <Pressable key={vehicle.id} onPress={() => onChange('vehicleId', vehicle.id)} style={[styles.filterChip, filters.vehicleId === vehicle.id ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{vehicle.code}</Text>
-          </Pressable>
+          <FilterChip key={vehicle.id} label={vehicle.code} active={filters.vehicleId === vehicle.id} onPress={() => onChange('vehicleId', vehicle.id)} />
         ))}
-      </View>
-      <View style={styles.optionRow}>
+        <View style={styles.filterSeparator} />
         {statusFilters.map((status) => (
-          <Pressable key={status} onPress={() => onChange('status', status)} style={[styles.filterChip, filters.status === status ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{status === 'ALL' ? 'Todos' : formatPortalStatus(status)}</Text>
-          </Pressable>
+          <FilterChip
+            key={status}
+            label={status === 'ALL' ? 'Todos' : formatPortalStatus(status)}
+            active={filters.status === status}
+            onPress={() => onChange('status', status)}
+          />
         ))}
       </View>
-      <View style={styles.optionRow}>
-        {users.filter((user) => user.role === 'driver').map((driver) => (
-          <Pressable key={driver.id} onPress={() => onChange('driverId', driver.id)} style={[styles.filterChip, filters.driverId === driver.id ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{driver.name}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.optionRow}>
-        {routes.map((routeId) => (
-          <Pressable key={routeId} onPress={() => onChange('routeId', routeId)} style={[styles.filterChip, filters.routeId === routeId ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>
-              {getRouteLabel(vehicles.find((vehicle) => vehicle.routeId === routeId), sessions.find((session) => session.routeId === routeId))}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.formRow}>
-        <TextInput
-          value={filters.productivity}
-          onChangeText={(value) => onChange('productivity', value.replace(/[^0-9.]/g, ''))}
-          placeholder="Productividad minima"
-          placeholderTextColor={portalPalette.muted}
-          style={styles.filterInput}
-        />
-        {(['time', 'distance', 'laps'] as const).map((sortBy) => (
-          <Pressable key={sortBy} onPress={() => onChange('sortBy', sortBy)} style={[styles.filterChip, filters.sortBy === sortBy ? styles.filterChipActive : undefined]}>
-            <Text style={styles.filterChipText}>{sortBy === 'time' ? 'Tiempo' : sortBy === 'distance' ? 'Distancia' : 'Vueltas'}</Text>
-          </Pressable>
-        ))}
-      </View>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.filterToggle}>
+        <MaterialCommunityIcons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={portalPalette.muted} />
+        <Text style={styles.filterToggleText}>
+          {expanded ? 'Menos filtros' : advancedCount ? `Más filtros (${advancedCount})` : 'Más filtros'}
+        </Text>
+      </Pressable>
+      {expanded ? (
+        <View style={styles.filters}>
+          {drivers.length ? (
+            <View style={styles.optionRow}>
+              <FilterChip label="Todos los choferes" active={!filters.driverId} onPress={() => onChange('driverId', '')} />
+              {drivers.map((driver) => (
+                <FilterChip key={driver.id} label={driver.name} active={filters.driverId === driver.id} onPress={() => onChange('driverId', driver.id)} />
+              ))}
+            </View>
+          ) : null}
+          {routes.length ? (
+            <View style={styles.optionRow}>
+              <FilterChip label="Todas las rutas" active={!filters.routeId} onPress={() => onChange('routeId', '')} />
+              {routes.map((route) => (
+                <FilterChip key={route.id} label={route.label} active={filters.routeId === route.id} onPress={() => onChange('routeId', route.id)} />
+              ))}
+            </View>
+          ) : null}
+          <View style={styles.formRow}>
+            <TextInput
+              value={filters.productivity}
+              onChangeText={(value) => onChange('productivity', value.replace(/[^0-9.]/g, ''))}
+              placeholder="Productividad minima"
+              placeholderTextColor={portalPalette.muted}
+              style={styles.filterInput}
+            />
+            <Text style={styles.factLabel}>Ordenar por</Text>
+            {(['time', 'distance', 'laps'] as const).map((sortBy) => (
+              <FilterChip
+                key={sortBy}
+                label={sortBy === 'time' ? 'Tiempo' : sortBy === 'distance' ? 'Distancia' : 'Vueltas'}
+                active={filters.sortBy === sortBy}
+                onPress={() => onChange('sortBy', sortBy)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1098,25 +1101,29 @@ function SessionHistoryCard({
   session: RouteSession;
   vehicleCode: string;
 }) {
+  const distance = formatDistance(session.totalDistance);
+  const productivity = formatPercent(session.metrics?.effectiveTimePercent);
+  const meta = [
+    formatDuration(session.totalDuration),
+    distance !== '--' ? distance : null,
+    `${session.completedLaps ?? 0} vueltas`,
+    productivity !== 'Sin dato' ? `${productivity} productividad` : null,
+  ].filter(Boolean).join(' · ');
   return (
-    <View style={[styles.historyCard, active ? styles.historyCardActive : undefined]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Abrir jornada de ${vehicleCode}`}
+      onPress={onOpen}
+      style={[styles.historyCard, active ? styles.historyCardActive : undefined]}>
       <View style={styles.unitHeader}>
         <View style={styles.flex}>
-          <Text style={styles.historyTitle}>{vehicleCode} / {formatDate(session.startedAt)}</Text>
-          <Text style={styles.unitMeta}>{driverName} / {routeLabel}</Text>
+          <Text style={styles.historyTitle}>{vehicleCode} · {formatDate(session.startedAt)}</Text>
+          <Text style={styles.unitMeta} numberOfLines={1}>{driverName} · {routeLabel}</Text>
         </View>
         <StatusBadge label={formatPortalStatus(session.status)} tone={getPortalStatusTone(session.status)} />
       </View>
-      <View style={styles.unitFacts}>
-        <Fact label="Duracion" value={formatDuration(session.totalDuration)} />
-        <Fact label="Distancia" value={formatDistance(session.totalDistance)} />
-        <Fact label="Vueltas" value={String(session.completedLaps ?? 0)} />
-        <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
-      </View>
-      <Pressable accessibilityRole="button" onPress={onOpen} style={styles.secondaryButton}>
-        <Text style={styles.secondaryText}>Abrir detalle</Text>
-      </Pressable>
-    </View>
+      <Text style={styles.historyMeta}>{meta}</Text>
+    </Pressable>
   );
 }
 
@@ -1272,19 +1279,6 @@ function QuickAction({ icon, label, onPress }: { icon: keyof typeof MaterialComm
       <MaterialCommunityIcons name={icon} size={16} color={portalPalette.text} />
       <Text style={styles.quickActionText}>{label}</Text>
     </Pressable>
-  );
-}
-
-function SelectPill({ label, onClear, value }: { label: string; onClear: () => void; value: string }) {
-  return (
-    <View style={styles.selectPill}>
-      <Text style={styles.selectPillText}>{label}: {value}</Text>
-      {value !== 'Todas' ? (
-        <Pressable accessibilityRole="button" onPress={onClear}>
-          <MaterialCommunityIcons name="close" size={14} color={portalPalette.muted} />
-        </Pressable>
-      ) : null}
-    </View>
   );
 }
 
@@ -1474,6 +1468,25 @@ const styles = StyleSheet.create({
   filters: {
     gap: 6,
   },
+  filterSeparator: {
+    alignSelf: 'center',
+    backgroundColor: portalPalette.line,
+    height: 20,
+    width: 1,
+  },
+  filterToggle: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 4,
+    minHeight: 30,
+  },
+  filterToggleText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   flex: {
     flex: 1,
     minWidth: 0,
@@ -1521,6 +1534,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     minWidth: 0,
+  },
+  historyMeta: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
   },
   historyTitle: {
     color: portalPalette.text,
@@ -1697,17 +1717,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  routeSummary: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
-  },
   routeSummaryLarge: {
     alignItems: 'flex-start',
     backgroundColor: portalPalette.surfaceSoft,
@@ -1736,24 +1745,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryText: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  selectPill: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.xs,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    minHeight: 34,
-    paddingHorizontal: 10,
-  },
-  selectPillText: {
     color: portalPalette.text,
     fontFamily: Typography.body,
     fontSize: 12,

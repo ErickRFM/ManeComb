@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   LayoutAnimation,
   PanResponder,
   Platform,
@@ -16,6 +17,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, RouteSession, User, Vehicle } from '@/src/types/app';
 import { getAssignedRouteLabel } from '@/src/utils/active-route';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
+import { isVehicleGpsFresh } from '../utils/tracking';
 import type { LocationStatusSnapshot } from '../types';
 import { mapStyles as styles } from '../map-styles';
 import {
@@ -105,9 +107,7 @@ function formatDateTime(value?: string | null) {
 
 function getGpsLabel(vehicle: Vehicle | null) {
   if (!vehicle?.locationTimestamp) return 'Sin GPS';
-  const time = new Date(vehicle.locationTimestamp).getTime();
-  if (!Number.isFinite(time)) return 'Sin GPS';
-  return Date.now() - time > 2 * 60 * 1000 ? 'GPS vencido' : 'GPS actualizado';
+  return isVehicleGpsFresh(vehicle) ? 'GPS actualizado' : 'GPS vencido';
 }
 
 type BottomTrackingPanelProps = {
@@ -151,21 +151,30 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<RouteSession | null>(null);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotionEnabled);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotionEnabled);
+    return () => subscription.remove();
+  }, []);
 
   const setPanelExpanded = useCallback((nextExpanded: boolean) => {
-    LayoutAnimation.configureNext({
-      duration: PANEL_ANIMATION_MS,
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-    });
+    if (!reduceMotionEnabled) {
+      LayoutAnimation.configureNext({
+        duration: PANEL_ANIMATION_MS,
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      });
+    }
     setIsExpanded(nextExpanded);
     if (!nextExpanded) {
       setDetailsOpen(false);
       setHistoryOpen(false);
       setSelectedSession(null);
     }
-  }, []);
+  }, [reduceMotionEnabled]);
 
   const panResponder = useMemo(
     () =>

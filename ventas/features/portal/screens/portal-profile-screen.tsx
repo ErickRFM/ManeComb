@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
@@ -11,7 +11,6 @@ import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 
 type ProfileSection = 'resumen' | 'empresa' | 'seguridad' | 'soporte';
@@ -27,7 +26,6 @@ function getParam(value: string | string[] | undefined): ProfileSection {
 }
 
 export function PortalProfileScreen() {
-  const { theme } = useAppTheme();
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const activeSection = getParam(params.section);
   const { isSubmitting: isProfileSubmitting, updateProfile, user } = useAppStore(
@@ -115,9 +113,9 @@ export function PortalProfileScreen() {
                 onChangeText={(value) => setField(field, value)}
                  placeholder={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Telefono'}
                  accessibilityLabel={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Teléfono'}
-                placeholderTextColor={theme.colors.muted}
+                placeholderTextColor={palette.muted}
                 autoCapitalize={field === 'email' ? 'none' : 'sentences'}
-                style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+                style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
               />
             ))}
           </View>
@@ -146,9 +144,9 @@ export function PortalProfileScreen() {
                 accessibilityLabel={
                   field === 'companyName' ? 'Empresa' : field === 'legalName' ? 'Razón social' : field === 'taxId' ? 'RFC' : field === 'billingEmail' ? 'Correo fiscal' : 'Dirección fiscal'
                 }
-                placeholderTextColor={theme.colors.muted}
+                placeholderTextColor={palette.muted}
                 autoCapitalize={field === 'billingEmail' ? 'none' : 'sentences'}
-                style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
+                style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
               />
             ))}
           </View>
@@ -174,11 +172,11 @@ export function PortalProfileScreen() {
           {sessions.length ? (
             <View style={styles.sessionList}>
               {sessions.map((session) => (
-                <View key={session.id} style={[styles.sessionRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                  <MaterialCommunityIcons name="monitor-cellphone" size={22} color={theme.colors.accent} />
+                <View key={session.id} style={[styles.sessionRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+                  <MaterialCommunityIcons name="monitor-cellphone" size={22} color={palette.accent} />
                   <View style={styles.sessionBody}>
-                    <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>{session.deviceName}</Text>
-                    <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>
+                    <Text style={[styles.sessionTitle, { color: palette.text }]}>{session.deviceName}</Text>
+                    <Text style={[styles.sessionMeta, { color: palette.muted }]}>
                       Vence: {session.expiresAt ? new Date(session.expiresAt).toLocaleDateString('es-MX') : 'Sin fecha disponible'}
                     </Text>
                   </View>
@@ -188,8 +186,8 @@ export function PortalProfileScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
                        onPress={() => setSessionToRevoke({ id: session.id, deviceName: session.deviceName })}
-                      style={[styles.iconButton, { backgroundColor: theme.colors.dangerSoft }]}>
-                      <MaterialCommunityIcons name="close" size={18} color={theme.colors.danger} />
+                      style={[styles.iconButton, { backgroundColor: palette.dangerSoft }]}>
+                      <MaterialCommunityIcons name="close" size={18} color={palette.danger} />
                     </Pressable>
                   ) : null}
                 </View>
@@ -211,21 +209,21 @@ export function PortalProfileScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => void Linking.openURL('mailto:soporte@manecomb.com')}
-              style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
-              <MaterialCommunityIcons name="email-outline" size={22} color={theme.colors.info} />
+              style={[styles.supportItem, { backgroundColor: palette.surface, borderColor: palette.line }]}>
+              <MaterialCommunityIcons name="email-outline" size={22} color={palette.info} />
               <View style={styles.supportCopy}>
-                <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>Soporte comercial</Text>
-                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Pagos, facturación, contrato y activación. Envía un correo a soporte@manecomb.com</Text>
+                <Text style={[styles.sessionTitle, { color: palette.text }]}>Soporte comercial</Text>
+                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Pagos, facturación, contrato y activación. Envía un correo a soporte@manecomb.com</Text>
               </View>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push('/portal' as never)}
-              style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
-              <MaterialCommunityIcons name="bus-alert" size={22} color={theme.colors.warning} />
+              style={[styles.supportItem, { backgroundColor: palette.surface, borderColor: palette.line }]}>
+              <MaterialCommunityIcons name="bus-alert" size={22} color={palette.warning} />
               <View style={styles.supportCopy}>
-                <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>Soporte operativo</Text>
-                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Incidencias de rutas, radio y monitoreo se atienden desde el panel operativo.</Text>
+                <Text style={[styles.sessionTitle, { color: palette.text }]}>Soporte operativo</Text>
+                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Incidencias de rutas, radio y monitoreo se atienden desde el panel operativo.</Text>
               </View>
             </Pressable>
           </View>

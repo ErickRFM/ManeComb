@@ -62,7 +62,13 @@ function createEmbeddedStore() {
     const token = randomBytes(32).toString("hex");
     user.resetTokenHash = createHash("sha256").update(token).digest("hex");
     user.resetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    return { token, email: user.email, name: user.name };
+    return {
+      token,
+      email: user.email,
+      name: user.name,
+      userId: user.id,
+      organizationId: user.organizationId || null
+    };
   }
 
   function resetPasswordWithToken(token, newPassword) {
@@ -1816,6 +1822,9 @@ function createEmbeddedStore() {
       starterFleet: [],
       launchSummary: "",
       lastEmailStatus: "pending",
+      lastEmailError: null,
+      lastEmailProvider: null,
+      lastEmailTemplate: null,
       lastWhatsappStatus: "pending",
       lastContactedAt: null,
       createdAt: new Date().toISOString()
@@ -2481,13 +2490,18 @@ function createEmbeddedStore() {
     return clone(buildConversationSummary(conversation, userId));
   }
 
-  function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp }) {
+  function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null }) {
     const vehicle = getVehicleById(vehicleId);
 
     if (!vehicle) {
       return null;
     }
 
+    const incomingTime = new Date(timestamp || vehicle.updatedAt).getTime();
+    const currentTime = vehicle.locationTimestamp ? new Date(vehicle.locationTimestamp).getTime() : -Infinity;
+    if (Number.isFinite(currentTime) && Number.isFinite(incomingTime) && incomingTime < currentTime) {
+      return enrichVehicle(vehicle);
+    }
     vehicle.location = {
       latitude: Number(coordinates.latitude),
       longitude: Number(coordinates.longitude)
@@ -2508,6 +2522,12 @@ function createEmbeddedStore() {
       if (!Number.isNaN(parsedTimestamp.getTime())) {
         vehicle.locationTimestamp = parsedTimestamp.toISOString();
       }
+    }
+    if (temporal) {
+      vehicle.locationClientTimestamp = temporal.clientTimestamp;
+      vehicle.locationReceivedAt = temporal.receivedAt;
+      vehicle.locationTimestampSource = temporal.timestampSource;
+      vehicle.locationClockSkewMs = temporal.clockSkewMs;
     }
 
     const routeProgress = calculateVehicleRouteProgress({

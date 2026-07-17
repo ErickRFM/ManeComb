@@ -42,7 +42,8 @@ function configure(cfg) {
     accessKeyId: conf.providerConfig.accessKeyId,
     secretAccessKey: conf.providerConfig.secretAccessKey,
     domain: conf.providerConfig.domain,
-    serverToken: conf.providerConfig.serverToken
+    serverToken: conf.providerConfig.serverToken,
+    replyTo: conf.providerConfig.replyTo
   };
 
   const providerValidation = validators.validateProviderConfig(conf.provider, providerCfg);

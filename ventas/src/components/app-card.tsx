@@ -1,32 +1,46 @@
-import type { PropsWithChildren } from 'react';
+import { useState, type PropsWithChildren } from 'react';
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { DesignSystem } from '@/constants/theme';
-import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { DesignSystem, elevation, palette } from '@/constants/theme';
+import { transition } from '@/src/native/motion';
 
 type AppCardProps = PropsWithChildren<{
   style?: StyleProp<ViewStyle>;
+  /** Activa el realce al pasar el cursor (solo web). */
+  interactive?: boolean;
 }>;
 
-export function AppCard({ children, style }: AppCardProps) {
-  const { theme } = useAppTheme();
+const isWeb = Platform.OS === 'web';
+
+export function AppCard({ children, style, interactive = false }: AppCardProps) {
+  const [hovered, setHovered] = useState(false);
+  const lifted = isWeb && interactive && hovered;
+  const hoverProps =
+    isWeb && interactive
+      ? { onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false) }
+      : {};
 
   return (
     <View
+      {...(hoverProps as object)}
       style={[
         styles.card,
         {
-          backgroundColor: theme.colors.card,
-          borderColor: theme.mode === 'light' ? theme.colors.lineStrong : theme.colors.line,
-          ...(Platform.OS === 'web'
+          backgroundColor: palette.card,
+          borderColor: lifted ? palette.lineStrong : palette.line,
+          ...(isWeb
             ? {
-                boxShadow: `0px ${theme.shadow.card.shadowOffset.height}px ${theme.shadow.card.shadowRadius}px ${theme.shadow.card.shadowColor}`,
+                ...transition('transform, box-shadow, border-color', DesignSystem.motion.normal),
+                transform: [{ translateY: lifted ? -3 : 0 }],
+                boxShadow: lifted
+                  ? `0px 18px 40px ${elevation.card.shadowColor}`
+                  : `0px ${elevation.card.shadowOffset.height}px ${elevation.card.shadowRadius}px ${elevation.card.shadowColor}`,
               }
             : {
-                shadowColor: theme.shadow.card.shadowColor,
-                shadowOpacity: theme.shadow.card.shadowOpacity,
-                shadowRadius: theme.shadow.card.shadowRadius,
-                shadowOffset: theme.shadow.card.shadowOffset,
-                elevation: theme.shadow.card.elevation,
+                shadowColor: elevation.card.shadowColor,
+                shadowOpacity: elevation.card.shadowOpacity,
+                shadowRadius: elevation.card.shadowRadius,
+                shadowOffset: elevation.card.shadowOffset,
+                elevation: elevation.card.elevation,
               }),
         },
         style,

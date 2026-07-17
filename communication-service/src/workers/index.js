@@ -12,7 +12,7 @@ function setSendFunction(fn) {
 
 function createEmailWorker() {
   return createWorker("emails", async (job) => {
-    const { to, template, data, priority, provider, from } = job.data;
+    const { to, template, data, priority, provider, from, deliveryId } = job.data;
     const startTime = Date.now();
     const attempt = (job.attemptsMade || 0) + 1;
 
@@ -58,7 +58,7 @@ function createEmailWorker() {
         messageId,
         error: null,
         attempts: attempt,
-        metadata: { userId: data?.userId, organizationId: data?.organizationId },
+        metadata: { deliveryId, userId: data?.userId, organizationId: data?.organizationId },
         maxAttempts: attempt
       });
 
@@ -87,7 +87,7 @@ function createEmailWorker() {
           messageId: null,
           error: classified.message || error.message,
           attempts: maxAttempts + 1,
-          metadata: { userId: data?.userId, organizationId: data?.organizationId }
+          metadata: { deliveryId, userId: data?.userId, organizationId: data?.organizationId }
         });
 
         logger.logWarn("EmailNonRetryable", `${classified.category} for ${template}`, {
@@ -113,7 +113,7 @@ function createEmailWorker() {
         messageId: null,
         error: error.message || String(error),
         attempts: maxAttempts + 1,
-        metadata: { userId: data?.userId, organizationId: data?.organizationId }
+        metadata: { deliveryId, userId: data?.userId, organizationId: data?.organizationId }
       });
 
       logger.logError("EmailSendFailed", error, {

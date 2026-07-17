@@ -1,31 +1,3 @@
-export const COMMERCIAL_FEATURES = [
-  {
-    title: 'Mapa con seguimiento real',
-    body: 'Sigue cada combi, cambia de unidad activa y revisa rutas, GPS y estado en segundos.',
-    icon: 'map-marker-radius',
-  },
-  {
-    title: 'Control documental',
-    body: 'Licencias, seguros y verificaciones con alertas visibles antes de que caduquen.',
-    icon: 'file-document-outline',
-  },
-  {
-    title: 'Chat operativo',
-    body: 'Conductores, supervisores y centro de control coordinados desde la misma app.',
-    icon: 'message-text-outline',
-  },
-  {
-    title: 'Radio con voz',
-    body: 'Canal general y punto a punto con notas de voz para despachar mas rapido.',
-    icon: 'radio-handheld',
-  },
-  {
-    title: 'Bitacora y rendimiento',
-    body: 'Tiempo de recorrido, vueltas por fecha y evidencia para medir puntualidad.',
-    icon: 'chart-timeline-variant',
-  },
-];
-
 export const COMMERCIAL_FAQS = [
   {
     question: 'El precio es por mes?',

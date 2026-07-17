@@ -246,7 +246,8 @@ export type AppState = {
     channelMode?: ConversationChannelMode
   ) => Promise<ConversationSummary | null>;
   openGeneralConversation: (
-    channelMode?: ConversationChannelMode
+    channelMode?: ConversationChannelMode,
+    options?: { setActive?: boolean }
   ) => Promise<ConversationSummary | null>;
   sendMessage: (conversationId: string, text: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
@@ -1738,10 +1739,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
         user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
-        getRouteSessionHistoryRequest({ limit: 500 })
+        getRouteSessionHistoryRequest({ limit: 500 }),
+        getSessionRequest()
       ]);
       const data: any = {};
-      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
+      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory', 'session'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
@@ -1752,6 +1754,23 @@ export const useAppStore = create<AppState>((set, get) => ({
           fulfilledCount += 1;
         }
       });
+
+      // Reconciliacion del perfil: `user.vehicleId` solo se establecia al iniciar
+      // sesion y por el evento socket `user:updated`. Si al conductor se le asigna
+      // una unidad mientras esta desconectado, ese evento se pierde y la app queda
+      // en "No tienes una unidad asignada" hasta cerrar y reabrir sesion. Aqui
+      // reconciliamos el perfil contra el servidor en cada refresco.
+      const sessionResult = data.session as SessionResult | undefined;
+      delete data.session;
+      if (sessionResult?.profile?.user) {
+        data.user = sessionResult.profile.user;
+        // La jornada activa de arriba se pidio con el vehicleId previo. Si la unidad
+        // acaba de asignarse, la reconsultamos con el vehicleId correcto.
+        const nextVehicleId = data.user.vehicleId || null;
+        if (nextVehicleId && nextVehicleId !== (user.vehicleId || null)) {
+          data.activeRouteSession = await getActiveRouteSessionRequest(nextVehicleId).catch(() => null);
+        }
+      }
 
       if (res.some((result) => result.status === 'rejected' && isPlanRequiredError(result.reason))) {
         await clearOfflineCache().catch(() => undefined);
@@ -2117,7 +2136,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openDirectConversation', error); return null; }
   },
-  openGeneralConversation: async (m = 'chat') => {
+  openGeneralConversation: async (m = 'chat', options) => {
+    // setActive=false permite asegurar/enrolarse en el canal general (el backend
+    // resincroniza participantes) sin arrastrar el canal activo del usuario.
+    const setActive = options?.setActive !== false;
     try {
       const responseConversation = await openGeneralConversationRequest(m);
       const c = {
@@ -2130,7 +2152,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ms = await getMessagesRequest(c.id);
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
+      set(s => ({ conversations: ncs, ...(setActive ? { activeConversationId: c.id } : {}), messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openGeneralConversation', error); return null; }
   },
