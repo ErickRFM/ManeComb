@@ -47,11 +47,7 @@ jobs:
             backend/package-lock.json
             communication-service/package-lock.json
 
-      - name: Install communication service dependencies
-        working-directory: communication-service
-        run: npm ci
-
-      - name: Install backend dependencies
+      - name: Install backend and communication dependencies
         run: npm ci
 
       - name: Run tests

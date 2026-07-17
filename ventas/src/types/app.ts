@@ -515,3 +515,52 @@ export type PortalSession = {
   isActive?: boolean;
   current: boolean;
 };
+
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentStatus = 'open' | 'in_progress' | 'resolved';
+
+export type Incident = {
+  id: string;
+  title: string;
+  type: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  routeId: string | null;
+  vehicleId: string | null;
+  reporterId: string;
+  description: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number | null;
+    timestamp?: string | null;
+  } | null;
+  createdAt: string;
+  media: string[];
+  route?: unknown | null;
+  vehicle?: { id: string; code: string } | null;
+  reporter?: { id: string; name: string } | null;
+};
+
+export type DocumentItem = {
+  id: string;
+  ownerType: 'driver' | 'vehicle';
+  ownerId: string;
+  name: string;
+  category: string;
+  status: string;
+  expiresAt: string;
+  fileUrl?: string | null;
+  storageType?: string;
+  mimeType?: string;
+  fileSize?: number;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  originalFileName?: string;
+  storageKey?: string;
+  reviewStatus?: 'approved' | 'rejected' | 'pending_review' | string;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewNotes?: string;
+  owner?: { id: string; name?: string; code?: string } | null;
+};

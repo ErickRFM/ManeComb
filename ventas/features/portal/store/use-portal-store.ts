@@ -9,12 +9,18 @@ import {
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
+  getDocumentsRequest,
+  getIncidentsRequest,
   getPortalOnboardingRequest,
   getPortalOverviewRequest,
+  reviewDocumentRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
+  updateIncidentStatusRequest,
 } from '../api';
 import type {
+  DocumentItem,
+  Incident,
   PortalInvoice,
   PortalActivationKey,
   PortalActivationKeysSummary,
@@ -37,6 +43,8 @@ type PortalStore = {
   activationSummary: PortalActivationKeysSummary | null;
   invoices: PortalInvoice[];
   sessions: PortalSession[];
+  documents: DocumentItem[];
+  incidents: Incident[];
   isLoading: boolean;
   isSubmitting: boolean;
   error: string | null;
@@ -44,11 +52,15 @@ type PortalStore = {
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
   loadSessions: () => Promise<void>;
+  loadDocuments: () => Promise<void>;
+  loadIncidents: () => Promise<void>;
   loadAll: (options?: { force?: boolean }) => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
   cancelPlan: (reason?: string) => Promise<PortalActionResult>;
+  reviewDocument: (documentId: string, payload: { reviewStatus: string; reviewNotes?: string }) => Promise<PortalActionResult>;
+  updateIncidentStatus: (incidentId: string, status: 'open' | 'in_progress' | 'resolved') => Promise<PortalActionResult>;
   revokeSession: (sessionId: string) => Promise<PortalActionResult>;
   applyRealtimeEvent: (eventName: string, payload?: unknown) => void;
   reset: () => void;
@@ -63,6 +75,8 @@ const emptyPortalState = {
   activationSummary: null,
   invoices: [],
   sessions: [],
+  documents: [],
+  incidents: [],
   isLoading: false,
   isSubmitting: false,
   error: null,
@@ -99,6 +113,8 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
   activationSummary: null,
   invoices: [],
   sessions: [],
+  documents: [],
+  incidents: [],
   isLoading: false,
   isSubmitting: false,
   error: null,
@@ -159,6 +175,24 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       set({ sessions, isLoading: false });
     } catch (error) {
       set({ error: getMessage(error, 'No fue posible cargar sesiones.'), isLoading: false });
+    }
+  },
+  loadDocuments: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const documents = await getDocumentsRequest();
+      set({ documents, isLoading: false });
+    } catch (error) {
+      set({ error: getMessage(error, 'No fue posible cargar los documentos.'), isLoading: false });
+    }
+  },
+  loadIncidents: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const incidents = await getIncidentsRequest();
+      set({ incidents, isLoading: false });
+    } catch (error) {
+      set({ error: getMessage(error, 'No fue posible cargar las incidencias.'), isLoading: false });
     }
   },
   loadAll: async (options) => {
@@ -258,6 +292,38 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       return { ok: true };
     } catch (error) {
       const message = getMessage(error, 'No fue posible cancelar el plan.');
+      set({ error: message, isSubmitting: false });
+      return { ok: false, message };
+    }
+  },
+  reviewDocument: async (documentId, payload) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const updated = await reviewDocumentRequest(documentId, payload);
+      set((state) => ({
+        documents: state.documents.map((d) => (d.id === documentId ? updated : d)),
+        isSubmitting: false,
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getMessage(error, 'No fue posible revisar el documento.');
+      set({ error: message, isSubmitting: false });
+      return { ok: false, message };
+    }
+  },
+  updateIncidentStatus: async (incidentId, status) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const updated = await updateIncidentStatusRequest(incidentId, status);
+      set((state) => ({
+        incidents: state.incidents.map((i) => (i.id === incidentId ? updated : i)),
+        isSubmitting: false,
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getMessage(error, 'No fue posible actualizar la incidencia.');
       set({ error: message, isSubmitting: false });
       return { ok: false, message };
     }

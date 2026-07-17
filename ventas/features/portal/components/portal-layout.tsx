@@ -38,7 +38,9 @@ type PortalNavItem = {
     | '/portal/facturacion'
     | '/portal/pagos'
     | '/portal/perfil'
-    | '/portal/onboarding';
+    | '/portal/onboarding'
+    | '/portal/documentos'
+    | '/portal/incidencias';
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   section?: string;
   permission?: PortalPermission;
@@ -62,6 +64,8 @@ const navSections: { title: string; items: PortalNavItem[] }[] = [
       { label: 'Unidades', href: '/portal/unidades', icon: 'bus-multiple', permission: 'vehicles' },
       { label: 'Rutas', href: '/portal/rutas', icon: 'routes', permission: 'routes' },
       { label: 'Seguridad', href: '/portal/perfil', icon: 'shield-lock-outline', section: 'seguridad' },
+      { label: 'Documentos', href: '/portal/documentos', icon: 'file-document-multiple-outline', permission: 'billing' },
+      { label: 'Incidencias', href: '/portal/incidencias', icon: 'alert-circle-outline', permission: 'billing' },
     ],
   },
   {

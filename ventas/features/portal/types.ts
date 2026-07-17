@@ -1,4 +1,8 @@
 export type {
+  DocumentItem,
+  Incident,
+  IncidentSeverity,
+  IncidentStatus,
   PortalActivationKey,
   PortalActivationKeyDriver,
   PortalActivationKeysResponse,

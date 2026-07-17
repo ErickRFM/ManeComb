@@ -7,6 +7,8 @@ export {
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
+  getDocumentsRequest,
+  getIncidentsRequest,
   getPortalOnboardingRequest,
   getPortalOverviewRequest,
   getRouteSessionCheckpointVisitsRequest,
@@ -14,6 +16,9 @@ export {
   getRouteSessionHistoryRequest,
   getRouteSessionMetricsRequest,
   getRouteSessionPositionsRequest,
+  resolveDocumentUrl,
+  reviewDocumentRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
+  updateIncidentStatusRequest,
 } from '@/src/api/client';

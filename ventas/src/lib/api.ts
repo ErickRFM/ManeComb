@@ -1,6 +1,8 @@
 import axios, { AxiosHeaders, isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type {
   CheckpointVisit,
+  DocumentItem,
+  Incident,
   PaginatedResult,
   PortalActivationKeysResponse,
   PortalInvoice,
@@ -392,4 +394,28 @@ export async function getAccountSessionsRequest() {
 
 export async function revokeAccountSessionRequest(sessionId: string) {
   await apiClient.delete(`/account/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function getDocumentsRequest() {
+  return await unwrapData<DocumentItem[]>(apiClient.get('/documents/admin'));
+}
+
+export async function reviewDocumentRequest(documentId: string, payload: { reviewStatus: string; reviewNotes?: string }) {
+  return await unwrapData<DocumentItem>(
+    apiClient.patch(`/documents/${encodeURIComponent(documentId)}/review`, payload)
+  );
+}
+
+export function resolveDocumentUrl(storageKey: string) {
+  return `${API_URL.replace(/\/api$/i, '')}/api/documents/files/${encodeURIComponent(storageKey)}`;
+}
+
+export async function getIncidentsRequest() {
+  return await unwrapData<Incident[]>(apiClient.get('/incidents'));
+}
+
+export async function updateIncidentStatusRequest(incidentId: string, status: 'open' | 'in_progress' | 'resolved') {
+  return await unwrapData<Incident>(
+    apiClient.patch(`/incidents/${encodeURIComponent(incidentId)}/status`, { status })
+  );
 }

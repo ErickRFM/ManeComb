@@ -1,0 +1,7 @@
+{
+  "name": "manecomb-communication",
+  "version": "1.0.0",
+  "description": "ManeComb Communication Center - Sistema oficial de comunicaciones empresariales",
+  "main": "index.js",
+  "private": true
+}
