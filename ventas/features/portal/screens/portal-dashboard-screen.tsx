@@ -50,6 +50,8 @@ type Filters = {
   vehicleId: string;
 };
 
+type OperationsFilter = 'ALL' | 'RUNNING' | 'STOPPED' | 'OFF_ROUTE';
+
 const statusFilters = ['ALL', 'RUNNING', 'PAUSED', 'FINISHED', 'CANCELLED'] as const;
 const historyPageSize = 50;
 const replayPageSize = 800;
@@ -332,6 +334,7 @@ export function PortalDashboardScreen() {
     status: 'ALL',
     vehicleId: getParam(params.vehicleId) || '',
   });
+  const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -418,6 +421,22 @@ export function PortalDashboardScreen() {
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
+  const operationsCounts = useMemo(() => {
+    const running = vehicles.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
+    const stopped = vehicles.filter((vehicle) => {
+      const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
+      return session?.status === 'PAUSED' || (Boolean(session) && Number(vehicle.speed) <= 0.8);
+    }).length;
+    const offRoute = vehicles.filter((vehicle) => Boolean(vehicle.activeRouteProgress?.isOffRoute)).length;
+    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
+  }, [sessionsByVehicle, vehicles]);
+  const operationalVehicles = useMemo(() => vehicles.filter((vehicle) => {
+    const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
+    if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
+    if (operationsFilter === 'STOPPED') return session?.status === 'PAUSED' || (Boolean(session) && Number(vehicle.speed) <= 0.8);
+    if (operationsFilter === 'OFF_ROUTE') return Boolean(vehicle.activeRouteProgress?.isOffRoute);
+    return true;
+  }), [operationsFilter, sessionsByVehicle, vehicles]);
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -623,23 +642,45 @@ export function PortalDashboardScreen() {
         <View style={styles.operationsMapCol}>
           <View style={styles.mapSurface}>
             <View style={styles.mapHeader}>
-              <Text style={styles.panelTitle}>Mapa operativo</Text>
+              <View style={styles.mapModeButton}>
+                <Text style={styles.mapModeText}>Mapa operativo</Text>
+                <MaterialCommunityIcons name="chevron-down" size={17} color={portalPalette.muted} />
+              </View>
+              <View style={styles.operationsFilters}>
+                {([
+                  ['ALL', 'Todas'],
+                  ['RUNNING', 'En jornada'],
+                  ['STOPPED', 'Detenidas'],
+                  ['OFF_ROUTE', 'Fuera de ruta'],
+                ] as const).map(([value, label]) => (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: operationsFilter === value }}
+                    onPress={() => setOperationsFilter(value)}
+                    style={[styles.operationsFilter, operationsFilter === value ? styles.operationsFilterActive : undefined]}>
+                    <View style={[styles.filterStatusDot, value === 'RUNNING' ? styles.filterStatusRunning : value === 'STOPPED' ? styles.filterStatusStopped : value === 'OFF_ROUTE' ? styles.filterStatusOffRoute : undefined]} />
+                    <Text style={styles.operationsFilterText}>{label}</Text>
+                    <Text style={styles.operationsFilterCount}>{operationsCounts[value]}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
             <View style={styles.mapStage}>
-              <Suspense fallback={<MapFallback height={548} />}>
+              <Suspense fallback={<MapFallback height={620} />}>
                 <OperationsMap
                   checkpoints={routeCheckpoints}
-                  height={548}
+                  height={'clamp(460px, calc(100vh - 230px), 690px)'}
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
-                  vehicles={vehicles}
+                  vehicles={operationalVehicles}
                 />
               </Suspense>
-              {vehicles.length ? (
+              {operationalVehicles.length ? (
                 <View style={styles.unitSelectorOverlay}>
                   <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
-                  {vehicles.map((vehicle) => (
+                  {operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
                       active={vehicle.id === selectedVehicle?.id}
@@ -1591,6 +1632,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   mapStage: {
+    flex: 1,
     minWidth: 0,
     position: 'relative',
   },
@@ -1599,12 +1641,37 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
+    flex: 1,
     overflow: 'hidden',
   },
   mapHeader: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minHeight: 52,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
+  mapModeButton: {
+    alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 34, paddingHorizontal: 12,
+  },
+  mapModeText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
+  operationsFilters: {
+    alignItems: 'center', flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
+  },
+  operationsFilter: {
+    alignItems: 'center', backgroundColor: 'rgba(8, 16, 32, 0.42)', borderColor: 'transparent', borderRadius: 18,
+    borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 32, paddingHorizontal: 9,
+  },
+  operationsFilterActive: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line },
+  operationsFilterText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
+  operationsFilterCount: { color: portalPalette.text, fontFamily: Typography.mono, fontSize: 11, fontWeight: '900', opacity: 0.8 },
+  filterStatusDot: { backgroundColor: portalPalette.muted, borderRadius: 4, height: 7, width: 7 },
+  filterStatusRunning: { backgroundColor: portalPalette.success },
+  filterStatusStopped: { backgroundColor: portalPalette.danger },
+  filterStatusOffRoute: { backgroundColor: portalPalette.warning },
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1659,16 +1726,16 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    gap: 12,
+    gap: 8,
     minWidth: 0,
   },
   operationsMapCol: {
-    flex: 2.3,
+    flex: 18,
     minWidth: 0,
   },
   operationsUnitsCol: {
-    flex: 1,
-    maxHeight: 590,
+    flex: 7,
+    maxHeight: 'clamp(560px, calc(100vh - 190px), 750px)' as any,
     minWidth: 0,
     overflow: 'auto' as any,
   },
@@ -1824,7 +1891,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
-    gap: 10,
+    gap: 8,
   },
   recentTimeline: {
     gap: 0,
@@ -1937,18 +2004,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   unitSelectorOverlay: {
-    backgroundColor: 'rgba(7, 14, 29, 0.94)',
+    backgroundColor: 'rgba(7, 14, 29, 0.88)',
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    bottom: 14,
+    bottom: 12,
     gap: 0,
-    left: 14,
-    maxHeight: 220,
+    left: 12,
+    maxHeight: 200,
     overflow: 'auto' as any,
     padding: 10,
     position: 'absolute',
-    width: 300,
+    width: 260,
   },
   mapOverlayTitle: {
     color: portalPalette.text,

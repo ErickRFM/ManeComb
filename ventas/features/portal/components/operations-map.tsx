@@ -10,7 +10,7 @@ import { portalPalette } from '../portal-theme';
 type OperationsMapProps = {
   autoFit?: boolean;
   checkpoints?: NavigationStop[];
-  height?: number;
+  height?: number | string;
   onClickPoint?: (point: GeoPoint) => void;
   onVehiclePress?: (vehicle: Vehicle) => void;
   replayPath?: RouteSessionPosition[];
@@ -185,7 +185,10 @@ export function OperationsMap({
       style: mapStyle,
       zoom: 12,
     });
-    const handleMapError = () => setMapUnavailable(true);
+    const handleMapError = (event: mapboxgl.ErrorEvent) => {
+      const status = Number((event.error as Error & { status?: number })?.status);
+      if (status === 401 || status === 403) setMapUnavailable(true);
+    };
     map.on('error', handleMapError);
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
@@ -193,12 +196,19 @@ export function OperationsMap({
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     mapRef.current = map;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.resize()) : null;
+    resizeObserver?.observe(host);
+    map.once('load', () => {
+      setMapUnavailable(false);
+      map.resize();
+    });
 
     return () => {
       vehicleMarkersRef.current.forEach((marker) => marker.remove());
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
       replayMarkerRef.current?.remove();
       map.off('error', handleMapError);
+      resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -356,7 +366,7 @@ export function OperationsMap({
           ? 'Esta jornada no tiene recorrido GPS guardado.'
           : 'Las unidades apareceran aqui cuando reporten una ubicacion.';
     return (
-      <View style={[styles.fallback, { minHeight: height }]}>
+      <View style={[styles.fallback, { height, minHeight: typeof height === 'number' ? height : 460 }]}>
         <View style={styles.fallbackHeader}>
           <View style={styles.fallbackIcon}>
             <MaterialCommunityIcons name={icon} size={20} color={portalPalette.accent} />
@@ -393,7 +403,7 @@ export function OperationsMap({
     );
   }
 
-  return <View ref={hostRef as never} style={[styles.map, { minHeight: height }]} />;
+  return <View ref={hostRef as never} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 460 }]} />;
 }
 
 const styles = StyleSheet.create({
