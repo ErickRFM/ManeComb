@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useLocalSearchParams } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -204,20 +204,26 @@ export function PortalProfileScreen() {
       {activeSection === 'soporte' ? (
         <PortalSectionCard title="Soporte" subtitle="Canales y contexto para administradores.">
           <View style={styles.supportGrid}>
-            <View style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
-              <MaterialCommunityIcons name="lifebuoy" size={22} color={theme.colors.info} />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void Linking.openURL('mailto:soporte@manecomb.com')}
+              style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+              <MaterialCommunityIcons name="email-outline" size={22} color={theme.colors.info} />
               <View style={styles.supportCopy}>
                 <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>Soporte comercial</Text>
-                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Pagos, facturación, contrato y activación.</Text>
+                <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Pagos, facturación, contrato y activación. Envía un correo a soporte@manecomb.com</Text>
               </View>
-            </View>
-            <View style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/portal' as never)}
+              style={[styles.supportItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.line }]}>
               <MaterialCommunityIcons name="bus-alert" size={22} color={theme.colors.warning} />
               <View style={styles.supportCopy}>
                 <Text style={[styles.sessionTitle, { color: theme.colors.text }]}>Soporte operativo</Text>
                 <Text style={[styles.sessionMeta, { color: theme.colors.muted }]}>Incidencias de rutas, radio y monitoreo se atienden desde el panel operativo.</Text>
               </View>
-            </View>
+            </Pressable>
           </View>
         </PortalSectionCard>
       ) : null}

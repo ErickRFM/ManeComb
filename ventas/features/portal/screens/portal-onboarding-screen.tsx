@@ -355,7 +355,7 @@ export function PortalOnboardingScreen() {
     setFeedback(null);
     const result = await generateActivationKey();
 
-    setFeedback(result.ok ? 'Key generada. Ya puedes copiarla o compartirla con el conductor.' : result.message || null);
+    setFeedback(result.ok ? 'Key generada. Ya puedes copiarla o compartirla con el conductor. El conductor aparecerá en Equipo tras activar su cuenta con la key.' : result.message || null);
   };
 
   const handleCopyKey = async (activationKey: PortalActivationKey) => {

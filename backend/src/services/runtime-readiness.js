@@ -1,10 +1,10 @@
 const { getAudioTranscriptionReadiness } = require("./audio-transcription");
 const { getNotifierReadiness } = require("./commercial-notifier");
 const { getPaymentReadiness } = require("./commercial-payment");
-const { getQueueReadiness } = require("./queue");
 const { getRedisReadiness } = require("./redis");
 const { getRtcReadiness } = require("./rtc-config");
 const { getStorageReadiness } = require("./storage");
+const communication = require("../../modules/communication");
 
 function getRuntimeReadiness(dbState) {
   const transcription = getAudioTranscriptionReadiness();
@@ -13,7 +13,7 @@ function getRuntimeReadiness(dbState) {
   const notifications = getNotifierReadiness();
   const rtc = getRtcReadiness();
   const redis = getRedisReadiness();
-  const queues = getQueueReadiness();
+  const queues = communication.getReadiness().queue;
   const databaseReady = Boolean(dbState?.connected);
 
   const degraded =

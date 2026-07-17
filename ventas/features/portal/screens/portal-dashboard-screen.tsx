@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useLocalSearchParams } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import type { CSSProperties } from 'react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -588,6 +588,25 @@ export function PortalDashboardScreen() {
         </View>
       ) : null}
 
+      {!isLoading && vehicles.length === 0 && users.filter((u) => u.role === 'driver').length === 0 ? (
+        <PortalSectionCard title="Primeros pasos" subtitle="Tu cuenta está lista. Sigue estos pasos para comenzar.">
+          <View style={styles.onboardingPrompt}>
+            <MaterialCommunityIcons name="flag-checkered" size={36} color={portalPalette.accent} />
+            <View style={styles.flex}>
+              <Text style={styles.onboardingTitle}>Completa la configuración inicial</Text>
+              <Text style={styles.unitMeta}>Registra tus unidades, asigna conductores y define rutas desde el panel de activación.</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/portal/onboarding' as never)}
+              style={[styles.primaryButton, portalButtonGradient()]}>
+              <Text style={styles.primaryText}>Ir a activación</Text>
+              <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
+            </Pressable>
+          </View>
+        </PortalSectionCard>
+      ) : null}
+
       <View style={styles.summaryGrid}>
         <AccountSummaryCard icon="bus-clock" label="Activas" value={String(summary.activeUnits)} detail="Unidades en jornada" tone="positive" />
         <AccountSummaryCard icon="pause-circle-outline" label="Detenidas" value={String(summary.stoppedUnits)} detail="Velocidad actual baja" tone={summary.stoppedUnits > 0 ? 'warning' : 'neutral'} />
@@ -781,7 +800,7 @@ function OperationalUnitCard({
       </View>
       <ProgressBar value={progress} />
       <View style={styles.unitFacts}>
-        <Fact label="Chofer activo" value={activeDriver?.name || vehicle.driverName || 'Sin chofer'} />
+        <Fact label="Chofer activo" value={`${activeDriver?.name || vehicle.driverName || 'Sin chofer'}${activeDriver ? ` · ${activeDriver.status || activeDriver.userStatus || ''}` : ''}`} />
         <Fact label="Choferes" value={assignedDrivers.length > 1 ? `${assignedDrivers.length} asignados` : assignedDrivers[0]?.name || 'Sin asignacion'} />
         <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada'} />
         <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
@@ -953,7 +972,7 @@ function DriverProfile({ driver, title }: { driver: User | null; title: string }
         <Text style={styles.factLabel}>{title}</Text>
         <Text style={styles.driverName} numberOfLines={1}>{driver?.name || 'Sin chofer activo'}</Text>
         <Text style={styles.unitMeta}>{driver?.phone || 'Sin telefono'}</Text>
-        <Text style={styles.unitMeta}>{driver?.status || driver?.userStatus || 'Sin estado'}{license ? ` / Lic. ${license}` : ''}</Text>
+        <Text style={styles.unitMeta}>{driver?.status || driver?.userStatus || 'Sin estado'}{license ? ` / Lic. ${license}` : ''}{driver?.shift ? ` / Turno: ${driver.shift}` : ''}</Text>
       </View>
     </View>
   );
@@ -1434,7 +1453,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   filters: {
-    gap: 10,
+    gap: 6,
   },
   flex: {
     flex: 1,
@@ -1469,8 +1488,8 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 10,
-    padding: 12,
+    gap: 8,
+    padding: 10,
   },
   historyCardActive: {
     borderColor: portalPalette.accent,
@@ -1526,6 +1545,20 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '800',
+  },
+  onboardingPrompt: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    minWidth: 0,
+  },
+  onboardingTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
+    minWidth: 0,
   },
   operationsGrid: {
     alignItems: 'flex-start',
@@ -1691,7 +1724,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   sessionDetail: {
-    gap: AppTheme.spacing.md,
+    gap: 10,
   },
   sideHeader: {
     alignItems: 'center',

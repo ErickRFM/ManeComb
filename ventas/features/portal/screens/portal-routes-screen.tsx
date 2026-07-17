@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
@@ -9,10 +9,12 @@ import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Vehicle } from '@/src/types/app';
+import type { GeoPoint, Vehicle } from '@/src/types/app';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
-import { portalButtonGradient } from '../portal-theme';
+import { portalButtonGradient, portalPalette } from '../portal-theme';
+
+const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
 
 type RouteEditor = {
   vehicleId: string;
@@ -89,6 +91,7 @@ export function PortalRoutesScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [routeToClear, setRouteToClear] = useState<Vehicle | null>(null);
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
+  const [mapSelectMode, setMapSelectMode] = useState<'origin' | 'destination' | null>(null);
 
   useEffect(() => {
     void loadVehicles();
@@ -198,6 +201,17 @@ export function PortalRoutesScreen() {
 
   return (
     <PortalLayout title="Rutas" subtitle="Asignacion real de origen y destino por unidad.">
+      {vehiclesWithRoutes.length && canManageRoutes ? (
+        <View style={styles.continuityBanner}>
+          <MaterialCommunityIcons name="view-dashboard-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.continuityText}>Ruta asignada. Abre el centro de operaciones para monitorear la unidad.</Text>
+          <Pressable accessibilityRole="button" onPress={() => router.push('/portal' as never)} style={styles.continuityButton}>
+            <Text style={styles.continuityButtonText}>Ir a operaciones</Text>
+            <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      ) : null}
+
       {canManageRoutes ? (
         <PortalSectionCard
           title="Asignar ruta"
@@ -240,42 +254,68 @@ export function PortalRoutesScreen() {
                   placeholderTextColor={theme.colors.muted}
                   style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
                 />
-                <TextInput
-                  value={editor.originLatitude}
-                  onChangeText={(value) => setField('originLatitude', value.replace(/[^0-9.-]/g, ''))}
-                   placeholder="Latitud origen"
-                   accessibilityLabel="Latitud de origen"
-                  placeholderTextColor={theme.colors.muted}
-                  keyboardType="numeric"
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-                />
-                <TextInput
-                  value={editor.originLongitude}
-                  onChangeText={(value) => setField('originLongitude', value.replace(/[^0-9.-]/g, ''))}
-                   placeholder="Longitud origen"
-                   accessibilityLabel="Longitud de origen"
-                  placeholderTextColor={theme.colors.muted}
-                  keyboardType="numeric"
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-                />
-                <TextInput
-                  value={editor.destinationLatitude}
-                  onChangeText={(value) => setField('destinationLatitude', value.replace(/[^0-9.-]/g, ''))}
-                   placeholder="Latitud destino"
-                   accessibilityLabel="Latitud de destino"
-                  placeholderTextColor={theme.colors.muted}
-                  keyboardType="numeric"
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-                />
-                <TextInput
-                  value={editor.destinationLongitude}
-                  onChangeText={(value) => setField('destinationLongitude', value.replace(/[^0-9.-]/g, ''))}
-                   placeholder="Longitud destino"
-                   accessibilityLabel="Longitud de destino"
-                  placeholderTextColor={theme.colors.muted}
-                  keyboardType="numeric"
-                  style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-                />
+              </View>
+              <View style={styles.mapSelectToggle}>
+                <Pressable
+                  onPress={() => setMapSelectMode(mapSelectMode === 'origin' ? null : 'origin')}
+                  style={[styles.mapSelectButton, mapSelectMode === 'origin' ? styles.mapSelectButtonActive : undefined]}>
+                  <MaterialCommunityIcons name="map-marker" size={16} color={mapSelectMode === 'origin' ? '#FFFFFF' : portalPalette.text} />
+                  <Text style={[styles.mapSelectText, mapSelectMode === 'origin' ? { color: '#FFFFFF' } : undefined]}>
+                    {editor.originLatitude && editor.originLongitude ? 'Origen en mapa ✓' : 'Seleccionar origen en mapa'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setMapSelectMode(mapSelectMode === 'destination' ? null : 'destination')}
+                  style={[styles.mapSelectButton, mapSelectMode === 'destination' ? styles.mapSelectButtonActive : undefined]}>
+                  <MaterialCommunityIcons name="map-marker-check" size={16} color={mapSelectMode === 'destination' ? '#FFFFFF' : portalPalette.text} />
+                  <Text style={[styles.mapSelectText, mapSelectMode === 'destination' ? { color: '#FFFFFF' } : undefined]}>
+                    {editor.destinationLatitude && editor.destinationLongitude ? 'Destino en mapa ✓' : 'Seleccionar destino en mapa'}
+                  </Text>
+                </Pressable>
+              </View>
+              {(mapSelectMode || (editor.originLatitude && editor.originLongitude && editor.destinationLatitude && editor.destinationLongitude)) ? (
+                <View style={styles.mapContainer}>
+                  <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
+                    <RouteMap
+                      height={220}
+                      onClickPoint={(point) => {
+                        if (mapSelectMode === 'origin') {
+                          setField('originLatitude', String(point.latitude));
+                          setField('originLongitude', String(point.longitude));
+                          setMapSelectMode('destination');
+                        } else if (mapSelectMode === 'destination') {
+                          setField('destinationLatitude', String(point.latitude));
+                          setField('destinationLongitude', String(point.longitude));
+                          setMapSelectMode(null);
+                        }
+                      }}
+                      routeCoordinates={
+                        editor.originLatitude && editor.originLongitude && editor.destinationLatitude && editor.destinationLongitude
+                          ? [
+                              { latitude: parseCoordinate(editor.originLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.originLongitude, -180, 180) || 0 },
+                              { latitude: parseCoordinate(editor.destinationLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.destinationLongitude, -180, 180) || 0 },
+                            ]
+                          : editor.originLatitude && editor.originLongitude
+                            ? [{ latitude: parseCoordinate(editor.originLatitude, -90, 90) || 0, longitude: parseCoordinate(editor.originLongitude, -180, 180) || 0 }]
+                            : []
+                      }
+                      vehicles={[]}
+                    />
+                  </Suspense>
+                  {mapSelectMode ? (
+                    <Text style={styles.mapHint}>
+                      {mapSelectMode === 'origin' ? 'Haz clic en el mapa para marcar el origen' : 'Haz clic en el mapa para marcar el destino'}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              <View style={styles.coordPreview}>
+                <Text style={styles.coordText}>
+                  Origen: {editor.originLatitude ? `${editor.originLatitude}, ${editor.originLongitude}` : 'Sin definir'}
+                </Text>
+                <Text style={styles.coordText}>
+                  Destino: {editor.destinationLatitude ? `${editor.destinationLatitude}, ${editor.destinationLongitude}` : 'Sin definir'}
+                </Text>
               </View>
               <View style={styles.actions}>
                 <Pressable
@@ -393,6 +433,70 @@ export function PortalRoutesScreen() {
 }
 
 const styles = StyleSheet.create({
+  mapSelectToggle: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minWidth: 0,
+  },
+  mapSelectButton: {
+    alignItems: 'center',
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 38,
+    paddingHorizontal: 12,
+  },
+  mapSelectButtonActive: {
+    backgroundColor: portalPalette.accent,
+    borderColor: portalPalette.accent,
+  },
+  mapSelectText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mapContainer: {
+    gap: 8,
+    minWidth: 0,
+  },
+  mapFallback: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 220,
+  },
+  mapFallbackText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+  },
+  mapHint: {
+    color: portalPalette.info,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  coordPreview: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+  },
+  coordText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.mono,
+    fontSize: 11,
+  },
   continueButton: {
     alignItems: 'center',
     backgroundColor: '#EA1F23',
@@ -520,6 +624,41 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
+  },
+  continuityBanner: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.info,
+    borderRadius: AppTheme.radius.sm,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    minWidth: 0,
+    padding: 12,
+  },
+  continuityText: {
+    color: '#FFFFFF',
+    flex: 1,
+    flexBasis: 200,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
+    minWidth: 0,
+  },
+  continuityButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: AppTheme.radius.sm,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+  },
+  continuityButtonText: {
+    color: '#FFFFFF',
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
   },
   disabledButton: {
     opacity: 0.55,

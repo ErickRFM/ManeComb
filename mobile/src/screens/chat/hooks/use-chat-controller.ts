@@ -11,12 +11,13 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { SOCKET_URL } from '@/src/api/client';
+import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
 import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
   ConversationChannelMode,
+  RtcIceConfig,
 } from '@/src/types/app';
 import { createStyles } from '../chat-screen.styles';
 import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, RecordingState, RtcParticipant } from '../types';
@@ -105,6 +106,10 @@ export function useChatController() {
   >([]);
   const isStartingCallRef = useRef(false);
   const callAttemptRef = useRef(0);
+  const rtcIceConfigRef = useRef<RtcIceConfig>({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    turnEnabled: false,
+  });
   const closeActiveCallRef = useRef<(options?: CloseActiveCallOptions) => Promise<void>>(
     async () => undefined
   );
@@ -122,6 +127,11 @@ export function useChatController() {
       randomizationFactor: 0.45,
     });
     socketRef.current = socket;
+    getRtcIceConfigRequest()
+      .then((config) => {
+        rtcIceConfigRef.current = config;
+      })
+      .catch(() => undefined);
     const resetPeerConnection = (clearPendingCandidates = true) => {
       if (clearPendingCandidates) pendingIceCandidatesRef.current = [];
       if (peerRef.current) {
@@ -141,7 +151,7 @@ export function useChatController() {
       resetPeerConnection(false);
 
       const peer = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        iceServers: rtcIceConfigRef.current.iceServers,
       });
       const localStream = localStreamRef.current;
 

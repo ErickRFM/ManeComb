@@ -36,14 +36,18 @@ services:
 
   coturn:
     image: coturn/coturn:4
-    command:
-      - "--no-cli"
-      - "--fingerprint"
-      - "--lt-cred-mech"
-      - "--realm=${TURN_REALM:-manecomb.local}"
+    env_file:
+      - ./backend/.env
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      exec turnserver --no-cli --fingerprint --lt-cred-mech --use-auth-secret
+      --static-auth-secret="$${TURN_SECRET:?TURN_SECRET is required}"
+      --realm="$${TURN_REALM:-manecomb.local}"
+      --min-port=49160 --max-port=49200
     ports:
       - "3478:3478"
       - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
     restart: always
 
   nginx:

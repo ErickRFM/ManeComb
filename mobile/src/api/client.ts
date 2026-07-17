@@ -30,6 +30,7 @@ import type {
   OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   RegisterPayload,
+  RtcIceConfig,
   RouteShape,
   RouteSessionHistoryFilters,
   RouteSession,
@@ -104,41 +105,6 @@ function isTimeoutError(error: AxiosError) {
     error.code === 'ETIMEDOUT' ||
     /timeout|timed out|aborted/i.test(error.message || '')
   );
-}
-
-function parseApiUrl(value: string) {
-  try {
-    return new URL(value);
-  } catch {
-    return null;
-  }
-}
-
-function isLocalBackendUrl(value: string) {
-  const url = parseApiUrl(value);
-  const hostname = url?.hostname?.toLowerCase() || '';
-
-  return (
-    !url ||
-    url.protocol === 'http:' ||
-    hostname === 'localhost' ||
-    hostname === '::1' ||
-    hostname.startsWith('127.') ||
-    hostname.startsWith('10.') ||
-    hostname.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
-  );
-}
-
-function isProductionBackendUrl(value: string) {
-  const url = parseApiUrl(value);
-  const hostname = url?.hostname?.toLowerCase() || '';
-
-  return Boolean(url && !isLocalBackendUrl(value) && (url.protocol === 'https:' || hostname.includes('onrender.com')));
-}
-
-export function getBackendLabel(apiUrl = RESOLVED_API_URL) {
-  return isProductionBackendUrl(apiUrl) ? 'backend de produccion' : 'backend configurado';
 }
 
 function getRequestUrl(config: AxiosError['config'] | undefined) {
@@ -688,6 +654,11 @@ export function resolveAssetUrl(fileUrl: string | null | undefined) {
 
 export async function getNotificationsRequest() {
   const response = await apiClient.get<{ ok: boolean; data: NotificationItem[] }>('/notifications');
+  return response.data.data;
+}
+
+export async function getRtcIceConfigRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: RtcIceConfig }>('/rtc/config');
   return response.data.data;
 }
 

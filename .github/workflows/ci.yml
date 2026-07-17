@@ -105,5 +105,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Build
         run: npm run build
+
+      - name: Build production web image
+        run: docker build --build-arg VITE_API_URL=/api --build-arg VITE_SOCKET_URL=/ -f ../mobile/Dockerfile.web ..

@@ -228,6 +228,18 @@ function ChangePreview({
           label="Estado esperado"
           value={comparison.expectedStateLabel}
         />
+        <ChangeFact
+          icon="calendar-clock-outline"
+          label="Vigencia"
+          value={comparison.nextStep.includes('siguiente ciclo') || comparison.nextStep.includes('próximo') ? 'Próximo ciclo de facturación' : 'Inmediato'}
+        />
+      </View>
+
+      <View style={styles.billingClarity}>
+        <MaterialCommunityIcons name="credit-card-check-outline" size={18} color={portalPalette.info} />
+        <Text style={styles.billingClarityText}>
+          El cobro se realiza al inicio de cada periodo. La renovación es automática. Puedes desactivar la renovación desde Mi plan {'>'} Cancelar suscripción. El cambio aplica al siguiente ciclo de facturación.
+        </Text>
       </View>
 
       <View style={styles.newBenefits}>
@@ -426,16 +438,18 @@ export function PortalPlanScreen() {
             </Pressable>
           </View>
         ) : plans.length ? (
-          <View style={styles.planGrid}>
-            {plans.map((plan) => (
-              <CommercialPlanCard
-                key={plan.id}
-                active={plan.id === currentPlan?.id}
-                plan={plan}
-                selected={plan.id === selectedPlanId}
-                onSelect={() => void selectPlan(plan.id)}
-              />
-            ))}
+          <View style={styles.planGridWrapper}>
+            <View style={styles.planGrid}>
+              {plans.map((plan) => (
+                <CommercialPlanCard
+                  key={plan.id}
+                  active={plan.id === currentPlan?.id}
+                  plan={plan}
+                  selected={plan.id === selectedPlanId}
+                  onSelect={() => void selectPlan(plan.id)}
+                />
+              ))}
+            </View>
           </View>
         ) : (
           <EmptyState
@@ -493,6 +507,24 @@ export function PortalPlanScreen() {
 }
 
 const styles = StyleSheet.create({
+  billingClarity: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.infoSoft,
+    borderColor: 'rgba(35, 213, 255, 0.18)',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 12,
+  },
+  billingClarityText: {
+    color: portalPalette.text,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+    minWidth: 0,
+  },
   subscriptionContent: {
     gap: 12,
   },
@@ -621,11 +653,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  planGridWrapper: {
+    marginHorizontal: -4,
+    overflow: 'hidden',
+  },
   planGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: 12,
     minWidth: 0,
+    overflow: 'auto',
+    paddingBottom: 4,
+    scrollBehavior: 'smooth' as any,
+    WebkitOverflowScrolling: 'touch' as any,
   },
   planCard: {
     backgroundColor: portalPalette.surfaceSoft,

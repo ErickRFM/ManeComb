@@ -9,6 +9,7 @@ import { portalPalette } from '../portal-theme';
 type OperationsMapProps = {
   checkpoints?: NavigationStop[];
   height?: number;
+  onClickPoint?: (point: GeoPoint) => void;
   onVehiclePress?: (vehicle: Vehicle) => void;
   replayPath?: RouteSessionPosition[];
   replayPosition?: RouteSessionPosition | null;
@@ -132,6 +133,7 @@ function removeLine(map: MapboxMap, id: string) {
 export function OperationsMap({
   checkpoints = [],
   height = 410,
+  onClickPoint,
   onVehiclePress,
   replayPath = [],
   replayPosition = null,
@@ -169,6 +171,11 @@ export function OperationsMap({
     });
     const handleMapError = () => setMapUnavailable(true);
     map.on('error', handleMapError);
+    if (onClickPoint) {
+      map.on('click', (event) => {
+        onClickPoint({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
+      });
+    }
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     mapRef.current = map;

@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,40 +15,16 @@ import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
 import { formatDate, formatRole } from '@/src/utils/format';
 
-type UserEditor = {
-  name: string;
-  email: string;
-  password: string;
-  role: Role;
-  phone: string;
-  userStatus: UserAccountStatus;
-};
-
-const administrativeRoles: Role[] = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
-const editableRoles: Role[] = ['admin', 'supervisor', 'billing_manager', 'support', 'viewer'];
-const statuses: UserAccountStatus[] = ['active', 'pending', 'suspended'];
-const statusLabels: Record<UserAccountStatus, string> = {
+const statusLabels: Record<string, string> = {
   active: 'Activo',
   pending: 'Pendiente',
   suspended: 'Suspendido',
 };
 
-function createBlankEditor(): UserEditor {
-  return {
-    name: '',
-    email: '',
-    password: '',
-    role: 'billing_manager',
-    phone: '',
-    userStatus: 'pending',
-  };
-}
-
 export function PortalUsersScreen() {
   const { theme } = useAppTheme();
-  const { createUser, deleteUser, isSubmitting, loadUsers, loadVehicles, updateUser, user, users, vehicles } = useAppStore(
+  const { deleteUser, isSubmitting, loadUsers, loadVehicles, updateUser, user, users, vehicles } = useAppStore(
     useShallow((state) => ({
-      createUser: state.createUser,
       deleteUser: state.deleteUser,
       isSubmitting: state.isSubmitting,
       loadUsers: state.loadUsers,
@@ -59,10 +36,10 @@ export function PortalUsersScreen() {
     }))
   );
   const canManageUsers = Boolean(user && ['owner', 'admin'].includes(user.role));
-  const [editor, setEditor] = useState<UserEditor>(createBlankEditor);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
+  const [editStatus, setEditStatus] = useState<UserAccountStatus>('active');
 
   useEffect(() => {
     void loadUsers();
@@ -70,7 +47,7 @@ export function PortalUsersScreen() {
   }, [loadUsers, loadVehicles]);
 
   const administrativeUsers = useMemo(
-    () => users.filter((entry) => entry.role !== 'driver' && (entry.accountType === 'company_owner' || administrativeRoles.includes(entry.role) || entry.role === 'supervisor')),
+    () => users.filter((entry) => entry.role !== 'driver' && (entry.accountType === 'company_owner' || ['owner', 'admin', 'supervisor', 'billing_manager', 'support', 'viewer'].includes(entry.role))),
     [users]
   );
   const driverUsers = useMemo(
@@ -82,254 +59,129 @@ export function PortalUsersScreen() {
     [vehicles]
   );
 
-  const setField = <T extends keyof UserEditor>(field: T, value: UserEditor[T]) => {
-    setEditor((current) => ({ ...current, [field]: value }));
-  };
-
-  const resetEditor = () => {
-    setEditingId(null);
-    setEditor(createBlankEditor());
-  };
-
-  const startEdit = (user: User) => {
-    setEditingId(user.id);
-    setEditor({
-      name: user.name,
-      email: user.email,
-      password: '',
-      role: user.role,
-      phone: user.phone,
-      userStatus: user.userStatus || 'active',
-    });
-  };
-
-  const saveUser = async () => {
-    setMessage(null);
-    if (!editor.name.trim() || !editor.email.trim()) {
-      setMessage('Nombre y correo son obligatorios.');
-      return;
-    }
-
-    if (!editingId && !editor.password.trim()) {
-      setMessage('La contrasena es obligatoria para invitar un usuario.');
-      return;
-    }
-
-    const payload = {
-      accountType: 'company_owner' as const,
-      name: editor.name.trim(),
-      email: editor.email.trim(),
-      password: editor.password.trim() || undefined,
-      role: editor.role,
-      phone: editor.phone.trim(),
-      userStatus: editor.userStatus,
-      status: editor.userStatus === 'suspended' ? 'offline' : 'online',
-    };
-    const result = editingId ? await updateUser(editingId, payload) : await createUser(payload);
-
-    if (!result.ok) {
-      setMessage(result.message || 'No fue posible guardar el usuario.');
-      return;
-    }
-
-    resetEditor();
-    setMessage(editingId ? 'Usuario actualizado.' : 'Usuario invitado.');
-  };
-
   const assignVehicleToDriver = async (driverId: string, vehicleId: string | null) => {
     setMessage(null);
     const result = await updateUser(driverId, { vehicleId });
-
     if (!result.ok) {
       setMessage(result.message || 'No fue posible actualizar la asignacion.');
       return;
     }
-
     setMessage(vehicleId ? 'Unidad asignada.' : 'Unidad liberada.');
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const result = await deleteUser(deleteTarget.id);
+    setMessage(result.ok ? 'Usuario eliminado.' : result.message || 'No fue posible eliminar el usuario.');
+    if (result.ok) setDeleteTarget(null);
+  };
+
+  const confirmEdit = async () => {
+    if (!editTarget) return;
+    const result = await updateUser(editTarget.id, { userStatus: editStatus, status: editStatus === 'suspended' ? 'offline' : 'online' });
+    setMessage(result.ok ? 'Estado actualizado.' : result.message || 'No fue posible actualizar.');
+    if (result.ok) setEditTarget(null);
   };
 
   return (
     <PortalLayout title="Equipo" subtitle="Administradores, supervisores, responsables de facturación, soporte y conductores.">
-      {canManageUsers ? <PortalSectionCard
-        title={editingId ? 'Editar usuario de gestión' : 'Invitar usuario de gestión'}
-        subtitle={message || 'Crea administradores y supervisores; los conductores se activan con key.'}>
-        <View style={styles.formGrid}>
-          <TextInput
-            value={editor.name}
-            onChangeText={(value) => setField('name', value)}
-            placeholder="Nombre"
-            placeholderTextColor={theme.colors.muted}
-            style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-          />
-          <TextInput
-            value={editor.email}
-            onChangeText={(value) => setField('email', value)}
-            placeholder="Correo"
-            placeholderTextColor={theme.colors.muted}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-          />
-          <TextInput
-            value={editor.password}
-            onChangeText={(value) => setField('password', value)}
-            placeholder={editingId ? 'Nueva contrasena opcional' : 'Contrasena temporal'}
-            placeholderTextColor={theme.colors.muted}
-            secureTextEntry
-            style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-          />
-          <TextInput
-            value={editor.phone}
-            onChangeText={(value) => setField('phone', value)}
-            placeholder="Telefono"
-            placeholderTextColor={theme.colors.muted}
-            style={[styles.input, { borderColor: theme.colors.lineStrong, color: theme.colors.text }]}
-          />
-        </View>
-        <View style={styles.segmentRow}>
-          {editableRoles.map((role) => (
-            <Pressable
-              key={role}
-              accessibilityRole="button"
-              accessibilityLabel={`Seleccionar rol ${formatRole(role)}`}
-              accessibilityState={{ selected: editor.role === role }}
-              onPress={() => setField('role', role)}
-              style={[
-                styles.segment,
-                {
-                  backgroundColor: editor.role === role ? theme.colors.accentSoft : theme.colors.surfaceAlt,
-                  borderColor: editor.role === role ? theme.colors.accent : theme.colors.line,
-                },
-              ]}>
-              <Text style={[styles.segmentText, { color: editor.role === role ? theme.colors.accent : theme.colors.text }]}>
-                {formatRole(role)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.segmentRow}>
-          {statuses.map((status) => (
-            <Pressable
-              key={status}
-              accessibilityRole="button"
-              accessibilityLabel={`Seleccionar estado ${statusLabels[status]}`}
-              accessibilityState={{ selected: editor.userStatus === status }}
-              onPress={() => setField('userStatus', status)}
-              style={[
-                styles.segment,
-                {
-                  backgroundColor: editor.userStatus === status ? theme.colors.infoSoft : theme.colors.surfaceAlt,
-                  borderColor: editor.userStatus === status ? theme.colors.info : theme.colors.line,
-                },
-              ]}>
-              <Text
-                style={[
-                  styles.segmentText,
-                  { color: editor.userStatus === status ? theme.colors.info : theme.colors.text },
-                ]}>
-                {statusLabels[status]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.actions}>
-          {editingId ? (
-            <Pressable accessibilityRole="button" onPress={resetEditor} style={[styles.secondaryButton, { borderColor: theme.colors.line }]}>
-              <Text style={[styles.secondaryText, { color: theme.colors.text }]}>Cancelar</Text>
-            </Pressable>
-          ) : null}
+      {canManageUsers ? (
+        <View style={[styles.contextNotice, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
+          <View style={[styles.contextIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
+            <MaterialCommunityIcons name="key-variant" size={20} color={theme.colors.info} />
+          </View>
+          <View style={styles.contextCopy}>
+            <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Invitar usuarios mediante keys</Text>
+            <Text style={[styles.contextText, { color: theme.colors.muted }]}>
+              Genera keys de activación para conductores y usuarios de gestión. Cada key define rol y permisos. El usuario completa su registro y aparece automáticamente en el equipo.
+            </Text>
+          </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={editingId ? 'Guardar usuario de gestión' : 'Invitar usuario de gestión'}
-            onPress={() => void saveUser()}
-            disabled={isSubmitting}
-            style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
-            <MaterialCommunityIcons name={editingId ? 'content-save-outline' : 'account-plus-outline'} size={18} color="#FFFFFF" />
-            <Text style={styles.primaryText}>{editingId ? 'Guardar' : 'Invitar usuario'}</Text>
+            onPress={() => router.push('/portal/onboarding' as never)}
+            style={[styles.primaryButton, portalButtonGradient()]}>
+            <MaterialCommunityIcons name="key-plus" size={18} color="#FFFFFF" />
+            <Text style={styles.primaryText}>Ir a activación</Text>
           </Pressable>
         </View>
-      </PortalSectionCard> : null}
+      ) : null}
 
-      <View style={[styles.contextNotice, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
-        <View style={[styles.contextIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <MaterialCommunityIcons name="account-hard-hat-outline" size={20} color={theme.colors.info} />
+      {message ? (
+        <View style={[styles.messageBar, { backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.line }]}>
+          <Text style={[styles.messageText, { color: theme.colors.text }]}>{message}</Text>
         </View>
-        <View style={styles.contextCopy}>
-          <Text style={[styles.contextTitle, { color: theme.colors.text }]}>Conductores activados</Text>
-          <Text style={[styles.contextText, { color: theme.colors.muted }]}>
-            Los conductores se activan con keys. Desde aqui se asigna o libera su unidad real.
-          </Text>
-        </View>
-      </View>
+      ) : null}
 
-      <PortalSectionCard title="Asignacion de unidades" subtitle={`${driverUsers.length} conductores activados`}>
-        {driverUsers.length ? (
-          <View style={styles.list}>
-            {driverUsers.map((driver) => {
-              const driverVehicleOptions = availableVehicles.filter(
-                (vehicle) => !vehicle.driverId || vehicle.driverId === driver.id || vehicle.id === driver.vehicleId
-              );
-              const assignedVehicle = vehicles.find((vehicle) => vehicle.id === driver.vehicleId);
+      {canManageUsers ? (
+        <PortalSectionCard title="Asignacion de unidades" subtitle={`${driverUsers.length} conductores activados`}>
+          {driverUsers.length ? (
+            <View style={styles.list}>
+              {driverUsers.map((driver) => {
+                const driverVehicleOptions = availableVehicles.filter(
+                  (vehicle) => !vehicle.driverId || vehicle.driverId === driver.id || vehicle.id === driver.vehicleId
+                );
+                const assignedVehicle = vehicles.find((vehicle) => vehicle.id === driver.vehicleId);
 
-              return (
-                <View key={driver.id} style={[styles.assignmentRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
-                  <View style={styles.userBody}>
-                    <Text style={[styles.userName, { color: theme.colors.text }]}>{driver.name}</Text>
-                    <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
-                      {driver.email} / Unidad: {assignedVehicle?.code || 'Sin unidad'}
-                    </Text>
-                  </View>
-                  <View style={styles.assignmentOptions}>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => void assignVehicleToDriver(driver.id, null)}
-                      disabled={isSubmitting}
-                      style={[
-                        styles.assignmentChip,
-                        {
-                          backgroundColor: !driver.vehicleId ? theme.colors.infoSoft : theme.colors.surfaceAlt,
-                          borderColor: !driver.vehicleId ? theme.colors.info : theme.colors.line,
-                        },
-                      ]}>
-                      <Text style={[styles.assignmentText, { color: !driver.vehicleId ? theme.colors.info : theme.colors.text }]}>
-                        Sin unidad
+                return (
+                  <View key={driver.id} style={[styles.assignmentRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surface }]}>
+                    <View style={styles.userBody}>
+                      <Text style={[styles.userName, { color: theme.colors.text }]}>{driver.name}</Text>
+                      <Text style={[styles.userMeta, { color: theme.colors.muted }]}>
+                        {driver.email} / Unidad: {assignedVehicle?.code || 'Sin unidad'}
                       </Text>
-                    </Pressable>
-                    {driverVehicleOptions.map((vehicle) => (
+                    </View>
+                    <View style={styles.assignmentOptions}>
                       <Pressable
-                        key={vehicle.id}
                         accessibilityRole="button"
-                        onPress={() => void assignVehicleToDriver(driver.id, vehicle.id)}
+                        onPress={() => void assignVehicleToDriver(driver.id, null)}
                         disabled={isSubmitting}
                         style={[
                           styles.assignmentChip,
                           {
-                            backgroundColor: driver.vehicleId === vehicle.id ? theme.colors.successSoft : theme.colors.surfaceAlt,
-                            borderColor: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.line,
+                            backgroundColor: !driver.vehicleId ? theme.colors.infoSoft : theme.colors.surfaceAlt,
+                            borderColor: !driver.vehicleId ? theme.colors.info : theme.colors.line,
                           },
                         ]}>
-                        <Text
-                          style={[
-                            styles.assignmentText,
-                            { color: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.text },
-                          ]}>
-                          {vehicle.code}
+                        <Text style={[styles.assignmentText, { color: !driver.vehicleId ? theme.colors.info : theme.colors.text }]}>
+                          Sin unidad
                         </Text>
                       </Pressable>
-                    ))}
+                      {driverVehicleOptions.map((vehicle) => (
+                        <Pressable
+                          key={vehicle.id}
+                          accessibilityRole="button"
+                          onPress={() => void assignVehicleToDriver(driver.id, vehicle.id)}
+                          disabled={isSubmitting}
+                          style={[
+                            styles.assignmentChip,
+                            {
+                              backgroundColor: driver.vehicleId === vehicle.id ? theme.colors.successSoft : theme.colors.surfaceAlt,
+                              borderColor: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.line,
+                            },
+                          ]}>
+                          <Text
+                            style={[
+                              styles.assignmentText,
+                              { color: driver.vehicleId === vehicle.id ? theme.colors.success : theme.colors.text },
+                            ]}>
+                            {vehicle.code}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
                   </View>
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <EmptyState
-            icon="account-hard-hat-outline"
-            title="Sin conductores activados"
-            description="Genera una key de activacion para que el conductor cree su cuenta antes de asignarle unidad."
-          />
-        )}
-      </PortalSectionCard>
+                );
+              })}
+            </View>
+          ) : (
+            <EmptyState
+              icon="account-hard-hat-outline"
+              title="Sin conductores activados"
+              description="Genera una key de activacion para que el conductor cree su cuenta antes de asignarle unidad."
+            />
+          )}
+        </PortalSectionCard>
+      ) : null}
 
       <PortalSectionCard
         title="Usuarios de gestión"
@@ -351,7 +203,7 @@ export function PortalUsersScreen() {
                 <View style={styles.rowActions}>
                   {canManageUsers && item.role !== 'owner' ? (
                     <>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => startEdit(item)} style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} style={[styles.iconAction, { backgroundColor: theme.colors.infoSoft }]}>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.info} />
                       </Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: theme.colors.dangerSoft }]}>
@@ -367,7 +219,7 @@ export function PortalUsersScreen() {
           <EmptyState
             icon="account-group-outline"
             title="Sin usuarios de gestión"
-            description="Invita a responsables de facturación o soporte para delegar tareas de la cuenta."
+            description="Usa las keys de activación para invitar usuarios de gestión al equipo."
           />
         )}
       </PortalSectionCard>
@@ -380,64 +232,23 @@ export function PortalUsersScreen() {
         confirmLabel="Eliminar"
         processing={isSubmitting}
         onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          const target = deleteTarget;
-          if (target) {
-            void deleteUser(target.id).then((result) => {
-              setMessage(result.ok ? 'Usuario eliminado.' : result.message || 'No fue posible eliminar el usuario.');
-              if (result.ok) setDeleteTarget(null);
-            });
-          }
-        }}
+        onConfirm={confirmDelete}
+      />
+
+      <ConfirmModal
+        visible={Boolean(editTarget)}
+        title="Cambiar estado"
+        description={`Actualiza el estado de ${editTarget?.name || 'este usuario'}.`}
+        confirmLabel="Guardar"
+        processing={isSubmitting}
+        onCancel={() => setEditTarget(null)}
+        onConfirm={confirmEdit}
       />
     </PortalLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  formGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    minWidth: 0,
-  },
-  input: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 220,
-    fontFamily: Typography.body,
-    fontSize: 14,
-    minHeight: 46,
-    minWidth: 0,
-    paddingHorizontal: 14,
-  },
-  segmentRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    minWidth: 0,
-  },
-  segment: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexShrink: 1,
-    minHeight: 38,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  segmentText: {
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'flex-end',
-    minWidth: 0,
-  },
   contextNotice: {
     alignItems: 'flex-start',
     borderRadius: AppTheme.radius.sm,
@@ -470,11 +281,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  messageBar: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    padding: 10,
+  },
+  messageText: {
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   primaryButton: {
     alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
-    flexShrink: 0,
     flexDirection: 'row',
+    flexShrink: 0,
     gap: 8,
     justifyContent: 'center',
     minHeight: 42,
@@ -486,20 +307,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     flexShrink: 1,
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexShrink: 0,
-    minHeight: 42,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-  },
-  secondaryText: {
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
   },
   list: {
     gap: 10,
@@ -592,7 +399,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  disabledButton: {
-    opacity: 0.55,
+  segmentRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minWidth: 0,
+  },
+  segment: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexShrink: 1,
+    minHeight: 38,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  segmentText: {
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '900',
   },
 });
