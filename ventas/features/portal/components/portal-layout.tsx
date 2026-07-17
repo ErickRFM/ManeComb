@@ -481,6 +481,9 @@ const styles = StyleSheet.create({
   },
   contentDense: {
     gap: 12,
+    maxHeight: '100vh' as any,
+    overflow: 'hidden',
+    paddingBottom: 20,
     paddingTop: 20,
   },
   contentCompact: {

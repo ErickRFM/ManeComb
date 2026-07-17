@@ -624,7 +624,7 @@ export function PortalDashboardScreen() {
       compact={activeView === 'operations'}
       wide
       title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
-      subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : 'Supervisión de flota en tiempo real.'}
+      subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : undefined}
       actions={
         <Pressable accessibilityRole="button" onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)} disabled={activeView === 'operations' && isLoading} style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
           <MaterialCommunityIcons name={activeView === 'operations' ? 'refresh' : 'arrow-left'} size={18} color={portalPalette.text} />
@@ -710,7 +710,7 @@ export function PortalDashboardScreen() {
               <Suspense fallback={<MapFallback height={620} />}>
                 <OperationsMap
                   checkpoints={routeCheckpoints}
-                  height={'clamp(500px, calc(100vh - 190px), 730px)'}
+                  height={'clamp(360px, calc(100vh - 300px), 730px)'}
                   mapMode={mapMode}
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
@@ -737,8 +737,8 @@ export function PortalDashboardScreen() {
             </View>
           </View>
           <View style={styles.kpiRow}>
-            {operationsKpis.map((kpi) => (
-              <View key={kpi.label} style={styles.kpiCard}>
+            {operationsKpis.map((kpi, index) => (
+              <View key={kpi.label} style={[styles.kpiCard, index === operationsKpis.length - 1 ? styles.kpiCardLast : undefined]}>
                 <View style={styles.kpiTop}>
                   <MaterialCommunityIcons name={kpi.icon} size={18} color={portalPalette.accent} />
                   <Text style={styles.kpiLabel}>{kpi.label}</Text>
@@ -1032,18 +1032,20 @@ function VehicleSidePanel({
       ) : (
         <Text style={styles.unitMeta}>Sin eventos registrados para la jornada.</Text>
       )}
-      <Text style={styles.sideSectionTitle}>Acciones</Text>
-      {session ? (
-        <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
-          <Text style={styles.primaryText}>Ver jornada</Text>
-          <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
-        </Pressable>
-      ) : null}
-      <View style={styles.quickActions}>
-        <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
-        <QuickAction icon="history" label="Historial" onPress={onHistory} />
-        <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriverSelectorOpen} />
-        <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
+      <View style={styles.sideActions}>
+        <Text style={styles.sideSectionTitle}>Acciones</Text>
+        {session ? (
+          <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
+            <Text style={styles.primaryText}>Ver jornada</Text>
+            <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
+          </Pressable>
+        ) : null}
+        <View style={styles.quickActions}>
+          <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
+          <QuickAction icon="history" label="Historial" onPress={onHistory} />
+          <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriverSelectorOpen} />
+          <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
+        </View>
       </View>
     </View>
   );
@@ -1801,19 +1803,22 @@ const styles = StyleSheet.create({
   },
   operationsUnitsCol: {
     flex: 7,
-    height: 'clamp(680px, calc(100vh - 164px), 880px)' as any,
-    maxHeight: 'clamp(680px, calc(100vh - 164px), 880px)' as any,
-    minHeight: 680,
+    height: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
+    maxHeight: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
+    minHeight: 500,
     minWidth: 0,
     overflow: 'visible',
   },
-  kpiRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 8, minWidth: 0 },
+  kpiRow: {
+    backgroundColor: 'rgba(13, 23, 40, 0.9)', borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm,
+    borderWidth: 1, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
+  },
   kpiCard: {
-    backgroundColor: 'rgba(13, 23, 40, 0.94)', borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm,
-    borderWidth: 1, boxShadow: '0 12px 30px rgba(0,0,0,.22)' as any, flex: 1, gap: 4, minHeight: 96,
+    backgroundColor: 'transparent', borderRightColor: portalPalette.line, borderRightWidth: 1, flex: 1, gap: 4, minHeight: 80,
     minWidth: 0, paddingHorizontal: 12, paddingVertical: 8,
     animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
+  kpiCardLast: { borderRightWidth: 0 },
   kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
   kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
   kpiValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900', lineHeight: 23 },
@@ -1896,6 +1901,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
+  sideActions: {
+    gap: 4,
+    marginTop: 'auto',
+  },
   replayControls: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1977,6 +1986,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
+    flex: 1,
     gap: 4,
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
