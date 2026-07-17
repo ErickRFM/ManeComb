@@ -59,7 +59,7 @@ describe('radio state', () => {
     );
     expect(radioScreenSource).toContain('const ensureRadioHistoryLoaded = useCallback');
     expect(radioScreenSource).toContain('historyLoadInFlightRef.current.has(channelId)');
-    expect(radioScreenSource).not.toContain('messagesByConversation[channelId] !== undefined');
+    expect(radioScreenSource).toContain('messagesByConversation[channelId] !== undefined');
     expect(radioScreenSource).toContain('bootstrappedRef.current = false;');
   });
 

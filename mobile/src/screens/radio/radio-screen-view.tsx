@@ -80,6 +80,7 @@ import {
   getConversationPreview,
 } from './utils/radio-format';
 import { getPresenceStatus } from '@/src/utils/presence';
+import { useLocalSearchParams } from '@/src/navigation/router';
 
 const RADIO_MOTION = {
   duration: DesignSystem.motion.normal,
@@ -87,6 +88,7 @@ const RADIO_MOTION = {
 };
 
 export function RadioScreen() {
+  const params = useLocalSearchParams<{ channelId?: string }>();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1080;
   const isPhone = width < 720;
@@ -263,13 +265,17 @@ export function RadioScreen() {
       return;
     }
 
+    if (messagesByConversation[channelId] !== undefined) {
+      return;
+    }
+
     historyLoadInFlightRef.current.add(channelId);
     try {
       await loadConversation(channelId);
     } finally {
       historyLoadInFlightRef.current.delete(channelId);
     }
-  }, [loadConversation]);
+  }, [loadConversation, messagesByConversation]);
 
   useEffect(() => {
     if (audioFilter === 'current' && !hasCurrentChannelAudio) {
@@ -717,7 +723,9 @@ export function RadioScreen() {
 
     if (radioChannels.length) {
       const preferredChannelId =
-        activeConversationId &&
+        params.channelId && radioChannels.some((conversation) => conversation.id === params.channelId)
+          ? params.channelId
+          : activeConversationId &&
         radioChannels.some((conversation) => conversation.id === activeConversationId)
           ? activeConversationId
           : radioChannels[0].id;
@@ -733,7 +741,15 @@ export function RadioScreen() {
         setActiveConversationId(conversation.id);
       }
     });
-  }, [activeConversationId, openGeneralConversation, radioChannels, setActiveConversationId]);
+  }, [activeConversationId, openGeneralConversation, params.channelId, radioChannels, setActiveConversationId]);
+
+  useEffect(() => {
+    if (!params.channelId || !radioChannels.some((conversation) => conversation.id === params.channelId)) {
+      return;
+    }
+    setActiveConversationId(params.channelId);
+    setActivePageIndex(INITIAL_RADIO_PAGE_INDEX);
+  }, [params.channelId, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
     if (!radioChannels.length) {

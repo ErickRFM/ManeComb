@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Animated,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,7 +22,7 @@ import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
-import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionHistoryRequest, updateNavigationRouteRequest } from '@/src/api/client';
+import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionHistoryRequest, reverseNavigationPlaceRequest, updateNavigationRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -376,8 +377,18 @@ function buildSavedRouteSelection(route: RouteShape): {
   if (!origin || !destination || route.polyline.length < 2) return null;
 
   return {
-    origin: { id: `route-origin-${route.id}`, label: 'Punto inicial', address: 'Punto inicial', location: origin },
-    destination: { id: `route-destination-${route.id}`, label: 'Punto final', address: 'Punto final', location: destination },
+    origin: {
+      id: `route-origin-${route.id}`,
+      label: getSafeLabel(route.originLabel, route.name),
+      address: getSafeLabel(route.originLabel, route.name),
+      location: origin,
+    },
+    destination: {
+      id: `route-destination-${route.id}`,
+      label: getSafeLabel(route.destinationLabel, route.name),
+      address: getSafeLabel(route.destinationLabel, route.name),
+      location: destination,
+    },
     plan: {
       provider: 'system',
       origin,
@@ -829,6 +840,17 @@ function createStyles(
       paddingTop: 0,
       paddingBottom: 10,
       gap: 10,
+    },
+    modalDragArea: {
+      paddingTop: 8,
+    },
+    modalDragHandle: {
+      width: 38,
+      height: 4,
+      borderRadius: 999,
+      backgroundColor: theme.colors.line,
+      alignSelf: 'center',
+      marginBottom: 12,
     },
     modalKeyboard: {
       flex: 1,
@@ -1637,20 +1659,82 @@ export function ChecklistScreen() {
     setRouteLibraryOpen(false);
   }, [selectedAssignedRoute, selectedVehicle]);
 
+  const routeSheetTranslateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (routeModalOpen) {
+      routeSheetTranslateY.setValue(0);
+    }
+  }, [routeModalOpen, routeSheetTranslateY]);
+
+  const dismissRouteSheet = useCallback(() => {
+    Animated.timing(routeSheetTranslateY, {
+      toValue: 640,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        closeRouteModal();
+        routeSheetTranslateY.setValue(0);
+      }
+    });
+  }, [closeRouteModal, routeSheetTranslateY]);
+
+  const routeSheetPanResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+      onPanResponderMove: (_, gestureState) => {
+        routeSheetTranslateY.setValue(Math.max(0, gestureState.dy));
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 110 || gestureState.vy > 0.85) {
+          dismissRouteSheet();
+          return;
+        }
+
+        Animated.spring(routeSheetTranslateY, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 240,
+          mass: 0.9,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(routeSheetTranslateY, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 240,
+          mass: 0.9,
+          useNativeDriver: true,
+        }).start();
+      },
+    }),
+    [dismissRouteSheet, routeSheetTranslateY]
+  );
+
   const cancelRouteDraft = () => {
     const trackerState = trackerRef.current;
-
-    if (trackerState.trackerStatus !== 'off' || (isCalculatedRouteSaved && !editingRouteId)) {
-      return;
-    }
+    const assignedSelection = selectedVehicle ? buildAssignedRouteSelection(selectedVehicle) : null;
 
     pendingStopPersistRef.current = false;
     setRouteNameDraft('');
     setEditingRouteId(null);
     setIsCreatingRouteDraft(false);
-    setRouteLibraryOpen(false);
-    trackerState.resetPointToPointSession();
-    syncedVehicleRouteRef.current = null;
+    setRouteLibraryOpen(true);
+    if (assignedSelection) {
+      trackerState.applyPointToPointSelection(
+        assignedSelection.origin,
+        assignedSelection.destination,
+        assignedSelection.plan,
+        assignedSelection.plan.stops || []
+      );
+      syncedVehicleRouteRef.current = `${selectedVehicle!.id}:${assignedSelection.plan.updatedAt}`;
+    } else if (trackerState.trackerStatus === 'off') {
+      trackerState.resetPointToPointSession();
+      syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
+    }
   };
 
   function openMapForVehicle(vehicle: Vehicle, point: MapPointRole) {
@@ -1702,12 +1786,34 @@ export function ChecklistScreen() {
     openMapForVehicle(selectedVehicle, 'origin');
   };
 
-  const editSavedRoute = useCallback((route: RouteShape) => {
+  const editSavedRoute = useCallback(async (route: RouteShape) => {
     const selection = buildSavedRouteSelection(route);
 
     if (!selection) {
       trackerRef.current.setPointMessage('La ruta no contiene puntos suficientes para editarla.');
       return;
+    }
+
+    if (!route.originLabel || !route.destinationLabel) {
+      try {
+        const [originResponse, destinationResponse] = await Promise.all([
+          reverseNavigationPlaceRequest(selection.origin.location),
+          reverseNavigationPlaceRequest(selection.destination.location),
+        ]);
+        selection.origin = {
+          ...originResponse.result,
+          label: getSafeLabel(originResponse.result.label || originResponse.result.address, route.name),
+          address: getSafeLabel(originResponse.result.address || originResponse.result.label, route.name),
+        };
+        selection.destination = {
+          ...destinationResponse.result,
+          label: getSafeLabel(destinationResponse.result.label || destinationResponse.result.address, route.name),
+          address: getSafeLabel(destinationResponse.result.address || destinationResponse.result.label, route.name),
+        };
+      } catch {
+        trackerRef.current.setPointMessage('No fue posible recuperar los nombres de origen y destino.');
+        return;
+      }
     }
 
     setEditingRouteId(route.id);
@@ -1752,7 +1858,9 @@ export function ChecklistScreen() {
       const payload = {
         name: routeName,
         origin: origin.location,
+        originLabel: getPlaceLabel(origin, ''),
         destination: destination.location,
+        destinationLabel: getPlaceLabel(destination, ''),
         route,
         stops: trackerState.pointStops,
       };
@@ -1949,7 +2057,7 @@ export function ChecklistScreen() {
             stops: nextStops,
             routes: [
               {
-                label: 'Ruta preparada',
+                label: routeNameDraft.trim() || `${nextOrigin.label} - ${nextDestination.label}`,
                 distanceMeters,
                 durationSeconds,
                 durationInTrafficSeconds,
@@ -2011,6 +2119,7 @@ export function ChecklistScreen() {
     navParams.routeProvider,
     navParams.routeTrafficLevel,
     navParams.stops,
+    routeNameDraft,
     routeModalOpen,
     selectedVehicle,
     // tracker pieces we need to compare
@@ -2229,15 +2338,18 @@ export function ChecklistScreen() {
           <KeyboardSafeView
             keyboardVerticalOffset={12}
             style={styles.modalKeyboard}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalHeaderCopy}>
-                <Text style={styles.modalTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
-                <Text style={styles.modalSubtitle} numberOfLines={2} ellipsizeMode="tail">{routeHeaderSubtitle}</Text>
+          <Animated.View style={[styles.modalCard, { transform: [{ translateY: routeSheetTranslateY }] }]}>
+            <View style={styles.modalDragArea} {...routeSheetPanResponder.panHandlers}>
+              <View style={styles.modalDragHandle} />
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderCopy}>
+                  <Text style={styles.modalTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
+                  <Text style={styles.modalSubtitle} numberOfLines={2} ellipsizeMode="tail">{routeHeaderSubtitle}</Text>
+                </View>
+                <Pressable style={styles.modalClose} onPress={closeRouteModal}>
+                  <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
+                </Pressable>
               </View>
-              <Pressable style={styles.modalClose} onPress={closeRouteModal}>
-                <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
-              </Pressable>
             </View>
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
@@ -2359,7 +2471,7 @@ export function ChecklistScreen() {
                                 {getStopLabel(stop, index)}
                               </Text>
                             </View>
-                            <View style={styles.stopMoveGroup}>
+                            {editingRouteId ? <View style={styles.stopMoveGroup}>
                               <Pressable
                                 style={[styles.stopMoveButton, index === 0 ? styles.stopMoveButtonDisabled : undefined]}
                                 disabled={index === 0}
@@ -2378,7 +2490,7 @@ export function ChecklistScreen() {
                               <Pressable style={styles.stopRemoveButton} onPress={() => handleRemoveRouteStop(stop.id)}>
                                 <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.danger} />
                               </Pressable>
-                            </View>
+                            </View> : null}
                           </View>
                         ))}
                       </View>
@@ -2539,7 +2651,7 @@ export function ChecklistScreen() {
 
 
             </ScrollView>
-          </View>
+          </Animated.View>
           </KeyboardSafeView>
         </View>
       </Modal>

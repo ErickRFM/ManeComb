@@ -347,20 +347,20 @@ export function OperationsMap({
 
 const styles = StyleSheet.create({
   fallback: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     gap: 8,
-    justifyContent: 'center',
-    padding: 18,
+    justifyContent: 'flex-start',
+    padding: 14,
   },
   fallbackText: {
     color: portalPalette.muted,
     fontFamily: Typography.body,
     fontSize: 13,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   fallbackTitle: {
     color: portalPalette.text,
@@ -369,7 +369,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   fallbackList: {
-    gap: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
     maxWidth: 520,
     width: '100%',
   },
@@ -383,8 +385,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    flexGrow: 1,
+    flexBasis: 180,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   map: {
     borderColor: portalPalette.line,

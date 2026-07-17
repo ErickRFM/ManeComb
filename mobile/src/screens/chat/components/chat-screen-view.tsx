@@ -295,7 +295,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
         {showConversationPanel ? (
           <KeyboardSafeView
-            behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={[
               styles.conversationPanel,
               isMobileConversation ? styles.conversationPanelMobile : undefined,
@@ -464,7 +464,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                   automaticallyAdjustKeyboardInsets={false}
-                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
                   onContentSizeChange={handleMessagesContentSizeChange}
                   onLayout={handleMessagesLayout}
                   onScroll={handleMessagesScroll}

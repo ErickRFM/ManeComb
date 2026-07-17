@@ -1,18 +1,29 @@
 const config = require("../config");
 const queue = require("../queue");
 const metrics = require("../metrics");
-const { PROVIDER } = require("../core/types");
+const connectionManager = require("../connection");
 
 function getReadiness() {
   return {
     configured: config.isConfigured(),
-    provider: config.getConfig().providerName,
-    ready: config.isConfigured() && config.getConfig().providerName !== null,
+    provider: config.getConfig().provider,
+    ready: config.isConfigured() && config.getConfig().provider !== null,
     queue: queue.getReadiness(),
-    metrics: metrics.getSnapshot()
+    connections: connectionManager.getHealth(),
+    metrics: metrics.getSnapshot(),
+    timestamp: new Date().toISOString()
+  };
+}
+
+function getLiveness() {
+  return {
+    status: "alive",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
   };
 }
 
 module.exports = {
-  getReadiness
+  getReadiness,
+  getLiveness
 };

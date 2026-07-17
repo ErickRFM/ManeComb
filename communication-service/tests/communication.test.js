@@ -33,7 +33,7 @@ function testTypesConstants() {
   assert.equal(STATUS.QUEUED, "queued");
   assert.equal(STATUS.SENT, "sent");
   assert.equal(STATUS.FAILED, "failed");
-  console.log("ok - types/constantes definidas correctamente");
+  console.log("ok - tipos/constantes definidas correctamente");
 }
 
 function testTemplateRegistry() {
@@ -250,16 +250,16 @@ function testAllTemplatesRender() {
       const builder = comm.getTemplateBuilder(name);
       const html = builder(mockData);
       if (!html || html.length < 50) {
-        console.error(`  ERROR: Plantilla "${name}" generó HTML muy corto`);
+        console.error(`  ERROR: Template "${name}" generated very short HTML`);
         allOk = false;
       }
     } catch (err) {
-      console.error(`  ERROR: Plantilla "${name}" falló: ${err.message}`);
+      console.error(`  ERROR: Template "${name}" failed: ${err.message}`);
       allOk = false;
     }
   }
-  assert.ok(allOk, "Todas las plantillas deben renderizar sin errores");
-  console.log(`ok - ${names.length} plantillas renderizan correctamente`);
+  assert.ok(allOk, "All templates must render without errors");
+  console.log(`ok - ${names.length} templates render correctly`);
 }
 
 function testValidators() {
@@ -304,7 +304,7 @@ function testValidators() {
 
   const providerInvalid = validators.validateProviderConfig(PROVIDER.RESEND, {});
   assert.ok(!providerInvalid.valid);
-  console.log("ok - validadores funcionan correctamente");
+  console.log("ok - validators working correctly");
 }
 
 function testProviderFactory() {
@@ -326,7 +326,7 @@ function testProviderFactory() {
   assert.equal(typeof smtpProvider.send, "function");
 
   assert.throws(() => comm.createProvider("unknown", {}), /Proveedor desconocido/);
-  console.log("ok - fábrica de proveedores crea instancias correctas");
+  console.log("ok - provider factory creates correct instances");
 }
 
 function testRetryLogic() {
@@ -344,11 +344,12 @@ function testRetryLogic() {
 
   const jobOptions = retry.getJobOptions(PRIORITY.HIGH);
   assert.equal(jobOptions.attempts, 4);
-  assert.ok(jobOptions.backoff);
+  assert.equal(jobOptions.backoff.type, "exponential", "Backoff must be exponential");
+  assert.equal(jobOptions.backoff.delay, 1000);
 
   assert.ok(retry.shouldRetry(0, PRIORITY.HIGH, null));
   assert.ok(!retry.shouldRetry(3, PRIORITY.HIGH, null));
-  console.log("ok - lógica de reintentos por prioridad correcta");
+  console.log("ok - retry logic by priority correct");
 }
 
 function testMetrics() {
@@ -378,7 +379,91 @@ function testMetrics() {
   const emptySnapshot = metrics.getSnapshot();
   assert.equal(emptySnapshot.counters.length, 0);
   assert.equal(emptySnapshot.timers.length, 0);
-  console.log("ok - métricas incrementan y resetean correctamente");
+  console.log("ok - metrics increment and reset correctly");
+}
+
+function testErrorClassification() {
+  const { classifyError, BounceError, RateLimitError, TimeoutError, AuthError, InvalidAddressError, ProviderError } = require("../src/errors");
+
+  const bounce = classifyError(new Error("550 5.1.1 user unknown"), "resend");
+  assert.ok(bounce instanceof BounceError);
+  assert.equal(bounce.category, "bounce");
+  assert.equal(bounce.retryable, false);
+
+  const rateLimit = classifyError(new Error("rate limit exceeded: 429"), "smtp");
+  assert.ok(rateLimit instanceof RateLimitError);
+  assert.equal(rateLimit.category, "rate_limit");
+  assert.equal(rateLimit.retryable, true);
+
+  const timeout = classifyError(new Error("connection timed out"), "ses");
+  assert.ok(timeout instanceof TimeoutError);
+  assert.equal(timeout.category, "timeout");
+  assert.equal(timeout.retryable, true);
+
+  const auth = classifyError(new Error("535 Authentication failed"), "smtp");
+  assert.ok(auth instanceof AuthError);
+  assert.equal(auth.category, "auth");
+  assert.equal(auth.retryable, false);
+
+  const invalid = classifyError(new Error("invalid email address"), "resend");
+  assert.ok(invalid instanceof InvalidAddressError);
+  assert.equal(invalid.category, "invalid_address");
+
+  const generic = classifyError(new Error("server error"), "resend");
+  assert.ok(generic instanceof ProviderError);
+  assert.equal(generic.category, "provider");
+  assert.equal(generic.retryable, true);
+
+  console.log("ok - error classification works correctly");
+}
+
+function testTimeoutManager() {
+  const { withTimeout, getTimeoutMs } = require("../src/timeout");
+
+  assert.equal(getTimeoutMs(10), 60000);
+  assert.equal(getTimeoutMs(5), 45000);
+  assert.equal(getTimeoutMs(1), 30000);
+  assert.equal(getTimeoutMs(0), 30000);
+
+  console.log("ok - timeout manager works correctly");
+}
+
+function testRateLimiter() {
+  const rateLimiter = require("../src/rate-limit");
+
+  rateLimiter.configure("test", { maxTokens: 2, refillRate: 1, refillIntervalMs: 100 });
+
+  assert.ok(rateLimiter.waitForToken("test"), "Should allow first token");
+  assert.ok(rateLimiter.waitForToken("test"), "Should allow second token");
+
+  rateLimiter.reset("test");
+  assert.ok(rateLimiter.waitForToken("test"), "Should allow after reset");
+
+  const state = rateLimiter.getState();
+  assert.ok(state.test);
+  assert.equal(state.test.maxTokens, 2);
+
+  console.log("ok - rate limiter works correctly");
+}
+
+function testConnectionManager() {
+  const connectionManager = require("../src/connection");
+
+  connectionManager.configure({ maxConnections: 3, idleTimeoutMs: 5000 });
+
+  const health = connectionManager.getHealth();
+  assert.ok(health.pools);
+  assert.equal(Object.keys(health.pools).length, 0);
+
+  console.log("ok - connection manager initializes correctly");
+}
+
+function testDeliveryEngineExports() {
+  assert.ok(comm.deliveryEngine, "deliveryEngine must be exported");
+  assert.equal(typeof comm.deliveryEngine.sendDirect, "function");
+  assert.equal(typeof comm.deliveryEngine.sendViaQueue, "function");
+  assert.equal(typeof comm.deliveryEngine.queueOrDirect, "function");
+  console.log("ok - delivery engine exported correctly");
 }
 
 async function testHistoryMemoryStore() {
@@ -417,7 +502,7 @@ async function testHistoryMemoryStore() {
   history.resetMemoryStore();
   const afterReset = await history.query({});
   assert.equal(afterReset.length, 0);
-  console.log("ok - historial en memoria almacena y consulta correctamente");
+  console.log("ok - history memory store works correctly");
 }
 
 async function testHistoryUpdateStatus() {
@@ -439,7 +524,40 @@ async function testHistoryUpdateStatus() {
   assert.equal(entries[0].messageId, "msg-456");
 
   history.resetMemoryStore();
-  console.log("ok - historial actualiza estado correctamente");
+  console.log("ok - history updates status correctly");
+}
+
+async function testDeliveryPipelineStages() {
+  const { DeliveryPipeline, ValidateStage, ResolveTemplateStage, SendStage, HistoryStage, MetricsStage, ErrorClassificationStage, EventsStage } = require("../src/delivery/pipeline");
+
+  const pipeline = new DeliveryPipeline();
+  pipeline
+    .use(new ValidateStage())
+    .use(new ResolveTemplateStage())
+    .use(new ErrorClassificationStage())
+    .use(new SendStage())
+    .use(new HistoryStage())
+    .use(new MetricsStage())
+    .use(new EventsStage());
+
+  const ctx = {
+    to: "test@manecomb.com",
+    template: "welcome",
+    data: { name: "Test", _template: "welcome", brandName: "ManeComb", supportEmail: "test@manecomb.com", docsUrl: "" },
+    priority: 1,
+    provider: "resend",
+    from: "test@manecomb.com",
+    subject: "Welcome Test",
+    sendFn: async (c) => ({ success: true, id: "msg-pipeline-test", durationMs: 10 }),
+    status: "initial",
+    attempts: 1,
+    maxAttempts: 3
+  };
+
+  const result = await pipeline.execute(ctx);
+  assert.equal(result.status, "sent");
+  assert.ok(result.historyId, "historyId must be set");
+  console.log("ok - delivery pipeline stages work correctly");
 }
 
 (async function run() {
@@ -456,9 +574,15 @@ async function testHistoryUpdateStatus() {
   testValidators();
   testProviderFactory();
   testRetryLogic();
+  testErrorClassification();
+  testTimeoutManager();
+  testRateLimiter();
+  testConnectionManager();
+  testDeliveryEngineExports();
   testMetrics();
   await testHistoryMemoryStore();
   await testHistoryUpdateStatus();
+  await testDeliveryPipelineStages();
 })().catch((err) => {
   console.error(err);
   process.exit(1);

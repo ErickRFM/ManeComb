@@ -38,6 +38,7 @@ export function useMapSelector({
   const [selectorPlan, setSelectorPlan] = useState<NavigationPlan | null>(null);
   const [selectorStops, setSelectorStops] = useState<NavigationStop[]>(() => parseStopsParam(params.stops));
   const [isPlanningSelectorRoute, setIsPlanningSelectorRoute] = useState(false);
+  const [isResolvingPlaceNames, setIsResolvingPlaceNames] = useState(false);
   const reverseControllersRef = useRef<Partial<Record<SelectorPointRole, AbortController>>>({});
 
   useEffect(() => {
@@ -212,17 +213,51 @@ export function useMapSelector({
     selectorStops,
   ]);
 
-  const handleConfirmSelection = () => {
+  const handleConfirmSelection = async () => {
     if (!selectorPoints.origin || !selectorPoints.destination) return;
+
+    setIsResolvingPlaceNames(true);
+    let origin = selectorPoints.origin;
+    let destination = selectorPoints.destination;
+
+    try {
+      const [originResponse, destinationResponse] = await Promise.all([
+        reverseNavigationPlaceRequest(origin.location),
+        reverseNavigationPlaceRequest(destination.location),
+      ]);
+      const originLabel = getSafePlaceLabel(
+        originResponse.result.label || originResponse.result.address,
+        origin.label
+      );
+      const destinationLabel = getSafePlaceLabel(
+        destinationResponse.result.label || destinationResponse.result.address,
+        destination.label
+      );
+      origin = {
+        ...originResponse.result,
+        label: originLabel,
+        address: getSafePlaceLabel(originResponse.result.address || originLabel, originLabel),
+      };
+      destination = {
+        ...destinationResponse.result,
+        label: destinationLabel,
+        address: getSafePlaceLabel(destinationResponse.result.address || destinationLabel, destinationLabel),
+      };
+      setSelectorPoints({ origin, destination });
+    } catch {
+      setIsResolvingPlaceNames(false);
+      return;
+    }
 
     const paramsToSet = buildConfirmSelectionParams(
       params,
-      selectorPoints.origin,
-      selectorPoints.destination,
+      origin,
+      destination,
       selectorStops,
       selectorPlan
     );
 
+    setIsResolvingPlaceNames(false);
     router.push({ pathname: params.returnTo || '/checklist', params: paramsToSet });
   };
 
@@ -230,7 +265,7 @@ export function useMapSelector({
     copy: getSelectorCopy(Boolean(selectorPoints.origin), Boolean(selectorPoints.destination), selectorStops.length),
     handleConfirmSelection,
     handleSelectorPress,
-    isPlanningSelectorRoute,
+    isPlanningSelectorRoute: isPlanningSelectorRoute || isResolvingPlaceNames,
     removeLastSelectorStop,
     removeSelectorPoint,
     resetSelectorRoute,

@@ -217,10 +217,10 @@ const styles = StyleSheet.create({
   summaryCard: {
     borderRadius: AppTheme.radius.sm,
     flex: 1,
-    flexBasis: 180,
-    minHeight: 76,
+    flexBasis: 150,
+    minHeight: 70,
     minWidth: 0,
-    padding: 12,
+    padding: 10,
   },
   summaryTop: {
     alignItems: 'center',
@@ -239,9 +239,9 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     fontFamily: Typography.display,
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '900',
-    lineHeight: 24,
+    lineHeight: 22,
     minWidth: 0,
   },
   summaryDetail: {

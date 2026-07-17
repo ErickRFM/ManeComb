@@ -443,8 +443,12 @@ export function MapScreen() {
   const driverWithoutUnit = user.role === 'driver' && !driverVehicle;
   const driverWithoutRoute = user.role === 'driver' && driverVehicle && !driverVehicle.assignedRoute;
   const selectedVehicleRoutes = getSelectedVehicleRoutes(selectedVehicle, mapData.routes);
-  const mapDataForDisplay =
-    driverWithoutUnit || driverWithoutRoute
+  const mapDataForDisplay = selectorMode
+    ? {
+        ...mapData,
+        routes: [],
+      }
+    : driverWithoutUnit || driverWithoutRoute
       ? {
           ...mapData,
           routes: [],
@@ -553,7 +557,7 @@ export function MapScreen() {
             onResetRoute={selector.resetSelectorRoute}
             points={selector.selectorPoints}
             stops={selector.selectorStops}
-            top={insets.top + 80}
+            top={insets.top + 12}
           />
         ) : (
           <>

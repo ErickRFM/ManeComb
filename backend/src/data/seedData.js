@@ -84,67 +84,7 @@ function createSeedState() {
     }
   ];
 
-  const routes = [
-    {
-      id: "route-1",
-      name: "Pantitlan - Tacuba",
-      code: "R-12",
-      color: "#ff7b39",
-      polyline: [
-        { latitude: 19.415, longitude: -99.073 },
-        { latitude: 19.423, longitude: -99.101 },
-        { latitude: 19.4326, longitude: -99.1332 },
-        { latitude: 19.4452, longitude: -99.1513 }
-      ]
-    },
-    {
-      id: "route-2",
-      name: "La Raza - Indios Verdes",
-      code: "R-05",
-      color: "#19c37d",
-      polyline: [
-        { latitude: 19.4671, longitude: -99.1368 },
-        { latitude: 19.4773, longitude: -99.1312 },
-        { latitude: 19.4924, longitude: -99.1276 },
-        { latitude: 19.4978, longitude: -99.1269 }
-      ]
-    },
-    {
-      id: "route-3",
-      name: "Observatorio - Santa Fe",
-      code: "R-21",
-      color: "#45a5ff",
-      polyline: [
-        { latitude: 19.4031, longitude: -99.2003 },
-        { latitude: 19.3702, longitude: -99.2469 },
-        { latitude: 19.3611, longitude: -99.2662 },
-        { latitude: 19.3584, longitude: -99.2825 }
-      ]
-    }
-  ];
-  const buildAssignedRoute = (route, assignedBy) => ({
-    routeId: route.id,
-    routeName: route.name,
-    routeCode: route.code,
-    routeColor: route.color,
-    originLabel: route.originLabel || route.name,
-    origin: route.polyline[0],
-    destinationLabel: route.destinationLabel || "",
-    destination: route.polyline[route.polyline.length - 1],
-    stops: [],
-    assignedBy,
-    assignedAt: minutesAgo(30),
-    provider: "system",
-    route: {
-      label: route.name,
-      distanceMeters: 0,
-      durationSeconds: 0,
-      durationInTrafficSeconds: 0,
-      trafficLevel: "low",
-      polyline: route.polyline
-    },
-    alternatives: []
-  });
+  const routes = [];
 
   const vehicles = [
     {
@@ -152,8 +92,7 @@ function createSeedState() {
       organizationId: demoOrganizationId,
       code: "CB-101",
       plate: "CMB-101-A",
-      routeId: "route-1",
-      assignedRoute: buildAssignedRoute(routes[0], "user-supervisor-01"),
+      routeId: null,
       driverId: "user-driver-01",
       supervisorId: "user-supervisor-01",
       status: "on-route",
@@ -174,8 +113,7 @@ function createSeedState() {
       organizationId: demoOrganizationId,
       code: "CB-204",
       plate: "CMB-204-B",
-      routeId: "route-2",
-      assignedRoute: buildAssignedRoute(routes[1], "user-supervisor-01"),
+      routeId: null,
       driverId: "user-driver-02",
       supervisorId: "user-supervisor-01",
       status: "on-route",
@@ -222,7 +160,7 @@ function createSeedState() {
       type: "traffic",
       severity: "medium",
       status: "open",
-      routeId: "route-1",
+      routeId: null,
       vehicleId: "vehicle-101",
       reporterId: "user-driver-01",
       description: "Tramo lento cerca de San Cosme. Se calcula impacto de 8 minutos.",
@@ -236,7 +174,7 @@ function createSeedState() {
       type: "maintenance",
       severity: "high",
       status: "in_progress",
-      routeId: "route-3",
+      routeId: null,
       vehicleId: "vehicle-310",
       reporterId: "user-supervisor-01",
       description: "Unidad retirada de operacion hasta cerrar checklist mecanico.",

@@ -619,10 +619,10 @@ export function PortalDashboardScreen() {
       <View style={styles.operationsGrid}>
         <View style={styles.operationsMapCol}>
           <PortalSectionCard title="Mapa operativo">
-            <Suspense fallback={<MapFallback height={240} />}>
+            <Suspense fallback={<MapFallback height={176} />}>
               <OperationsMap
                 checkpoints={routeCheckpoints}
-                height={240}
+                height={176}
                 onVehiclePress={openVehicle}
                 routeCoordinates={routeCoordinates}
                 selectedVehicleId={selectedVehicle?.id}
@@ -1337,17 +1337,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
     minWidth: 0,
   },
   detailPanelCol: {
-    flex: 1,
-    flexBasis: 320,
+    flex: 0.85,
+    flexBasis: 300,
     minWidth: 0,
   },
   detailHistoryCol: {
-    flex: 1.6,
-    flexBasis: 420,
+    flex: 1.65,
+    flexBasis: 520,
     minWidth: 0,
   },
   disabledAction: {
@@ -1421,10 +1421,11 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
     flex: 1,
-    flexBasis: 120,
+    flexBasis: 108,
     gap: 2,
     minWidth: 0,
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   factLabel: {
     color: portalPalette.muted,
@@ -1506,14 +1507,20 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
+    flex: 1,
+    flexBasis: 290,
     gap: 6,
-    padding: 8,
+    minWidth: 0,
+    padding: 9,
   },
   historyCardActive: {
     borderColor: portalPalette.accent,
   },
   historyList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    minWidth: 0,
   },
   historyTitle: {
     color: portalPalette.text,
@@ -1582,17 +1589,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
     minWidth: 0,
   },
   operationsMapCol: {
-    flex: 1.5,
-    flexBasis: 400,
+    flex: 0.8,
+    flexBasis: 300,
     minWidth: 0,
   },
   operationsUnitsCol: {
-    flex: 1,
-    flexBasis: 300,
+    flex: 1.7,
+    flexBasis: 560,
     minWidth: 0,
   },
   optionRow: {
@@ -1635,7 +1642,7 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: 999,
     borderWidth: 1,
-    height: 10,
+    height: 8,
     overflow: 'hidden',
   },
   progressValue: {
@@ -1652,8 +1659,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 6,
-    minHeight: 34,
-    paddingHorizontal: 9,
+    minHeight: 32,
+    paddingHorizontal: 8,
   },
   quickActionText: {
     color: portalPalette.text,
@@ -1698,7 +1705,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
-    padding: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
   },
   routeSummaryLarge: {
     alignItems: 'flex-start',
@@ -1793,7 +1801,7 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 7,
     minWidth: 0,
   },
   timelineDot: {
@@ -1829,8 +1837,11 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
+    flex: 1,
+    flexBasis: 300,
     gap: 6,
-    padding: 8,
+    minWidth: 0,
+    padding: 9,
   },
   unitCardActive: {
     borderColor: portalPalette.accent,
@@ -1855,7 +1866,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   unitList: {
-    gap: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    minWidth: 0,
   },
   unitMeta: {
     color: portalPalette.muted,

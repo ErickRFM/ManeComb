@@ -763,7 +763,9 @@ export async function planNavigationRouteRequest(payload: {
 export async function createNavigationRouteRequest(payload: {
   name: string;
   origin: GeoPoint;
+  originLabel: string;
   destination: GeoPoint;
+  destinationLabel: string;
   route: NavigationPlan['routes'][number];
   stops?: NavigationStop[];
 }) {
@@ -774,7 +776,9 @@ export async function createNavigationRouteRequest(payload: {
 export async function updateNavigationRouteRequest(routeId: string, payload: {
   name: string;
   origin: GeoPoint;
+  originLabel: string;
   destination: GeoPoint;
+  destinationLabel: string;
   route: NavigationPlan['routes'][number];
   stops?: NavigationStop[];
 }) {

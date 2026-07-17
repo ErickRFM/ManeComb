@@ -12,7 +12,12 @@ const metrics = require("./metrics");
 const events = require("./events");
 const logger = require("./logger");
 const health = require("./health");
-const { PROVIDER, TEMPLATE_PRIORITY, PRIORITY, QUEUE_NAMES } = require("./core/types");
+const connectionManager = require("./connection");
+const rateLimiter = require("./rate-limit");
+const timeout = require("./timeout");
+const errors = require("./errors");
+const deliveryEngine = require("./delivery/engine");
+const { PRIORITY, TEMPLATE_PRIORITY, QUEUE_NAMES } = require("./core/types");
 
 let provider = null;
 
@@ -43,7 +48,7 @@ function configure(cfg) {
   const providerValidation = validators.validateProviderConfig(conf.provider, providerCfg);
   if (!providerValidation.valid) {
     logger.logWarn("ProviderConfigInvalid",
-      `Proveedor ${conf.provider} no configurado: ${providerValidation.errors.join(", ")}. Comunicación deshabilitada.`,
+      `Provider ${conf.provider} not configured: ${providerValidation.errors.join(", ")}. Communications disabled.`,
       { provider: conf.provider, errors: providerValidation.errors }
     );
     provider = null;
@@ -57,6 +62,22 @@ function configure(cfg) {
     redisUrl: conf.queue.redisUrl
   });
 
+  connectionManager.configure({
+    maxConnections: conf.delivery?.maxConnections || 10,
+    idleTimeoutMs: conf.delivery?.connectionIdleTimeoutMs || 30000
+  });
+
+  const deliveryCfg = conf.delivery || {};
+  if (deliveryCfg.rateLimitTokens) {
+    rateLimiter.configure("send:default", {
+      maxTokens: deliveryCfg.rateLimitTokens || 10,
+      refillRate: deliveryCfg.rateLimitRefillRate || 1,
+      refillIntervalMs: deliveryCfg.rateLimitIntervalMs || 1000
+    });
+  }
+
+  deliveryEngine.configure(conf.delivery);
+  deliveryEngine.setSendFunction(sendDirect);
   setSendFunction(sendDirect);
   createEmailWorker();
 }
@@ -71,7 +92,7 @@ function getReadiness() {
 
 async function sendEmail({ to, template, data, priority, from, subject }) {
   if (!isConfigured()) {
-    throw new Error("Módulo de comunicaciones no configurado");
+    throw new Error("Communication module not configured");
   }
 
   const resolvedPriority = priority != null ? validators.normalizePriority(priority) : (TEMPLATE_PRIORITY[template] || PRIORITY.NORMAL);
@@ -85,64 +106,31 @@ async function sendEmail({ to, template, data, priority, from, subject }) {
   };
 
   if (resolvedPriority >= PRIORITY.CRITICAL) {
-    const result = await sendDirect({ to, template, data: enrichedData, from, subject });
-    return result;
-  }
-
-  const q = queue.getQueue(QUEUE_NAMES.EMAILS);
-  const jobOptions = retry.getJobOptions(resolvedPriority);
-
-  let job;
-  try {
-    job = await q.add(
-      "send-email",
-      {
-        to,
-        template,
-        data: enrichedData,
-        priority: resolvedPriority,
-        provider: config.getConfig().provider,
-        from
-      },
-      {
-        ...jobOptions,
-        priority: resolvedPriority
-      }
-    );
-  } catch (error) {
-    logger.logWarn("QueueAddFailed", `No se pudo encolar correo (${template}), enviando directo`, {
+    return deliveryEngine.sendDirect({
+      to,
       template,
-      provider: config.getConfig().provider,
-      error: error.message
+      data: enrichedData,
+      priority: resolvedPriority,
+      from,
+      subject
     });
-    const result = await sendDirect({ to, template, data: enrichedData, from, subject });
-    return result;
   }
 
-  await history.log({
-    to: Array.isArray(to) ? to : [to],
+  return deliveryEngine.sendViaQueue({
+    to,
     template,
-    provider: config.getConfig().provider,
-    status: "queued",
+    data: enrichedData,
     priority: resolvedPriority,
-    subject: subject || "",
-    metadata: { userId: data?.userId, organizationId: data?.organizationId }
+    from,
+    subject
   });
-
-  metrics.increment("emails_enqueued", 1, { template, provider: config.getConfig().provider });
-
-  return {
-    queued: true,
-    jobId: job.id,
-    template,
-    provider: config.getConfig().provider
-  };
 }
 
-async function sendDirect({ to, template, data, from, subject }) {
+async function sendDirect({ to, template, data, from, subject, provider: providerOpt }) {
   const startTime = Date.now();
+  const targetProvider = providerOpt || config.getConfig().provider;
 
-  metrics.increment("emails_attempted", 1, { template, provider: config.getConfig().provider });
+  metrics.increment("emails_attempted", 1, { template, provider: targetProvider });
 
   try {
     const resolvedSubject = subject || extractSubject(data);
@@ -152,83 +140,98 @@ async function sendDirect({ to, template, data, from, subject }) {
     }
     const html = renderTemplate(templateFn, data);
 
-    const result = await provider.send({
-      to,
-      from: from || config.getConfig().defaultFrom,
-      subject: resolvedSubject,
-      html
-    });
+    const sendProvider = provider || createProvider(targetProvider, config.getConfig().providerConfig);
+    const sendWithTimeout = () =>
+      timeout.withTimeout(
+        () => sendProvider.send({
+          to,
+          from: from || config.getConfig().defaultFrom,
+          subject: resolvedSubject,
+          html
+        }),
+        timeout.getTimeoutMs(0, 30000),
+        `send:${targetProvider}`
+      );
 
+    const result = await sendWithTimeout();
     const duration = Date.now() - startTime;
 
     if (!result.success) {
-      metrics.increment("emails_failed", 1, { template, provider: config.getConfig().provider });
+      const classified = errors.classifyError(new Error(result.error), targetProvider);
+      metrics.increment("emails_failed", 1, { template, provider: targetProvider });
       logger.logError("EmailSendFailed", new Error(result.error), {
         template,
-        provider: config.getConfig().provider,
+        provider: targetProvider,
         to: Array.isArray(to) ? to.join(",") : to,
-        durationMs: duration
+        durationMs: duration,
+        category: classified.category
       });
       events.emit("communication:email_failed", {
         template,
-        provider: config.getConfig().provider,
+        provider: targetProvider,
         error: result.error,
-        to: Array.isArray(to) ? to : [to]
+        to: Array.isArray(to) ? to : [to],
+        category: classified.category
       });
       return {
         success: false,
         error: result.error,
-        provider: config.getConfig().provider,
+        errorCategory: classified.category,
+        provider: targetProvider,
         durationMs: duration
       };
     }
 
-    metrics.increment("emails_sent", 1, { template, provider: config.getConfig().provider });
-    metrics.observeDuration("email_send_duration_ms", duration, { template, provider: config.getConfig().provider });
+    metrics.increment("emails_sent", 1, { template, provider: targetProvider });
+    metrics.observeDuration("email_send_duration_ms", duration, { template, provider: targetProvider });
 
     logger.logEvent("EmailSent", {
       status: "success",
       template,
-      provider: config.getConfig().provider,
+      provider: targetProvider,
       to: Array.isArray(to) ? to.join(",") : to,
       durationMs: duration
     });
 
     events.emit("communication:email_sent", {
       template,
-      provider: config.getConfig().provider,
+      provider: targetProvider,
       to: Array.isArray(to) ? to : [to]
     });
 
     return {
       success: true,
-      provider: config.getConfig().provider,
+      provider: targetProvider,
       messageId: result?.id || null,
       durationMs: duration
     };
   } catch (error) {
     const duration = Date.now() - startTime;
+    const classified = errors.classifyError(error, targetProvider);
 
-    metrics.increment("emails_failed", 1, { template, provider: config.getConfig().provider });
+    metrics.increment("emails_failed", 1, { template, provider: targetProvider });
 
     logger.logError("EmailSendFailed", error, {
       template,
-      provider: config.getConfig().provider,
+      provider: targetProvider,
       to: Array.isArray(to) ? to.join(",") : to,
-      durationMs: duration
+      durationMs: duration,
+      category: classified.category
     });
 
     events.emit("communication:email_failed", {
       template,
-      provider: config.getConfig().provider,
+      provider: targetProvider,
       error: error.message,
-      to: Array.isArray(to) ? to : [to]
+      to: Array.isArray(to) ? to : [to],
+      category: classified.category
     });
 
     return {
       success: false,
       error: error.message,
-      provider: config.getConfig().provider,
+      errorCategory: classified.category,
+      provider: targetProvider,
       durationMs: duration
     };
   }
@@ -263,5 +266,10 @@ module.exports = {
   events,
   retry,
   logger,
-  health
+  health,
+  errors,
+  connectionManager,
+  rateLimiter,
+  timeout,
+  deliveryEngine
 };

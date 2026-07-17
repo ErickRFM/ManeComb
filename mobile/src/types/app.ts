@@ -355,7 +355,9 @@ export type RouteShape = {
   code: string;
   color: string;
   origin?: GeoPoint | null;
+  originLabel?: string;
   destination?: GeoPoint | null;
+  destinationLabel?: string;
   stops?: NavigationStop[];
   distanceMeters?: number;
   durationSeconds?: number;

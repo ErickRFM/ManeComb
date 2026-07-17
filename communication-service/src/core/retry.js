@@ -22,13 +22,12 @@ function getBackoffDelay(attempt, priority) {
 
 function getJobOptions(priority) {
   const maxRetries = getMaxRetries(priority);
-  const delays = getDelays(priority);
 
   return {
     attempts: maxRetries + 1,
     backoff: {
-      type: "fixed",
-      delay: delays[0] || 5000
+      type: "exponential",
+      delay: 1000
     },
     removeOnComplete: 100,
     removeOnFail: maxRetries >= 3 ? 200 : 50

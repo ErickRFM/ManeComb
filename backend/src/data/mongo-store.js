@@ -710,6 +710,19 @@ async function syncDriverVehicleAssignment(userId, nextVehicleId = null) {
 }
 
 async function ensureMongoSeedData() {
+  const removedDemoRouteIds = ["route-1", "route-2", "route-3"];
+  await Promise.all([
+    RouteModel.deleteMany({ _id: { $in: removedDemoRouteIds } }),
+    VehicleModel.updateMany(
+      { routeId: { $in: removedDemoRouteIds } },
+      { $set: { routeId: null }, $unset: { assignedRoute: "" } }
+    ),
+    IncidentModel.updateMany(
+      { routeId: { $in: removedDemoRouteIds } },
+      { $set: { routeId: null } }
+    )
+  ]);
+
   const counts = await Promise.all([
     UserModel.countDocuments(),
     RouteModel.countDocuments(),
@@ -739,7 +752,7 @@ async function ensureMongoSeedData() {
     );
   }
 
-  if (counts[1] === 0) {
+  if (counts[1] === 0 && seed.routes.length > 0) {
     await RouteModel.insertMany(
       seed.routes.map((route) => ({
         _id: route.id,

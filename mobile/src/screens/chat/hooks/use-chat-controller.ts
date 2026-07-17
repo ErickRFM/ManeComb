@@ -15,6 +15,7 @@ import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
 import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
+import { router } from '@/src/navigation/router';
 import type {
   ConversationChannelMode,
   RtcIceConfig,
@@ -477,7 +478,9 @@ export function useChatController() {
 
       if (preferredConversation?.id) {
         setActiveConversationId(preferredConversation.id);
-        loadConversation(preferredConversation.id);
+        if (messagesByConversation[preferredConversation.id] === undefined) {
+          loadConversation(preferredConversation.id).catch(() => undefined);
+        }
       }
 
       return;
@@ -494,6 +497,7 @@ export function useChatController() {
     isCompact,
     loadConversation,
     openGeneralConversation,
+    messagesByConversation,
     setActiveConversationId,
   ]);
 
@@ -515,8 +519,10 @@ export function useChatController() {
       chatConversations[0];
 
     setActiveConversationId(fallbackConversation.id);
-    loadConversation(fallbackConversation.id);
-  }, [activeConversationId, chatConversations, loadConversation, setActiveConversationId]);
+    if (messagesByConversation[fallbackConversation.id] === undefined) {
+      loadConversation(fallbackConversation.id).catch(() => undefined);
+    }
+  }, [activeConversationId, chatConversations, loadConversation, messagesByConversation, setActiveConversationId]);
 
   useEffect(() => {
     if (!isCompact) {
@@ -676,12 +682,13 @@ export function useChatController() {
     setRecordingSeconds(0);
   };
 
-  const handleSelectConversation = async (conversationId: string) => {
+  const handleSelectConversation = (conversationId: string) => {
     setActiveConversationId(conversationId);
-    await loadConversation(conversationId);
-
     if (isCompact) {
       setMobilePane('conversation');
+    }
+    if (messagesByConversation[conversationId] === undefined) {
+      loadConversation(conversationId).catch(() => undefined);
     }
   };
 
@@ -709,15 +716,28 @@ export function useChatController() {
       return;
     }
 
-    setAttachmentNotice('Conectando canal de radio...');
+    const availableRadioChannel = conversations.find((conversation) => {
+      if (conversation.channelMode !== 'radio' || conversation.kind !== activeConversation.kind) {
+        return false;
+      }
+      if (activeConversation.kind !== 'direct') {
+        return true;
+      }
+      return conversation.participants.some((participant) => participant.id === activeContact?.id);
+    });
+    const radioChannel = availableRadioChannel || (
+      activeConversation.kind === 'direct' && activeContact?.id
+        ? await openDirectConversation(activeContact.id, 'radio')
+        : await openGeneralConversation('radio')
+    );
 
-    if (activeConversation.kind === 'direct' && activeContact?.id) {
-      await openDirectConversation(activeContact.id, 'radio');
-    } else {
-      await openGeneralConversation('radio');
+    if (!radioChannel?.id) {
+      setAttachmentNotice('Radio no disponible. Intenta nuevamente.');
+      return;
     }
 
-    setAttachmentNotice('Canal de radio listo. Usa Radio para PTT dedicado.');
+    setActiveConversationId(radioChannel.id);
+    router.push({ pathname: '/radio', params: { channelId: radioChannel.id } });
   };
 
   const handleSendText = async () => {

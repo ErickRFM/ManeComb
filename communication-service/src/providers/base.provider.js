@@ -13,6 +13,10 @@ class BaseProvider {
   async verifyConnection() {
     throw new Error("verifyConnection() debe ser implementado por el proveedor");
   }
+
+  getConnectionKey() {
+    return `${this.name}:${this.config.host || this.config.apiKey?.slice(0, 8) || "default"}`;
+  }
 }
 
 module.exports = { BaseProvider };
