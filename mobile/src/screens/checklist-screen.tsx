@@ -1481,8 +1481,19 @@ export function ChecklistScreen() {
 
   useEffect(() => {
     if (!selectedVehicle?.id) { setActiveSession(null); return; }
+    let cancelled = false;
     restoredSessionIdRef.current = null;
-    getActiveRouteSessionRequest(selectedVehicle.id).then(setActiveSession).catch(() => setActiveSession(null));
+    getActiveRouteSessionRequest(selectedVehicle.id)
+      .then((session) => {
+        if (!cancelled) setActiveSession(session);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveSession(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedVehicle?.id]);
 
   useEffect(() => {

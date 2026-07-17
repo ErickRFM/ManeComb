@@ -50,6 +50,7 @@ describe('shared input infrastructure', () => {
     expect(keyboardLayout).not.toMatch(/from 'react-native'.*KeyboardAvoidingView/);
     expect(chatView).not.toContain("Platform.OS === 'android' ? 'height' : undefined");
     expect(chatView).toContain('<KeyboardSafeView');
+    expect(chatView).toContain('behavior="translate-with-padding"');
   });
 
   it('renders the existing login illustration instead of reserving empty space', () => {

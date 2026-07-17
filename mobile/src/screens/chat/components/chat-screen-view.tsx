@@ -295,6 +295,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
         {showConversationPanel ? (
           <KeyboardSafeView
+            behavior="translate-with-padding"
             style={[
               styles.conversationPanel,
               isMobileConversation ? styles.conversationPanelMobile : undefined,
