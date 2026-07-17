@@ -26,7 +26,7 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
-import { AccountSummaryCard, formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
+import { formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { isVehicleGpsFresh } from '../utils/tracking';
@@ -301,14 +301,6 @@ function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
   return alerts;
 }
 
-function getTodaySessions(sessions: RouteSession[]) {
-  const today = new Date().toLocaleDateString('en-CA');
-  return sessions.filter((session) => {
-    const startedAt = new Date(session.startedAt || '');
-    return Number.isFinite(startedAt.getTime()) && startedAt.toLocaleDateString('en-CA') === today;
-  });
-}
-
 export function PortalDashboardScreen() {
   const params = useLocalSearchParams<{ vehicleId?: string | string[]; sessionId?: string | string[] }>();
   const {
@@ -426,31 +418,6 @@ export function PortalDashboardScreen() {
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
-  const todaySessions = getTodaySessions(history);
-
-  const summary = useMemo(() => {
-    const activeVehicleIds = new Set(history.filter((session) => ['RUNNING', 'PAUSED'].includes(session.status)).map((session) => session.vehicleId));
-    const stoppedUnits = vehicles.filter((vehicle) => {
-      const speed = Number((vehicle as Vehicle & { speed?: number }).speed);
-      return activeVehicleIds.has(vehicle.id) && Number.isFinite(speed) && speed <= 0.8;
-    }).length;
-    const completedToday = todaySessions.filter((session) => session.status === 'FINISHED');
-    const productivityValues = completedToday.map(getSessionProductivity).filter((value) => value > 0);
-    return {
-      activeUnits: activeVehicleIds.size,
-      distanceToday: completedToday.reduce((sum, session) => sum + numberOrZero(session.totalDistance), 0),
-      gpsLost: completedToday.reduce((sum, session) => sum + numberOrZero(session.gpsLostEvents), 0),
-      lapsToday: completedToday.reduce((sum, session) => sum + numberOrZero(session.completedLaps), 0),
-      offRoute: completedToday.reduce((sum, session) => sum + numberOrZero(session.offRouteEvents), 0),
-      productivity:
-        productivityValues.length > 0
-          ? productivityValues.reduce((sum, value) => sum + value, 0) / productivityValues.length
-          : 0,
-      stoppedTime: completedToday.reduce((sum, session) => sum + numberOrZero(session.stoppedTime), 0),
-      stoppedUnits,
-    };
-  }, [history, todaySessions, vehicles]);
-
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -641,9 +608,12 @@ export function PortalDashboardScreen() {
         </PortalSectionCard>
       ) : null}
 
-      <View style={styles.operationsGrid}>
+      <View style={styles.mainOperationsGrid}>
         <View style={styles.operationsMapCol}>
-          <PortalSectionCard title="Mapa operativo">
+          <View style={styles.mapSurface}>
+            <View style={styles.mapHeader}>
+              <Text style={styles.panelTitle}>Mapa operativo</Text>
+            </View>
             <View style={styles.mapStage}>
               <Suspense fallback={<MapFallback height={548} />}>
                 <OperationsMap
@@ -655,30 +625,26 @@ export function PortalDashboardScreen() {
                   vehicles={vehicles}
                 />
               </Suspense>
-              {vehicles.length ? (
-                <View style={styles.mapUnitOverlay}>
-                  <Text style={styles.mapUnitOverlayTitle}>Unidades en mapa</Text>
-                  <View style={styles.unitList}>
-                    {vehicles.map((vehicle) => (
-                      <OperationalUnitCard
-                        key={vehicle.id}
-                        active={vehicle.id === selectedVehicle?.id}
-                        activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
-                        latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
-                        users={users}
-                        vehicle={vehicle}
-                        onOpen={() => showRoute(vehicle)}
-                      />
-                    ))}
-                  </View>
-                </View>
-              ) : null}
             </View>
-          </PortalSectionCard>
+          </View>
         </View>
 
         <View style={styles.operationsUnitsCol}>
           <PortalSectionCard title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
+            {vehicles.length ? (
+              <View style={styles.unitSelector}>
+                {vehicles.map((vehicle) => (
+                  <OperationalUnitCard
+                    key={vehicle.id}
+                    active={vehicle.id === selectedVehicle?.id}
+                    activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
+                    latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
+                    vehicle={vehicle}
+                    onOpen={() => showRoute(vehicle)}
+                  />
+                ))}
+              </View>
+            ) : null}
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
@@ -701,15 +667,6 @@ export function PortalDashboardScreen() {
             )}
           </PortalSectionCard>
         </View>
-      </View>
-
-      <View style={styles.summaryGrid}>
-        <AccountSummaryCard icon="bus-clock" label="Activas" value={String(summary.activeUnits)} detail="Unidades en jornada" tone="positive" />
-        <AccountSummaryCard icon="pause-circle-outline" label="Detenidas" value={String(summary.stoppedUnits)} detail="Velocidad actual baja" tone={summary.stoppedUnits > 0 ? 'warning' : 'neutral'} />
-        <AccountSummaryCard icon="map-marker-off-outline" label="Fuera de ruta" value={String(summary.offRoute)} detail="Eventos finalizados hoy" tone={summary.offRoute > 0 ? 'danger' : 'neutral'} />
-        <AccountSummaryCard icon="satellite-variant" label="GPS perdido" value={String(summary.gpsLost)} detail="Eventos finalizados hoy" tone={summary.gpsLost > 0 ? 'warning' : 'neutral'} />
-        <AccountSummaryCard icon="speedometer" label="Productividad" value={formatPercent(summary.productivity)} detail="Promedio de jornadas de hoy" tone="info" />
-        <AccountSummaryCard icon="map-marker-distance" label="Distancia hoy" value={formatDistance(summary.distanceToday)} detail={`${summary.lapsToday} vueltas registradas`} tone="info" />
       </View>
 
       <View style={styles.detailGrid}>
@@ -770,7 +727,10 @@ export function PortalDashboardScreen() {
             onReplaySpeedChange={setReplaySpeed}
           />
         ) : (
-          <EmptyState icon="clipboard-text-clock-outline" title="Sin jornada seleccionada" description="Abre una jornada del historial para consultar métricas, eventos y recorrido." />
+          <View style={styles.replayEmptyNote}>
+            <MaterialCommunityIcons name="clipboard-text-clock-outline" size={18} color={portalPalette.muted} />
+            <Text style={styles.unitMeta}>Abre una jornada del historial para consultar sus datos.</Text>
+          </View>
         )}
       </PortalSectionCard>
     </PortalLayout>
@@ -784,22 +744,17 @@ function OperationalUnitCard({
   activeSession,
   latestSession,
   onOpen,
-  users,
   vehicle,
 }: {
   active: boolean;
   activeSession: RouteSession | null;
   latestSession: RouteSession | null;
   onOpen: () => void;
-  users: User[];
   vehicle: Vehicle;
 }) {
   const session = activeSession || latestSession;
   const status = getVehicleStatus(vehicle, activeSession);
   const routeInfo = getRouteInfo(vehicle, session);
-  const activeDriver = getActiveDriver(users, vehicle, activeSession);
-  const progress = getRouteProgressPercent(vehicle, session);
-  const alerts = getOperationalAlerts(vehicle, session);
   return (
     <Pressable
       accessibilityRole="button"
@@ -812,17 +767,6 @@ function OperationalUnitCard({
           <Text style={styles.unitMeta} numberOfLines={1}>{vehicle.plate} · {routeInfo.label}</Text>
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
-      </View>
-      {alerts.length ? (
-        <View style={styles.alertRow}>
-          {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
-        </View>
-      ) : null}
-      {session ? <ProgressBar value={progress} /> : null}
-      <View style={styles.unitFacts}>
-        <Fact label="Chofer" value={activeDriver?.name || vehicle.driverName || 'Sin chofer'} />
-        <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
-        <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada'} />
       </View>
     </Pressable>
   );
@@ -869,6 +813,7 @@ function VehicleSidePanel({
   const alerts = getOperationalAlerts(vehicle, session).filter((alert) => alert.label !== journeyState.label);
   return (
     <View style={styles.sidePanel}>
+      <Text style={styles.sideSectionTitle}>Estado</Text>
       <View style={styles.sideHeader}>
         <MaterialCommunityIcons name="bus" size={24} color={portalPalette.accent} />
         <View style={styles.flex}>
@@ -882,6 +827,7 @@ function VehicleSidePanel({
           {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
         </View>
       ) : null}
+      <Text style={styles.sideSectionTitle}>Ruta</Text>
       <View style={styles.routeSummaryLarge}>
         <View style={styles.routeIcon}>
           <MaterialCommunityIcons name="map-marker-path" size={18} color={portalPalette.text} />
@@ -898,6 +844,7 @@ function VehicleSidePanel({
         <Fact label="ETA" value={getEtaLabel(vehicle)} />
         <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
       </View>
+      <Text style={styles.sideSectionTitle}>Conductor</Text>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
       {assignedDrivers.length > 1 || driverSelectorOpen ? (
         <View style={styles.assignedDriversPanel}>
@@ -941,6 +888,7 @@ function VehicleSidePanel({
       {driverChangeMessage && assignedDrivers.length <= 1 && !driverSelectorOpen ? (
         <Text style={styles.noticeInline}>{driverChangeMessage}</Text>
       ) : null}
+      {session ? <Text style={styles.sideSectionTitle}>Metricas</Text> : null}
       {session ? (
         <View style={styles.metricGrid}>
           <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
@@ -951,6 +899,7 @@ function VehicleSidePanel({
           <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
         </View>
       ) : null}
+      <Text style={styles.sideSectionTitle}>Acciones</Text>
       {session ? (
         <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
           <Text style={styles.primaryText}>Ver jornada</Text>
@@ -1185,7 +1134,12 @@ function SessionDetailView({
     return <Text style={styles.loadingText}>Cargando jornada...</Text>;
   }
   if (!detail) {
-    return <EmptyState icon="database-search-outline" title="Detalle no cargado" description="Abre el detalle para consultar eventos y posiciones persistidas." />;
+    return (
+      <View style={styles.replayEmptyNote}>
+        <MaterialCommunityIcons name="database-search-outline" size={18} color={portalPalette.muted} />
+        <Text style={styles.unitMeta}>Abre el detalle para consultar eventos y posiciones persistidas.</Text>
+      </View>
+    );
   }
   const maxIndex = Math.max(0, detail.positions.length - 1);
   const currentVisit = detail.visits.find((visit) => getTimestamp(visit.timestamp) <= getTimestamp(replayPosition?.timestamp));
@@ -1193,11 +1147,11 @@ function SessionDetailView({
   const hasPositions = detail.positions.length > 0;
   return (
     <View style={styles.sessionDetail}>
-      <View style={styles.summaryGrid}>
-        <AccountSummaryCard icon="clock-outline" label="Duracion" value={formatDuration(session.totalDuration)} detail="Persistida en jornada" tone="info" />
-        <AccountSummaryCard icon="map-marker-distance" label="Distancia" value={formatDistance(session.totalDistance)} detail="Persistida en jornada" tone="info" />
-        <AccountSummaryCard icon="flag-checkered" label="Vueltas" value={String(session.completedLaps ?? 0)} detail={`${session.completedCheckpoints ?? 0} checkpoints`} tone="positive" />
-        <AccountSummaryCard icon="chart-timeline-variant" label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} detail="Tiempo efectivo / duracion" tone="positive" />
+      <View style={styles.metricGrid}>
+        <Fact label="Duracion" value={formatDuration(session.totalDuration)} />
+        <Fact label="Distancia" value={formatDistance(session.totalDistance)} />
+        <Fact label="Vueltas" value={String(session.completedLaps ?? 0)} />
+        <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
       </View>
       <View style={styles.operationsGrid}>
         <View style={styles.replayPanel}>
@@ -1554,23 +1508,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   historyCard: {
-    backgroundColor: portalPalette.surface,
+    backgroundColor: 'transparent',
     borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 290,
-    gap: 6,
+    borderBottomWidth: 1,
+    gap: 3,
     minWidth: 0,
-    padding: 9,
+    paddingHorizontal: 4,
+    paddingVertical: 9,
+    width: '100%',
   },
   historyCardActive: {
+    backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.accent,
   },
   historyList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    gap: 0,
     minWidth: 0,
   },
   historyMeta: {
@@ -1604,26 +1556,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     position: 'relative',
   },
-  mapUnitOverlay: {
-    backgroundColor: 'rgba(7, 14, 29, 0.94)',
+  mapSurface: {
+    backgroundColor: portalPalette.surface,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    bottom: 16,
-    left: 16,
-    maxHeight: 260,
-    maxWidth: 'calc(100% - 32px)' as any,
-    overflow: 'auto' as any,
-    padding: 10,
-    position: 'absolute',
-    width: 340,
+    overflow: 'hidden',
   },
-  mapUnitOverlayTitle: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 13,
-    fontWeight: '900',
-    marginBottom: 8,
+  mapHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   metricGrid: {
     flexDirection: 'row',
@@ -1675,14 +1617,19 @@ const styles = StyleSheet.create({
     gap: 12,
     minWidth: 0,
   },
+  mainOperationsGrid: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 12,
+    minWidth: 0,
+  },
   operationsMapCol: {
-    flex: 3.1,
-    flexBasis: 760,
+    flex: 2,
     minWidth: 0,
   },
   operationsUnitsCol: {
     flex: 1,
-    flexBasis: 340,
     minWidth: 0,
   },
   optionRow: {
@@ -1839,6 +1786,17 @@ const styles = StyleSheet.create({
   sidePanel: {
     gap: 10,
   },
+  sideSectionTitle: {
+    borderBottomColor: portalPalette.line,
+    borderBottomWidth: 1,
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    paddingBottom: 4,
+    textTransform: 'uppercase',
+  },
   sideHighlightRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1861,12 +1819,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     height: 8,
     overflow: 'hidden',
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    minWidth: 0,
   },
   timelineDot: {
     alignItems: 'center',
@@ -1897,17 +1849,15 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   unitCard: {
-    backgroundColor: portalPalette.surfaceSoft,
+    backgroundColor: 'transparent',
     borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 280,
-    gap: 6,
+    borderBottomWidth: 1,
     minWidth: 0,
-    padding: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
   },
   unitCardActive: {
+    backgroundColor: portalPalette.infoSoft,
     borderColor: portalPalette.accent,
   },
   unitCode: {
@@ -1916,12 +1866,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  unitFacts: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    minWidth: 0,
-  },
   unitHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -1929,11 +1873,13 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'space-between',
   },
-  unitList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    minWidth: 0,
+  unitSelector: {
+    borderBottomColor: portalPalette.line,
+    borderBottomWidth: 1,
+    gap: 0,
+    marginBottom: 10,
+    maxHeight: 170,
+    overflow: 'auto' as any,
   },
   unitMeta: {
     color: portalPalette.muted,
