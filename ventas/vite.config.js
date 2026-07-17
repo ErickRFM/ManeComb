@@ -12,6 +12,11 @@ export default defineConfig(({ command, mode }) => {
   };
 
   const apiUrl = String(env.VITE_API_URL ?? '').trim();
+  const mapboxAccessToken = String(env.VITE_MAPBOX_ACCESS_TOKEN ?? '').trim();
+
+  if (command === 'build') {
+    console.log(mapboxAccessToken ? 'TOKEN_OK' : 'TOKEN_EMPTY');
+  }
 
   if (command === 'build' && !apiUrl) {
     console.error('Variables cargadas:', Object.keys(env).filter(k => k.startsWith('VITE_')));

@@ -93,6 +93,39 @@ a {
   }
 }
 
+@keyframes operationsMarkerPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 68, 95, 0.36), 0 10px 24px rgba(0, 0, 0, 0.35); }
+  50% { box-shadow: 0 0 0 10px rgba(240, 68, 95, 0), 0 14px 30px rgba(0, 0, 0, 0.48); }
+}
+
+.operations-map-marker {
+  transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease;
+}
+
+.operations-map-marker:hover {
+  filter: brightness(1.15);
+  transform: translateY(-2px) scale(1.08);
+}
+
+.operations-map-marker.is-active {
+  animation: operationsMarkerPulse 2.2s ease-out infinite;
+}
+
+.mapboxgl-ctrl-group {
+  background: rgba(8, 15, 29, 0.9) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(12px);
+}
+
+.mapboxgl-ctrl-group button + button {
+  border-top-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+.mapboxgl-ctrl-group button span {
+  filter: invert(1) brightness(1.8);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html,
   body {

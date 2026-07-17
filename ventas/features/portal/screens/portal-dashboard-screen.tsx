@@ -51,6 +51,7 @@ type Filters = {
 };
 
 type OperationsFilter = 'ALL' | 'RUNNING' | 'STOPPED' | 'OFF_ROUTE';
+type MapMode = 'operational' | 'satellite' | 'traffic';
 
 const statusFilters = ['ALL', 'RUNNING', 'PAUSED', 'FINISHED', 'CANCELLED'] as const;
 const historyPageSize = 50;
@@ -335,6 +336,8 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
+  const [mapMode, setMapMode] = useState<MapMode>('operational');
+  const [mapModeMenuOpen, setMapModeMenuOpen] = useState(false);
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -437,6 +440,22 @@ export function PortalDashboardScreen() {
     if (operationsFilter === 'OFF_ROUTE') return Boolean(vehicle.activeRouteProgress?.isOffRoute);
     return true;
   }), [operationsFilter, sessionsByVehicle, vehicles]);
+  const operationsKpis = useMemo(() => {
+    const active = operationsCounts.RUNNING;
+    const gpsLost = vehicles.filter((vehicle) => getGpsState(vehicle, sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
+    const completed = history.filter((session) => session.status === 'FINISHED');
+    const productive = completed.map(getSessionProductivity).filter((value) => Number.isFinite(value));
+    const productivity = productive.length ? productive.reduce((sum, value) => sum + value, 0) / productive.length : null;
+    const distance = history.reduce((sum, session) => sum + numberOrZero(session.totalDistance), 0);
+    return [
+      { detail: 'En jornada', icon: 'bus-multiple' as const, label: 'Unidades activas', value: String(active) },
+      { detail: 'Velocidad baja', icon: 'pause-circle-outline' as const, label: 'Detenidas', value: String(operationsCounts.STOPPED) },
+      { detail: 'Estado actual', icon: 'map-marker-off-outline' as const, label: 'Fuera de ruta', value: String(operationsCounts.OFF_ROUTE) },
+      { detail: 'Señal no vigente', icon: 'crosshairs-question' as const, label: 'GPS perdido', value: String(gpsLost) },
+      { detail: 'Jornadas guardadas', icon: 'chart-line' as const, label: 'Productividad', value: productivity === null ? 'Sin dato' : formatPercent(productivity) },
+      { detail: `${history.length} jornadas`, icon: 'map-marker-distance' as const, label: 'Distancia registrada', value: formatDistance(distance) },
+    ];
+  }, [history, operationsCounts, sessionsByVehicle, vehicles]);
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -642,9 +661,29 @@ export function PortalDashboardScreen() {
         <View style={styles.operationsMapCol}>
           <View style={styles.mapSurface}>
             <View style={styles.mapHeader}>
-              <View style={styles.mapModeButton}>
-                <Text style={styles.mapModeText}>Mapa operativo</Text>
-                <MaterialCommunityIcons name="chevron-down" size={17} color={portalPalette.muted} />
+              <View style={styles.mapModeControl}>
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded: mapModeMenuOpen }} onPress={() => setMapModeMenuOpen((open) => !open)} style={({ hovered, pressed }: any) => [styles.mapModeButton, hovered ? styles.controlHover : undefined, pressed ? styles.controlPressed : undefined]}>
+                  <Text style={styles.mapModeText}>{mapMode === 'traffic' ? 'Tráfico en vivo' : mapMode === 'satellite' ? 'Vista satélite' : 'Mapa operativo'}</Text>
+                  <MaterialCommunityIcons name={mapModeMenuOpen ? 'chevron-up' : 'chevron-down'} size={17} color={portalPalette.muted} />
+                </Pressable>
+                {mapModeMenuOpen ? (
+                  <View style={styles.mapModeMenu}>
+                    {([
+                      ['operational', 'map-outline', 'Mapa operativo', 'Calles y rutas con alto contraste'],
+                      ['traffic', 'car-multiple', 'Tráfico en vivo', 'Incidencias y circulación vial'],
+                      ['satellite', 'satellite-variant', 'Vista satélite', 'Imagen aérea con nombres de calles'],
+                    ] as const).map(([value, icon, label, description]) => (
+                      <Pressable key={value} accessibilityRole="button" onPress={() => { setMapMode(value); setMapModeMenuOpen(false); }} style={({ hovered }: any) => [styles.mapModeOption, mapMode === value ? styles.mapModeOptionActive : undefined, hovered ? styles.controlHover : undefined]}>
+                        <MaterialCommunityIcons name={icon} size={18} color={mapMode === value ? portalPalette.accent : portalPalette.muted} />
+                        <View style={styles.flex}>
+                          <Text style={styles.mapModeText}>{label}</Text>
+                          <Text style={styles.mapModeDescription}>{description}</Text>
+                        </View>
+                        {mapMode === value ? <MaterialCommunityIcons name="check" size={16} color={portalPalette.success} /> : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
               </View>
               <View style={styles.operationsFilters}>
                 {([
@@ -671,9 +710,11 @@ export function PortalDashboardScreen() {
                 <OperationsMap
                   checkpoints={routeCheckpoints}
                   height={'clamp(460px, calc(100vh - 230px), 690px)'}
+                  mapMode={mapMode}
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
+                  showTraffic={false}
                   vehicles={operationalVehicles}
                 />
               </Suspense>
@@ -693,6 +734,18 @@ export function PortalDashboardScreen() {
                 </View>
               ) : null}
             </View>
+          </View>
+          <View style={styles.kpiRow}>
+            {operationsKpis.map((kpi) => (
+              <View key={kpi.label} style={styles.kpiCard}>
+                <View style={styles.kpiTop}>
+                  <MaterialCommunityIcons name={kpi.icon} size={18} color={portalPalette.accent} />
+                  <Text style={styles.kpiLabel}>{kpi.label}</Text>
+                </View>
+                <Text style={styles.kpiValue}>{kpi.value}</Text>
+                <Text style={styles.kpiDetail}>{kpi.detail}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
@@ -1657,6 +1710,17 @@ const styles = StyleSheet.create({
     alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 34, paddingHorizontal: 12,
   },
+  mapModeControl: { position: 'relative', zIndex: 20 },
+  mapModeMenu: {
+    backgroundColor: 'rgba(8, 15, 29, 0.98)', borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm,
+    borderWidth: 1, boxShadow: '0 20px 48px rgba(0,0,0,.5)' as any, gap: 4, left: 0, padding: 6,
+    position: 'absolute', top: 40, width: 270, zIndex: 30,
+  },
+  mapModeOption: { alignItems: 'center', borderRadius: AppTheme.radius.xs, flexDirection: 'row', gap: 9, minHeight: 54, paddingHorizontal: 10, paddingVertical: 7 },
+  mapModeOptionActive: { backgroundColor: portalPalette.accentSoft },
+  mapModeDescription: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
+  controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong },
+  controlPressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
   mapModeText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   operationsFilters: {
     alignItems: 'center', flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
@@ -1731,14 +1795,27 @@ const styles = StyleSheet.create({
   },
   operationsMapCol: {
     flex: 18,
+    gap: 8,
     minWidth: 0,
   },
   operationsUnitsCol: {
     flex: 7,
-    maxHeight: 'clamp(560px, calc(100vh - 190px), 750px)' as any,
+    height: 'clamp(720px, calc(100vh - 190px), 850px)' as any,
+    maxHeight: 'clamp(720px, calc(100vh - 190px), 850px)' as any,
+    minHeight: 720,
     minWidth: 0,
     overflow: 'auto' as any,
   },
+  kpiRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 8, minWidth: 0 },
+  kpiCard: {
+    backgroundColor: 'rgba(13, 23, 40, 0.94)', borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm,
+    borderWidth: 1, boxShadow: '0 12px 30px rgba(0,0,0,.22)' as any, flex: 1, gap: 4, minHeight: 104,
+    minWidth: 0, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
+  kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
+  kpiValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900', lineHeight: 23 },
+  kpiDetail: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

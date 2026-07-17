@@ -1,6 +1,6 @@
 import mapboxgl, { type Map as MapboxMap, type Marker as MapboxMarker } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
@@ -11,6 +11,7 @@ type OperationsMapProps = {
   autoFit?: boolean;
   checkpoints?: NavigationStop[];
   height?: number | string;
+  mapMode?: 'operational' | 'satellite' | 'traffic';
   onClickPoint?: (point: GeoPoint) => void;
   onVehiclePress?: (vehicle: Vehicle) => void;
   replayPath?: RouteSessionPosition[];
@@ -54,15 +55,24 @@ function getDriverName(vehicle: Vehicle) {
   return vehicle.driver?.name || vehicle.driverName || 'Sin conductor';
 }
 
-function createMarkerElement({ active, label, title, tone }: { active?: boolean; label: string; title?: string; tone: 'checkpoint' | 'replay' | 'vehicle' }) {
+function getMarkerTone(vehicle: Vehicle, selectedVehicleId?: string | null): { background: string; border: string } {
+  if (vehicle.id === selectedVehicleId) return { background: portalPalette.accent, border: '#fff' };
+  if (vehicle.activeRouteProgress?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
+  if (vehicle.gpsFreshness?.state === 'stale' || vehicle.gpsFreshness?.state === 'missing') return { background: '#757575', border: '#fff' };
+  if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: portalPalette.warning, border: '#fff' };
+  return { background: portalPalette.info, border: '#fff' };
+}
+
+function createMarkerElement({ background, border, label, title, shape }: { background: string; border: string; label: string; title?: string; shape: 'pill' | 'circle' }) {
   const element = document.createElement('button');
   element.type = 'button';
+  element.className = `operations-map-marker operations-map-marker--${shape}`;
   element.textContent = label;
   if (title) element.title = title;
   element.style.alignItems = 'center';
-  element.style.background = tone === 'checkpoint' ? portalPalette.warning : tone === 'replay' ? portalPalette.accent : active ? portalPalette.accent : portalPalette.info;
-  element.style.border = '2px solid #fff';
-  element.style.borderRadius = tone === 'vehicle' ? '18px' : '50%';
+  element.style.background = background;
+  element.style.border = `2px solid ${border}`;
+  element.style.borderRadius = shape === 'pill' ? '18px' : '50%';
   element.style.boxShadow = '0 10px 24px rgba(0,0,0,0.25)';
   element.style.color = '#fff';
   element.style.cursor = 'pointer';
@@ -70,10 +80,10 @@ function createMarkerElement({ active, label, title, tone }: { active?: boolean;
   element.style.fontFamily = Typography.body;
   element.style.fontSize = '11px';
   element.style.fontWeight = '900';
-  element.style.height = tone === 'vehicle' ? '32px' : '28px';
+  element.style.height = shape === 'pill' ? '32px' : '28px';
   element.style.justifyContent = 'center';
-  element.style.minWidth = tone === 'vehicle' ? '46px' : '28px';
-  element.style.padding = tone === 'vehicle' ? '0 9px' : '0';
+  element.style.minWidth = shape === 'pill' ? '46px' : '28px';
+  element.style.padding = shape === 'pill' ? '0 9px' : '0';
   return element;
 }
 
@@ -135,10 +145,11 @@ function removeLine(map: MapboxMap, id: string) {
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 }
 
-export function OperationsMap({
+export const OperationsMap = React.memo(function OperationsMap({
   autoFit = true,
   checkpoints = [],
   height = 410,
+  mapMode = 'operational',
   onClickPoint,
   onVehiclePress,
   replayPath = [],
@@ -158,8 +169,13 @@ export function OperationsMap({
   const checkpointMarkersRef = useRef(new Map<string, MapboxMarker>());
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
   const fittedKeyRef = useRef('');
+  const initializationGuardLoggedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const mapStyle = showTraffic ? 'mapbox://styles/mapbox/navigation-preview-night-v4' : 'mapbox://styles/mapbox/dark-v11';
+  const mapStyle = mapMode === 'satellite'
+    ? 'mapbox://styles/mapbox/satellite-streets-v12'
+    : mapMode === 'traffic' || showTraffic
+      ? 'mapbox://styles/mapbox/navigation-night-v1'
+      : 'mapbox://styles/mapbox/dark-v11';
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
     [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
@@ -173,7 +189,19 @@ export function OperationsMap({
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || mapRef.current || !MAPBOX_ACCESS_TOKEN) return;
+    const initializationGuard = {
+      blocked: !host || Boolean(mapRef.current) || !MAPBOX_ACCESS_TOKEN,
+      hostAvailable: Boolean(host),
+      mapAlreadyInitialized: Boolean(mapRef.current),
+      mapUnavailable,
+      tokenConfigured: Boolean(MAPBOX_ACCESS_TOKEN),
+      tokenLength: MAPBOX_ACCESS_TOKEN.length,
+    };
+    if (initializationGuard.blocked && !initializationGuardLoggedRef.current) {
+      initializationGuardLoggedRef.current = true;
+      console.warn('[OperationsMap] new mapboxgl.Map() bloqueado', initializationGuard);
+    }
+    if (initializationGuard.blocked) return;
 
     const initialPoint = boundsPoints[0] || { latitude: 19.4326, longitude: -99.1332 };
     const map = new mapboxgl.Map({
@@ -186,10 +214,22 @@ export function OperationsMap({
       zoom: 12,
     });
     const handleMapError = (event: mapboxgl.ErrorEvent) => {
-      const status = Number((event.error as Error & { status?: number })?.status);
-      if (status === 401 || status === 403) setMapUnavailable(true);
+      const err = event.error as Error & { status?: number };
+      const status = Number(err?.status);
+      if (status === 401 || status === 403) {
+        setMapUnavailable(true);
+        return;
+      }
+      if (status) {
+        console.warn('[Mapbox] HTTP error', status, err?.message);
+      }
+    };
+    const handleWebGLContextLost = () => {
+      console.warn('[Mapbox] WebGL context lost, attempting recovery');
+      setTimeout(() => map.resize(), 500);
     };
     map.on('error', handleMapError);
+    map.on('webglcontextlost', handleWebGLContextLost);
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
@@ -208,36 +248,46 @@ export function OperationsMap({
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
       replayMarkerRef.current?.remove();
       map.off('error', handleMapError);
+      map.off('webglcontextlost', handleWebGLContextLost);
       resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
+  const syncLines = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
+    else removeLine(map, 'operations-route');
+    const replayCoordinates = replayPath.map(positionToPoint).filter(isValidPoint) as GeoPoint[];
+    if (replayCoordinates.length >= 2) setLine(map, 'operations-replay', replayCoordinates, portalPalette.info, 3, 0.72);
+    else removeLine(map, 'operations-replay');
+  }, [replayPath, routeCoordinates]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     map.setStyle(mapStyle);
-  }, [mapStyle]);
+    const onStyleLoad = () => {
+      syncLines();
+    };
+    if (map.isStyleLoaded()) {
+      onStyleLoad();
+    } else {
+      map.once('style.load', onStyleLoad);
+    }
+  }, [mapStyle, syncLines]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const syncLines = () => {
-      if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
-      else removeLine(map, 'operations-route');
-      const replayCoordinates = replayPath.map(positionToPoint).filter(isValidPoint) as GeoPoint[];
-      if (replayCoordinates.length >= 2) setLine(map, 'operations-replay', replayCoordinates, portalPalette.info, 3, 0.72);
-      else removeLine(map, 'operations-replay');
-    };
-
     if (map.isStyleLoaded()) {
       syncLines();
-      return undefined;
+      return;
     }
-    map.once('load', syncLines);
-    return () => undefined;
-  }, [replayPath, routeCoordinates]);
+    map.once('style.load', syncLines);
+  }, [syncLines]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -249,13 +299,15 @@ export function OperationsMap({
       if (!point) return;
       nextIds.add(vehicle.id);
       let marker = vehicleMarkersRef.current.get(vehicle.id);
+      const markerTone = getMarkerTone(vehicle, selectedVehicleId);
       if (!marker) {
         const element = createMarkerElement({
-          active: vehicle.id === selectedVehicleId,
+          ...markerTone,
           label: vehicle.code,
           title: `${vehicle.code} · ${getDriverName(vehicle)}`,
-          tone: 'vehicle',
+          shape: 'pill',
         });
+        element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
         element.addEventListener('click', (event) => {
           event.stopPropagation();
           const latest = vehiclesRef.current.find((item) => item.id === vehicle.id) || vehicle;
@@ -268,7 +320,9 @@ export function OperationsMap({
         const element = marker.getElement();
         element.textContent = vehicle.code;
         element.title = `${vehicle.code} · ${getDriverName(vehicle)}`;
-        element.style.background = vehicle.id === selectedVehicleId ? portalPalette.accent : portalPalette.info;
+        element.style.background = markerTone.background;
+        element.style.border = `2px solid ${markerTone.border}`;
+        element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
       }
     });
 
@@ -292,7 +346,7 @@ export function OperationsMap({
       let marker = checkpointMarkersRef.current.get(checkpointId);
       if (!marker) {
         marker = new mapboxgl.Marker({
-          element: createMarkerElement({ label: String(checkpoint.order + 1 || index + 1), tone: 'checkpoint' }),
+          element: createMarkerElement({ background: portalPalette.warning, border: '#fff', label: String(checkpoint.order + 1 || index + 1), shape: 'circle' }),
         }).setLngLat(toLngLat(checkpoint)).addTo(map);
         checkpointMarkersRef.current.set(checkpointId, marker);
       } else {
@@ -319,7 +373,7 @@ export function OperationsMap({
     }
     if (!replayMarkerRef.current) {
       replayMarkerRef.current = new mapboxgl.Marker({
-        element: createMarkerElement({ label: '▶', tone: 'replay' }),
+        element: createMarkerElement({ background: portalPalette.accent, border: '#fff', label: '▶', shape: 'circle' }),
         rotation: Number(replayPosition?.heading) || 0,
       }).setLngLat(toLngLat(point)).addTo(map);
       return;
@@ -404,7 +458,7 @@ export function OperationsMap({
   }
 
   return <View ref={hostRef as never} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 460 }]} />;
-}
+});
 
 const styles = StyleSheet.create({
   fallback: {
