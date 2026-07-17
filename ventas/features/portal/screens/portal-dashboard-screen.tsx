@@ -302,7 +302,7 @@ function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
 }
 
 export function PortalDashboardScreen() {
-  const params = useLocalSearchParams<{ vehicleId?: string | string[]; sessionId?: string | string[] }>();
+  const params = useLocalSearchParams<{ sessionId?: string | string[]; vehicleId?: string | string[]; view?: string | string[] }>();
   const {
     isSubmitting,
     lastRouteSessionUpdateId,
@@ -441,6 +441,7 @@ export function PortalDashboardScreen() {
   const routeCheckpoints = routeFocusVehicle?.assignedRoute?.stops || [];
   const replayPosition = sessionDetail?.positions[replayIndex] || null;
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
+  const activeView = getParam(params.view) === 'history' ? 'history' : getParam(params.view) === 'detail' ? 'detail' : 'operations';
 
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
@@ -454,6 +455,10 @@ export function PortalDashboardScreen() {
   const showRoute = (vehicle: Vehicle) => {
     setRouteFocusVehicleId(vehicle.id);
     openVehicle(vehicle);
+  };
+
+  const openHistoryView = (vehicleId?: string) => {
+    router.push({ pathname: '/portal', params: { ...(vehicleId ? { vehicleId } : {}), view: 'history' } } as never);
   };
 
   const changeDriver = async (vehicle: Vehicle, driver: User) => {
@@ -511,6 +516,11 @@ export function PortalDashboardScreen() {
     } finally {
       if (detailRequestIdRef.current === requestId) setIsDetailLoading(false);
     }
+  };
+
+  const openSessionView = async (session: RouteSession) => {
+    await openSession(session);
+    router.push({ pathname: '/portal', params: { sessionId: session.id, vehicleId: session.vehicleId, view: 'detail' } } as never);
   };
 
   const loadMorePositions = async () => {
@@ -574,12 +584,12 @@ export function PortalDashboardScreen() {
   return (
     <PortalLayout
       wide
-      title="Centro de operaciones"
-      subtitle="Supervisión de flota, jornadas históricas y reproducción de recorridos con datos guardados."
+      title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
+      subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : 'Supervisión de flota en tiempo real.'}
       actions={
-        <Pressable accessibilityRole="button" onPress={() => void loadHistory()} disabled={isLoading} style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
-          <MaterialCommunityIcons name="refresh" size={18} color={portalPalette.text} />
-          <Text style={styles.actionText}>{isLoading ? 'Actualizando' : 'Actualizar'}</Text>
+        <Pressable accessibilityRole="button" onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)} disabled={activeView === 'operations' && isLoading} style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
+          <MaterialCommunityIcons name={activeView === 'operations' ? 'refresh' : 'arrow-left'} size={18} color={portalPalette.text} />
+          <Text style={styles.actionText}>{activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}</Text>
         </Pressable>
       }>
       {message ? (
@@ -608,6 +618,7 @@ export function PortalDashboardScreen() {
         </PortalSectionCard>
       ) : null}
 
+      {activeView === 'operations' ? (
       <View style={styles.mainOperationsGrid}>
         <View style={styles.operationsMapCol}>
           <View style={styles.mapSurface}>
@@ -625,30 +636,32 @@ export function PortalDashboardScreen() {
                   vehicles={vehicles}
                 />
               </Suspense>
+              {vehicles.length ? (
+                <View style={styles.unitSelectorOverlay}>
+                  <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                  {vehicles.map((vehicle) => (
+                    <OperationalUnitCard
+                      key={vehicle.id}
+                      active={vehicle.id === selectedVehicle?.id}
+                      activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
+                      latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
+                      vehicle={vehicle}
+                      onOpen={() => showRoute(vehicle)}
+                    />
+                  ))}
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
 
         <View style={styles.operationsUnitsCol}>
           <PortalSectionCard title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
-            {vehicles.length ? (
-              <View style={styles.unitSelector}>
-                {vehicles.map((vehicle) => (
-                  <OperationalUnitCard
-                    key={vehicle.id}
-                    active={vehicle.id === selectedVehicle?.id}
-                    activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
-                    latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
-                    vehicle={vehicle}
-                    onOpen={() => showRoute(vehicle)}
-                  />
-                ))}
-              </View>
-            ) : null}
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
                 latestSession={latestSession}
+                recentEvents={sessionDetail?.events || []}
                 users={users}
                 vehicle={selectedVehicle}
                 driverChangeMessage={driverChangeMessage}
@@ -657,8 +670,8 @@ export function PortalDashboardScreen() {
                 onChangeDriver={(driver) => void changeDriver(selectedVehicle, driver)}
                 onCloseDriverSelector={() => setDriverSelectorVehicleId(null)}
                 onDriverSelectorOpen={() => setDriverSelectorVehicleId(selectedVehicle.id)}
-                onHistory={() => setFilter('vehicleId', selectedVehicle.id)}
-                onOpenSession={(session) => void openSession(session)}
+                onHistory={() => openHistoryView(selectedVehicle.id)}
+                onOpenSession={(session) => void openSessionView(session)}
                 onRoute={() => showRoute(selectedVehicle)}
                 onCenter={() => openVehicle(selectedVehicle)}
               />
@@ -668,7 +681,9 @@ export function PortalDashboardScreen() {
           </PortalSectionCard>
         </View>
       </View>
+      ) : null}
 
+      {activeView === 'history' ? (
       <View style={styles.detailGrid}>
         <View style={styles.detailHistoryCol}>
           <PortalSectionCard title="Historial de jornadas" subtitle="Consulta los datos guardados por fecha, unidad, conductor y estado.">
@@ -686,7 +701,7 @@ export function PortalDashboardScreen() {
                     routeLabel={getRouteLabel(vehicles.find((vehicle) => vehicle.id === session.vehicleId), session)}
                     session={session}
                      vehicleCode={vehicles.find((vehicle) => vehicle.id === session.vehicleId)?.code || 'Unidad'}
-                    onOpen={() => void openSession(session)}
+                    onOpen={() => void openSessionView(session)}
                   />
                 ))}
                 {history.length < historyTotal ? (
@@ -701,7 +716,9 @@ export function PortalDashboardScreen() {
           </PortalSectionCard>
         </View>
       </View>
+      ) : null}
 
+      {activeView === 'detail' ? (
       <PortalSectionCard
         title="Detalle de jornada"
         subtitle={selectedSession ? `${vehicles.find((vehicle) => vehicle.id === selectedSession.vehicleId)?.code || 'Unidad'} / ${formatDate(selectedSession.startedAt)}` : 'Selecciona una jornada'}
@@ -733,6 +750,7 @@ export function PortalDashboardScreen() {
           </View>
         )}
       </PortalSectionCard>
+      ) : null}
     </PortalLayout>
   );
 }
@@ -785,6 +803,7 @@ function VehicleSidePanel({
   onHistory,
   onOpenSession,
   onRoute,
+  recentEvents,
   users,
   vehicle,
 }: {
@@ -800,6 +819,7 @@ function VehicleSidePanel({
   onHistory: () => void;
   onOpenSession: (session: RouteSession) => void;
   onRoute: () => void;
+  recentEvents: RouteEvent[];
   users: User[];
   vehicle: Vehicle;
 }) {
@@ -899,6 +919,24 @@ function VehicleSidePanel({
           <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
         </View>
       ) : null}
+      <Text style={styles.sideSectionTitle}>Eventos recientes</Text>
+      {recentEvents.length ? (
+        <View style={styles.recentTimeline}>
+          {recentEvents.slice(0, 3).map((event) => (
+            <View key={event.id} style={styles.recentTimelineItem}>
+              <View style={styles.recentTimelineRail}>
+                <View style={styles.recentTimelineDot} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.timelineTitle}>{getEventLabel(event.eventType)}</Text>
+                <Text style={styles.unitMeta}>{formatDate(event.timestamp)}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.unitMeta}>Sin eventos registrados para la jornada.</Text>
+      )}
       <Text style={styles.sideSectionTitle}>Acciones</Text>
       {session ? (
         <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
@@ -1625,12 +1663,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   operationsMapCol: {
-    flex: 2,
+    flex: 2.3,
     minWidth: 0,
   },
   operationsUnitsCol: {
     flex: 1,
+    maxHeight: 590,
     minWidth: 0,
+    overflow: 'auto' as any,
   },
   optionRow: {
     flexDirection: 'row',
@@ -1786,6 +1826,29 @@ const styles = StyleSheet.create({
   sidePanel: {
     gap: 10,
   },
+  recentTimeline: {
+    gap: 0,
+  },
+  recentTimelineDot: {
+    backgroundColor: portalPalette.info,
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  recentTimelineItem: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 42,
+  },
+  recentTimelineRail: {
+    alignItems: 'center',
+    borderLeftColor: portalPalette.info,
+    borderLeftWidth: 2,
+    marginLeft: 5,
+    paddingTop: 4,
+    width: 12,
+  },
   sideSectionTitle: {
     borderBottomColor: portalPalette.line,
     borderBottomWidth: 1,
@@ -1873,13 +1936,26 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'space-between',
   },
-  unitSelector: {
-    borderBottomColor: portalPalette.line,
-    borderBottomWidth: 1,
+  unitSelectorOverlay: {
+    backgroundColor: 'rgba(7, 14, 29, 0.94)',
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    bottom: 14,
     gap: 0,
-    marginBottom: 10,
-    maxHeight: 170,
+    left: 14,
+    maxHeight: 220,
     overflow: 'auto' as any,
+    padding: 10,
+    position: 'absolute',
+    width: 300,
+  },
+  mapOverlayTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 4,
   },
   unitMeta: {
     color: portalPalette.muted,
