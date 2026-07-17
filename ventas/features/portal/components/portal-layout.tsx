@@ -26,6 +26,7 @@ type PortalLayoutProps = PropsWithChildren<{
   title: string;
   subtitle?: string;
   actions?: ReactNode;
+  wide?: boolean;
 }>;
 
 type PortalNavItem = {
@@ -94,7 +95,7 @@ function isActive(pathname: string, href: string, currentSection?: string, itemS
   return pathname.startsWith(href);
 }
 
-export function PortalLayout({ title, subtitle, actions, children }: PortalLayoutProps) {
+export function PortalLayout({ title, subtitle, actions, children, wide = false }: PortalLayoutProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 980;
   const isWeb = Platform.OS === 'web';
@@ -290,7 +291,7 @@ export function PortalLayout({ title, subtitle, actions, children }: PortalLayou
 
         {isWeb ? (
           <View style={styles.contentScroll}>
-            <View style={[styles.content, styles.contentWeb, !isWide ? styles.contentCompact : undefined]}>
+            <View style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, !isWide ? styles.contentCompact : undefined]}>
               {contentBody}
             </View>
           </View>
@@ -473,6 +474,9 @@ const styles = StyleSheet.create({
   },
   contentWeb: {
     flexGrow: 0,
+  },
+  contentWide: {
+    maxWidth: 1640,
   },
   contentCompact: {
     paddingBottom: AppTheme.spacing.xl,

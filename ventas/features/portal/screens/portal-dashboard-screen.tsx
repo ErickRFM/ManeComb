@@ -606,6 +606,7 @@ export function PortalDashboardScreen() {
 
   return (
     <PortalLayout
+      wide
       title="Centro de operaciones"
       subtitle="Supervisión de flota, jornadas históricas y reproducción de recorridos con datos guardados."
       actions={
@@ -640,57 +641,44 @@ export function PortalDashboardScreen() {
         </PortalSectionCard>
       ) : null}
 
-      <View style={styles.summaryGrid}>
-        <AccountSummaryCard icon="bus-clock" label="Activas" value={String(summary.activeUnits)} detail="Unidades en jornada" tone="positive" />
-        <AccountSummaryCard icon="pause-circle-outline" label="Detenidas" value={String(summary.stoppedUnits)} detail="Velocidad actual baja" tone={summary.stoppedUnits > 0 ? 'warning' : 'neutral'} />
-        <AccountSummaryCard icon="map-marker-off-outline" label="Fuera de ruta" value={String(summary.offRoute)} detail="Eventos finalizados hoy" tone={summary.offRoute > 0 ? 'danger' : 'neutral'} />
-        <AccountSummaryCard icon="satellite-variant" label="GPS perdido" value={String(summary.gpsLost)} detail="Eventos finalizados hoy" tone={summary.gpsLost > 0 ? 'warning' : 'neutral'} />
-        <AccountSummaryCard icon="speedometer" label="Productividad" value={formatPercent(summary.productivity)} detail="Promedio de jornadas de hoy" tone="info" />
-        <AccountSummaryCard icon="map-marker-distance" label="Distancia hoy" value={formatDistance(summary.distanceToday)} detail={`${summary.lapsToday} vueltas registradas`} tone="info" />
-      </View>
-
       <View style={styles.operationsGrid}>
         <View style={styles.operationsMapCol}>
           <PortalSectionCard title="Mapa operativo">
-            <Suspense fallback={<MapFallback height={176} />}>
-              <OperationsMap
-                checkpoints={routeCheckpoints}
-                height={176}
-                onVehiclePress={openVehicle}
-                routeCoordinates={routeCoordinates}
-                selectedVehicleId={selectedVehicle?.id}
-                vehicles={vehicles}
-              />
-            </Suspense>
+            <View style={styles.mapStage}>
+              <Suspense fallback={<MapFallback height={548} />}>
+                <OperationsMap
+                  checkpoints={routeCheckpoints}
+                  height={548}
+                  onVehiclePress={openVehicle}
+                  routeCoordinates={routeCoordinates}
+                  selectedVehicleId={selectedVehicle?.id}
+                  vehicles={vehicles}
+                />
+              </Suspense>
+              {vehicles.length ? (
+                <View style={styles.mapUnitOverlay}>
+                  <Text style={styles.mapUnitOverlayTitle}>Unidades en mapa</Text>
+                  <View style={styles.unitList}>
+                    {vehicles.map((vehicle) => (
+                      <OperationalUnitCard
+                        key={vehicle.id}
+                        active={vehicle.id === selectedVehicle?.id}
+                        activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
+                        latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
+                        users={users}
+                        vehicle={vehicle}
+                        onOpen={() => showRoute(vehicle)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
           </PortalSectionCard>
         </View>
 
         <View style={styles.operationsUnitsCol}>
-          <PortalSectionCard title="Unidades" subtitle={`${vehicles.length} unidades registradas`}>
-            {vehicles.length ? (
-              <View style={styles.unitList}>
-                {vehicles.map((vehicle) => (
-                  <OperationalUnitCard
-                    key={vehicle.id}
-                    active={vehicle.id === selectedVehicle?.id}
-                    activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
-                    latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
-                    users={users}
-                    vehicle={vehicle}
-                    onOpen={() => showRoute(vehicle)}
-                  />
-                ))}
-              </View>
-            ) : (
-              <EmptyState icon="bus-alert" title="Sin unidades" description="Registra unidades para iniciar la operación." />
-            )}
-          </PortalSectionCard>
-        </View>
-      </View>
-
-      <View style={styles.detailGrid}>
-        <View style={styles.detailPanelCol}>
-          <PortalSectionCard title="Panel lateral de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
+          <PortalSectionCard title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
@@ -713,7 +701,18 @@ export function PortalDashboardScreen() {
             )}
           </PortalSectionCard>
         </View>
+      </View>
 
+      <View style={styles.summaryGrid}>
+        <AccountSummaryCard icon="bus-clock" label="Activas" value={String(summary.activeUnits)} detail="Unidades en jornada" tone="positive" />
+        <AccountSummaryCard icon="pause-circle-outline" label="Detenidas" value={String(summary.stoppedUnits)} detail="Velocidad actual baja" tone={summary.stoppedUnits > 0 ? 'warning' : 'neutral'} />
+        <AccountSummaryCard icon="map-marker-off-outline" label="Fuera de ruta" value={String(summary.offRoute)} detail="Eventos finalizados hoy" tone={summary.offRoute > 0 ? 'danger' : 'neutral'} />
+        <AccountSummaryCard icon="satellite-variant" label="GPS perdido" value={String(summary.gpsLost)} detail="Eventos finalizados hoy" tone={summary.gpsLost > 0 ? 'warning' : 'neutral'} />
+        <AccountSummaryCard icon="speedometer" label="Productividad" value={formatPercent(summary.productivity)} detail="Promedio de jornadas de hoy" tone="info" />
+        <AccountSummaryCard icon="map-marker-distance" label="Distancia hoy" value={formatDistance(summary.distanceToday)} detail={`${summary.lapsToday} vueltas registradas`} tone="info" />
+      </View>
+
+      <View style={styles.detailGrid}>
         <View style={styles.detailHistoryCol}>
           <PortalSectionCard title="Historial de jornadas" subtitle="Consulta los datos guardados por fecha, unidad, conductor y estado.">
             <HistoryFilters filters={filters} sessions={history} users={users} vehicles={vehicles} onChange={setFilter} />
@@ -1370,17 +1369,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     minWidth: 0,
   },
   detailPanelCol: {
-    flex: 0.85,
-    flexBasis: 300,
+    flex: 0.8,
+    flexBasis: 360,
     minWidth: 0,
   },
   detailHistoryCol: {
-    flex: 1.65,
-    flexBasis: 520,
+    flex: 1.8,
+    flexBasis: 640,
     minWidth: 0,
   },
   disabledAction: {
@@ -1601,6 +1600,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 18,
   },
+  mapStage: {
+    minWidth: 0,
+    position: 'relative',
+  },
+  mapUnitOverlay: {
+    backgroundColor: 'rgba(7, 14, 29, 0.94)',
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    bottom: 16,
+    left: 16,
+    maxHeight: 260,
+    maxWidth: 'calc(100% - 32px)' as any,
+    overflow: 'auto' as any,
+    padding: 10,
+    position: 'absolute',
+    width: 340,
+  },
+  mapUnitOverlayTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1645,20 +1669,20 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   operationsGrid: {
-    alignItems: 'flex-start',
+    alignItems: 'stretch',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     minWidth: 0,
   },
   operationsMapCol: {
-    flex: 0.8,
-    flexBasis: 300,
+    flex: 3.1,
+    flexBasis: 760,
     minWidth: 0,
   },
   operationsUnitsCol: {
-    flex: 1.7,
-    flexBasis: 560,
+    flex: 1,
+    flexBasis: 340,
     minWidth: 0,
   },
   optionRow: {
@@ -1813,7 +1837,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
-    gap: 6,
+    gap: 10,
   },
   sideHighlightRow: {
     flexDirection: 'row',
@@ -1841,7 +1865,7 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 7,
+    gap: 8,
     minWidth: 0,
   },
   timelineDot: {
@@ -1873,15 +1897,15 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   unitCard: {
-    backgroundColor: portalPalette.surface,
+    backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flex: 1,
-    flexBasis: 300,
+    flexBasis: 280,
     gap: 6,
     minWidth: 0,
-    padding: 9,
+    padding: 10,
   },
   unitCardActive: {
     borderColor: portalPalette.accent,
