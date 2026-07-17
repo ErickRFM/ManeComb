@@ -71,11 +71,12 @@ export function PortalSectionCard({
   title,
   subtitle,
   right,
-}: PropsWithChildren<{ title: string; subtitle?: string; right?: ReactNode }>) {
+  compact = false,
+}: PropsWithChildren<{ title: string; subtitle?: string; right?: ReactNode; compact?: boolean }>) {
   const theme = { colors: portalColors };
 
   return (
-    <AppCard style={[styles.sectionCard, { borderColor: portalPalette.line }, portalGlass()]}>
+    <AppCard style={[styles.sectionCard, compact ? styles.sectionCardCompact : undefined, { borderColor: portalPalette.line }, portalGlass()]}>
       <View style={styles.sectionHeader}>
         <View style={styles.sectionTitleWrap}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{title}</Text>
@@ -192,6 +193,11 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     gap: 10,
     minWidth: 0,
+  },
+  sectionCardCompact: {
+    gap: 8,
+    minHeight: '100%' as any,
+    padding: 12,
   },
   sectionHeader: {
     alignItems: 'flex-start',

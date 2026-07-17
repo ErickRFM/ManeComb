@@ -234,7 +234,8 @@ export const OperationsMap = React.memo(function OperationsMap({
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
-    map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+    map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
     const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.resize()) : null;
     resizeObserver?.observe(host);
@@ -390,7 +391,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     fittedKeyRef.current = fitKey;
 
     if (boundsPoints.length === 1) {
-      map.easeTo({ center: toLngLat(boundsPoints[0]), duration: 400, zoom: 14 });
+      map.easeTo({ center: toLngLat(boundsPoints[0]), duration: 500, easing: (value) => 1 - Math.pow(1 - value, 3), zoom: 14 });
       return;
     }
 
@@ -398,7 +399,7 @@ export const OperationsMap = React.memo(function OperationsMap({
       (current, point) => current.extend(toLngLat(point)),
       new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
     );
-    map.fitBounds(bounds, { duration: 450, padding: 52 });
+    map.fitBounds(bounds, { duration: 550, easing: (value) => 1 - Math.pow(1 - value, 3), padding: 52 });
   }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {

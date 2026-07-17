@@ -60,10 +60,10 @@ const maxRenderedReplayPoints = 900;
 const replaySpeeds = [1, 2, 4] as const;
 const OperationsMap = lazy(() => import('../components/operations-map').then((module) => ({ default: module.OperationsMap })));
 const driverAvatarImageStyle: CSSProperties = {
-  borderRadius: 24,
-  height: 48,
+  borderRadius: 20,
+  height: 40,
   objectFit: 'cover',
-  width: 48,
+  width: 40,
 };
 
 function getParam(value: string | string[] | undefined) {
@@ -621,6 +621,7 @@ export function PortalDashboardScreen() {
 
   return (
     <PortalLayout
+      compact={activeView === 'operations'}
       wide
       title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
       subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : 'Supervisión de flota en tiempo real.'}
@@ -697,7 +698,7 @@ export function PortalDashboardScreen() {
                     accessibilityRole="button"
                     accessibilityState={{ selected: operationsFilter === value }}
                     onPress={() => setOperationsFilter(value)}
-                    style={[styles.operationsFilter, operationsFilter === value ? styles.operationsFilterActive : undefined]}>
+                    style={({ hovered, pressed }: any) => [styles.operationsFilter, operationsFilter === value ? styles.operationsFilterActive : undefined, hovered ? styles.controlHover : undefined, pressed ? styles.controlPressed : undefined]}>
                     <View style={[styles.filterStatusDot, value === 'RUNNING' ? styles.filterStatusRunning : value === 'STOPPED' ? styles.filterStatusStopped : value === 'OFF_ROUTE' ? styles.filterStatusOffRoute : undefined]} />
                     <Text style={styles.operationsFilterText}>{label}</Text>
                     <Text style={styles.operationsFilterCount}>{operationsCounts[value]}</Text>
@@ -709,7 +710,7 @@ export function PortalDashboardScreen() {
               <Suspense fallback={<MapFallback height={620} />}>
                 <OperationsMap
                   checkpoints={routeCheckpoints}
-                  height={'clamp(460px, calc(100vh - 230px), 690px)'}
+                  height={'clamp(500px, calc(100vh - 190px), 730px)'}
                   mapMode={mapMode}
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
@@ -750,7 +751,7 @@ export function PortalDashboardScreen() {
         </View>
 
         <View style={styles.operationsUnitsCol}>
-          <PortalSectionCard title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
+          <PortalSectionCard compact title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
@@ -872,7 +873,7 @@ function OperationalUnitCard({
       accessibilityRole="button"
       accessibilityLabel={`Ver ${vehicle.code}`}
       onPress={onOpen}
-      style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
+      style={({ hovered, pressed }: any) => [styles.unitCard, active ? styles.unitCardActive : undefined, hovered ? styles.unitCardHover : undefined, pressed ? styles.controlPressed : undefined]}>
       <View style={styles.unitHeader}>
         <View style={styles.flex}>
           <Text style={styles.unitCode}>{vehicle.code}</Text>
@@ -1399,7 +1400,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function QuickAction({ icon, label, onPress }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.quickAction}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ hovered, pressed }: any) => [styles.quickAction, hovered ? styles.quickActionHover : undefined, pressed ? styles.controlPressed : undefined]}>
       <MaterialCommunityIcons name={icon} size={16} color={portalPalette.text} />
       <Text style={styles.quickActionText}>{label}</Text>
     </Pressable>
@@ -1475,11 +1476,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: portalPalette.infoSoft,
     borderColor: portalPalette.info,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    height: 48,
+    height: 40,
     justifyContent: 'center',
-    width: 48,
+    width: 40,
   },
   driverAvatarText: {
     color: portalPalette.text,
@@ -1512,8 +1513,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 10,
-    padding: 10,
+    gap: 8,
+    padding: 8,
   },
   driverRow: {
     alignItems: 'center',
@@ -1543,7 +1544,7 @@ const styles = StyleSheet.create({
     gap: 2,
     minWidth: 0,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   factLabel: {
     color: portalPalette.muted,
@@ -1702,13 +1703,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    minHeight: 52,
+    minHeight: 44,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   mapModeButton: {
     alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 34, paddingHorizontal: 12,
+    borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 32, paddingHorizontal: 12,
   },
   mapModeControl: { position: 'relative', zIndex: 20 },
   mapModeMenu: {
@@ -1727,7 +1728,7 @@ const styles = StyleSheet.create({
   },
   operationsFilter: {
     alignItems: 'center', backgroundColor: 'rgba(8, 16, 32, 0.42)', borderColor: 'transparent', borderRadius: 18,
-    borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 32, paddingHorizontal: 9,
+    borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 28, paddingHorizontal: 8,
   },
   operationsFilterActive: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line },
   operationsFilterText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
@@ -1800,17 +1801,18 @@ const styles = StyleSheet.create({
   },
   operationsUnitsCol: {
     flex: 7,
-    height: 'clamp(720px, calc(100vh - 190px), 850px)' as any,
-    maxHeight: 'clamp(720px, calc(100vh - 190px), 850px)' as any,
-    minHeight: 720,
+    height: 'clamp(680px, calc(100vh - 164px), 880px)' as any,
+    maxHeight: 'clamp(680px, calc(100vh - 164px), 880px)' as any,
+    minHeight: 680,
     minWidth: 0,
-    overflow: 'auto' as any,
+    overflow: 'visible',
   },
   kpiRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 8, minWidth: 0 },
   kpiCard: {
     backgroundColor: 'rgba(13, 23, 40, 0.94)', borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm,
-    borderWidth: 1, boxShadow: '0 12px 30px rgba(0,0,0,.22)' as any, flex: 1, gap: 4, minHeight: 104,
-    minWidth: 0, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, boxShadow: '0 12px 30px rgba(0,0,0,.22)' as any, flex: 1, gap: 4, minHeight: 96,
+    minWidth: 0, paddingHorizontal: 12, paddingVertical: 8,
+    animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
   kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
   kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
@@ -1834,8 +1836,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     flexDirection: 'row',
     gap: 8,
-    minHeight: 42,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    paddingHorizontal: 12,
   },
   primaryText: {
     color: '#FFFFFF',
@@ -1844,12 +1846,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   progressBlock: {
-    gap: 6,
+    gap: 4,
   },
   progressFill: {
     backgroundColor: portalPalette.accent,
     borderRadius: 999,
     height: '100%',
+    transition: 'width 220ms ease-in-out' as any,
   },
   progressTrack: {
     backgroundColor: portalPalette.surfaceSoft,
@@ -1875,6 +1878,12 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: 32,
     paddingHorizontal: 8,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
+  },
+  quickActionHover: {
+    backgroundColor: portalPalette.accentSoft,
+    borderColor: portalPalette.lineStrong,
+    transform: [{ translateY: -1 }],
   },
   quickActionText: {
     color: portalPalette.text,
@@ -1916,10 +1925,10 @@ const styles = StyleSheet.create({
   routeIcon: {
     alignItems: 'center',
     backgroundColor: portalPalette.accent,
-    borderRadius: 18,
-    height: 36,
+    borderRadius: 16,
+    height: 32,
     justifyContent: 'center',
-    width: 36,
+    width: 32,
   },
   routeSummaryLarge: {
     alignItems: 'flex-start',
@@ -1960,7 +1969,7 @@ const styles = StyleSheet.create({
   sideHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   sideMeta: {
     color: portalPalette.muted,
@@ -1968,7 +1977,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sidePanel: {
-    gap: 8,
+    gap: 4,
+    animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
   recentTimeline: {
     gap: 0,
@@ -1983,7 +1993,8 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     flexDirection: 'row',
     gap: 8,
-    minHeight: 42,
+    minHeight: 36,
+    transition: 'background-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
   recentTimelineRail: {
     alignItems: 'center',
@@ -2013,7 +2024,7 @@ const styles = StyleSheet.create({
   sideTitle: {
     color: portalPalette.text,
     fontFamily: Typography.display,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
   },
   sliderFill: {
@@ -2061,11 +2072,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     minWidth: 0,
     paddingHorizontal: 4,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
   unitCardActive: {
     backgroundColor: portalPalette.infoSoft,
     borderColor: portalPalette.accent,
+  },
+  unitCardHover: {
+    backgroundColor: portalPalette.surfaceSoft,
+    transform: [{ translateX: 2 }],
   },
   unitCode: {
     color: portalPalette.text,
@@ -2081,18 +2097,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   unitSelectorOverlay: {
-    backgroundColor: 'rgba(7, 14, 29, 0.88)',
+    backgroundColor: 'rgba(7, 14, 29, 0.78)',
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     bottom: 12,
     gap: 0,
     left: 12,
-    maxHeight: 200,
+    backdropFilter: 'blur(16px)' as any,
+    boxShadow: '0 16px 40px rgba(0,0,0,.32)' as any,
+    maxHeight: 176,
     overflow: 'auto' as any,
-    padding: 10,
+    padding: 8,
     position: 'absolute',
-    width: 260,
+    width: 240,
   },
   mapOverlayTitle: {
     color: portalPalette.text,
