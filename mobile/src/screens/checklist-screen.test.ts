@@ -4,6 +4,17 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { ChecklistScreen, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
 import { useAppStore } from '@/src/store/use-app-store';
 
+jest.mock('react-native-gesture-handler', () => {
+  const ReactMock = require('react');
+  const { View } = require('react-native');
+
+  return {
+    PanGestureHandler: ({ children }: { children: React.ReactNode }) =>
+      ReactMock.createElement(View, null, children),
+    State: { ACTIVE: 4 },
+  };
+});
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );

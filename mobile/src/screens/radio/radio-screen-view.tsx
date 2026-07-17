@@ -88,7 +88,7 @@ const RADIO_MOTION = {
 };
 
 export function RadioScreen() {
-  const params = useLocalSearchParams<{ channelId?: string }>();
+  const params = useLocalSearchParams<{ channelId?: string; mode?: string }>();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1080;
   const isPhone = width < 720;
@@ -744,14 +744,6 @@ export function RadioScreen() {
   }, [activeConversationId, openGeneralConversation, params.channelId, radioChannels, setActiveConversationId]);
 
   useEffect(() => {
-    if (!params.channelId || !radioChannels.some((conversation) => conversation.id === params.channelId)) {
-      return;
-    }
-    setActiveConversationId(params.channelId);
-    setActivePageIndex(INITIAL_RADIO_PAGE_INDEX);
-  }, [params.channelId, radioChannels, setActiveConversationId]);
-
-  useEffect(() => {
     if (!radioChannels.length) {
       return;
     }
@@ -899,6 +891,16 @@ export function RadioScreen() {
     },
     [pagerWidth]
   );
+
+  useEffect(() => {
+    if (!params.channelId || !radioChannels.some((conversation) => conversation.id === params.channelId)) {
+      return;
+    }
+    setActiveConversationId(params.channelId);
+    if (params.mode === 'ptt') {
+      goToPage(INITIAL_RADIO_PAGE_INDEX);
+    }
+  }, [goToPage, params.channelId, params.mode, radioChannels, setActiveConversationId]);
 
   const handlePagerLayout = useCallback(
     (event: LayoutChangeEvent) => {

@@ -711,7 +711,7 @@ export function useChatController() {
     }
   };
 
-  const handleOpenRadioFromChat = async () => {
+  const handleOpenRadioFromChat = () => {
     if (!activeConversation) {
       return;
     }
@@ -725,19 +725,13 @@ export function useChatController() {
       }
       return conversation.participants.some((participant) => participant.id === activeContact?.id);
     });
-    const radioChannel = availableRadioChannel || (
-      activeConversation.kind === 'direct' && activeContact?.id
-        ? await openDirectConversation(activeContact.id, 'radio')
-        : await openGeneralConversation('radio')
-    );
-
-    if (!radioChannel?.id) {
-      setAttachmentNotice('Radio no disponible. Intenta nuevamente.');
+    if (!availableRadioChannel?.id) {
+      setAttachmentNotice('El canal de Radio aun no esta disponible.');
       return;
     }
 
-    setActiveConversationId(radioChannel.id);
-    router.push({ pathname: '/radio', params: { channelId: radioChannel.id } });
+    setActiveConversationId(availableRadioChannel.id);
+    router.push({ pathname: '/radio', params: { channelId: availableRadioChannel.id, mode: 'ptt' } });
   };
 
   const handleSendText = async () => {

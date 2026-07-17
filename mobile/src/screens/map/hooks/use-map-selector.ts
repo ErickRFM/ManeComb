@@ -258,7 +258,7 @@ export function useMapSelector({
     );
 
     setIsResolvingPlaceNames(false);
-    router.push({ pathname: params.returnTo || '/checklist', params: paramsToSet });
+    router.replace({ pathname: params.returnTo || '/checklist', params: paramsToSet });
   };
 
   return {

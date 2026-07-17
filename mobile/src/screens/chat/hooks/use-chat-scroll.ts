@@ -68,9 +68,7 @@ export function useChatScroll({
 
   useEffect(() => {
     const keyboardShown = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow', () => {
-      if (isNearMessagesBottomRef.current) {
-        scrollMessagesToEnd(false);
-      }
+      scrollMessagesToEnd(false);
     });
 
     return () => keyboardShown.remove();

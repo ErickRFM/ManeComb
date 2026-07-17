@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Animated,
   Modal,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,13 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import {
+  GestureHandlerRootView,
+  PanGestureHandler,
+  State as GestureState,
+  type PanGestureHandlerGestureEvent,
+  type PanGestureHandlerStateChangeEvent,
+} from 'react-native-gesture-handler';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
@@ -842,7 +848,10 @@ function createStyles(
       gap: 10,
     },
     modalDragArea: {
+      minHeight: 28,
       paddingTop: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     modalDragHandle: {
       width: 38,
@@ -1494,7 +1503,12 @@ export function ChecklistScreen() {
   }, [tracker]);
 
   useEffect(() => {
-    if (!routeModalOpen || !selectedVehicle) {
+    if (
+      !routeModalOpen ||
+      !selectedVehicle ||
+      editingRouteId ||
+      isCreatingRouteDraft
+    ) {
       return;
     }
 
@@ -1520,7 +1534,7 @@ export function ChecklistScreen() {
     }
 
     trackerRef.current.resetPointToPointSession();
-  }, [routeModalOpen, selectedVehicle]);
+  }, [editingRouteId, isCreatingRouteDraft, routeModalOpen, selectedVehicle]);
 
   useEffect(() => {
     const requestedVehicleId = String(params.vehicleId || '').trim();
@@ -1638,6 +1652,9 @@ export function ChecklistScreen() {
 
   const openRouteModal = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
+    setRouteNameDraft('');
+    setEditingRouteId(null);
+    setIsCreatingRouteDraft(false);
     setRouteLibraryOpen(false);
     setRouteModalOpen(true);
   };
@@ -1680,38 +1697,32 @@ export function ChecklistScreen() {
     });
   }, [closeRouteModal, routeSheetTranslateY]);
 
-  const routeSheetPanResponder = useMemo(
-    () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
-      onPanResponderMove: (_, gestureState) => {
-        routeSheetTranslateY.setValue(Math.max(0, gestureState.dy));
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 110 || gestureState.vy > 0.85) {
-          dismissRouteSheet();
-          return;
-        }
+  const handleRouteSheetGesture = useCallback(
+    ({ nativeEvent }: PanGestureHandlerStateChangeEvent) => {
+      if (nativeEvent.oldState !== GestureState.ACTIVE) return;
 
-        Animated.spring(routeSheetTranslateY, {
-          toValue: 0,
-          damping: 22,
-          stiffness: 240,
-          mass: 0.9,
-          useNativeDriver: true,
-        }).start();
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(routeSheetTranslateY, {
-          toValue: 0,
-          damping: 22,
-          stiffness: 240,
-          mass: 0.9,
-          useNativeDriver: true,
-        }).start();
-      },
-    }),
+      if (nativeEvent.translationY > 110 || nativeEvent.velocityY > 850) {
+        dismissRouteSheet();
+        return;
+      }
+
+      Animated.spring(routeSheetTranslateY, {
+        toValue: 0,
+        damping: 22,
+        stiffness: 240,
+        mass: 0.9,
+        useNativeDriver: true,
+      }).start();
+    },
     [dismissRouteSheet, routeSheetTranslateY]
+  );
+
+  const routeSheetGestureEvent = useMemo(
+    () => Animated.event<PanGestureHandlerGestureEvent>(
+      [{ nativeEvent: { translationY: routeSheetTranslateY } }],
+      { useNativeDriver: true }
+    ),
+    [routeSheetTranslateY]
   );
 
   const cancelRouteDraft = () => {
@@ -1722,7 +1733,7 @@ export function ChecklistScreen() {
     setRouteNameDraft('');
     setEditingRouteId(null);
     setIsCreatingRouteDraft(false);
-    setRouteLibraryOpen(true);
+    setRouteLibraryOpen(false);
     if (assignedSelection) {
       trackerState.applyPointToPointSelection(
         assignedSelection.origin,
@@ -1735,9 +1746,17 @@ export function ChecklistScreen() {
       trackerState.resetPointToPointSession();
       syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
     }
+    closeRouteModal();
+    router.replace({
+      pathname: '/checklist',
+      params: {
+        returnFilter: filterMode,
+        historyScrollY: String(historyScrollYRef.current),
+      },
+    });
   };
 
-  function openMapForVehicle(vehicle: Vehicle, point: MapPointRole) {
+  function openMapForVehicle(vehicle: Vehicle, point: MapPointRole, includeCurrentDraft = true) {
     processedMapSelectionRef.current = null;
     const routeParams: Record<string, string> = {
       vehicleId: vehicle.id,
@@ -1746,27 +1765,27 @@ export function ChecklistScreen() {
       returnTo: '/checklist',
       returnFilter: filterMode,
       historyScrollY: String(historyScrollYRef.current),
-      routeNameDraft,
+      routeNameDraft: includeCurrentDraft ? routeNameDraft : '',
     };
-    if (editingRouteId) routeParams.editingRouteId = editingRouteId;
+    if (includeCurrentDraft && editingRouteId) routeParams.editingRouteId = editingRouteId;
     const origin = tracker.pointSelection.origin;
     const destination = tracker.pointSelection.destination;
 
-    if (origin) {
+    if (includeCurrentDraft && origin) {
       routeParams.originLatitude = String(origin.location.latitude);
       routeParams.originLongitude = String(origin.location.longitude);
       routeParams.originAddress = origin.address;
       routeParams.originLabel = origin.label;
     }
 
-    if (destination) {
+    if (includeCurrentDraft && destination) {
       routeParams.destinationLatitude = String(destination.location.latitude);
       routeParams.destinationLongitude = String(destination.location.longitude);
       routeParams.destinationAddress = destination.address;
       routeParams.destinationLabel = destination.label;
     }
 
-    routeParams.stops = JSON.stringify(tracker.pointStops);
+    routeParams.stops = JSON.stringify(includeCurrentDraft ? tracker.pointStops : []);
 
     router.push({
       pathname: '/mapa',
@@ -1783,7 +1802,7 @@ export function ChecklistScreen() {
     setIsCreatingRouteDraft(true);
     setRouteLibraryOpen(false);
     trackerRef.current.resetPointToPointSession();
-    openMapForVehicle(selectedVehicle, 'origin');
+    openMapForVehicle(selectedVehicle, 'origin', false);
   };
 
   const editSavedRoute = useCallback(async (route: RouteShape) => {
@@ -1877,12 +1896,19 @@ export function ChecklistScreen() {
       setIsCreatingRouteDraft(false);
       setRouteLibraryOpen(false);
       closeRouteModal();
+      router.replace({
+        pathname: '/checklist',
+        params: {
+          returnFilter: filterMode,
+          historyScrollY: String(historyScrollYRef.current),
+        },
+      });
     } catch {
       trackerState.setPointMessage('No fue posible guardar la ruta.');
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [closeRouteModal, editingRouteId, refreshAll, routeNameDraft, selectedVehicle?.id]);
+  }, [closeRouteModal, editingRouteId, filterMode, refreshAll, routeNameDraft, selectedVehicle?.id]);
 
   const assignSavedRoute = useCallback(async (route: RouteShape) => {
     if (!selectedVehicle?.id) {
@@ -2334,23 +2360,33 @@ export function ChecklistScreen() {
       </AppCard>
 
       <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
-        <View style={styles.modalBackdrop}>
+        <GestureHandlerRootView style={styles.modalBackdrop}>
           <KeyboardSafeView
             keyboardVerticalOffset={12}
             style={styles.modalKeyboard}>
           <Animated.View style={[styles.modalCard, { transform: [{ translateY: routeSheetTranslateY }] }]}>
-            <View style={styles.modalDragArea} {...routeSheetPanResponder.panHandlers}>
-              <View style={styles.modalDragHandle} />
-              <View style={styles.modalHeader}>
-                <View style={styles.modalHeaderCopy}>
-                  <Text style={styles.modalTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
-                  <Text style={styles.modalSubtitle} numberOfLines={2} ellipsizeMode="tail">{routeHeaderSubtitle}</Text>
+            <PanGestureHandler
+              activeOffsetY={5}
+              failOffsetX={[-24, 24]}
+              onGestureEvent={routeSheetGestureEvent}
+              onHandlerStateChange={handleRouteSheetGesture}>
+              <Animated.View
+                accessible
+                accessibilityLabel="Desliza hacia abajo para cerrar"
+                accessibilityRole="adjustable"
+                style={styles.modalDragArea}>
+                <View style={styles.modalDragHandle} />
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalHeaderCopy}>
+                    <Text style={styles.modalTitle} numberOfLines={1} ellipsizeMode="tail">{selectedVehicle?.code || 'Ruta punto a punto'}</Text>
+                    <Text style={styles.modalSubtitle} numberOfLines={2} ellipsizeMode="tail">{routeHeaderSubtitle}</Text>
+                  </View>
+                  <Pressable style={styles.modalClose} onPress={closeRouteModal}>
+                    <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
+                  </Pressable>
                 </View>
-                <Pressable style={styles.modalClose} onPress={closeRouteModal}>
-                  <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
-                </Pressable>
-              </View>
-            </View>
+              </Animated.View>
+            </PanGestureHandler>
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' || routeLibraryOpen ? (
@@ -2653,7 +2689,7 @@ export function ChecklistScreen() {
             </ScrollView>
           </Animated.View>
           </KeyboardSafeView>
-        </View>
+        </GestureHandlerRootView>
       </Modal>
       <ConfirmModal
         visible={Boolean(routePendingDelete)}
