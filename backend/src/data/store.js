@@ -2096,6 +2096,8 @@ function createEmbeddedStore() {
       reporterId: user.id,
       description: payload.description,
       location: payload.location || null,
+      locationState: payload.locationState || (payload.location ? "fresh" : "missing"),
+      locationSourceTimestamp: payload.locationSourceTimestamp || payload.location?.timestamp || null,
       createdAt: new Date().toISOString(),
       media: payload.media || []
     };

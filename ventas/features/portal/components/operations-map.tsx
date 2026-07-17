@@ -3,6 +3,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
+import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
 import { portalPalette } from '../portal-theme';
 
@@ -17,6 +18,7 @@ type OperationsMapProps = {
   routeCoordinates?: GeoPoint[];
   selectedVehicleId?: string | null;
   showTraffic?: boolean;
+  variant?: 'fleet' | 'replay';
   vehicles?: Vehicle[];
 };
 
@@ -144,6 +146,7 @@ export function OperationsMap({
   routeCoordinates = [],
   selectedVehicleId = null,
   showTraffic = true,
+  variant = 'fleet',
   vehicles = [],
 }: OperationsMapProps) {
   const hostRef = useRef<HTMLElement | null>(null);
@@ -337,16 +340,32 @@ export function OperationsMap({
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
     const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));
     const currentReplayPoint = positionToPoint(replayPosition) || positionToPoint(replayPath[replayPath.length - 1]);
+    const isReplay = variant === 'replay' || replayPath.length > 0 || Boolean(replayPosition);
+    // Distinguir mapa vacio por token ausente vs mapa que fallo en tiempo de ejecucion.
+    const reason = mapUnavailable
+      ? 'No fue posible cargar el mapa. Mostramos las ubicaciones registradas.'
+      : 'Vista geografica no disponible en este entorno.';
+    const title = isReplay ? 'Recorrido de la jornada' : 'Seguimiento por unidad';
+    const icon: keyof typeof MaterialCommunityIcons.glyphMap =
+      locatedVehicles.length || currentReplayPoint ? 'map-marker-radius-outline' : isReplay ? 'map-marker-path' : 'map-marker-off-outline';
+    const message = locatedVehicles.length
+      ? reason
+      : currentReplayPoint
+        ? `Ultima posicion registrada: ${currentReplayPoint.latitude.toFixed(5)}, ${currentReplayPoint.longitude.toFixed(5)}.`
+        : isReplay
+          ? 'Esta jornada no tiene recorrido GPS guardado.'
+          : 'Las unidades apareceran aqui cuando reporten una ubicacion.';
     return (
       <View style={[styles.fallback, { minHeight: height }]}>
-        <Text style={styles.fallbackTitle}>Seguimiento por unidad</Text>
-        <Text style={styles.fallbackText}>
-          {locatedVehicles.length
-            ? 'Consulta la ultima ubicacion recibida mientras la vista geografica no esta disponible.'
-            : currentReplayPoint
-              ? `Ultima posicion del recorrido: ${currentReplayPoint.latitude.toFixed(5)}, ${currentReplayPoint.longitude.toFixed(5)}.`
-              : 'Las unidades apareceran aqui cuando reporten una ubicacion.'}
-        </Text>
+        <View style={styles.fallbackHeader}>
+          <View style={styles.fallbackIcon}>
+            <MaterialCommunityIcons name={icon} size={20} color={portalPalette.accent} />
+          </View>
+          <View style={styles.fallbackHeaderText}>
+            <Text style={styles.fallbackTitle}>{title}</Text>
+            <Text style={styles.fallbackText}>{message}</Text>
+          </View>
+        </View>
         {locatedVehicles.length ? (
           <View style={styles.fallbackList}>
             {locatedVehicles.map((vehicle) => {
@@ -388,10 +407,33 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     padding: 14,
   },
+  fallbackHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  fallbackHeaderText: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  fallbackIcon: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    flexShrink: 0,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
   fallbackText: {
     color: portalPalette.muted,
     fontFamily: Typography.body,
     fontSize: 13,
+    lineHeight: 18,
     textAlign: 'left',
   },
   fallbackTitle: {

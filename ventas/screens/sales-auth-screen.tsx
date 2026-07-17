@@ -428,6 +428,7 @@ function AuthField({
   value: string;
 }) {
   const [isFocused, setFocused] = useState(false);
+  const [isPasswordVisible, setPasswordVisible] = useState(false);
   const webInputStyle =
     Platform.OS === 'web'
       ? ({
@@ -451,7 +452,7 @@ function AuthField({
           onChangeText={onChangeText}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
-          secureTextEntry={secureTextEntry}
+          secureTextEntry={secureTextEntry && !isPasswordVisible}
           placeholder={placeholder}
           placeholderTextColor="rgba(216, 226, 245, 0.38)"
           selectionColor="#FF4D7D"
@@ -459,6 +460,20 @@ function AuthField({
           onBlur={() => setFocused(false)}
           style={[styles.input, webInputStyle]}
         />
+        {secureTextEntry ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isPasswordVisible ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+            hitSlop={8}
+            onPress={() => setPasswordVisible((current) => !current)}
+            style={styles.passwordToggle}>
+            <MaterialCommunityIcons
+              name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+              size={19}
+              color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'}
+            />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -655,6 +670,13 @@ const styles = StyleSheet.create({
     minHeight: 46,
     paddingHorizontal: 0,
     paddingVertical: 0,
+  },
+  passwordToggle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 2,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   sessionRow: {
     minHeight: 22,

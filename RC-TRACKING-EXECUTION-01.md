@@ -4,7 +4,9 @@ Fecha: 2026-07-17
 
 ## Estado de cierre
 
-Implementación técnica de Fases 1–4 completada y validaciones automáticas en verde. La RC permanece **abierta**: el conteo de rutas huérfanas sobre MongoDB productivo y la matriz manual en dispositivo requieren conectividad/operación externa. No se modificaron datos.
+Implementación técnica de Fases 1–3 y reduced-motion Mobile completada. Fase 4-landing está implementada pero no certificada. La RC permanece **abierta**: el conteo de rutas huérfanas sobre MongoDB productivo, el bloqueo TypeScript del Portal y la matriz manual en dispositivo requieren resolución externa. No se modificaron datos productivos.
+
+> Actualización 2026-07-17: se cerraron los frentes de ubicación persistida de incidentes y prevención de nuevas rutas huérfanas. La extensión reduced-motion de la landing fue implementada, pero su certificación quedó bloqueada por un error TypeScript concurrente y ajeno en `portal-dashboard-screen.tsx` (`styles.replayEmptyNote` inexistente). Por ello Fase 4-landing no se declara cerrada.
 
 ## Fase 0 — Verificación de datos
 
@@ -57,6 +59,7 @@ Implementación técnica de Fases 1–4 completada y validaciones automáticas e
 - `/locations/live` ya no acepta rutas sin organización como globales.
 - Las rutas se filtran por tenant; solo el rol con acceso explícito a todos los tenants puede cruzar organizaciones.
 - Emisiones de ubicación continúan segmentadas por sala de organización/rol y usuario conductor.
+- `POST /navigation/routes` exige `requireOrganization` antes del acceso operativo; una identidad sin tenant ya no puede persistir una ruta con `organizationId: null`.
 
 ### Riesgos
 
@@ -68,6 +71,17 @@ Implementación técnica de Fases 1–4 completada y validaciones automáticas e
 
 - El panel inferior de Mobile escucha `reduceMotionChanged` y omite `LayoutAnimation` cuando el sistema solicita movimiento reducido.
 - No se modificó lógica de seguimiento, selección, HUD ni mapa.
+- Landing: se añadió una vía estática de revelado, preferencia reactiva `matchMedia`, supresión de parallax antes de registrar pointer/rAF, detención de loops y gate de keyframes con `@media (prefers-reduced-motion: reduce)`.
+- Estado landing: **implementada, no certificada**. El árbol compilaba antes de la edición; durante la verificación apareció un error TypeScript ajeno en `ventas/features/portal/screens/portal-dashboard-screen.tsx` por un estilo `replayEmptyNote` faltante. No se modificó ese frente concurrente.
+
+## Frente adicional — Ubicación persistida de incidentes
+
+- Antes: Mobile copiaba `vehicle.location` si existía `locationTimestamp`, aunque estuviera vencido; Backend lo persistía sin clasificación y mapa/historial lo consumían como ubicación real.
+- Política aplicada: una ubicación de vehículo solo se persiste si el mismo criterio autoritativo la clasifica `fresh`.
+- GPS vencido: `location: null`, `locationState: stale`, `locationSourceTimestamp` preservado.
+- Sin GPS: `location: null`, `locationState: missing`.
+- GPS fresco: coordenada persistida normalmente con `locationState: fresh`.
+- La validación se ejecuta en Backend; Mobile anticipa el mismo estado para presentar “GPS vencido” distinto de “Sin ubicación GPS”.
 
 ## Validaciones automáticas
 

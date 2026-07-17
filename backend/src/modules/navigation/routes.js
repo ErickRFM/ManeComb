@@ -6,7 +6,8 @@ const {
   canAccessAllTenants,
   getOrganizationId,
   getRolesWithPermission,
-  hasPermission
+  hasPermission,
+  requireOrganization
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { planRoute, reverseGeocode, searchPlaces } = require("../../services/navigation-service");
@@ -244,7 +245,7 @@ router.post("/plan", authenticate, requireOperationalAccess, async (req, res, ne
   }
 });
 
-router.post("/routes", authenticate, requireOperationalAccess, async (req, res, next) => {
+router.post("/routes", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
   try {
     if (!hasPermission(req.user, "canManageRoutes")) {
       return res.status(403).json({

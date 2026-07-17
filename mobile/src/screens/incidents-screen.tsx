@@ -20,6 +20,7 @@ import { PrimaryButton } from '@/src/components/primary-button';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Incident, IncidentDraft, IncidentSeverity, LiveLocationsData, User } from '@/src/types/app';
+import { isVehicleGpsFresh } from './map/utils/tracking';
 import { formatRelativeTime } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
@@ -213,15 +214,19 @@ function hasIncidentLocation(incident: Incident) {
   );
 }
 
-function getIncidentContext(user: User | null, mapData: LiveLocationsData | null): Pick<IncidentDraft, 'location' | 'routeId' | 'vehicleId'> {
+export function getIncidentContext(user: User | null, mapData: LiveLocationsData | null): Pick<IncidentDraft, 'location' | 'locationSourceTimestamp' | 'locationState' | 'routeId' | 'vehicleId'> {
   const vehicle = user?.vehicleId
     ? mapData?.vehicles.find((entry) => entry.id === user.vehicleId) || null
     : null;
-  const vehicleLocation = vehicle?.locationTimestamp ? vehicle.location : null;
+  const hasGps = Boolean(vehicle?.locationTimestamp && vehicle.location);
+  const gpsIsFresh = isVehicleGpsFresh(vehicle);
+  const vehicleLocation = gpsIsFresh ? vehicle?.location : null;
 
   return {
     vehicleId: vehicle?.id || user?.vehicleId || null,
     routeId: vehicle?.routeId || vehicle?.route?.id || null,
+    locationState: gpsIsFresh ? 'fresh' : hasGps ? 'stale' : 'missing',
+    locationSourceTimestamp: vehicle?.locationTimestamp || null,
     location: vehicleLocation
       ? {
           latitude: vehicleLocation.latitude,
@@ -1190,7 +1195,9 @@ export function IncidentsScreen() {
                             <Text style={screenStyles.incidentMetaText} numberOfLines={1}>
                               {hasIncidentLocation(incident)
                                 ? `${getIncidentUnitLabel(incident)} · GPS${Number.isFinite(Number(incident.location?.accuracy)) ? ` ±${Math.round(Number(incident.location?.accuracy))} m` : ''}${incident.location?.timestamp ? ` · ${formatRelativeTime(incident.location.timestamp)}` : ''}`
-                                : `${getIncidentUnitLabel(incident)} · Sin ubicacion GPS`}
+                                : incident.locationState === 'stale'
+                                  ? `${getIncidentUnitLabel(incident)} · GPS vencido${incident.locationSourceTimestamp ? ` · ${formatRelativeTime(incident.locationSourceTimestamp)}` : ''}`
+                                  : `${getIncidentUnitLabel(incident)} · Sin ubicacion GPS`}
                             </Text>
                           </View>
                           {hasIncidentLocation(incident) ? (

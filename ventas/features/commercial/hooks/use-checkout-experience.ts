@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CommercialPlan, User } from '@/src/types/app';
 import { createCheckoutService } from '../create-commercial-service';
+import { readCachedPlans, writeCachedPlans } from '../services/plans-cache';
 import {
   PAYMENT_SESSION_STATUSES,
   type CheckoutPaymentMethod,
@@ -24,8 +25,8 @@ export function useCheckoutExperience({
   user: User | null;
 }) {
   const [service] = useState(() => createCheckoutService());
-  const [plans, setPlans] = useState<CommercialPlan[]>([]);
-  const [plansLoading, setPlansLoading] = useState(true);
+  const [plans, setPlans] = useState<CommercialPlan[]>(() => readCachedPlans());
+  const [plansLoading, setPlansLoading] = useState(() => readCachedPlans().length === 0);
   const [plansError, setPlansError] = useState<string | null>(null);
   const [providerMode, setProviderMode] = useState<PaymentProviderMode>('unavailable');
   const [processing, setProcessing] = useState(false);
@@ -34,16 +35,20 @@ export function useCheckoutExperience({
   const submitInFlight = useRef(false);
 
   const loadPlans = useCallback(async () => {
-    setPlansLoading(true);
     setPlansError(null);
+    setPlansLoading((current) => current || plans.length === 0);
     try {
-      setPlans(await service.listPlans());
+      const fresh = await service.listPlans();
+      setPlans(fresh);
+      writeCachedPlans(fresh);
     } catch {
-      setPlansError('No pudimos cargar los planes. Revisa tu conexión e inténtalo de nuevo.');
+      if (plans.length === 0) {
+        setPlansError('No pudimos cargar los planes. Revisa tu conexión e inténtalo de nuevo.');
+      }
     } finally {
       setPlansLoading(false);
     }
-  }, [service]);
+  }, [plans.length, service]);
 
   useEffect(() => {
     void loadPlans();
@@ -125,24 +130,32 @@ export function usePublicCommercialFlow({
   paymentId?: string | null;
 }) {
   const [service] = useState(() => createCheckoutService());
-  const [plans, setPlans] = useState<CommercialPlan[]>([]);
-  const [plansLoading, setPlansLoading] = useState(true);
+  // Sembramos con el catalogo cacheado para que los planes aparezcan al instante
+  // mientras revalidamos contra la API (mitiga el cold start del backend).
+  const [plans, setPlans] = useState<CommercialPlan[]>(() => readCachedPlans());
+  const [plansLoading, setPlansLoading] = useState(() => readCachedPlans().length === 0);
   const [plansError, setPlansError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<PaymentReturnConfirmation>({ status: 'idle' });
   const lastConfirmation = useRef<string | null>(null);
 
   const loadPlans = useCallback(async () => {
-    setPlansLoading(true);
     setPlansError(null);
+    // Solo mostramos el estado de carga si no hay nada que mostrar todavia.
+    setPlansLoading((current) => current || plans.length === 0);
 
     try {
-      setPlans(await service.listPlans());
+      const fresh = await service.listPlans();
+      setPlans(fresh);
+      writeCachedPlans(fresh);
     } catch {
-      setPlansError('No pudimos cargar los planes. Revisa tu conexion e intenta nuevamente.');
+      // Con cache disponible no interrumpimos la vista: seguimos mostrando lo previo.
+      if (plans.length === 0) {
+        setPlansError('No pudimos cargar los planes. Revisa tu conexion e intenta nuevamente.');
+      }
     } finally {
       setPlansLoading(false);
     }
-  }, [service]);
+  }, [plans.length, service]);
 
   useEffect(() => {
     void loadPlans();

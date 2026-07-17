@@ -216,6 +216,30 @@ function getSessionProductivity(session?: RouteSession | null) {
   return Number(session?.metrics?.effectiveTimePercent ?? 0);
 }
 
+type SessionMetricsView = {
+  checkpoints: number;
+  distance: string;
+  duration: string;
+  laps: number;
+  productivity: string;
+  stopped: string;
+};
+
+// Fuente unica de metricas de jornada. El panel lateral, la tarjeta de historial y el
+// detalle derivan de aqui: leen los mismos campos persistidos por el backend con el mismo
+// formato, de modo que no puedan mostrar valores distintos de la misma jornada.
+// (El "Tiempo activo" live del panel lateral es otra metrica y se calcula aparte a proposito.)
+function getSessionMetricsView(session: RouteSession): SessionMetricsView {
+  return {
+    checkpoints: session.completedCheckpoints ?? 0,
+    distance: formatDistance(session.totalDistance),
+    duration: formatDuration(session.totalDuration),
+    laps: session.completedLaps ?? 0,
+    productivity: formatPercent(session.metrics?.effectiveTimePercent),
+    stopped: formatDuration(session.stoppedTime),
+  };
+}
+
 function getRouteProgressPercent(vehicle: Vehicle, session?: RouteSession | null) {
   if (session?.status === 'FINISHED') return 100;
   if (!session) return 0;
@@ -1167,6 +1191,7 @@ function SessionDetailView({
   const maxIndex = Math.max(0, detail.positions.length - 1);
   const currentVisit = detail.visits.find((visit) => getTimestamp(visit.timestamp) <= getTimestamp(replayPosition?.timestamp));
   const hasMorePositions = detail.positionsOffset < detail.positionsTotal;
+  const hasPositions = detail.positions.length > 0;
   return (
     <View style={styles.sessionDetail}>
       <View style={styles.summaryGrid}>
@@ -1183,40 +1208,50 @@ function SessionDetailView({
               replayPath={replayPath}
               replayPosition={replayPosition}
               routeCoordinates={replayPath.map((position) => ({ latitude: position.latitude, longitude: position.longitude }))}
+              variant="replay"
               vehicles={[]}
             />
           </Suspense>
-          <View style={styles.replayControls}>
-            <QuickAction icon={replayPlaying ? 'pause' : 'play'} label={replayPlaying ? 'Pausar' : 'Reproducir'} onPress={() => onReplayPlayingChange(!replayPlaying)} />
-            {replaySpeeds.map((speed) => (
-              <Pressable key={speed} onPress={() => onReplaySpeedChange(speed)} style={[styles.filterChip, replaySpeed === speed ? styles.filterChipActive : undefined]}>
-                <Text style={styles.filterChipText}>{speed}x</Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.sliderTrack}>
-            <View style={[styles.sliderFill, { width: `${maxIndex ? (replayIndex / maxIndex) * 100 : 0}%` }]} />
-          </View>
-          <View style={styles.replaySteps}>
-            <Pressable onPress={() => onReplayIndexChange(Math.max(0, replayIndex - 1))} style={styles.secondaryButton}>
-              <Text style={styles.secondaryText}>Anterior</Text>
-            </Pressable>
-            <Pressable onPress={() => onReplayIndexChange(Math.min(maxIndex, replayIndex + 1))} style={styles.secondaryButton}>
-              <Text style={styles.secondaryText}>Siguiente</Text>
-            </Pressable>
-            {hasMorePositions ? (
-              <Pressable onPress={onLoadMorePositions} style={styles.secondaryButton}>
-                <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar más posiciones'}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <View style={styles.metricGrid}>
-            <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posición'} />
-            <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
-            <Fact label="Checkpoint" value={currentVisit ? `#${detail.visits.indexOf(currentVisit) + 1}` : 'Sin checkpoint'} />
-            <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
-            <Fact label="Posiciones" value={`${detail.positions.length} / ${detail.positionsTotal || detail.positions.length}`} />
-          </View>
+          {hasPositions ? (
+            <>
+              <View style={styles.replayControls}>
+                <QuickAction icon={replayPlaying ? 'pause' : 'play'} label={replayPlaying ? 'Pausar' : 'Reproducir'} onPress={() => onReplayPlayingChange(!replayPlaying)} />
+                {replaySpeeds.map((speed) => (
+                  <Pressable key={speed} onPress={() => onReplaySpeedChange(speed)} style={[styles.filterChip, replaySpeed === speed ? styles.filterChipActive : undefined]}>
+                    <Text style={styles.filterChipText}>{speed}x</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.sliderTrack}>
+                <View style={[styles.sliderFill, { width: `${maxIndex ? (replayIndex / maxIndex) * 100 : 0}%` }]} />
+              </View>
+              <View style={styles.replaySteps}>
+                <Pressable onPress={() => onReplayIndexChange(Math.max(0, replayIndex - 1))} style={styles.secondaryButton}>
+                  <Text style={styles.secondaryText}>Anterior</Text>
+                </Pressable>
+                <Pressable onPress={() => onReplayIndexChange(Math.min(maxIndex, replayIndex + 1))} style={styles.secondaryButton}>
+                  <Text style={styles.secondaryText}>Siguiente</Text>
+                </Pressable>
+                {hasMorePositions ? (
+                  <Pressable onPress={onLoadMorePositions} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar más posiciones'}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={styles.metricGrid}>
+                <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posición'} />
+                <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
+                <Fact label="Checkpoint" value={currentVisit ? `#${detail.visits.indexOf(currentVisit) + 1}` : 'Sin checkpoint'} />
+                <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
+                <Fact label="Posiciones" value={`${detail.positions.length} / ${detail.positionsTotal || detail.positions.length}`} />
+              </View>
+            </>
+          ) : (
+            <View style={styles.replayEmptyNote}>
+              <MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.muted} />
+              <Text style={styles.unitMeta}>La reproducción se activa cuando la jornada registra posiciones GPS. Los eventos siguen disponibles a un lado.</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.timelinePanel}>
@@ -1250,14 +1285,18 @@ function SessionDetailView({
           )) : <EmptyState icon="flag-outline" title="Sin checkpoints" description="No existen visitas registradas para esta jornada." />}
         </PortalSectionCard>
         <PortalSectionCard title="GPS" subtitle="Cobertura y precisión registradas">
-          <View style={styles.metricGrid}>
-            <Fact label="Cobertura" value={formatPercent(detail.metrics?.metrics?.gpsCoveragePercent)} />
-            <Fact label="Precision prom." value={detail.metrics?.averageGpsAccuracy ? `${detail.metrics.averageGpsAccuracy} m` : 'Sin dato'} />
-            <Fact label="GOOD" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.goodPercent)} />
-            <Fact label="NORMAL" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.normalPercent)} />
-            <Fact label="BAD" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.badPercent)} />
-            <Fact label="Posiciones" value={String(detail.positions.length)} />
-          </View>
+          {hasPositions ? (
+            <View style={styles.metricGrid}>
+              <Fact label="Cobertura" value={formatPercent(detail.metrics?.metrics?.gpsCoveragePercent)} />
+              <Fact label="Precision prom." value={detail.metrics?.averageGpsAccuracy ? `${detail.metrics.averageGpsAccuracy} m` : 'Sin dato'} />
+              <Fact label="GOOD" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.goodPercent)} />
+              <Fact label="NORMAL" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.normalPercent)} />
+              <Fact label="BAD" value={formatPercent(detail.metrics?.metrics?.gpsQuality?.badPercent)} />
+              <Fact label="Posiciones" value={String(detail.positions.length)} />
+            </View>
+          ) : (
+            <EmptyState icon="satellite-variant" title="Sin datos de GPS" description="Esta jornada no registró posiciones GPS. No hay cobertura ni calidad para mostrar." />
+          )}
         </PortalSectionCard>
       </View>
     </View>
@@ -1703,6 +1742,16 @@ const styles = StyleSheet.create({
     flexBasis: 430,
     gap: 8,
     minWidth: 0,
+  },
+  replayEmptyNote: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 10,
   },
   replaySteps: {
     flexDirection: 'row',

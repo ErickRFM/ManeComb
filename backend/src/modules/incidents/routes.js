@@ -8,6 +8,7 @@ const {
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
+const { resolveIncidentLocation } = require("../../services/incident-location");
 
 const router = Router();
 
@@ -28,13 +29,15 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
     });
   }
 
-  if (vehicleId) {
-    const vehicle = await req.app.locals.store.getVehicleById(vehicleId);
+  const effectiveVehicleId = vehicleId || req.user.vehicleId || null;
+  let vehicle = null;
+  if (effectiveVehicleId) {
+    vehicle = await req.app.locals.store.getVehicleById(effectiveVehicleId);
 
     if (
       !vehicle ||
       !canAccessTenantResource(req.user, vehicle) ||
-      (req.user.role === "driver" && req.user.vehicleId !== vehicleId)
+      (req.user.role === "driver" && req.user.vehicleId !== effectiveVehicleId)
     ) {
       return res.status(404).json({
         ok: false,
@@ -43,14 +46,16 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
     }
   }
 
+  const incidentLocation = resolveIncidentLocation(vehicle, location);
+
   const incident = await req.app.locals.store.createIncident(req.user, {
     title,
     type,
     description,
     severity,
-    vehicleId,
+    vehicleId: effectiveVehicleId,
     routeId,
-    location,
+    ...incidentLocation,
     media
   });
 

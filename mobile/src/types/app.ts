@@ -679,6 +679,8 @@ export type Incident = {
     accuracy?: number | null;
     timestamp?: string | null;
   }) | null;
+  locationState?: 'fresh' | 'stale' | 'missing';
+  locationSourceTimestamp?: string | null;
   createdAt: string;
   media: string[];
   route?: RouteShape | null;
@@ -1028,6 +1030,8 @@ export type IncidentDraft = {
     accuracy?: number | null;
     timestamp?: string | null;
   }) | null;
+  locationState?: 'fresh' | 'stale' | 'missing';
+  locationSourceTimestamp?: string | null;
 };
 
 export type FleetControlLog = {

@@ -401,6 +401,8 @@ const incidentSchema = new mongoose.Schema(
     reporterId: { type: String, required: true },
     description: { type: String, required: true },
     location: { type: Object, default: null },
+    locationState: { type: String, enum: ["fresh", "stale", "missing"], default: "missing" },
+    locationSourceTimestamp: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: null },
     media: { type: [String], default: [] }

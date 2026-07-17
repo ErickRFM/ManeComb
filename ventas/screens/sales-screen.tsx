@@ -16,7 +16,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { Typography } from '@/constants/theme';
-import { pulse as pulseDot } from '@/src/native/motion';
+import { pulse as pulseDot, shimmer } from '@/src/native/motion';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
 import { usePublicCommercialFlow, type PaymentReturnConfirmation } from '@/features/commercial';
@@ -258,6 +258,29 @@ function prefersReducedMotion() {
   );
 }
 
+function getStaticRevealStyle(enabled: boolean) {
+  return enabled ? { opacity: 1, transform: [{ translateY: 0 }] } : undefined;
+}
+
+function usePrefersReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = (event: MediaQueryListEvent | MediaQueryList) => setReducedMotion(event.matches);
+    update(media);
+    if (typeof media.addEventListener === 'function') media.addEventListener('change', update);
+    else media.addListener(update);
+    return () => {
+      if (typeof media.removeEventListener === 'function') media.removeEventListener('change', update);
+      else media.removeListener(update);
+    };
+  }, []);
+
+  return reducedMotion;
+}
+
 // El parallax sigue al puntero escribiendo el transform directamente en el nodo:
 // mantenerlo en estado de React re-renderizaba toda la landing en cada
 // pointermove. Cada frame escribe como mucho una vez (rAF).
@@ -435,8 +458,14 @@ export function SalesScreen() {
     externalReference,
     paymentId,
   });
-  const isDesktop = width >= 1080;
+  const isDesktop = width >= 1024;
   const isPhone = width < 640;
+  // Tablet (640-1023): antes caia en tierra de nadie y heredaba el layout
+  // desktop sin su espaciado, por eso se veia apachurrado. Ahora tiene su capa.
+  const isTablet = !isDesktop && !isPhone;
+  // El hero solo funciona en dos columnas cuando hay ancho real; por debajo se
+  // apila (tablets verticales y phones en horizontal).
+  const heroSideBySide = width >= 880;
   const carouselRef = useRef<ScrollView>(null);
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(1);
@@ -577,7 +606,7 @@ export function SalesScreen() {
 
       <SiteHeader
         compact={headerCompact}
-        isPhone={isPhone}
+        stacked={isPhone || isTablet}
         loginLabel={loginLabel}
         onBuy={() => (activePlan ? goToPlanCheckout(activePlan) : scrollToSection('planes'))}
         onLogin={loginAction}
@@ -604,8 +633,9 @@ export function SalesScreen() {
               nativeID="inicio"
               style={[
                 styles.heroSection,
-                isDesktop ? styles.heroDesktop : undefined,
+                heroSideBySide ? styles.heroDesktop : undefined,
                 isPhone ? styles.heroPhone : undefined,
+                isTablet && !heroSideBySide ? styles.heroTablet : undefined,
                 webStyle({
                   backgroundImage:
                     'linear-gradient(135deg, rgba(5, 8, 22, 0.54), rgba(10, 18, 45, 0.72)), radial-gradient(circle at 18% 20%, rgba(255, 45, 122, 0.18), transparent 28%), radial-gradient(circle at 78% 18%, rgba(0, 194, 255, 0.17), transparent 34%)',
@@ -619,10 +649,20 @@ export function SalesScreen() {
                   <MaterialCommunityIcons name="crosshairs-gps" size={14} color={neonPalette.accent} />
                   <Text style={styles.heroKickerText}>OPERACIÓN Y POSTVENTA</Text>
                 </View>
-                <Text style={[styles.heroTitle, isPhone ? styles.heroTitlePhone : undefined]}>
+                <Text
+                  style={[
+                    styles.heroTitle,
+                    isPhone ? styles.heroTitlePhone : undefined,
+                    isTablet ? styles.heroTitleTablet : undefined,
+                  ]}>
                   Controla toda tu flotilla desde una sola plataforma.
                 </Text>
-                <Text style={[styles.heroSubtitle, isPhone ? styles.heroSubtitlePhone : undefined]}>
+                <Text
+                  style={[
+                    styles.heroSubtitle,
+                    isPhone ? styles.heroSubtitlePhone : undefined,
+                    isTablet ? styles.heroSubtitleTablet : undefined,
+                  ]}>
                   GPS en tiempo real, comunicación operativa, alertas y gestión documental para empresas de transporte.
                 </Text>
                 <View style={styles.heroActions}>
@@ -687,10 +727,10 @@ export function SalesScreen() {
               </View>
 
               {plansLoading ? (
-                <View style={styles.plansEmpty}>
-                  <MaterialCommunityIcons name="progress-clock" size={28} color={neonPalette.muted} />
-                  <Text style={styles.plansEmptyTitle}>Cargando planes</Text>
-                  <Text style={styles.plansEmptyText}>Consultando el catalogo publicado.</Text>
+                <View style={styles.planCarousel}>
+                  {[0, 1, 2].map((i) => (
+                    <PlanCardSkeleton key={i} width={cardWidth} />
+                  ))}
                 </View>
               ) : plansError ? (
                 <View style={styles.plansEmpty}>
@@ -766,14 +806,14 @@ export function SalesScreen() {
               intro="Del plan al panel operativo sin fricción: compra, configura y empieza a monitorear."
               centered
             />
-            <View style={[styles.processRail, isPhone ? styles.processRailPhone : undefined]}>
+            <View style={[styles.processRail, isPhone || isTablet ? styles.processRailPhone : undefined]}>
               {processSteps.map((step, index) => (
                 <ProcessStep
                   key={step.title}
                   index={index}
                   step={step}
                   isLast={index === processSteps.length - 1}
-                  isPhone={isPhone}
+                  isPhone={isPhone || isTablet}
                 />
               ))}
             </View>
@@ -798,9 +838,14 @@ export function SalesScreen() {
                 intro="La plataforma está diseñada para control operativo continuo, seguridad de datos y acompañamiento humano."
                 centered
               />
-              <View style={[styles.metricGrid, isPhone ? styles.metricGridPhone : undefined]}>
+              <View
+                style={[
+                  styles.metricGrid,
+                  isPhone ? styles.metricGridPhone : undefined,
+                  isTablet ? styles.metricGridTablet : undefined,
+                ]}>
                 {trustMetrics.map((metric) => (
-                  <View key={metric.label} style={styles.metricCard}>
+                  <View key={metric.label} style={[styles.metricCard, isTablet ? styles.metricCardTablet : undefined]}>
                     <View style={[styles.metricIcon, { borderColor: `${metric.color}55`, backgroundColor: `${metric.color}14` }]}>
                       <MaterialCommunityIcons name={metric.icon} size={25} color={metric.color} />
                     </View>
@@ -864,14 +909,14 @@ export function SalesScreen() {
 
 function SiteHeader({
   compact,
-  isPhone,
+  stacked,
   loginLabel,
   onBuy,
   onLogin,
   onNavigate,
 }: {
   compact: boolean;
-  isPhone: boolean;
+  stacked: boolean;
   loginLabel: string;
   onBuy: () => void;
   onLogin: () => void;
@@ -886,7 +931,7 @@ function SiteHeader({
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
         return [
           styles.navItem,
-          isPhone ? styles.navItemPhone : undefined,
+          stacked ? styles.navItemPhone : undefined,
           hovered ? styles.navItemHover : undefined,
           webStyle({
             cursor: 'pointer',
@@ -895,7 +940,7 @@ function SiteHeader({
           }),
         ];
       }}>
-      <Text style={[styles.navItemText, isPhone ? styles.navItemTextPhone : undefined]}>{item.label}</Text>
+      <Text style={[styles.navItemText, stacked ? styles.navItemTextPhone : undefined]}>{item.label}</Text>
     </Pressable>
   ));
 
@@ -904,7 +949,7 @@ function SiteHeader({
       style={[
         styles.headerShell,
         compact ? styles.headerShellCompact : undefined,
-        isPhone ? styles.headerShellPhone : undefined,
+        stacked ? styles.headerShellPhone : undefined,
         webStyle({
           backdropFilter: 'blur(22px) saturate(160%)',
           WebkitBackdropFilter: 'blur(22px) saturate(160%)',
@@ -913,10 +958,10 @@ function SiteHeader({
             : '0 1px 0 rgba(245, 247, 255, 0.08)',
         }),
       ]}>
-      <View style={[styles.headerInner, isPhone ? styles.headerInnerPhone : undefined]}>
+      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined]}>
         <View style={styles.headerTopRow}>
-          <BrandLogo size={isPhone ? 'sm' : 'md'} align="left" plain />
-          {isPhone ? (
+          <BrandLogo size={stacked ? 'sm' : 'md'} align="left" plain />
+          {stacked ? (
             <View style={styles.headerActions}>
               <ActionButton label="Entrar" icon="login" variant="ghost" compact onPress={onLogin} />
               <ActionButton label="Comprar" icon="arrow-right" compact onPress={onBuy} />
@@ -924,7 +969,7 @@ function SiteHeader({
           ) : null}
         </View>
 
-        {isPhone ? (
+        {stacked ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -936,7 +981,7 @@ function SiteHeader({
           <View style={styles.headerNav}>{navButtons}</View>
         )}
 
-        {!isPhone ? (
+        {!stacked ? (
           <View style={styles.headerActions}>
             <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
             <ActionButton label="Comprar ahora" icon="arrow-right" compact onPress={onBuy} />
@@ -949,13 +994,17 @@ function SiteHeader({
 
 const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isPhone: boolean }) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const reducedMotion = usePrefersReducedMotion();
   const parallaxRef = usePointerParallax(
-    Platform.OS === 'web' && !isPhone,
+    Platform.OS === 'web' && !isPhone && !reducedMotion,
     (cursor) => `translateX(${cursor.x * 14}px) translateY(${cursor.y * 12}px)`
   );
 
   useEffect(() => {
-    Animated.loop(
+    if (reducedMotion) {
+      return;
+    }
+    const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, {
           toValue: 1,
@@ -970,8 +1019,10 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
           useNativeDriver: true,
         }),
       ])
-    ).start();
-  }, [pulse]);
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse, reducedMotion]);
 
   const orbScale = pulse.interpolate({
     inputRange: [0, 1],
@@ -987,7 +1038,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
             backgroundImage:
               'linear-gradient(125deg, rgba(5, 8, 22, 1), rgba(7, 11, 29, 0.96), rgba(21, 8, 42, 0.86), rgba(5, 8, 22, 1))',
             backgroundSize: '180% 180%',
-            animation: 'manecombGradientShift 24s ease-in-out infinite',
+            animation: reducedMotion ? undefined : 'manecombGradientShift 24s ease-in-out infinite',
           }),
         ]}
       />
@@ -997,7 +1048,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
             styles.backgroundOrb,
             styles.backgroundOrbBlue,
             { transform: [{ scale: orbScale }] },
-            webStyle({ filter: 'blur(28px)', animation: 'manecombOrbDrift 26s ease-in-out infinite' }),
+            webStyle({ filter: 'blur(28px)', animation: reducedMotion ? undefined : 'manecombOrbDrift 26s ease-in-out infinite' }),
           ]}
         />
         <Animated.View
@@ -1005,7 +1056,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
             styles.backgroundOrb,
             styles.backgroundOrbPink,
             { transform: [{ scale: orbScale }] },
-            webStyle({ filter: 'blur(32px)', animation: 'manecombOrbDrift 31s ease-in-out -7s infinite' }),
+            webStyle({ filter: 'blur(32px)', animation: reducedMotion ? undefined : 'manecombOrbDrift 31s ease-in-out -7s infinite' }),
           ]}
         />
         <Animated.View
@@ -1013,7 +1064,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
             styles.backgroundOrb,
             styles.backgroundOrbViolet,
             { transform: [{ scale: orbScale }] },
-            webStyle({ filter: 'blur(30px)', animation: 'manecombOrbDrift 29s ease-in-out -12s infinite' }),
+            webStyle({ filter: 'blur(30px)', animation: reducedMotion ? undefined : 'manecombOrbDrift 29s ease-in-out -12s infinite' }),
           ]}
         />
       </Animated.View>
@@ -1032,7 +1083,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
                 backgroundImage:
                   'linear-gradient(90deg, transparent 0%, rgba(0, 194, 255, 0.08) 18%, rgba(255, 45, 122, 0.65) 46%, rgba(47, 255, 213, 0.48) 57%, transparent 82%)',
                 backgroundSize: '260px 100%',
-                animation: `manecombRouteFlow ${28 + index * 3}s linear ${index * -2}s infinite`,
+                animation: reducedMotion ? undefined : `manecombRouteFlow ${28 + index * 3}s linear ${index * -2}s infinite`,
               }),
             ]}
           />
@@ -1053,7 +1104,7 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
                 },
                 webStyle({
                   boxShadow: `0 0 18px ${color}`,
-                  animation: `manecombParticleDrift ${18 + (index % 7) * 3}s ease-in-out ${index * -0.9}s infinite`,
+                  animation: reducedMotion ? undefined : `manecombParticleDrift ${18 + (index % 7) * 3}s ease-in-out ${index * -0.9}s infinite`,
                 }),
               ]}
             />
@@ -1065,8 +1116,9 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
 });
 
 const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: boolean }) {
+  const reducedMotion = usePrefersReducedMotion();
   const frameRef = usePointerParallax(
-    Platform.OS === 'web' && !isPhone,
+    Platform.OS === 'web' && !isPhone && !reducedMotion,
     (cursor) => `perspective(950px) rotateY(${-10 + cursor.x * 2.4}deg) rotateX(${7 - cursor.y * 2}deg)`
   );
 
@@ -1098,7 +1150,7 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
               {isPhone ? 'Mapa en vivo' : 'Mapa en tiempo real'}
             </Text>
             <View style={styles.dashboardStatus}>
-              <View style={[styles.liveDot, pulseDot()]} />
+              <View style={[styles.liveDot, reducedMotion ? undefined : pulseDot()]} />
               <Text style={styles.dashboardStatusText}>En vivo</Text>
             </View>
           </View>
@@ -1170,6 +1222,7 @@ function FloatingIndicator({
   style: any;
   value: string;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
   return (
     <View
       style={[
@@ -1180,7 +1233,7 @@ function FloatingIndicator({
           backgroundImage: `linear-gradient(135deg, rgba(7, 12, 30, 0.82), ${color}12)`,
           boxShadow: `0 0 0 1px ${color}20, 0 0 28px ${color}24, 0 14px 34px rgba(0,0,0,0.28)`,
           backdropFilter: 'blur(14px)',
-          animation: 'manecombFloat 7s ease-in-out infinite',
+          animation: reducedMotion ? undefined : 'manecombFloat 7s ease-in-out infinite',
         }),
       ]}>
       <View style={[styles.floatingIcon, { backgroundColor: `${color}15` }]}>
@@ -1341,6 +1394,10 @@ function RevealView({
   const [measured, setMeasured] = useState(immediate);
   const [revealed, setRevealed] = useState(immediate);
   const isWeb = Platform.OS === 'web';
+  const reducedMotion = usePrefersReducedMotion();
+  // Vía estática independiente de Animated. Se activa únicamente después de
+  // confirmar la preferencia reduced-motion; mantener false preserva el render actual.
+  const staticRevealStyle = getStaticRevealStyle(revealed && reducedMotion);
 
   // Un observer por seccion: el equivalente por scroll obligaba al padre a
   // guardar la posicion en estado y re-renderizar la landing entera por frame.
@@ -1351,7 +1408,7 @@ function RevealView({
 
     const node = nodeRef.current as HTMLElement | null;
 
-    if (!node || typeof IntersectionObserver === 'undefined' || prefersReducedMotion()) {
+    if (!node || typeof IntersectionObserver === 'undefined' || reducedMotion) {
       setRevealed(true);
       return;
     }
@@ -1376,7 +1433,7 @@ function RevealView({
     observer.observe(node);
 
     return () => observer.disconnect();
-  }, [isWeb, revealed]);
+  }, [isWeb, reducedMotion, revealed]);
 
   useEffect(() => {
     if (isWeb || revealed || !measured) {
@@ -1390,6 +1447,10 @@ function RevealView({
 
   useEffect(() => {
     if (!revealed) {
+      return;
+    }
+
+    if (reducedMotion) {
       return;
     }
 
@@ -1409,7 +1470,7 @@ function RevealView({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [index, opacity, revealed, translateY]);
+  }, [index, opacity, reducedMotion, revealed, translateY]);
 
   return (
     <Animated.View
@@ -1428,9 +1489,38 @@ function RevealView({
           opacity,
           transform: [{ translateY }],
         },
+        staticRevealStyle,
       ]}>
       {children}
     </Animated.View>
+  );
+}
+
+function SkeletonBar({ width, height = 14 }: { width: number | string; height?: number }) {
+  return (
+    <View style={[styles.skeletonBar, { width, height }]}>
+      <View pointerEvents="none" style={[styles.skeletonShine, shimmer()]} />
+    </View>
+  );
+}
+
+function PlanCardSkeleton({ width }: { width: number }) {
+  return (
+    <View style={[styles.planCardSkeleton, { width }]}>
+      <View style={styles.planSkeletonHeader}>
+        <SkeletonBar width="52%" height={11} />
+        <SkeletonBar width={34} height={34} />
+      </View>
+      <SkeletonBar width="64%" height={26} />
+      <SkeletonBar width="86%" height={12} />
+      <SkeletonBar width="46%" height={30} />
+      <View style={styles.planSkeletonRows}>
+        <SkeletonBar width="72%" height={12} />
+        <SkeletonBar width="66%" height={12} />
+        <SkeletonBar width="70%" height={12} />
+      </View>
+      <SkeletonBar width="100%" height={46} />
+    </View>
   );
 }
 
@@ -2205,6 +2295,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 28,
   },
+  heroTablet: {
+    minHeight: 560,
+    paddingHorizontal: 30,
+    paddingVertical: 36,
+    gap: 30,
+  },
   heroCopy: {
     flex: 0.92,
     maxWidth: 580,
@@ -2246,6 +2342,10 @@ const styles = StyleSheet.create({
     fontSize: 36,
     lineHeight: 42,
   },
+  heroTitleTablet: {
+    fontSize: 46,
+    lineHeight: 52,
+  },
   heroSubtitle: {
     color: neonPalette.mutedStrong,
     fontFamily: Typography.body,
@@ -2256,6 +2356,10 @@ const styles = StyleSheet.create({
   heroSubtitlePhone: {
     fontSize: 14.5,
     lineHeight: 22,
+  },
+  heroSubtitleTablet: {
+    fontSize: 15.5,
+    lineHeight: 24,
   },
   heroActions: {
     flexDirection: 'row',
@@ -2651,6 +2755,35 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 34,
   },
+  planCardSkeleton: {
+    backgroundColor: neonPalette.panel,
+    borderColor: neonPalette.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 14,
+    padding: 20,
+  },
+  planSkeletonHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  planSkeletonRows: {
+    gap: 10,
+    marginTop: 2,
+  },
+  skeletonBar: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  skeletonShine: {
+    ...StyleSheet.absoluteFillObject,
+    ...(({
+      backgroundImage:
+        'linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.12) 50%, transparent 80%)',
+    } as any)),
+  },
   plansEmpty: {
     alignItems: 'center',
     borderColor: neonPalette.line,
@@ -2949,6 +3082,13 @@ const styles = StyleSheet.create({
   },
   metricGridPhone: {
     flexDirection: 'column',
+  },
+  metricGridTablet: {
+    flexWrap: 'wrap',
+  },
+  metricCardTablet: {
+    flexBasis: '46%' as any,
+    minWidth: 200,
   },
   metricCard: {
     flex: 1,
