@@ -302,6 +302,37 @@ export function PortalRoutesScreen() {
     return true;
   };
 
+  if (showRouteEditor) {
+    return (
+      <PortalLayout title="Editor de ruta" subtitle="Crea la ruta agregando sus puntos y guarda el resultado en el catálogo.">
+        <View style={styles.fullEditorShell}>
+          <View style={styles.editorTools}>
+            <Pressable style={styles.toolButton}><MaterialCommunityIcons name="map-marker-plus" size={18} color={portalPalette.accent} /><Text style={styles.toolText}>Agregar parada</Text></Pressable>
+            <Pressable style={styles.toolButton}><MaterialCommunityIcons name="flag-plus" size={18} color={portalPalette.info} /><Text style={styles.toolText}>Agregar checkpoint</Text></Pressable>
+            <Pressable style={styles.toolButton}><MaterialCommunityIcons name="cursor-move" size={18} color={portalPalette.text} /><Text style={styles.toolText}>Mover punto</Text></Pressable>
+            <Pressable onPress={() => setEditor(createBlankEditor(editor.vehicleId))} style={styles.toolButton}><MaterialCommunityIcons name="delete-sweep" size={18} color={palette.warning} /><Text style={styles.toolText}>Limpiar ruta</Text></Pressable>
+          </View>
+          <View style={styles.editorMap}>
+            <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
+              <RouteMap height="100%" onClickPoint={(point) => {
+                if (!editorPoints[0]) { setField('originLatitude', String(point.latitude)); setField('originLongitude', String(point.longitude)); }
+                else { setField('destinationLatitude', String(point.latitude)); setField('destinationLongitude', String(point.longitude)); }
+              }} routeCoordinates={editorPoints} vehicles={[]} />
+            </Suspense>
+          </View>
+          <View style={styles.editorDetails}>
+            <Text style={styles.editorTitle}>Detalles de la ruta</Text>
+            <TextInput value={routeName} onChangeText={setRouteName} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
+            <TextInput value={editor.originLabel} onChangeText={(value) => setField('originLabel', value)} placeholder="Origen" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
+            <TextInput value={editor.destinationLabel} onChangeText={(value) => setField('destinationLabel', value)} placeholder="Destino" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
+            <Text style={styles.coordText}>Haz clic en el mapa para definir origen y destino.</Text>
+            <View style={styles.editorFooter}><Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}><Text style={styles.toolText}>Cancelar</Text></Pressable><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>
+          </View>
+        </View>
+      </PortalLayout>
+    );
+  }
+
   return (
     <PortalLayout title="Rutas" subtitle="Asignacion real de origen y destino por unidad.">
       {showAssignmentBanner && canManageRoutes ? (
@@ -321,25 +352,21 @@ export function PortalRoutesScreen() {
             <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text>
           </Pressable>
         )}>
-          {showRouteEditor ? (
-            <View style={styles.catalogEditor}>
-              <View style={styles.editorHeading}><Text style={styles.editorTitle}>Editor de ruta</Text><Pressable onPress={() => setShowRouteEditor(false)}><MaterialCommunityIcons name="close" size={22} color={portalPalette.text} /></Pressable></View>
-              <TextInput value={routeName} onChangeText={setRouteName} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
-              <Text style={styles.mapHint}>Define origen y destino en el formulario y mapa de asignación que aparece debajo.</Text>
-              <View style={styles.actions}><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>
-            </View>
-          ) : null}
+          <Text style={styles.sectionEyebrow}>1. Selecciona una unidad</Text>
+          <View style={styles.segmentRow}>{routeVehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.segment, editor.vehicleId === vehicle.id ? styles.catalogCardActive : undefined]}><Text style={styles.segmentText}>{vehicle.code}</Text><Text style={styles.segmentDriver}>{getDriverName(vehicle)}</Text></Pressable>)}</View>
+          <Text style={styles.sectionEyebrow}>2. Selecciona una ruta existente</Text>
           {savedRoutes.length ? <View style={styles.catalogGrid}>{savedRoutes.map((route) => (
             <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.catalogCard, selectedRouteId === route.id ? styles.catalogCardActive : undefined]}>
               <View style={styles.routeBody}><Text style={styles.routeName}>{route.name}</Text><Text style={styles.routeMeta}>{route.originLabel || 'Origen'} → {route.destinationLabel || 'Destino'}</Text><Text style={styles.routeMeta}>{Math.round((route.distanceMeters || 0) / 1000)} km · {route.stops?.length || 0} paradas</Text></View>
               <Pressable accessibilityLabel={`Eliminar ${route.name}`} onPress={async (event) => { event.stopPropagation(); setCatalogBusy(true); try { await deleteSavedRouteRequest(route.id); setSavedRoutes((current) => current.filter((item) => item.id !== route.id)); if (selectedRouteId === route.id) setSelectedRouteId(null); } catch (error) { setMessage(getApiErrorMessage(error, 'No fue posible eliminar la ruta.')); } finally { setCatalogBusy(false); } }}><MaterialCommunityIcons name="delete-outline" size={19} color={palette.warning} /></Pressable>
             </Pressable>
           ))}</View> : <EmptyState icon="routes" title="Aún no hay rutas" description="Crea la primera ruta reutilizable para después asignarla a una unidad." />}
+          {selectedSavedRoute ? <View style={styles.previewPanel}><Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando vista previa...</Text></View>}><RouteMap checkpoints={selectedSavedRoute.stops} height={300} routeCoordinates={selectedSavedRoute.polyline} vehicles={[]} /></Suspense><View><Text style={styles.routeName}>{selectedSavedRoute.name}</Text><Text style={styles.routeMeta}>{Math.round((selectedSavedRoute.distanceMeters || 0) / 1000)} km · {Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min · {selectedSavedRoute.stops.length} paradas</Text></View></View> : null}
           <View style={styles.actions}><Pressable disabled={!selectedSavedRoute || !editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), (!selectedSavedRoute || !editor.vehicleId) ? styles.disabledButton : undefined]}><MaterialCommunityIcons name="link-variant" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Asignar ruta seleccionada</Text></Pressable></View>
         </PortalSectionCard>
       ) : null}
 
-      {canManageRoutes ? (
+      {false && canManageRoutes ? (
         <PortalSectionCard
           title="Asignar ruta"
           subtitle={message || undefined}>
@@ -466,7 +493,7 @@ export function PortalRoutesScreen() {
         </PortalSectionCard>
       ) : null}
 
-      {sortedVehicles.length ? <PortalSectionCard
+      {false && sortedVehicles.length ? <PortalSectionCard
         title="Rutas por unidad"
         subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad' : 'unidades'}`}
         right={vehiclesWithRoutes.length ? (
@@ -575,6 +602,40 @@ export function PortalRoutesScreen() {
 }
 
 const styles = StyleSheet.create({
+  fullEditorShell: { flexDirection: 'row', gap: 10, minHeight: 650, minWidth: 0 },
+  editorTools: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 180, gap: 8, padding: 12 },
+  editorMap: { flex: 1, minHeight: 650, minWidth: 320 },
+  editorDetails: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 300, gap: 12, padding: 14 },
+  toolButton: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 8, minHeight: 42, paddingHorizontal: 10 },
+  toolText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
+  editorFooter: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end', marginTop: 'auto' },
+  secondaryButton: { alignItems: 'center', borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm, borderWidth: 1, justifyContent: 'center', minHeight: 42, paddingHorizontal: 14 },
+  sectionEyebrow: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 11, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
+  previewPanel: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, gap: 10, overflow: 'hidden', padding: 10 },
+  catalogEditor: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  editorHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  editorTitle: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 18, fontWeight: '900' },
+  catalogGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 0 },
+  catalogCard: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexBasis: 230,
+    flexDirection: 'row',
+    flexGrow: 1,
+    gap: 10,
+    maxWidth: 360,
+    padding: 12,
+  },
+  catalogCardActive: { backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.accent },
   mapSelectToggle: {
     flexDirection: 'row',
     flexWrap: 'wrap',
