@@ -1517,6 +1517,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     padding: 8,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
   driverRow: {
     alignItems: 'center',
@@ -1547,6 +1549,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, opacity 180ms ease-in-out' as any,
   },
   factLabel: {
     color: portalPalette.muted,
@@ -1722,7 +1726,7 @@ const styles = StyleSheet.create({
   mapModeOption: { alignItems: 'center', borderRadius: AppTheme.radius.xs, flexDirection: 'row', gap: 9, minHeight: 54, paddingHorizontal: 10, paddingVertical: 7 },
   mapModeOptionActive: { backgroundColor: portalPalette.accentSoft },
   mapModeDescription: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
-  controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong },
+  controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong, boxShadow: '0 8px 20px rgba(0,0,0,.18)' as any },
   controlPressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
   mapModeText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   operationsFilters: {
@@ -1731,8 +1735,9 @@ const styles = StyleSheet.create({
   operationsFilter: {
     alignItems: 'center', backgroundColor: 'rgba(8, 16, 32, 0.42)', borderColor: 'transparent', borderRadius: 18,
     borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 28, paddingHorizontal: 8,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, box-shadow 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
-  operationsFilterActive: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line },
+  operationsFilterActive: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.lineStrong, boxShadow: 'inset 0 1px 0 rgba(255,255,255,.055), 0 6px 16px rgba(0,0,0,.16)' as any },
   operationsFilterText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
   operationsFilterCount: { color: portalPalette.text, fontFamily: Typography.mono, fontSize: 11, fontWeight: '900', opacity: 0.8 },
   filterStatusDot: { backgroundColor: portalPalette.muted, borderRadius: 4, height: 7, width: 7 },
@@ -1812,6 +1817,7 @@ const styles = StyleSheet.create({
   kpiRow: {
     backgroundColor: 'rgba(13, 23, 40, 0.9)', borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm,
     borderWidth: 1, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
+    boxShadow: '0 12px 28px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.025)' as any,
   },
   kpiCard: {
     backgroundColor: 'transparent', borderRightColor: portalPalette.line, borderRightWidth: 1, flex: 1, gap: 4, minHeight: 80,
@@ -1820,8 +1826,8 @@ const styles = StyleSheet.create({
   },
   kpiCardLast: { borderRightWidth: 0 },
   kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
-  kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
-  kpiValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900', lineHeight: 23 },
+  kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800', letterSpacing: 0.15 },
+  kpiValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 21, fontWeight: '900', letterSpacing: -0.25, lineHeight: 24 },
   kpiDetail: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
   optionRow: {
     flexDirection: 'row',
@@ -1948,6 +1954,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     padding: 10,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.03)' as any,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
   routeTitle: {
     color: portalPalette.text,
@@ -2015,13 +2023,13 @@ const styles = StyleSheet.create({
     width: 12,
   },
   sideSectionTitle: {
-    borderBottomColor: portalPalette.line,
+    borderBottomColor: 'rgba(148,163,184,.14)',
     borderBottomWidth: 1,
     color: portalPalette.muted,
     fontFamily: Typography.body,
     fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.8,
+    letterSpacing: 0.65,
     paddingBottom: 4,
     textTransform: 'uppercase',
   },

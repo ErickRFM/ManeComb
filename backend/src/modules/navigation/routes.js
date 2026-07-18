@@ -306,6 +306,15 @@ router.post("/routes", authenticate, requireOrganization, requireOperationalAcce
   }
 });
 
+router.get("/routes", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    const routes = await req.app.locals.store.listRoutes(req.user);
+    return res.json({ ok: true, data: routes });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
     if (!hasPermission(req.user, "canManageRoutes")) {

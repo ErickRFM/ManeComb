@@ -117,6 +117,24 @@ export type AssignedRoute = {
   alternatives?: NavigationRouteOption[];
 };
 
+export type SavedRoute = {
+  id: string;
+  name: string;
+  code: string;
+  color?: string | null;
+  origin: GeoPoint;
+  destination: GeoPoint;
+  originLabel?: string;
+  destinationLabel?: string;
+  stops: NavigationStop[];
+  distanceMeters: number;
+  durationSeconds: number;
+  durationInTrafficSeconds?: number;
+  polyline: GeoPoint[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type ActiveRouteProgress = {
   checkpointCount: number;
   currentCheckpointIndex: number;
@@ -175,6 +193,7 @@ export type VehicleMutationPayload = {
 
 export type RouteAssignmentPayload = {
   vehicleId: string;
+  routeId?: string;
   originLabel: string;
   destinationLabel: string;
   origin: GeoPoint;

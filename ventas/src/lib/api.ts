@@ -307,6 +307,18 @@ export async function assignRouteRequest(payload: any) {
   return await unwrapData<any>(apiClient.post('/navigation/assign', payload));
 }
 
+export async function getSavedRoutesRequest() {
+  return await unwrapData<any[]>(apiClient.get('/navigation/routes'));
+}
+
+export async function createSavedRouteRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/navigation/routes', payload));
+}
+
+export async function deleteSavedRouteRequest(routeId: string) {
+  return await unwrapData<any>(apiClient.delete(`/navigation/routes/${encodeURIComponent(routeId)}`));
+}
+
 export async function clearRouteAssignmentRequest(vehicleId: string) {
   return await unwrapData<any>(apiClient.delete(`/navigation/assign/${encodeURIComponent(vehicleId)}`));
 }

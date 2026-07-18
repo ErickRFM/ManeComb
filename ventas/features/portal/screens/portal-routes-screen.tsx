@@ -8,7 +8,8 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { GeoPoint, Vehicle } from '@/src/types/app';
+import type { GeoPoint, SavedRoute, Vehicle } from '@/src/types/app';
+import { createSavedRouteRequest, deleteSavedRouteRequest, getApiErrorMessage, getSavedRoutesRequest } from '@/src/lib/api';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
@@ -126,10 +127,60 @@ export function PortalRoutesScreen() {
   const [mapSelectMode, setMapSelectMode] = useState<'origin' | 'destination' | null>(null);
   const [showAssignmentBanner, setShowAssignmentBanner] = useState(false);
   const [routeOverwriteTarget, setRouteOverwriteTarget] = useState<Vehicle | null>(null);
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [showRouteEditor, setShowRouteEditor] = useState(false);
+  const [routeName, setRouteName] = useState('');
 
   useEffect(() => {
     void loadVehicles();
+    void getSavedRoutesRequest().then((routes) => {
+      setSavedRoutes(routes);
+      setSelectedRouteId((current) => current || routes[0]?.id || null);
+    }).catch((error) => setMessage(getApiErrorMessage(error, 'No fue posible cargar el catálogo de rutas.')));
   }, [loadVehicles]);
+
+  const selectedSavedRoute = useMemo(
+    () => savedRoutes.find((route) => route.id === selectedRouteId) || null,
+    [savedRoutes, selectedRouteId]
+  );
+
+  const createCatalogRoute = async () => {
+    const origin = editorPoints[0];
+    const destination = editorPoints[1];
+    if (!routeName.trim() || !origin || !destination || !editor.originLabel.trim() || !editor.destinationLabel.trim()) {
+      setMessage('Completa nombre, origen y destino de la nueva ruta.');
+      return;
+    }
+    setCatalogBusy(true);
+    try {
+      const route = await createSavedRouteRequest({
+        name: routeName.trim(), origin, destination,
+        originLabel: editor.originLabel.trim(), destinationLabel: editor.destinationLabel.trim(), stops: [],
+        route: { label: routeName.trim(), distanceMeters: 0, durationSeconds: 0, durationInTrafficSeconds: 0, polyline: [origin, destination] },
+      });
+      setSavedRoutes((current) => [route, ...current]);
+      setSelectedRouteId(route.id);
+      setShowRouteEditor(false);
+      setRouteName('');
+      setMessage('Ruta guardada en el catálogo.');
+    } catch (error) {
+      setMessage(getApiErrorMessage(error, 'No fue posible guardar la ruta.'));
+    } finally { setCatalogBusy(false); }
+  };
+
+  const assignSavedRoute = async () => {
+    if (!editor.vehicleId || !selectedSavedRoute) return setMessage('Selecciona una unidad y una ruta.');
+    const result = await assignRoute({
+      vehicleId: editor.vehicleId, routeId: selectedSavedRoute.id,
+      originLabel: selectedSavedRoute.originLabel || selectedSavedRoute.name,
+      destinationLabel: selectedSavedRoute.destinationLabel || '',
+      origin: selectedSavedRoute.origin, destination: selectedSavedRoute.destination,
+    });
+    setMessage(result.ok ? 'Ruta del catálogo asignada.' : result.message || 'No fue posible asignar la ruta.');
+    if (result.ok) setShowAssignmentBanner(true);
+  };
 
   useEffect(() => {
     if (!editor.vehicleId && routeVehicles[0]?.id) {
@@ -262,6 +313,30 @@ export function PortalRoutesScreen() {
             <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
           </Pressable>
         </View>
+      ) : null}
+
+      {canManageRoutes ? (
+        <PortalSectionCard title="Catálogo de rutas" subtitle={`${savedRoutes.length} rutas disponibles`} right={(
+          <Pressable onPress={() => setShowRouteEditor(true)} style={[styles.primaryButton, portalButtonGradient()]}>
+            <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text>
+          </Pressable>
+        )}>
+          {showRouteEditor ? (
+            <View style={styles.catalogEditor}>
+              <View style={styles.editorHeading}><Text style={styles.editorTitle}>Editor de ruta</Text><Pressable onPress={() => setShowRouteEditor(false)}><MaterialCommunityIcons name="close" size={22} color={portalPalette.text} /></Pressable></View>
+              <TextInput value={routeName} onChangeText={setRouteName} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
+              <Text style={styles.mapHint}>Define origen y destino en el formulario y mapa de asignación que aparece debajo.</Text>
+              <View style={styles.actions}><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>
+            </View>
+          ) : null}
+          {savedRoutes.length ? <View style={styles.catalogGrid}>{savedRoutes.map((route) => (
+            <Pressable key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.catalogCard, selectedRouteId === route.id ? styles.catalogCardActive : undefined]}>
+              <View style={styles.routeBody}><Text style={styles.routeName}>{route.name}</Text><Text style={styles.routeMeta}>{route.originLabel || 'Origen'} → {route.destinationLabel || 'Destino'}</Text><Text style={styles.routeMeta}>{Math.round((route.distanceMeters || 0) / 1000)} km · {route.stops?.length || 0} paradas</Text></View>
+              <Pressable accessibilityLabel={`Eliminar ${route.name}`} onPress={async (event) => { event.stopPropagation(); setCatalogBusy(true); try { await deleteSavedRouteRequest(route.id); setSavedRoutes((current) => current.filter((item) => item.id !== route.id)); if (selectedRouteId === route.id) setSelectedRouteId(null); } catch (error) { setMessage(getApiErrorMessage(error, 'No fue posible eliminar la ruta.')); } finally { setCatalogBusy(false); } }}><MaterialCommunityIcons name="delete-outline" size={19} color={palette.warning} /></Pressable>
+            </Pressable>
+          ))}</View> : <EmptyState icon="routes" title="Aún no hay rutas" description="Crea la primera ruta reutilizable para después asignarla a una unidad." />}
+          <View style={styles.actions}><Pressable disabled={!selectedSavedRoute || !editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), (!selectedSavedRoute || !editor.vehicleId) ? styles.disabledButton : undefined]}><MaterialCommunityIcons name="link-variant" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Asignar ruta seleccionada</Text></Pressable></View>
+        </PortalSectionCard>
       ) : null}
 
       {canManageRoutes ? (

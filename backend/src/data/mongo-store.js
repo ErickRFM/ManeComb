@@ -940,6 +940,11 @@ async function createMongoStore() {
     return serializeRoute(route);
   }
 
+  async function listRoutes(user = null) {
+    const routes = await RouteModel.find(getOrganizationQuery(user)).sort({ updatedAt: -1 }).lean();
+    return routes.map(serializeRoute);
+  }
+
   async function createRoute(payload) {
     const now = new Date();
     const doc = await RouteModel.create({
@@ -3483,6 +3488,7 @@ async function createMongoStore() {
     getNotificationsForUser,
     getOperationalInsights,
     getRouteById,
+    listRoutes,
     getUserE2eeBackup,
     getUserProfile,
     getVehicleById,

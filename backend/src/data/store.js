@@ -99,6 +99,11 @@ function createEmbeddedStore() {
     return state.routes.find((route) => route.id === routeId) || null;
   }
 
+  function listRoutes(user = null) {
+    const organizationId = String(user?.organizationId || '').trim();
+    return clone(state.routes.filter((route) => !organizationId || route.organizationId === organizationId));
+  }
+
   function createRoute(payload) {
     const now = new Date().toISOString();
     const route = {
@@ -2816,6 +2821,7 @@ function createEmbeddedStore() {
     getNotificationsForUser,
     getOperationalInsights,
     getRouteById,
+    listRoutes,
     getUserE2eeBackup,
     getUserById,
     getUserProfile,
