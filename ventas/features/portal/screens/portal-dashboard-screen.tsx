@@ -51,7 +51,6 @@ type Filters = {
 };
 
 type OperationsFilter = 'ALL' | 'RUNNING' | 'STOPPED' | 'OFF_ROUTE';
-type MapMode = 'operational' | 'satellite' | 'traffic';
 
 const statusFilters = ['ALL', 'RUNNING', 'PAUSED', 'FINISHED', 'CANCELLED'] as const;
 const historyPageSize = 50;
@@ -337,8 +336,6 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
-  const [mapMode, setMapMode] = useState<MapMode>('operational');
-  const [mapModeMenuOpen, setMapModeMenuOpen] = useState(false);
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -663,30 +660,6 @@ export function PortalDashboardScreen() {
         <View style={styles.operationsMapCol}>
           <View style={styles.mapSurface}>
             <View style={styles.mapHeader}>
-              <View style={styles.mapModeControl}>
-                <Pressable accessibilityRole="button" accessibilityState={{ expanded: mapModeMenuOpen }} onPress={() => setMapModeMenuOpen((open) => !open)} style={({ hovered, pressed }: any) => [styles.mapModeButton, hovered ? styles.controlHover : undefined, pressed ? styles.controlPressed : undefined]}>
-                  <Text style={styles.mapModeText}>{mapMode === 'traffic' ? 'Tráfico en vivo' : mapMode === 'satellite' ? 'Vista satélite' : 'Mapa operativo'}</Text>
-                  <MaterialCommunityIcons name={mapModeMenuOpen ? 'chevron-up' : 'chevron-down'} size={17} color={portalPalette.muted} />
-                </Pressable>
-                {mapModeMenuOpen ? (
-                  <View style={styles.mapModeMenu}>
-                    {([
-                      ['operational', 'map-outline', 'Mapa operativo', 'Calles y rutas con alto contraste'],
-                      ['traffic', 'car-multiple', 'Tráfico en vivo', 'Incidencias y circulación vial'],
-                      ['satellite', 'satellite-variant', 'Vista satélite', 'Imagen aérea con nombres de calles'],
-                    ] as const).map(([value, icon, label, description]) => (
-                      <Pressable key={value} accessibilityRole="button" onPress={() => { setMapMode(value); setMapModeMenuOpen(false); }} style={({ hovered }: any) => [styles.mapModeOption, mapMode === value ? styles.mapModeOptionActive : undefined, hovered ? styles.controlHover : undefined]}>
-                        <MaterialCommunityIcons name={icon} size={18} color={mapMode === value ? portalPalette.accent : portalPalette.muted} />
-                        <View style={styles.flex}>
-                          <Text style={styles.mapModeText}>{label}</Text>
-                          <Text style={styles.mapModeDescription}>{description}</Text>
-                        </View>
-                        {mapMode === value ? <MaterialCommunityIcons name="check" size={16} color={portalPalette.success} /> : null}
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
               <View style={styles.operationsFilters}>
                 {([
                   ['ALL', 'Todas'],
@@ -712,7 +685,7 @@ export function PortalDashboardScreen() {
                 <OperationsMap
                   checkpoints={routeCheckpoints}
                   height={'clamp(360px, calc(100vh - 300px), 730px)'}
-                  mapMode={mapMode}
+                  mapMode="operational"
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
@@ -1725,22 +1698,8 @@ const styles = StyleSheet.create({
     boxShadow: '0 12px 30px rgba(0,0,0,.38)' as any,
     backdropFilter: 'blur(14px)' as any,
   },
-  mapModeButton: {
-    alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 32, paddingHorizontal: 12,
-  },
-  mapModeControl: { position: 'relative', zIndex: 20 },
-  mapModeMenu: {
-    backgroundColor: 'rgba(8, 15, 29, 0.98)', borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm,
-    borderWidth: 1, boxShadow: '0 20px 48px rgba(0,0,0,.5)' as any, gap: 4, left: 0, padding: 6,
-    position: 'absolute', top: 40, width: 270, zIndex: 30,
-  },
-  mapModeOption: { alignItems: 'center', borderRadius: AppTheme.radius.xs, flexDirection: 'row', gap: 9, minHeight: 54, paddingHorizontal: 10, paddingVertical: 7 },
-  mapModeOptionActive: { backgroundColor: portalPalette.accentSoft },
-  mapModeDescription: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
   controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong, boxShadow: '0 8px 20px rgba(0,0,0,.18)' as any },
   controlPressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
-  mapModeText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   operationsFilters: {
     alignItems: 'center', flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
   },
@@ -1759,8 +1718,9 @@ const styles = StyleSheet.create({
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    columnGap: 12,
     minWidth: 0,
+    rowGap: 11,
   },
   notice: {
     alignItems: 'center',
@@ -1884,6 +1844,8 @@ const styles = StyleSheet.create({
   },
   progressBlock: {
     gap: 4,
+    paddingBottom: 7,
+    paddingTop: 2,
   },
   progressFill: {
     backgroundColor: portalPalette.accent,
@@ -1913,8 +1875,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 6,
-    minHeight: 32,
-    paddingHorizontal: 8,
+    justifyContent: 'center',
+    minHeight: 34,
+    paddingHorizontal: 10,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
   quickActionHover: {
@@ -1929,6 +1892,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   quickActions: {
+    alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
@@ -1937,7 +1901,6 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(148,163,184,.12)',
     borderTopWidth: 1,
     gap: 6,
-    marginTop: 'auto',
     paddingTop: 10,
   },
   replayControls: {
@@ -2046,7 +2009,8 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flex: 1,
-    gap: 2,
+    gap: 7,
+    justifyContent: 'space-between',
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
   recentTimeline: {

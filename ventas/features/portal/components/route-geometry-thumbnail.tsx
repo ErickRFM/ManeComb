@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import type { GeoPoint, NavigationStop } from '@/src/types/app';
 
-type Props = { color?: string | null; polyline: GeoPoint[]; stops?: NavigationStop[] };
+type Props = { color?: string | null; large?: boolean; polyline: GeoPoint[]; stops?: NavigationStop[] };
 
-export function RouteGeometryThumbnail({ color = '#f0445f', polyline, stops = [] }: Props) {
+export function RouteGeometryThumbnail({ color = '#f0445f', large = false, polyline, stops = [] }: Props) {
   const geometry = useMemo(() => {
     if (polyline.length < 2) return null;
     const lngs = polyline.map((point) => point.longitude);
@@ -20,7 +20,7 @@ export function RouteGeometryThumbnail({ color = '#f0445f', polyline, stops = []
   }, [polyline]);
 
   return (
-    <svg aria-label="Miniatura de la geometría real de la ruta" className="route-geometry-thumbnail" role="img" viewBox="0 0 160 64">
+    <svg aria-label="Miniatura de la geometría real de la ruta" className="route-geometry-thumbnail" role="img" style={large ? { height: '100%', minHeight: 360, width: '100%' } : undefined} viewBox="0 0 160 64">
       <defs><pattern id="route-grid" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M 16 0 L 0 0 0 16" fill="none" stroke="rgba(148,163,184,.12)" strokeWidth=".6" /></pattern></defs>
       <rect width="160" height="64" rx="8" fill="#081221" /><rect width="160" height="64" rx="8" fill="url(#route-grid)" />
       {geometry ? <><path d={geometry.path} fill="none" stroke="rgba(0,0,0,.45)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" /><path d={geometry.path} fill="none" stroke={color || '#f0445f'} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />

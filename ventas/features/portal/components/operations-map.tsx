@@ -6,6 +6,7 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
 import { portalPalette } from '../portal-theme';
+import { RouteGeometryThumbnail } from './route-geometry-thumbnail';
 
 type OperationsMapProps = {
   autoFit?: boolean;
@@ -112,9 +113,10 @@ function getBoundsPoints({
   ].filter(isValidPoint) as GeoPoint[];
 }
 
-function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: string, width: number, opacity = 0.86) {
+function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: string, width: number, opacity = 0.86, emphasis = false) {
   const sourceId = `${id}-source`;
   const layerId = `${id}-layer`;
+  const casingLayerId = `${id}-casing-layer`;
   const data: GeoJSON.Feature<GeoJSON.LineString> = {
     geometry: {
       coordinates: coordinates.map(toLngLat),
@@ -126,27 +128,51 @@ function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: str
 
   if (map.getSource(sourceId)) {
     (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
-    return;
+  } else {
+    map.addSource(sourceId, { data, type: 'geojson' });
   }
 
-  map.addSource(sourceId, { data, type: 'geojson' });
-  map.addLayer({
-    id: layerId,
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color': color,
-      'line-opacity': opacity,
-      'line-width': width,
-    },
-    source: sourceId,
-    type: 'line',
-  });
+  if (emphasis && !map.getLayer(casingLayerId)) {
+    map.addLayer({
+      id: casingLayerId,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#07101d',
+        'line-opacity': 0.92,
+        'line-width': width + 5,
+      },
+      source: sourceId,
+      type: 'line',
+    });
+  }
+
+  if (!map.getLayer(layerId)) {
+    map.addLayer({
+      id: layerId,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-blur': emphasis ? 0.35 : 0,
+        'line-color': color,
+        'line-opacity': opacity,
+        'line-width': width,
+      },
+      source: sourceId,
+      type: 'line',
+    });
+  } else {
+    map.setPaintProperty(layerId, 'line-color', color);
+    map.setPaintProperty(layerId, 'line-opacity', opacity);
+    map.setPaintProperty(layerId, 'line-width', width);
+  }
+  if (emphasis) map.moveLayer(layerId);
 }
 
 function removeLine(map: MapboxMap, id: string) {
   const sourceId = `${id}-source`;
   const layerId = `${id}-layer`;
+  const casingLayerId = `${id}-casing-layer`;
   if (map.getLayer(layerId)) map.removeLayer(layerId);
+  if (map.getLayer(casingLayerId)) map.removeLayer(casingLayerId);
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 }
 
@@ -186,7 +212,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     ? 'mapbox://styles/mapbox/satellite-streets-v12'
     : mapMode === 'traffic' || showTraffic
       ? 'mapbox://styles/mapbox/navigation-night-v1'
-      : 'mapbox://styles/mapbox/dark-v11';
+      : 'mapbox://styles/mapbox/navigation-night-v1';
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
     [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
@@ -222,7 +248,7 @@ export const OperationsMap = React.memo(function OperationsMap({
       interactive: true,
       logoPosition: 'bottom-left',
       style: mapStyle,
-      zoom: 12,
+      zoom: 12.5,
     });
     const handleMapError = (event: mapboxgl.ErrorEvent) => {
       const err = event.error as Error & { status?: number };
@@ -271,7 +297,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const syncLines = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
+    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, '#ff365e', 6, 1, true);
     else removeLine(map, 'operations-route');
     if (highlightedSegment.length === 2) setLine(map, 'operations-route-highlight', highlightedSegment, '#38bdf8', 8, 0.42);
     else removeLine(map, 'operations-route-highlight');
@@ -443,7 +469,12 @@ export const OperationsMap = React.memo(function OperationsMap({
       (current, point) => current.extend(toLngLat(point)),
       new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
     );
-    map.fitBounds(bounds, { duration: 550, easing: (value) => 1 - Math.pow(1 - value, 3), padding: 52 });
+    map.fitBounds(bounds, {
+      duration: 550,
+      easing: (value) => 1 - Math.pow(1 - value, 3),
+      maxZoom: 15,
+      padding: { bottom: 72, left: 72, right: 72, top: 82 },
+    });
   }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
@@ -464,6 +495,14 @@ export const OperationsMap = React.memo(function OperationsMap({
         : isReplay
           ? 'Esta jornada no tiene recorrido GPS guardado.'
           : 'Las unidades apareceran aqui cuando reporten una ubicacion.';
+    if (!isReplay && routeCoordinates.length >= 2) {
+      return (
+        <View {...({ className: 'route-preview-fallback' } as any)} style={[styles.fallback, styles.routeFallback, { height, minHeight: typeof height === 'number' ? height : 460 }]}>
+          <View style={styles.fallbackHeader}><View style={styles.fallbackIcon}><MaterialCommunityIcons name="map-outline" size={20} color={portalPalette.accent} /></View><View style={styles.fallbackHeaderText}><Text style={styles.fallbackTitle}>Vista previa de la ruta</Text><Text style={styles.fallbackText}>{reason} La geometría guardada permanece visible.</Text></View></View>
+          <View style={styles.routeFallbackGeometry}><RouteGeometryThumbnail color={portalPalette.accent} large polyline={routeCoordinates} stops={checkpoints} /></View>
+        </View>
+      );
+    }
     return (
       <View style={[styles.fallback, { height, minHeight: typeof height === 'number' ? height : 460 }]}>
         <View style={styles.fallbackHeader}>
@@ -506,6 +545,8 @@ export const OperationsMap = React.memo(function OperationsMap({
 });
 
 const styles = StyleSheet.create({
+  routeFallback: { overflow: 'hidden', padding: 0 },
+  routeFallbackGeometry: { flex: 1, minHeight: 0, width: '100%' },
   fallback: {
     alignItems: 'flex-start',
     backgroundColor: portalPalette.surfaceSoft,
