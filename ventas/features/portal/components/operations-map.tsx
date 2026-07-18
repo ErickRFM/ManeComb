@@ -113,10 +113,11 @@ function getBoundsPoints({
   ].filter(isValidPoint) as GeoPoint[];
 }
 
-function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: string, width: number, opacity = 0.86, emphasis = false) {
+function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: string, width: number, opacity = 0.86) {
   const sourceId = `${id}-source`;
   const layerId = `${id}-layer`;
-  const casingLayerId = `${id}-casing-layer`;
+  const glowSourceId = `${id}-glow-source`;
+  const glowLayerId = `${id}-glow-layer`;
   const data: GeoJSON.Feature<GeoJSON.LineString> = {
     geometry: {
       coordinates: coordinates.map(toLngLat),
@@ -128,51 +129,42 @@ function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: str
 
   if (map.getSource(sourceId)) {
     (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
-  } else {
-    map.addSource(sourceId, { data, type: 'geojson' });
+    return;
   }
 
-  if (emphasis && !map.getLayer(casingLayerId)) {
-    map.addLayer({
-      id: casingLayerId,
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': '#07101d',
-        'line-opacity': 0.92,
-        'line-width': width + 5,
-      },
-      source: sourceId,
-      type: 'line',
-    });
-  }
-
-  if (!map.getLayer(layerId)) {
-    map.addLayer({
-      id: layerId,
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-blur': emphasis ? 0.35 : 0,
-        'line-color': color,
-        'line-opacity': opacity,
-        'line-width': width,
-      },
-      source: sourceId,
-      type: 'line',
-    });
-  } else {
-    map.setPaintProperty(layerId, 'line-color', color);
-    map.setPaintProperty(layerId, 'line-opacity', opacity);
-    map.setPaintProperty(layerId, 'line-width', width);
-  }
-  if (emphasis) map.moveLayer(layerId);
+  map.addSource(sourceId, { data, type: 'geojson' });
+  map.addLayer({
+    id: glowLayerId,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': color,
+      'line-opacity': opacity * 0.3,
+      'line-width': width + 6,
+    },
+    source: sourceId,
+    type: 'line',
+  });
+  map.addLayer({
+    id: layerId,
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': color,
+      'line-opacity': opacity,
+      'line-width': width,
+    },
+    source: sourceId,
+    type: 'line',
+  });
 }
 
 function removeLine(map: MapboxMap, id: string) {
   const sourceId = `${id}-source`;
   const layerId = `${id}-layer`;
-  const casingLayerId = `${id}-casing-layer`;
+  const glowSourceId = `${id}-glow-source`;
+  const glowLayerId = `${id}-glow-layer`;
+  if (map.getLayer(glowLayerId)) map.removeLayer(glowLayerId);
   if (map.getLayer(layerId)) map.removeLayer(layerId);
-  if (map.getLayer(casingLayerId)) map.removeLayer(casingLayerId);
+  if (map.getSource(glowSourceId)) map.removeSource(glowSourceId);
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 }
 
@@ -212,7 +204,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     ? 'mapbox://styles/mapbox/satellite-streets-v12'
     : mapMode === 'traffic' || showTraffic
       ? 'mapbox://styles/mapbox/navigation-night-v1'
-      : 'mapbox://styles/mapbox/navigation-night-v1';
+      : 'mapbox://styles/mapbox/dark-v11';
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
     [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
@@ -248,7 +240,7 @@ export const OperationsMap = React.memo(function OperationsMap({
       interactive: true,
       logoPosition: 'bottom-left',
       style: mapStyle,
-      zoom: 12.5,
+      zoom: 12,
     });
     const handleMapError = (event: mapboxgl.ErrorEvent) => {
       const err = event.error as Error & { status?: number };
@@ -297,7 +289,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const syncLines = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, '#ff365e', 6, 1, true);
+    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
     else removeLine(map, 'operations-route');
     if (highlightedSegment.length === 2) setLine(map, 'operations-route-highlight', highlightedSegment, '#38bdf8', 8, 0.42);
     else removeLine(map, 'operations-route-highlight');
@@ -469,12 +461,7 @@ export const OperationsMap = React.memo(function OperationsMap({
       (current, point) => current.extend(toLngLat(point)),
       new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
     );
-    map.fitBounds(bounds, {
-      duration: 550,
-      easing: (value) => 1 - Math.pow(1 - value, 3),
-      maxZoom: 15,
-      padding: { bottom: 72, left: 72, right: 72, top: 82 },
-    });
+    map.fitBounds(bounds, { duration: 550, easing: (value) => 1 - Math.pow(1 - value, 3), padding: 52 });
   }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
@@ -553,19 +540,19 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 8,
+    gap: 10,
     justifyContent: 'flex-start',
     padding: 14,
   },
   fallbackHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     width: '100%',
   },
   fallbackHeaderText: {
     flex: 1,
-    gap: 3,
+    gap: 2,
     minWidth: 0,
   },
   fallbackIcon: {
@@ -595,7 +582,7 @@ const styles = StyleSheet.create({
   fallbackList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     maxWidth: 520,
     width: '100%',
   },
@@ -606,7 +593,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexBasis: 180,
     flexGrow: 1,
-    gap: 2,
+    gap: 1,
     minWidth: 0,
     overflow: 'hidden',
     paddingHorizontal: 10,

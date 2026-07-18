@@ -335,7 +335,7 @@ export function PortalDashboardScreen() {
     status: 'ALL',
     vehicleId: getParam(params.vehicleId) || '',
   });
-  const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
+  const [operationsFilter] = useState<OperationsFilter>('ALL');
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -659,32 +659,11 @@ export function PortalDashboardScreen() {
       <View style={styles.mainOperationsGrid}>
         <View style={styles.operationsMapCol}>
           <View style={styles.mapSurface}>
-            <View style={styles.mapHeader}>
-              <View style={styles.operationsFilters}>
-                {([
-                  ['ALL', 'Todas'],
-                  ['RUNNING', 'En jornada'],
-                  ['STOPPED', 'Detenidas'],
-                  ['OFF_ROUTE', 'Fuera de ruta'],
-                ] as const).map(([value, label]) => (
-                  <Pressable
-                    key={value}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: operationsFilter === value }}
-                    onPress={() => setOperationsFilter(value)}
-                    style={({ hovered, pressed }: any) => [styles.operationsFilter, operationsFilter === value ? styles.operationsFilterActive : undefined, hovered ? styles.controlHover : undefined, pressed ? styles.controlPressed : undefined]}>
-                    <View style={[styles.filterStatusDot, value === 'RUNNING' ? styles.filterStatusRunning : value === 'STOPPED' ? styles.filterStatusStopped : value === 'OFF_ROUTE' ? styles.filterStatusOffRoute : undefined]} />
-                    <Text style={styles.operationsFilterText}>{label}</Text>
-                    <Text style={styles.operationsFilterCount}>{operationsCounts[value]}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
             <View style={styles.mapStage}>
               <Suspense fallback={<MapFallback height={620} />}>
                 <OperationsMap
                   checkpoints={routeCheckpoints}
-                  height={'clamp(360px, calc(100vh - 300px), 730px)'}
+                  height="100%"
                   mapMode="operational"
                   onVehiclePress={openVehicle}
                   routeCoordinates={routeCoordinates}
@@ -978,7 +957,7 @@ function VehicleSidePanel({
         <Text style={styles.noticeInline}>{driverChangeMessage}</Text>
       ) : null}
       {session ? (
-        <View style={styles.metricGrid}>
+        <View style={[styles.metricGrid, styles.sideMetricGrid]}>
           <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
           <Fact label="Distancia" value={formatDistance(session.totalDistance)} />
           <Fact label="Vueltas" value={String(session.completedLaps ?? 0)} />
@@ -1403,13 +1382,13 @@ const styles = StyleSheet.create({
   alertRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
   },
   compactRow: {
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
-    gap: 2,
+    gap: 3,
     padding: 10,
   },
   compactTitle: {
@@ -1423,14 +1402,14 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: 6,
+    gap: 8,
     padding: 10,
   },
   detailGrid: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     minWidth: 0,
   },
   detailPanelCol: {
@@ -1475,7 +1454,7 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'space-between',
     minHeight: 38,
     paddingHorizontal: 10,
@@ -1486,16 +1465,16 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(148,163,184,.12)',
     borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 2,
-    paddingVertical: 10,
+    paddingVertical: 8,
     boxShadow: 'none' as any,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
   driverRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'space-between',
     minWidth: 0,
   },
@@ -1508,7 +1487,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   driverSelector: {
-    gap: 8,
+    gap: 6,
   },
   fact: {
     backgroundColor: 'transparent',
@@ -1517,7 +1496,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     flex: 1,
     flexBasis: 108,
-    gap: 2,
+    gap: 1,
     minWidth: 0,
     paddingHorizontal: 2,
     paddingVertical: 3,
@@ -1569,7 +1548,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   filters: {
-    gap: 6,
+    gap: 8,
   },
   filterSeparator: {
     alignSelf: 'center',
@@ -1598,7 +1577,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   iconButton: {
@@ -1614,7 +1593,7 @@ const styles = StyleSheet.create({
   inlineHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'space-between',
     minWidth: 0,
   },
@@ -1622,7 +1601,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderColor: portalPalette.line,
     borderBottomWidth: 1,
-    gap: 3,
+    gap: 2,
     minWidth: 0,
     paddingHorizontal: 4,
     paddingVertical: 9,
@@ -1720,7 +1699,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     columnGap: 12,
     minWidth: 0,
-    rowGap: 11,
+    rowGap: 8,
   },
   notice: {
     alignItems: 'center',
@@ -1729,7 +1708,7 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     padding: 12,
   },
   noticeText: {
@@ -1749,7 +1728,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     minWidth: 0,
   },
   onboardingTitle: {
@@ -1763,7 +1742,7 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     minWidth: 0,
   },
   mainOperationsGrid: {
@@ -1771,20 +1750,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'nowrap',
     gap: 0,
+    height: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
     minWidth: 0,
   },
   operationsMapCol: {
     flex: 20,
-    gap: 6,
+    gap: 8,
+    height: '100%',
     minWidth: 0,
   },
   operationsUnitsCol: {
     flex: 6,
-    height: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
-    maxHeight: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
-    minHeight: 500,
+    height: '100%',
     minWidth: 0,
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   operationsDetailSurface: {
     backgroundColor: 'rgba(12,21,35,.97)',
@@ -1796,29 +1775,30 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     flex: 1,
     minHeight: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     boxShadow: '-14px 0 34px rgba(0,0,0,.18), inset 1px 0 0 rgba(255,255,255,.025)' as any,
   },
   kpiRow: {
-    backgroundColor: 'rgba(10,19,33,.82)', borderColor: 'rgba(148,163,184,.12)', borderRadius: 10,
-    borderWidth: 1, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
+    backgroundColor: 'rgba(10,19,33,.82)', borderColor: 'rgba(148,163,184,.12)',
+    borderTopLeftRadius: 10, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 10,
+    borderWidth: 1, borderRightWidth: 0, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
   },
   kpiCard: {
-    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, gap: 2, minHeight: 62,
-    minWidth: 0, paddingHorizontal: 11, paddingVertical: 6,
+    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, gap: 3, minHeight: 62,
+    minWidth: 0, paddingHorizontal: 12, paddingVertical: 8,
     animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
   kpiCardLast: { borderRightWidth: 0 },
-  kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
+  kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
   kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800', letterSpacing: 0.15 },
   kpiValue: { color: '#FFFFFF', fontFamily: Typography.display, fontSize: 19, fontWeight: '900', letterSpacing: -0.25, lineHeight: 22 },
   kpiDetail: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   panelTitle: {
@@ -1843,7 +1823,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   progressBlock: {
-    gap: 4,
+    gap: 3,
     paddingBottom: 7,
     paddingTop: 2,
   },
@@ -1878,7 +1858,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 34,
     paddingHorizontal: 10,
-    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
+    transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out, opacity 180ms ease-in-out' as any,
   },
   quickActionHover: {
     backgroundColor: portalPalette.accentSoft,
@@ -1895,18 +1875,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
   },
   sideActions: {
     borderTopColor: 'rgba(148,163,184,.12)',
     borderTopWidth: 1,
-    gap: 6,
-    paddingTop: 10,
+    gap: 8,
+    paddingTop: 8,
   },
   replayControls: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   replayPanel: {
     flex: 1.2,
@@ -1921,13 +1901,13 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.xs,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     padding: 10,
   },
   replaySteps: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   routeIcon: {
     alignItems: 'center',
@@ -1946,9 +1926,9 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 2,
-    paddingVertical: 10,
+    paddingVertical: 8,
     boxShadow: 'none' as any,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
@@ -1976,12 +1956,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   sessionDetail: {
-    gap: 10,
+    gap: 12,
   },
   sideHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     paddingBottom: 8,
   },
   sideUnitIcon: {
@@ -2009,9 +1989,12 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flex: 1,
-    gap: 7,
-    justifyContent: 'space-between',
+    gap: 8,
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
+  },
+  sideMetricGrid: {
+    alignContent: 'center',
+    flexGrow: 1,
   },
   recentTimeline: {
     gap: 0,
@@ -2025,7 +2008,7 @@ const styles = StyleSheet.create({
   recentTimelineItem: {
     alignItems: 'stretch',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     minHeight: 36,
     transition: 'background-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
@@ -2053,7 +2036,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     minWidth: 0,
   },
   sideTitle: {
@@ -2084,15 +2067,15 @@ const styles = StyleSheet.create({
   timelineItem: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   timelineList: {
-    gap: 10,
+    gap: 8,
   },
   timelinePanel: {
     flex: 1,
     flexBasis: 320,
-    gap: 8,
+    gap: 10,
     minWidth: 0,
   },
   timelineTitle: {
@@ -2105,6 +2088,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderColor: portalPalette.line,
     borderBottomWidth: 1,
+    gap: 2,
     minWidth: 0,
     paddingHorizontal: 4,
     paddingVertical: 4,
@@ -2128,7 +2112,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     justifyContent: 'space-between',
   },
   unitSelectorOverlay: {
@@ -2137,7 +2121,7 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     bottom: 12,
-    gap: 0,
+    gap: 2,
     left: 12,
     backdropFilter: 'blur(16px)' as any,
     boxShadow: '0 20px 48px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.05)' as any,
@@ -2152,7 +2136,7 @@ const styles = StyleSheet.create({
     fontFamily: Typography.display,
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   unitMeta: {
     color: portalPalette.muted,

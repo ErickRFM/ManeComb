@@ -191,13 +191,13 @@ export function getPortalStatusTone(status?: string) {
 const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: AppTheme.radius.sm,
-    gap: 10,
+    gap: 12,
     minWidth: 0,
   },
   sectionCardCompact: {
     backgroundImage: 'linear-gradient(180deg, rgba(19,29,47,.98) 0%, rgba(10,18,32,.98) 100%)' as any,
     boxShadow: 'inset 3px 0 0 rgba(240,68,95,.72), inset 0 1px 0 rgba(255,255,255,.045), 0 18px 42px rgba(0,0,0,.3)' as any,
-    gap: 8,
+    gap: 10,
     minHeight: '100%' as any,
     padding: 12,
   },
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     justifyContent: 'space-between',
   },
   sectionTitleWrap: {
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     lineHeight: 17,
-    marginTop: 2,
+    marginTop: 1,
   },
   summaryCard: {
     borderRadius: AppTheme.radius.sm,
@@ -235,13 +235,13 @@ const styles = StyleSheet.create({
     flexBasis: 150,
     minHeight: 70,
     minWidth: 0,
-    padding: 10,
+    padding: 12,
   },
   summaryTop: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     justifyContent: 'space-between',
   },
   summaryIcon: {
@@ -266,11 +266,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   timeline: {
-    gap: 12,
+    gap: 10,
   },
   timelineItem: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   timelineDot: {
     alignItems: 'center',
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
   },
   timelineContent: {
     flex: 1,
-    gap: 4,
+    gap: 3,
     minWidth: 0,
   },
   itemTitle: {
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   list: {
-    gap: 10,
+    gap: 8,
   },
   listItem: {
     alignItems: 'flex-start',
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     minWidth: 0,
     padding: 12,
   },
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexShrink: 0,
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     justifyContent: 'flex-end',
     maxWidth: '100%',
   },

@@ -388,10 +388,67 @@ export function PortalRoutesScreen() {
     return true;
   };
 
-  if (showRouteEditor) {
-    return (
-      <PortalLayout actions={<View style={styles.editorTopActions}><Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}><Text style={styles.toolText}>Cancelar</Text></Pressable><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>} compact wide title="Editor de ruta" subtitle="Crea y edita la ruta agregando paradas y checkpoints.">
-        <View style={styles.fullEditorShell}>
+  const editorActions = (
+    <View style={styles.editorTopActions}>
+      <Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}>
+        <Text style={styles.toolText}>Cancelar</Text>
+      </Pressable>
+      <Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}>
+        <Text style={styles.primaryText}>Guardar ruta</Text>
+      </Pressable>
+    </View>
+  );
+
+  const mapMode = showRouteEditor ? 'editor' : 'preview';
+
+  const mapElement = (
+    <RouteMap
+      key="stable-route-map"
+      {...(mapMode === 'editor' ? {
+        editablePoints,
+        height: '100%',
+        highlightedSegment: selectedSegmentIndex === null ? [] : [editablePoints[selectedSegmentIndex]?.point, editablePoints[selectedSegmentIndex + 1]?.point].filter(Boolean) as GeoPoint[],
+        selectedEditablePointId: selectedPointId,
+        onEditablePointSelect: setSelectedPointId,
+        onEditablePointChange: updateEditablePoint,
+        onClickPoint: (point: GeoPoint) => {
+          if (!editorPoints[0]) { setField('originLatitude', String(point.latitude)); setField('originLongitude', String(point.longitude)); setSelectedPointId('origin'); }
+          else if (!editorPoints[1]) { setField('destinationLatitude', String(point.latitude)); setField('destinationLongitude', String(point.longitude)); setSelectedPointId('destination'); }
+          else if (editorTool === 'checkpoint' || editorTool === 'insert') { const id = `stop-${Date.now()}`; const next = { id, ...point, address: `Checkpoint ${editorStops.length + 1}`, order: editorStops.length }; setEditorStops((current) => editorTool === 'insert' ? [...current.slice(0, Math.ceil(current.length / 2)), next, ...current.slice(Math.ceil(current.length / 2))].map((stop, order) => ({ ...stop, order })) : [...current, next]); setSelectedPointId(id); }
+        },
+        routeCoordinates: editorGeometry.length >= 2 ? editorGeometry : editablePoints.map((entry) => entry.point),
+        vehicles: [],
+      } : {
+        checkpoints: selectedSavedRoute?.stops || [],
+        height: '100%',
+        routeCoordinates: selectedSavedRoute?.polyline || [],
+        vehicles: [],
+      })}
+    />
+  );
+
+  return (
+    <PortalLayout
+      actions={showRouteEditor ? editorActions : <Pressable onPress={openNewRouteEditor} style={[styles.primaryButton, portalButtonGradient()]}><MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text></Pressable>}
+      compact
+      wide
+      title={showRouteEditor ? 'Editor de ruta' : 'Rutas'}
+      subtitle={showRouteEditor ? 'Crea y edita la ruta agregando paradas y checkpoints.' : 'Asignación real de origen y destino por unidad.'}>
+      {showAssignmentBanner && !showRouteEditor && canManageRoutes ? (
+        <View style={styles.continuityBanner}>
+          <MaterialCommunityIcons name="check-circle" size={18} color="#FFFFFF" />
+          <Text style={styles.continuityText}>Ruta asignada. Abre el centro de operaciones para monitorear la unidad.</Text>
+          <Pressable accessibilityRole="button" onPress={() => router.push('/portal' as never)} style={styles.continuityButton}>
+            <Text style={styles.continuityButtonText}>Ir a operaciones</Text>
+            <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {message && !showRouteEditor ? <View style={styles.inlineFeedback}><MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.info} /><Text style={styles.inlineFeedbackText}>{message}</Text></View> : null}
+
+      <View style={showRouteEditor ? styles.fullEditorShell : styles.assignmentWorkspace}>
+        {showRouteEditor ? (
           <View style={styles.editorTools}>
             <Text style={styles.sectionEyebrow}>Herramientas</Text>
             <Pressable onPress={() => setEditorTool('select')} style={[styles.toolButton, editorTool === 'select' ? styles.toolButtonActive : undefined]}><MaterialCommunityIcons name="cursor-default" size={18} color={portalPalette.text} /><Text style={styles.toolText}>Seleccionar / mover</Text></Pressable>
@@ -401,15 +458,59 @@ export function PortalRoutesScreen() {
             <Pressable onPress={() => { setEditor(createBlankEditor(editor.vehicleId)); setEditorStops([]); setEditorGeometry([]); }} style={styles.toolButton}><MaterialCommunityIcons name="delete-sweep" size={18} color={palette.warning} /><Text style={styles.toolText}>Limpiar ruta</Text></Pressable>
             <View style={styles.editorLegend}><Text style={styles.legendText}>● Verde: origen</Text><Text style={styles.legendText}>● Azul: checkpoint</Text><Text style={styles.legendText}>● Rojo: destino</Text></View>
           </View>
-          <View style={styles.editorMap}>
-            <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
-              <RouteMap editablePoints={editablePoints} highlightedSegment={selectedSegmentIndex === null ? [] : [editablePoints[selectedSegmentIndex]?.point, editablePoints[selectedSegmentIndex + 1]?.point].filter(Boolean) as GeoPoint[]} selectedEditablePointId={selectedPointId} onEditablePointSelect={setSelectedPointId} onEditablePointChange={updateEditablePoint} height="100%" onClickPoint={(point) => {
-                if (!editorPoints[0]) { setField('originLatitude', String(point.latitude)); setField('originLongitude', String(point.longitude)); setSelectedPointId('origin'); }
-                else if (!editorPoints[1]) { setField('destinationLatitude', String(point.latitude)); setField('destinationLongitude', String(point.longitude)); setSelectedPointId('destination'); }
-                else if (editorTool === 'checkpoint' || editorTool === 'insert') { const id = `stop-${Date.now()}`; const next = { id, ...point, address: `Checkpoint ${editorStops.length + 1}`, order: editorStops.length }; setEditorStops((current) => editorTool === 'insert' ? [...current.slice(0, Math.ceil(current.length / 2)), next, ...current.slice(Math.ceil(current.length / 2))].map((stop, order) => ({ ...stop, order })) : [...current, next]); setSelectedPointId(id); }
-              }} routeCoordinates={editorGeometry.length >= 2 ? editorGeometry : editablePoints.map((entry) => entry.point)} vehicles={[]} />
-            </Suspense>
-          </View>
+        ) : canManageRoutes ? (
+          <>
+            <View style={styles.unitsPanel}>
+              <View style={styles.panelHeading}><Text style={styles.panelTitle}>Selecciona una unidad</Text><Text style={styles.panelCount}>{routeVehicles.length}</Text></View>
+              <View style={styles.unitsList}>{routeVehicles.map((vehicle) => {
+                const active = editor.vehicleId === vehicle.id;
+                return <Pressable accessibilityState={{ selected: active }} key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
+                  <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}><MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} /></View>
+                  <View style={styles.routeBody}><Text style={styles.unitCode}>{vehicle.code}</Text><Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text><Text style={styles.unitStatus}>● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}</Text></View>
+                </Pressable>;
+              })}</View>
+            </View>
+
+            <View style={styles.catalogPanel}>
+              <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas disponibles</Text><Text style={styles.panelCount}>{filteredRoutes.length}</Text></View>
+              <TextInput accessibilityLabel="Buscar rutas" value={search} onChangeText={setSearch} placeholder="Buscar ruta" placeholderTextColor={palette.muted} style={[styles.compactSearch, { borderColor: palette.lineStrong, color: palette.text }]} />
+              <View style={styles.compactFilters}>{(['all','assigned','unused'] as const).map((mode) => <Pressable key={mode} onPress={() => setFilterMode(mode)} style={[styles.filterChip, filterMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'all' ? 'Todas' : mode === 'assigned' ? 'Asignadas' : 'Sin uso'}</Text></Pressable>)}</View>
+              <View style={styles.compactFilters}>{(['recent','name','distance'] as const).map((mode) => <Pressable key={mode} onPress={() => setSortMode(mode)} style={[styles.sortChip, sortMode === mode ? styles.sortChipActive : undefined]}><Text style={styles.sortChipText}>{mode === 'recent' ? 'Recientes' : mode === 'name' ? 'Nombre' : 'Distancia'}</Text></Pressable>)}</View>
+              <View style={styles.catalogList}>{filteredRoutes.length ? filteredRoutes.map((route) => <Pressable {...({ className: 'route-catalog-card' } as any)} accessibilityRole="button" accessibilityState={{ selected: selectedRouteId === route.id }} key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.compactRouteCard, selectedRouteId === route.id ? styles.compactRouteCardActive : undefined]}>
+                <View style={styles.compactRouteInfo}><Text numberOfLines={1} style={styles.compactRouteName}>{route.name}</Text><View style={styles.compactMetrics}><Text style={styles.compactMetric}>{((route.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.compactMetric}>{route.stops?.length || 0} paradas</Text></View></View>
+                <View style={styles.thumbnailWrap}><RouteGeometryThumbnail color={route.color} polyline={route.polyline} stops={route.stops} /></View>
+              </Pressable>) : <EmptyState icon="routes" title={savedRoutes.length ? 'Sin coincidencias' : 'Aún no hay rutas'} description={savedRoutes.length ? 'Ajusta los filtros.' : 'Crea la primera ruta.'} />}</View>
+            </View>
+          </>
+        ) : null}
+
+        <View style={showRouteEditor ? styles.editorMap : styles.previewColumn}>
+          {showRouteEditor ? (
+            <View style={{ flex: 1, position: 'relative' }}>
+              <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando mapa...</Text></View>}>
+                {mapElement}
+              </Suspense>
+            </View>
+          ) : (
+            <>
+              <View style={styles.previewMapShell}>
+                <View style={styles.mapLabel}><MaterialCommunityIcons name="map-outline" size={15} color={portalPalette.text} /><Text style={styles.mapLabelText}>Vista previa de la ruta seleccionada</Text></View>
+                {selectedSavedRoute ? (
+                  <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando vista previa...</Text></View>}>
+                    {mapElement}
+                  </Suspense>
+                ) : <EmptyState icon="map-search-outline" title="Selecciona una ruta" description="La geometría aparecerá aquí." />}
+              </View>
+              {selectedSavedRoute ? <View style={styles.mapActionBar}>
+                <View style={styles.mapRouteIdentity}><View style={styles.mapRouteIcon}><MaterialCommunityIcons name="routes" size={22} color={portalPalette.accent} /></View><View style={styles.routeBody}><Text numberOfLines={1} style={styles.mapRouteName}>{selectedSavedRoute.name}</Text><Text numberOfLines={1} style={styles.mapRoutePath}>{selectedSavedRoute.originLabel || 'Origen'} → {selectedSavedRoute.destinationLabel || 'Destino'}</Text></View></View>
+                <View style={styles.mapStats}><View><Text style={styles.statValue}>{((selectedSavedRoute.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.statLabel}>Distancia</Text></View><View><Text style={styles.statValue}>{selectedSavedRoute.stops.length}</Text><Text style={styles.statLabel}>Checkpoints</Text></View><View><Text style={styles.statValue}>{Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min</Text><Text style={styles.statLabel}>Duración</Text></View></View>
+                <View style={styles.mapActions}><Pressable onPress={() => openExistingRouteEditor(selectedSavedRoute)} style={styles.secondaryButton}><Text style={styles.toolText}>Editar</Text></Pressable><Pressable disabled={!editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), !editor.vehicleId ? styles.disabledButton : undefined]}><Text style={styles.primaryText}>Asignar ruta</Text></Pressable></View>
+              </View> : null}
+            </>
+          )}
+        </View>
+
+        {showRouteEditor ? (
           <View style={styles.editorDetails}>
             <Text style={styles.editorTitle}>Detalles de la ruta</Text>
             <TextInput value={routeName} onChangeText={setRouteName} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
@@ -425,70 +526,13 @@ export function PortalRoutesScreen() {
             </View>
             <Text style={styles.coordText}>{catalogBusy ? 'Recalculando geometría…' : 'Arrastra cualquier marcador para moverlo. Los cambios se recalculan automáticamente.'}</Text>
           </View>
-        </View>
-      </PortalLayout>
-    );
-  }
-
-  return (
-    <PortalLayout
-      actions={<Pressable onPress={openNewRouteEditor} style={[styles.primaryButton, portalButtonGradient()]}><MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text></Pressable>}
-      compact
-      wide
-      title="Rutas"
-      subtitle="Asignación real de origen y destino por unidad.">
-      {showAssignmentBanner && canManageRoutes ? (
-        <View style={styles.continuityBanner}>
-          <MaterialCommunityIcons name="check-circle" size={18} color="#FFFFFF" />
-          <Text style={styles.continuityText}>Ruta asignada. Abre el centro de operaciones para monitorear la unidad.</Text>
-          <Pressable accessibilityRole="button" onPress={() => router.push('/portal' as never)} style={styles.continuityButton}>
-            <Text style={styles.continuityButtonText}>Ir a operaciones</Text>
-            <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {message ? <View style={styles.inlineFeedback}><MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.info} /><Text style={styles.inlineFeedbackText}>{message}</Text></View> : null}
-      {canManageRoutes ? <View style={styles.assignmentWorkspace}>
-        <View style={styles.unitsPanel}>
-          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Selecciona una unidad</Text><Text style={styles.panelCount}>{routeVehicles.length}</Text></View>
-          <View style={styles.unitsList}>{routeVehicles.map((vehicle) => {
-            const active = editor.vehicleId === vehicle.id;
-            return <Pressable accessibilityState={{ selected: active }} key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
-              <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}><MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} /></View>
-              <View style={styles.routeBody}><Text style={styles.unitCode}>{vehicle.code}</Text><Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text><Text style={styles.unitStatus}>● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}</Text></View>
-            </Pressable>;
-          })}</View>
-        </View>
-
-        <View style={styles.catalogPanel}>
-          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas disponibles</Text><Text style={styles.panelCount}>{filteredRoutes.length}</Text></View>
-          <TextInput accessibilityLabel="Buscar rutas" value={search} onChangeText={setSearch} placeholder="Buscar ruta" placeholderTextColor={palette.muted} style={[styles.compactSearch, { borderColor: palette.lineStrong, color: palette.text }]} />
-          <View style={styles.compactFilters}>{(['all','assigned','unused'] as const).map((mode) => <Pressable key={mode} onPress={() => setFilterMode(mode)} style={[styles.filterChip, filterMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'all' ? 'Todas' : mode === 'assigned' ? 'Asignadas' : 'Sin uso'}</Text></Pressable>)}</View>
-          <View style={styles.compactFilters}>{(['recent','name','distance'] as const).map((mode) => <Pressable key={mode} onPress={() => setSortMode(mode)} style={[styles.sortChip, sortMode === mode ? styles.sortChipActive : undefined]}><Text style={styles.sortChipText}>{mode === 'recent' ? 'Recientes' : mode === 'name' ? 'Nombre' : 'Distancia'}</Text></Pressable>)}</View>
-          <View style={styles.catalogList}>{filteredRoutes.length ? filteredRoutes.map((route) => <Pressable {...({ className: 'route-catalog-card' } as any)} accessibilityRole="button" accessibilityState={{ selected: selectedRouteId === route.id }} key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.compactRouteCard, selectedRouteId === route.id ? styles.compactRouteCardActive : undefined]}>
-            <View style={styles.compactRouteInfo}><Text numberOfLines={1} style={styles.compactRouteName}>{route.name}</Text><View style={styles.compactMetrics}><Text style={styles.compactMetric}>{((route.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.compactMetric}>{route.stops?.length || 0} paradas</Text></View></View>
-            <View style={styles.thumbnailWrap}><RouteGeometryThumbnail color={route.color} polyline={route.polyline} stops={route.stops} /></View>
-          </Pressable>) : <EmptyState icon="routes" title={savedRoutes.length ? 'Sin coincidencias' : 'Aún no hay rutas'} description={savedRoutes.length ? 'Ajusta los filtros.' : 'Crea la primera ruta.'} />}</View>
-        </View>
-
-        <View style={styles.previewColumn}>
-          <View style={styles.previewMapShell}>
-            <View style={styles.mapLabel}><MaterialCommunityIcons name="map-outline" size={15} color={portalPalette.text} /><Text style={styles.mapLabelText}>Vista previa de la ruta seleccionada</Text></View>
-            {selectedSavedRoute ? <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando vista previa...</Text></View>}><RouteMap checkpoints={selectedSavedRoute.stops} height="100%" routeCoordinates={selectedSavedRoute.polyline} vehicles={[]} /></Suspense> : <EmptyState icon="map-search-outline" title="Selecciona una ruta" description="La geometría aparecerá aquí." />}
+        ) : (
+          <View style={styles.assignedPanel}>
+            <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas asignadas a {selectedVehicle?.code || '—'}</Text><Text style={styles.panelCount}>{selectedVehicle?.assignedRoute ? 1 : 0}</Text></View>
+            {selectedVehicle?.assignedRoute ? <View style={styles.assignedCard}><View style={styles.assignedHeader}><Text numberOfLines={1} style={styles.assignedName}>{selectedVehicle.assignedRoute.route?.label || getRouteLabel(selectedVehicle)}</Text><StatusBadge label="Activa" tone="positive" /></View><RouteGeometryThumbnail color={selectedVehicle.routeColor} polyline={getRouteGeometry(selectedVehicle)} stops={selectedVehicle.assignedRoute.stops} /><Text style={styles.assignedDate}>Asignada: {selectedVehicle.assignedRoute.assignedAt ? new Date(selectedVehicle.assignedRoute.assignedAt).toLocaleString('es-MX') : 'Sin fecha'}</Text><View style={styles.assignedActions}><Pressable accessibilityLabel="Editar ruta asignada" disabled={!selectedSavedRoute} onPress={() => selectedSavedRoute && openExistingRouteEditor(selectedSavedRoute)} style={styles.iconAction}><MaterialCommunityIcons name="pencil-outline" size={18} color={portalPalette.info} /></Pressable><Pressable accessibilityLabel="Liberar ruta" onPress={() => setRouteToClear(selectedVehicle)} style={styles.iconAction}><MaterialCommunityIcons name="delete-outline" size={18} color={portalPalette.danger} /></Pressable></View></View> : <EmptyState icon="routes" title="Sin ruta asignada" description="Selecciona una ruta del catálogo y asígnala." />}
           </View>
-          {selectedSavedRoute ? <View style={styles.mapActionBar}>
-            <View style={styles.mapRouteIdentity}><View style={styles.mapRouteIcon}><MaterialCommunityIcons name="routes" size={22} color={portalPalette.accent} /></View><View style={styles.routeBody}><Text numberOfLines={1} style={styles.mapRouteName}>{selectedSavedRoute.name}</Text><Text numberOfLines={1} style={styles.mapRoutePath}>{selectedSavedRoute.originLabel || 'Origen'} → {selectedSavedRoute.destinationLabel || 'Destino'}</Text></View></View>
-            <View style={styles.mapStats}><View><Text style={styles.statValue}>{((selectedSavedRoute.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.statLabel}>Distancia</Text></View><View><Text style={styles.statValue}>{selectedSavedRoute.stops.length}</Text><Text style={styles.statLabel}>Checkpoints</Text></View><View><Text style={styles.statValue}>{Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min</Text><Text style={styles.statLabel}>Duración</Text></View></View>
-            <View style={styles.mapActions}><Pressable onPress={() => openExistingRouteEditor(selectedSavedRoute)} style={styles.secondaryButton}><Text style={styles.toolText}>Editar</Text></Pressable><Pressable disabled={!editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), !editor.vehicleId ? styles.disabledButton : undefined]}><Text style={styles.primaryText}>Asignar ruta</Text></Pressable></View>
-          </View> : null}
-        </View>
-
-        <View style={styles.assignedPanel}>
-          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas asignadas a {selectedVehicle?.code || '—'}</Text><Text style={styles.panelCount}>{selectedVehicle?.assignedRoute ? 1 : 0}</Text></View>
-          {selectedVehicle?.assignedRoute ? <View style={styles.assignedCard}><View style={styles.assignedHeader}><Text numberOfLines={1} style={styles.assignedName}>{selectedVehicle.assignedRoute.route?.label || getRouteLabel(selectedVehicle)}</Text><StatusBadge label="Activa" tone="positive" /></View><RouteGeometryThumbnail color={selectedVehicle.routeColor} polyline={getRouteGeometry(selectedVehicle)} stops={selectedVehicle.assignedRoute.stops} /><Text style={styles.assignedDate}>Asignada: {selectedVehicle.assignedRoute.assignedAt ? new Date(selectedVehicle.assignedRoute.assignedAt).toLocaleString('es-MX') : 'Sin fecha'}</Text><View style={styles.assignedActions}><Pressable accessibilityLabel="Editar ruta asignada" disabled={!selectedSavedRoute} onPress={() => selectedSavedRoute && openExistingRouteEditor(selectedSavedRoute)} style={styles.iconAction}><MaterialCommunityIcons name="pencil-outline" size={18} color={portalPalette.info} /></Pressable><Pressable accessibilityLabel="Liberar ruta" onPress={() => setRouteToClear(selectedVehicle)} style={styles.iconAction}><MaterialCommunityIcons name="delete-outline" size={18} color={portalPalette.danger} /></Pressable></View></View> : <EmptyState icon="routes" title="Sin ruta asignada" description="Selecciona una ruta del catálogo y asígnala." />}
-        </View>
-      </View> : null}
+        )}
+      </View>
 
       {false && canManageRoutes ? (
         <PortalSectionCard
@@ -726,45 +770,45 @@ export function PortalRoutesScreen() {
 }
 
 const styles = StyleSheet.create({
-  assignmentWorkspace: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 610, minWidth: 0 },
-  unitsPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 190, flexGrow: 1, gap: 8, maxWidth: 230, minWidth: 180, padding: 10 },
-  catalogPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 240, flexGrow: 1, gap: 7, maxWidth: 290, minWidth: 220, padding: 10 },
-  previewColumn: { flex: 5, flexBasis: 500, gap: 0, minHeight: 610, minWidth: 330 },
-  assignedPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 270, flexGrow: 1, gap: 10, maxWidth: 320, minWidth: 250, padding: 12 },
+  assignmentWorkspace: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 560, minWidth: 0 },
+  unitsPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 190, flexGrow: 1, gap: 6, maxWidth: 230, minWidth: 180, padding: 8 },
+  catalogPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 240, flexGrow: 1, gap: 5, maxWidth: 290, minWidth: 220, padding: 8 },
+  previewColumn: { flex: 5, flexBasis: 500, gap: 0, minHeight: 550, minWidth: 330 },
+  assignedPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 270, flexGrow: 1, gap: 8, maxWidth: 320, minWidth: 250, padding: 10 },
   panelHeading: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'space-between' },
   panelTitle: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
   panelCount: { backgroundColor: portalPalette.surfaceSoft, borderRadius: 999, color: portalPalette.muted, fontFamily: Typography.mono, fontSize: 10, fontWeight: '900', minWidth: 22, paddingHorizontal: 6, paddingVertical: 3, textAlign: 'center' },
   unitsList: { gap: 7 },
-  unitCard: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, flexDirection: 'row', gap: 9, minHeight: 68, padding: 9 },
-  unitCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.16, shadowRadius: 10 },
-  unitIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 9, height: 38, justifyContent: 'center', width: 38 },
+  unitCard: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, flexDirection: 'row', gap: 7, minHeight: 52, padding: 7, transitionDuration: '0.2s', transitionProperty: 'background-color, border-color, box-shadow, transform', ':hover': { backgroundColor: 'rgba(255,255,255,0.075)', borderColor: portalPalette.muted }, ':active': { transform: 'scale(0.98)' } },
+  unitCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.22, shadowRadius: 16, elevation: 6 },
+  unitIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 8, height: 32, justifyContent: 'center', width: 32 },
   unitIconActive: { backgroundColor: portalPalette.accent },
   unitCode: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 16, fontWeight: '900' },
   unitDriver: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, fontWeight: '700' },
   unitStatus: { color: '#34d399', fontFamily: Typography.body, fontSize: 9, fontWeight: '800', marginTop: 2 },
   compactSearch: { backgroundColor: portalPalette.surfaceSoft, borderRadius: 9, borderWidth: 1, fontFamily: Typography.body, fontSize: 11, minHeight: 34, paddingHorizontal: 10 },
   compactFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  catalogList: { gap: 6, maxHeight: 505, overflow: 'auto' },
-  compactRouteCard: { alignItems: 'stretch', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 76, overflow: 'hidden', padding: 7 },
-  compactRouteCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.12, shadowRadius: 8 },
+  catalogList: { gap: 5, maxHeight: 420, overflow: 'auto' },
+  compactRouteCard: { alignItems: 'stretch', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 58, overflow: 'hidden', padding: 5, transitionDuration: '0.2s', transitionProperty: 'background-color, border-color, box-shadow, transform', ':hover': { backgroundColor: 'rgba(255,255,255,0.075)', borderColor: portalPalette.muted }, ':active': { transform: 'scale(0.98)' } },
+  compactRouteCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.2, shadowRadius: 14, elevation: 6 },
   compactRouteInfo: { flex: 1, gap: 5, justifyContent: 'center', minWidth: 90 },
-  compactRouteName: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
+  compactRouteName: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 10, fontWeight: '900' },
   compactMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   compactMetric: { backgroundColor: 'rgba(148,163,184,.1)', borderRadius: 5, color: portalPalette.muted, fontFamily: Typography.mono, fontSize: 8, paddingHorizontal: 5, paddingVertical: 3 },
-  thumbnailWrap: { flexBasis: 108, justifyContent: 'center', maxWidth: 118, minWidth: 94 },
-  previewMapShell: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderWidth: 1, flex: 1, minHeight: 500, overflow: 'hidden', position: 'relative' },
+  thumbnailWrap: { flexBasis: 88, justifyContent: 'center', maxWidth: 98, minWidth: 78 },
+  previewMapShell: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderWidth: 1, flex: 1, minHeight: 450, overflow: 'hidden', position: 'relative' },
   mapLabel: { alignItems: 'center', backgroundColor: 'rgba(7,14,29,.86)', borderBottomRightRadius: 9, flexDirection: 'row', gap: 6, left: 0, paddingHorizontal: 10, paddingVertical: 7, position: 'absolute', top: 0, zIndex: 5 },
   mapLabelText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 10, fontWeight: '800' },
-  mapActionBar: { alignItems: 'center', backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, borderTopWidth: 0, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 76, padding: 10 },
+  mapActionBar: { alignItems: 'center', backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, borderTopWidth: 0, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 58, padding: 8 },
   mapRouteIdentity: { alignItems: 'center', flex: 2, flexBasis: 180, flexDirection: 'row', gap: 8, minWidth: 0 },
-  mapRouteIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 9, height: 38, justifyContent: 'center', width: 38 },
+  mapRouteIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 8, height: 32, justifyContent: 'center', width: 32 },
   mapRouteName: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   mapRoutePath: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9 },
   mapStats: { alignItems: 'center', flex: 2, flexBasis: 190, flexDirection: 'row', gap: 18, justifyContent: 'center' },
   statValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 14, fontWeight: '900', textAlign: 'center' },
   statLabel: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 8, marginTop: 2, textAlign: 'center' },
   mapActions: { flexDirection: 'row', gap: 7, marginLeft: 'auto' },
-  assignedCard: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, gap: 8, overflow: 'hidden', padding: 9 },
+  assignedCard: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, gap: 6, overflow: 'hidden', padding: 7 },
   assignedHeader: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'space-between' },
   assignedName: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
   assignedDate: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9 },
@@ -772,30 +816,30 @@ const styles = StyleSheet.create({
   inlineFeedback: { alignItems: 'center', backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.info, borderRadius: 9, borderWidth: 1, flexDirection: 'row', gap: 7, minHeight: 34, paddingHorizontal: 10 },
   inlineFeedbackText: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '700' },
   editorTopActions: { flexDirection: 'row', gap: 7 },
-  sortChip: { borderBottomColor: 'transparent', borderBottomWidth: 1, paddingHorizontal: 4, paddingVertical: 3 },
+  sortChip: { borderBottomColor: 'transparent', borderBottomWidth: 1, paddingHorizontal: 4, paddingVertical: 3, transitionDuration: '0.2s', transitionProperty: 'border-color, opacity', ':hover': { opacity: 0.8 }, ':active': { opacity: 0.7 } },
   sortChipActive: { borderBottomColor: portalPalette.accent },
   sortChipText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9, fontWeight: '800' },
-  fullEditorShell: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 650, minWidth: 0 },
-  editorTools: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 180, flexGrow: 1, gap: 8, maxWidth: 230, minWidth: 170, padding: 12 },
-  editorMap: { flex: 6, flexBasis: 520, minHeight: 650, minWidth: 300 },
-  editorDetails: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 300, flexGrow: 2, gap: 12, minWidth: 280, padding: 14 },
-  toolButton: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 8, minHeight: 42, paddingHorizontal: 10 },
-  toolText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
+  fullEditorShell: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 580, minWidth: 0 },
+  editorTools: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 180, flexGrow: 1, gap: 6, maxWidth: 230, minWidth: 170, padding: 10 },
+  editorMap: { flex: 6, flexBasis: 520, minHeight: 580, minWidth: 300 },
+  editorDetails: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 300, flexGrow: 2, gap: 10, minWidth: 280, padding: 12 },
+  toolButton: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.xs, borderWidth: 1, flexDirection: 'row', gap: 7, minHeight: 36, paddingHorizontal: 9, transitionDuration: '0.2s', transitionProperty: 'background-color, border-color, transform', ':hover': { backgroundColor: 'rgba(255,255,255,0.075)' }, ':active': { transform: 'scale(0.97)' } },
+  toolText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
   toolButtonActive: { backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.info },
   editorLegend: { borderTopColor: portalPalette.line, borderTopWidth: 1, gap: 5, marginTop: 4, paddingTop: 10 },
   legendText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 11, fontWeight: '700' },
   metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   metricText: { backgroundColor: portalPalette.surfaceSoft, borderRadius: AppTheme.radius.xs, color: portalPalette.text, fontFamily: Typography.mono, fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 6 },
-  pointList: { gap: 6, maxHeight: 290, overflow: 'auto' },
-  pointRow: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.xs, borderWidth: 1 },
+  pointList: { gap: 5, maxHeight: 250, overflow: 'auto' },
+  pointRow: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.xs, borderWidth: 1, minHeight: 40 },
   pointRowActive: { backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.info },
-  pointRowMain: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 48, paddingHorizontal: 9 },
+  pointRowMain: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 40, paddingHorizontal: 8 },
   pointTitle: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
-  insertSegmentButton: { alignItems: 'center', borderTopColor: portalPalette.line, borderTopWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 28 },
+  insertSegmentButton: { alignItems: 'center', borderTopColor: portalPalette.line, borderTopWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 24 },
   insertSegmentButtonActive: { backgroundColor: portalPalette.infoSoft },
   insertSegmentText: { color: portalPalette.info, fontFamily: Typography.body, fontSize: 10, fontWeight: '800' },
   editorFooter: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end', marginTop: 'auto' },
-  secondaryButton: { alignItems: 'center', borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm, borderWidth: 1, justifyContent: 'center', minHeight: 42, paddingHorizontal: 14 },
+  secondaryButton: { alignItems: 'center', borderColor: portalPalette.lineStrong, borderRadius: AppTheme.radius.sm, borderWidth: 1, justifyContent: 'center', minHeight: 36, paddingHorizontal: 12, transitionDuration: '0.2s', transitionProperty: 'background-color, border-color, transform', ':hover': { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.muted }, ':active': { transform: 'scale(0.97)' } },
   sectionEyebrow: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 11, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
   previewPanel: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, gap: 10, overflow: 'hidden', padding: 10 },
   catalogEditor: {
@@ -811,9 +855,9 @@ const styles = StyleSheet.create({
   catalogToolbar: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   searchInput: { borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 260, flexGrow: 1, fontFamily: Typography.body, fontSize: 13, minHeight: 40, paddingHorizontal: 12 },
   chipRow: { flexDirection: 'row', gap: 5 },
-  filterChip: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
+  filterChip: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 999, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 5, transitionDuration: '0.2s', transitionProperty: 'background-color, border-color, transform', ':hover': { backgroundColor: 'rgba(255,255,255,0.075)' }, ':active': { transform: 'scale(0.96)' } },
   filterChipActive: { backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.info },
-  filterChipText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '800' },
+  filterChipText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 10, fontWeight: '800' },
   catalogGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 0 },
   catalogCard: {
     backgroundColor: portalPalette.surfaceSoft,
@@ -920,10 +964,10 @@ const styles = StyleSheet.create({
     flex: 1,
     flexBasis: 220,
     fontFamily: Typography.body,
-    fontSize: 14,
-    minHeight: 46,
+    fontSize: 13,
+    minHeight: 40,
     minWidth: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -961,10 +1005,13 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     flexDirection: 'row',
     flexShrink: 0,
-    gap: 8,
+    gap: 7,
     justifyContent: 'center',
-    minHeight: 42,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    transitionDuration: '0.2s',
+    transitionProperty: 'box-shadow, transform, opacity',
+    ':active': { transform: 'scale(0.97)' },
   },
   primaryText: {
     color: '#FFFFFF',
@@ -1022,9 +1069,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: AppTheme.radius.xs,
     flexShrink: 0,
-    height: 36,
+    height: 34,
     justifyContent: 'center',
-    width: 36,
+    transitionDuration: '0.2s',
+    transitionProperty: 'background-color, transform',
+    width: 34,
+    ':active': { transform: 'scale(0.92)' },
   },
   continuityBanner: {
     alignItems: 'center',
@@ -1035,6 +1085,10 @@ const styles = StyleSheet.create({
     gap: 10,
     minWidth: 0,
     padding: 12,
+    shadowColor: portalPalette.info,
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 4,
   },
   continuityText: {
     color: '#FFFFFF',
