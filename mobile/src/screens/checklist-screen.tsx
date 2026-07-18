@@ -1387,17 +1387,21 @@ export function ChecklistScreen() {
     : 'all';
   const returnedScrollY = Math.max(0, Number(params.historyScrollY) || 0);
   const hasReturnedMapDraft = Boolean(params.originLatitude || params.destinationLatitude || params.routePolyline);
+  // When we re-enter the screen asking to land directly on the saved-routes list
+  // (after saving a route, or after backing out of the map selector) the panel
+  // must reopen on that list instead of the previous editing step.
+  const shouldOpenLibrary = String(params.openLibrary || '') === '1';
   const historyScrollYRef = useRef(returnedScrollY);
   const [filterMode, setFilterMode] = useState<FilterMode>(returnedFilter);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
-  const [routeModalOpen, setRouteModalOpen] = useState(hasReturnedMapDraft);
+  const [routeModalOpen, setRouteModalOpen] = useState(hasReturnedMapDraft || shouldOpenLibrary);
   const [isSavingAssignedRoute, setIsSavingAssignedRoute] = useState(false);
   const [routeNameDraft, setRouteNameDraft] = useState(String(params.routeNameDraft || ''));
   const [routePendingDelete, setRoutePendingDelete] = useState<RouteShape | null>(null);
   const [isDeletingRoute, setIsDeletingRoute] = useState(false);
   const [editingRouteId, setEditingRouteId] = useState<string | null>(String(params.editingRouteId || '').trim() || null);
   const [isCreatingRouteDraft, setIsCreatingRouteDraft] = useState(hasReturnedMapDraft && !params.editingRouteId);
-  const [routeLibraryOpen, setRouteLibraryOpen] = useState(false);
+  const [routeLibraryOpen, setRouteLibraryOpen] = useState(shouldOpenLibrary);
   const [activeSession, setActiveSession] = useState<RouteSession | null>(null);
   const [historyLoadError, setHistoryLoadError] = useState(false);
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
@@ -1776,6 +1780,46 @@ export function ChecklistScreen() {
     });
   };
 
+  // Step back from the create/edit view to the saved-routes list without closing
+  // the panel. Used by the Android hardware-back handler so the panel honours its
+  // own internal stack (edit/create -> savedRoutes -> close).
+  const goBackToLibrary = useCallback(() => {
+    const trackerState = trackerRef.current;
+    const assignedSelection = selectedVehicle ? buildAssignedRouteSelection(selectedVehicle) : null;
+
+    pendingStopPersistRef.current = false;
+    processedMapSelectionRef.current = null;
+    setRouteNameDraft('');
+    setEditingRouteId(null);
+    setIsCreatingRouteDraft(false);
+    setRouteLibraryOpen(true);
+    if (assignedSelection) {
+      trackerState.applyPointToPointSelection(
+        assignedSelection.origin,
+        assignedSelection.destination,
+        assignedSelection.plan,
+        assignedSelection.plan.stops || []
+      );
+      syncedVehicleRouteRef.current = `${selectedVehicle!.id}:${assignedSelection.plan.updatedAt}`;
+    } else if (trackerState.trackerStatus === 'off') {
+      trackerState.resetPointToPointSession();
+      syncedVehicleRouteRef.current = selectedVehicle ? `${selectedVehicle.id}:empty` : null;
+    }
+    trackerState.setPointMessage('');
+  }, [selectedVehicle]);
+
+  // Hardware back / request-close: walk the panel's internal stack instead of
+  // dismissing everything at once. From create/edit -> savedRoutes; from
+  // savedRoutes or detail -> close the panel back to the Checklist.
+  const handlePanelBack = useCallback(() => {
+    if (editingRouteId || isCreatingRouteDraft) {
+      goBackToLibrary();
+      return true;
+    }
+    closeRouteModal();
+    return true;
+  }, [closeRouteModal, editingRouteId, goBackToLibrary, isCreatingRouteDraft]);
+
   function openMapForVehicle(vehicle: Vehicle, point: MapPointRole, includeCurrentDraft = true) {
     processedMapSelectionRef.current = null;
     const routeParams: Record<string, string> = {
@@ -1911,16 +1955,24 @@ export function ChecklistScreen() {
         routeId: savedRoute.id,
       });
       await refreshAll();
+      // Return to the saved-routes list in a single step, with the panel still
+      // open and the freshly saved route present + marked as selected. We drop
+      // the stale map-draft params (origin/destination/polyline/editingRouteId)
+      // so a later remount cannot bounce the user back into "Editando ruta".
+      pendingStopPersistRef.current = false;
+      processedMapSelectionRef.current = null;
+      trackerState.setPointMessage('');
       setRouteNameDraft('');
       setEditingRouteId(null);
       setIsCreatingRouteDraft(false);
-      setRouteLibraryOpen(false);
-      closeRouteModal();
+      setRouteLibraryOpen(true);
       router.replace({
         pathname: '/checklist',
         params: {
+          vehicleId: selectedVehicle.id,
           returnFilter: filterMode,
           historyScrollY: String(historyScrollYRef.current),
+          openLibrary: '1',
         },
       });
     } catch {
@@ -1928,7 +1980,7 @@ export function ChecklistScreen() {
     } finally {
       setIsSavingAssignedRoute(false);
     }
-  }, [closeRouteModal, editingRouteId, filterMode, refreshAll, routeNameDraft, selectedVehicle?.id]);
+  }, [editingRouteId, filterMode, refreshAll, routeNameDraft, selectedVehicle?.id]);
 
   const assignSavedRoute = useCallback(async (route: RouteShape) => {
     if (!selectedVehicle?.id) {
@@ -2379,7 +2431,7 @@ export function ChecklistScreen() {
         </View>
       </AppCard>
 
-      <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={closeRouteModal}>
+      <Modal visible={routeModalOpen} transparent animationType="fade" onRequestClose={handlePanelBack}>
         <GestureHandlerRootView style={styles.modalBackdrop}>
           <KeyboardSafeView
             keyboardVerticalOffset={12}

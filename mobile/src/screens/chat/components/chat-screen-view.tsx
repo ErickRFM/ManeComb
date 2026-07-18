@@ -73,6 +73,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
   return (
     <AppShell
       scroll={false}
+      keyboardSafe={false}
       contentContainerStyle={[
         styles.container,
         isMobileConversation ? styles.containerConversationOnly : undefined,

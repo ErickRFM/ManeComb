@@ -21,7 +21,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ConnectionBanner } from './connection-banner';
 import { OperationalMenuDrawer } from './operational-menu-drawer';
-import { KeyboardSafeScrollView } from './keyboard-safe-layout';
+import { KeyboardSafeScrollView, KeyboardSafeView } from './keyboard-safe-layout';
 
 type MobileBadgeTone = 'info' | 'positive' | 'warning' | 'danger' | 'neutral';
 
@@ -39,6 +39,15 @@ type AppShellProps = PropsWithChildren<{
     tone: MobileBadgeTone;
   }[];
   hideMobileToolbar?: boolean;
+  /**
+   * Keyboard avoidance for the non-scrolling branch. Defaults to `true` so any
+   * screen that opts out of the shared scroll path (scroll={false}) still lifts
+   * its inputs above the IME. Screens that provide their own KeyboardSafeView
+   * (e.g. the chat composer with behavior="translate-with-padding") pass `false`
+   * to avoid a double offset. Ignored when scroll is true (the scroll view
+   * already handles insets).
+   */
+  keyboardSafe?: boolean;
   scrollProps?: Partial<import('react-native').ScrollViewProps> & { ref?: any };
 }>;
 
@@ -54,6 +63,7 @@ export function AppShell({
   mobileSubtitle,
   mobileBadges,
   hideMobileToolbar = false,
+  keyboardSafe = true,
   scrollProps = {},
 }: AppShellProps) {
   const pathname = usePathname();
@@ -186,6 +196,12 @@ export function AppShell({
           {mobileHeaderChrome}
           {children}
         </KeyboardSafeScrollView>
+      ) : keyboardSafe && Platform.OS !== 'web' ? (
+        <KeyboardSafeView behavior="padding" style={contentStyles}>
+          <ConnectionBanner />
+          {mobileHeaderChrome}
+          {children}
+        </KeyboardSafeView>
       ) : (
         <View style={contentStyles}>
           <ConnectionBanner />

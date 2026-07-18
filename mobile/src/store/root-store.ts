@@ -1079,7 +1079,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('connect_error', (error) => {
-    setSocketTransition(set, 'error', `socket_connect_error:${error.message}`);
+    // `socket.active` is true while the manager will keep retrying (e.g. the
+    // server is asleep during a Render cold start). In that case the banner must
+    // read "Reconectando", not the terminal "Servidor no disponible" — the
+    // latter is reserved for fatal failures where reconnection has stopped.
+    setSocketTransition(
+      set,
+      socket?.active ? 'reconnecting' : 'error',
+      `socket_connect_error:${error.message}`
+    );
     mobileLog('socket', 'connect_error', error.message);
   });
 
@@ -1451,7 +1459,16 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       }
 
       healthRequest()
-        .then(() => set({ networkStatus: 'online' }))
+        .then(() => {
+          set({ networkStatus: 'online' });
+          // The health check proves the backend is awake again (e.g. after a
+          // cold start). If the realtime socket is not connected, deterministically
+          // revive it here so the connection banner clears without restarting the
+          // app. connectSocket is idempotent when the session key is unchanged.
+          if (get().user && !socket?.connected) {
+            connectSocket(set, get);
+          }
+        })
         .catch((error) => {
           if (isProbablyNetworkError(error)) {
             setNetworkSignal(set, 'offline');

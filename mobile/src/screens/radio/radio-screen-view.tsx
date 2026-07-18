@@ -50,7 +50,6 @@ import { formatRelativeTime, formatRole } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 import { createStyles } from './radio-screen.styles';
 import { VoiceTransmissionCard } from './components/radio-transmission-card';
-import { RadioWaveform } from './components/radio-waveform';
 import {
   initialRadioSessionState,
   radioSessionReducer,
@@ -1858,15 +1857,6 @@ export function RadioScreen() {
                 </Pressable>
               </Animated.View>
             </View>
-
-            <RadioWaveform
-              samples={waveformLevels}
-              progress={1}
-              mode="live"
-              playing={radioSession.phase === 'RECEIVING'}
-              recording={radioSession.phase === 'TRANSMITTING'}
-              disabled={radioSession.phase !== 'TRANSMITTING' && radioSession.phase !== 'RECEIVING'}
-            />
 
             <View style={styles.consoleMetaRow}>
               <View style={styles.consoleMetaItem}>

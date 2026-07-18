@@ -1,7 +1,7 @@
 import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, Text, View } from 'react-native';
+import { Alert, AppState, BackHandler, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { OperationalMenuDrawer } from '@/src/components/operational-menu-drawer';
@@ -272,6 +272,32 @@ export function MapScreen() {
   }, [refreshAll]);
 
   const selectorMode = isSelectorMode(params.point);
+
+  // While picking route points the map is a fresh (reset) module root, so the
+  // hardware back button would otherwise fall through to the OS and exit the app.
+  // Consume it and return to the route panel's saved-routes list instead. The
+  // handler is only active in selector mode, so normal map back is untouched.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !selectorMode) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace({
+        pathname: params.returnTo || '/checklist',
+        params: {
+          ...(params.vehicleId ? { vehicleId: params.vehicleId } : {}),
+          ...(params.returnFilter ? { returnFilter: params.returnFilter } : {}),
+          ...(params.historyScrollY ? { historyScrollY: params.historyScrollY } : {}),
+          openLibrary: '1',
+        },
+      });
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [selectorMode, params.returnTo, params.vehicleId, params.returnFilter, params.historyScrollY]);
+
   const { fitRoute, focusMap, focusPoint, mapPadding, mapRef, routeFitPadding } = useMapCamera(insets);
   const locationStatus = useMemo(
     () =>
