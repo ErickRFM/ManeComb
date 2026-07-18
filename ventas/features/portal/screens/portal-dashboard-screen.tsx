@@ -282,7 +282,8 @@ function getRouteGeometry(vehicle?: Vehicle | null) {
   if (!vehicle?.assignedRoute) return [];
   const polyline = vehicle.assignedRoute.route?.polyline || [];
   if (polyline.length >= 2) return polyline;
-  return [vehicle.assignedRoute.origin, vehicle.assignedRoute.destination].filter(Boolean) as { latitude: number; longitude: number }[];
+  const orderedStops = [...(vehicle.assignedRoute.stops || [])].sort((left, right) => left.order - right.order);
+  return [vehicle.assignedRoute.origin, ...orderedStops, vehicle.assignedRoute.destination].filter(Boolean) as { latitude: number; longitude: number }[];
 }
 
 function downsamplePositions(positions: RouteSessionPosition[], maxPoints = maxRenderedReplayPoints) {

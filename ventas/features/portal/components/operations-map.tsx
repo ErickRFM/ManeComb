@@ -25,6 +25,7 @@ type OperationsMapProps = {
   selectedEditablePointId?: string | null;
   onEditablePointChange?: (id: string, point: GeoPoint) => void;
   onEditablePointSelect?: (id: string) => void;
+  highlightedSegment?: GeoPoint[];
 };
 
 const MAPBOX_ACCESS_TOKEN = String(
@@ -167,6 +168,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   selectedEditablePointId = null,
   onEditablePointChange,
   onEditablePointSelect,
+  highlightedSegment = [],
 }: OperationsMapProps) {
   const hostRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -271,10 +273,12 @@ export const OperationsMap = React.memo(function OperationsMap({
     if (!map) return;
     if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
     else removeLine(map, 'operations-route');
+    if (highlightedSegment.length === 2) setLine(map, 'operations-route-highlight', highlightedSegment, '#38bdf8', 8, 0.42);
+    else removeLine(map, 'operations-route-highlight');
     const replayCoordinates = replayPath.map(positionToPoint).filter(isValidPoint) as GeoPoint[];
     if (replayCoordinates.length >= 2) setLine(map, 'operations-replay', replayCoordinates, portalPalette.info, 3, 0.72);
     else removeLine(map, 'operations-replay');
-  }, [replayPath, routeCoordinates]);
+  }, [highlightedSegment, replayPath, routeCoordinates]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -31,3 +31,19 @@
 
 - No se crean modelos, stores de dominio, endpoints de asignación ni persistencias paralelas.
 - Operaciones, seguimiento, sockets, sesiones, historial y replay continúan consumiendo la asignación existente.
+
+## Auditoría final — iteración de producto
+
+- Reutilización: edición y vista previa usan `OperationsMap`; el recálculo usa `POST /navigation/plan`; crear, editar, eliminar y asignar usan los contratos existentes.
+- Ausencia de duplicación: no se añadieron modelos, stores de dominio, motores de routing ni persistencias paralelas.
+- Editor: origen/destino y checkpoints son seleccionables y arrastrables; se eliminan individualmente, se insertan puntos y la lista permite reordenar checkpoints por drag & drop.
+- Miniaturas: SVG liviano generado directamente desde `polyline` y `stops`; no usa imágenes, screenshots ni instancias adicionales de Mapbox.
+- Rendimiento: recálculo con debounce de 320 ms; mapa cargado de forma lazy; miniaturas vectoriales memoizadas.
+- Microinteracciones: hover, glow, elevación, selección, drag y eliminación entre 180–220 ms, respetando `prefers-reduced-motion`.
+- Catálogo: búsqueda local, filtro asignadas/sin uso y orden por reciente, nombre o distancia.
+- Responsive: paneles flexibles con wrap, mínimos seguros y catálogo fluido.
+- Accesibilidad básica: roles, labels, estado seleccionado, foco visible y reducción de movimiento.
+- TypeScript: `tsc --noEmit` aprobado.
+- Build: `vite build` aprobado; mantiene la advertencia preexistente de chunks grandes de Mapbox.
+- Lint: el paquete `ventas` no define script ni configuración de lint; no se declara como validado.
+- Validación visual automatizada: no disponible en la sesión actual; pendiente únicamente la inspección renderizada manual, no la funcionalidad ni compilación.
