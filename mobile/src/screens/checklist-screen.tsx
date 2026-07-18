@@ -28,7 +28,8 @@ import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/comp
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { buildOperationalUnitSnapshot } from '@/src/domain/operations/build-operational-unit-snapshot';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { driverLabel, routeLabel } from '@shared/operational-contract';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionHistoryRequest, reverseNavigationPlaceRequest, updateNavigationRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
@@ -145,28 +146,39 @@ function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlL
   return 'available';
 }
 
-function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[], sessions: RouteSession[]): OperationalRecord {
-  const latestLog = getLatestLog(sessionLogs, vehicle.id);
-  const activeLog = getActiveLog(sessionLogs, vehicle.id);
-  // Terminal history describes the last route outcome, not the vehicle's
-  // current availability. Only a vigente log may determine current operation.
-  const snapshot = buildOperationalUnitSnapshot({ vehicle, sessions });
-  const status = snapshot.status.code === 'running' || snapshot.status.code === 'paused'
-    ? vehicle.delayMinutes > 0 ? 'delayed' : 'active'
-    : getVehicleOperationalStatus(vehicle, activeLog);
-  const departureAt = activeLog?.departureAt || latestLog?.departureAt || null;
-  const etaAt =
-    snapshot.routeProgress?.etaAt || null;
+/**
+ * Registro operativo de una unidad.
+ *
+ * Identidad, conductor, ruta y ETA provienen exclusivamente del snapshot
+ * canonico del backend. Antes esta pantalla construia `vehicleCode` en tres
+ * lugares distintos y el camino de historial no tenia respaldo cuando el
+ * vehiculo carecia de `code`: por eso C-1 y C-3 aparecian sin nombre mientras
+ * C-2 si se leia. `unit.label` esta garantizado no vacio por contrato.
+ */
+export function buildOperationalRecord(
+  unit: OperationalUnitSnapshot,
+  vehicle: Vehicle,
+  sessionLogs: FleetControlLog[]
+): OperationalRecord {
+  const latestLog = getLatestLog(sessionLogs, unit.unitId);
+  const activeLog = getActiveLog(sessionLogs, unit.unitId);
+  // El historial terminal describe el resultado de la ultima ruta, no la
+  // disponibilidad actual. Solo un registro vigente define la operacion en curso.
+  const status =
+    unit.operationalState === 'on_route'
+      ? vehicle.delayMinutes > 0 ? 'delayed' : 'active'
+      : getVehicleOperationalStatus(vehicle, activeLog);
 
   return {
-    id: latestLog?.id || `vehicle-record-${vehicle.id}`,
-    vehicleId: vehicle.id,
-    vehicleCode: snapshot.unitNumber,
-    driverName: snapshot.driver?.name || 'Operador sin asignar',
-    routeName: snapshot.route?.name || 'Ruta sin asignar',
-    departureAt,
+    id: latestLog?.id || `vehicle-record-${unit.unitId}`,
+    vehicleId: unit.unitId,
+    vehicleCode: unit.label,
+    driverName: driverLabel(unit.driver),
+    routeName: routeLabel(unit.route),
+    departureAt: activeLog?.departureAt || latestLog?.departureAt || null,
     arrivalAt: latestLog?.arrivalAt || null,
-    etaAt,
+    // Unica fuente de ETA. Nunca `salida + minutos`.
+    etaAt: unit.route?.etaAt || null,
     delayMinutes: vehicle.delayMinutes || 0,
     status,
     lastRouteStatus:
@@ -1364,9 +1376,10 @@ export function ChecklistScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 1120;
   const isPhone = width < 640;
-  const { activeRouteSession: syncedActiveSession, coordinates, mapData, refreshAll, sessionHistory, user } = useAppStore(
+  const { activeRouteSession: syncedActiveSession, coordinates, mapData, operationalUnits, refreshAll, sessionHistory, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,
+      operationalUnits: state.operationalUnits,
       activeRouteSession: state.activeRouteSession,
       coordinates: state.deviceLocation.coordinates,
       refreshAll: state.refreshAll,
@@ -1408,40 +1421,45 @@ export function ChecklistScreen() {
     () => [...(mapData?.routes || [])].sort((left, right) => left.name.localeCompare(right.name)),
     [mapData?.routes]
   );
+  // Identidad y conductor se resuelven desde el snapshot canonico, igual que en
+  // el resto de la pantalla. Un unico constructor para toda la superficie.
+  const unitById = useMemo(
+    () => new Map(operationalUnits.map((unit) => [unit.unitId, unit])),
+    [operationalUnits]
+  );
   const persistentLogs = useMemo<FleetControlLog[]>(
     () => {
-      const logs: FleetControlLog[] = sessionHistory.map((session) => {
-        const vehicle = vehicles.find((entry) => entry.id === session.vehicleId);
+      const toLog = (session: RouteSession, status: 'active' | 'completed' | 'cancelled'): FleetControlLog => {
+        const unit = unitById.get(session.vehicleId) || null;
         return {
           id: session.id,
           vehicleId: session.vehicleId,
-          vehicleCode: vehicle?.code || session.vehicleId,
-          driverName: vehicle?.driverName || 'Operador sin asignar',
+          vehicleCode: unit?.label || session.vehicleId,
+          driverName: driverLabel(unit?.driver ?? null),
           departureAt: session.startedAt,
           arrivalAt: session.finishedAt,
-          status:
-            session.status === 'FINISHED'
-              ? 'completed' as const
-              : session.status === 'CANCELLED'
-                ? 'cancelled' as const
-                : 'active' as const,
+          status,
         };
-      });
+      };
+
+      const logs: FleetControlLog[] = sessionHistory.map((session) =>
+        toLog(
+          session,
+          session.status === 'FINISHED'
+            ? 'completed'
+            : session.status === 'CANCELLED'
+              ? 'cancelled'
+              : 'active'
+        )
+      );
+
       if (activeSession?.id?.startsWith('pending:')) {
-        const vehicle = vehicles.find((entry) => entry.id === activeSession.vehicleId);
-        logs.unshift({
-          id: activeSession.id,
-          vehicleId: activeSession.vehicleId,
-          vehicleCode: vehicle?.code || activeSession.vehicleId,
-          driverName: vehicle?.driverName || 'Operador sin asignar',
-          departureAt: activeSession.startedAt,
-          arrivalAt: activeSession.finishedAt,
-          status: 'active' as const,
-        });
+        logs.unshift(toLog(activeSession, 'active'));
       }
+
       return logs;
     },
-    [sessionHistory, vehicles, activeSession]
+    [sessionHistory, unitById, activeSession]
   );
   const loadSessionHistory = useCallback(async () => {
     try {
@@ -1640,13 +1658,18 @@ export function ChecklistScreen() {
       ? 'Gestion de rutas'
       : `${originLabel} - ${destinationLabel}`;
 
+  // Se recorre el inventario canonico, no la lista de vehiculos: asi una unidad
+  // recien dada de alta o sin GPS aparece igual que las demas.
   const records = useMemo(
-    () => vehicles.map((vehicle) => buildOperationalRecord(
-      vehicle,
-      persistentLogs,
-      [...sessionHistory, ...(activeSession ? [activeSession] : [])]
-    )),
-    [activeSession, persistentLogs, sessionHistory, vehicles]
+    () =>
+      operationalUnits
+        .filter((unit) => unit.visibility === 'visible')
+        .map((unit) => {
+          const vehicle = vehicles.find((entry) => entry.id === unit.unitId);
+          return vehicle ? buildOperationalRecord(unit, vehicle, persistentLogs) : null;
+        })
+        .filter((record): record is OperationalRecord => record !== null),
+    [operationalUnits, persistentLogs, vehicles]
   );
   const filteredRecords = useMemo(
     () =>

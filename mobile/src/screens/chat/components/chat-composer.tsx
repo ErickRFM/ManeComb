@@ -11,6 +11,7 @@ type ChatComposerProps = Pick<
   | 'activeConversation'
   | 'attachmentNotice'
   | 'canRecord'
+  | 'canRetryVoiceNote'
   | 'canSendText'
   | 'composerPlaceholder'
   | 'draft'
@@ -22,6 +23,7 @@ type ChatComposerProps = Pick<
   | 'recordingSeconds'
   | 'recordingState'
   | 'recorderMessage'
+  | 'retryVoiceNote'
   | 'scrollMessagesToEnd'
   | 'setAttachmentMenuOpen'
   | 'setDraft'
@@ -33,6 +35,7 @@ export function ChatComposer({
   activeConversation,
   attachmentNotice,
   canRecord,
+  canRetryVoiceNote,
   canSendText,
   composerPlaceholder,
   draft,
@@ -44,6 +47,7 @@ export function ChatComposer({
   recordingSeconds,
   recordingState,
   recorderMessage,
+  retryVoiceNote,
   scrollMessagesToEnd,
   setAttachmentMenuOpen,
   setDraft,
@@ -78,15 +82,37 @@ export function ChatComposer({
       {recorderMessage ? (
         <View style={styles.recorderHint}>
           <MaterialCommunityIcons
-            name={recordingState === 'recording' ? 'record-rec' : 'information-outline'}
+            name={
+              recordingState === 'recording'
+                ? 'record-rec'
+                : canRetryVoiceNote
+                  ? 'alert-circle-outline'
+                  : 'information-outline'
+            }
             size={16}
-            color={recordingState === 'recording' ? theme.colors.accent : theme.colors.info}
+            color={
+              recordingState === 'recording'
+                ? theme.colors.accent
+                : canRetryVoiceNote
+                  ? theme.colors.warning
+                  : theme.colors.info
+            }
           />
           <Text style={styles.recorderHintText}>
             {recordingState === 'recording'
               ? `${recorderMessage} ${formatDuration(recordingSeconds)} / ${formatDuration(MAX_VOICE_NOTE_SECONDS)}`
               : recorderMessage}
           </Text>
+          {canRetryVoiceNote && recordingState !== 'uploading' ? (
+            <Pressable
+              accessibilityLabel="Reintentar envio de la nota de voz"
+              accessibilityRole="button"
+              onPress={retryVoiceNote}>
+              <Text style={[styles.recorderHintText, { color: theme.colors.info }]}>
+                Reintentar
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

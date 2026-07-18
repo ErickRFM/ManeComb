@@ -221,6 +221,8 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
     await deliverOperationalNotification({
       io: req.app.locals.io,
       store: req.app.locals.store,
+      // Los mensajes de texto solo generan notificacion nativa; no ensucian el feed de Perfil.
+      persist: conversation.channelMode === "radio",
         payload: {
           organizationId: conversation.organizationId,
           title:
@@ -307,6 +309,7 @@ router.post(
         await deliverOperationalNotification({
           io: req.app.locals.io,
           store: req.app.locals.store,
+          persist: conversation.channelMode === "radio",
           payload: {
             organizationId: conversation.organizationId,
             title:
@@ -389,6 +392,7 @@ router.post(
         await deliverOperationalNotification({
           io: req.app.locals.io,
           store: req.app.locals.store,
+          persist: conversation.channelMode === "radio",
           payload: {
             organizationId: conversation.organizationId,
             title: kind === "image" ? `Imagen de ${req.user.name}` : `Video de ${req.user.name}`,

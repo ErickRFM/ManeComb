@@ -3,7 +3,13 @@ import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 let notificationsConfigured = false;
 
 type ManeCombNotificationModule = {
-  show: (title: string, body: string, category: string) => Promise<boolean>;
+  show: (
+    title: string,
+    body: string,
+    category: string,
+    conversationId: string,
+    deepLink: string
+  ) => Promise<boolean>;
 };
 
 const NativeNotification =
@@ -44,12 +50,15 @@ export async function showInAppNotification(payload: {
   body: string;
   data?: Record<string, unknown>;
   category?: string;
+  deepLink?: string | null;
 }) {
   await configureAppNotifications();
   await NativeNotification?.show(
     payload.title,
     payload.body,
-    payload.category || String(payload.data?.category || 'notifications')
+    payload.category || String(payload.data?.category || 'notifications'),
+    String(payload.data?.conversationId || ''),
+    String(payload.deepLink || payload.data?.deepLink || '')
   ).catch(() => false);
 }
 

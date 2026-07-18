@@ -15,8 +15,8 @@ function uniquePushSubscriptions(subscriptions) {
   });
 }
 
-async function deliverOperationalNotification({ io, store, payload }) {
-  if (!store?.createNotification) {
+async function deliverOperationalNotification({ io, store, payload, persist = true }) {
+  if (persist && !store?.createNotification) {
     return null;
   }
 
@@ -29,32 +29,36 @@ async function deliverOperationalNotification({ io, store, payload }) {
     category: safeCategory,
     deepLink: payload.deepLink || payload.data?.deepLink || null
   };
-  const notification = await store.createNotification({
-    title: payload.title,
-    body: payload.body,
-    level: payload.level,
-    organizationId,
-    targetRoles,
-    targetUserIds,
-    category: safeCategory,
-    data: safeData
-  });
+  const notification = persist
+    ? await store.createNotification({
+        title: payload.title,
+        body: payload.body,
+        level: payload.level,
+        organizationId,
+        targetRoles,
+        targetUserIds,
+        category: safeCategory,
+        data: safeData
+      })
+    : null;
 
-  targetRoles.forEach((role) => {
-    if (organizationId) {
-      io?.to(`org:${organizationId}:role:${role}`).emit("notification:created", notification);
-    }
-  });
-  targetUserIds.forEach((userId) => {
-    io?.to(`user:${userId}`).emit("notification:created", notification);
-  });
+  if (persist) {
+    targetRoles.forEach((role) => {
+      if (organizationId) {
+        io?.to(`org:${organizationId}:role:${role}`).emit("notification:created", notification);
+      }
+    });
+    targetUserIds.forEach((userId) => {
+      io?.to(`user:${userId}`).emit("notification:created", notification);
+    });
+  }
 
   try {
     const [roleSubscriptions, userSubscriptions] = await Promise.all([
-      targetRoles.length && store.listPushSubscriptionsForRoles
+      targetRoles.length && store?.listPushSubscriptionsForRoles
         ? store.listPushSubscriptionsForRoles(targetRoles, organizationId)
         : [],
-      targetUserIds.length && store.listPushSubscriptionsForUsers
+      targetUserIds.length && store?.listPushSubscriptionsForUsers
         ? store.listPushSubscriptionsForUsers(targetUserIds)
         : []
     ]);

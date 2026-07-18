@@ -8,6 +8,7 @@ import {
   runtimeNetworkConfig,
   wait,
 } from '@/src/api/mobile-runtime';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import type {
   DriverActivationRegisterPayload,
   DriverActivationValidation,
@@ -506,6 +507,18 @@ export async function logoutRequest(refreshToken?: string | null) {
 
 export async function getLocationsRequest() {
   const response = await apiClient.get<{ ok: boolean; data: LiveLocationsData }>('/locations/live');
+  return response.data.data;
+}
+
+/**
+ * Proyeccion operacional canonica. Es la unica fuente de estado, GPS, ruta,
+ * conductor y ETA para todas las pantallas. No derives ninguno de esos campos
+ * a partir de /locations/live.
+ */
+export async function getOperationalUnitsRequest() {
+  const response = await apiClient.get<{ ok: boolean; data: OperationalUnitSnapshot[] }>(
+    '/operational-units'
+  );
   return response.data.data;
 }
 

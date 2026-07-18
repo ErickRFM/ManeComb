@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
+const { emitOperationalUnitUpdate } = require("../../services/operational-units-service");
 const {
   canAccessAllTenants,
   canAccessTenantResource,
@@ -199,6 +200,14 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
   } else {
     req.app.locals.io?.to("platform:admin").emit("location:updated", publicUpdate);
   }
+
+  await emitOperationalUnitUpdate({
+    io: req.app.locals.io,
+    store: req.app.locals.store,
+    vehicle: update,
+    organizationId,
+    getRolesWithPermission
+  });
 
   return res.json({
     ok: true,

@@ -34,6 +34,12 @@ export default defineConfig(({ command, mode }) => {
 
     resolve: {
       alias: [
+        // Debe preceder al alias '@': la coincidencia es por prefijo y
+        // '@shared/...' quedaria capturado por '@' si se declarara despues.
+        {
+          find: '@shared',
+          replacement: fileURLToPath(new URL('../shared', import.meta.url)),
+        },
         {
           find: '@',
           replacement: fileURLToPath(new URL('./', import.meta.url)),

@@ -196,7 +196,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   const contentBody = (
     <>
       {!isWide ? (
-        <View style={styles.mobileTop}>
+        <View nativeID="portal-mobile-top" style={styles.mobileTop}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
@@ -233,9 +233,9 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         </View>
       ) : null}
 
-      <View style={[styles.header, fadeInUp(0)]}>
-        <View style={styles.headerText}>
-          <View style={styles.breadcrumb}>
+      <View nativeID="portal-header" style={[styles.header, fadeInUp(0)]}>
+        <View nativeID="portal-header-text" style={styles.headerText}>
+          <View nativeID="portal-breadcrumb" style={styles.breadcrumb}>
             <Pressable accessibilityRole="link" onPress={() => router.push('/portal' as never)}>
               <Text style={styles.breadcrumbMuted}>Portal</Text>
             </Pressable>
@@ -245,7 +245,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
-        {actions ? <View style={styles.actions}>{actions}</View> : null}
+        {actions ? <View nativeID="portal-header-actions" style={styles.actions}>{actions}</View> : null}
       </View>
 
       <Toast message={error} tone="danger" onDismiss={clearError} />
@@ -291,8 +291,8 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         ) : null}
 
         {isWeb ? (
-          <View style={styles.contentScroll}>
-            <View style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, !isWide ? styles.contentCompact : undefined]}>
+          <View nativeID="portal-content-scroll" style={styles.contentScroll}>
+            <View nativeID="portal-content" style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, !isWide ? styles.contentCompact : undefined]}>
               {contentBody}
             </View>
           </View>

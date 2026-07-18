@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusPill } from '@/src/components/status-pill';
-import { buildOperationalUnitSnapshot } from '@/src/domain/operations/build-operational-unit-snapshot';
-import type { OperationalUnitSnapshot } from '@/src/domain/operations/operational-unit-snapshot';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { formatEta, formatFreshness, formatSpeed, routeLabel as formatRoute, stateLabel } from '@shared/operational-contract';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, RouteSession, User, Vehicle } from '@/src/types/app';
 import type { LocationStatusSnapshot } from '../types';
@@ -31,14 +31,9 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const PANEL_ANIMATION_MS = 220;
-const statusLabels: Record<string, string> = {
-  available: 'Disponible',
-  maintenance: 'Mantenimiento',
-  offline: 'Sin conexion',
-  online: 'Activa',
-  'on-route': 'En ruta',
-  patrolling: 'En seguimiento',
-  paused: 'Pausada',
+
+/** Etiquetas de estado de jornada. El estado operacional usa `stateLabel`. */
+const sessionStatusLabels: Record<string, string> = {
   ASSIGNED: 'Asignada',
   READY: 'Lista',
   RUNNING: 'En jornada',
@@ -47,25 +42,14 @@ const statusLabels: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 
-function formatVehicleSpeed(snapshot: OperationalUnitSnapshot | null) {
-  if (!snapshot?.location || !isFiniteMetricNumber(snapshot.location.speedMetersPerSecond)) return 'GPS pendiente';
-  const speed = Math.max(0, Math.round(Number(snapshot.location.speedMetersPerSecond) * 3.6));
-  return speed < 1 ? 'Detenida' : `${speed} km/h`;
-}
-
-function formatVehicleStatus(status?: string | null) {
+function formatSessionStatus(status?: string | null) {
   if (!status) return 'Sin estado';
-  return statusLabels[status] || status.replace(/[-_]/g, ' ');
+  return sessionStatusLabels[status] || status.replace(/[-_]/g, ' ');
 }
 
-function formatRouteLabel(snapshot: OperationalUnitSnapshot | null) {
-  if (!snapshot) return 'Sin unidad';
-  return snapshot.route?.name || 'Ruta no asignada';
-}
-
-function formatCompactVehicleMeta(vehicle: Vehicle | null, routeLabel: string) {
-  if (!vehicle) return 'No tienes una unidad asignada';
-  return vehicle.plate ? `Placas ${vehicle.plate}` : routeLabel;
+function formatCompactUnitMeta(unit: OperationalUnitSnapshot | null) {
+  if (!unit) return 'No tienes una unidad asignada';
+  return unit.plates ? `Placas ${unit.plates}` : formatRoute(unit.route);
 }
 
 function formatLastUpdate(timestamp?: string | null) {
@@ -104,15 +88,21 @@ function formatDateTime(value?: string | null) {
 
 type BottomTrackingPanelProps = {
   activeIncident: Incident | null;
-  activeIncidentVehicle: Vehicle | null;
+  activeIncidentUnit: OperationalUnitSnapshot | null;
   bottomPadding: number;
   locationStatus: LocationStatusSnapshot;
   locationStatusColor: string;
   onRetryLocation: () => void;
-  onSelectIncidentVehicle: (vehicle: Vehicle) => void;
-  onSelectTrackingVehicle: (vehicle: Vehicle) => void;
+  onSelectIncidentUnit: (unit: OperationalUnitSnapshot) => void;
+  onSelectTrackingUnit: (unit: OperationalUnitSnapshot) => void;
+  selectedUnit: OperationalUnitSnapshot | null;
+  /**
+   * Atributos del vehiculo que no forman parte del contrato operacional
+   * (ocupacion, combustible, odometro, retraso). Todo lo operacional
+   * —identidad, estado, GPS, ruta, conductor y ETA— sale de `selectedUnit`.
+   */
   selectedVehicle: Vehicle | null;
-  trackingVehicles: Vehicle[];
+  trackingUnits: OperationalUnitSnapshot[];
   userRole: User['role'];
   activeSession: RouteSession | null;
   sessionHistory: RouteSession[];
@@ -122,15 +112,16 @@ type BottomTrackingPanelProps = {
 
 export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   activeIncident,
-  activeIncidentVehicle,
+  activeIncidentUnit,
   bottomPadding,
   locationStatus,
   locationStatusColor,
   onRetryLocation,
-  onSelectIncidentVehicle,
-  onSelectTrackingVehicle,
+  onSelectIncidentUnit,
+  onSelectTrackingUnit,
+  selectedUnit,
   selectedVehicle,
-  trackingVehicles,
+  trackingUnits,
   userRole,
   activeSession,
   sessionHistory,
@@ -185,30 +176,19 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     setDetailsOpen(false);
     setHistoryOpen(false);
     setSelectedSession(null);
-  }, [selectedVehicle?.id]);
+  }, [selectedUnit?.unitId]);
 
   const vehicleSession = useMemo(
-    () => selectVehicleActiveSession(selectedVehicle?.id, activeSession, sessionHistory),
-    [activeSession, selectedVehicle?.id, sessionHistory]
+    () => selectVehicleActiveSession(selectedUnit?.unitId, activeSession, sessionHistory),
+    [activeSession, selectedUnit?.unitId, sessionHistory]
   );
-  const snapshot = useMemo(
-    () => selectedVehicle ? buildOperationalUnitSnapshot({
-      vehicle: selectedVehicle,
-      sessions: [...sessionHistory, ...(activeSession ? [activeSession] : [])],
-      incidents,
-    }) : null,
-    [activeSession, incidents, selectedVehicle, sessionHistory]
-  );
-  const routeLabel = useMemo(() => formatRouteLabel(snapshot), [snapshot]);
-  const compactMeta = useMemo(
-    () => formatCompactVehicleMeta(selectedVehicle, routeLabel),
-    [routeLabel, selectedVehicle]
-  );
-  const statusLabel = snapshot ? formatVehicleStatus(snapshot.status.code) : 'Sin estado';
-  const gpsLabel = snapshot
-    ? snapshot.gps.state === 'fresh' ? 'GPS actualizado' : snapshot.gps.state === 'stale' ? 'GPS vencido' : 'Sin GPS'
-    : locationStatus.hudLabel;
-  const speedLabel = useMemo(() => formatVehicleSpeed(snapshot), [snapshot]);
+  // Estado, GPS, ruta, conductor y ETA vienen resueltos del backend.
+  // Este componente solo los formatea.
+  const routeLabel = useMemo(() => formatRoute(selectedUnit?.route ?? null), [selectedUnit?.route]);
+  const compactMeta = useMemo(() => formatCompactUnitMeta(selectedUnit), [selectedUnit]);
+  const statusLabel = selectedUnit ? stateLabel(selectedUnit.operationalState) : 'Sin estado';
+  const gpsLabel = selectedUnit ? formatFreshness(selectedUnit.gps) : locationStatus.hudLabel;
+  const speedLabel = selectedUnit ? formatSpeed(selectedUnit.gps) : 'GPS pendiente';
   const kilometersLabel = useMemo(
     () => formatKilometers(getSessionDistanceMeters(vehicleSession)),
     [vehicleSession]
@@ -218,15 +198,15 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     [vehicleSession]
   );
   const lastUpdateLabel = useMemo(
-    () => formatLastUpdate(snapshot?.lastUpdateAt || lastSyncedAt),
-    [lastSyncedAt, snapshot?.lastUpdateAt]
+    () => formatLastUpdate(selectedUnit?.lastEventAt || lastSyncedAt),
+    [lastSyncedAt, selectedUnit?.lastEventAt]
   );
   const canViewVehicleDetails = userRole === 'admin' || userRole === 'supervisor';
-  const statusTone = snapshot?.status.code === 'paused'
+  const statusTone = selectedUnit?.operationalState === 'stopped'
     ? 'warning'
-    : selectedVehicle?.status === 'maintenance'
+    : selectedUnit?.status === 'maintenance'
       ? 'danger'
-      : selectedVehicle?.status === 'offline'
+      : selectedUnit?.status === 'offline'
         ? 'neutral'
         : 'positive';
   const compactHeight = Math.min(170, Math.max(128, Math.round(screenHeight * 0.2)));
@@ -235,13 +215,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
 
   const detailRows = useMemo<Array<[string, string]>>(
     () => {
-      if (!selectedVehicle) return [];
+      if (!selectedUnit) return [];
       const rows: Array<[string, string]> = [];
       if (canViewVehicleDetails) {
         rows.push(
-          ['Unidad', selectedVehicle.code],
-          ['Chofer', snapshot?.driver?.name || 'Sin chofer asignado'],
-          ['Placas', snapshot?.plate || 'Sin placas']
+          ['Unidad', selectedUnit.label],
+          ['Chofer', selectedUnit.driver?.name || 'Sin chofer asignado'],
+          ['Placas', selectedUnit.plates || 'Sin placas']
         );
       }
       rows.push(
@@ -251,22 +231,28 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ['GPS', gpsLabel],
         ['Ultima actualizacion', lastUpdateLabel]
       );
-      if (isFiniteMetricNumber(selectedVehicle.occupancy) && isFiniteMetricNumber(selectedVehicle.capacity)) {
-        rows.push(['Ocupacion', `${selectedVehicle.occupancy} de ${selectedVehicle.capacity}`]);
+      // Atributos que no pertenecen al contrato operacional.
+      if (selectedVehicle) {
+        if (isFiniteMetricNumber(selectedVehicle.occupancy) && isFiniteMetricNumber(selectedVehicle.capacity)) {
+          rows.push(['Ocupacion', `${selectedVehicle.occupancy} de ${selectedVehicle.capacity}`]);
+        }
+        if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
+        if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
       }
-      if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
-      if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
-      if (isFiniteMetricNumber(snapshot?.routeProgress?.remainingTimeSeconds)) rows.push(['ETA', `${Math.max(0, Math.round(Number(snapshot?.routeProgress?.remainingTimeSeconds) / 60))} min`]);
-      if (isFiniteMetricNumber(selectedVehicle.delayMinutes)) rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
+      // Hora de llegada tal como la calculo el backend. Nunca `ahora + minutos`.
+      if (selectedUnit.route?.etaAt) rows.push(['ETA', formatEta(selectedUnit.route)]);
+      if (selectedVehicle && isFiniteMetricNumber(selectedVehicle.delayMinutes)) {
+        rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
+      }
       if (activeTimeLabel) rows.push(['Tiempo activo', activeTimeLabel]);
       if (kilometersLabel) rows.push(['Kilometros', kilometersLabel]);
       return rows;
     },
-    [activeTimeLabel, gpsLabel, canViewVehicleDetails, kilometersLabel, lastUpdateLabel, routeLabel, selectedVehicle, snapshot, speedLabel, statusLabel]
+    [activeTimeLabel, gpsLabel, canViewVehicleDetails, kilometersLabel, lastUpdateLabel, routeLabel, selectedUnit, selectedVehicle, speedLabel, statusLabel]
   );
   const history = useMemo(
-    () => sessionHistory.filter((session) => !selectedVehicle || session.vehicleId === selectedVehicle.id),
-    [selectedVehicle, sessionHistory]
+    () => sessionHistory.filter((session) => !selectedUnit || session.vehicleId === selectedUnit.unitId),
+    [selectedUnit, sessionHistory]
   );
   const historyRows = useMemo<Array<[string, string]>>(() => {
     if (!selectedSession) return [];
@@ -382,13 +368,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         <View style={styles.followHeader}>
           <View style={styles.followIdentity}>
             <Text style={[styles.followTitle, { color: theme.colors.text }]} numberOfLines={1}>
-              {selectedVehicle?.code || 'Sin unidad'}
+              {selectedUnit?.label || 'Sin unidad'}
             </Text>
             <Text style={[styles.followMeta, { color: theme.colors.muted }]} numberOfLines={1}>
               {compactMeta}
             </Text>
           </View>
-          <StatusPill label={selectedVehicle ? statusLabel : 'Sin unidad'} tone={selectedVehicle ? statusTone : 'neutral'} />
+          <StatusPill label={selectedUnit ? statusLabel : 'Sin unidad'} tone={selectedUnit ? statusTone : 'neutral'} />
         </View>
 
         <View style={styles.compactStatusRow}>
@@ -407,21 +393,21 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
           </Pressable>
         </View>
 
-        {trackingVehicles.length > 1 ? (
+        {trackingUnits.length > 1 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
-            {trackingVehicles.map((vehicle) => {
-              const isSelected = vehicle.id === selectedVehicle?.id;
+            {trackingUnits.map((unit) => {
+              const isSelected = unit.unitId === selectedUnit?.unitId;
               return (
                 <Pressable
-                  key={vehicle.id}
-                  onPress={() => onSelectTrackingVehicle(vehicle)}
+                  key={unit.unitId}
+                  onPress={() => onSelectTrackingUnit(unit)}
                   style={({ pressed }) => [
                     styles.trackChip,
                     { borderColor: isSelected ? theme.colors.accent : theme.colors.line },
                     isSelected ? { backgroundColor: theme.colors.accent } : undefined,
                     pressed ? styles.controlPressed : undefined,
                   ]}>
-                  <Text style={[styles.trackChipTitle, isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text }]}>{vehicle.code}</Text>
+                  <Text style={[styles.trackChipTitle, isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text }]}>{unit.label}</Text>
                 </Pressable>
               );
             })}
@@ -434,7 +420,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             contentContainerStyle={styles.expandedPanelContent}
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}>
-            {selectedVehicle ? (
+            {selectedUnit ? (
               <View style={styles.metricGrid}>
                 {metricCards.map(({ label, value, icon }) => (
                   <View key={label} style={[styles.metricCard, { backgroundColor: theme.colors.surfaceAlt }]}>
@@ -446,7 +432,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               </View>
             ) : null}
 
-            {selectedVehicle ? (
+            {selectedUnit ? (
               <View style={styles.panelActionRow}>
                 <Pressable
                   onPress={() => {
@@ -508,7 +494,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                         <View style={styles.followIdentity}>
                           <Text style={[styles.detailValue, styles.historyItemTitle, { color: theme.colors.text }]}>{startedLabel}</Text>
                           <Text style={[styles.detailLabel, { color: theme.colors.muted }]}>
-                            {[durationLabel, formatVehicleStatus(session.status)].filter(Boolean).join(' · ')}
+                            {[durationLabel, formatSessionStatus(session.status)].filter(Boolean).join(' · ')}
                           </Text>
                         </View>
                         <Pressable
@@ -526,9 +512,9 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               </View>
             ) : null}
 
-            {activeIncident && activeIncidentVehicle ? (
+            {activeIncident && activeIncidentUnit ? (
               <Pressable
-                onPress={() => onSelectIncidentVehicle(activeIncidentVehicle)}
+                onPress={() => onSelectIncidentUnit(activeIncidentUnit)}
                 style={({ pressed }) => [
                   styles.alertStrip,
                   { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger },
@@ -537,29 +523,29 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                 <MaterialCommunityIcons name="alert-decagram" size={18} color="#FFF" />
                 <View style={styles.alertCopy}>
                   <Text style={styles.alertTitle}>{activeIncident.title}</Text>
-                  <Text style={styles.alertMeta}>{activeIncidentVehicle.code} - {activeIncident.status}</Text>
+                  <Text style={styles.alertMeta}>{activeIncidentUnit.label} - {activeIncident.status}</Text>
                 </View>
               </Pressable>
             ) : null}
 
-            {trackingVehicles.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
-              {trackingVehicles.map((vehicle) => {
-                const isSelected = vehicle.id === selectedVehicle?.id;
+            {trackingUnits.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+              {trackingUnits.map((unit) => {
+                const isSelected = unit.unitId === selectedUnit?.unitId;
                 return (
                   <Pressable
-                    key={vehicle.id}
-                    onPress={() => onSelectTrackingVehicle(vehicle)}
+                    key={unit.unitId}
+                    onPress={() => onSelectTrackingUnit(unit)}
                     style={({ pressed }) => [
                       styles.trackChip,
                       { borderColor: isSelected ? theme.colors.accent : theme.colors.line },
                       isSelected ? { backgroundColor: theme.colors.accent } : undefined,
                       pressed ? styles.controlPressed : undefined,
                     ]}>
-                    <Text style={[styles.trackChipTitle, isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text }]}>{vehicle.code}</Text>
+                    <Text style={[styles.trackChipTitle, isSelected ? styles.trackChipTitleSelected : { color: theme.colors.text }]}>{unit.label}</Text>
                   </Pressable>
                 );
               })}
-              {!trackingVehicles.length && !selectedVehicle ? (
+              {!trackingUnits.length && !selectedUnit ? (
                 <View style={styles.emptyTrackState}>
                   <MaterialCommunityIcons name="bus-clock" size={18} color={theme.colors.muted} />
                   <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>Sin unidades disponibles</Text>

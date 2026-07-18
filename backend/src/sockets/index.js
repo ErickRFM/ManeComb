@@ -7,6 +7,7 @@ const logger = require("../services/logger");
 const { hasAnotherPresenceSocket, isPresenceHeartbeatFresh } = require("../services/presence");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
+const { emitOperationalUnitUpdate } = require("../services/operational-units-service");
 const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
 const {
   appendFrame,
@@ -1086,10 +1087,18 @@ function registerSocketServer(server, store) {
           });
           if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", publicUpdate);
           io.to("platform:admin").emit("location:updated", publicUpdate);
+          await emitOperationalUnitUpdate({
+            io,
+            store,
+            vehicle: update,
+            organizationId,
+            getRolesWithPermission
+          });
           return;
         }
 
         io.to("platform:admin").emit("location:updated", publicUpdate);
+        await emitOperationalUnitUpdate({ io, store, vehicle: update, organizationId, getRolesWithPermission });
       }
     });
 

@@ -2,6 +2,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapPadding, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { freshnessOpacity, stateColor } from '@shared/operational-contract';
 import type { GeoPoint, Incident, LiveLocationsData, NavigationPlaceResult, NavigationRouteOption, NavigationStop, Vehicle } from '@/src/types/app';
 import type { SelectorPointRole } from '../types';
 import { mapStyles as styles } from '../map-styles';
@@ -21,11 +23,11 @@ type MapCanvasProps = {
   mapData: LiveLocationsData;
   mapPadding: AppMapPadding;
   mapRef: React.RefObject<AppMapRef | null>;
-  mapVehicles: Vehicle[];
+  mapUnits: OperationalUnitSnapshot[];
   onMapSelectorPress: (location: GeoPoint) => void;
   onSelectorDragStart: () => void;
   onSelectorPointDragEnd: (role: SelectorPointRole, location: GeoPoint) => void;
-  onVehiclePress: (vehicle: Vehicle) => void;
+  onUnitPress: (unit: OperationalUnitSnapshot) => void;
   scaleBarPosition?:
     | { bottom: number; left: number }
     | { bottom: number; right: number }
@@ -35,7 +37,7 @@ type MapCanvasProps = {
   selectorPoints: SelectorPoints;
   selectorRoute: NavigationRouteOption | null;
   selectorStops: NavigationStop[];
-  selectedVehicle: Vehicle | null;
+  selectedUnit: OperationalUnitSnapshot | null;
   trafficEnabled: boolean;
   visibleIncidents: Incident[];
   vehicleById: Map<string, Vehicle>;
@@ -46,24 +48,27 @@ export function MapCanvas({
   mapData,
   mapPadding,
   mapRef,
-  mapVehicles,
+  mapUnits,
   onMapSelectorPress,
   onSelectorDragStart,
   onSelectorPointDragEnd,
-  onVehiclePress,
+  onUnitPress,
   scaleBarPosition,
   selectorMode,
   selectorPoints,
   selectorRoute,
   selectorStops,
-  selectedVehicle,
+  selectedUnit,
   trafficEnabled,
   visibleIncidents,
   vehicleById,
 }: MapCanvasProps) {
   const { theme } = useAppTheme();
-  const initialVehicle = selectedVehicle?.locationTimestamp ? selectedVehicle : mapVehicles[0] || null;
-  const initialPoint = initialVehicle?.location || coordinates || mapData.center;
+  const initialUnit = selectedUnit?.gps.recordedAt ? selectedUnit : mapUnits[0] || null;
+  const initialPoint =
+    initialUnit && initialUnit.gps.lat !== null && initialUnit.gps.lng !== null
+      ? { latitude: initialUnit.gps.lat, longitude: initialUnit.gps.lng }
+      : coordinates || mapData.center;
 
   return (
     <AppMap
@@ -94,7 +99,7 @@ export function MapCanvas({
         selectorRoute={selectorRoute}
       />
       {!selectorMode ? (
-        <VehicleMarkers vehicles={mapVehicles} onVehiclePress={onVehiclePress} selectedVehicle={selectedVehicle} />
+        <UnitMarkers units={mapUnits} onUnitPress={onUnitPress} selectedUnit={selectedUnit} />
       ) : null}
       {!selectorMode ? (
         <IncidentMarkers incidents={visibleIncidents} vehicleById={vehicleById} />
@@ -138,36 +143,43 @@ function RouteLayers({
   );
 }
 
-function VehicleMarkers({
-  onVehiclePress,
-  selectedVehicle,
-  vehicles,
+/**
+ * Marcadores de unidad.
+ *
+ * El color sale de `operationalState` y la opacidad de `gps.freshness`, ambos
+ * resueltos en backend. Una unidad con GPS vencido se dibuja atenuada; nunca
+ * se omite. La unica exclusion es no tener coordenada que dibujar.
+ */
+function UnitMarkers({
+  onUnitPress,
+  selectedUnit,
+  units,
 }: {
-  onVehiclePress: (vehicle: Vehicle) => void;
-  selectedVehicle: Vehicle | null;
-  vehicles: Vehicle[];
+  onUnitPress: (unit: OperationalUnitSnapshot) => void;
+  selectedUnit: OperationalUnitSnapshot | null;
+  units: OperationalUnitSnapshot[];
 }) {
   const { theme } = useAppTheme();
 
   return (
     <>
-      {vehicles.map((vehicle) => {
-        const vehicleLocation = vehicle.location;
-        if (!vehicleLocation || !Number.isFinite(vehicleLocation.latitude) || !Number.isFinite(vehicleLocation.longitude)) return null;
-        const isSelected = vehicle.id === selectedVehicle?.id;
-        const vehicleMarkerStyle = {
-          backgroundColor: vehicle.status === 'maintenance' ? theme.colors.danger : theme.colors.accent,
+      {units.map((unit) => {
+        if (unit.gps.lat === null || unit.gps.lng === null) return null;
+        const isSelected = unit.unitId === selectedUnit?.unitId;
+        const unitMarkerStyle = {
+          backgroundColor: stateColor(unit.operationalState),
           borderColor: isSelected ? theme.colors.warning : '#FFF',
+          opacity: freshnessOpacity(unit.gps.freshness),
           transform: [{ scale: isSelected ? 1.18 : 1 }],
         };
 
         return (
           <AppMapMarker
-            key={vehicle.id}
-            id={`vehicle-${vehicle.id}`}
-            coordinate={vehicleLocation}
-            onPress={() => onVehiclePress(vehicle)}>
-            <View style={[styles.vehicleMarker, vehicleMarkerStyle]}>
+            key={unit.unitId}
+            id={`unit-${unit.unitId}`}
+            coordinate={{ latitude: unit.gps.lat, longitude: unit.gps.lng }}
+            onPress={() => onUnitPress(unit)}>
+            <View style={[styles.vehicleMarker, unitMarkerStyle]}>
               <View style={styles.vehicleMarkerInner} />
             </View>
           </AppMapMarker>

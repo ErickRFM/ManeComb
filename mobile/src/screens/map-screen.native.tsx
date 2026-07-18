@@ -32,7 +32,7 @@ import { useTrackingData } from './map/hooks/use-tracking-data';
 import { mapStyles as styles } from './map/map-styles';
 import type { MapSelectorParams } from './map/types';
 import { isSelectorMode } from './map/utils/selector-route';
-import { hasVehicleLiveLocation } from './map/utils/tracking';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 
 type MapGateState = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -190,6 +190,7 @@ export function MapScreen() {
     error,
     isRefreshing,
     mapData,
+    operationalUnits,
     lastSyncedAt,
     sessionHistory,
     refreshAll,
@@ -208,6 +209,7 @@ export function MapScreen() {
       error: state.error,
       isRefreshing: state.isRefreshing,
       mapData: state.mapData,
+      operationalUnits: state.operationalUnits,
       lastSyncedAt: state.lastSyncedAt,
       sessionHistory: state.routeSessionHistory,
       refreshAll: state.refreshAll,
@@ -231,7 +233,7 @@ export function MapScreen() {
   const refresh = refreshDeviceLocation;
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [followMode, setFollowMode] = useState(true);
   const [trafficEnabled, setTrafficEnabled] = useState(true);
   const [activeAlertIndex, setActiveAlertIndex] = useState(0);
@@ -321,15 +323,18 @@ export function MapScreen() {
 
   const {
     activeIncident,
-    activeIncidentVehicle,
+    activeIncidentUnit,
     activeRouteCount,
-    liveVehicles,
-    prioritizedVehicles,
-    selectedVehicle,
-    trackingVehicles,
+    mappableUnits,
+    prioritizedUnits,
+    selectedUnit,
     vehicleById,
     visibleIncidents,
-  } = useTrackingData(mapData, selectedVehicleId, activeAlertIndex);
+  } = useTrackingData(operationalUnits, mapData, selectedUnitId, activeAlertIndex);
+
+  // Atributos no operacionales (ocupacion, combustible, odometro) que aun no
+  // forman parte del contrato. Todo lo operacional sale de `selectedUnit`.
+  const selectedVehicle = selectedUnit ? vehicleById.get(selectedUnit.unitId) || null : null;
 
   const selector = useMapSelector({
     focusPoint,
@@ -339,9 +344,10 @@ export function MapScreen() {
     selectorMode,
   });
 
-  const handleSelectTrackingVehicle = useCallback((vehicle: Vehicle) => {
-    setSelectedVehicleId(vehicle.id);
+  const handleSelectTrackingUnit = useCallback((unit: OperationalUnitSnapshot) => {
+    setSelectedUnitId(unit.unitId);
     setFollowMode(true);
+    const vehicle = mapData?.vehicles.find((entry) => entry.id === unit.unitId) || null;
     const routes = getSelectedVehicleRoutes(vehicle, mapData?.routes || []);
 
     if (routes.length > 0 && routes[0].polyline.length > 1) {
@@ -349,20 +355,23 @@ export function MapScreen() {
       return;
     }
 
-    if (vehicle.locationTimestamp && vehicle.location) focusPoint(vehicle.location);
-  }, [fitRoute, focusPoint, mapData?.routes, routeFitPadding]);
+    // Una unidad sin GPS puede seleccionarse: simplemente no hay a donde centrar.
+    if (unit.gps.lat !== null && unit.gps.lng !== null) {
+      focusPoint({ latitude: unit.gps.lat, longitude: unit.gps.lng });
+    }
+  }, [fitRoute, focusPoint, mapData?.routes, mapData?.vehicles, routeFitPadding]);
 
-  const handleSelectIncidentVehicle = useCallback((vehicle: Vehicle) => {
-    setSelectedVehicleId(vehicle.id);
+  const handleSelectIncidentUnit = useCallback((unit: OperationalUnitSnapshot) => {
+    setSelectedUnitId(unit.unitId);
     setFollowMode(false);
-    if (vehicle.location) {
-      focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
+    if (unit.gps.lat !== null && unit.gps.lng !== null) {
+      focusMap(unit.gps.lat, unit.gps.lng, 'close');
     }
   }, [focusMap]);
 
   useEffect(() => {
     if (params.vehicleId) {
-      setSelectedVehicleId(params.vehicleId);
+      setSelectedUnitId(params.vehicleId);
       if (params.follow === 'true') setFollowMode(true);
     }
   }, [params.vehicleId, params.follow]);
@@ -388,10 +397,10 @@ export function MapScreen() {
       return;
     }
 
-    if (followMode && selectedVehicle && hasVehicleLiveLocation(selectedVehicle)) {
-      focusPoint(selectedVehicle.location!);
+    if (followMode && selectedUnit && selectedUnit.gps.lat !== null && selectedUnit.gps.lng !== null) {
+      focusPoint({ latitude: selectedUnit.gps.lat, longitude: selectedUnit.gps.lng });
     }
-  }, [focusPoint, followMode, params.focusLatitude, params.focusLongitude, selectedVehicle]);
+  }, [focusPoint, followMode, params.focusLatitude, params.focusLongitude, selectedUnit]);
 
   useEffect(() => {
     if (!selectorMode) {
@@ -400,15 +409,16 @@ export function MapScreen() {
     }
 
     if (
-      selectedVehicle &&
-      hasVehicleLiveLocation(selectedVehicle) &&
-      selectorFocusedVehicleIdRef.current !== selectedVehicle.id
+      selectedUnit &&
+      selectedUnit.gps.lat !== null &&
+      selectedUnit.gps.lng !== null &&
+      selectorFocusedVehicleIdRef.current !== selectedUnit.unitId
     ) {
-      selectorFocusedVehicleIdRef.current = selectedVehicle.id;
+      selectorFocusedVehicleIdRef.current = selectedUnit.unitId;
       setFollowMode(false);
-      focusPoint(selectedVehicle.location!);
+      focusPoint({ latitude: selectedUnit.gps.lat, longitude: selectedUnit.gps.lng });
     }
-  }, [focusPoint, selectorMode, selectedVehicle]);
+  }, [focusPoint, selectorMode, selectedUnit]);
 
   const handleRefresh = async () => {
     await Promise.all([refreshAll(), refresh()]);
@@ -433,7 +443,7 @@ export function MapScreen() {
     setActiveAlertIndex(nextIndex);
 
     if (vehicle) {
-      setSelectedVehicleId(vehicle.id);
+      setSelectedUnitId(vehicle.id);
     }
 
     if (point) {
@@ -462,8 +472,8 @@ export function MapScreen() {
   const driverVehicle = user.vehicleId ? vehicleById.get(user.vehicleId) || null : null;
   const mapGate = getMapGateState({
     hasCoordinates: Boolean(coordinates),
-    liveVehicleCount: liveVehicles.length,
-    totalVehicleCount: prioritizedVehicles.length,
+    liveVehicleCount: mappableUnits.length,
+    totalVehicleCount: prioritizedUnits.length,
     user,
     userVehicle: driverVehicle,
   });
@@ -499,12 +509,13 @@ export function MapScreen() {
           ...mapData,
           routes: selectedVehicleRoutes,
         };
-  const visibleMapVehicles = driverWithoutUnit ? [] : liveVehicles;
-  const visiblePanelVehicles = driverWithoutUnit ? [] : user.role === 'driver' ? trackingVehicles : prioritizedVehicles;
+  const visibleMapUnits = driverWithoutUnit ? [] : mappableUnits;
+  // Sin distincion por rol: el conductor ve el mismo inventario que el resto.
+  const visiblePanelUnits = driverWithoutUnit ? [] : prioritizedUnits;
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
 
   const journeyStatus: 'none' | 'running' | 'paused' = !activeRouteSession ? 'none' : activeRouteSession.status === 'RUNNING' ? 'running' : activeRouteSession.status === 'PAUSED' ? 'paused' : 'none';
-  const journeyVehicleId = user.vehicleId || selectedVehicle?.id || '';
+  const journeyVehicleId = user.vehicleId || selectedUnit?.unitId || '';
   const handleJourneyAction = async () => {
     const action = pendingJourneyAction;
     const vehicle = vehicleById.get(journeyVehicleId);
@@ -570,17 +581,17 @@ export function MapScreen() {
           mapData={mapDataForDisplay}
           mapPadding={mapPadding}
           mapRef={mapRef}
-          mapVehicles={visibleMapVehicles}
+          mapUnits={visibleMapUnits}
           onMapSelectorPress={selector.handleSelectorPress}
           onSelectorDragStart={() => selector.setSelectorPlan(null)}
           onSelectorPointDragEnd={selector.updateSelectorPoint}
-          onVehiclePress={handleSelectTrackingVehicle}
+          onUnitPress={handleSelectTrackingUnit}
           scaleBarPosition={{ left: 24, top: insets.top + 62 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}
           selectorRoute={selector.selectorRoute}
           selectorStops={selector.selectorStops}
-          selectedVehicle={selectedVehicle}
+          selectedUnit={selectedUnit}
           trafficEnabled={trafficEnabled}
           visibleIncidents={visibleMapIncidents}
           vehicleById={vehicleById}
@@ -629,15 +640,16 @@ export function MapScreen() {
             />
             <BottomTrackingPanel
               activeIncident={driverWithoutUnit ? null : activeIncident}
-              activeIncidentVehicle={driverWithoutUnit ? null : activeIncidentVehicle}
+              activeIncidentUnit={driverWithoutUnit ? null : activeIncidentUnit}
               bottomPadding={insets.bottom + 10}
               locationStatus={locationStatus}
               locationStatusColor={locationStatusColor}
               onRetryLocation={refresh}
-              onSelectIncidentVehicle={handleSelectIncidentVehicle}
-              onSelectTrackingVehicle={handleSelectTrackingVehicle}
+              onSelectIncidentUnit={handleSelectIncidentUnit}
+              onSelectTrackingUnit={handleSelectTrackingUnit}
+              selectedUnit={selectedUnit}
               selectedVehicle={selectedVehicle}
-              trackingVehicles={visiblePanelVehicles}
+              trackingUnits={visiblePanelUnits}
               userRole={user.role}
               activeSession={activeRouteSession}
               sessionHistory={sessionHistory}

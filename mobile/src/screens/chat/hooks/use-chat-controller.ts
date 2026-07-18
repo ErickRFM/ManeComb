@@ -10,6 +10,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { useRoute } from '@react-navigation/native';
 import { useShallow } from 'zustand/react/shallow';
 import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
 import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
@@ -35,6 +36,8 @@ type CloseActiveCallOptions = {
 };
 
 export function useChatController() {
+  const route = useRoute();
+  const handledRouteConversationRef = useRef<string | null>(null);
   const { width } = useWindowDimensions();
   const isCompact = width < 1080;
   const isPhone = width < 720;
@@ -92,6 +95,10 @@ export function useChatController() {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
+  const [failedVoiceNote, setFailedVoiceNote] = useState<{
+    conversationId: string;
+    formData: FormData;
+  } | null>(null);
   const [callSession, setCallSession] = useState<CallSession | null>(null);
   const [callParticipants, setCallParticipants] = useState<RtcParticipant[]>([]);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -858,6 +865,21 @@ export function useChatController() {
     }
   };
 
+  // Deep link desde la notificacion nativa: manecomb://chat?conversationId=...
+  const routeConversationId = String(
+    (route.params as { conversationId?: string } | undefined)?.conversationId || ''
+  ).trim();
+
+  useEffect(() => {
+    if (!routeConversationId || handledRouteConversationRef.current === routeConversationId) {
+      return;
+    }
+
+    handledRouteConversationRef.current = routeConversationId;
+    handleSelectConversation(routeConversationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeConversationId]);
+
   const handleOpenGeneral = async (channelMode: ConversationChannelMode) => {
     const conversation = await openGeneralConversation(channelMode);
 
@@ -1037,6 +1059,38 @@ export function useChatController() {
     setIsCameraEnabled(nextCameraEnabled);
   };
 
+  // Single delivery point for voice notes. The store never throws on a failed
+  // upload — it reports `{ ok: false }` — so the result MUST be inspected here.
+  // Announcing success without reading it is what made a failed send look sent.
+  const deliverVoiceNote = async (conversationId: string, formData: FormData) => {
+    const result = await sendVoiceMessage(conversationId, formData);
+
+    if (!result.ok) {
+      setFailedVoiceNote({ conversationId, formData });
+      setRecorderMessage(result.message || 'No fue posible enviar la nota de voz.');
+      setRecordingState('idle');
+      return false;
+    }
+
+    setFailedVoiceNote(null);
+    setDraft('');
+    // A queued-for-sync result is `ok` but is NOT delivered yet, so it must not
+    // claim to be sent.
+    setRecorderMessage(result.message || 'Nota de voz enviada.');
+    setRecordingState('idle');
+    return true;
+  };
+
+  const retryVoiceNote = async () => {
+    if (!failedVoiceNote) {
+      return;
+    }
+
+    setRecordingState('uploading');
+    setRecorderMessage('Reintentando envio de la nota de voz...');
+    await deliverVoiceNote(failedVoiceNote.conversationId, failedVoiceNote.formData);
+  };
+
   const buildNativeVoiceFormData = async (uri: string, durationSeconds: number) => {
     const formData = new FormData();
     formData.append('durationSeconds', String(durationSeconds));
@@ -1101,10 +1155,7 @@ export function useChatController() {
       Math.max(1, Math.round(Number(status.durationMillis || 0) / 1000))
     );
 
-    await sendVoiceMessage(activeConversation.id, formData);
-    setDraft('');
-    setRecorderMessage('Nota de voz enviada.');
-    setRecordingState('idle');
+    await deliverVoiceNote(activeConversation.id, formData);
   };
 
   const startWebRecording = async () => {
@@ -1174,7 +1225,7 @@ export function useChatController() {
         formData.append('durationSeconds', String(durationSeconds));
         formData.append('caption', draft.trim());
         formData.append('file', file);
-        await sendVoiceMessage(activeConversation.id, formData);
+        await deliverVoiceNote(activeConversation.id, formData);
         resolve();
       };
       recorder.stop();
@@ -1185,9 +1236,6 @@ export function useChatController() {
     webStreamRef.current = null;
     webChunksRef.current = [];
     stopRecordingTicker();
-    setDraft('');
-    setRecorderMessage('Nota de voz enviada.');
-    setRecordingState('idle');
   };
 
   const handleVoiceAction = async () => {
@@ -1366,6 +1414,8 @@ export function useChatController() {
     presenceByUser,
     recordingState,
     recorderMessage,
+    canRetryVoiceNote: Boolean(failedVoiceNote),
+    retryVoiceNote,
     scrollMessagesToEnd,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,

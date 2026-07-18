@@ -19,8 +19,8 @@ import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Incident, IncidentDraft, IncidentSeverity, LiveLocationsData, User } from '@/src/types/app';
-import { isVehicleGpsFresh } from './map/utils/tracking';
+import type { Incident, IncidentDraft, IncidentSeverity, User } from '@/src/types/app';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { formatRelativeTime } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 
@@ -214,26 +214,34 @@ function hasIncidentLocation(incident: Incident) {
   );
 }
 
-export function getIncidentContext(user: User | null, mapData: LiveLocationsData | null): Pick<IncidentDraft, 'location' | 'locationSourceTimestamp' | 'locationState' | 'routeId' | 'vehicleId'> {
-  const vehicle = user?.vehicleId
-    ? mapData?.vehicles.find((entry) => entry.id === user.vehicleId) || null
-    : null;
-  const hasGps = Boolean(vehicle?.locationTimestamp && vehicle.location);
-  const gpsIsFresh = isVehicleGpsFresh(vehicle);
-  const vehicleLocation = gpsIsFresh ? vehicle?.location : null;
+/**
+ * Contexto de la incidencia que se esta levantando.
+ *
+ * La frescura del GPS ya viene resuelta en el snapshot canonico: esta pantalla
+ * no vuelve a calcularla. Solo se adjunta la posicion cuando es fresca, para no
+ * levantar una incidencia con una ubicacion vieja.
+ */
+export function getIncidentContext(
+  user: User | null,
+  units: readonly OperationalUnitSnapshot[]
+): Pick<IncidentDraft, 'location' | 'locationSourceTimestamp' | 'locationState' | 'routeId' | 'vehicleId'> {
+  const unit = user?.vehicleId ? units.find((entry) => entry.unitId === user.vehicleId) || null : null;
+  const isFresh = unit?.gps.freshness === 'fresh';
+  const hasPosition = unit ? unit.gps.lat !== null && unit.gps.lng !== null : false;
 
   return {
-    vehicleId: vehicle?.id || user?.vehicleId || null,
-    routeId: vehicle?.routeId || vehicle?.route?.id || null,
-    locationState: gpsIsFresh ? 'fresh' : hasGps ? 'stale' : 'missing',
-    locationSourceTimestamp: vehicle?.locationTimestamp || null,
-    location: vehicleLocation
-      ? {
-          latitude: vehicleLocation.latitude,
-          longitude: vehicleLocation.longitude,
-          timestamp: vehicle?.locationTimestamp || null,
-        }
-      : null,
+    vehicleId: unit?.unitId || user?.vehicleId || null,
+    routeId: unit?.route?.id || null,
+    locationState: unit?.gps.freshness ?? 'missing',
+    locationSourceTimestamp: unit?.gps.recordedAt || null,
+    location:
+      isFresh && hasPosition
+        ? {
+            latitude: unit!.gps.lat as number,
+            longitude: unit!.gps.lng as number,
+            timestamp: unit!.gps.recordedAt,
+          }
+        : null,
   };
 }
 
@@ -771,7 +779,7 @@ export function IncidentsScreen() {
     incidents,
     isRefreshing,
     isSubmitting,
-    mapData,
+    operationalUnits,
     refreshAll,
     updateIncidentStatus,
     user,
@@ -783,7 +791,7 @@ export function IncidentsScreen() {
       incidents: state.incidents,
       isRefreshing: state.isRefreshing,
       isSubmitting: state.isSubmitting,
-      mapData: state.mapData,
+      operationalUnits: state.operationalUnits,
       refreshAll: state.refreshAll,
       updateIncidentStatus: state.updateIncidentStatus,
       user: state.user,
@@ -839,7 +847,7 @@ export function IncidentsScreen() {
   const handleCreate = async () => {
     if (!title.trim() || !description.trim()) return;
 
-    const ok = await createIncident({ title, type, description, severity, ...getIncidentContext(user, mapData) });
+    const ok = await createIncident({ title, type, description, severity, ...getIncidentContext(user, operationalUnits) });
     if (ok) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setTitle('');
@@ -859,7 +867,7 @@ export function IncidentsScreen() {
         ? `Alerta critica de seguridad enviada por ${user?.name || 'operador'}.`
         : `Alerta critica de unidad enviada por ${user?.name || 'operador'}.`,
       severity: 'critical',
-      ...getIncidentContext(user, mapData),
+      ...getIncidentContext(user, operationalUnits),
     });
     if (created) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);

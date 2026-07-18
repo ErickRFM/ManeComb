@@ -1,7 +1,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
-import { ChecklistScreen, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { ChecklistScreen, buildOperationalRecord, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
 import { useAppStore } from '@/src/store/use-app-store';
 
 jest.mock('react-native-gesture-handler', () => {
@@ -122,6 +123,65 @@ describe('ChecklistScreen', () => {
 
     expect(getActiveLog(logs, 'v-1')?.id).toBe('newer');
     expect(getLatestLog(logs, 'v-1')?.id).toBe('cancelled');
+  });
+
+  // Regresion del defecto observado el 2026-07-18: en "Registros operativos"
+  // C-1 y C-3 aparecian sin nombre mientras C-2 si se leia, porque la pantalla
+  // construia la identidad en tres lugares y el camino de historial no tenia
+  // respaldo cuando el vehiculo carecia de `code`.
+  it('toma la identidad, el conductor y el ETA del snapshot canonico', () => {
+    const unit: OperationalUnitSnapshot = {
+      unitId: 'v-1',
+      plates: 'FBZ-404',
+      label: 'C-1',
+      status: 'active',
+      operationalState: 'on_route',
+      gps: {
+        lat: 19.3139, lng: -98.2404, speedKmh: 42, heading: 90,
+        recordedAt: '2026-07-18T10:08:00.000Z', freshness: 'fresh', ageSeconds: 12,
+      },
+      driver: { id: 'u-1', name: 'Erik', source: 'session' },
+      route: {
+        id: 'rt-1', name: 'Santa Ana', startedAt: '2026-07-18T09:38:00.000Z',
+        progressRatio: 0.4, remainingTimeSeconds: 540,
+        etaAt: '2026-07-18T10:17:00.000Z', deviationMeters: 12, currentCheckpoint: '1/4',
+      },
+      session: { id: 's-1', startedAt: '2026-07-18T09:38:00.000Z', elapsedSeconds: 1800 },
+      incidents: { open: 0, inProgress: 0, lastAt: null },
+      lastEventAt: '2026-07-18T10:08:00.000Z',
+      visibility: 'visible',
+    };
+
+    // El vehiculo llega sin `code` ni `driverName`: es el caso que producia la
+    // fila en blanco. El registro debe seguir teniendo identidad.
+    const vehicle = { id: 'v-1', code: '', delayMinutes: 0 } as never;
+    const record = buildOperationalRecord(unit, vehicle, []);
+
+    expect(record.vehicleCode).toBe('C-1');
+    expect(record.driverName).toBe('Erik');
+    expect(record.routeName).toBe('Santa Ana');
+    expect(record.etaAt).toBe('2026-07-18T10:17:00.000Z');
+    expect(record.status).toBe('active');
+  });
+
+  it('no inventa ruta ni conductor cuando la unidad no los tiene', () => {
+    // Caso C-2: unidad recien dada de alta.
+    const unit: OperationalUnitSnapshot = {
+      unitId: 'v-2', plates: 'GHT-771', label: 'C-2',
+      status: 'idle', operationalState: 'no_route',
+      gps: { lat: null, lng: null, speedKmh: null, heading: null, recordedAt: null, freshness: 'missing', ageSeconds: null },
+      driver: null, route: null, session: null,
+      incidents: { open: 0, inProgress: 0, lastAt: null },
+      lastEventAt: null, visibility: 'visible',
+    };
+
+    const record = buildOperationalRecord(unit, { id: 'v-2', code: 'C-2', delayMinutes: 0, status: 'available' } as never, []);
+
+    expect(record.vehicleCode).toBe('C-2');
+    expect(record.driverName).toBe('Sin conductor asignado');
+    expect(record.routeName).toBe('Sin ruta asignada');
+    // Nunca `salida + minutos`: sin ETA del backend, no hay ETA.
+    expect(record.etaAt).toBeNull();
   });
 
   it('renders when an old assignedRoute snapshot has no route payload', () => {

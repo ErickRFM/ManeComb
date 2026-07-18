@@ -176,6 +176,181 @@ a {
   backdrop-filter: blur(12px);
 }
 
+/* Portal responsive system: phone <= 479, mobile <= 767, tablet <= 979. */
+#operations-workspace #operations-detail-column {
+  display: none !important;
+}
+
+@media (max-width: 979px) {
+  #portal-content {
+    max-width: none !important;
+  }
+
+  #portal-header-actions {
+    align-items: stretch !important;
+  }
+}
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  #portal-content {
+    gap: 14px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 14px !important;
+  }
+
+  #portal-mobile-top {
+    min-height: 44px;
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
+  }
+
+  #portal-header {
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  #portal-header-text {
+    flex-basis: 100% !important;
+  }
+
+  #portal-header h1,
+  #portal-header [dir="auto"] {
+    overflow-wrap: anywhere;
+  }
+
+  #portal-header-actions {
+    justify-content: stretch !important;
+    width: 100%;
+  }
+
+  #portal-header-actions > * {
+    flex: 1 1 auto !important;
+    justify-content: center !important;
+    min-height: 44px !important;
+  }
+
+  #portal-breadcrumb {
+    overflow: hidden;
+  }
+
+  #portal-notice {
+    align-items: flex-start !important;
+    padding: 9px 10px !important;
+  }
+
+  #operations-workspace, #operations-workspace-selected {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  #operations-map-column {
+    display: contents !important;
+    height: auto !important;
+  }
+
+  #operations-map-surface {
+    flex: none !important;
+    height: max(440px, 58vh) !important;
+    min-height: 440px !important;
+    width: 100% !important;
+  }
+
+  #operations-unit-selector {
+    bottom: 10px !important;
+    left: 10px !important;
+    max-height: 136px !important;
+    max-width: calc(100% - 20px) !important;
+    width: 210px !important;
+  }
+
+  #operations-kpi-grid {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  #operations-kpi-grid > div {
+    background: rgba(10, 19, 33, 0.9) !important;
+    border: 1px solid rgba(148, 163, 184, 0.14) !important;
+    border-radius: 10px !important;
+    min-height: 94px !important;
+    padding: 10px !important;
+  }
+
+  #operations-kpi-grid > div * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal !important;
+    writing-mode: horizontal-tb !important;
+  }
+
+  #operations-detail-column {
+    flex: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  #operations-detail-surface {
+    border: 1px solid rgba(148, 163, 184, 0.18) !important;
+    border-radius: 18px 18px 14px 14px !important;
+    box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.28) !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 14px !important;
+  }
+
+  button,
+  [role="button"] {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 479px) {
+  #portal-content {
+    gap: 12px !important;
+    padding: 12px !important;
+  }
+
+  #portal-header h1 {
+    font-size: 24px !important;
+    line-height: 29px !important;
+  }
+
+  #operations-map-surface {
+    height: max(420px, 56vh) !important;
+    min-height: 420px !important;
+  }
+
+  #operations-kpi-grid > div {
+    min-height: 100px !important;
+    padding: 9px !important;
+  }
+
+  #operations-unit-selector {
+    width: min(200px, calc(100% - 20px)) !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html,
   body {

@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
 import { isAxiosError } from 'axios';
 import type { ThemeMode } from '@/constants/theme';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
@@ -31,6 +32,7 @@ import {
   getIncidentsRequest,
   getLastApiTraceId,
   getLocationsRequest,
+  getOperationalUnitsRequest,
   getActiveRouteSessionRequest,
   getRouteSessionHistoryRequest,
   getMessagesRequest,
@@ -190,6 +192,12 @@ export type AppState = {
   authContext: AuthRoutingContext | null;
   user: User | null;
   mapData: LiveLocationsData | null;
+  /**
+   * Proyeccion operacional canonica del backend. Fuente unica de estado, GPS,
+   * ruta, conductor y ETA. Ninguna pantalla debe derivar esos campos por su
+   * cuenta a partir de `mapData`.
+   */
+  operationalUnits: OperationalUnitSnapshot[];
   incidents: Incident[];
   conversations: ConversationSummary[];
   chatContacts: ChatDirectoryContact[];
@@ -270,6 +278,7 @@ type StoreSet = (
 function getEmptyOperationalState(): Partial<AppState> {
   return {
     mapData: null,
+    operationalUnits: [],
     incidents: [],
     conversations: [],
     chatContacts: [],
@@ -1145,6 +1154,9 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         title: isRadio ? 'Audio de radio recibido' : 'Mensaje nuevo',
         body: hydrated.sender?.name || 'ManeComb operativo',
         category: isRadio ? 'radio' : 'chat',
+        deepLink: isRadio
+          ? 'manecomb://radio'
+          : `manecomb://chat?conversationId=${encodeURIComponent(conversationId)}&channelMode=chat`,
         data: {
           category: isRadio ? 'radio' : 'chat',
           conversationId,
@@ -1260,6 +1272,22 @@ function connectSocket(set: StoreSet, get: () => AppState) {
             updatedAt: new Date().toISOString(),
           }
         : s.mapData,
+    }));
+  });
+
+  // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
+  // merge parcial, porque un merge reintroduce campos de origen distinto.
+  socket.on('operational-unit:updated', (payload: unknown) => {
+    const unit =
+      payload && typeof payload === 'object' && 'unit' in (payload as Record<string, unknown>)
+        ? ((payload as { unit: OperationalUnitSnapshot }).unit)
+        : null;
+    if (!unit || typeof unit !== 'object' || !unit.unitId) return;
+
+    set(s => ({
+      operationalUnits: s.operationalUnits.some(entry => entry.unitId === unit.unitId)
+        ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
+        : [...s.operationalUnits, unit],
     }));
   });
 
@@ -1454,13 +1482,27 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
 
   if (!apiHealthcheckTimer) {
     apiHealthcheckTimer = setInterval(() => {
-      if (!get().user || get().networkStatus === 'offline') {
+      // Deliberately NOT gated on `networkStatus === 'offline'`: that is the
+      // very state this probe exists to escape. Any REST failure latches
+      // `offline` (see processPendingSyncQueue), and if the poller skipped that
+      // state the banner stayed pinned until the app was killed and reopened.
+      // Gate only on the device-level radio being unreachable, where an HTTP
+      // probe cannot succeed anyway.
+      if (!get().user || isNetworkReachable(get().networkSnapshot) === false) {
         return;
       }
 
       healthRequest()
         .then(() => {
+          const wasOffline = get().networkStatus === 'offline';
           set({ networkStatus: 'online' });
+          // The backend is awake again. Anything parked by a failed upload
+          // (e.g. a voice note queued when the cold start timed out) must be
+          // drained here: the socket may already be connected, in which case no
+          // `reconnect` event will fire to trigger the flush.
+          if (wasOffline) {
+            get().flushPendingSync();
+          }
           // The health check proves the backend is awake again (e.g. after a
           // cold start). If the realtime socket is not connected, deterministically
           // revive it here so the connection banner clears without restarting the
@@ -1590,7 +1632,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
-  authContext: null, user: null, mapData: null, incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
+  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -1784,14 +1826,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const curr = get();
       const res = await Promise.allSettled([
-        getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
+        getLocationsRequest(), getOperationalUnitsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
         user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
       const data: any = {};
-      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
+      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {

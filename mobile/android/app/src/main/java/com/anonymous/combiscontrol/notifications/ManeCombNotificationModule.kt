@@ -7,8 +7,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.anonymous.combiscontrol.MainActivity
@@ -25,9 +27,18 @@ class ManeCombNotificationModule(
   override fun getName(): String = "ManeCombNotification"
 
   @ReactMethod
-  fun show(title: String, body: String, category: String, promise: Promise) {
+  fun show(
+    title: String,
+    body: String,
+    category: String,
+    conversationId: String?,
+    deepLink: String?,
+    promise: Promise
+  ) {
     try {
       val normalizedCategory = category.trim().lowercase()
+      val safeConversationId = conversationId?.trim().orEmpty()
+      val safeDeepLink = deepLink?.trim().orEmpty()
       val channelId = channelIdForCategory(normalizedCategory)
       val priority = priorityForCategory(normalizedCategory)
       ensureChannels()
@@ -40,12 +51,18 @@ class ManeCombNotificationModule(
         return
       }
 
+      val notificationId = notificationIdFor(normalizedCategory, safeConversationId)
+
       val intent = Intent(reactContext, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        if (safeDeepLink.isNotEmpty()) {
+          action = Intent.ACTION_VIEW
+          data = Uri.parse(safeDeepLink)
+        }
       }
       val pendingIntent = PendingIntent.getActivity(
         reactContext,
-        0,
+        notificationId,
         intent,
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
       )
@@ -71,16 +88,64 @@ class ManeCombNotificationModule(
         builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
       }
 
+      if (normalizedCategory == "chat" && safeConversationId.isNotEmpty()) {
+        builder
+          .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+          .addAction(buildReplyAction(notificationId, safeConversationId))
+      }
+
       val notification = builder.build()
 
-      NotificationManagerCompat.from(reactContext).notify(
-        abs("${normalizedCategory}:${System.currentTimeMillis()}".hashCode()),
-        notification
-      )
+      NotificationManagerCompat.from(reactContext).notify(notificationId, notification)
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("notification_show_failed", error.message, error)
     }
+  }
+
+  /**
+   * Usado por el Headless JS Task para cerrar el ciclo de la respuesta rapida.
+   */
+  @ReactMethod
+  fun updateReplyStatus(notificationId: Double, status: String, promise: Promise) {
+    try {
+      ManeCombReplyReceiver.updateNotification(reactContext, notificationId.toInt(), status)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.resolve(false)
+    }
+  }
+
+  private fun buildReplyAction(
+    notificationId: Int,
+    conversationId: String
+  ): NotificationCompat.Action {
+    val remoteInput = RemoteInput.Builder(KEY_REPLY_TEXT)
+      .setLabel(REPLY_LABEL)
+      .build()
+    val replyIntent = Intent(reactContext, ManeCombReplyReceiver::class.java).apply {
+      action = ACTION_REPLY
+      putExtra(EXTRA_CONVERSATION_ID, conversationId)
+      putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+    }
+    // RemoteInput exige un PendingIntent mutable para poder inyectar el texto escrito.
+    val replyPendingIntent = PendingIntent.getBroadcast(
+      reactContext,
+      notificationId,
+      replyIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+    )
+
+    return NotificationCompat.Action.Builder(
+      R.drawable.notification_icon,
+      REPLY_LABEL,
+      replyPendingIntent
+    )
+      .addRemoteInput(remoteInput)
+      .setAllowGeneratedReplies(false)
+      .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+      .build()
   }
 
   private fun ensureChannels() {
@@ -151,10 +216,26 @@ class ManeCombNotificationModule(
     }
 
   companion object {
-    private const val CHANNEL_GENERAL = "operacion-general"
+    const val KEY_REPLY_TEXT = "reply_text"
+    const val ACTION_REPLY = "com.anonymous.combiscontrol.notifications.ACTION_REPLY"
+    const val EXTRA_CONVERSATION_ID = "conversationId"
+    const val EXTRA_NOTIFICATION_ID = "notificationId"
+    const val CHANNEL_GENERAL = "operacion-general"
+    private const val REPLY_LABEL = "Responder"
     private const val CHANNEL_RADIO = "operacion-radio"
     private const val CHANNEL_INCIDENTS = "operacion-incidentes"
     private const val CHANNEL_EMERGENCIES = "operacion-emergencias"
     private const val CHANNEL_SOS = "operacion-sos"
+
+    /**
+     * Los chats con conversacion conocida reutilizan un id estable para que la respuesta
+     * desde la notificacion pueda actualizar esa misma tarjeta.
+     */
+    fun notificationIdFor(category: String, conversationId: String): Int =
+      if (conversationId.isNotEmpty()) {
+        abs("chat:$conversationId".hashCode())
+      } else {
+        abs("$category:${System.currentTimeMillis()}".hashCode())
+      }
   }
 }

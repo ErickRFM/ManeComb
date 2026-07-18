@@ -17,9 +17,10 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "screens", "features", "constants", "vite.config.js"],
+  "include": ["src", "screens", "features", "constants", "../shared", "vite.config.js"],
   "references": []
 }

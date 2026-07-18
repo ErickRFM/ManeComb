@@ -414,9 +414,10 @@ export function PortalDashboardScreen() {
     return map;
   }, [history]);
 
+  const activeView = getParam(params.view) === 'history' ? 'history' : getParam(params.view) === 'detail' ? 'detail' : 'operations';
   const selectedVehicle = useMemo(
-    () => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null,
-    [selectedVehicleId, vehicles]
+    () => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || (activeView === 'operations' ? null : vehicles[0] || null),
+    [activeView, selectedVehicleId, vehicles]
   );
   const selectedVehicleSessions = selectedVehicle ? sessionsByVehicle.get(selectedVehicle.id) || [] : [];
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
@@ -477,8 +478,6 @@ export function PortalDashboardScreen() {
   const routeCheckpoints = routeFocusVehicle?.assignedRoute?.stops || [];
   const replayPosition = sessionDetail?.positions[replayIndex] || null;
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
-  const activeView = getParam(params.view) === 'history' ? 'history' : getParam(params.view) === 'detail' ? 'detail' : 'operations';
-
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
     setFilters((current) => ({ ...current, vehicleId: vehicle.id }));
@@ -630,7 +629,7 @@ export function PortalDashboardScreen() {
         </Pressable>
       }>
       {message ? (
-        <View style={styles.notice}>
+        <View nativeID="portal-notice" style={styles.notice}>
           <MaterialCommunityIcons name="alert-circle-outline" size={18} color={portalPalette.warning} />
           <Text style={styles.noticeText}>{message}</Text>
         </View>
@@ -656,9 +655,9 @@ export function PortalDashboardScreen() {
       ) : null}
 
       {activeView === 'operations' ? (
-      <View style={styles.mainOperationsGrid}>
-        <View style={styles.operationsMapCol}>
-          <View style={styles.mapSurface}>
+      <View nativeID={selectedVehicle ? 'operations-workspace-selected' : 'operations-workspace'} style={styles.mainOperationsGrid}>
+        <View nativeID="operations-map-column" style={styles.operationsMapCol}>
+          <View nativeID="operations-map-surface" style={styles.mapSurface}>
             <View style={styles.mapStage}>
               <Suspense fallback={<MapFallback height={620} />}>
                 <OperationsMap
@@ -673,7 +672,7 @@ export function PortalDashboardScreen() {
                 />
               </Suspense>
               {operationalVehicles.length ? (
-                <View style={styles.unitSelectorOverlay}>
+                <View nativeID="operations-unit-selector" style={styles.unitSelectorOverlay}>
                   <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
                   {operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
@@ -689,7 +688,7 @@ export function PortalDashboardScreen() {
               ) : null}
             </View>
           </View>
-          <View style={styles.kpiRow}>
+          <View nativeID="operations-kpi-grid" style={styles.kpiRow}>
             {operationsKpis.map((kpi, index) => (
               <View key={kpi.label} style={[styles.kpiCard, index === operationsKpis.length - 1 ? styles.kpiCardLast : undefined]}>
                 <View style={styles.kpiTop}>
@@ -703,8 +702,8 @@ export function PortalDashboardScreen() {
           </View>
         </View>
 
-        <View style={styles.operationsUnitsCol}>
-          <View style={styles.operationsDetailSurface}>
+        <View nativeID="operations-detail-column" style={styles.operationsUnitsCol}>
+          <View nativeID="operations-detail-surface" style={styles.operationsDetailSurface}>
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
