@@ -390,7 +390,7 @@ export function PortalRoutesScreen() {
 
   if (showRouteEditor) {
     return (
-      <PortalLayout title="Editor de ruta" subtitle="Crea la ruta agregando sus puntos y guarda el resultado en el catálogo.">
+      <PortalLayout actions={<View style={styles.editorTopActions}><Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}><Text style={styles.toolText}>Cancelar</Text></Pressable><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>} compact wide title="Editor de ruta" subtitle="Crea y edita la ruta agregando paradas y checkpoints.">
         <View style={styles.fullEditorShell}>
           <View style={styles.editorTools}>
             <Text style={styles.sectionEyebrow}>Herramientas</Text>
@@ -424,7 +424,6 @@ export function PortalRoutesScreen() {
               </View>)}
             </View>
             <Text style={styles.coordText}>{catalogBusy ? 'Recalculando geometría…' : 'Arrastra cualquier marcador para moverlo. Los cambios se recalculan automáticamente.'}</Text>
-            <View style={styles.editorFooter}><Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}><Text style={styles.toolText}>Cancelar</Text></Pressable><Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}><Text style={styles.primaryText}>Guardar ruta</Text></Pressable></View>
           </View>
         </View>
       </PortalLayout>
@@ -432,7 +431,12 @@ export function PortalRoutesScreen() {
   }
 
   return (
-    <PortalLayout title="Rutas" subtitle="Asignacion real de origen y destino por unidad.">
+    <PortalLayout
+      actions={<Pressable onPress={openNewRouteEditor} style={[styles.primaryButton, portalButtonGradient()]}><MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text></Pressable>}
+      compact
+      wide
+      title="Rutas"
+      subtitle="Asignación real de origen y destino por unidad.">
       {showAssignmentBanner && canManageRoutes ? (
         <View style={styles.continuityBanner}>
           <MaterialCommunityIcons name="check-circle" size={18} color="#FFFFFF" />
@@ -444,26 +448,47 @@ export function PortalRoutesScreen() {
         </View>
       ) : null}
 
-      {canManageRoutes ? (
-        <PortalSectionCard title="Catálogo de rutas" subtitle={`${savedRoutes.length} rutas disponibles`} right={(
-          <Pressable onPress={openNewRouteEditor} style={[styles.primaryButton, portalButtonGradient()]}>
-            <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text>
-          </Pressable>
-        )}>
-          <Text style={styles.sectionEyebrow}>1. Selecciona una unidad</Text>
-          <View style={styles.segmentRow}>{routeVehicles.map((vehicle) => <Pressable key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.segment, editor.vehicleId === vehicle.id ? styles.catalogCardActive : undefined]}><Text style={styles.segmentText}>{vehicle.code}</Text><Text style={styles.segmentDriver}>{getDriverName(vehicle)}</Text></Pressable>)}</View>
-          <Text style={styles.sectionEyebrow}>2. Selecciona una ruta existente</Text>
-          <View style={styles.catalogToolbar}><TextInput accessibilityLabel="Buscar rutas" value={search} onChangeText={setSearch} placeholder="Buscar por nombre, código u origen" placeholderTextColor={palette.muted} style={[styles.searchInput, { borderColor: palette.lineStrong, color: palette.text }]} /><View style={styles.chipRow}>{(['all','assigned','unused'] as const).map((mode) => <Pressable key={mode} onPress={() => setFilterMode(mode)} style={[styles.filterChip, filterMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'all' ? 'Todas' : mode === 'assigned' ? 'Asignadas' : 'Sin uso'}</Text></Pressable>)}</View><View style={styles.chipRow}>{(['recent','name','distance'] as const).map((mode) => <Pressable key={mode} onPress={() => setSortMode(mode)} style={[styles.filterChip, sortMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'recent' ? 'Recientes' : mode === 'name' ? 'Nombre' : 'Distancia'}</Text></Pressable>)}</View></View>
-          {filteredRoutes.length ? <View style={styles.catalogGrid}>{filteredRoutes.map((route) => (
-            <Pressable {...({ className: 'route-catalog-card' } as any)} accessibilityRole="button" accessibilityState={{ selected: selectedRouteId === route.id }} key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.catalogCard, selectedRouteId === route.id ? styles.catalogCardActive : undefined]}>
-              <RouteGeometryThumbnail color={route.color} polyline={route.polyline} stops={route.stops} />
-              <View style={styles.catalogCardContent}><View style={styles.routeBody}><Text style={styles.routeName}>{route.name}</Text><Text style={styles.routeMeta}>{route.originLabel || 'Origen'} → {route.destinationLabel || 'Destino'}</Text><Text style={styles.routeMeta}>{((route.distanceMeters || 0) / 1000).toFixed(1)} km · {Math.round((route.durationSeconds || 0) / 60)} min · {route.stops?.length || 0} checkpoints</Text></View><View style={styles.rowActions}><Pressable accessibilityLabel={`Editar ${route.name}`} onPress={(event) => { event.stopPropagation(); openExistingRouteEditor(route); }}><MaterialCommunityIcons name="pencil-outline" size={19} color={palette.info} /></Pressable><Pressable accessibilityLabel={`Eliminar ${route.name}`} onPress={async (event) => { event.stopPropagation(); setCatalogBusy(true); try { await deleteSavedRouteRequest(route.id); setSavedRoutes((current) => current.filter((item) => item.id !== route.id)); if (selectedRouteId === route.id) setSelectedRouteId(null); } catch (error) { setMessage(getApiErrorMessage(error, 'No fue posible eliminar la ruta.')); } finally { setCatalogBusy(false); } }}><MaterialCommunityIcons name="delete-outline" size={19} color={palette.warning} /></Pressable></View></View>
-            </Pressable>
-          ))}</View> : <EmptyState icon="routes" title={savedRoutes.length ? 'Sin coincidencias' : 'Aún no hay rutas'} description={savedRoutes.length ? 'Ajusta la búsqueda o los filtros.' : 'Crea la primera ruta reutilizable para después asignarla a una unidad.'} />}
-          {selectedSavedRoute ? <View style={styles.previewPanel}><Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando vista previa...</Text></View>}><RouteMap checkpoints={selectedSavedRoute.stops} height={300} routeCoordinates={selectedSavedRoute.polyline} vehicles={[]} /></Suspense><View><Text style={styles.routeName}>{selectedSavedRoute.name}</Text><Text style={styles.routeMeta}>{Math.round((selectedSavedRoute.distanceMeters || 0) / 1000)} km · {Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min · {selectedSavedRoute.stops.length} paradas</Text></View></View> : null}
-          <View style={styles.actions}><Pressable disabled={!selectedSavedRoute || !editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), (!selectedSavedRoute || !editor.vehicleId) ? styles.disabledButton : undefined]}><MaterialCommunityIcons name="link-variant" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Asignar ruta seleccionada</Text></Pressable></View>
-        </PortalSectionCard>
-      ) : null}
+      {message ? <View style={styles.inlineFeedback}><MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.info} /><Text style={styles.inlineFeedbackText}>{message}</Text></View> : null}
+      {canManageRoutes ? <View style={styles.assignmentWorkspace}>
+        <View style={styles.unitsPanel}>
+          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Selecciona una unidad</Text><Text style={styles.panelCount}>{routeVehicles.length}</Text></View>
+          <View style={styles.unitsList}>{routeVehicles.map((vehicle) => {
+            const active = editor.vehicleId === vehicle.id;
+            return <Pressable accessibilityState={{ selected: active }} key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
+              <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}><MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} /></View>
+              <View style={styles.routeBody}><Text style={styles.unitCode}>{vehicle.code}</Text><Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text><Text style={styles.unitStatus}>● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}</Text></View>
+            </Pressable>;
+          })}</View>
+        </View>
+
+        <View style={styles.catalogPanel}>
+          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas disponibles</Text><Text style={styles.panelCount}>{filteredRoutes.length}</Text></View>
+          <TextInput accessibilityLabel="Buscar rutas" value={search} onChangeText={setSearch} placeholder="Buscar ruta" placeholderTextColor={palette.muted} style={[styles.compactSearch, { borderColor: palette.lineStrong, color: palette.text }]} />
+          <View style={styles.compactFilters}>{(['all','assigned','unused'] as const).map((mode) => <Pressable key={mode} onPress={() => setFilterMode(mode)} style={[styles.filterChip, filterMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'all' ? 'Todas' : mode === 'assigned' ? 'Asignadas' : 'Sin uso'}</Text></Pressable>)}</View>
+          <View style={styles.compactFilters}>{(['recent','name','distance'] as const).map((mode) => <Pressable key={mode} onPress={() => setSortMode(mode)} style={[styles.sortChip, sortMode === mode ? styles.sortChipActive : undefined]}><Text style={styles.sortChipText}>{mode === 'recent' ? 'Recientes' : mode === 'name' ? 'Nombre' : 'Distancia'}</Text></Pressable>)}</View>
+          <View style={styles.catalogList}>{filteredRoutes.length ? filteredRoutes.map((route) => <Pressable {...({ className: 'route-catalog-card' } as any)} accessibilityRole="button" accessibilityState={{ selected: selectedRouteId === route.id }} key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.compactRouteCard, selectedRouteId === route.id ? styles.compactRouteCardActive : undefined]}>
+            <View style={styles.compactRouteInfo}><Text numberOfLines={1} style={styles.compactRouteName}>{route.name}</Text><View style={styles.compactMetrics}><Text style={styles.compactMetric}>{((route.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.compactMetric}>{route.stops?.length || 0} paradas</Text></View></View>
+            <View style={styles.thumbnailWrap}><RouteGeometryThumbnail color={route.color} polyline={route.polyline} stops={route.stops} /></View>
+          </Pressable>) : <EmptyState icon="routes" title={savedRoutes.length ? 'Sin coincidencias' : 'Aún no hay rutas'} description={savedRoutes.length ? 'Ajusta los filtros.' : 'Crea la primera ruta.'} />}</View>
+        </View>
+
+        <View style={styles.previewColumn}>
+          <View style={styles.previewMapShell}>
+            <View style={styles.mapLabel}><MaterialCommunityIcons name="map-outline" size={15} color={portalPalette.text} /><Text style={styles.mapLabelText}>Vista previa de la ruta seleccionada</Text></View>
+            {selectedSavedRoute ? <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando vista previa...</Text></View>}><RouteMap checkpoints={selectedSavedRoute.stops} height="100%" routeCoordinates={selectedSavedRoute.polyline} vehicles={[]} /></Suspense> : <EmptyState icon="map-search-outline" title="Selecciona una ruta" description="La geometría aparecerá aquí." />}
+          </View>
+          {selectedSavedRoute ? <View style={styles.mapActionBar}>
+            <View style={styles.mapRouteIdentity}><View style={styles.mapRouteIcon}><MaterialCommunityIcons name="routes" size={22} color={portalPalette.accent} /></View><View style={styles.routeBody}><Text numberOfLines={1} style={styles.mapRouteName}>{selectedSavedRoute.name}</Text><Text numberOfLines={1} style={styles.mapRoutePath}>{selectedSavedRoute.originLabel || 'Origen'} → {selectedSavedRoute.destinationLabel || 'Destino'}</Text></View></View>
+            <View style={styles.mapStats}><View><Text style={styles.statValue}>{((selectedSavedRoute.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.statLabel}>Distancia</Text></View><View><Text style={styles.statValue}>{selectedSavedRoute.stops.length}</Text><Text style={styles.statLabel}>Checkpoints</Text></View><View><Text style={styles.statValue}>{Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min</Text><Text style={styles.statLabel}>Duración</Text></View></View>
+            <View style={styles.mapActions}><Pressable onPress={() => openExistingRouteEditor(selectedSavedRoute)} style={styles.secondaryButton}><Text style={styles.toolText}>Editar</Text></Pressable><Pressable disabled={!editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), !editor.vehicleId ? styles.disabledButton : undefined]}><Text style={styles.primaryText}>Asignar ruta</Text></Pressable></View>
+          </View> : null}
+        </View>
+
+        <View style={styles.assignedPanel}>
+          <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas asignadas a {selectedVehicle?.code || '—'}</Text><Text style={styles.panelCount}>{selectedVehicle?.assignedRoute ? 1 : 0}</Text></View>
+          {selectedVehicle?.assignedRoute ? <View style={styles.assignedCard}><View style={styles.assignedHeader}><Text numberOfLines={1} style={styles.assignedName}>{selectedVehicle.assignedRoute.route?.label || getRouteLabel(selectedVehicle)}</Text><StatusBadge label="Activa" tone="positive" /></View><RouteGeometryThumbnail color={selectedVehicle.routeColor} polyline={getRouteGeometry(selectedVehicle)} stops={selectedVehicle.assignedRoute.stops} /><Text style={styles.assignedDate}>Asignada: {selectedVehicle.assignedRoute.assignedAt ? new Date(selectedVehicle.assignedRoute.assignedAt).toLocaleString('es-MX') : 'Sin fecha'}</Text><View style={styles.assignedActions}><Pressable accessibilityLabel="Editar ruta asignada" disabled={!selectedSavedRoute} onPress={() => selectedSavedRoute && openExistingRouteEditor(selectedSavedRoute)} style={styles.iconAction}><MaterialCommunityIcons name="pencil-outline" size={18} color={portalPalette.info} /></Pressable><Pressable accessibilityLabel="Liberar ruta" onPress={() => setRouteToClear(selectedVehicle)} style={styles.iconAction}><MaterialCommunityIcons name="delete-outline" size={18} color={portalPalette.danger} /></Pressable></View></View> : <EmptyState icon="routes" title="Sin ruta asignada" description="Selecciona una ruta del catálogo y asígnala." />}
+        </View>
+      </View> : null}
 
       {false && canManageRoutes ? (
         <PortalSectionCard
@@ -701,6 +726,55 @@ export function PortalRoutesScreen() {
 }
 
 const styles = StyleSheet.create({
+  assignmentWorkspace: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 610, minWidth: 0 },
+  unitsPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 190, flexGrow: 1, gap: 8, maxWidth: 230, minWidth: 180, padding: 10 },
+  catalogPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 240, flexGrow: 1, gap: 7, maxWidth: 290, minWidth: 220, padding: 10 },
+  previewColumn: { flex: 5, flexBasis: 500, gap: 0, minHeight: 610, minWidth: 330 },
+  assignedPanel: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderWidth: 1, flexBasis: 270, flexGrow: 1, gap: 10, maxWidth: 320, minWidth: 250, padding: 12 },
+  panelHeading: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'space-between' },
+  panelTitle: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
+  panelCount: { backgroundColor: portalPalette.surfaceSoft, borderRadius: 999, color: portalPalette.muted, fontFamily: Typography.mono, fontSize: 10, fontWeight: '900', minWidth: 22, paddingHorizontal: 6, paddingVertical: 3, textAlign: 'center' },
+  unitsList: { gap: 7 },
+  unitCard: { alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, flexDirection: 'row', gap: 9, minHeight: 68, padding: 9 },
+  unitCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.16, shadowRadius: 10 },
+  unitIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 9, height: 38, justifyContent: 'center', width: 38 },
+  unitIconActive: { backgroundColor: portalPalette.accent },
+  unitCode: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 16, fontWeight: '900' },
+  unitDriver: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, fontWeight: '700' },
+  unitStatus: { color: '#34d399', fontFamily: Typography.body, fontSize: 9, fontWeight: '800', marginTop: 2 },
+  compactSearch: { backgroundColor: portalPalette.surfaceSoft, borderRadius: 9, borderWidth: 1, fontFamily: Typography.body, fontSize: 11, minHeight: 34, paddingHorizontal: 10 },
+  compactFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  catalogList: { gap: 6, maxHeight: 505, overflow: 'auto' },
+  compactRouteCard: { alignItems: 'stretch', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 76, overflow: 'hidden', padding: 7 },
+  compactRouteCardActive: { backgroundColor: portalPalette.accentSoft, borderColor: portalPalette.accent, shadowColor: portalPalette.accent, shadowOpacity: 0.12, shadowRadius: 8 },
+  compactRouteInfo: { flex: 1, gap: 5, justifyContent: 'center', minWidth: 90 },
+  compactRouteName: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
+  compactMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  compactMetric: { backgroundColor: 'rgba(148,163,184,.1)', borderRadius: 5, color: portalPalette.muted, fontFamily: Typography.mono, fontSize: 8, paddingHorizontal: 5, paddingVertical: 3 },
+  thumbnailWrap: { flexBasis: 108, justifyContent: 'center', maxWidth: 118, minWidth: 94 },
+  previewMapShell: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: 14, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderWidth: 1, flex: 1, minHeight: 500, overflow: 'hidden', position: 'relative' },
+  mapLabel: { alignItems: 'center', backgroundColor: 'rgba(7,14,29,.86)', borderBottomRightRadius: 9, flexDirection: 'row', gap: 6, left: 0, paddingHorizontal: 10, paddingVertical: 7, position: 'absolute', top: 0, zIndex: 5 },
+  mapLabelText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 10, fontWeight: '800' },
+  mapActionBar: { alignItems: 'center', backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, borderTopWidth: 0, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 76, padding: 10 },
+  mapRouteIdentity: { alignItems: 'center', flex: 2, flexBasis: 180, flexDirection: 'row', gap: 8, minWidth: 0 },
+  mapRouteIcon: { alignItems: 'center', backgroundColor: portalPalette.accentSoft, borderRadius: 9, height: 38, justifyContent: 'center', width: 38 },
+  mapRouteName: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
+  mapRoutePath: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9 },
+  mapStats: { alignItems: 'center', flex: 2, flexBasis: 190, flexDirection: 'row', gap: 18, justifyContent: 'center' },
+  statValue: { color: portalPalette.text, fontFamily: Typography.display, fontSize: 14, fontWeight: '900', textAlign: 'center' },
+  statLabel: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 8, marginTop: 2, textAlign: 'center' },
+  mapActions: { flexDirection: 'row', gap: 7, marginLeft: 'auto' },
+  assignedCard: { backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line, borderRadius: 11, borderWidth: 1, gap: 8, overflow: 'hidden', padding: 9 },
+  assignedHeader: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'space-between' },
+  assignedName: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
+  assignedDate: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9 },
+  assignedActions: { flexDirection: 'row', gap: 6, justifyContent: 'flex-end' },
+  inlineFeedback: { alignItems: 'center', backgroundColor: portalPalette.infoSoft, borderColor: portalPalette.info, borderRadius: 9, borderWidth: 1, flexDirection: 'row', gap: 7, minHeight: 34, paddingHorizontal: 10 },
+  inlineFeedbackText: { color: portalPalette.text, flex: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '700' },
+  editorTopActions: { flexDirection: 'row', gap: 7 },
+  sortChip: { borderBottomColor: 'transparent', borderBottomWidth: 1, paddingHorizontal: 4, paddingVertical: 3 },
+  sortChipActive: { borderBottomColor: portalPalette.accent },
+  sortChipText: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 9, fontWeight: '800' },
   fullEditorShell: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minHeight: 650, minWidth: 0 },
   editorTools: { backgroundColor: portalPalette.surface, borderColor: portalPalette.line, borderRadius: AppTheme.radius.sm, borderWidth: 1, flexBasis: 180, flexGrow: 1, gap: 8, maxWidth: 230, minWidth: 170, padding: 12 },
   editorMap: { flex: 6, flexBasis: 520, minHeight: 650, minWidth: 300 },

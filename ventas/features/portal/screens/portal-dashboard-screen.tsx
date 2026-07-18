@@ -752,7 +752,7 @@ export function PortalDashboardScreen() {
         </View>
 
         <View style={styles.operationsUnitsCol}>
-          <PortalSectionCard compact title="Detalle de unidad" subtitle={selectedVehicle ? selectedVehicle.code : 'Sin unidad seleccionada'}>
+          <View style={styles.operationsDetailSurface}>
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
@@ -774,7 +774,7 @@ export function PortalDashboardScreen() {
             ) : (
               <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrará estado, ruta, métricas y jornada activa." />
             )}
-          </PortalSectionCard>
+          </View>
         </View>
       </View>
       ) : null}
@@ -929,10 +929,12 @@ function VehicleSidePanel({
   const alerts = getOperationalAlerts(vehicle, session).filter((alert) => alert.label !== journeyState.label);
   return (
     <View style={styles.sidePanel}>
-      <Text style={styles.sideSectionTitle}>Estado</Text>
       <View style={styles.sideHeader}>
-        <MaterialCommunityIcons name="bus" size={24} color={portalPalette.accent} />
+        <View style={styles.sideUnitIcon}>
+          <MaterialCommunityIcons name="bus" size={22} color={portalPalette.text} />
+        </View>
         <View style={styles.flex}>
+          <Text style={styles.sideEyebrow}>Unidad seleccionada</Text>
           <Text style={styles.sideTitle}>{vehicle.code}</Text>
           <Text style={styles.sideMeta}>Placas {vehicle.plate}</Text>
         </View>
@@ -943,7 +945,6 @@ function VehicleSidePanel({
           {alerts.map((alert) => <StatusBadge key={alert.label} label={alert.label} tone={alert.tone} />)}
         </View>
       ) : null}
-      <Text style={styles.sideSectionTitle}>Ruta</Text>
       <View style={styles.routeSummaryLarge}>
         <View style={styles.routeIcon}>
           <MaterialCommunityIcons name="map-marker-path" size={18} color={portalPalette.text} />
@@ -960,7 +961,6 @@ function VehicleSidePanel({
         <Fact label="ETA" value={getEtaLabel(vehicle)} />
         <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
       </View>
-      <Text style={styles.sideSectionTitle}>Conductor</Text>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
       {assignedDrivers.length > 1 || driverSelectorOpen ? (
         <View style={styles.assignedDriversPanel}>
@@ -1004,7 +1004,6 @@ function VehicleSidePanel({
       {driverChangeMessage && assignedDrivers.length <= 1 && !driverSelectorOpen ? (
         <Text style={styles.noticeInline}>{driverChangeMessage}</Text>
       ) : null}
-      {session ? <Text style={styles.sideSectionTitle}>Metricas</Text> : null}
       {session ? (
         <View style={styles.metricGrid}>
           <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
@@ -1034,7 +1033,6 @@ function VehicleSidePanel({
         <Text style={styles.unitMeta}>Sin eventos registrados para la jornada.</Text>
       )}
       <View style={styles.sideActions}>
-        <Text style={styles.sideSectionTitle}>Acciones</Text>
         {session ? (
           <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
             <Text style={styles.primaryText}>Ver jornada</Text>
@@ -1511,14 +1509,14 @@ const styles = StyleSheet.create({
   },
   driverProfile: {
     alignItems: 'center',
-    backgroundColor: 'rgba(24, 35, 53, 0.76)',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
+    borderTopColor: 'rgba(148,163,184,.12)',
+    borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 8,
-    padding: 8,
-    boxShadow: 'inset 3px 0 0 rgba(59,130,246,.5), inset 0 1px 0 rgba(255,255,255,.035)' as any,
+    gap: 10,
+    paddingHorizontal: 2,
+    paddingVertical: 10,
+    boxShadow: 'none' as any,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
   driverRow: {
@@ -1540,17 +1538,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fact: {
-    backgroundColor: 'rgba(22, 33, 50, 0.78)',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.xs,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
     flex: 1,
     flexBasis: 108,
     gap: 2,
     minWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.04)' as any,
+    paddingHorizontal: 2,
+    paddingVertical: 3,
+    boxShadow: 'none' as any,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, opacity 180ms ease-in-out' as any,
   },
   factLabel: {
@@ -1698,24 +1696,34 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   mapSurface: {
-    backgroundColor: portalPalette.surface,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
+    backgroundColor: '#080f1c',
+    borderColor: 'rgba(148,163,184,.16)',
+    borderRadius: 14,
     borderWidth: 1,
     flex: 1,
     overflow: 'hidden',
+    position: 'relative',
+    boxShadow: '0 22px 52px rgba(0,0,0,.34)' as any,
   },
   mapHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    minHeight: 44,
+    left: 12,
+    minHeight: 40,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    backgroundImage: 'linear-gradient(90deg, rgba(12,22,39,.98), rgba(16,25,42,.92))' as any,
-    borderBottomColor: 'rgba(148,163,184,.14)',
-    borderBottomWidth: 1,
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    zIndex: 25,
+    backgroundColor: 'rgba(8,15,28,.88)',
+    borderColor: 'rgba(148,163,184,.18)',
+    borderRadius: 12,
+    borderWidth: 1,
+    boxShadow: '0 12px 30px rgba(0,0,0,.38)' as any,
+    backdropFilter: 'blur(14px)' as any,
   },
   mapModeButton: {
     alignItems: 'center', backgroundColor: portalPalette.surfaceSoft, borderColor: portalPalette.line,
@@ -1802,37 +1810,50 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    gap: 8,
+    gap: 0,
     minWidth: 0,
   },
   operationsMapCol: {
-    flex: 18,
-    gap: 8,
+    flex: 20,
+    gap: 6,
     minWidth: 0,
   },
   operationsUnitsCol: {
-    flex: 7,
+    flex: 6,
     height: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
     maxHeight: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
     minHeight: 500,
     minWidth: 0,
     overflow: 'visible',
   },
+  operationsDetailSurface: {
+    backgroundColor: 'rgba(12,21,35,.97)',
+    borderColor: 'rgba(148,163,184,.16)',
+    borderRadius: 14,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    boxShadow: '-14px 0 34px rgba(0,0,0,.18), inset 1px 0 0 rgba(255,255,255,.025)' as any,
+  },
   kpiRow: {
-    backgroundColor: 'rgba(13, 23, 40, 0.96)', borderColor: 'rgba(148,163,184,.2)', borderRadius: AppTheme.radius.sm,
+    backgroundColor: 'rgba(10,19,33,.82)', borderColor: 'rgba(148,163,184,.12)', borderRadius: 10,
     borderWidth: 1, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
-    backgroundImage: 'linear-gradient(100deg, rgba(18,31,52,.98), rgba(10,20,36,.98))' as any,
-    boxShadow: '0 16px 34px rgba(0,0,0,.28), inset 0 2px 0 rgba(240,68,95,.68), inset 0 1px 0 rgba(255,255,255,.04)' as any,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
   },
   kpiCard: {
-    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.14)', borderRightWidth: 1, flex: 1, gap: 4, minHeight: 80,
-    minWidth: 0, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, gap: 2, minHeight: 62,
+    minWidth: 0, paddingHorizontal: 11, paddingVertical: 6,
     animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
   kpiCardLast: { borderRightWidth: 0 },
   kpiTop: { alignItems: 'center', flexDirection: 'row', gap: 7, minWidth: 0 },
   kpiLabel: { color: portalPalette.muted, flexShrink: 1, fontFamily: Typography.body, fontSize: 11, fontWeight: '800', letterSpacing: 0.15 },
-  kpiValue: { color: '#FFFFFF', fontFamily: Typography.display, fontSize: 22, fontWeight: '900', letterSpacing: -0.35, lineHeight: 25, textShadow: '0 4px 14px rgba(0,0,0,.3)' as any },
+  kpiValue: { color: '#FFFFFF', fontFamily: Typography.display, fontSize: 19, fontWeight: '900', letterSpacing: -0.25, lineHeight: 22 },
   kpiDetail: { color: portalPalette.muted, fontFamily: Typography.body, fontSize: 10, lineHeight: 14 },
   optionRow: {
     flexDirection: 'row',
@@ -1913,8 +1934,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sideActions: {
-    gap: 4,
+    borderTopColor: 'rgba(148,163,184,.12)',
+    borderTopWidth: 1,
+    gap: 6,
     marginTop: 'auto',
+    paddingTop: 10,
   },
   replayControls: {
     flexDirection: 'row',
@@ -1944,7 +1968,9 @@ const styles = StyleSheet.create({
   },
   routeIcon: {
     alignItems: 'center',
-    backgroundColor: portalPalette.accent,
+    backgroundColor: 'rgba(240,68,95,.16)',
+    borderColor: 'rgba(240,68,95,.34)',
+    borderWidth: 1,
     borderRadius: 16,
     height: 32,
     justifyContent: 'center',
@@ -1952,14 +1978,15 @@ const styles = StyleSheet.create({
   },
   routeSummaryLarge: {
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(24, 35, 53, 0.76)',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
     flexDirection: 'row',
-    gap: 8,
-    padding: 10,
-    boxShadow: 'inset 3px 0 0 rgba(240,68,95,.64), inset 0 1px 0 rgba(255,255,255,.04)' as any,
+    gap: 10,
+    paddingHorizontal: 2,
+    paddingVertical: 10,
+    boxShadow: 'none' as any,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out' as any,
   },
   routeTitle: {
@@ -1991,7 +2018,26 @@ const styles = StyleSheet.create({
   sideHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
+    paddingBottom: 8,
+  },
+  sideUnitIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(240,68,95,.14)',
+    borderColor: 'rgba(240,68,95,.32)',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  sideEyebrow: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.55,
+    textTransform: 'uppercase',
   },
   sideMeta: {
     color: portalPalette.muted,
@@ -2000,7 +2046,7 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flex: 1,
-    gap: 4,
+    gap: 2,
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
   recentTimeline: {
@@ -2028,17 +2074,19 @@ const styles = StyleSheet.create({
     width: 12,
   },
   sideSectionTitle: {
-    borderBottomColor: 'rgba(148,163,184,.14)',
-    borderBottomWidth: 1,
-    color: '#AEBBD0',
+    color: portalPalette.muted,
     fontFamily: Typography.body,
     fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.65,
-    paddingBottom: 4,
+    letterSpacing: 0.45,
+    marginTop: 5,
     textTransform: 'uppercase',
   },
   sideHighlightRow: {
+    borderBottomColor: 'rgba(148,163,184,.12)',
+    borderBottomWidth: 1,
+    borderTopColor: 'rgba(148,163,184,.12)',
+    borderTopWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
@@ -2138,7 +2186,7 @@ const styles = StyleSheet.create({
   mapOverlayTitle: {
     color: portalPalette.text,
     fontFamily: Typography.display,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
     marginBottom: 4,
   },
