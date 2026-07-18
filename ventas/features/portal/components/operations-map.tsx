@@ -21,6 +21,10 @@ type OperationsMapProps = {
   showTraffic?: boolean;
   variant?: 'fleet' | 'replay';
   vehicles?: Vehicle[];
+  editablePoints?: Array<{ id: string; kind: 'origin' | 'checkpoint' | 'destination'; point: GeoPoint }>;
+  selectedEditablePointId?: string | null;
+  onEditablePointChange?: (id: string, point: GeoPoint) => void;
+  onEditablePointSelect?: (id: string) => void;
 };
 
 const MAPBOX_ACCESS_TOKEN = String(
@@ -159,6 +163,10 @@ export const OperationsMap = React.memo(function OperationsMap({
   showTraffic = true,
   variant = 'fleet',
   vehicles = [],
+  editablePoints = [],
+  selectedEditablePointId = null,
+  onEditablePointChange,
+  onEditablePointSelect,
 }: OperationsMapProps) {
   const hostRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -167,6 +175,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const vehiclesRef = useRef(vehicles);
   const vehicleMarkersRef = useRef(new Map<string, MapboxMarker>());
   const checkpointMarkersRef = useRef(new Map<string, MapboxMarker>());
+  const editableMarkersRef = useRef(new Map<string, MapboxMarker>());
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
   const fittedKeyRef = useRef('');
   const initializationGuardLoggedRef = useRef(false);
@@ -247,6 +256,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     return () => {
       vehicleMarkersRef.current.forEach((marker) => marker.remove());
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
+      editableMarkersRef.current.forEach((marker) => marker.remove());
       replayMarkerRef.current?.remove();
       map.off('error', handleMapError);
       map.off('webglcontextlost', handleWebGLContextLost);
@@ -362,6 +372,36 @@ export const OperationsMap = React.memo(function OperationsMap({
       }
     });
   }, [checkpoints]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const nextIds = new Set<string>();
+    editablePoints.forEach((entry, index) => {
+      if (!isValidPoint(entry.point)) return;
+      nextIds.add(entry.id);
+      let marker = editableMarkersRef.current.get(entry.id);
+      const selected = entry.id === selectedEditablePointId;
+      const tone = entry.kind === 'origin' ? '#22c55e' : entry.kind === 'destination' ? '#ef4444' : '#38bdf8';
+      if (!marker) {
+        const element = createMarkerElement({ background: tone, border: selected ? '#fff' : '#081221', label: entry.kind === 'checkpoint' ? String(index) : entry.kind === 'origin' ? 'A' : 'B', title: `${entry.kind}. Arrastra para mover`, shape: 'circle' });
+        element.classList.add('route-editor-point');
+        element.addEventListener('click', (event) => { event.stopPropagation(); onEditablePointSelect?.(entry.id); });
+        marker = new mapboxgl.Marker({ draggable: true, element }).setLngLat(toLngLat(entry.point)).addTo(map);
+        marker.on('dragstart', () => element.classList.add('is-dragging'));
+        marker.on('drag', () => { const point = marker!.getLngLat(); onEditablePointChange?.(entry.id, { latitude: point.lat, longitude: point.lng }); });
+        marker.on('dragend', () => { element.classList.remove('is-dragging'); const point = marker!.getLngLat(); onEditablePointChange?.(entry.id, { latitude: point.lat, longitude: point.lng }); });
+        editableMarkersRef.current.set(entry.id, marker);
+      } else {
+        marker.setLngLat(toLngLat(entry.point));
+        const element = marker.getElement();
+        element.style.background = tone;
+        element.style.borderColor = selected ? '#fff' : '#081221';
+        element.classList.toggle('is-active', selected);
+      }
+    });
+    editableMarkersRef.current.forEach((marker, id) => { if (!nextIds.has(id)) { marker.getElement().classList.add('is-removing'); window.setTimeout(() => marker.remove(), 180); editableMarkersRef.current.delete(id); } });
+  }, [editablePoints, onEditablePointChange, onEditablePointSelect, selectedEditablePointId]);
 
   useEffect(() => {
     const map = mapRef.current;

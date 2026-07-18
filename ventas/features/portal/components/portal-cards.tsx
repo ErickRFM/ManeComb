@@ -195,6 +195,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   sectionCardCompact: {
+    backgroundImage: 'linear-gradient(180deg, rgba(19,29,47,.98) 0%, rgba(10,18,32,.98) 100%)' as any,
+    boxShadow: 'inset 3px 0 0 rgba(240,68,95,.72), inset 0 1px 0 rgba(255,255,255,.045), 0 18px 42px rgba(0,0,0,.3)' as any,
     gap: 8,
     minHeight: '100%' as any,
     padding: 12,

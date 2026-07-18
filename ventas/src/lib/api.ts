@@ -315,6 +315,14 @@ export async function createSavedRouteRequest(payload: any) {
   return await unwrapData<any>(apiClient.post('/navigation/routes', payload));
 }
 
+export async function updateSavedRouteRequest(routeId: string, payload: any) {
+  return await unwrapData<any>(apiClient.patch(`/navigation/routes/${encodeURIComponent(routeId)}`, payload));
+}
+
+export async function planSavedRouteRequest(payload: any) {
+  return await unwrapData<any>(apiClient.post('/navigation/plan', payload));
+}
+
 export async function deleteSavedRouteRequest(routeId: string) {
   return await unwrapData<any>(apiClient.delete(`/navigation/routes/${encodeURIComponent(routeId)}`));
 }

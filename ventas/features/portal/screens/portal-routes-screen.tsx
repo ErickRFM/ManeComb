@@ -8,8 +8,9 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { GeoPoint, SavedRoute, Vehicle } from '@/src/types/app';
-import { createSavedRouteRequest, deleteSavedRouteRequest, getApiErrorMessage, getSavedRoutesRequest } from '@/src/lib/api';
+import type { GeoPoint, NavigationStop, SavedRoute, Vehicle } from '@/src/types/app';
+import { createSavedRouteRequest, deleteSavedRouteRequest, getApiErrorMessage, getSavedRoutesRequest, planSavedRouteRequest, updateSavedRouteRequest } from '@/src/lib/api';
+import { RouteGeometryThumbnail } from '../components/route-geometry-thumbnail';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
@@ -132,6 +133,16 @@ export function PortalRoutesScreen() {
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [showRouteEditor, setShowRouteEditor] = useState(false);
   const [routeName, setRouteName] = useState('');
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [editorStops, setEditorStops] = useState<NavigationStop[]>([]);
+  const [editorGeometry, setEditorGeometry] = useState<GeoPoint[]>([]);
+  const [editorMetrics, setEditorMetrics] = useState({ distanceMeters: 0, durationSeconds: 0, durationInTrafficSeconds: 0 });
+  const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+  const [editorTool, setEditorTool] = useState<'select' | 'checkpoint' | 'insert'>('select');
+  const [draggedStopId, setDraggedStopId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sortMode, setSortMode] = useState<'recent' | 'name' | 'distance'>('recent');
+  const [filterMode, setFilterMode] = useState<'all' | 'assigned' | 'unused'>('all');
 
   useEffect(() => {
     void loadVehicles();
@@ -145,6 +156,37 @@ export function PortalRoutesScreen() {
     () => savedRoutes.find((route) => route.id === selectedRouteId) || null,
     [savedRoutes, selectedRouteId]
   );
+
+  const filteredRoutes = useMemo(() => {
+    const assignedIds = new Set(vehicles.map((vehicle) => vehicle.routeId).filter(Boolean));
+    return savedRoutes
+      .filter((route) => !search.trim() || `${route.name} ${route.code} ${route.originLabel} ${route.destinationLabel}`.toLowerCase().includes(search.trim().toLowerCase()))
+      .filter((route) => filterMode === 'all' || (filterMode === 'assigned' ? assignedIds.has(route.id) : !assignedIds.has(route.id)))
+      .sort((left, right) => sortMode === 'name' ? left.name.localeCompare(right.name) : sortMode === 'distance' ? right.distanceMeters - left.distanceMeters : new Date(right.updatedAt || right.createdAt || 0).getTime() - new Date(left.updatedAt || left.createdAt || 0).getTime());
+  }, [filterMode, savedRoutes, search, sortMode, vehicles]);
+
+  const editablePoints = useMemo(() => {
+    const origin = editorPoints[0]; const destination = editorPoints[1];
+    return [
+      ...(origin ? [{ id: 'origin', kind: 'origin' as const, point: origin }] : []),
+      ...editorStops.map((stop) => ({ id: stop.id, kind: 'checkpoint' as const, point: stop })),
+      ...(destination ? [{ id: 'destination', kind: 'destination' as const, point: destination }] : []),
+    ];
+  }, [editorPoints, editorStops]);
+
+  useEffect(() => {
+    const origin = editorPoints[0]; const destination = editorPoints[1];
+    if (!showRouteEditor || !origin || !destination) { if (!origin || !destination) setEditorGeometry(editorPoints); return; }
+    const timer = window.setTimeout(() => {
+      setCatalogBusy(true);
+      void planSavedRouteRequest({ origin, destination, stops: editorStops }).then((plan) => {
+        const route = plan.routes?.[0]; if (!route) return;
+        setEditorGeometry(route.polyline || []);
+        setEditorMetrics({ distanceMeters: route.distanceMeters || 0, durationSeconds: route.durationSeconds || 0, durationInTrafficSeconds: route.durationInTrafficSeconds || 0 });
+      }).catch((error) => setMessage(getApiErrorMessage(error, 'No fue posible recalcular la geometría.'))).finally(() => setCatalogBusy(false));
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [editorPoints, editorStops, showRouteEditor]);
 
   const createCatalogRoute = async () => {
     const origin = editorPoints[0];
