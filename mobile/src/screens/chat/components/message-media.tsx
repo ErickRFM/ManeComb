@@ -9,6 +9,7 @@ import type { ChatMessage } from '@/src/types/app';
 import { formatDuration } from '../utils/conversation';
 import type { CallMode, MessageDeliveryStatus } from '../types';
 import { createStyles } from '../chat-screen.styles';
+import { RTCViewComponent } from '@/src/native/webrtc';
 
 export function MessageDeliveryMeta({
   status,
@@ -394,31 +395,45 @@ export function CallMediaTile({
     }
   }, [stream]);
 
-  const showVideo = Platform.OS === 'web' && hasVideoTrack && mode === 'video';
+  const showVideo = hasVideoTrack && mode === 'video';
+  const RTCView = Platform.OS === 'web' ? null : RTCViewComponent;
 
   return (
     <View style={[styles.callTile, isSelf ? styles.callTileSelf : undefined]}>
-      {Platform.OS === 'web'
+      {Platform.OS === 'web' && showVideo
         ? createElement('video', {
             autoPlay: true,
             playsInline: true,
             muted,
             ref: videoRef as any,
-            style: showVideo
-              ? {
-                  position: 'absolute',
-                  top: 0,
-                  right: 0,
-                  bottom: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  backgroundColor: '#000000',
-                }
-              : styles.callTileHiddenMedia,
+            style: {
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              backgroundColor: '#000000',
+            },
           })
-        : null}
+        : RTCView && showVideo
+          ? createElement(RTCView as any, {
+              stream,
+              muted,
+              style: {
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#000000',
+              },
+            })
+          : null}
 
       {!showVideo ? (
         <View style={styles.callTileFallback}>

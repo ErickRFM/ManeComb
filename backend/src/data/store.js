@@ -95,6 +95,17 @@ function createEmbeddedStore() {
     return state.vehicles.find((vehicle) => vehicle.id === vehicleId) || null;
   }
 
+  function deleteVehicle(vehicleId) {
+    const index = state.vehicles.findIndex((vehicle) => vehicle.id === vehicleId);
+
+    if (index < 0) {
+      return null;
+    }
+
+    const [vehicle] = state.vehicles.splice(index, 1);
+    return clone(vehicle);
+  }
+
   function getRouteById(routeId) {
     return state.routes.find((route) => route.id === routeId) || null;
   }
@@ -106,9 +117,17 @@ function createEmbeddedStore() {
 
   function createRoute(payload) {
     const now = new Date().toISOString();
+    const routeName = String(payload.name || "").trim();
+    const orgId = String(payload.organizationId || "").trim();
+
+    if (orgId && routeName) {
+      const exists = state.routes.some((r) => String(r.organizationId || "").trim() === orgId && String(r.name || "").trim().toLowerCase() === routeName.toLowerCase());
+      if (exists) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
+    }
+
     const route = {
       id: payload.id || randomUUID(),
-      name: String(payload.name || "").trim(),
+      name: routeName,
       code: String(payload.code || payload.name || "").trim(),
       color: payload.color || "#1473E6",
       origin: payload.origin || null,
@@ -120,7 +139,7 @@ function createEmbeddedStore() {
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
       durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
       polyline: clone(payload.polyline || []),
-      organizationId: payload.organizationId || null,
+      organizationId: orgId,
       createdBy: payload.createdBy || null,
       createdAt: now,
       updatedAt: now
@@ -243,7 +262,15 @@ function createEmbeddedStore() {
       return null;
     }
 
-    if (typeof payload.name !== "undefined") route.name = String(payload.name || "").trim();
+    if (typeof payload.name !== "undefined") {
+      const newName = String(payload.name || "").trim();
+      const orgId = String(route.organizationId || "").trim();
+      if (orgId && newName) {
+        const exists = state.routes.some((r) => r.id !== routeId && String(r.organizationId || "").trim() === orgId && String(r.name || "").trim().toLowerCase() === newName.toLowerCase());
+        if (exists) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
+      }
+      route.name = newName;
+    }
     if (typeof payload.code !== "undefined") route.code = String(payload.code || "").trim();
     if (typeof payload.color !== "undefined") route.color = payload.color || "#1473E6";
     if (typeof payload.origin !== "undefined") route.origin = payload.origin || null;
@@ -1516,7 +1543,7 @@ function createEmbeddedStore() {
           )
       )
       .map((vehicle) => {
-        if (vehicle.locationTimestamp) return enrichVehicle(vehicle);
+        if (vehicle.location && vehicle.locationTimestamp) return enrichVehicle(vehicle);
         const position = state.routeSessionPositions
           .filter((entry) => entry.vehicleId === vehicle.id)
           .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0];
@@ -1941,11 +1968,25 @@ function createEmbeddedStore() {
       usedByDriverId: payload.usedByDriverId || null,
       expiresAt: payload.expiresAt,
       usedAt: payload.usedAt || null,
+      sharedAt: payload.sharedAt || null,
+      sharedBy: payload.sharedBy || null,
+      shareCount: payload.shareCount || 0,
       createdAt: payload.createdAt || new Date().toISOString()
     };
 
     state.activationKeys.unshift(activationKey);
 
+    return clone(activationKey);
+  }
+
+  function deleteActivationKey(activationKeyId) {
+    const index = state.activationKeys.findIndex((entry) => entry.id === activationKeyId);
+
+    if (index < 0) {
+      return null;
+    }
+
+    const [activationKey] = state.activationKeys.splice(index, 1);
     return clone(activationKey);
   }
 
@@ -2795,9 +2836,11 @@ function createEmbeddedStore() {
     clearAssignedRouteFromVehicle,
     createRoute,
     deleteRoute,
+    deleteVehicle,
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,
+    deleteActivationKey,
     createCommercialOrder,
     createNotification,
     createIncident,

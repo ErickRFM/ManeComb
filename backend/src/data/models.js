@@ -88,6 +88,8 @@ const routeSchema = new mongoose.Schema(
   }
 );
 
+routeSchema.index({ organizationId: 1, name: 1 }, { unique: true });
+
 const companyProfileSchema = new mongoose.Schema(
   {
     companyName: { type: String, default: "" },
@@ -788,6 +790,9 @@ const activationKeySchema = new mongoose.Schema(
     usedByDriverId: { type: String, default: null, index: true },
     expiresAt: { type: Date, required: true, index: true },
     usedAt: { type: Date, default: null },
+    sharedAt: { type: Date, default: null },
+    sharedBy: { type: String, default: null, index: true },
+    shareCount: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now, index: true }
   },
   {

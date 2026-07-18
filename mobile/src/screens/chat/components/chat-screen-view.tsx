@@ -32,6 +32,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     callStatusLabel,
     callTone,
     closeActiveCall,
+    startCall,
     conversationFilterCounts,
     directoryHelperText,
     directoryItems,
@@ -42,7 +43,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
-    handleOpenRadioFromChat,
     handleRetryTextMessage,
     handleSelectConversation,
     isCallMuted,
@@ -342,16 +342,22 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </View>
                     </View>
 
-                    <View style={styles.conversationHeaderActions}>
-                      <Pressable
-                        onPress={() => {
-                          handleOpenRadioFromChat();
-                        }}
-                        style={styles.conversationActionButton}
-                        accessibilityLabel="Hablar por radio">
-                        <MaterialCommunityIcons name="radio-handheld" size={20} color={theme.colors.text} />
-                      </Pressable>
-                    </View>
+                    {!activeCallSession ? (
+                      <View style={styles.conversationHeaderActions}>
+                        <Pressable
+                          onPress={() => startCall('audio')}
+                          style={[styles.conversationActionButton, styles.conversationActionButtonAudio]}
+                          accessibilityLabel="Llamar">
+                          <MaterialCommunityIcons name="phone-outline" size={20} color="#FFFFFF" />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => startCall('video')}
+                          style={[styles.conversationActionButton, styles.conversationActionButtonVideo]}
+                          accessibilityLabel="Videollamada">
+                          <MaterialCommunityIcons name="video-outline" size={20} color="#FFFFFF" />
+                        </Pressable>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
 

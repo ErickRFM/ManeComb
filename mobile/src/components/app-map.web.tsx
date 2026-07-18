@@ -288,9 +288,8 @@ export const AppMapMarker = memo(function AppMapPointMarker({
   }, [onPress]);
 
   useEffect(() => {
-    if (!map) {
-      return;
-    }
+    if (!map) return;
+    if (!coordinate || !Number.isFinite(coordinate.latitude) || !Number.isFinite(coordinate.longitude)) return;
 
     const element = document.createElement('div');
     element.style.width = '22px';
@@ -323,9 +322,10 @@ export const AppMapMarker = memo(function AppMapPointMarker({
       marker.remove();
       markerRef.current = null;
     };
-  }, [draggable, map]);
+  }, [coordinate, draggable, map]);
 
   useEffect(() => {
+    if (!coordinate || !Number.isFinite(coordinate.latitude) || !Number.isFinite(coordinate.longitude)) return;
     markerRef.current?.setLngLat(toLngLat(coordinate));
   }, [coordinate]);
 

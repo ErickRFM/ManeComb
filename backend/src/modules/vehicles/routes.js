@@ -144,4 +144,69 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
   }
 });
 
+router.delete("/:vehicleId", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res) => {
+  try {
+    const vehicleId = String(req.params.vehicleId || "").trim();
+    const currentVehicle = await req.app.locals.store.getVehicleById(vehicleId);
+
+    if (!currentVehicle || !canAccessTenantResource(req.user, currentVehicle)) {
+      return res.status(404).json({
+        ok: false,
+        message: "Unidad no encontrada"
+      });
+    }
+
+    const dependencies = [];
+
+    if (currentVehicle.driverId) {
+      dependencies.push("tiene un conductor asignado");
+    }
+
+    if (currentVehicle.routeId || currentVehicle.assignedRoute) {
+      dependencies.push(currentVehicle.routeId ? "tiene una ruta asignada" : "tiene una ruta asignada");
+    }
+
+    const activeSession = await req.app.locals.store.getActiveRouteSession(vehicleId);
+
+    if (activeSession) {
+      dependencies.push("tiene una jornada activa");
+    }
+
+    if (dependencies.length > 0) {
+      const detail = dependencies.join(", ");
+      return res.status(409).json({
+        ok: false,
+        message: `No es posible eliminar esta unidad porque ${detail}. Resuélvalos antes de continuar.`
+      });
+    }
+
+    const deleted = await req.app.locals.store.deleteVehicle(vehicleId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        ok: false,
+        message: "Unidad no encontrada"
+      });
+    }
+
+    getRolesWithPermission("canManageVehicles").forEach((role) => {
+      req.app.locals.io?.to(`org:${getOrganizationId(req.user)}:role:${role}`).emit("vehicle:deleted", {
+        vehicleId,
+        organizationId: getOrganizationId(req.user),
+        deletedAt: new Date().toISOString()
+      });
+    });
+
+    return res.json({
+      ok: true,
+      data: deleted
+    });
+  } catch (error) {
+    return res.status(400).json({
+      ok: false,
+      message: error.message || "No fue posible eliminar la unidad"
+    });
+  }
+});
+
 module.exports = router;

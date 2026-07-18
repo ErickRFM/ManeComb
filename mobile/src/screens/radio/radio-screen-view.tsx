@@ -1846,7 +1846,7 @@ export function RadioScreen() {
                   {radioSession.phase === 'UPLOADING' || radioSession.phase === 'REQUESTING' ? (
                     <ActivityIndicator color="#FFFFFF" size="large" />
                   ) : (
-                    <MaterialCommunityIcons name={pttIcon} size={isPhone ? 42 : 48} color="#FFFFFF" />
+                    <MaterialCommunityIcons name={pttIcon} size={isPhone ? 50 : 58} color="#FFFFFF" />
                   )}
                   <Text style={styles.pttButtonTitle}>
                     {pttButtonTitle}

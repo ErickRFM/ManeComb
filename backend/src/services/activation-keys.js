@@ -87,6 +87,9 @@ function presentActivationKey(activationKey, users = []) {
     driver: presentDriver(driver),
     expiresAt: toIso(activationKey.expiresAt),
     usedAt: toIso(activationKey.usedAt),
+    sharedAt: toIso(activationKey.sharedAt),
+    sharedBy: activationKey.sharedBy || null,
+    shareCount: Number(activationKey.shareCount) || 0,
     createdAt: toIso(activationKey.createdAt)
   };
 }
@@ -275,6 +278,96 @@ async function generateActivationKeyForAdmin(store, user, options = {}) {
     activationKey: presentActivationKey(activationKey, context.users),
     ...refreshed
   };
+}
+
+async function deleteActivationKeyForAdmin(store, user, activationKeyId) {
+  const context = await getAdminActivationContext(store, user);
+  const activationKey = context.activationKeys.find((entry) => entry.id === activationKeyId);
+
+  if (!activationKey) {
+    throw new ActivationKeyError(ACTIVATION_ERRORS.keyNotFound, 404);
+  }
+
+  const status = getEffectiveKeyStatus(activationKey);
+
+  if (status !== "available") {
+    if (status === "used") {
+      throw new ActivationKeyError(
+        "No se puede eliminar una key que ya fue utilizada. El historial debe mantenerse para integridad del sistema.",
+        409
+      );
+    }
+
+    if (status === "revoked") {
+      throw new ActivationKeyError(
+        "No se puede eliminar una key revocada. El historial debe mantenerse para integridad del sistema.",
+        409
+      );
+    }
+
+    if (status === "expired") {
+      throw new ActivationKeyError(
+        "No se puede eliminar una key expirada. El historial debe mantenerse para integridad del sistema.",
+        409
+      );
+    }
+
+    throw new ActivationKeyError("No se puede eliminar esta key en su estado actual.", 409);
+  }
+
+  const driverWithKey = context.users.find(
+    (entry) => entry.activationKeyId === activationKeyId && entry.role === "driver"
+  );
+
+  if (driverWithKey) {
+    throw new ActivationKeyError(
+      "No se puede eliminar la key porque está asociada a un conductor activo.",
+      409
+    );
+  }
+
+  await store.deleteActivationKey(activationKeyId);
+
+  return listAdminActivationKeys(store, user);
+}
+
+async function shareActivationKeyForAdmin(store, user, activationKeyId) {
+  const context = await getAdminActivationContext(store, user);
+  const activationKey = context.activationKeys.find((entry) => entry.id === activationKeyId);
+
+  if (!activationKey) {
+    throw new ActivationKeyError(ACTIVATION_ERRORS.keyNotFound, 404);
+  }
+
+  const status = getEffectiveKeyStatus(activationKey);
+
+  if (status !== "available") {
+    throw new ActivationKeyError(
+      status === "used"
+        ? ACTIVATION_ERRORS.keyUsed
+        : status === "revoked"
+          ? ACTIVATION_ERRORS.keyRevoked
+          : status === "expired"
+            ? ACTIVATION_ERRORS.keyExpired
+            : "Esta key no puede ser compartida en su estado actual.",
+      409
+    );
+  }
+
+  const now = new Date().toISOString();
+  const currentCount = Number(activationKey.shareCount) || 0;
+
+  await store.updateActivationKey(
+    activationKey.id,
+    {
+      sharedAt: now,
+      sharedBy: user.id,
+      shareCount: currentCount + 1
+    },
+    { companyId: context.companyId }
+  );
+
+  return listAdminActivationKeys(store, user);
 }
 
 async function revokeActivationKeyForAdmin(store, user, activationKeyId) {
@@ -540,6 +633,8 @@ module.exports = {
   normalizeActivationKey,
   presentActivationKey,
   registerDriverWithActivationKey,
+  deleteActivationKeyForAdmin,
   revokeActivationKeyForAdmin,
+  shareActivationKeyForAdmin,
   validateDriverActivationKey
 };

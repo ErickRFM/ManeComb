@@ -85,7 +85,6 @@ function ActivationWizardStep({
   step: PortalOnboardingStep;
 }) {
   const done = step.status === 'completed';
-  const stepTarget = getStepTarget(step.id);
 
   return (
     <View style={[styles.stepCard, done ? styles.stepCardDone : undefined]}>
@@ -107,14 +106,6 @@ function ActivationWizardStep({
       <View style={styles.stepCopy}>
         <Text style={styles.stepTitle}>{step.title}</Text>
         {step.description ? <Text style={styles.stepDescription}>{step.description}</Text> : null}
-      </View>
-      <View style={styles.stepActions}>
-        {stepTarget ? (
-          <Pressable onPress={() => router.push(stepTarget as never)} style={styles.stepActionButton}>
-            <Text style={styles.stepActionText}>Abrir</Text>
-            <MaterialCommunityIcons name="arrow-right" size={15} color={portalPalette.text} />
-          </Pressable>
-        ) : null}
       </View>
     </View>
   );
@@ -252,14 +243,18 @@ function ActivationKeyRow({
   activationKey,
   isSubmitting,
   onCopy,
+  onDelete,
   onRevoke,
   onShare,
+  showShare = true,
 }: {
   activationKey: PortalActivationKey;
   isSubmitting: boolean;
   onCopy: (activationKey: PortalActivationKey) => void;
+  onDelete: (activationKey: PortalActivationKey) => void;
   onRevoke: (activationKey: PortalActivationKey) => void;
   onShare: (activationKey: PortalActivationKey) => void;
+  showShare?: boolean;
 }) {
   const canRevoke = activationKey.status === 'available';
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
@@ -297,21 +292,33 @@ function ActivationKeyRow({
           onPress={() => onCopy(activationKey)}
           disabled={activationKey.status !== 'available'}
         />
-        <KeyActionButton
-          icon="share-variant-outline"
-          label="Compartir"
-          accessibilityLabel={`Compartir key ${activationKey.key}`}
-          onPress={() => onShare(activationKey)}
-          disabled={activationKey.status !== 'available'}
-          tone="info"
-        />
-        {activationKey.status !== 'used' ? (
+        {showShare ? (
+          <KeyActionButton
+            icon="share-variant-outline"
+            label="Compartir"
+            accessibilityLabel={`Compartir key ${activationKey.key}`}
+            onPress={() => onShare(activationKey)}
+            disabled={activationKey.status !== 'available'}
+            tone="info"
+          />
+        ) : null}
+        {activationKey.status === 'available' ? (
           <KeyActionButton
             icon="block-helper"
             label="Revocar"
             accessibilityLabel={`Revocar key ${activationKey.key}`}
             onPress={() => onRevoke(activationKey)}
             disabled={!canRevoke || isSubmitting}
+            tone="danger"
+          />
+        ) : null}
+        {activationKey.status === 'available' ? (
+          <KeyActionButton
+            icon="trash-can-outline"
+            label="Eliminar"
+            accessibilityLabel={`Eliminar key ${activationKey.key}`}
+            onPress={() => onDelete(activationKey)}
+            disabled={isSubmitting}
             tone="danger"
           />
         ) : null}
@@ -324,6 +331,7 @@ export function PortalOnboardingScreen() {
   const {
     activationKeys,
     activationSummary,
+    deleteActivationKey,
     generateActivationKey,
     isLoading,
     isSubmitting,
@@ -331,10 +339,12 @@ export function PortalOnboardingScreen() {
     onboarding,
     overview,
     revokeActivationKey,
+    shareActivationKey,
   } = usePortalStore(
     useShallow((state) => ({
       activationKeys: state.activationKeys,
       activationSummary: state.activationSummary,
+      deleteActivationKey: state.deleteActivationKey,
       generateActivationKey: state.generateActivationKey,
       isLoading: state.isLoading,
       isSubmitting: state.isSubmitting,
@@ -342,6 +352,7 @@ export function PortalOnboardingScreen() {
       onboarding: state.onboarding,
       overview: state.overview,
       revokeActivationKey: state.revokeActivationKey,
+      shareActivationKey: state.shareActivationKey,
     }))
   );
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -350,6 +361,50 @@ export function PortalOnboardingScreen() {
   const completedSteps = steps.filter((step) => step.status === 'completed').length;
   const progress = steps.length ? Math.round((completedSteps / steps.length) * 100) : 0;
   const canGenerate = !isSubmitting && Number(activationSummary?.availableSlots || 0) > 0;
+  const generatedButNotSharedKey = activationKeys.find((activationKey) => activationKey.status === 'available' && !activationKey.sharedAt);
+  const sharedAvailableKey = activationKeys.find((activationKey) => activationKey.status === 'available' && activationKey.sharedAt);
+  const usedActivationKey = activationKeys.find((activationKey) => activationKey.status === 'used');
+  const firstLoginComplete = overview?.activationTimeline?.find((event) => event.id === 'first-operational-login')?.status === 'completed';
+  const activationComplete = onboarding?.status === 'completed';
+  const nextPendingStep = steps.find((step) => step.status !== 'completed');
+  const nextStepTarget = nextPendingStep ? getStepTarget(nextPendingStep.id) : null;
+
+  const hasAvailableKey = Boolean(generatedButNotSharedKey || sharedAvailableKey);
+  const hasAnyKey = activationKeys.length > 0;
+
+  const assistantStep = activationComplete
+    ? 'Activación completada'
+    : generatedButNotSharedKey
+      ? 'Compartir key'
+      : sharedAvailableKey
+        ? 'Key compartida'
+        : usedActivationKey && !firstLoginComplete
+          ? 'Esperando login'
+          : usedActivationKey && nextPendingStep
+            ? 'Siguiente paso'
+            : 'Generar key';
+  const assistantTitle = activationComplete
+    ? 'Todos los pasos fueron realizados correctamente.'
+    : generatedButNotSharedKey
+      ? 'Comparte la key con el conductor.'
+      : sharedAvailableKey
+        ? 'Key compartida. Esperando que el conductor la use.'
+        : usedActivationKey && !firstLoginComplete
+          ? 'Esperando el primer inicio de sesión.'
+          : usedActivationKey && nextPendingStep
+            ? `Continúa con ${nextPendingStep.title}.`
+            : 'Genera una key para comenzar.';
+  const assistantDescription = activationComplete
+    ? 'La cuenta está lista para operar.'
+    : generatedButNotSharedKey
+      ? 'El conductor podrá registrarse con esta key.'
+      : sharedAvailableKey
+        ? 'El conductor aún no ha utilizado la key.'
+        : usedActivationKey && !firstLoginComplete
+          ? 'La key ya fue utilizada por el conductor. Esperando que inicie sesión.'
+          : usedActivationKey && nextPendingStep
+            ? nextPendingStep.description || 'Completa el siguiente paso disponible.'
+            : 'Compártela con el conductor para activar su cuenta.';
 
   const handleGenerateKey = async () => {
     setFeedback(null);
@@ -382,13 +437,19 @@ export function PortalOnboardingScreen() {
   const handleShareKey = async (activationKey: PortalActivationKey) => {
     setFeedback(null);
 
+    const result = await shareActivationKey(activationKey.id);
+    if (!result.ok) {
+      setFeedback(result.message || 'No fue posible registrar la compartición.');
+      return;
+    }
+
     try {
       await Share.share({
         message: `Soy conductor ManeComb. Usa esta clave para activar tu cuenta: ${activationKey.key}`,
       });
       setFeedback('Key compartida.');
     } catch {
-      setFeedback('No fue posible compartir la key.');
+      setFeedback('Key registrada como compartida, pero no se pudo abrir el diálogo de compartir. Copia la key manualmente.');
     }
   };
 
@@ -398,12 +459,19 @@ export function PortalOnboardingScreen() {
     setFeedback(result.ok ? 'Key revocada.' : result.message || null);
   };
 
+  const handleDeleteKey = async (activationKey: PortalActivationKey) => {
+    setFeedback(null);
+    const result = await deleteActivationKey(activationKey.id);
+    setFeedback(result.ok ? 'Key eliminada.' : result.message || null);
+  };
+
   return (
     <PortalLayout
       title="Activación"
       subtitle="Controla el plan comprado y activa conductores con keys vinculadas a la empresa."
       actions={
         <Pressable
+          accessibilityRole="button"
           disabled={isLoading}
           onPress={() => void loadOverview()}
           style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
@@ -411,7 +479,47 @@ export function PortalOnboardingScreen() {
           <Text style={styles.actionText}>Actualizar</Text>
         </Pressable>
       }>
+      <View style={styles.assistantHero}>
+        <View style={styles.assistantIcon}>
+          <MaterialCommunityIcons
+            name={activationComplete ? 'check-decagram' : generatedButNotSharedKey ? 'share-variant-outline' : sharedAvailableKey ? 'key-check-outline' : usedActivationKey ? 'account-clock-outline' : 'key-plus'}
+            size={24}
+            color={activationComplete ? portalPalette.success : portalPalette.accent}
+          />
+        </View>
+        <View style={styles.assistantCopy}>
+          <Text style={styles.assistantStep}>{assistantStep}</Text>
+          <Text style={styles.assistantTitle}>{assistantTitle}</Text>
+          <Text style={styles.assistantDescription}>{assistantDescription}</Text>
+        </View>
+        {!activationComplete && generatedButNotSharedKey ? (
+          <KeyActionButton
+            icon="share-variant-outline"
+            label="Compartir"
+            accessibilityLabel={`Compartir key ${generatedButNotSharedKey.key}`}
+            onPress={() => void handleShareKey(generatedButNotSharedKey)}
+            tone="info"
+          />
+        ) : !activationComplete && !hasAnyKey ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Generar key de activación"
+            disabled={!canGenerate}
+            onPress={() => void handleGenerateKey()}
+            style={[styles.actionButton, portalButtonGradient(), !canGenerate ? styles.disabledButton : undefined]}>
+            {isSubmitting ? <ActivityIndicator color="#FFFFFF" size="small" /> : <MaterialCommunityIcons name="key-plus" size={18} color="#FFFFFF" />}
+            <Text style={styles.actionText}>Generar key</Text>
+          </Pressable>
+        ) : !activationComplete && usedActivationKey && firstLoginComplete && nextStepTarget ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={`Abrir ${nextPendingStep?.title || 'siguiente paso'}`} onPress={() => router.push(nextStepTarget as never)} style={styles.stepActionButton}>
+            <Text style={styles.stepActionText}>Abrir</Text>
+            <MaterialCommunityIcons name="arrow-right" size={15} color={portalPalette.text} />
+          </Pressable>
+        ) : null}
+      </View>
+
       <PortalSectionCard
+        compact
         title="Progreso"
         subtitle={`${completedSteps}/${steps.length || 9} pasos completados`}
         right={<StatusBadge label={`${progress}%`} tone={progress === 100 ? 'positive' : 'warning'} />}>
@@ -420,30 +528,9 @@ export function PortalOnboardingScreen() {
         </View>
       </PortalSectionCard>
 
-      {overview?.activationTimeline?.length ? (
-        <PortalSectionCard title="Historial de activaciÃ³n" subtitle="Eventos de cuenta, compra y puesta en marcha ya registrados.">
-          <ActivationTimeline events={overview.activationTimeline} />
-        </PortalSectionCard>
-      ) : null}
-
       <PortalSectionCard
         title="Keys de activación para conductores"
-        subtitle="Genera, comparte y revoca códigos respetando el límite del plan activo."
-        right={
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Generar key de activación"
-            disabled={!canGenerate}
-            onPress={() => void handleGenerateKey()}
-            style={[styles.actionButton, portalButtonGradient(), !canGenerate ? styles.disabledButton : undefined]}>
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <MaterialCommunityIcons name="key-plus" size={18} color="#FFFFFF" />
-            )}
-            <Text style={styles.actionText}>Generar key</Text>
-          </Pressable>
-        }>
+        subtitle="Keys y cupos disponibles del plan actual.">
         {isLoading && !activationSummary ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={portalPalette.accent} />
@@ -468,6 +555,8 @@ export function PortalOnboardingScreen() {
                     onCopy={(currentKey) => void handleCopyKey(currentKey)}
                     onShare={(currentKey) => void handleShareKey(currentKey)}
                     onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
+                    onDelete={(currentKey) => void handleDeleteKey(currentKey)}
+                    showShare={!hasAvailableKey}
                   />
                 ))}
               </View>
@@ -483,6 +572,7 @@ export function PortalOnboardingScreen() {
       </PortalSectionCard>
 
       <PortalSectionCard
+        compact
         title="Pasos de activación"
         subtitle="Empresa, plan activo, pago, keys, conductores, unidades y GPS/Radio.">
         {steps.length ? (
@@ -503,11 +593,68 @@ export function PortalOnboardingScreen() {
           />
         )}
       </PortalSectionCard>
+
+      {overview?.activationTimeline?.length ? (
+        <PortalSectionCard compact title="Historial de activación" subtitle="Evidencia de los eventos ya registrados.">
+          <ActivationTimeline events={overview.activationTimeline} />
+        </PortalSectionCard>
+      ) : null}
     </PortalLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  assistantHero: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceStrong,
+    borderColor: 'rgba(240,68,95,.28)',
+    borderRadius: 18,
+    borderWidth: 1,
+    boxShadow: '0 18px 44px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.04)' as any,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+    minWidth: 0,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  assistantIcon: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.accentSoft,
+    borderColor: 'rgba(240,68,95,.22)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexShrink: 0,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  assistantCopy: {
+    flex: 1,
+    gap: 3,
+    minWidth: 220,
+  },
+  assistantStep: {
+    color: portalPalette.accent,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  assistantTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 27,
+  },
+  assistantDescription: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   actionButton: {
     alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
@@ -546,20 +693,22 @@ const styles = StyleSheet.create({
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 8,
     minWidth: 0,
   },
   metricTile: {
-    backgroundColor: portalPalette.surfaceStrong,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
+    borderColor: 'rgba(148,163,184,.12)',
+    borderRadius: 0,
+    borderWidth: 0,
+    borderRightWidth: 1,
     flex: 1,
     flexBasis: 190,
-    gap: 7,
-    minHeight: 118,
+    gap: 4,
+    minHeight: 82,
     minWidth: 0,
-    padding: AppTheme.spacing.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   metricHeader: {
     alignItems: 'center',
@@ -581,7 +730,7 @@ const styles = StyleSheet.create({
     color: portalPalette.text,
     flexShrink: 1,
     fontFamily: Typography.display,
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: '900',
     lineHeight: 31,
     minWidth: 0,
@@ -721,25 +870,24 @@ const styles = StyleSheet.create({
     height: 10,
   },
   wizardGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: AppTheme.spacing.md,
+    gap: 0,
     minWidth: 0,
   },
   stepCard: {
-    backgroundColor: portalPalette.surfaceStrong,
-    borderColor: portalPalette.line,
-    borderRadius: 14,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 240,
-    gap: 10,
-    minHeight: 170,
+    backgroundColor: 'transparent',
+    borderBottomColor: portalPalette.line,
+    borderBottomWidth: 1,
+    borderRadius: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    minHeight: 72,
     minWidth: 0,
-    padding: AppTheme.spacing.sm,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
   },
   stepCardDone: {
-    borderColor: 'rgba(82, 242, 167, 0.22)',
+    opacity: 0.72,
   },
   stepTop: {
     alignItems: 'flex-start',
@@ -785,6 +933,7 @@ const styles = StyleSheet.create({
   },
   stepCopy: {
     flex: 1,
+    flexBasis: 320,
     gap: 4,
     minWidth: 0,
   },
@@ -807,7 +956,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     minWidth: 0,
   },
   stepActionButton: {

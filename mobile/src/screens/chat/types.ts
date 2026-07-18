@@ -4,7 +4,18 @@ export type DirectoryMode = 'all' | 'priority' | 'unread';
 export type MobilePane = 'directory' | 'conversation';
 export type RecordingState = 'idle' | 'recording' | 'uploading';
 export type CallMode = 'audio' | 'video';
-export type CallPhase = 'waiting' | 'connecting' | 'connected' | 'reconnecting';
+export type CallPhase =
+  | 'idle'
+  | 'calling'
+  | 'ringing'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'busy'
+  | 'rejected'
+  | 'failed'
+  | 'ended'
+  | 'timeout';
 export type MessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 export type LocalTextMessage = ChatMessage & {
   localStatus: 'sending' | 'failed';

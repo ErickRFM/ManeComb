@@ -1465,8 +1465,24 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
           // cold start). If the realtime socket is not connected, deterministically
           // revive it here so the connection banner clears without restarting the
           // app. connectSocket is idempotent when the session key is unchanged.
-          if (get().user && !socket?.connected) {
+          const current = get();
+          if (!current.user) {
+            return;
+          }
+          if (!socket?.connected) {
             connectSocket(set, get);
+          } else {
+            // Socket reports connected but the app-level status may still be
+            // reconnecting/error because the one-shot heartbeat on connect
+            // timed out (e.g. backend was still initialising after a cold
+            // start). Force a clean reconnect to trigger a fresh heartbeat
+            // and clear the banner.
+            const needHeartbeat = !current.realtimeDiagnostics.lastPongAt ||
+              current.realtimeDiagnostics.missedHeartbeatAcks > 0 ||
+              current.socketStatus !== 'connected';
+            if (needHeartbeat) {
+              socket.disconnect().connect();
+            }
           }
         })
         .catch((error) => {

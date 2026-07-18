@@ -335,7 +335,7 @@ export function ProfileScreen() {
                       <View style={styles.notificationCopy}>
                         <Text style={styles.notificationTitle}>{document.name}</Text>
                         <Text style={styles.notificationBody}>
-                          {document.category} Â· {ownerLabel} Â· {document.status} Â· Vence {new Date(document.expiresAt).toLocaleDateString('es-MX')}
+                          {document.category} · {ownerLabel} · {document.status} · Vence {new Date(document.expiresAt).toLocaleDateString('es-MX')}
                         </Text>
                         {document.reviewNotes ? <Text style={styles.notificationBody}>{document.reviewNotes}</Text> : null}
                       </View>
@@ -363,7 +363,7 @@ export function ProfileScreen() {
                     <Pressable
                       key={notification.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`${notification.isRead ? 'NotificaciÃ³n leÃ­da' : 'Marcar como leÃ­da'}: ${notification.title}`}
+                      accessibilityLabel={`${notification.isRead ? 'Notificación leída' : 'Marcar como leída'}: ${notification.title}`}
                       disabled={notification.isRead}
                       onPress={async () => {
                         await markNotificationRead(notification.id);
@@ -379,7 +379,7 @@ export function ProfileScreen() {
                         <Text style={styles.notificationTitle}>{notification.title}</Text>
                         <Text style={styles.notificationBody}>{notification.body}</Text>
                         <Text style={styles.notificationBody}>
-                          {[notification.category, new Date(notification.createdAt).toLocaleString('es-MX')].filter(Boolean).join(' Â· ')}
+                          {[notification.category, new Date(notification.createdAt).toLocaleString('es-MX')].filter(Boolean).join(' · ')}
                         </Text>
                       </View>
                     </Pressable>
@@ -431,7 +431,7 @@ export function ProfileScreen() {
                 <InfoTile icon="timer-alert-outline" label="Solicitudes lentas" value={String(observability.slowRequests)} styles={styles} theme={theme} />
                 <InfoTile icon="bell-check-outline" label="Push entregados" value={String(observability.pushDelivered)} styles={styles} theme={theme} />
                 <InfoTile icon="bell-alert-outline" label="Push fallidos" value={String(observability.pushFailed)} styles={styles} theme={theme} />
-                <InfoTile icon="alert-decagram-outline" label="Incidencias crÃ­ticas" value={String(observability.activeCriticalIncidents)} styles={styles} theme={theme} />
+                <InfoTile icon="alert-decagram-outline" label="Incidencias críticas" value={String(observability.activeCriticalIncidents)} styles={styles} theme={theme} />
                 <InfoTile icon="cart-check" label="Eventos checkout" value={String(observability.checkoutEvents)} styles={styles} theme={theme} />
                 <InfoTile icon="phone-in-talk-outline" label="Sesiones RTC" value={String(observability.rtc.recentSessions)} styles={styles} theme={theme} />
                 <InfoTile icon="phone-check-outline" label="RTC completadas" value={String(observability.rtc.completedSessions)} styles={styles} theme={theme} />
@@ -446,7 +446,7 @@ export function ProfileScreen() {
                       </View>
                       <View style={styles.notificationCopy}>
                         <Text style={styles.notificationTitle}>{event.message || event.type}</Text>
-                        <Text style={styles.notificationBody}>{event.scope} Â· {new Date(event.createdAt).toLocaleString('es-MX')}</Text>
+                        <Text style={styles.notificationBody}>{event.scope} · {new Date(event.createdAt).toLocaleString('es-MX')}</Text>
                       </View>
                     </View>
                   ))}

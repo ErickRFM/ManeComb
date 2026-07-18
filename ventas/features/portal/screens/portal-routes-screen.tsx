@@ -131,6 +131,7 @@ export function PortalRoutesScreen() {
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const [routeToDelete, setRouteToDelete] = useState<SavedRoute | null>(null);
   const [showRouteEditor, setShowRouteEditor] = useState(false);
   const [routeName, setRouteName] = useState('');
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
@@ -479,6 +480,7 @@ export function PortalRoutesScreen() {
               <View style={styles.catalogList}>{filteredRoutes.length ? filteredRoutes.map((route) => <Pressable {...({ className: 'route-catalog-card' } as any)} accessibilityRole="button" accessibilityState={{ selected: selectedRouteId === route.id }} key={route.id} onPress={() => setSelectedRouteId(route.id)} style={[styles.compactRouteCard, selectedRouteId === route.id ? styles.compactRouteCardActive : undefined]}>
                 <View style={styles.compactRouteInfo}><Text numberOfLines={1} style={styles.compactRouteName}>{route.name}</Text><View style={styles.compactMetrics}><Text style={styles.compactMetric}>{((route.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.compactMetric}>{route.stops?.length || 0} paradas</Text></View></View>
                 <View style={styles.thumbnailWrap}><RouteGeometryThumbnail color={route.color} polyline={route.polyline} stops={route.stops} /></View>
+                <Pressable accessibilityLabel={`Eliminar ruta ${route.name}`} onPress={(event) => { event.stopPropagation(); setRouteToDelete(route); }} style={styles.deleteRouteButton}><MaterialCommunityIcons name="trash-can-outline" size={16} color={portalPalette.danger} /></Pressable>
               </Pressable>) : <EmptyState icon="routes" title={savedRoutes.length ? 'Sin coincidencias' : 'Aún no hay rutas'} description={savedRoutes.length ? 'Ajusta los filtros.' : 'Crea la primera ruta.'} />}</View>
             </View>
           </>
@@ -724,6 +726,38 @@ export function PortalRoutesScreen() {
             ))}
           </View>
       </PortalSectionCard> : null}
+      <ConfirmModal
+        visible={Boolean(routeToDelete)}
+        destructive
+        title={`Eliminar ruta "${routeToDelete?.name || ''}"`}
+        description={
+          routeToDelete
+            ? `Esta acción eliminará la ruta "${routeToDelete.name}" del catálogo.${
+                vehicles.filter((v) => v.routeId === routeToDelete.id).length > 0
+                  ? ` Actualmente está asignada a ${vehicles.filter((v) => v.routeId === routeToDelete.id).length} unidad(es). Debe desasignarla antes de eliminarla.`
+                  : ''
+              }`
+            : ''
+        }
+        confirmLabel="Eliminar"
+        processing={catalogBusy}
+        onCancel={() => setRouteToDelete(null)}
+        onConfirm={async () => {
+          if (!routeToDelete) return;
+          setCatalogBusy(true);
+          try {
+            const result = await deleteSavedRouteRequest(routeToDelete.id);
+            setSavedRoutes((current) => current.filter((r) => r.id !== routeToDelete.id));
+            setSelectedRouteId((current) => (current === routeToDelete.id ? null : current));
+            setMessage('Ruta eliminada.');
+          } catch (error) {
+            setMessage(getApiErrorMessage(error, 'No fue posible eliminar la ruta.'));
+          } finally {
+            setCatalogBusy(false);
+            setRouteToDelete(null);
+          }
+        }}
+      />
       <ConfirmModal
         visible={Boolean(duplicateSourceId)}
         title="Duplicar ruta"
@@ -1114,6 +1148,15 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '900',
+  },
+  deleteRouteButton: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.dangerSoft,
+    borderRadius: 8,
+    flexShrink: 0,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
   },
   disabledButton: {
     opacity: 0.55,

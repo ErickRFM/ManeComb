@@ -225,11 +225,19 @@ export function PortalUsersScreen() {
       <ConfirmModal
         visible={Boolean(deleteTarget)}
         destructive
-        title="Eliminar usuario"
-        description={`Se eliminara ${deleteTarget?.name || 'este usuario'} de la cuenta.`}
+        title={
+          deleteTarget?.role === 'driver'
+            ? `Eliminar conductor "${deleteTarget.name}"`
+            : `Eliminar usuario "${deleteTarget?.name || ''}"`
+        }
+        description={
+          deleteTarget?.role === 'owner'
+            ? 'No se puede eliminar al propietario de la organización.'
+            : `Esta acción eliminará a ${deleteTarget?.name || 'este usuario'} de la cuenta.`
+        }
         confirmLabel="Eliminar"
         processing={isSubmitting}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => { setDeleteTarget(null); setMessage(null); }}
         onConfirm={confirmDelete}
       />
 

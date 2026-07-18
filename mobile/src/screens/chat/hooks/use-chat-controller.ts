@@ -15,7 +15,6 @@ import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
 import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { router } from '@/src/navigation/router';
 import type {
   ConversationChannelMode,
   RtcIceConfig,
@@ -26,6 +25,11 @@ import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getPresenceStatus } from '@/src/utils/presence';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
+import {
+  RTCPeerConnection as PlatformRTCPeerConnection,
+  mediaDevices as platformMediaDevices,
+  isWebRTCAvailable,
+} from '@/src/native/webrtc';
 type CloseActiveCallOptions = {
   reason?: string | null;
 };
@@ -114,9 +118,12 @@ export function useChatController() {
   const closeActiveCallRef = useRef<(options?: CloseActiveCallOptions) => Promise<void>>(
     async () => undefined
   );
+  const obtainLocalMediaRef = useRef<(mode: CallMode) => Promise<boolean>>(
+    async () => false
+  );
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !user) return;
+    if (!user || !isWebRTCAvailable()) return;
 
     const socket = io(SOCKET_URL, {
       auth: token ? { token } : undefined,
@@ -151,7 +158,10 @@ export function useChatController() {
     ) => {
       resetPeerConnection(false);
 
-      const peer = new RTCPeerConnection({
+      const PC = PlatformRTCPeerConnection;
+      if (!PC) return null;
+
+      const peer = new PC({
         iceServers: rtcIceConfigRef.current.iceServers,
       });
       const localStream = localStreamRef.current;
@@ -162,7 +172,7 @@ export function useChatController() {
         });
       }
 
-      peer.onicecandidate = (event) => {
+      peer.onicecandidate = (event: any) => {
         if (!event.candidate) {
           return;
         }
@@ -174,7 +184,7 @@ export function useChatController() {
         });
       };
 
-      peer.ontrack = (event) => {
+      peer.ontrack = (event: any) => {
         if (peerRef.current !== peer || joinedRtcRoomRef.current !== roomId) {
           return;
         }
@@ -220,15 +230,33 @@ export function useChatController() {
           resetPeerConnection();
           setCallSession((current) =>
             current?.roomId === roomId
-              ? { ...current, phase: 'reconnecting', remoteStream: null, remoteSocketId: null }
+              ? { ...current, phase: 'failed', remoteStream: null, remoteSocketId: null }
               : current
           );
-          socket.emit('rtc:join', { roomId });
+          setCallNotice('La llamada se perdio por fallo de conexion.');
         }
       };
 
       peerRef.current = peer;
       return peer;
+    };
+
+    obtainLocalMediaRef.current = async (mode: CallMode): Promise<boolean> => {
+      if (localStreamRef.current) return true;
+
+      try {
+        const md = platformMediaDevices;
+        if (!md) return false;
+        const stream = await md.getUserMedia({
+          audio: true,
+          video: mode === 'video',
+        });
+        localStreamRef.current = stream as unknown as MediaStream;
+        return true;
+      } catch {
+        setCallNotice('No se pudo acceder al microfono o camara.');
+        return false;
+      }
     };
 
     socket.on(
@@ -248,7 +276,7 @@ export function useChatController() {
             current?.roomId === payload.roomId
               ? {
                   ...current,
-                  phase: 'waiting',
+                  phase: 'ringing',
                   remoteStream: null,
                   remoteSocketId: null,
                 }
@@ -271,6 +299,7 @@ export function useChatController() {
 
         const mode = currentCallModeRef.current || 'audio';
         const peer = buildPeerConnection(payload.roomId, targetParticipant.socketId, mode);
+        if (!peer) return;
         const offer = await peer.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: mode === 'video',
@@ -313,6 +342,7 @@ export function useChatController() {
 
         const mode = payload.mode || currentCallModeRef.current || 'audio';
         const peer = buildPeerConnection(payload.roomId, payload.fromSocketId, mode);
+        if (!peer) return;
         await peer.setRemoteDescription(new RTCSessionDescription(payload.offer));
         if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
           return;
@@ -383,12 +413,31 @@ export function useChatController() {
       }
     });
 
+    socket.on('rtc:leave', (payload: { roomId: string; userId?: string }) => {
+      if (payload.roomId !== joinedRtcRoomRef.current) {
+        return;
+      }
+
+      resetPeerConnection();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+      setCallElapsedSeconds(0);
+      setCallNotice('La otra persona abandono la cabina.');
+    });
+
     socket.on('rtc:hangup', (payload: { roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) {
         return;
       }
 
-      socket.emit('rtc:leave', { roomId: payload.roomId });
       resetPeerConnection();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -402,6 +451,51 @@ export function useChatController() {
       callTimerRef.current = null;
       setCallElapsedSeconds(0);
       setCallNotice('La otra persona finalizo la llamada.');
+    });
+
+    socket.on('rtc:busy', (payload: { roomId: string }) => {
+      if (payload.roomId !== joinedRtcRoomRef.current) return;
+      resetPeerConnection();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      stopCallTimer();
+      setCallNotice('La persona esta en otra llamada.');
+    });
+
+    socket.on('rtc:reject', (payload: { roomId: string }) => {
+      if (payload.roomId !== joinedRtcRoomRef.current) return;
+      resetPeerConnection();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      stopCallTimer();
+      setCallNotice('La llamada fue rechazada.');
+    });
+
+    socket.on('rtc:timeout', (payload: { roomId: string }) => {
+      if (payload.roomId !== joinedRtcRoomRef.current) return;
+      resetPeerConnection();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      joinedRtcRoomRef.current = null;
+      currentCallModeRef.current = null;
+      setCallParticipants([]);
+      setCallSession(null);
+      setIsCallMuted(false);
+      setIsCameraEnabled(true);
+      stopCallTimer();
+      setCallNotice('La llamada no fue respondida a tiempo.');
     });
 
     socket.on('disconnect', () => {
@@ -578,6 +672,78 @@ export function useChatController() {
     }
   }, [activeConversationKey, activeMessages, isCompact, markAsRead, mobilePane, user?.id]);
 
+  // Join RTC room when entering a conversation
+  useEffect(() => {
+    if (!activeConversation?.id || !socketRef.current?.connected) {
+      return;
+    }
+
+    if (joinedRtcRoomRef.current === activeConversation.id) {
+      return;
+    }
+
+    if (joinedRtcRoomRef.current) {
+      socketRef.current.emit('rtc:leave', { roomId: joinedRtcRoomRef.current });
+    }
+
+    joinedRtcRoomRef.current = activeConversation.id;
+    callAttemptRef.current += 1;
+    isStartingCallRef.current = false;
+    socketRef.current.emit('rtc:join', {
+      roomId: activeConversation.id,
+      userId: user?.id,
+      name: user?.name,
+    });
+  }, [activeConversation?.id, user?.id, user?.name]);
+
+  const startCall = useCallback(async (mode: CallMode) => {
+    if (!activeConversation || !socketRef.current?.connected || !isWebRTCAvailable()) {
+      setCallNotice('La cabina de llamadas no esta disponible.');
+      return;
+    }
+
+    if (callSession) {
+      setCallNotice('Ya hay una llamada activa en esta cabina.');
+      return;
+    }
+
+    if (isStartingCallRef.current) return;
+    isStartingCallRef.current = true;
+
+    const ok = await obtainLocalMediaRef.current(mode);
+    if (!ok) {
+      isStartingCallRef.current = false;
+      return;
+    }
+
+    if (!localStreamRef.current) {
+      isStartingCallRef.current = false;
+      return;
+    }
+
+    currentCallModeRef.current = mode;
+    const roomId = activeConversation.id;
+    joinedRtcRoomRef.current = roomId;
+    callAttemptRef.current += 1;
+
+    setCallSession({
+      roomId,
+      mode,
+      phase: 'calling',
+      joinedAt: Date.now(),
+      remoteStream: null,
+      remoteSocketId: null,
+    });
+
+    socketRef.current.emit('rtc:join', {
+      roomId,
+      userId: user?.id,
+      name: user?.name,
+    });
+
+    isStartingCallRef.current = false;
+  }, [activeConversation, callSession, user?.id, user?.name]);
+
   const composerPlaceholder = 'Escribe un mensaje...';
   const supportsMicrophoneCapture =
     Platform.OS !== 'web' ||
@@ -711,29 +877,6 @@ export function useChatController() {
     }
   };
 
-  const handleOpenRadioFromChat = () => {
-    if (!activeConversation) {
-      return;
-    }
-
-    const availableRadioChannel = conversations.find((conversation) => {
-      if (conversation.channelMode !== 'radio' || conversation.kind !== activeConversation.kind) {
-        return false;
-      }
-      if (activeConversation.kind !== 'direct') {
-        return true;
-      }
-      return conversation.participants.some((participant) => participant.id === activeContact?.id);
-    });
-    if (!availableRadioChannel?.id) {
-      setAttachmentNotice('El canal de Radio aun no esta disponible.');
-      return;
-    }
-
-    setActiveConversationId(availableRadioChannel.id);
-    router.push({ pathname: '/radio', params: { channelId: availableRadioChannel.id, mode: 'ptt' } });
-  };
-
   const handleSendText = async () => {
     if (!activeConversation || !draft.trim()) {
       return;
@@ -850,6 +993,7 @@ export function useChatController() {
     const roomId = joinedRtcRoomRef.current;
 
     if (roomId && socketRef.current) {
+      socketRef.current.emit('rtc:hangup', { roomId });
       socketRef.current.emit('rtc:leave', { roomId });
     }
 
@@ -1093,7 +1237,7 @@ export function useChatController() {
   }, [activeCallJoinedAt]);
 
   useEffect(() => {
-    if (activeCallPhase !== 'waiting' && activeCallPhase !== 'reconnecting') {
+    if (activeCallPhase !== 'ringing' && activeCallPhase !== 'reconnecting') {
       return;
     }
 
@@ -1187,6 +1331,7 @@ export function useChatController() {
     canRecord,
     canSendText,
     closeActiveCall,
+    startCall,
     composerPlaceholder,
     conversationFilterCounts,
     directoryHelperText,
@@ -1200,7 +1345,6 @@ export function useChatController() {
     handleOpenDirect,
     handleOpenGeneral,
     openDirectoryMenu,
-    handleOpenRadioFromChat,
     handleSelectConversation,
     handleRetryTextMessage,
     handleSendText,

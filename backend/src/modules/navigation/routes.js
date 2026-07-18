@@ -406,11 +406,52 @@ router.delete("/routes/:routeId", authenticate, requireOperationalAccess, async 
       });
     }
 
-    const liveBeforeDelete = await req.app.locals.store.getLiveLocations();
+    const savedRoute = await req.app.locals.store.getRouteById(routeId);
+
+    if (!savedRoute || !canAccessTenantResource(req.user, savedRoute)) {
+      return res.status(404).json({
+        ok: false,
+        message: "Ruta no encontrada"
+      });
+    }
+
+    const dependencies = [];
+    const liveLocations = await req.app.locals.store.getLiveLocations();
+    const assignedVehicles = (liveLocations.vehicles || []).filter(
+      (vehicle) => vehicle.routeId === routeId
+    );
+
+    if (assignedVehicles.length > 0) {
+      const unitWord = assignedVehicles.length === 1 ? "unidad" : "unidades";
+      dependencies.push(
+        `está asignada a ${assignedVehicles.length} ${unitWord}`
+      );
+    }
+
+    const activeSessions = await req.app.locals.store.listRouteSessions({
+      routeId,
+      status: "RUNNING",
+      limit: 1
+    });
+
+    const activeSessionsCount = Array.isArray(activeSessions)
+      ? activeSessions.length
+      : activeSessions?.items?.length || 0;
+
+    if (activeSessionsCount > 0) {
+      dependencies.push("tiene jornadas activas en curso");
+    }
+
+    if (dependencies.length > 0) {
+      const detail = dependencies.join(", ");
+      return res.status(409).json({
+        ok: false,
+        message: `No es posible eliminar la ruta "${savedRoute.name}" porque ${detail}. Resuélvalos antes de continuar.`
+      });
+    }
+
     const affectedVehicleIds = new Set(
-      liveBeforeDelete.vehicles
-        .filter((vehicle) => vehicle.routeId === routeId)
-        .map((vehicle) => vehicle.id)
+      assignedVehicles.map((vehicle) => vehicle.id)
     );
     const deletedRoute = await req.app.locals.store.deleteRoute(routeId, req.user);
 

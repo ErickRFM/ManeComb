@@ -305,6 +305,52 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
     });
   }
 
+  if (targetUser.role === "owner") {
+    return res.status(409).json({
+      ok: false,
+      message: "No se puede eliminar al propietario de la organización."
+    });
+  }
+
+  const admins = scopedUsers.filter((entry) => entry.role === "admin");
+
+  if (targetUser.role === "admin" && admins.length <= 1) {
+    return res.status(409).json({
+      ok: false,
+      message: "No se puede eliminar al único administrador de la organización."
+    });
+  }
+
+  const dependencies = [];
+
+  if (targetUser.role === "driver") {
+    const vehicleWithDriver = scopedUsers.some(
+      (entry) => entry.vehicleId && targetUser.vehicleId && entry.id !== targetUser.id
+    );
+
+    if (targetUser.vehicleId) {
+      const vehicle = await req.app.locals.store.getVehicleById(targetUser.vehicleId);
+
+      if (vehicle) {
+        dependencies.push("está asignado a una unidad");
+
+        const activeSession = await req.app.locals.store.getActiveRouteSession(targetUser.vehicleId);
+
+        if (activeSession) {
+          dependencies.push("tiene una jornada activa");
+        }
+      }
+    }
+  }
+
+  if (dependencies.length > 0) {
+    const detail = dependencies.join(", ");
+    return res.status(409).json({
+      ok: false,
+      message: `No es posible eliminar este usuario porque ${detail}. Resuélvalos antes de continuar.`
+    });
+  }
+
   let affectedVehicleIds = [];
   if (targetUser.role === "driver" || targetUser.role === "supervisor") {
     const live = await req.app.locals.store.getLiveLocations();

@@ -41,7 +41,9 @@ type UsePointToPointTrackerArgs = {
 
 export type RouteProgressSnapshot = ActiveRouteProgress;
 
-function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult {
+function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult | null {
+  if (!vehicle.location) return null;
+
   return {
     id: `vehicle-point-${vehicle.id}`,
     label: `${vehicle.code} salida`,
@@ -391,6 +393,11 @@ export function usePointToPointTracker({
     }
 
     const point = createVehiclePoint(selectedVehicle);
+    if (!point) {
+      setPointMessage('La unidad seleccionada no tiene ubicacion disponible.');
+      return;
+    }
+
     setPointSelection((current) => ({
       ...current,
       origin: point,

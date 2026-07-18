@@ -432,6 +432,9 @@ export type PortalActivationKey = {
   driver?: PortalActivationKeyDriver | null;
   expiresAt: string | null;
   usedAt: string | null;
+  sharedAt: string | null;
+  sharedBy: string | null;
+  shareCount: number;
   createdAt: string | null;
 };
 

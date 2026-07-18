@@ -303,6 +303,10 @@ export async function updateVehicleRequest(vehicleId: string, payload: any) {
   return await unwrapData<any>(apiClient.patch(`/vehicles/${encodeURIComponent(vehicleId)}`, payload));
 }
 
+export async function deleteVehicleRequest(vehicleId: string) {
+  return await unwrapData<any>(apiClient.delete(`/vehicles/${encodeURIComponent(vehicleId)}`));
+}
+
 export async function assignRouteRequest(payload: any) {
   return await unwrapData<any>(apiClient.post('/navigation/assign', payload));
 }
@@ -384,6 +388,18 @@ export async function generateAdminActivationKeyRequest() {
 export async function revokeAdminActivationKeyRequest(activationKeyId: string) {
   return await unwrapData<PortalActivationKeysResponse>(
     apiClient.patch(`/admin/activation-keys/${encodeURIComponent(activationKeyId)}/revoke`)
+  );
+}
+
+export async function deleteAdminActivationKeyRequest(activationKeyId: string) {
+  return await unwrapData<PortalActivationKeysResponse>(
+    apiClient.delete(`/admin/activation-keys/${encodeURIComponent(activationKeyId)}`)
+  );
+}
+
+export async function shareAdminActivationKeyRequest(activationKeyId: string) {
+  return await unwrapData<PortalActivationKeysResponse>(
+    apiClient.post(`/admin/activation-keys/${encodeURIComponent(activationKeyId)}/share`)
   );
 }
 

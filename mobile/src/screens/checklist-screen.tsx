@@ -602,7 +602,7 @@ function RoutePreview({
             </AppMapMarker>
           );
         })}
-        {vehicle ? (
+        {vehicle?.location ? (
           <AppMapMarker id="preview-vehicle" coordinate={vehicle.location}>
             <View style={styles.miniMapVehicleWrap}>
               <View style={styles.miniMapAccuracyHalo} />
@@ -1973,6 +1973,13 @@ export function ChecklistScreen() {
           returnFilter: filterMode,
           historyScrollY: String(historyScrollYRef.current),
           openLibrary: '1',
+          editingRouteId: '',
+          originLatitude: '',
+          originLongitude: '',
+          destinationLatitude: '',
+          destinationLongitude: '',
+          routePolyline: '',
+          stops: '',
         },
       });
     } catch {
@@ -2519,7 +2526,7 @@ export function ChecklistScreen() {
                 </View>
               ) : null}
 
-              {routeUiState === 'editing' ? (
+              {routeUiState === 'editing' && !routeLibraryOpen ? (
                 <>
                   <RoutePreview
                     points={routeStops}

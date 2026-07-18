@@ -947,9 +947,17 @@ async function createMongoStore() {
 
   async function createRoute(payload) {
     const now = new Date();
+    const organizationId = String(payload.organizationId || "").trim();
+    const routeName = String(payload.name || "").trim();
+
+    if (organizationId && routeName) {
+      const existing = await RouteModel.findOne({ organizationId, name: routeName }).lean();
+      if (existing) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
+    }
+
     const doc = await RouteModel.create({
       _id: payload.id || randomUUID(),
-      name: String(payload.name || "").trim(),
+      name: routeName,
       code: String(payload.code || payload.name || "").trim(),
       color: payload.color || "#1473E6",
       origin: payload.origin || null,
@@ -961,7 +969,7 @@ async function createMongoStore() {
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
       durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
       polyline: payload.polyline || [],
-      organizationId: payload.organizationId || null,
+      organizationId,
       createdBy: payload.createdBy || null,
       createdAt: now,
       updatedAt: now
@@ -1104,6 +1112,17 @@ async function createMongoStore() {
     }
     if (typeof payload.polyline !== "undefined") update.polyline = payload.polyline || [];
 
+    if (typeof update.name !== "undefined" && update.name) {
+      const current = await RouteModel.findById(routeId).lean();
+      if (current) {
+        const orgId = String(current.organizationId || (user ? getOrganizationId(user) : "") || "").trim();
+        if (orgId) {
+          const duplicate = await RouteModel.findOne({ organizationId: orgId, name: update.name, _id: { $ne: routeId } }).lean();
+          if (duplicate) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
+        }
+      }
+    }
+
     update.updatedAt = new Date();
 
     const route = await RouteModel.findOneAndUpdate(
@@ -1121,6 +1140,11 @@ async function createMongoStore() {
 
     await updateAssignedRouteSnapshots(route);
     return serializeRoute(route);
+  }
+
+  async function deleteVehicle(vehicleId) {
+    const vehicle = await VehicleModel.findByIdAndDelete(vehicleId).lean();
+    return vehicle ? serializeVehicle(vehicle) : null;
   }
 
   async function deleteRoute(routeId, user = null) {
@@ -1407,10 +1431,18 @@ async function createMongoStore() {
       usedByDriverId: payload.usedByDriverId || null,
       expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(),
       usedAt: payload.usedAt ? new Date(payload.usedAt) : null,
+      sharedAt: payload.sharedAt ? new Date(payload.sharedAt) : null,
+      sharedBy: payload.sharedBy || null,
+      shareCount: payload.shareCount || 0,
       createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date()
     });
 
     return toPlain(activationKey);
+  }
+
+  async function deleteActivationKey(activationKeyId) {
+    const activationKey = await ActivationKeyModel.findByIdAndDelete(activationKeyId).lean();
+    return activationKey ? toPlain(activationKey) : null;
   }
 
   async function updateActivationKey(activationKeyId, payload, filter = {}) {
@@ -1421,7 +1453,7 @@ async function createMongoStore() {
         return;
       }
 
-      update[key] = ["expiresAt", "usedAt", "createdAt"].includes(key) && value ? new Date(value) : value;
+      update[key] = ["expiresAt", "usedAt", "sharedAt", "createdAt"].includes(key) && value ? new Date(value) : value;
     });
 
     const activationKey = await ActivationKeyModel.findOneAndUpdate(
@@ -2282,7 +2314,7 @@ async function createMongoStore() {
     ]);
 
     const vehiclesMissingGpsTime = vehicles
-      .filter((vehicle) => !vehicle.locationTimestamp)
+      .filter((vehicle) => !vehicle.locationTimestamp || !vehicle.location)
       .map((vehicle) => String(vehicle._id));
     const recoveredPositions = vehiclesMissingGpsTime.length
       ? await RouteSessionPositionModel.aggregate([
@@ -2295,7 +2327,7 @@ async function createMongoStore() {
       recoveredPositions.map((entry) => [String(entry._id), entry.position])
     );
     const recoveredVehicles = vehicles.map((vehicle) => {
-      if (vehicle.locationTimestamp) return vehicle;
+      if (vehicle.location && vehicle.locationTimestamp) return vehicle;
       const position = recoveredPositionByVehicle.get(String(vehicle._id));
       if (!position) return vehicle;
       return {
@@ -2612,7 +2644,12 @@ async function createMongoStore() {
       assignedRoute: null
       });
     } catch (error) {
-      if (error?.code === 11000) throw new Error("Ya existe una unidad con ese nombre o placas");
+      if (error?.code === 11000) {
+        const keyPattern = error?.keyPattern || {};
+        if (keyPattern.code) throw new Error("El numero economico ya esta registrado en esta organizacion");
+        if (keyPattern.plate) throw new Error("Ya existe una unidad con esas placas en esta organizacion");
+        throw new Error("Ya existe una unidad con ese nombre o placas en esta organizacion");
+      }
       throw error;
     }
 
@@ -2664,7 +2701,12 @@ async function createMongoStore() {
         { returnDocument: "after" }
       ).lean();
     } catch (error) {
-      if (error?.code === 11000) throw new Error("Ya existe una unidad con ese nombre o placas");
+      if (error?.code === 11000) {
+        const keyPattern = error?.keyPattern || {};
+        if (keyPattern.code) throw new Error("El numero economico ya esta registrado en esta organizacion");
+        if (keyPattern.plate) throw new Error("Ya existe una unidad con esas placas en esta organizacion");
+        throw new Error("Ya existe una unidad con ese nombre o placas en esta organizacion");
+      }
       throw error;
     }
 
@@ -3466,10 +3508,12 @@ async function createMongoStore() {
     clearAssignedRouteFromVehicle,
     createRoute,
     deleteRoute,
+    deleteVehicle,
     authenticate,
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,
+    deleteActivationKey,
     createNotification,
     createCommercialOrder,
     createIncident,

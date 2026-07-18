@@ -20,5 +20,7 @@ export {
   reviewDocumentRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
+  shareAdminActivationKeyRequest,
   updateIncidentStatusRequest,
+  deleteAdminActivationKeyRequest,
 } from '@/src/api/client';

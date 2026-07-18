@@ -12,7 +12,9 @@ const {
   generateActivationKeyForAdmin,
   listAdminActivationKeys,
   registerDriverWithActivationKey,
+  deleteActivationKeyForAdmin,
   revokeActivationKeyForAdmin,
+  shareActivationKeyForAdmin,
   validateDriverActivationKey
 } = require("../../services/activation-keys");
 const { buildAuthContext } = require("../../services/auth-context");
@@ -142,6 +144,44 @@ adminActivationKeyRoutes.post(
   }
 );
 
+adminActivationKeyRoutes.delete(
+  "/:id",
+  authenticate,
+  requireOrganization,
+  requirePermission("canManageUsers"),
+  async (req, res) => {
+    try {
+      const data = await deleteActivationKeyForAdmin(
+        req.app.locals.store,
+        req.user,
+        req.params.id
+      );
+
+      await recordAuditLog(req, {
+        action: "activation_key.delete",
+        targetType: "activation_key",
+        targetId: req.params.id,
+        severity: "warning",
+        metadata: {
+          organizationId: getOrganizationId(req.user)
+        }
+      });
+      emitActivationKeysUpdated(req, {
+        ...data,
+        organizationId: getOrganizationId(req.user),
+        updatedAt: new Date().toISOString()
+      });
+
+      return res.json({
+        ok: true,
+        data
+      });
+    } catch (error) {
+      return handleActivationError(res, error);
+    }
+  }
+);
+
 adminActivationKeyRoutes.patch(
   "/:id/revoke",
   authenticate,
@@ -160,6 +200,44 @@ adminActivationKeyRoutes.patch(
         targetType: "activation_key",
         targetId: req.params.id,
         severity: "warning",
+        metadata: {
+          organizationId: getOrganizationId(req.user)
+        }
+      });
+      emitActivationKeysUpdated(req, {
+        ...data,
+        organizationId: getOrganizationId(req.user),
+        updatedAt: new Date().toISOString()
+      });
+
+      return res.json({
+        ok: true,
+        data
+      });
+    } catch (error) {
+      return handleActivationError(res, error);
+    }
+  }
+);
+
+adminActivationKeyRoutes.post(
+  "/:id/share",
+  authenticate,
+  requireOrganization,
+  requirePermission("canManageUsers"),
+  async (req, res) => {
+    try {
+      const data = await shareActivationKeyForAdmin(
+        req.app.locals.store,
+        req.user,
+        req.params.id
+      );
+
+      await recordAuditLog(req, {
+        action: "activation_key.share",
+        targetType: "activation_key",
+        targetId: req.params.id,
+        severity: "info",
         metadata: {
           organizationId: getOrganizationId(req.user)
         }

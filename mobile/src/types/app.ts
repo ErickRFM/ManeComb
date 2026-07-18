@@ -154,6 +154,9 @@ export type PortalActivationKey = {
   driver?: PortalActivationKeyDriver | null;
   expiresAt: string | null;
   usedAt: string | null;
+  sharedAt: string | null;
+  sharedBy: string | null;
+  shareCount: number;
   createdAt: string | null;
 };
 
@@ -635,7 +638,7 @@ export type Vehicle = {
   fuel: number;
   currentKilometers?: number;
   updatedAt: string;
-  location: GeoPoint;
+  location: GeoPoint | null;
   locationTimestamp?: string | null;
   gpsFreshness?: {
     state: 'fresh' | 'stale' | 'missing'; isFresh: boolean; thresholdMs: number;

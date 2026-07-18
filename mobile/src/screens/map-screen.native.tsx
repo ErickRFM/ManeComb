@@ -349,13 +349,15 @@ export function MapScreen() {
       return;
     }
 
-    if (vehicle.locationTimestamp) focusPoint(vehicle.location);
+    if (vehicle.locationTimestamp && vehicle.location) focusPoint(vehicle.location);
   }, [fitRoute, focusPoint, mapData?.routes, routeFitPadding]);
 
   const handleSelectIncidentVehicle = useCallback((vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
     setFollowMode(false);
-    focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
+    if (vehicle.location) {
+      focusMap(vehicle.location.latitude, vehicle.location.longitude, 'close');
+    }
   }, [focusMap]);
 
   useEffect(() => {
@@ -387,7 +389,7 @@ export function MapScreen() {
     }
 
     if (followMode && selectedVehicle && hasVehicleLiveLocation(selectedVehicle)) {
-      focusPoint(selectedVehicle.location);
+      focusPoint(selectedVehicle.location!);
     }
   }, [focusPoint, followMode, params.focusLatitude, params.focusLongitude, selectedVehicle]);
 
@@ -404,7 +406,7 @@ export function MapScreen() {
     ) {
       selectorFocusedVehicleIdRef.current = selectedVehicle.id;
       setFollowMode(false);
-      focusPoint(selectedVehicle.location);
+      focusPoint(selectedVehicle.location!);
     }
   }, [focusPoint, selectorMode, selectedVehicle]);
 

@@ -152,6 +152,8 @@ function VehicleMarkers({
   return (
     <>
       {vehicles.map((vehicle) => {
+        const vehicleLocation = vehicle.location;
+        if (!vehicleLocation || !Number.isFinite(vehicleLocation.latitude) || !Number.isFinite(vehicleLocation.longitude)) return null;
         const isSelected = vehicle.id === selectedVehicle?.id;
         const vehicleMarkerStyle = {
           backgroundColor: vehicle.status === 'maintenance' ? theme.colors.danger : theme.colors.accent,
@@ -163,7 +165,7 @@ function VehicleMarkers({
           <AppMapMarker
             key={vehicle.id}
             id={`vehicle-${vehicle.id}`}
-            coordinate={vehicle.location}
+            coordinate={vehicleLocation}
             onPress={() => onVehiclePress(vehicle)}>
             <View style={[styles.vehicleMarker, vehicleMarkerStyle]}>
               <View style={styles.vehicleMarkerInner} />

@@ -289,6 +289,10 @@ export const AppMapMarker = memo(function AppMapPointMarker({
   onDragStart,
   onPress,
 }: AppMapMarkerProps) {
+  if (!coordinate || !Number.isFinite(coordinate.latitude) || !Number.isFinite(coordinate.longitude)) {
+    return null;
+  }
+
   const annotationId = id || `marker-${coordinate.latitude}-${coordinate.longitude}`;
 
   return (

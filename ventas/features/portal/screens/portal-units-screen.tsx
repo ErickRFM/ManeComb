@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, palette, Typography } from '@/constants/theme';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -65,6 +66,7 @@ function getKilometersLabel(value: unknown) {
 export function PortalUnitsScreen() {
   const {
     createVehicle,
+    deleteVehicle,
     isSubmitting,
     loadVehicles,
     updateVehicle,
@@ -73,6 +75,7 @@ export function PortalUnitsScreen() {
   } = useAppStore(
     useShallow((state) => ({
       createVehicle: state.createVehicle,
+      deleteVehicle: state.deleteVehicle,
       isSubmitting: state.isSubmitting,
       loadVehicles: state.loadVehicles,
       updateVehicle: state.updateVehicle,
@@ -86,6 +89,7 @@ export function PortalUnitsScreen() {
   const [statusTouched, setStatusTouched] = useState(false);
   const [showCreationBanner, setShowCreationBanner] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Vehicle | null>(null);
 
   useEffect(() => {
     void loadVehicles();
@@ -120,6 +124,7 @@ export function PortalUnitsScreen() {
   };
 
   const saveUnit = async () => {
+    if (isSubmitting) return;
     setMessage(null);
 
     if (!editor.code.trim() || !editor.plate.trim()) {
@@ -302,6 +307,13 @@ export function PortalUnitsScreen() {
                         style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
                       </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Eliminar unidad ${vehicle.code}`}
+                        onPress={() => setDeleteTarget(vehicle)}
+                        style={[styles.iconAction, { backgroundColor: palette.dangerSoft }]}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.danger} />
+                      </Pressable>
                     </View>
                   ) : null}
                 </View>
@@ -316,6 +328,33 @@ export function PortalUnitsScreen() {
           />
         )}
       </PortalSectionCard>
+
+      <ConfirmModal
+        visible={Boolean(deleteTarget)}
+        destructive
+        title={`Eliminar unidad "${deleteTarget?.code || ''}"`}
+        description={
+          deleteTarget
+            ? (deleteTarget.driverId
+                ? `No es posible eliminar esta unidad porque tiene un conductor asignado. Desasigne el conductor antes de continuar.`
+                : deleteTarget.routeId || deleteTarget.assignedRoute
+                  ? `No es posible eliminar esta unidad porque tiene una ruta asignada. Desasigne la ruta antes de continuar.`
+                  : `Esta acción eliminará la unidad "${deleteTarget.code}" (${deleteTarget.plate}) del catálogo.`)
+            : ''
+        }
+        confirmLabel="Eliminar"
+        processing={isSubmitting}
+        onCancel={() => {
+          setDeleteTarget(null);
+          setMessage(null);
+        }}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          const result = await deleteVehicle(deleteTarget.id);
+          setMessage(result.ok ? 'Unidad eliminada.' : result.message || 'No fue posible eliminar la unidad.');
+          if (result.ok) setDeleteTarget(null);
+        }}
+      />
     </PortalLayout>
   );
 }

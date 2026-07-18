@@ -16,6 +16,8 @@ import {
   reviewDocumentRequest,
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
+  shareAdminActivationKeyRequest,
+  deleteAdminActivationKeyRequest,
   updateIncidentStatusRequest,
 } from '../api';
 import type {
@@ -56,7 +58,9 @@ type PortalStore = {
   loadIncidents: () => Promise<void>;
   loadAll: (options?: { force?: boolean }) => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
+  shareActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
+  deleteActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
   cancelPlan: (reason?: string) => Promise<PortalActionResult>;
   reviewDocument: (documentId: string, payload: { reviewStatus: string; reviewNotes?: string }) => Promise<PortalActionResult>;
@@ -250,6 +254,24 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       return { ok: false, message };
     }
   },
+  shareActivationKey: async (activationKeyId) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const activationKeysResponse = await shareAdminActivationKeyRequest(activationKeyId);
+      set({
+        activationKeys: activationKeysResponse.keys,
+        activationSummary: activationKeysResponse.summary,
+        isSubmitting: false,
+      });
+      void get().loadOverview();
+      return { ok: true };
+    } catch (error) {
+      const message = getMessage(error, 'No fue posible compartir la key.');
+      set({ error: message, isSubmitting: false });
+      return { ok: false, message };
+    }
+  },
   revokeActivationKey: async (activationKeyId) => {
     if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
     set({ isSubmitting: true, error: null });
@@ -264,6 +286,24 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       return { ok: true };
     } catch (error) {
       const message = getMessage(error, 'No fue posible revocar la key.');
+      set({ error: message, isSubmitting: false });
+      return { ok: false, message };
+    }
+  },
+  deleteActivationKey: async (activationKeyId) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const activationKeysResponse = await deleteAdminActivationKeyRequest(activationKeyId);
+      set({
+        activationKeys: activationKeysResponse.keys,
+        activationSummary: activationKeysResponse.summary,
+        isSubmitting: false,
+      });
+      void get().loadOverview();
+      return { ok: true };
+    } catch (error) {
+      const message = getMessage(error, 'No fue posible eliminar la key.');
       set({ error: message, isSubmitting: false });
       return { ok: false, message };
     }

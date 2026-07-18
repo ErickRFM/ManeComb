@@ -21,6 +21,7 @@ import {
   createVehicleRequest,
   createUserRequest,
   deleteUserRequest,
+  deleteVehicleRequest,
   getApiErrorMessage,
   getSessionRequest,
   forgotPasswordRequest,
@@ -72,6 +73,7 @@ type AppState = {
   deleteUser: (userId: string) => Promise<ActionResult>;
   createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
   updateVehicle: (vehicleId: string, payload: VehicleMutationPayload) => Promise<ActionResult>;
+  deleteVehicle: (vehicleId: string) => Promise<ActionResult>;
   assignRoute: (payload: RouteAssignmentPayload) => Promise<ActionResult>;
   clearRouteAssignment: (vehicleId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
@@ -240,6 +242,7 @@ function connectSocket(get: () => AppState) {
     'activation-keys:updated',
     'vehicle:created',
     'vehicle:updated',
+    'vehicle:deleted',
     'location:updated',
     'route-session:updated',
     'user:updated',
@@ -269,6 +272,15 @@ function connectSocket(get: () => AppState) {
           upsertRealtimeVehicle(vehicle);
         } else {
           void useAppStore.getState().loadVehicles();
+        }
+      }
+
+      if (eventName === 'vehicle:deleted') {
+        const vehicleId = (payload as { vehicleId?: string }).vehicleId;
+        if (vehicleId) {
+          useAppStore.setState((s) => ({
+            vehicles: s.vehicles.filter((v) => v.id !== vehicleId),
+          }));
         }
       }
 
@@ -570,7 +582,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const vehicle = await createVehicleRequest(payload);
-      set((state) => ({ vehicles: [vehicle, ...state.vehicles] }));
+      set((state) => {
+        const exists = state.vehicles.some((entry) => entry.id === vehicle.id);
+        return {
+          vehicles: exists
+            ? state.vehicles.map((entry) => (entry.id === vehicle.id ? { ...entry, ...vehicle } : entry))
+            : [vehicle, ...state.vehicles],
+        };
+      });
       return { ok: true };
     } catch (error) {
       const message = getReadableError(error, 'No fue posible crear la unidad.');
@@ -597,6 +616,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { ok: true };
     } catch (error) {
       const message = getReadableError(error, 'No fue posible actualizar la unidad.');
+      set({ error: message });
+      return { ok: false, message };
+    } finally {
+      set({ isSubmitting: false });
+    }
+  },
+  deleteVehicle: async (vehicleId) => {
+    if (!hasPortalPermission(get().user, 'vehicles')) {
+      return { ok: false, message: 'No tienes permiso para administrar unidades.' };
+    }
+    if (get().isSubmitting) {
+      return { ok: false, message: 'Hay una operacion en curso.' };
+    }
+    set({ isSubmitting: true, error: null });
+
+    try {
+      const result = await deleteVehicleRequest(vehicleId);
+      set((state) => ({
+        vehicles: state.vehicles.filter((entry) => entry.id !== vehicleId),
+      }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible eliminar la unidad.');
       set({ error: message });
       return { ok: false, message };
     } finally {

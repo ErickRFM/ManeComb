@@ -141,8 +141,11 @@ export function normalizeAssignedRoute(value: unknown): AssignedRoute | null {
 }
 
 export function normalizeVehicle(value: Vehicle): Vehicle {
+  const location = normalizePoint(value.location as unknown);
+
   return {
     ...value,
+    location,
     assignedRoute: normalizeAssignedRoute((value as { assignedRoute?: unknown }).assignedRoute),
   };
 }
