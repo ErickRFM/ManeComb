@@ -37,23 +37,28 @@ function getSubscriptionStatus(order) {
     return "inactive";
   }
 
-  if (String(order.activationStatus || "").trim() === "cancelled") {
+  const activationStatus = String(order.activationStatus || "").trim().toLowerCase();
+  const paymentStatus = String(order.paymentStatus || "").trim().toLowerCase();
+  const orderStatus = String(order.status || "").trim().toLowerCase();
+  const declaredStatuses = new Set([activationStatus, paymentStatus, orderStatus].filter(Boolean));
+
+  if (declaredStatuses.has("cancelled") || declaredStatuses.has("canceled")) {
     return "cancelled";
   }
 
-  if (String(order.activationStatus || "").trim() === "active") {
+  if (declaredStatuses.has("suspended")) return "suspended";
+  if (declaredStatuses.has("expired")) return "expired";
+  if (declaredStatuses.has("past_due")) return "past_due";
+
+  if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
     return "active";
   }
 
-  if (String(order.paymentStatus || "").trim() === "paid") {
-    return "paid";
-  }
-
-  if (String(order.paymentStatus || "").trim() === "trial_active") {
+  if (paymentStatus === "trial_active") {
     return "trial";
   }
 
-  return String(order.paymentStatus || order.activationStatus || "pending").trim();
+  return paymentStatus || activationStatus || "pending";
 }
 
 function pickActiveOrder(orders = []) {
@@ -61,7 +66,7 @@ function pickActiveOrder(orders = []) {
 
   return (
     sorted.find((order) => order.activationStatus === "active") ||
-    sorted.find((order) => order.paymentStatus === "paid" || order.paymentStatus === "trial_active") ||
+    sorted.find((order) => ["paid", "paid_test", "trial_active"].includes(order.paymentStatus)) ||
     sorted.find((order) => order.status === "active" || order.status === "paid") ||
     sorted[0] ||
     null
@@ -93,8 +98,13 @@ function buildSubscription(order) {
   const activeUnits = Array.isArray(order.starterFleet)
     ? order.starterFleet.filter((entry) => entry.status === "active").length
     : 0;
-  const status = getSubscriptionStatus(order);
-  const expiresAt = toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil);
+  const sourceStatus = getSubscriptionStatus(order);
+  const expiresAt = sourceStatus === "trial"
+    ? toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil)
+    : toIso(order.currentPeriodEnd || order.paidUntil);
+  const status = ["active", "trial", "trial_active"].includes(sourceStatus) && isPastDate(expiresAt)
+    ? "expired"
+    : sourceStatus;
   const isActive =
     ["active", "trial", "trial_active"].includes(status) && !isPastDate(expiresAt);
 
@@ -110,8 +120,10 @@ function buildSubscription(order) {
     unitsLimit: totalUnits,
     monthlyPrice: Number(order.totalPrice || order.basePlanPrice || 0),
     currency: "MXN",
-    currentPeriodStart: toIso(order.paymentApprovedAt || order.trialStartedAt || order.createdAt),
-    currentPeriodEnd: toIso(order.trialEndsAt || order.currentPeriodEnd),
+    currentPeriodStart: status === "trial"
+      ? toIso(order.trialStartedAt || order.createdAt)
+      : toIso(order.currentPeriodStart || order.paymentApprovedAt || order.createdAt),
+    currentPeriodEnd: expiresAt,
     expiresAt,
     cancelAt: toIso(order.cancelAt)
   };

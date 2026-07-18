@@ -401,13 +401,16 @@ export type PortalSubscription = {
   planId: string | null;
   planName: string;
   status: string;
+  isActive?: boolean;
   activeUnits: number;
   availableUnits: number;
   totalUnits: number;
+  unitsLimit?: number;
   monthlyPrice?: number;
   currency?: string;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
+  expiresAt?: string | null;
   cancelAt?: string | null;
 };
 

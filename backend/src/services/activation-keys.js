@@ -1,6 +1,6 @@
 const { randomBytes, randomUUID } = require("crypto");
 const { validatePasswordStrength } = require("../utils/password-policy");
-const { pickActiveOrder } = require("./portal-account");
+const { buildSubscription, pickActiveOrder } = require("./portal-account");
 
 const DEFAULT_KEY_TTL_DAYS = 14;
 
@@ -103,29 +103,15 @@ function getActiveDrivers(users = []) {
 }
 
 function getPlanLimit(order) {
-  return Math.max(0, Number(order?.fleetSize || order?.maxDrivers || order?.maxUnits || 0));
+  return buildSubscription(order).unitsLimit;
 }
 
 function getPlanPaidUntil(order) {
-  return toIso(order?.paidUntil || order?.currentPeriodEnd || order?.trialEndsAt || null);
-}
-
-function isOrderPaid(order) {
-  return ["paid", "trial_active"].includes(String(order?.paymentStatus || "").trim());
-}
-
-function isPlanExpired(order) {
-  const paidUntil = getPlanPaidUntil(order);
-
-  if (paidUntil && isPastDate(paidUntil)) {
-    return true;
-  }
-
-  return String(order?.status || "").trim() === "cancelled" || String(order?.activationStatus || "").trim() === "cancelled";
+  return buildSubscription(order).expiresAt;
 }
 
 function assertPlanCanActivate(order) {
-  if (!order || String(order.activationStatus || "").trim() !== "active" || !isOrderPaid(order) || isPlanExpired(order)) {
+  if (!buildSubscription(order).isActive) {
     throw new ActivationKeyError(ACTIVATION_ERRORS.planInactive, 403);
   }
 }
@@ -142,6 +128,7 @@ function assertActivationKeyMatchesOrder(activationKey, order) {
 }
 
 function buildActivationSummary({ order, users = [], activationKeys = [] }) {
+  const subscription = buildSubscription(order);
   const activeDrivers = getActiveDrivers(users);
   const presentedKeys = activationKeys.map((entry) => presentActivationKey(entry, users));
   const maxDrivers = getPlanLimit(order);
@@ -149,13 +136,12 @@ function buildActivationSummary({ order, users = [], activationKeys = [] }) {
   const usedKeys = presentedKeys.filter((entry) => entry.status === "used").length;
   const expiredKeys = presentedKeys.filter((entry) => entry.status === "expired").length;
   const revokedKeys = presentedKeys.filter((entry) => entry.status === "revoked").length;
-  const planActive = Boolean(order) && String(order.activationStatus || "").trim() === "active";
 
   return {
     planId: order?.planId || null,
     planName: order?.planName || "Sin plan activo",
-    planStatus: planActive ? "active" : String(order?.activationStatus || order?.paymentStatus || "inactive"),
-    paidUntil: getPlanPaidUntil(order),
+    planStatus: subscription.status,
+    paidUntil: subscription.expiresAt,
     maxUnits: maxDrivers,
     maxDrivers,
     activeUnits: activeDrivers.filter((entry) => entry.vehicleId).length,

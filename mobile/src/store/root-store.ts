@@ -1359,8 +1359,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         get().loadUsers();
       }
       if (eventName === 'payment:confirmed' || eventName === 'plan:active' || eventName === 'subscription:updated') {
-        refreshAuthSession(set)
-          .then(() => get().refreshAll())
+        get().refreshAll()
           .catch((error) => logStoreError(`socket:${eventName}:session`, error));
       }
     });
@@ -1446,6 +1445,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
           .catch(() => undefined);
         get().flushPendingSync();
         connectSocket(set, get);
+        get().refreshAll();
       } else if (state !== 'active') {
         set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
       }
@@ -1758,25 +1758,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
-    const { authContext, token, user } = get();
-    if (!token || !user) return;
-    if (!shouldRefreshOperationalData(authContext, user)) {
-      set({ isRefreshing: false });
-      return;
-    }
+    const { token, user: currentUser } = get();
+    if (!token || !currentUser) return;
     set({ isRefreshing: true });
     try {
+      const refreshed = await refreshAuthSession(set);
+      const authContext = refreshed.authContext;
+      const user = refreshed.session.profile.user;
+
+      if (!shouldRefreshOperationalData(authContext, user)) {
+        set({
+          ...getEmptyOperationalState(),
+          authContext,
+          user,
+          isRefreshing: false,
+          isHydrated: true,
+          isBootstrapping: false,
+          networkStatus: 'online',
+          error: null,
+        });
+        persistOfflineSnapshot(get);
+        connectSocket(set, get);
+        return;
+      }
+
       const curr = get();
       const res = await Promise.allSettled([
         getLocationsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
         user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
-        getRouteSessionHistoryRequest({ limit: 500 }),
-        getSessionRequest()
+        getRouteSessionHistoryRequest({ limit: 500 })
       ]);
       const data: any = {};
-      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory', 'session'];
+      const keys = ['mapData', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
@@ -1788,21 +1803,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       });
 
-      // Reconciliacion del perfil: `user.vehicleId` solo se establecia al iniciar
-      // sesion y por el evento socket `user:updated`. Si al conductor se le asigna
-      // una unidad mientras esta desconectado, ese evento se pierde y la app queda
-      // en "No tienes una unidad asignada" hasta cerrar y reabrir sesion. Aqui
-      // reconciliamos el perfil contra el servidor en cada refresco.
-      const sessionResult = data.session as SessionResult | undefined;
-      delete data.session;
-      if (sessionResult?.profile?.user) {
-        data.user = sessionResult.profile.user;
-        // La jornada activa de arriba se pidio con el vehicleId previo. Si la unidad
-        // acaba de asignarse, la reconsultamos con el vehicleId correcto.
-        const nextVehicleId = data.user.vehicleId || null;
-        if (nextVehicleId && nextVehicleId !== (user.vehicleId || null)) {
-          data.activeRouteSession = await getActiveRouteSessionRequest(nextVehicleId).catch(() => null);
-        }
+      // La autoridad de cuenta y el perfil se reconciliaron al inicio mediante
+      // /auth/me. Si la unidad cambio desde el snapshot previo, reconsultamos su
+      // jornada usando la asignacion vigente.
+      data.user = user;
+      if (user.vehicleId && user.vehicleId !== (currentUser.vehicleId || null)) {
+        data.activeRouteSession = await getActiveRouteSessionRequest(user.vehicleId).catch(() => null);
       }
 
       if (res.some((result) => result.status === 'rejected' && isPlanRequiredError(result.reason))) {

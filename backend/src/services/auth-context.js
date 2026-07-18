@@ -111,8 +111,7 @@ function isActiveTenant(tenant) {
 }
 
 function hasActiveMobileSubscription(subscription) {
-  return normalizeStatus(subscription?.status) === "active" &&
-    isActiveSubscription(subscription);
+  return isActiveSubscription(subscription);
 }
 
 function getMobileBlockReason(subscription, tenant) {

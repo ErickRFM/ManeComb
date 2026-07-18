@@ -183,7 +183,7 @@ async function testExpiredPlanIsBlocked() {
     user: createUser()
   });
 
-  assert.equal(authContext.subscription.status, "active");
+  assert.equal(authContext.subscription.status, "expired");
   assert.equal(authContext.subscription.isActive, false);
   assert.equal(authContext.canUseOperations, false);
   console.log("ok - plan vencido bloquea con inactive_plan");
@@ -234,6 +234,72 @@ async function testActiveDriverCanAccess() {
   console.log("ok - conductor con tenant activo entra a mobile");
 }
 
+async function testActiveTrialCanAccessMobile() {
+  const authContext = await assertAccess("trial vigente", {
+    expected: {
+      canAccessMobile: true,
+      mobileBlockReason: null
+    },
+    orders: [
+      createOrder({
+        activationStatus: "trial",
+        paymentStatus: "trial_active",
+        status: "trial",
+        trialEndsAt: futureDate,
+        currentPeriodEnd: null
+      })
+    ],
+    user: createUser()
+  });
+
+  assert.equal(authContext.subscription.status, "trial");
+  assert.equal(authContext.subscription.isActive, true);
+  assert.equal(authContext.canUseOperations, true);
+  console.log("ok - trial vigente usa la misma decision activa en portal y mobile");
+}
+
+async function testPaidOrderUsesCanonicalActiveStatus() {
+  const authContext = await assertAccess("pago aprobado sin estado duplicado", {
+    expected: {
+      canAccessMobile: true,
+      mobileBlockReason: null
+    },
+    orders: [
+      createOrder({
+        activationStatus: "pending",
+        paymentStatus: "paid",
+        status: "paid"
+      })
+    ],
+    user: createUser()
+  });
+
+  assert.equal(authContext.subscription.status, "active");
+  assert.equal(authContext.subscription.isActive, true);
+  console.log("ok - pago aprobado se normaliza al estado canonico active");
+}
+
+async function testSuspendedSubscriptionOverridesOldPaidFlag() {
+  const authContext = await assertAccess("suscripcion suspendida", {
+    expected: {
+      canAccessMobile: false,
+      mobileBlockReason: "inactive_plan"
+    },
+    orders: [
+      createOrder({
+        activationStatus: "suspended",
+        paymentStatus: "paid",
+        status: "suspended"
+      })
+    ],
+    user: createUser()
+  });
+
+  assert.equal(authContext.subscription.status, "suspended");
+  assert.equal(authContext.subscription.isActive, false);
+  console.log("ok - suspension explicita domina flags de pago historicos");
+}
+
 async function run() {
   await testOwnerWithoutPlanIsBlocked();
   await testDriverWithoutPlanDoesNotRouteToMap();
@@ -243,6 +309,9 @@ async function run() {
   await testExpiredPlanIsBlocked();
   await testPendingInvitedUserDoesNotBlockActiveTenant();
   await testActiveDriverCanAccess();
+  await testActiveTrialCanAccessMobile();
+  await testPaidOrderUsesCanonicalActiveStatus();
+  await testSuspendedSubscriptionOverridesOldPaidFlag();
 }
 
 run().catch((error) => {

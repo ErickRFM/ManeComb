@@ -13,6 +13,7 @@ const {
 const { buildCommercialActivationUpdate } = require("../../services/commercial-activation");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { enrichCommercialOrder } = require("../../services/commercial-profile");
+const { buildSubscription } = require("../../services/portal-account");
 const {
   buildCommercialDownloadResponse,
   isCommercialDownloadAuthorized,
@@ -50,6 +51,20 @@ function emitCommercialEvent(req, eventName, order, payload = {}) {
   }
 
   req.app.locals.io?.to("platform:admin").emit(eventName, eventPayload);
+}
+
+function emitSubscriptionUpdate(req, order) {
+  const organizationId = String(order?.organizationId || order?.organizationSlug || "").trim();
+
+  if (!organizationId) {
+    return;
+  }
+
+  req.app.locals.io?.to(`org:${organizationId}`).emit("subscription:updated", {
+    organizationId,
+    subscription: buildSubscription(order),
+    updatedAt: new Date().toISOString()
+  });
 }
 
 function isCommercialOrderPaid(order) {
@@ -386,6 +401,7 @@ router.post("/confirm", async (req, res) => {
         status: responseOrder.activationStatus
       });
     }
+    emitSubscriptionUpdate(req, responseOrder);
 
     return res.json({
       ok: true,
@@ -489,6 +505,7 @@ router.post("/webhooks/mercadopago", async (req, res) => {
           status: activatedOrder.activationStatus
         });
       }
+      emitSubscriptionUpdate(req, enrichCommercialOrder(activatedOrder));
     });
     await markWebhookProcessed(webhookEvent.event?._id || webhookEvent.event?.id, "processed");
 

@@ -4,7 +4,7 @@ const {
   getCommercialPlanPricing
 } = require("../../config/commercial-plans");
 const { authenticate } = require("../../middlewares/authenticate");
-const { getRolesWithPermission, requirePermission } = require("../../middlewares/access-control");
+const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const { recordAuditLog } = require("../../services/audit");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
@@ -23,9 +23,7 @@ function emitAccountEvent(req, eventName, payload) {
   const organizationId = getOrganizationId(req.user);
 
   if (organizationId) {
-    getRolesWithPermission("canManageBilling").forEach((role) => {
-      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit(eventName, payload);
-    });
+    req.app.locals.io?.to(`org:${organizationId}`).emit(eventName, payload);
   }
 
   req.app.locals.io?.to(`user:${req.user.id}`).emit(eventName, payload);
