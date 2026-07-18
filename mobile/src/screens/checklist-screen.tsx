@@ -28,6 +28,7 @@ import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/comp
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
+import { buildOperationalUnitSnapshot } from '@/src/domain/operations/build-operational-unit-snapshot';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { assignVehicleRouteRequest, createNavigationRouteRequest, deleteNavigationRouteRequest, getActiveRouteSessionRequest, getRouteSessionHistoryRequest, reverseNavigationPlaceRequest, updateNavigationRouteRequest } from '@/src/api/client';
 import { usePointToPointTracker } from '@/src/hooks/use-point-to-point-tracker';
@@ -46,7 +47,6 @@ import type {
   Vehicle,
 } from '@/src/types/app';
 import { formatTime } from '@/src/utils/format';
-import { buildActiveRouteSnapshot, getAssignedRouteLabel } from '@/src/utils/active-route';
 import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
 
 type FilterMode = 'all' | 'active' | 'routes' | 'completed' | 'cancelled';
@@ -93,14 +93,6 @@ function formatDistance(meters: number) {
   }
 
   return `${(meters / 1000).toFixed(1)} km`;
-}
-
-function getEtaAt(vehicle: Vehicle) {
-  if (typeof vehicle.etaMinutes !== 'number') {
-    return null;
-  }
-
-  return new Date(Date.now() + vehicle.etaMinutes * 60 * 1000).toISOString();
 }
 
 function getLogTimestamp(log: FleetControlLog) {
@@ -153,24 +145,25 @@ function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlL
   return 'available';
 }
 
-function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[]): OperationalRecord {
+function buildOperationalRecord(vehicle: Vehicle, sessionLogs: FleetControlLog[], sessions: RouteSession[]): OperationalRecord {
   const latestLog = getLatestLog(sessionLogs, vehicle.id);
   const activeLog = getActiveLog(sessionLogs, vehicle.id);
   // Terminal history describes the last route outcome, not the vehicle's
   // current availability. Only a vigente log may determine current operation.
-  const status = getVehicleOperationalStatus(vehicle, activeLog);
-  const activeRoute = buildActiveRouteSnapshot({ vehicle });
+  const snapshot = buildOperationalUnitSnapshot({ vehicle, sessions });
+  const status = snapshot.status.code === 'running' || snapshot.status.code === 'paused'
+    ? vehicle.delayMinutes > 0 ? 'delayed' : 'active'
+    : getVehicleOperationalStatus(vehicle, activeLog);
   const departureAt = activeLog?.departureAt || latestLog?.departureAt || null;
   const etaAt =
-    activeRoute?.progress?.etaAt ||
-    (status === 'active' || status === 'delayed' ? getEtaAt(vehicle) : null);
+    snapshot.routeProgress?.etaAt || null;
 
   return {
     id: latestLog?.id || `vehicle-record-${vehicle.id}`,
     vehicleId: vehicle.id,
-    vehicleCode: vehicle.code,
-    driverName: vehicle.driverName || 'Operador sin asignar',
-    routeName: activeRoute?.name || getAssignedRouteLabel(normalizeAssignedRoute(vehicle.assignedRoute)) || 'Ruta sin asignar',
+    vehicleCode: snapshot.unitNumber,
+    driverName: snapshot.driver?.name || 'Operador sin asignar',
+    routeName: snapshot.route?.name || 'Ruta sin asignar',
     departureAt,
     arrivalAt: latestLog?.arrivalAt || null,
     etaAt,
@@ -1648,8 +1641,12 @@ export function ChecklistScreen() {
       : `${originLabel} - ${destinationLabel}`;
 
   const records = useMemo(
-    () => vehicles.map((vehicle) => buildOperationalRecord(vehicle, persistentLogs)),
-    [persistentLogs, vehicles]
+    () => vehicles.map((vehicle) => buildOperationalRecord(
+      vehicle,
+      persistentLogs,
+      [...sessionHistory, ...(activeSession ? [activeSession] : [])]
+    )),
+    [activeSession, persistentLogs, sessionHistory, vehicles]
   );
   const filteredRecords = useMemo(
     () =>

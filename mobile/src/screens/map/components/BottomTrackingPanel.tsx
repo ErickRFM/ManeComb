@@ -13,11 +13,10 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusPill } from '@/src/components/status-pill';
+import { buildOperationalUnitSnapshot } from '@/src/domain/operations/build-operational-unit-snapshot';
+import type { OperationalUnitSnapshot } from '@/src/domain/operations/operational-unit-snapshot';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, RouteSession, User, Vehicle } from '@/src/types/app';
-import { getAssignedRouteLabel } from '@/src/utils/active-route';
-import { normalizeAssignedRoute } from '@/src/utils/navigation-data';
-import { isVehicleGpsFresh } from '../utils/tracking';
 import type { LocationStatusSnapshot } from '../types';
 import { mapStyles as styles } from '../map-styles';
 import {
@@ -48,9 +47,9 @@ const statusLabels: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 
-function formatVehicleSpeed(vehicle: Vehicle | null) {
-  if (!vehicle?.locationTimestamp || !isFiniteMetricNumber(vehicle.speed)) return 'GPS pendiente';
-  const speed = Math.max(0, Math.round(Number(vehicle.speed)));
+function formatVehicleSpeed(snapshot: OperationalUnitSnapshot | null) {
+  if (!snapshot?.location || !isFiniteMetricNumber(snapshot.location.speedMetersPerSecond)) return 'GPS pendiente';
+  const speed = Math.max(0, Math.round(Number(snapshot.location.speedMetersPerSecond) * 3.6));
   return speed < 1 ? 'Detenida' : `${speed} km/h`;
 }
 
@@ -59,11 +58,9 @@ function formatVehicleStatus(status?: string | null) {
   return statusLabels[status] || status.replace(/[-_]/g, ' ');
 }
 
-function formatRouteLabel(vehicle: Vehicle | null) {
-  if (!vehicle) return 'Sin unidad';
-  const assignedRoute = normalizeAssignedRoute(vehicle.assignedRoute);
-  if (assignedRoute) return getAssignedRouteLabel(assignedRoute) || 'Ruta asignada';
-  return vehicle.routeName || vehicle.routeCode || 'Ruta no asignada';
+function formatRouteLabel(snapshot: OperationalUnitSnapshot | null) {
+  if (!snapshot) return 'Sin unidad';
+  return snapshot.route?.name || 'Ruta no asignada';
 }
 
 function formatCompactVehicleMeta(vehicle: Vehicle | null, routeLabel: string) {
@@ -103,11 +100,6 @@ function formatDateTime(value?: string | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toLocaleString('es-MX') : null;
-}
-
-function getGpsLabel(vehicle: Vehicle | null) {
-  if (!vehicle?.locationTimestamp) return 'Sin GPS';
-  return isVehicleGpsFresh(vehicle) ? 'GPS actualizado' : 'GPS vencido';
 }
 
 type BottomTrackingPanelProps = {
@@ -195,22 +187,28 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     setSelectedSession(null);
   }, [selectedVehicle?.id]);
 
-  const routeLabel = useMemo(() => formatRouteLabel(selectedVehicle), [selectedVehicle]);
-  const compactMeta = useMemo(
-    () => formatCompactVehicleMeta(selectedVehicle, routeLabel),
-    [routeLabel, selectedVehicle]
-  );
   const vehicleSession = useMemo(
     () => selectVehicleActiveSession(selectedVehicle?.id, activeSession, sessionHistory),
     [activeSession, selectedVehicle?.id, sessionHistory]
   );
-  const statusLabel = vehicleSession?.status === 'PAUSED'
-    ? 'Pausada'
-    : vehicleSession?.status === 'RUNNING'
-      ? 'En jornada'
-      : formatVehicleStatus(selectedVehicle?.status);
-  const gpsLabel = selectedVehicle ? getGpsLabel(selectedVehicle) : locationStatus.hudLabel;
-  const speedLabel = useMemo(() => formatVehicleSpeed(selectedVehicle), [selectedVehicle]);
+  const snapshot = useMemo(
+    () => selectedVehicle ? buildOperationalUnitSnapshot({
+      vehicle: selectedVehicle,
+      sessions: [...sessionHistory, ...(activeSession ? [activeSession] : [])],
+      incidents,
+    }) : null,
+    [activeSession, incidents, selectedVehicle, sessionHistory]
+  );
+  const routeLabel = useMemo(() => formatRouteLabel(snapshot), [snapshot]);
+  const compactMeta = useMemo(
+    () => formatCompactVehicleMeta(selectedVehicle, routeLabel),
+    [routeLabel, selectedVehicle]
+  );
+  const statusLabel = snapshot ? formatVehicleStatus(snapshot.status.code) : 'Sin estado';
+  const gpsLabel = snapshot
+    ? snapshot.gps.state === 'fresh' ? 'GPS actualizado' : snapshot.gps.state === 'stale' ? 'GPS vencido' : 'Sin GPS'
+    : locationStatus.hudLabel;
+  const speedLabel = useMemo(() => formatVehicleSpeed(snapshot), [snapshot]);
   const kilometersLabel = useMemo(
     () => formatKilometers(getSessionDistanceMeters(vehicleSession)),
     [vehicleSession]
@@ -220,11 +218,11 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     [vehicleSession]
   );
   const lastUpdateLabel = useMemo(
-    () => formatLastUpdate(selectedVehicle?.locationTimestamp || selectedVehicle?.updatedAt || lastSyncedAt),
-    [lastSyncedAt, selectedVehicle?.locationTimestamp, selectedVehicle?.updatedAt]
+    () => formatLastUpdate(snapshot?.lastUpdateAt || lastSyncedAt),
+    [lastSyncedAt, snapshot?.lastUpdateAt]
   );
   const canViewVehicleDetails = userRole === 'admin' || userRole === 'supervisor';
-  const statusTone = vehicleSession?.status === 'PAUSED'
+  const statusTone = snapshot?.status.code === 'paused'
     ? 'warning'
     : selectedVehicle?.status === 'maintenance'
       ? 'danger'
@@ -242,8 +240,8 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       if (canViewVehicleDetails) {
         rows.push(
           ['Unidad', selectedVehicle.code],
-          ['Chofer', selectedVehicle.driver?.name || selectedVehicle.driverName || 'Sin chofer asignado'],
-          ['Placas', selectedVehicle.plate || 'Sin placas']
+          ['Chofer', snapshot?.driver?.name || 'Sin chofer asignado'],
+          ['Placas', snapshot?.plate || 'Sin placas']
         );
       }
       rows.push(
@@ -258,13 +256,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       }
       if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
       if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
-      if (isFiniteMetricNumber(selectedVehicle.etaMinutes)) rows.push(['ETA', `${Math.max(0, Math.round(Number(selectedVehicle.etaMinutes)))} min`]);
+      if (isFiniteMetricNumber(snapshot?.routeProgress?.remainingTimeSeconds)) rows.push(['ETA', `${Math.max(0, Math.round(Number(snapshot?.routeProgress?.remainingTimeSeconds) / 60))} min`]);
       if (isFiniteMetricNumber(selectedVehicle.delayMinutes)) rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
       if (activeTimeLabel) rows.push(['Tiempo activo', activeTimeLabel]);
       if (kilometersLabel) rows.push(['Kilometros', kilometersLabel]);
       return rows;
     },
-    [activeTimeLabel, gpsLabel, canViewVehicleDetails, kilometersLabel, lastUpdateLabel, routeLabel, selectedVehicle, speedLabel, statusLabel]
+    [activeTimeLabel, gpsLabel, canViewVehicleDetails, kilometersLabel, lastUpdateLabel, routeLabel, selectedVehicle, snapshot, speedLabel, statusLabel]
   );
   const history = useMemo(
     () => sessionHistory.filter((session) => !selectedVehicle || session.vehicleId === selectedVehicle.id),
