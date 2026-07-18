@@ -302,6 +302,9 @@ router.post("/routes", authenticate, requireOrganization, requireOperationalAcce
       data: savedRoute
     });
   } catch (error) {
+    if (error.message && error.message.includes("Ya existe una ruta")) {
+      return res.status(409).json({ ok: false, message: error.message });
+    }
     return next(error);
   }
 });
@@ -384,6 +387,9 @@ router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (
       data: updatedRoute
     });
   } catch (error) {
+    if (error.message && error.message.includes("Ya existe una ruta")) {
+      return res.status(409).json({ ok: false, message: error.message });
+    }
     return next(error);
   }
 });

@@ -58,7 +58,13 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       data: vehicle
     });
   } catch (error) {
-    return res.status(400).json({
+    const conflictMessages = [
+      "El numero economico ya esta registrado",
+      "Ya existe una unidad con esas placas",
+      "Ya existe una unidad con ese nombre o placas"
+    ];
+    const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
+    return res.status(isConflict ? 409 : 400).json({
       ok: false,
       message: error.message || "No fue posible crear la unidad"
     });
@@ -137,7 +143,13 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
       data: vehicle
     });
   } catch (error) {
-    return res.status(400).json({
+    const conflictMessages = [
+      "El numero economico ya esta registrado",
+      "Ya existe una unidad con esas placas",
+      "Ya existe una unidad con ese nombre o placas"
+    ];
+    const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
+    return res.status(isConflict ? 409 : 400).json({
       ok: false,
       message: error.message || "No fue posible actualizar la unidad"
     });

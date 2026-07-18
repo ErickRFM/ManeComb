@@ -1599,6 +1599,14 @@ async function createMongoStore() {
     );
     const userStatus = normalizeUserStatus(payload.userStatus || "active");
 
+    if (organizationId && companyProfile.taxId) {
+      const duplicateTaxId = await UserModel.findOne({
+        organizationId,
+        "companyProfile.taxId": companyProfile.taxId
+      }).lean();
+      if (duplicateTaxId) throw new Error("El RFC ya esta registrado por otro usuario en esta organizacion");
+    }
+
     const user = await UserModel.create({
       _id: userId,
       name,
@@ -1687,7 +1695,17 @@ async function createMongoStore() {
       typeof payload.billingEmail === "string" ||
       typeof payload.billingAddress === "string"
     ) {
-      user.companyProfile = mergeCompanyProfile(user.companyProfile, payload, user.email);
+      const nextProfile = mergeCompanyProfile(user.companyProfile, payload, user.email);
+      const orgId = getUserOrganizationId({ ...user.toObject(), ...(payload.organizationId ? { organizationId: payload.organizationId } : {}) });
+      if (orgId && nextProfile.taxId) {
+        const duplicateTaxId = await UserModel.findOne({
+          _id: { $ne: user._id },
+          organizationId: orgId,
+          "companyProfile.taxId": nextProfile.taxId
+        }).lean();
+        if (duplicateTaxId) throw new Error("El RFC ya esta registrado por otro usuario en esta organizacion");
+      }
+      user.companyProfile = nextProfile;
       user.markModified("companyProfile");
     }
 

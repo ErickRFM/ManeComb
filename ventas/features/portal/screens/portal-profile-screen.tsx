@@ -77,15 +77,49 @@ export function PortalProfileScreen() {
   };
 
   const saveProfile = async () => {
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+    const phone = form.phone.trim();
+    const companyName = form.companyName.trim();
+    const legalName = form.legalName.trim();
+    const taxId = form.taxId.trim().toUpperCase();
+    const billingEmail = form.billingEmail.trim().toLowerCase();
+    const billingAddress = form.billingAddress.trim();
+
+    if (!name) {
+      setMessage('El nombre es obligatorio.');
+      return;
+    }
+
+    if (name.length > 100) {
+      setMessage('El nombre no puede exceder 100 caracteres.');
+      return;
+    }
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMessage('El correo electronico no tiene un formato valido.');
+      return;
+    }
+
+    if (taxId && !/^[A-Z0-9&Ñ]{12,13}$/.test(taxId)) {
+      setMessage('El RFC debe tener 12 o 13 caracteres alfanumericos.');
+      return;
+    }
+
+    if (companyName.length > 200) {
+      setMessage('El nombre de la empresa no puede exceder 200 caracteres.');
+      return;
+    }
+
     const result = await updateProfile({
-      name: form.name,
-      email: form.email,
-      phone: form.phone,
-      companyName: form.companyName,
-      legalName: form.legalName,
-      taxId: form.taxId,
-      billingEmail: form.billingEmail,
-      billingAddress: form.billingAddress,
+      name,
+      email,
+      phone,
+      companyName,
+      legalName,
+      taxId,
+      billingEmail,
+      billingAddress,
     });
 
     setMessage(result.ok ? 'Perfil actualizado.' : result.message || 'No fue posible actualizar el perfil.');

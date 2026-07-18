@@ -553,9 +553,9 @@ export function createStyles(
       alignSelf: 'center',
     },
     conversationActionButton: {
-      width: isPhone ? 38 : 44,
-      height: isPhone ? 38 : 44,
-      borderRadius: isPhone ? 19 : 16,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -581,6 +581,10 @@ export function createStyles(
     conversationActionButtonVideoActive: {
       backgroundColor: theme.colors.info,
       borderColor: theme.colors.info,
+    },
+    conversationActionButtonPressed: {
+      opacity: 0.72,
+      transform: [{ scale: 0.94 }],
     },
     conversationActionButtonDisabled: {
       opacity: 0.45,

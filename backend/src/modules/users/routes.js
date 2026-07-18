@@ -98,7 +98,9 @@ router.patch("/me", authenticate, async (req, res) => {
       data: user
     });
   } catch (error) {
-    return res.status(error.message === "El correo ya existe" ? 409 : 400).json({
+    const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
+    const isConflict = conflictMessages.some((msg) => error.message === msg);
+    return res.status(isConflict ? 409 : 400).json({
       ok: false,
       message: error.message || "No fue posible actualizar el perfil"
     });
@@ -163,7 +165,9 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       data: user
     });
   } catch (error) {
-    return res.status(error.message === "El correo ya existe" ? 409 : 400).json({
+    const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
+    const isConflict = conflictMessages.some((msg) => error.message === msg);
+    return res.status(isConflict ? 409 : 400).json({
       ok: false,
       message: error.message || "No fue posible crear el usuario"
     });
@@ -280,7 +284,9 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       data: user
     });
   } catch (error) {
-    return res.status(error.message === "El correo ya existe" ? 409 : 400).json({
+    const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
+    const isConflict = conflictMessages.some((msg) => error.message === msg);
+    return res.status(isConflict ? 409 : 400).json({
       ok: false,
       message: error.message || "No fue posible actualizar el usuario"
     });

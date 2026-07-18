@@ -127,8 +127,31 @@ export function PortalUnitsScreen() {
     if (isSubmitting) return;
     setMessage(null);
 
-    if (!editor.code.trim() || !editor.plate.trim()) {
+    const code = editor.code.trim();
+    const plate = editor.plate.trim().toUpperCase();
+
+    if (!code || !plate) {
       setMessage('Nombre y placas de unidad son obligatorios.');
+      return;
+    }
+
+    if (code.length > 50) {
+      setMessage('El nombre de la unidad no puede exceder 50 caracteres.');
+      return;
+    }
+
+    if (plate.length > 20) {
+      setMessage('Las placas no pueden exceder 20 caracteres.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9\u00C0-\u024F\s\-_./]+$/.test(code)) {
+      setMessage('El nombre de la unidad contiene caracteres no validos.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9\u00C0-\u024F\s\-]+$/.test(plate)) {
+      setMessage('Las placas contienen caracteres no validos.');
       return;
     }
 
@@ -139,10 +162,15 @@ export function PortalUnitsScreen() {
       return;
     }
 
+    if (typeof kilometers === 'number' && kilometers > 9999999) {
+      setMessage('El kilometraje ingresado es demasiado alto.');
+      return;
+    }
+
     const statusPayload = !editingId || statusTouched ? { status: editor.status as VehicleStatus } : {};
     const payload = {
-      code: editor.code.trim(),
-      plate: editor.plate.trim().toUpperCase(),
+      code,
+      plate,
       currentKilometers: kilometers,
       ...statusPayload,
     } as VehicleMutationPayload;

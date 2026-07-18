@@ -193,16 +193,25 @@ export function PortalRoutesScreen() {
   const createCatalogRoute = async () => {
     const origin = editorPoints[0];
     const destination = editorPoints[1];
-    if (!routeName.trim() || !origin || !destination || !editor.originLabel.trim() || !editor.destinationLabel.trim()) {
+    const name = routeName.trim();
+    if (!name || !origin || !destination || !editor.originLabel.trim() || !editor.destinationLabel.trim()) {
       setMessage('Completa nombre, origen y destino de la nueva ruta.');
+      return;
+    }
+    if (name.length > 100) {
+      setMessage('El nombre de la ruta no puede exceder 100 caracteres.');
+      return;
+    }
+    if (!editingRouteId && savedRoutes.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
+      setMessage('Ya existe una ruta con ese nombre.');
       return;
     }
     setCatalogBusy(true);
     try {
       const payload = {
-        name: routeName.trim(), origin, destination,
+        name, origin, destination,
         originLabel: editor.originLabel.trim(), destinationLabel: editor.destinationLabel.trim(), stops: editorStops,
-        route: { label: routeName.trim(), ...editorMetrics, polyline: editorGeometry.length >= 2 ? editorGeometry : [origin, destination] },
+        route: { label: name, ...editorMetrics, polyline: editorGeometry.length >= 2 ? editorGeometry : [origin, destination] },
       };
       const route = editingRouteId ? await updateSavedRouteRequest(editingRouteId, payload) : await createSavedRouteRequest(payload);
       setSavedRoutes((current) => editingRouteId ? current.map((item) => item.id === route.id ? route : item) : [route, ...current]);
@@ -259,6 +268,8 @@ export function PortalRoutesScreen() {
 
   const assignSavedRoute = async () => {
     if (!editor.vehicleId || !selectedSavedRoute) return setMessage('Selecciona una unidad y una ruta.');
+    if (!selectedSavedRoute.origin || !selectedSavedRoute.destination) return setMessage('La ruta seleccionada no tiene origen o destino definidos.');
+    if (isSubmitting) return;
     const result = await assignRoute({
       vehicleId: editor.vehicleId, routeId: selectedSavedRoute.id,
       originLabel: selectedSavedRoute.originLabel || selectedSavedRoute.name,
@@ -320,6 +331,16 @@ export function PortalRoutesScreen() {
       return;
     }
 
+    if (editor.originLabel.trim().length > 200) {
+      setMessage('El nombre del origen no puede exceder 200 caracteres.');
+      return;
+    }
+
+    if (editor.destinationLabel.trim().length > 200) {
+      setMessage('El nombre del destino no puede exceder 200 caracteres.');
+      return;
+    }
+
     const originLatitude = parseCoordinate(editor.originLatitude, -90, 90);
     const originLongitude = parseCoordinate(editor.originLongitude, -180, 180);
     const destinationLatitude = parseCoordinate(editor.destinationLatitude, -90, 90);
@@ -346,6 +367,15 @@ export function PortalRoutesScreen() {
 
   const executeAssignRoute = async () => {
     if (!editor.vehicleId) return;
+    if (isSubmitting) return;
+
+    const originLabel = editor.originLabel.trim();
+    const destinationLabel = editor.destinationLabel.trim();
+
+    if (!originLabel || !destinationLabel) {
+      setMessage('Origen y destino son obligatorios.');
+      return;
+    }
 
     const originLatitude = parseCoordinate(editor.originLatitude, -90, 90);
     const originLongitude = parseCoordinate(editor.originLongitude, -180, 180);
@@ -354,8 +384,8 @@ export function PortalRoutesScreen() {
 
     const result = await assignRoute({
       vehicleId: editor.vehicleId,
-      originLabel: editor.originLabel.trim(),
-      destinationLabel: editor.destinationLabel.trim(),
+      originLabel,
+      destinationLabel,
       origin: {
         latitude: originLatitude,
         longitude: originLongitude,
