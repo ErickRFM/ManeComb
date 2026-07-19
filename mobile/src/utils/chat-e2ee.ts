@@ -213,6 +213,44 @@ export function buildDirectChatMessagePayload(input: {
   };
 }
 
+/**
+ * Indica si un hilo usaria E2EE para un mensaje saliente nuestro, con el mismo criterio
+ * que `buildDirectChatMessagePayload`: solo si el destinatario tiene llave publica usable.
+ *
+ * Si el destinatario no tiene llave, un mensaje nuestro tampoco se cifraria desde dentro
+ * de la app, asi que responder en plano no degrada nada. Si la tiene, responder en plano
+ * SI seria una degradacion silenciosa y hay que bloquearlo.
+ */
+export function isDirectChatEncryptionActive(input: {
+  currentUserId: string;
+  conversation: {
+    kind?: string;
+    channelMode?: string;
+    encrypted?: boolean;
+    participants?: Array<{ id: string; e2eePublicKey?: string }>;
+  } | null;
+}) {
+  const conversation = input.conversation;
+
+  if (!conversation || conversation.encrypted === false) {
+    return false;
+  }
+
+  const participants = conversation.participants || [];
+
+  if (
+    conversation.kind !== 'direct' ||
+    conversation.channelMode === 'radio' ||
+    participants.length !== 2
+  ) {
+    return false;
+  }
+
+  const recipient = participants.find((participant) => participant.id !== input.currentUserId);
+
+  return isE2eeCapablePublicKey(recipient?.e2eePublicKey);
+}
+
 export function decryptDirectChatText(input: {
   envelope: DirectMessageEnvelope;
   peerPublicKey: string;

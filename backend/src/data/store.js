@@ -962,6 +962,13 @@ function createEmbeddedStore() {
       pushSubscriptions: []
     };
 
+    if (organizationId && user.companyProfile?.taxId) {
+      const duplicateTaxId = state.users.some(
+        (entry) => entry.id !== user.id && entry.organizationId === organizationId && entry.companyProfile?.taxId === user.companyProfile.taxId
+      );
+      if (duplicateTaxId) throw new Error("El RFC ya esta registrado por otro usuario en esta organizacion");
+    }
+
     state.users.unshift(user);
     syncDriverVehicleAssignment(user.id, user.vehicleId);
 
@@ -1025,7 +1032,15 @@ function createEmbeddedStore() {
       typeof payload.billingEmail === "string" ||
       typeof payload.billingAddress === "string"
     ) {
-      user.companyProfile = mergeCompanyProfile(user.companyProfile, payload, user.email);
+      const nextProfile = mergeCompanyProfile(user.companyProfile, payload, user.email);
+      const orgId = user.organizationId || resolveOrganizationId(user, user.email);
+      if (orgId && nextProfile.taxId) {
+        const duplicateTaxId = state.users.some(
+          (entry) => entry.id !== user.id && entry.organizationId === orgId && entry.companyProfile?.taxId === nextProfile.taxId
+        );
+        if (duplicateTaxId) throw new Error("El RFC ya esta registrado por otro usuario en esta organizacion");
+      }
+      user.companyProfile = nextProfile;
     }
 
     if (
@@ -2157,9 +2172,11 @@ function createEmbeddedStore() {
     const organizationId = String(payload.organizationId || "").trim();
     const code = String(payload.code || "").trim();
     const plate = String(payload.plate || "").trim().toUpperCase();
-    if (state.vehicles.some((entry) => entry.organizationId === organizationId &&
-      (entry.code.toLowerCase() === code.toLowerCase() || entry.plate.toUpperCase() === plate))) {
-      throw new Error("Ya existe una unidad con ese nombre o placas");
+    if (state.vehicles.some((entry) => entry.organizationId === organizationId && entry.code.toLowerCase() === code.toLowerCase())) {
+      throw new Error("El numero economico ya esta registrado en esta organizacion");
+    }
+    if (state.vehicles.some((entry) => entry.organizationId === organizationId && entry.plate.toUpperCase() === plate)) {
+      throw new Error("Ya existe una unidad con esas placas en esta organizacion");
     }
     const vehicle = {
       id: String(payload.id || "").trim() || randomUUID(),
@@ -2208,9 +2225,11 @@ function createEmbeddedStore() {
 
     const nextCode = typeof payload.code !== "undefined" ? String(payload.code || "").trim() : vehicle.code;
     const nextPlate = typeof payload.plate !== "undefined" ? String(payload.plate || "").trim().toUpperCase() : vehicle.plate;
-    if (state.vehicles.some((entry) => entry.id !== vehicleId && entry.organizationId === vehicle.organizationId &&
-      (entry.code.toLowerCase() === nextCode.toLowerCase() || entry.plate.toUpperCase() === nextPlate.toUpperCase()))) {
-      throw new Error("Ya existe una unidad con ese nombre o placas");
+    if (state.vehicles.some((entry) => entry.id !== vehicleId && entry.organizationId === vehicle.organizationId && entry.code.toLowerCase() === nextCode.toLowerCase())) {
+      throw new Error("El numero economico ya esta registrado en esta organizacion");
+    }
+    if (state.vehicles.some((entry) => entry.id !== vehicleId && entry.organizationId === vehicle.organizationId && entry.plate.toUpperCase() === nextPlate.toUpperCase())) {
+      throw new Error("Ya existe una unidad con esas placas en esta organizacion");
     }
 
     if (typeof payload.code !== "undefined") {

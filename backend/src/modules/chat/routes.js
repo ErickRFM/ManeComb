@@ -243,7 +243,10 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
           data: {
             conversationId: conversation.id,
             channelMode: conversation.channelMode,
-            kind: "text"
+            kind: "text",
+            // El cliente usa este flag para no ofrecer respuesta rapida desde la
+            // notificacion: responder desde ahi viajaria en texto plano.
+            encrypted: Boolean(e2eeEnvelope?.ciphertext)
           },
           deepLink: `/chat?conversationId=${encodeURIComponent(conversation.id)}&channelMode=${encodeURIComponent(conversation.channelMode)}`
         }

@@ -104,6 +104,7 @@ import {
   generateStoredChatKeyPair,
   type DirectMessageEnvelope,
   type EncryptedChatKeyBackup,
+  isDirectChatEncryptionActive,
   isE2eeCapablePublicKey,
   type StoredChatKeyPair,
 } from '@/src/utils/chat-e2ee';
@@ -1150,6 +1151,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     }
 
     if (insertedMessage && !isOwnMessageBefore && NativeAppState.currentState !== 'active') {
+      // Un hilo cifrado no puede ofrecer respuesta rapida: el headless task no tiene
+      // las llaves y responder desde ahi degradaria el mensaje a texto plano.
+      const isEncryptedThread =
+        Boolean(hydrated.encrypted) ||
+        isDirectChatEncryptionActive({
+          currentUserId: get().user?.id || '',
+          conversation: get().conversations.find((c) => c.id === conversationId) || null,
+        });
+
       showInAppNotification({
         title: isRadio ? 'Audio de radio recibido' : 'Mensaje nuevo',
         body: hydrated.sender?.name || 'ManeComb operativo',
@@ -1157,9 +1167,11 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         deepLink: isRadio
           ? 'manecomb://radio'
           : `manecomb://chat?conversationId=${encodeURIComponent(conversationId)}&channelMode=chat`,
+        encrypted: isEncryptedThread,
         data: {
           category: isRadio ? 'radio' : 'chat',
           conversationId,
+          encrypted: isEncryptedThread,
         },
       }).catch(() => undefined);
     }

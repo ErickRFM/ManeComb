@@ -33,6 +33,7 @@ class ManeCombNotificationModule(
     category: String,
     conversationId: String?,
     deepLink: String?,
+    encrypted: Boolean,
     promise: Promise
   ) {
     try {
@@ -89,9 +90,15 @@ class ManeCombNotificationModule(
       }
 
       if (normalizedCategory == "chat" && safeConversationId.isNotEmpty()) {
-        builder
-          .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-          .addAction(buildReplyAction(notificationId, safeConversationId))
+        builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+
+        if (encrypted) {
+          // Hilo cifrado: responder desde aqui degradaria el mensaje a texto plano,
+          // asi que se explica por que no hay boton en vez de dejarlo ausente sin mas.
+          builder.setSubText(ENCRYPTED_REPLY_HINT)
+        } else {
+          builder.addAction(buildReplyAction(notificationId, safeConversationId))
+        }
       }
 
       val notification = builder.build()
@@ -222,6 +229,7 @@ class ManeCombNotificationModule(
     const val EXTRA_NOTIFICATION_ID = "notificationId"
     const val CHANNEL_GENERAL = "operacion-general"
     private const val REPLY_LABEL = "Responder"
+    private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
     private const val CHANNEL_RADIO = "operacion-radio"
     private const val CHANNEL_INCIDENTS = "operacion-incidentes"
     private const val CHANNEL_EMERGENCIES = "operacion-emergencias"

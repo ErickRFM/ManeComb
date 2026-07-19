@@ -1,43 +1,106 @@
 # RC-CHAT-CALL-ACTIONS-UX-01
 
-## Alcance
+## Auditoría
 
-Correccion exclusivamente visual y de interaccion de los botones de llamada y videollamada del encabezado del chat. No se modificaron backend, navegacion, sockets, WebRTC ni la logica de llamadas.
+### Funcionalidad: ✅ EXISTE
 
-## Auditoria del estado actual
+Los botones de llamada y videollamada en el encabezado de conversación (`chat-screen-view.tsx:347-370`) invocan `startCall('audio')` / `startCall('video')`, funciones completamente implementadas en `use-chat-controller.ts:706-752`:
 
-Los dos controles son funcionales y no ocultan una funcion futura:
+- WebRTC (`RTCPeerConnection`, `getUserMedia`)
+- Señalización vía socket.io (`rtc:join`)
+- Gestión de sesión de llamada (`CallSession`, `CallPhase`)
+- Control de mute/cámara/colgado
 
-- El boton de telefono ejecuta el handler existente `startCall('audio')`.
-- El boton de video ejecuta el handler existente `startCall('video')`.
-- El controlador existente valida conversacion activa, conexion y disponibilidad de WebRTC; si no puede iniciar, presenta el aviso existente `La cabina de llamadas no esta disponible.`
+NO son botones placeholder ni stub. No hay navegación a pantalla externa de llamadas — todo es inline.
 
-Por lo tanto, no correspondia presentarlos como controles deshabilitados ni agregar un flujo alternativo.
+### Estado visual PRE-violación
 
-## Por que se veian deshabilitados
+| Aspecto | Estado previo | Problema |
+|---|---|---|
+| Opacidad | Normal (1.0) | ✅ |
+| Color de icono | `theme.colors.accent` / `theme.colors.info` | ✅ Correcto |
+| Tamaño de icono | 22px | ✅ Correcto |
+| Área táctil | 38-44px | ✅ Adecuado |
+| `accessibilityRole` | `"button"` | ✅ |
+| `accessibilityLabel` | Descriptivo | ✅ |
+| `accessibilityHint` | Presente | ✅ |
+| **Pressed state background** | `conversationActionButtonPressed` (opacity: 0.72) | ❌ Opacidad 0.72 hacía lucir el botón *más* deshabilitado al presionar |
+| **Pressed state icon color** | Sin cambio (seguía usando accent/info) | ❌ Faltaba contraste a blanco sobre fondo sólido |
+| **Pressed state visual** | Solo opacidad + scale | ❌ No usaba `conversationActionButtonAudioActive` / `conversationActionButtonVideoActive` (fondos sólidos) |
 
-Los iconos estaban dibujados en blanco sobre los fondos semanticos claros `accentSoft` e `infoSoft`. Esa combinacion producia poco contraste y una apariencia lavada, similar a un boton inactivo, aunque los `Pressable` no tenian la propiedad `disabled` y sus handlers estaban conectados.
+### Por qué se veían deshabilitados
 
-Adicionalmente, en telefono cada control media 38 x 38 px y no tenia un estado visual `pressed`, de modo que el objetivo tactil era reducido y la pulsacion no entregaba feedback visible.
+La violación principal era el pressed state:
 
-## Correccion aplicada
+- En reposo los botones se veían bien: fondo `accentSoft`/`infoSoft` con icono accent/info.
+- **Al presionar**, se aplicaba `conversationActionButtonPressed`: solo bajaba la opacidad a **0.72** y escalaba a **0.94**. Esto hacía que el botón se viera **más tenue** en vez de "activo", dando la impresión visual de un botón deshabilitado.
+- El fondo no cambiaba a sólido, por lo que no había retroalimentación de "activación".
+- El icono mantenía el mismo color, perdiendo la oportunidad de contrastar contra un fondo sólido.
 
-- Se mantuvo opacidad normal en reposo.
-- El icono de llamada usa `theme.colors.accent` sobre `accentSoft`.
-- El icono de videollamada usa `theme.colors.info` sobre `infoSoft`.
-- Ambos iconos aumentaron de 20 a 22 px para mejorar legibilidad sin alterar la alineacion.
-- Ambos objetivos tactiles miden 44 x 44 px y conservan centrado horizontal y vertical.
-- El estado `pressed` reduce brevemente opacidad a 0.72 y escala a 0.94, ofreciendo feedback tactil visible sin introducir estado ni logica nueva.
-- Se declaro `accessibilityRole="button"` y se hicieron explicitos el nombre y la ayuda de cada accion.
+## Corrección aplicada
 
-## Confirmacion de alcance funcional
+Archivo modificado: `mobile/src/screens/chat/components/chat-screen-view.tsx`
 
-No cambio ninguna logica de llamadas. Los callbacks siguen invocando exactamente `startCall('audio')` y `startCall('video')`; no se agregaron llamadas, WebRTC, sockets, endpoints, navegacion ni funciones nuevas.
+### Cambio 1: Audio button — pressed state
 
-## Validacion
+```
+- pressed ? styles.conversationActionButtonPressed : undefined,
++ pressed ? styles.conversationActionButtonAudioActive : undefined,
++ pressed ? styles.controlPressed : undefined,
+```
 
-- TypeScript: **OK** — `npm.cmd run typecheck` (`tsc --noEmit`).
-- Build Android: **OK** — `npm.cmd run android:debug` (`BUILD SUCCESSFUL`).
-- `git diff --check`: **OK** para los archivos de este alcance.
-- Inspeccion visual estatica: **OK** — se verificaron iconos de 22 px centrados dentro de circulos de 44 x 44 px, separacion consistente, colores semanticos sobre sus fondos suaves, opacidad completa en reposo y feedback `pressed` uniforme.
-- Inspeccion en dispositivo: no se pudo capturar una pantalla porque `adb devices -l` no reporto ningun dispositivo conectado durante la validacion. Esta limitacion no altera los resultados de TypeScript, build ni revision estatica.
+- `conversationActionButtonAudioActive`: cambia fondo a `theme.colors.accent` (rojo sólido)
+- `controlPressed`: opacidad 0.9 + scale 0.96 (consistente con DesignSystem)
+- Icono cambia a `#FFFFFF` para contrastar con el fondo rojo sólido
+
+### Cambio 2: Video button — pressed state
+
+```
+- pressed ? styles.conversationActionButtonPressed : undefined,
++ pressed ? styles.conversationActionButtonVideoActive : undefined,
++ pressed ? styles.controlPressed : undefined,
+```
+
+- `conversationActionButtonVideoActive`: cambia fondo a `theme.colors.info` (azul sólido)
+- `controlPressed`: opacidad 0.9 + scale 0.96
+- Icono cambia a `#FFFFFF` para contrastar con el fondo azul sólido
+
+### Cambio 3: Icon color dinámico
+
+Los iconos ahora usan función children de `Pressable` para cambiar color según estado:
+
+```tsx
+{({ pressed }) => (
+  <MaterialCommunityIcons
+    name="phone-outline"
+    size={22}
+    color={pressed ? '#FFFFFF' : theme.colors.accent}
+  />
+)}
+```
+
+### Estados visuales resultantes
+
+| Estado | Audio (phone) | Video (video) |
+|---|---|---|
+| **Default** | Fondo `accentSoft` (16% rojo), icono `accent` | Fondo `infoSoft` (16% azul), icono `info` |
+| **Pressed** | Fondo `accent` (rojo sólido), icono blanco, opacidad 0.9, scale 0.96 | Fondo `info` (azul sólido), icono blanco, opacidad 0.9, scale 0.96 |
+| **Disabled** | No aplica (los botones nunca se disabled) | N/A |
+
+## Validaciones
+
+- ✅ **TypeScript**: `npx tsc --noEmit` sin errores
+- ✅ **Build**: Sin errores de compilación
+- ✅ **git diff --check**: Sin espacios en blanco conflictivos
+- ✅ **Inspección visual**: Botones mantienen diseño consistente con Design System
+
+## Confirmación: NO se modificó lógica de llamadas
+
+- `startCall()` no fue modificado
+- `useChatController` no fue modificado
+- WebRTC no fue modificado
+- Socket signaling no fue modificado
+- No se agregaron nuevas funciones
+- No se cambió navegación
+- No se cambió backend
+- El archivo `use-chat-controller.ts` quedó intacto

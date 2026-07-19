@@ -349,24 +349,30 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           style={({ pressed }) => [
                             styles.conversationActionButton,
                             styles.conversationActionButtonAudio,
-                            pressed ? styles.conversationActionButtonPressed : undefined,
+                            pressed ? styles.conversationActionButtonAudioActive : undefined,
+                            pressed ? styles.controlPressed : undefined,
                           ]}
                           accessibilityRole="button"
                           accessibilityLabel="Iniciar llamada de audio"
                           accessibilityHint="Inicia una llamada de audio con esta conversacion">
-                          <MaterialCommunityIcons name="phone-outline" size={22} color={theme.colors.accent} />
+                          {({ pressed }) => (
+                            <MaterialCommunityIcons name="phone-outline" size={22} color={pressed ? '#FFFFFF' : theme.colors.accent} />
+                          )}
                         </Pressable>
                         <Pressable
                           onPress={() => startCall('video')}
                           style={({ pressed }) => [
                             styles.conversationActionButton,
                             styles.conversationActionButtonVideo,
-                            pressed ? styles.conversationActionButtonPressed : undefined,
+                            pressed ? styles.conversationActionButtonVideoActive : undefined,
+                            pressed ? styles.controlPressed : undefined,
                           ]}
                           accessibilityRole="button"
                           accessibilityLabel="Iniciar videollamada"
                           accessibilityHint="Inicia una videollamada con esta conversacion">
-                          <MaterialCommunityIcons name="video-outline" size={22} color={theme.colors.info} />
+                          {({ pressed }) => (
+                            <MaterialCommunityIcons name="video-outline" size={22} color={pressed ? '#FFFFFF' : theme.colors.info} />
+                          )}
                         </Pressable>
                       </View>
                     ) : null}

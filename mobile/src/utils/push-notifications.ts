@@ -8,7 +8,8 @@ type ManeCombNotificationModule = {
     body: string,
     category: string,
     conversationId: string,
-    deepLink: string
+    deepLink: string,
+    encrypted: boolean
   ) => Promise<boolean>;
 };
 
@@ -51,15 +52,35 @@ export async function showInAppNotification(payload: {
   data?: Record<string, unknown>;
   category?: string;
   deepLink?: string | null;
+  encrypted?: boolean;
 }) {
   await configureAppNotifications();
+  // Ante la duda (flag ausente en un payload viejo o remoto) se asume cifrado: sin boton
+  // de responder es una degradacion de UX; con boton seria una degradacion de cifrado.
+  const encrypted =
+    payload.encrypted ?? parseEncryptedFlag(payload.data?.encrypted ?? payload.data?.e2ee);
+
   await NativeNotification?.show(
     payload.title,
     payload.body,
     payload.category || String(payload.data?.category || 'notifications'),
     String(payload.data?.conversationId || ''),
-    String(payload.deepLink || payload.data?.deepLink || '')
+    String(payload.deepLink || payload.data?.deepLink || ''),
+    encrypted
   ).catch(() => false);
+}
+
+function parseEncryptedFlag(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().toLowerCase() !== 'false';
+  }
+
+  // Sin senal explicita se falla cerrado.
+  return true;
 }
 
 export function getPushRouteIntent(rawData: Record<string, unknown> | null | undefined): PushRouteIntent {

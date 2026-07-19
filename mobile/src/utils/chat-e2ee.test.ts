@@ -5,6 +5,7 @@ import {
   encryptDirectChatText,
   encryptStoredChatKeyPairBackup,
   generateStoredChatKeyPair,
+  isDirectChatEncryptionActive,
   isE2eeCapablePublicKey,
 } from './chat-e2ee';
 
@@ -17,6 +18,53 @@ describe('chat E2EE', () => {
     expect(isE2eeCapablePublicKey(first.publicKey)).toBe(true);
     expect(first.secretKey).not.toBe(second.secretKey);
     expect(first.publicKey).not.toBe(second.publicKey);
+  });
+
+  describe('isDirectChatEncryptionActive (bloqueo de respuesta rapida)', () => {
+    const peerKeys = generateStoredChatKeyPair();
+    const directConversation = {
+      kind: 'direct',
+      channelMode: 'chat',
+      encrypted: true,
+      participants: [
+        { id: 'me' },
+        { id: 'peer', e2eePublicKey: peerKeys.publicKey },
+      ],
+    };
+
+    it('detecta cifrado activo cuando el destinatario tiene llave usable', () => {
+      expect(
+        isDirectChatEncryptionActive({ currentUserId: 'me', conversation: directConversation })
+      ).toBe(true);
+    });
+
+    it('permite responder si el destinatario no tiene llave (tampoco se cifraria en la app)', () => {
+      expect(
+        isDirectChatEncryptionActive({
+          currentUserId: 'me',
+          conversation: { ...directConversation, participants: [{ id: 'me' }, { id: 'peer' }] },
+        })
+      ).toBe(false);
+    });
+
+    it('permite responder en grupos y radio', () => {
+      expect(
+        isDirectChatEncryptionActive({
+          currentUserId: 'me',
+          conversation: { ...directConversation, kind: 'group' },
+        })
+      ).toBe(false);
+      expect(
+        isDirectChatEncryptionActive({
+          currentUserId: 'me',
+          conversation: { ...directConversation, channelMode: 'radio' },
+        })
+      ).toBe(false);
+    });
+
+    it('no marca cifrado una conversacion inexistente', () => {
+      expect(isDirectChatEncryptionActive({ currentUserId: 'me', conversation: null })).toBe(false);
+    });
   });
 
   it('cifra y descifra un mensaje directo de ida y vuelta', () => {
