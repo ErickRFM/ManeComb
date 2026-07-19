@@ -12,6 +12,7 @@ import type {
 } from './app-map.types';
 import { readRuntimeValue } from '@/src/config/api_config';
 import type { GeoPoint } from '@/src/types/app';
+import { resolveMapStyleUrl } from '@/src/components/map-style-urls';
 
 const MAPBOX_ACCESS_TOKEN =
   readRuntimeValue('MAPBOX_ACCESS_TOKEN', 'MANECOMB_MAPBOX_ACCESS_TOKEN') ||
@@ -104,13 +105,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   const initialRegionRef = useRef(initialRegion);
   const pendingCameraActionRef = useRef<PendingCameraAction | null>(null);
   initialRegionRef.current = initialRegion;
-  const styleURL = showsTraffic
-    ? themeMode === 'light'
-      ? Mapbox.StyleURL.TrafficDay
-      : Mapbox.StyleURL.TrafficNight
-    : themeMode === 'light'
-      ? Mapbox.StyleURL.Light
-      : Mapbox.StyleURL.Dark;
+  const styleURL = resolveMapStyleUrl(showsTraffic, themeMode);
 
   useEffect(() => {
     mapPaddingRef.current = mapPadding;

@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import { ChecklistScreen, buildOperationalRecord, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
+import { ChecklistScreen, buildOperationalRecord, createStyles, getActiveLog, getLatestLog } from '@/src/screens/checklist-screen';
 import { useAppStore } from '@/src/store/use-app-store';
 
 jest.mock('react-native-gesture-handler', () => {
@@ -182,6 +182,34 @@ describe('ChecklistScreen', () => {
     expect(record.routeName).toBe('Sin ruta asignada');
     // Nunca `salida + minutos`: sin ETA del backend, no hay ETA.
     expect(record.etaAt).toBeNull();
+  });
+
+  // Regresion del defecto observado el 2026-07-18: las filas con dos pastillas
+  // ("Disponible" + "Ultima ruta: Finalizado") perdian el nombre de la unidad.
+  // El bloque de pastillas no acotaba su ancho, absorbia la fila completa y
+  // `recordCopy` —con minWidth: 0— se comprimia hasta cero.
+  it('acota el ancho de las pastillas para que la identidad nunca se comprima a cero', () => {
+    const { theme } = require('@/constants/theme');
+    const styles = createStyles(
+      (theme || { colors: {}, mode: 'light' }) as never,
+      false,
+      true
+    );
+
+    // El techo de ancho debe dejar de verdad mas de la mitad de la fila a la
+    // identidad. Un `maxWidth: '100%'` cumpliria "esta definido" y reintroduciria
+    // el bug, asi que se verifica el valor.
+    expect(styles.recordPills).toBeDefined();
+    const maxWidth = styles.recordPills.maxWidth as string;
+    expect(typeof maxWidth).toBe('string');
+    expect(maxWidth.endsWith('%')).toBe(true);
+    expect(Number.parseFloat(maxWidth)).toBeLessThanOrEqual(60);
+
+    // Y debe poder envolver antes que aplastar el texto.
+    expect(styles.recordPills.flexWrap).toBe('wrap');
+
+    // La identidad debe conservar un piso de ancho mayor que el icono (44px).
+    expect(styles.recordLead.minWidth).toBeGreaterThan(44);
   });
 
   it('renders when an old assignedRoute snapshot has no route payload', () => {

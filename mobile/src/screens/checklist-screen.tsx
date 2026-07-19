@@ -631,7 +631,7 @@ function RoutePreview({
   );
 }
 
-function createStyles(
+export function createStyles(
   theme: ReturnType<typeof useAppTheme>['theme'],
   isCompact: boolean,
   isPhone: boolean
@@ -744,10 +744,24 @@ function createStyles(
     },
     recordLead: {
       flex: 1,
-      minWidth: 0,
+      // Piso de ancho: la identidad de la unidad nunca puede desaparecer,
+      // por muchas pastillas de estado que traiga la fila.
+      minWidth: 120,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
+    },
+    recordPills: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      gap: 6,
+      // Techo de ancho: sin el, dos pastillas se quedaban con toda la fila.
+      // `flexShrink` deja que bajen a una segunda linea antes que aplastar
+      // el nombre de la unidad.
+      maxWidth: '52%',
+      flexShrink: 1,
     },
     recordIcon: {
       width: 44,
@@ -2404,13 +2418,21 @@ export function ChecklistScreen() {
                         </Text>
                       </View>
                     </View>
-                    <StatusPill label={getStatusLabel(record.status)} tone={getStatusTone(record.status)} />
-                    {lastRouteStatus ? (
-                      <StatusPill
-                        label={`Ultima ruta: ${getStatusLabel(lastRouteStatus)}`}
-                        tone={getStatusTone(lastRouteStatus)}
-                      />
-                    ) : null}
+                    {/*
+                      Las pastillas viven en un contenedor con ancho acotado.
+                      Sueltas, dos pastillas absorbian todo el espacio libre de la
+                      fila y `recordCopy` —con minWidth: 0— se comprimia hasta
+                      cero, dejando la unidad sin nombre visible.
+                    */}
+                    <View style={styles.recordPills}>
+                      <StatusPill label={getStatusLabel(record.status)} tone={getStatusTone(record.status)} />
+                      {lastRouteStatus ? (
+                        <StatusPill
+                          label={`Ultima ruta: ${getStatusLabel(lastRouteStatus)}`}
+                          tone={getStatusTone(lastRouteStatus)}
+                        />
+                      ) : null}
+                    </View>
                   </View>
 
                   <View style={styles.recordTimeline}>

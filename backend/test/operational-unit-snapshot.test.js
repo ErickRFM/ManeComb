@@ -80,6 +80,59 @@ function vehicleAt(secondsAgo, overrides = {}) {
   assert.notEqual(expired.gps.lat, null, "GPS vencido conserva la ultima posicion conocida");
 }
 
+// --- Ultima posicion conocida sin sello de tiempo -------------------------
+// El mini-mapa de ruta dibuja con solo `vehicle.location`; el mapa de
+// seguimiento debe poder hacer lo mismo. Una posicion conocida no se descarta
+// por no saber cuando se tomo.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: {
+      id: "veh-1",
+      code: "C-1",
+      status: "available",
+      location: { latitude: 19.3139, longitude: -98.2404 }
+      // sin locationTimestamp
+    },
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.lat, 19.3139, "la posicion conocida se conserva");
+  assert.equal(snapshot.gps.lng, -98.2404);
+  assert.equal(snapshot.gps.recordedAt, null, "no inventamos una fecha que no tenemos");
+  assert.equal(snapshot.gps.ageSeconds, null);
+  assert.equal(snapshot.gps.freshness, "missing");
+  assert.equal(snapshot.visibility, "visible");
+}
+
+// Timestamp invalido: mismo trato que ausente, sin lanzar excepcion.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: {
+      id: "veh-1",
+      code: "C-1",
+      status: "available",
+      location: { latitude: 19.3139, longitude: -98.2404 },
+      locationTimestamp: "no-es-una-fecha"
+    },
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.lat, 19.3139);
+  assert.equal(snapshot.gps.recordedAt, null);
+  assert.equal(snapshot.gps.freshness, "missing");
+}
+
+// Sin coordenadas si no hay nada que dibujar.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: { id: "veh-1", code: "C-1", status: "available", locationTimestamp: NOW.toISOString() },
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.lat, null);
+  assert.equal(snapshot.gps.freshness, "missing");
+}
+
 // --- Velocidad convertida en backend, nunca en cliente --------------------
 {
   const snapshot = buildOperationalUnitSnapshot({
@@ -209,6 +262,102 @@ function vehicleAt(secondsAgo, overrides = {}) {
   });
   assert.equal(snapshot.session, null);
   assert.equal(snapshot.driver, null, "una sesion terminada no aporta conductor");
+}
+
+// --- Sin GPS sobre ruta: no se afirma que este detenida -------------------
+// Caso real C-1 del 2026-07-18: el panel decia "Detenida" con "Sin GPS".
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: {
+      id: "veh-1",
+      code: "C-1",
+      plate: "FBZ-404",
+      status: "available",
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    },
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.freshness, "missing");
+  assert.notEqual(snapshot.route, null, "la ruta asignada se conserva");
+  assert.equal(
+    snapshot.operationalState,
+    "unknown",
+    "sin GPS no se puede afirmar que la unidad este detenida"
+  );
+}
+
+// Velocidad 0 heredada del esquema (`speed: default 0`) con GPS viejo.
+// Caso real C-1 del 2026-07-18: el panel decia "Detenida" con posicion de
+// hace 5 dias, porque la velocidad se evaluaba antes que la frescura.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: vehicleAt(5 * 24 * 60 * 60, {
+      speed: 0,
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    }),
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.freshness, "missing");
+  assert.equal(snapshot.gps.speedKmh, 0, "el 0 del esquema sigue viajando en el contrato");
+  assert.equal(
+    snapshot.operationalState,
+    "unknown",
+    "una velocidad de hace 5 dias no sostiene la afirmacion 'detenida'"
+  );
+}
+
+// Con GPS fresco, la velocidad si manda.
+{
+  const detenida = buildOperationalUnitSnapshot({
+    vehicle: vehicleAt(30, {
+      speed: 0,
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    }),
+    now: NOW
+  });
+  assert.equal(detenida.gps.freshness, "fresh");
+  assert.equal(detenida.operationalState, "stopped");
+
+  const circulando = buildOperationalUnitSnapshot({
+    vehicle: vehicleAt(30, {
+      status: "on-route",
+      speed: 12,
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    }),
+    now: NOW
+  });
+  assert.equal(circulando.operationalState, "on_route");
+}
+
+// GPS vencido tampoco sostiene una afirmacion de movimiento.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: vehicleAt(GPS_FRESH_MAX_AGE_SECONDS + 60, {
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    }),
+    now: NOW
+  });
+
+  assert.equal(snapshot.gps.freshness, "stale");
+  assert.equal(snapshot.operationalState, "unknown");
+}
+
+// Una jornada pausada si es una afirmacion explicita: vale aunque falte GPS.
+{
+  const snapshot = buildOperationalUnitSnapshot({
+    vehicle: {
+      id: "veh-1",
+      code: "C-1",
+      status: "available",
+      assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
+    },
+    activeSession: { id: "s", status: "PAUSED", driverId: "d", startedAt: NOW.toISOString() },
+    now: NOW
+  });
+
+  assert.equal(snapshot.operationalState, "stopped");
 }
 
 // --- Unidad detenida sobre ruta -----------------------------------------

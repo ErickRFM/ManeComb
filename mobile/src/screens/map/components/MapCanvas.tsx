@@ -3,7 +3,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapPadding, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import { freshnessOpacity, stateColor } from '@shared/operational-contract';
+import { formatFreshness, freshnessOpacity, stateColor } from '@shared/operational-contract';
 import type { GeoPoint, Incident, LiveLocationsData, NavigationPlaceResult, NavigationRouteOption, NavigationStop, Vehicle } from '@/src/types/app';
 import type { SelectorPointRole } from '../types';
 import { mapStyles as styles } from '../map-styles';
@@ -166,6 +166,9 @@ function UnitMarkers({
       {units.map((unit) => {
         if (unit.gps.lat === null || unit.gps.lng === null) return null;
         const isSelected = unit.unitId === selectedUnit?.unitId;
+        // Una posicion que no es fresca sigue dibujandose, pero no puede
+        // parecer una lectura en vivo.
+        const isLastKnown = unit.gps.freshness !== 'fresh';
         const unitMarkerStyle = {
           backgroundColor: stateColor(unit.operationalState),
           borderColor: isSelected ? theme.colors.warning : '#FFF',
@@ -179,8 +182,30 @@ function UnitMarkers({
             id={`unit-${unit.unitId}`}
             coordinate={{ latitude: unit.gps.lat, longitude: unit.gps.lng }}
             onPress={() => onUnitPress(unit)}>
-            <View style={[styles.vehicleMarker, unitMarkerStyle]}>
-              <View style={styles.vehicleMarkerInner} />
+            <View style={styles.vehicleMarkerWrap}>
+              <View
+                style={[
+                  styles.vehicleMarker,
+                  unitMarkerStyle,
+                  isLastKnown ? styles.vehicleMarkerStale : undefined,
+                ]}>
+                <View style={isLastKnown ? styles.vehicleMarkerInnerStale : styles.vehicleMarkerInner} />
+              </View>
+              {/*
+                El folio identifica al chofer de un vistazo. La antiguedad solo
+                aparece cuando la posicion no es fresca, para no repetir ruido
+                en las unidades que si estan reportando.
+              */}
+              <View style={styles.vehicleMarkerLabel}>
+                <Text style={styles.vehicleMarkerLabelText} numberOfLines={1}>
+                  {unit.label}
+                </Text>
+                {isLastKnown ? (
+                  <Text style={styles.vehicleMarkerAgeText} numberOfLines={1}>
+                    {formatFreshness(unit.gps)}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           </AppMapMarker>
         );

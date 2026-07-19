@@ -325,6 +325,7 @@ export function MapScreen() {
     activeIncident,
     activeIncidentUnit,
     activeRouteCount,
+    unknownStateCount,
     mappableUnits,
     prioritizedUnits,
     selectedUnit,
@@ -614,6 +615,7 @@ export function MapScreen() {
           <>
             <TrackingHud
               activeRouteCount={activeRouteCount}
+              unknownStateCount={unknownStateCount}
               incidentCount={visibleIncidents.length}
               locationStatusColor={locationStatusColor}
               locationStatusLabel={locationStatus.hudLabel}

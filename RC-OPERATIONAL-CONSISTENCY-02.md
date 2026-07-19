@@ -3,6 +3,14 @@
 Fecha de auditoría: 2026-07-18  
 Dictamen: **No certificado**
 
+> **Aviso de vigencia.** Todo lo que sigue hasta el separador `---` corresponde a la
+> **iteración 1 y está desactualizado**: su inventario, su matriz por pantalla y sus
+> hallazgos describen un estado anterior a la migración. En particular, ya no es cierto
+> que el mapa, el Bottom Sheet o Incidencias estén pendientes, ni que C-1/C-2/C-3 sean
+> escenarios abstractos. **El estado vigente es el de la sección
+> "Actualización — 2026-07-18, iteración 2".** Se conserva el texto original como
+> registro histórico, no como descripción del sistema actual.
+
 ## Resumen ejecutivo
 
 La plataforma todavía no cumple el criterio de una representación operacional única. `OperationalUnitSnapshot` existía con pruebas contractuales, pero al inicio de esta RC no tenía consumidores. Se migraron Checklist y el Bottom Sheet móvil para que identidad, estado, GPS, ruta, conductor, ETA y última actualización provengan del snapshot. El Portal, los selectores del mapa y otras superficies aún contienen interpretaciones propias; por ello no existe evidencia suficiente para afirmar paridad extremo a extremo ni para certificar C-1, C-2 y C-3 en producción.
@@ -169,6 +177,34 @@ una ruta es su `id`; un nombre suelto no constituye una ruta.**
 | `mobile/src/screens/checklist-screen.test.ts` | Dos pruebas de regresión: identidad presente aunque el vehículo llegue sin `code` (defecto de C-1/C-3), y ausencia de ruta/conductor/ETA inventados en unidad nueva (caso C-2). |
 | `mobile/jest.config.js` | Mapeo de `@shared` y `moduleDirectories` para resolver el contrato fuera de `rootDir`. |
 
+### Fase 2 — Árbol del mapa (completa)
+
+| Archivo | Cambio |
+|---|---|
+| `mobile/src/screens/map/utils/tracking.ts` | Camino heredado sobre `Vehicle` **eliminado**. Solo quedan selectores sobre el snapshot y `hasVehicleLiveLocation`, usado fuera del contrato. |
+| `mobile/src/screens/map/hooks/use-tracking-data.ts` | Consume `operationalUnits`. Separa `prioritizedUnits` (inventario completo, para listas y conteos) de `mappableUnits` (subconjunto con coordenada). La selección recorre el inventario completo. |
+| `mobile/src/screens/map/components/MapCanvas.tsx` | `VehicleMarkers` → `UnitMarkers`. Color por `operationalState` y opacidad por `gps.freshness`: **la unidad con GPS vencido se atenúa, no se oculta.** |
+| `mobile/src/screens/map/components/BottomTrackingPanel.tsx` | Consume el contrato canónico. `selectedVehicle` se conserva solo para atributos ajenos al contrato (ocupación, combustible, odómetro, retraso). El ETA pasa a `formatEta(route)`. |
+| `mobile/src/screens/map-screen.native.tsx` | Estado `selectedUnitId`, handlers sobre `OperationalUnitSnapshot`, y **se elimina la distinción por rol** que mostraba al conductor un subconjunto filtrado. |
+| `mobile/src/screens/incidents-screen.tsx` | `getIncidentContext` usa `gps.freshness` del snapshot en lugar de recalcular frescura. Dejó de necesitar `mapData` por completo. |
+| `mobile/src/domain/operations/` | **Eliminado** (`build-operational-unit-snapshot.ts`, `operational-unit-snapshot.ts` y su prueba). Ya no existe un segundo constructor de snapshot. |
+
+Verificación por grep tras el borrado: `buildOperationalUnitSnapshot` solo aparece en
+backend (`domain/`, `services/` y sus pruebas). `ACTIVE_TRACKING_STATUSES` solo aparece
+en un comentario que documenta el defecto histórico. Cero referencias en `mobile/` y
+`ventas/`.
+
+### Hallazgo: pruebas que no se estaban ejecutando
+
+`mobile/package.json` no usa el `testMatch` de Jest: enumera **una lista fija de 22
+archivos**. `src/domain/operations/build-operational-unit-snapshot.test.ts` nunca estuvo
+en esa lista. Las "pruebas contractuales del snapshot" que esta RC citó como evidencia
+en iteraciones anteriores **no se ejecutaban en `npm test`**. Se comprobó con
+`jest --listTests`, que sí las recogería si el script usara el patrón por defecto.
+
+Consecuencia práctica: cualquier archivo de prueba nuevo en mobile no corre salvo que se
+añada a mano a esa lista. Es un riesgo abierto que no corregí en esta iteración.
+
 ## Decisiones de arquitectura tomadas
 
 - **`shared/` con alias, no monorepo con workspaces.** Metro resuelve mal los symlinks
@@ -190,7 +226,7 @@ una ruta es su `id`; un nombre suelto no constituye una ruta.**
 | `incidents-screen.tsx` | **Migrado**: `getIncidentContext` usa `gps.freshness` del contrato |
 | `use-point-to-point-tracker.ts`, `utils/active-route.ts` | **Pendiente** |
 | `checklist-screen.tsx` (identidad, conductor, ruta, ETA) | **Migrado y probado** |
-| `incidents-screen.tsx`, `users-screen.tsx` | **Pendiente** |
+| `users-screen.tsx` | **Pendiente** |
 | Portal completo (dashboard, mapa, unidades, rutas, incidencias) | **Pendiente** |
 | Fases 3, 4 y 5 (registro de chofer, historial, pantalla de inicio) | **No iniciadas** |
 
@@ -201,6 +237,47 @@ El contrato canónico no lo expone —hay una prueba que lo impide—, pero el c
 persiste en el esquema. Además, `.tmp-rc-communication-deploy-01-clean/` contiene una
 copia completa del backend versionada en el árbol que duplica esos hallazgos; ese
 criterio no se podrá cumplir mientras exista.
+
+## Iteración 3 — Dos correcciones sobre evidencia de campo
+
+Capturas del 2026-07-18 a las 7:28 mostraron que el árbol del mapa ya consumía el
+contrato (las tres pastillas y el texto "Sin conductor asignado" provienen de él), pero
+persistían dos defectos.
+
+### Diagnóstico previo erróneo, corregido
+
+Se atribuyeron las filas sin nombre del checklist a los tres constructores de
+`vehicleCode`. **Era incorrecto.** Unificarlos fue una mejora legítima, pero no era la
+causa: el defecto persistió tras la unificación. La causa real es de maquetación —
+`recordMain` usa `space-between` y el bloque de pastillas no acotaba su ancho, así que
+con dos pastillas absorbía la fila y `recordCopy` (`minWidth: 0`) se comprimía a cero.
+Por eso solo C-2, con una sola pastilla, se leía.
+
+Corregido acotando el bloque de pastillas (`maxWidth: '52%'`, `flexWrap`) y dando un
+piso de ancho a la identidad (`minWidth: 120`). La prueba de regresión se verificó
+falsando el arreglo: con `maxWidth: '100%'` la prueba falla.
+
+### Quinto estado operativo: `unknown`
+
+Una unidad con ruta asignada, sin sesión activa y sin GPS caía en `stopped`, y la
+interfaz afirmaba "Detenida" sobre algo que el sistema no sabía. El contrato no tenía
+ningún valor para "no consta".
+
+Se añadió `unknown` al union. `Record<OperationalState, …>` obligó a declarar el caso en
+las tablas de etiquetas y colores; no se usó `default` silencioso, que es el patrón que
+escondió el problema. Etiqueta: "Sin datos". Color propio, distinto de `no_route`:
+uno es un hecho conocido, el otro es ausencia de información.
+
+`unknown` se cuenta aparte en `summarizeFleet` y en el HUD, que ahora muestra
+`"1 / 2?"` cuando hay unidades sin estado confirmable, en vez de un `0` sin explicación.
+Existe una sola definición del union, en `shared/`; no hay copias que sincronizar.
+
+### Pendiente relacionado, no incluido
+
+`checklist-screen.tsx` mantiene su propio vocabulario de estado
+(`active | delayed | completed | cancelled | available`), independiente del contrato.
+Una unidad en `unknown` cae ahí a "Disponible", que arrastra el mismo problema de
+honestidad. TypeScript no lo detecta porque es otro tipo. Requiere decisión aparte.
 
 ## Evidencia de validación — ejecutada en esta iteración
 

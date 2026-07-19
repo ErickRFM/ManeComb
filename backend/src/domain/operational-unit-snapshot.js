@@ -76,11 +76,22 @@ function toSpeedKmh(rawSpeed) {
   return Math.round((speed > SPEED_MS_UPPER_BOUND ? speed : speed * 3.6) * 10) / 10;
 }
 
+/**
+ * Estado del GPS de la unidad.
+ *
+ * La validez de la POSICION depende solo de las coordenadas. El sello de tiempo
+ * determina la FRESCURA, no si la posicion existe: una ultima posicion conocida
+ * sigue siendo informacion util aunque no sepamos exactamente cuando se tomo.
+ *
+ * Antes se exigian ambas cosas y se devolvia `lat: null`, con lo que el mapa de
+ * seguimiento no tenia nada que dibujar y la unidad desaparecia, mientras el
+ * mini-mapa de ruta —que solo mira `vehicle.location`— si la mostraba.
+ */
 function buildGps(vehicle, progress, nowMs) {
   const recordedAt = toDate(vehicle?.locationTimestamp);
   const latitude = finiteOrNull(vehicle?.location?.latitude);
   const longitude = finiteOrNull(vehicle?.location?.longitude);
-  const hasPosition = latitude !== null && longitude !== null && recordedAt !== null;
+  const hasPosition = latitude !== null && longitude !== null;
 
   if (!hasPosition) {
     return {
@@ -94,20 +105,25 @@ function buildGps(vehicle, progress, nowMs) {
     };
   }
 
-  const ageSeconds = Math.max(0, Math.round((nowMs - recordedAt.getTime()) / 1000));
+  // Sin sello de tiempo conservamos la posicion, pero no podemos fecharla:
+  // `missing` y `ageSeconds: null` dicen exactamente eso.
+  const ageSeconds =
+    recordedAt === null ? null : Math.max(0, Math.round((nowMs - recordedAt.getTime()) / 1000));
   const freshness =
-    ageSeconds <= GPS_FRESH_MAX_AGE_SECONDS
-      ? "fresh"
-      : ageSeconds <= GPS_STALE_MAX_AGE_SECONDS
-        ? "stale"
-        : "missing";
+    ageSeconds === null
+      ? "missing"
+      : ageSeconds <= GPS_FRESH_MAX_AGE_SECONDS
+        ? "fresh"
+        : ageSeconds <= GPS_STALE_MAX_AGE_SECONDS
+          ? "stale"
+          : "missing";
 
   return {
     lat: latitude,
     lng: longitude,
     speedKmh: toSpeedKmh(progress?.speedMetersPerSecond ?? vehicle?.speed),
     heading: finiteOrNull(vehicle?.heading ?? progress?.heading),
-    recordedAt: recordedAt.toISOString(),
+    recordedAt: recordedAt === null ? null : recordedAt.toISOString(),
     freshness,
     ageSeconds
   };
@@ -236,8 +252,18 @@ function buildOperationalState({ status, route, gps, activeSession }) {
   if (status === "maintenance") return "maintenance";
   if (!route) return "no_route";
 
+  // Una jornada pausada es una afirmacion explicita del conductor: vale aunque
+  // no haya GPS.
   const sessionStatus = String(activeSession?.status ?? "").trim().toUpperCase();
   if (sessionStatus === "PAUSED") return "stopped";
+
+  // La frescura se evalua ANTES que la velocidad. Una lectura de velocidad
+  // pertenece al mismo paquete GPS que la posicion: si la posicion es vieja,
+  // la velocidad tambien lo es. Ademas el esquema de vehiculo declara
+  // `speed: default 0`, asi que una unidad que nunca reporto trae 0 —no null—
+  // y evaluar la velocidad primero la clasificaba como "Detenida" en vez de
+  // reconocer que no hay dato.
+  if (gps.freshness !== "fresh") return "unknown";
 
   const speedKmh = gps.speedKmh;
   if (speedKmh !== null && speedKmh < STOPPED_SPEED_KMH) return "stopped";

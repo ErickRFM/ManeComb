@@ -18,9 +18,25 @@ const config = {
       path.resolve(projectRoot, 'node_modules'),
       path.resolve(workspaceRoot, 'node_modules'),
     ],
-    extraNodeModules: {
-      '@': projectRoot,
-      '@shared': sharedRoot,
+    // Alias por prefijo, con la misma semantica que tsconfig ("@shared/*"),
+    // Vite (find: '@shared') y Jest ("^@shared/(.*)$").
+    //
+    // No se usa extraNodeModules: Metro indexa esa tabla por *nombre de paquete*
+    // (parseBareSpecifier), y en un especificador con '@' inicial el nombre de
+    // paquete es el scope completo -- '@shared/operational-contract', no
+    // '@shared'. Una clave '@shared' por lo tanto nunca coincide y el alias
+    // queda inerte. resolveRequest si permite prefijos, y escala a futuros
+    // '@shared/*' sin tocar esta configuracion.
+    resolveRequest: (context, moduleName, platform) => {
+      if (moduleName === '@shared' || moduleName.startsWith('@shared/')) {
+        const subpath = moduleName.slice('@shared'.length);
+        return context.resolveRequest(
+          context,
+          path.join(sharedRoot, subpath),
+          platform
+        );
+      }
+      return context.resolveRequest(context, moduleName, platform);
     },
   },
 };

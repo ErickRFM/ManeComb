@@ -1,0 +1,105 @@
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import {
+  getActiveRouteCount,
+  getMappableUnits,
+  getUnknownStateCount,
+  getVisibleUnits,
+} from './tracking';
+
+function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
+  return {
+    unitId: 'veh-1',
+    plates: 'FBZ-404',
+    label: 'C-1',
+    status: 'idle',
+    operationalState: 'no_route',
+    gps: {
+      lat: null,
+      lng: null,
+      speedKmh: null,
+      heading: null,
+      recordedAt: null,
+      freshness: 'missing',
+      ageSeconds: null,
+    },
+    driver: null,
+    route: null,
+    session: null,
+    incidents: { open: 0, inProgress: 0, lastAt: null },
+    lastEventAt: null,
+    visibility: 'visible',
+    ...overrides,
+  };
+}
+
+describe('selectores del mapa de seguimiento', () => {
+  // El mapa de seguimiento debe dibujar la ultima posicion conocida igual que
+  // el mini-mapa de ruta. La frescura cambia como se ve el marcador, nunca si
+  // se dibuja.
+  it('dibuja una unidad con posicion conocida aunque el GPS no sea fresco', () => {
+    const sinFrescura = unit({
+      gps: {
+        lat: 19.3139,
+        lng: -98.2404,
+        speedKmh: null,
+        heading: null,
+        recordedAt: null,
+        freshness: 'missing',
+        ageSeconds: null,
+      },
+      operationalState: 'unknown',
+    });
+
+    expect(getMappableUnits([sinFrescura])).toHaveLength(1);
+  });
+
+  it('dibuja una unidad con GPS vencido', () => {
+    const vencida = unit({
+      gps: {
+        lat: 19.3139,
+        lng: -98.2404,
+        speedKmh: null,
+        heading: null,
+        recordedAt: '2026-07-18T09:00:00.000Z',
+        freshness: 'stale',
+        ageSeconds: 4200,
+      },
+    });
+
+    expect(getMappableUnits([vencida])).toHaveLength(1);
+  });
+
+  it('solo excluye del mapa lo que no tiene coordenada que dibujar', () => {
+    expect(getMappableUnits([unit()])).toHaveLength(0);
+    // Pero sigue presente en el inventario: no desaparece de listas ni conteos.
+    expect(getVisibleUnits([unit()])).toHaveLength(1);
+  });
+
+  it('excluye del mapa las unidades ocultas por alta, no por GPS', () => {
+    const oculta = unit({
+      visibility: 'hidden',
+      gps: {
+        lat: 19.3139,
+        lng: -98.2404,
+        speedKmh: 40,
+        heading: 90,
+        recordedAt: '2026-07-18T10:08:00.000Z',
+        freshness: 'fresh',
+        ageSeconds: 5,
+      },
+    });
+
+    expect(getMappableUnits([oculta])).toHaveLength(0);
+  });
+
+  it('no cuenta unknown como en ruta ni lo suma a otro estado', () => {
+    const units = [
+      unit({ unitId: 'a', operationalState: 'on_route' }),
+      unit({ unitId: 'b', operationalState: 'unknown' }),
+      unit({ unitId: 'c', operationalState: 'stopped' }),
+    ];
+
+    expect(getActiveRouteCount(units)).toBe(1);
+    expect(getUnknownStateCount(units)).toBe(1);
+  });
+});

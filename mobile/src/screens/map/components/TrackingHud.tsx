@@ -6,6 +6,7 @@ import { mapStyles as styles } from '../map-styles';
 
 type TrackingHudProps = {
   activeRouteCount: number;
+  unknownStateCount: number;
   incidentCount: number;
   locationStatusColor: string;
   locationStatusLabel: string;
@@ -16,6 +17,7 @@ type TrackingHudProps = {
 
 export function TrackingHud({
   activeRouteCount,
+  unknownStateCount,
   incidentCount,
   locationStatusColor,
   locationStatusLabel,
@@ -37,7 +39,17 @@ export function TrackingHud({
         </Pressable>
 
         <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
-          <HUDItem label="Rutas" value={`${activeRouteCount}`} icon="bus" color={theme.colors.info} />
+          {/*
+            Se muestra "en ruta / sin datos" cuando hay unidades cuyo estado no
+            se puede afirmar. Antes esas unidades caian en `stopped` y el
+            contador daba 0 sin explicar por que.
+          */}
+          <HUDItem
+            label="Rutas"
+            value={unknownStateCount ? `${activeRouteCount} / ${unknownStateCount}?` : `${activeRouteCount}`}
+            icon="bus"
+            color={theme.colors.info}
+          />
           <HUDItem label="GPS" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
           <HUDItem
             label="Trafico"

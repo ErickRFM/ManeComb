@@ -198,6 +198,78 @@ async function run() {
       "el snapshot emitido por socket debe ser identico al de REST"
     );
 
+    // --- Caso C-1: ultima posicion conocida sin sello de tiempo -----------
+    // `getFleetSummary` (store.js) conserva `location` aunque falte
+    // `locationTimestamp` y no haya posiciones de sesion. El mini-mapa de ruta
+    // dibuja con solo `vehicle.location`, asi que el mapa de seguimiento debe
+    // recibir esa misma coordenada. Antes se descartaba y la unidad no se
+    // dibujaba, mientras otra unidad con timestamp valido si aparecia.
+    const { listOperationalUnits } = require("../src/services/operational-units-service");
+    const storeStub = {
+      getLiveLocations: async () => ({
+        routes: [],
+        incidents: [],
+        vehicles: [
+          {
+            id: "c1",
+            code: "C-1",
+            plate: "FBZ-404",
+            status: "available",
+            organizationId: "org-1",
+            // Ultimo registro conocido, sin fecha asociada.
+            location: { latitude: 19.2483, longitude: -98.2617 },
+            locationTimestamp: null,
+            speed: 0
+          },
+          {
+            id: "c3",
+            code: "C-3",
+            plate: "JKM-902",
+            status: "available",
+            organizationId: "org-1",
+            location: { latitude: 19.2939, longitude: -98.2334 },
+            locationTimestamp: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
+            speed: 0
+          }
+        ]
+      }),
+      listIncidents: () => [],
+      listUsers: () => [],
+      listRouteSessions: () => []
+    };
+
+    const units = await listOperationalUnits({
+      store: storeStub,
+      user: { id: "u", role: "owner", organizationId: "org-1" },
+      organizationId: "org-1"
+    });
+
+    const c1Unit = units.find((unit) => unit.label === "C-1");
+    const c3Unit = units.find((unit) => unit.label === "C-3");
+
+    assert.ok(c1Unit, "C-1 debe estar en la coleccion");
+    assert.equal(c1Unit.gps.lat, 19.2483, "C-1 conserva su ultima posicion conocida");
+    assert.equal(c1Unit.gps.lng, -98.2617);
+    assert.equal(c1Unit.gps.recordedAt, null, "no se inventa una fecha inexistente");
+    assert.equal(c1Unit.gps.freshness, "missing");
+    assert.equal(c1Unit.visibility, "visible");
+
+    // C-3, con posicion fechada de hace 5 dias, se comporta igual de visible.
+    assert.ok(c3Unit);
+    assert.equal(c3Unit.gps.lat, 19.2939);
+    assert.equal(c3Unit.gps.freshness, "missing");
+
+    // Ninguna de las dos afirma estar detenida: no hay dato fresco que lo sostenga.
+    assert.equal(c1Unit.operationalState, "no_route");
+    assert.equal(c3Unit.operationalState, "no_route");
+
+    // Ambas son dibujables: tienen coordenada.
+    assert.equal(
+      units.filter((unit) => unit.gps.lat !== null && unit.gps.lng !== null).length,
+      2,
+      "las dos unidades deben poder dibujarse en el mapa de seguimiento"
+    );
+
     const missing = await requestJson(`${context.url}/operational-units/no-existe`, { headers: auth });
     assert.equal(missing.status, 404);
 

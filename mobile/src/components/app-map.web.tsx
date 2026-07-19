@@ -12,6 +12,7 @@ import type {
 } from './app-map.types';
 import { readRuntimeValue } from '@/src/config/api_config';
 import type { GeoPoint } from '@/src/types/app';
+import { resolveMapStyleUrl } from '@/src/components/map-style-urls';
 
 type MapContextValue = {
   map: MapboxMap | null;
@@ -96,13 +97,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   const onPressRef = useRef(onPress);
   const styleURLRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = React.useState(false);
-  const styleURL = showsTraffic
-    ? themeMode === 'light'
-      ? 'mapbox://styles/mapbox/navigation-preview-day-v4'
-      : 'mapbox://styles/mapbox/navigation-preview-night-v4'
-    : themeMode === 'light'
-      ? 'mapbox://styles/mapbox/light-v11'
-      : 'mapbox://styles/mapbox/dark-v11';
+  const styleURL = resolveMapStyleUrl(showsTraffic, themeMode);
 
   useEffect(() => {
     onPressRef.current = onPress;

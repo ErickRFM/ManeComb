@@ -12,7 +12,17 @@ export type GpsFreshness = 'fresh' | 'stale' | 'missing';
 
 export type OperationalUnitStatus = 'active' | 'idle' | 'maintenance' | 'offline';
 
-export type OperationalState = 'on_route' | 'stopped' | 'no_route' | 'maintenance';
+/**
+ * Estado operativo de la unidad.
+ *
+ * `unknown` significa literalmente "no lo sabemos": hay ruta asignada pero el
+ * GPS no reporta dato fresco, asi que no se puede afirmar ni que circula ni que
+ * esta detenida. Antes este caso caia en `stopped` y la interfaz aseguraba algo
+ * que el sistema no sabia.
+ *
+ * No agrupes `unknown` con `stopped` ni con `on_route` en conteos ni filtros.
+ */
+export type OperationalState = 'on_route' | 'stopped' | 'no_route' | 'maintenance' | 'unknown';
 
 export type DriverSource = 'session' | 'assignment' | 'none';
 

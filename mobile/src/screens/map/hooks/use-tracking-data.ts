@@ -8,6 +8,7 @@ import {
   getPrioritizedUnits,
   getSelectedUnit,
   getUnitById,
+  getUnknownStateCount,
   getVisibleIncidents,
   getVisibleUnits,
 } from '../utils/tracking';
@@ -41,6 +42,8 @@ export function useTrackingData(
   );
 
   const activeRouteCount = useMemo(() => getActiveRouteCount(prioritizedUnits), [prioritizedUnits]);
+  // Se expone aparte: nunca se suma a `activeRouteCount`.
+  const unknownStateCount = useMemo(() => getUnknownStateCount(prioritizedUnits), [prioritizedUnits]);
 
   const vehicleById = useMemo(
     () => new Map((mapData?.vehicles || []).map((vehicle) => [vehicle.id, vehicle])),
@@ -60,6 +63,7 @@ export function useTrackingData(
     activeIncident,
     activeIncidentUnit,
     activeRouteCount,
+    unknownStateCount,
     mappableUnits,
     prioritizedUnits,
     selectedUnit,

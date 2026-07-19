@@ -50,8 +50,17 @@ export function getVisibleUnits(units: readonly OperationalUnitSnapshot[]) {
   return units.filter((unit) => unit.visibility === 'visible');
 }
 
+/**
+ * Unidades de las que sabemos que circulan.
+ * `unknown` no entra: no sumamos al contador algo que no nos consta.
+ */
 export function getActiveRouteCount(units: readonly OperationalUnitSnapshot[]) {
   return units.filter((unit) => unit.operationalState === 'on_route').length;
+}
+
+/** Unidades con ruta asignada pero sin dato de GPS que confirme su estado. */
+export function getUnknownStateCount(units: readonly OperationalUnitSnapshot[]) {
+  return units.filter((unit) => unit.operationalState === 'unknown').length;
 }
 
 export function hasVehicleLiveLocation(vehicle: Vehicle | null | undefined) {

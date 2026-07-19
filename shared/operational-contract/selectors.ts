@@ -50,7 +50,9 @@ const STATE_LABELS: Record<OperationalState, string> = {
   on_route: 'En ruta',
   stopped: 'Detenida',
   no_route: 'Sin ruta',
-  maintenance: 'Mantenimiento'
+  maintenance: 'Mantenimiento',
+  // No afirmamos movimiento sin dato de GPS.
+  unknown: 'Sin datos'
 };
 
 export function stateLabel(state: OperationalState): string {
@@ -62,7 +64,10 @@ const STATE_COLORS: Record<OperationalState, string> = {
   on_route: '#16A34A',
   stopped: '#F59E0B',
   no_route: '#64748B',
-  maintenance: '#DC2626'
+  maintenance: '#DC2626',
+  // Gris claro, distinguible de `no_route`: son cosas distintas. `no_route`
+  // es un hecho conocido; `unknown` es ausencia de informacion.
+  unknown: '#94A3B8'
 };
 
 export function stateColor(state: OperationalState): string {
@@ -101,6 +106,9 @@ export function criticalityRank(unit: OperationalUnitSnapshot): number {
   if (unit.incidents.inProgress > 0) rank -= 50;
   if (unit.gps.freshness === 'missing') rank -= 40;
   if (unit.gps.freshness === 'stale') rank -= 20;
+  // Una unidad de la que no sabemos nada exige atencion antes que una que
+  // esta sana y parada por un motivo conocido.
+  if (unit.operationalState === 'unknown') rank -= 15;
   if (unit.operationalState === 'maintenance') rank -= 10;
   return rank;
 }
@@ -113,12 +121,19 @@ export function sortByCriticality(units: readonly OperationalUnitSnapshot[]): Op
   );
 }
 
-/** Conteos del encabezado de la pantalla de inicio. */
+/**
+ * Conteos del encabezado de la pantalla de inicio.
+ *
+ * `unknown` se cuenta aparte a proposito: agruparlo con `stopped` o con
+ * `onRoute` seria volver a afirmar algo que no sabemos.
+ */
 export function summarizeFleet(units: readonly OperationalUnitSnapshot[]) {
   return {
     total: units.length,
     onRoute: units.filter((unit) => unit.operationalState === 'on_route').length,
     stopped: units.filter((unit) => unit.operationalState === 'stopped').length,
+    unknown: units.filter((unit) => unit.operationalState === 'unknown').length,
+    noRoute: units.filter((unit) => unit.operationalState === 'no_route').length,
     withoutGps: units.filter((unit) => unit.gps.freshness === 'missing').length,
     maintenance: units.filter((unit) => unit.operationalState === 'maintenance').length
   };
