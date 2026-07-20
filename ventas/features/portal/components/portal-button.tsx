@@ -19,12 +19,6 @@ type PortalButtonProps = {
   variant?: PortalButtonVariant;
 };
 
-const iconSizes = {
-  sm: DesignSystem.icon.xs,
-  md: DesignSystem.icon.sm,
-  lg: DesignSystem.icon.md,
-} as const;
-
 export function PortalButton({
   accessibilityLabel,
   children,
@@ -49,7 +43,7 @@ export function PortalButton({
       onPress={onPress}
       style={({ hovered, pressed }: any) => [
         styles.base,
-        size === 'sm' ? styles.sizeSm : size === 'lg' ? styles.sizeLg : styles.sizeMd,
+        getSizeStyle(size),
         variant === 'primary' ? portalButtonGradient() : undefined,
         variant === 'secondary' ? styles.secondary : undefined,
         variant === 'danger' ? styles.danger : undefined,
@@ -62,9 +56,9 @@ export function PortalButton({
         inactive ? styles.disabled : undefined,
       ]}>
       {loading ? (
-        <ActivityIndicator color={foreground} size={iconSizes[size]} />
+        <ActivityIndicator color={foreground} size={getIconSize(size)} />
       ) : icon ? (
-        <MaterialCommunityIcons color={foreground} name={icon} size={iconSizes[size]} />
+        <MaterialCommunityIcons color={foreground} name={icon} size={getIconSize(size)} />
       ) : null}
       {children != null ? <Text style={[styles.label, { color: foreground }]}>{children}</Text> : null}
     </Pressable>
@@ -134,3 +128,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+function getSizeStyle(size: PortalButtonSize) {
+  if (size === 'sm') return styles.sizeSm;
+  if (size === 'lg') return styles.sizeLg;
+  return styles.sizeMd;
+}
+
+function getIconSize(size: PortalButtonSize) {
+  if (size === 'sm') return DesignSystem.icon.xs;
+  if (size === 'lg') return DesignSystem.icon.md;
+  return DesignSystem.icon.sm;
+}
