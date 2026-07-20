@@ -22,6 +22,7 @@ type OperationsMapProps = {
   showTraffic?: boolean;
   variant?: 'fleet' | 'replay';
   vehicles?: Vehicle[];
+  vehicleRoutes?: Array<{ vehicleId: string; coordinates: GeoPoint[]; color?: string }>;
   editablePoints?: Array<{ id: string; kind: 'origin' | 'checkpoint' | 'destination'; point: GeoPoint }>;
   selectedEditablePointId?: string | null;
   onEditablePointChange?: (id: string, point: GeoPoint) => void;
@@ -94,7 +95,7 @@ function createMarkerElement({ background, border, label, title, shape }: { back
 }
 
 function getVehiclePoint(vehicle: Vehicle): GeoPoint | null {
-  return vehicle.locationTimestamp && isValidPoint(vehicle.location) ? vehicle.location || null : null;
+  return isValidPoint(vehicle.location) ? vehicle.location || null : null;
 }
 
 function getBoundsPoints({
@@ -182,6 +183,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   showTraffic = true,
   variant = 'fleet',
   vehicles = [],
+  vehicleRoutes = [],
   editablePoints = [],
   selectedEditablePointId = null,
   onEditablePointChange,
@@ -197,6 +199,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const checkpointMarkersRef = useRef(new Map<string, MapboxMarker>());
   const editableMarkersRef = useRef(new Map<string, MapboxMarker>());
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
+  const vehicleRouteIdsRef = useRef(new Set<string>());
   const fittedKeyRef = useRef('');
   const initializationGuardLoggedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -291,12 +294,24 @@ export const OperationsMap = React.memo(function OperationsMap({
     if (!map) return;
     if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
     else removeLine(map, 'operations-route');
+    const nextVehicleRouteIds = new Set<string>();
+    vehicleRoutes.forEach((entry) => {
+      if (entry.coordinates.length < 2) return;
+      const id = `operations-vehicle-route-${entry.vehicleId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+      nextVehicleRouteIds.add(id);
+      const selected = entry.vehicleId === selectedVehicleId;
+      setLine(map, id, entry.coordinates, selected ? portalPalette.accent : entry.color || portalPalette.mutedSoft, selected ? 5 : 3, selected ? 0.96 : 0.52);
+    });
+    vehicleRouteIdsRef.current.forEach((id) => {
+      if (!nextVehicleRouteIds.has(id)) removeLine(map, id);
+    });
+    vehicleRouteIdsRef.current = nextVehicleRouteIds;
     if (highlightedSegment.length === 2) setLine(map, 'operations-route-highlight', highlightedSegment, '#38bdf8', 8, 0.42);
     else removeLine(map, 'operations-route-highlight');
     const replayCoordinates = replayPath.map(positionToPoint).filter(isValidPoint) as GeoPoint[];
     if (replayCoordinates.length >= 2) setLine(map, 'operations-replay', replayCoordinates, portalPalette.info, 3, 0.72);
     else removeLine(map, 'operations-replay');
-  }, [highlightedSegment, replayPath, routeCoordinates]);
+  }, [highlightedSegment, replayPath, routeCoordinates, selectedVehicleId, vehicleRoutes]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -337,7 +352,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         const element = createMarkerElement({
           ...markerTone,
           label: vehicle.code,
-          title: `${vehicle.code} · ${getDriverName(vehicle)}`,
+          title: `${vehicle.code} · ${getDriverName(vehicle)}${vehicle.gpsFreshness?.isFresh === false ? ' · sin señal, última posición' : ''}`,
           shape: 'pill',
         });
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -352,7 +367,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         marker.setLngLat(toLngLat(point));
         const element = marker.getElement();
         element.textContent = vehicle.code;
-        element.title = `${vehicle.code} · ${getDriverName(vehicle)}`;
+        element.title = `${vehicle.code} · ${getDriverName(vehicle)}${vehicle.gpsFreshness?.isFresh === false ? ' · sin señal, última posición' : ''}`;
         element.style.background = markerTone.background;
         element.style.border = `2px solid ${markerTone.border}`;
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -448,7 +463,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !autoFit || !boundsPoints.length) return;
-    const fitKey = boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
+    const fitKey = `${selectedVehicleId || 'fleet'}|${boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|')}`;
     if (fitKey === fittedKeyRef.current) return;
     fittedKeyRef.current = fitKey;
 
@@ -461,8 +476,17 @@ export const OperationsMap = React.memo(function OperationsMap({
       (current, point) => current.extend(toLngLat(point)),
       new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
     );
-    map.fitBounds(bounds, { duration: 550, easing: (value) => 1 - Math.pow(1 - value, 3), padding: 52 });
-  }, [autoFit, boundsPoints]);
+    map.fitBounds(bounds, {
+      duration: 550,
+      easing: (value) => 1 - Math.pow(1 - value, 3),
+      padding: {
+        top: AppTheme.spacing.xxl * 2,
+        right: AppTheme.spacing.xxl * 2,
+        bottom: AppTheme.spacing.xxl * 5,
+        left: AppTheme.spacing.xxl * 7,
+      },
+    });
+  }, [autoFit, boundsPoints, selectedVehicleId]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
     const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));

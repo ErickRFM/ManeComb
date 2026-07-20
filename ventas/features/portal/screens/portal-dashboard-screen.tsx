@@ -59,6 +59,7 @@ const replayPageSize = 800;
 const maxRenderedReplayPoints = 900;
 const replaySpeeds = [1, 2, 4] as const;
 const OperationsMap = lazy(() => import('../components/operations-map').then((module) => ({ default: module.OperationsMap })));
+const OPERATIONS_DETAIL_WIDTH = 360;
 const driverAvatarImageStyle: CSSProperties = {
   borderRadius: 20,
   height: 40,
@@ -518,6 +519,11 @@ export function PortalDashboardScreen() {
 
   const routeFocusVehicle = vehicles.find((vehicle) => vehicle.id === routeFocusVehicleId) || selectedVehicle;
   const routeCoordinates = useMemo(() => getRouteGeometry(routeFocusVehicle), [routeFocusVehicle]);
+  const vehicleRoutes = useMemo(() => operationalVehicles.map((vehicle) => ({
+    color: vehicle.routeColor || undefined,
+    coordinates: getRouteGeometry(vehicle),
+    vehicleId: vehicle.id,
+  })).filter((entry) => entry.coordinates.length >= 2), [operationalVehicles]);
   const routeCheckpoints = routeFocusVehicle?.assignedRoute?.stops || [];
   const replayPosition = sessionDetail?.positions[replayIndex] || null;
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
@@ -698,7 +704,7 @@ export function PortalDashboardScreen() {
       ) : null}
 
       {activeView === 'operations' ? (
-      <View nativeID={selectedVehicle ? 'operations-workspace-selected' : 'operations-workspace'} style={styles.mainOperationsGrid}>
+      <View nativeID={selectedVehicle ? 'operations-workspace-selected' : 'operations-workspace'} style={[styles.mainOperationsGrid, selectedVehicle ? styles.mainOperationsGridSelected : undefined]}>
         <View nativeID="operations-map-column" style={styles.operationsMapCol}>
           <View nativeID="operations-map-surface" style={styles.mapSurface}>
             <View style={styles.mapStage}>
@@ -711,6 +717,7 @@ export function PortalDashboardScreen() {
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
                   showTraffic={false}
+                  vehicleRoutes={vehicleRoutes}
                   vehicles={operationalVehicles}
                 />
               </Suspense>
@@ -745,7 +752,7 @@ export function PortalDashboardScreen() {
           </View>
         </View>
 
-        <View nativeID="operations-detail-column" style={styles.operationsUnitsCol}>
+        {selectedVehicle ? <View nativeID="operations-detail-column" style={styles.operationsUnitsCol}>
           <View nativeID="operations-detail-surface" style={styles.operationsDetailSurface}>
             {selectedVehicle ? (
               <VehicleSidePanel
@@ -769,7 +776,7 @@ export function PortalDashboardScreen() {
               <EmptyState icon="bus-clock" title="Selecciona una unidad" description="El panel mostrará estado, ruta, métricas y jornada activa." />
             )}
           </View>
-        </View>
+        </View> : null}
       </View>
       ) : null}
 
@@ -863,6 +870,12 @@ function OperationalUnitCard({
   const session = activeSession || latestSession;
   const status = getVehicleStatus(vehicle, activeSession);
   const routeInfo = getRouteInfo(vehicle, session);
+  const hasKnownPosition = Boolean(vehicle.location);
+  const gpsMessage = !hasKnownPosition
+    ? 'Sin GPS: nunca reportó una posición'
+    : vehicle.gpsFreshness?.state === 'stale' || vehicle.gpsFreshness?.state === 'missing'
+      ? 'Sin señal: mostrando última posición'
+      : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -873,6 +886,7 @@ function OperationalUnitCard({
         <View style={styles.flex}>
           <Text style={styles.unitCode}>{vehicle.code}</Text>
           <Text style={styles.unitMeta} numberOfLines={1}>{vehicle.plate} · {routeInfo.label}</Text>
+          {gpsMessage ? <Text style={styles.unitGpsMessage} numberOfLines={1}>{gpsMessage}</Text> : null}
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
       </View>
@@ -1789,20 +1803,23 @@ const styles = StyleSheet.create({
   },
   mainOperationsGrid: {
     alignItems: 'stretch',
-    flexDirection: 'row',
-    flexWrap: 'nowrap',
+    display: 'grid' as any,
+    flex: 1,
     gap: 0,
-    height: 'clamp(500px, calc(100vh - 164px), 880px)' as any,
+    gridTemplateColumns: 'minmax(0, 1fr)' as any,
+    minHeight: 0,
     minWidth: 0,
   },
+  mainOperationsGridSelected: {
+    gridTemplateColumns: `minmax(0, 1fr) ${OPERATIONS_DETAIL_WIDTH}px` as any,
+  },
   operationsMapCol: {
-    flex: 20,
     gap: 8,
     height: '100%',
+    minHeight: 0,
     minWidth: 0,
   },
   operationsUnitsCol: {
-    flex: 6,
     height: '100%',
     minWidth: 0,
     overflow: 'hidden',
@@ -1817,6 +1834,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
     flex: 1,
     minHeight: 0,
+    overflowY: 'auto' as any,
     paddingHorizontal: 12,
     paddingVertical: 12,
     boxShadow: '-14px 0 34px rgba(0,0,0,.18), inset 1px 0 0 rgba(255,255,255,.025)' as any,
@@ -1824,12 +1842,12 @@ const styles = StyleSheet.create({
   kpiRow: {
     backgroundColor: 'rgba(10,19,33,.82)', borderColor: 'rgba(148,163,184,.12)',
     borderTopLeftRadius: 10, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 10,
-    borderWidth: 1, borderRightWidth: 0, flexDirection: 'row', flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden',
+    borderWidth: 1, borderRightWidth: 0, flexDirection: 'row', flexShrink: 0, flexWrap: 'nowrap', minWidth: 0, overflowX: 'auto' as any, overflowY: 'hidden' as any,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
   },
   kpiCard: {
-    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, gap: 3, minHeight: 62,
-    minWidth: 0, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, flexBasis: AppTheme.spacing.xxl * 4, gap: 3, minHeight: 76,
+    minWidth: AppTheme.spacing.xxl * 4, paddingHorizontal: 12, paddingVertical: 8,
     animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
   kpiCardLast: { borderRightWidth: 0 },
@@ -2185,5 +2203,11 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     lineHeight: 17,
+  },
+  unitGpsMessage: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 10,
+    lineHeight: 14,
   },
 });

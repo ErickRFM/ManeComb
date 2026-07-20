@@ -316,7 +316,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: portalPalette.background,
     ...(Platform.OS === 'web'
-      ? ({ minHeight: '100vh', overflow: 'visible' } as any)
+      ? ({ height: '100vh', minHeight: 0, overflow: 'hidden' } as any)
       : { overflow: 'hidden' as const }),
   },
   portalBg: {
@@ -352,7 +352,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   shellWeb: {
-    minHeight: '100vh' as any,
+    height: '100vh' as any,
+    minHeight: 0,
   },
   shellWide: {
     flexDirection: 'row',
@@ -461,8 +462,9 @@ const styles = StyleSheet.create({
   },
   contentScroll: {
     flex: 1,
+    minHeight: 0,
     minWidth: 0,
-    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as any) : {}),
+    ...(Platform.OS === 'web' ? ({ overflowY: 'auto' } as any) : {}),
   },
   content: {
     alignSelf: 'center',
@@ -474,14 +476,16 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   contentWeb: {
-    flexGrow: 0,
+    flexGrow: 1,
+    minHeight: 0,
   },
   contentWide: {
     maxWidth: 1640,
   },
   contentDense: {
+    flex: 1,
     gap: 10,
-    maxHeight: '100vh' as any,
+    minHeight: 0,
     overflow: 'hidden',
     paddingBottom: 20,
     paddingTop: 20,
