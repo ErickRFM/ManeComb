@@ -100,7 +100,7 @@ Tambien existe soporte para registrar y eliminar suscripciones push, asi como pa
 
 ### 4.9 Gestion de usuarios
 
-Los administradores pueden listar, crear, editar y eliminar usuarios. El sistema controla correos duplicados, fortalece politicas de contrasena, normaliza roles y limpia asociaciones de unidades, conversaciones, documentos y notificaciones cuando se elimina un usuario.
+Los administradores pueden listar usuarios, actualizar su estado y asignaciones, y eliminarlos cuando las reglas de integridad lo permiten. Los choferes se dan de alta exclusivamente mediante activation keys: el administrador genera la key en el portal y el chofer completa su propio registro al canjearla. El portal no ofrece alta directa de choferes. El sistema controla correos duplicados, fortalece politicas de contrasena, normaliza roles y limpia asociaciones de unidades, conversaciones, documentos y notificaciones cuando se elimina un usuario.
 
 ### 4.10 Gestion de vehiculos y rutas
 

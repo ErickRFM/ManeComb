@@ -275,10 +275,6 @@ export async function getUsersRequest() {
   return await unwrapData<any[]>(apiClient.get('/users'));
 }
 
-export async function createUserRequest(payload: any) {
-  return await unwrapData<any>(apiClient.post('/users', payload));
-}
-
 export async function updateUserRequest(userId: string, payload: any) {
   return await unwrapData<any>(apiClient.patch(`/users/${encodeURIComponent(userId)}`, payload));
 }

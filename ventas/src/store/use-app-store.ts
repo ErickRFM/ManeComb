@@ -20,7 +20,6 @@ import {
   clearRouteAssignmentRequest,
   configureApiSessionRecovery,
   createVehicleRequest,
-  createUserRequest,
   deleteUserRequest,
   deleteVehicleRequest,
   getApiErrorMessage,
@@ -71,7 +70,6 @@ type AppState = {
   refreshAll: () => Promise<void>;
   loadUsers: () => Promise<void>;
   loadVehicles: () => Promise<void>;
-  createUser: (payload: UserMutationPayload) => Promise<ActionResult>;
   updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
   deleteUser: (userId: string) => Promise<ActionResult>;
   createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
@@ -523,27 +521,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ vehicles, operationalUnits, error: null });
     } catch (error) {
       set({ error: getReadableError(error, 'No fue posible cargar unidades.') });
-    }
-  },
-  createUser: async (payload) => {
-    if (!hasPortalPermission(get().user, 'users')) {
-      return { ok: false, message: 'No tienes permiso para administrar usuarios.' };
-    }
-    if (get().isSubmitting) {
-      return { ok: false, message: 'Hay una operacion en curso.' };
-    }
-    set({ isSubmitting: true, error: null });
-
-    try {
-      const user = await createUserRequest(payload);
-      set((state) => ({ users: [user, ...state.users] }));
-      return { ok: true };
-    } catch (error) {
-      const message = getReadableError(error, 'No fue posible crear el usuario.');
-      set({ error: message });
-      return { ok: false, message };
-    } finally {
-      set({ isSubmitting: false });
     }
   },
   updateUser: async (userId, payload) => {

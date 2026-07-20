@@ -672,7 +672,7 @@ export function PortalDashboardScreen() {
       title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
       subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : undefined}
       actions={
-        <Pressable accessibilityRole="button" onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)} disabled={activeView === 'operations' && isLoading} style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
+        <Pressable accessibilityRole="button" onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)} disabled={activeView === 'operations' && isLoading} style={[styles.actionButton, portalButtonGradient(), styles.headerActionButton, isLoading ? styles.disabledButton : undefined]}>
           <MaterialCommunityIcons name={activeView === 'operations' ? 'refresh' : 'arrow-left'} size={18} color={portalPalette.text} />
           <Text style={styles.actionText}>{activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}</Text>
         </Pressable>
@@ -722,7 +722,7 @@ export function PortalDashboardScreen() {
                 />
               </Suspense>
               {operationalVehicles.length ? (
-                <View nativeID="operations-unit-selector" style={styles.unitSelectorOverlay}>
+                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={styles.unitSelectorOverlay}>
                   <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
                   {operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
@@ -738,7 +738,7 @@ export function PortalDashboardScreen() {
               ) : null}
             </View>
           </View>
-          <View nativeID="operations-kpi-grid" style={styles.kpiRow}>
+          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-kpi-grid" style={styles.kpiRow}>
             {operationsKpis.map((kpi, index) => (
               <View key={kpi.label} style={[styles.kpiCard, index === operationsKpis.length - 1 ? styles.kpiCardLast : undefined]}>
                 <View style={styles.kpiTop}>
@@ -753,7 +753,7 @@ export function PortalDashboardScreen() {
         </View>
 
         {selectedVehicle ? <View nativeID="operations-detail-column" style={styles.operationsUnitsCol}>
-          <View nativeID="operations-detail-surface" style={styles.operationsDetailSurface}>
+          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-detail-surface" style={styles.operationsDetailSurface}>
             {selectedVehicle ? (
               <VehicleSidePanel
                 activeSession={activeSession}
@@ -885,7 +885,7 @@ function OperationalUnitCard({
       <View style={styles.unitHeader}>
         <View style={styles.flex}>
           <Text style={styles.unitCode}>{vehicle.code}</Text>
-          <Text style={styles.unitMeta} numberOfLines={1}>{vehicle.plate} · {routeInfo.label}</Text>
+          <Text {...({ title: routeInfo.label } as any)} style={styles.unitMeta} numberOfLines={2}>{vehicle.plate} · {routeInfo.label}</Text>
           {gpsMessage ? <Text style={styles.unitGpsMessage} numberOfLines={1}>{gpsMessage}</Text> : null}
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
@@ -958,7 +958,7 @@ function VehicleSidePanel({
           <MaterialCommunityIcons name="map-marker-path" size={18} color={portalPalette.text} />
         </View>
         <View style={styles.flex}>
-          <Text style={styles.routeTitle}>{routeInfo.label}</Text>
+          <Text {...({ title: routeInfo.label } as any)} numberOfLines={2} style={styles.routeTitle}>{routeInfo.label}</Text>
           {routeInfo.direction ? <Text style={styles.unitMeta}>{routeInfo.direction}</Text> : null}
           {routeInfo.code ? <Text style={styles.unitMeta}>{routeInfo.code}</Text> : null}
         </View>
@@ -1757,6 +1757,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     rowGap: 8,
   },
+  headerActionButton: {
+    boxShadow: 'none' as any,
+  },
   notice: {
     alignItems: 'center',
     backgroundColor: portalPalette.warningSoft,
@@ -1814,8 +1817,9 @@ const styles = StyleSheet.create({
     gridTemplateColumns: `minmax(0, 1fr) ${OPERATIONS_DETAIL_WIDTH}px` as any,
   },
   operationsMapCol: {
+    display: 'flex' as any,
     gap: 8,
-    height: '100%',
+    flexDirection: 'column',
     minHeight: 0,
     minWidth: 0,
   },
@@ -1827,16 +1831,13 @@ const styles = StyleSheet.create({
   operationsDetailSurface: {
     backgroundColor: 'rgba(12,21,35,.97)',
     borderColor: 'rgba(148,163,184,.16)',
-    borderRadius: 14,
-    borderTopLeftRadius: 0,
-    borderBottomLeftRadius: 0,
+    borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    borderLeftWidth: 0,
     flex: 1,
     minHeight: 0,
     overflowY: 'auto' as any,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: AppTheme.spacing.md,
+    paddingVertical: AppTheme.spacing.md,
     boxShadow: '-14px 0 34px rgba(0,0,0,.18), inset 1px 0 0 rgba(255,255,255,.025)' as any,
   },
   kpiRow: {
@@ -2049,7 +2050,7 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flex: 1,
-    gap: 8,
+    gap: AppTheme.spacing.sm,
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
   sideMetricGrid: {
@@ -2149,9 +2150,10 @@ const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderBottomWidth: 1,
     gap: 2,
+    height: AppTheme.spacing.xxl * 2,
     minWidth: 0,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: AppTheme.spacing.xs,
+    paddingVertical: AppTheme.spacing.xs,
     transition: 'background-color 180ms ease-in-out, border-color 180ms ease-in-out, transform 180ms ease-in-out' as any,
   },
   unitCardActive: {
@@ -2180,14 +2182,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148,163,184,.24)',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    bottom: 12,
-    gap: 2,
-    left: 12,
+    bottom: AppTheme.spacing.md,
+    gap: AppTheme.spacing.xs,
+    left: AppTheme.spacing.md,
     backdropFilter: 'blur(16px)' as any,
     boxShadow: '0 20px 48px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.05)' as any,
-    maxHeight: 176,
+    maxHeight: AppTheme.spacing.xxl * 7 + AppTheme.spacing.lg,
     overflow: 'auto' as any,
-    padding: 8,
+    padding: AppTheme.spacing.sm,
     position: 'absolute',
     width: 240,
   },
@@ -2196,7 +2198,7 @@ const styles = StyleSheet.create({
     fontFamily: Typography.display,
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 2,
+    lineHeight: AppTheme.spacing.lg,
   },
   unitMeta: {
     color: portalPalette.muted,

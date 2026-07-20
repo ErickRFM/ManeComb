@@ -267,6 +267,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               <BrandLogo tone="light" size="md" plain />
             </Pressable>
             <ScrollView
+              {...({ className: 'portal-scrollbar' } as any)}
               style={styles.sidebarScroll}
               contentContainerStyle={styles.sidebarScrollContent}
               showsVerticalScrollIndicator={false}>
@@ -291,7 +292,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         ) : null}
 
         {isWeb ? (
-          <View nativeID="portal-content-scroll" style={styles.contentScroll}>
+          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-content-scroll" style={[styles.contentScroll, compact ? styles.contentScrollDense : undefined]}>
             <View nativeID="portal-content" style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, !isWide ? styles.contentCompact : undefined]}>
               {contentBody}
             </View>
@@ -316,7 +317,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: portalPalette.background,
     ...(Platform.OS === 'web'
-      ? ({ height: '100vh', minHeight: 0, overflow: 'hidden' } as any)
+      ? ({
+          '--portal-scrollbar-radius': `${AppTheme.radius.pill}px`,
+          '--portal-scrollbar-size': `${AppTheme.spacing.xs}px`,
+          '--portal-scrollbar-thumb': portalPalette.mutedSoft,
+          height: '100dvh',
+          minHeight: 0,
+          overflow: 'hidden',
+        } as any)
       : { overflow: 'hidden' as const }),
   },
   portalBg: {
@@ -352,7 +360,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   shellWeb: {
-    height: '100vh' as any,
+    height: '100dvh' as any,
     minHeight: 0,
   },
   shellWide: {
@@ -376,7 +384,7 @@ const styles = StyleSheet.create({
   },
   sidebarWeb: {
     alignSelf: 'flex-start',
-    maxHeight: 'calc(100vh - 28px)' as any,
+    maxHeight: `calc(100dvh - ${AppTheme.spacing.xl}px)` as any,
     position: 'sticky' as any,
     top: 14,
   },
@@ -478,6 +486,9 @@ const styles = StyleSheet.create({
   contentWeb: {
     flexGrow: 1,
     minHeight: 0,
+  },
+  contentScrollDense: {
+    overflow: 'hidden',
   },
   contentWide: {
     maxWidth: 1640,
