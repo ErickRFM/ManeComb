@@ -13,6 +13,7 @@ import { createSavedRouteRequest, deleteSavedRouteRequest, getApiErrorMessage, g
 import { RouteGeometryThumbnail } from '../components/route-geometry-thumbnail';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
@@ -421,12 +422,8 @@ export function PortalRoutesScreen() {
 
   const editorActions = (
     <View style={styles.editorTopActions}>
-      <Pressable onPress={() => setShowRouteEditor(false)} style={styles.secondaryButton}>
-        <Text style={styles.toolText}>Cancelar</Text>
-      </Pressable>
-      <Pressable disabled={catalogBusy} onPress={() => void createCatalogRoute()} style={[styles.primaryButton, portalButtonGradient()]}>
-        <Text style={styles.primaryText}>Guardar ruta</Text>
-      </Pressable>
+      <PortalButton onPress={() => setShowRouteEditor(false)} size="sm" variant="secondary">Cancelar</PortalButton>
+      <PortalButton loading={catalogBusy} onPress={() => void createCatalogRoute()} size="sm">Guardar ruta</PortalButton>
     </View>
   );
 
@@ -460,7 +457,7 @@ export function PortalRoutesScreen() {
 
   return (
     <PortalLayout
-      actions={showRouteEditor ? editorActions : <Pressable onPress={openNewRouteEditor} style={[styles.primaryButton, portalButtonGradient()]}><MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" /><Text style={styles.primaryText}>Nueva ruta</Text></Pressable>}
+      actions={showRouteEditor ? editorActions : <PortalButton icon="plus" onPress={openNewRouteEditor} size="sm">Nueva ruta</PortalButton>}
       compact
       wide
       title={showRouteEditor ? 'Editor de ruta' : 'Rutas'}
@@ -536,7 +533,7 @@ export function PortalRoutesScreen() {
               {selectedSavedRoute ? <View style={styles.mapActionBar}>
                 <View style={styles.mapRouteIdentity}><View style={styles.mapRouteIcon}><MaterialCommunityIcons name="routes" size={22} color={portalPalette.accent} /></View><View style={styles.routeBody}><Text numberOfLines={1} style={styles.mapRouteName}>{selectedSavedRoute.name}</Text><Text numberOfLines={1} style={styles.mapRoutePath}>{selectedSavedRoute.originLabel || 'Origen'} → {selectedSavedRoute.destinationLabel || 'Destino'}</Text></View></View>
                 <View style={styles.mapStats}><View><Text style={styles.statValue}>{((selectedSavedRoute.distanceMeters || 0) / 1000).toFixed(1)} km</Text><Text style={styles.statLabel}>Distancia</Text></View><View><Text style={styles.statValue}>{selectedSavedRoute.stops.length}</Text><Text style={styles.statLabel}>Checkpoints</Text></View><View><Text style={styles.statValue}>{Math.round((selectedSavedRoute.durationSeconds || 0) / 60)} min</Text><Text style={styles.statLabel}>Duración</Text></View></View>
-                <View style={styles.mapActions}><Pressable onPress={() => openExistingRouteEditor(selectedSavedRoute)} style={styles.secondaryButton}><Text style={styles.toolText}>Editar</Text></Pressable><Pressable disabled={!editor.vehicleId || isSubmitting} onPress={() => void assignSavedRoute()} style={[styles.primaryButton, portalButtonGradient(), !editor.vehicleId ? styles.disabledButton : undefined]}><Text style={styles.primaryText}>Asignar ruta</Text></Pressable></View>
+                <View style={styles.mapActions}><PortalButton onPress={() => openExistingRouteEditor(selectedSavedRoute)} size="sm" variant="secondary">Editar</PortalButton><PortalButton disabled={!editor.vehicleId} loading={isSubmitting} onPress={() => void assignSavedRoute()} size="sm">Asignar ruta</PortalButton></View>
               </View> : null}
             </>
           )}
@@ -673,14 +670,7 @@ export function PortalRoutesScreen() {
                 </Text>
               </View>
               <View style={styles.actions}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => void saveRoute()}
-                  disabled={isSubmitting}
-                  style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
-                  <MaterialCommunityIcons name="map-marker-path" size={18} color="#FFFFFF" />
-                  <Text style={styles.primaryText}>Asignar ruta</Text>
-                </Pressable>
+                <PortalButton icon="map-marker-path" loading={isSubmitting} onPress={() => void saveRoute()}>Asignar ruta</PortalButton>
               </View>
             </>
           ) : (
@@ -723,30 +713,27 @@ export function PortalRoutesScreen() {
                   <View style={styles.rowActions}>
                     {vehicle.assignedRoute ? (
                       <>
-                        <Pressable
-                          accessibilityRole="button"
+                        <PortalButton
                           accessibilityLabel={`Editar ruta de ${vehicle.code}`}
                           onPress={() => loadRoute(vehicle)}
-                          style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
-                          <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
-                        </Pressable>
-                        <Pressable
-                          accessibilityRole="button"
+                          icon="pencil-outline"
+                          size="sm"
+                          variant="icon" />
+                        <PortalButton
                           accessibilityLabel={`Liberar ruta de ${vehicle.code}`}
                           onPress={() => setRouteToClear(vehicle)}
                           disabled={isSubmitting}
-                          style={[styles.iconAction, { backgroundColor: palette.warningSoft }]}>
-                          <MaterialCommunityIcons name="link-off" size={18} color={palette.warning} />
-                        </Pressable>
+                          icon="link-off"
+                          size="sm"
+                          variant="danger" />
                         {routeVehicles.length > 1 ? (
-                          <Pressable
-                            accessibilityRole="button"
+                          <PortalButton
                             accessibilityLabel={`Duplicar ruta de ${vehicle.code}`}
                             onPress={() => setDuplicateSourceId(vehicle.id)}
                             disabled={isSubmitting}
-                            style={[styles.iconAction, { backgroundColor: palette.surfaceAlt }]}>
-                            <MaterialCommunityIcons name="content-copy" size={18} color={palette.text} />
-                          </Pressable>
+                            icon="content-copy"
+                            size="sm"
+                            variant="icon" />
                         ) : null}
                       </>
                     ) : null}

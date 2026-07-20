@@ -9,6 +9,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient } from '../portal-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
@@ -89,18 +90,12 @@ export function PortalUsersScreen() {
             <MaterialCommunityIcons name="key-variant" size={20} color={palette.info} />
           </View>
           <View style={styles.contextCopy}>
-            <Text style={[styles.contextTitle, { color: palette.text }]}>Invitar usuarios mediante keys</Text>
+            <Text style={[styles.contextTitle, { color: palette.text }]}>Incorporar conductores mediante keys</Text>
             <Text style={[styles.contextText, { color: palette.muted }]}>
-              Genera keys de activación para conductores y usuarios de gestión. Cada key define rol y permisos. El usuario completa su registro y aparece automáticamente en el equipo.
+              Los conductores se registran exclusivamente con una key de activación. Genérala en Activación; cuando el chofer complete el registro, aparecerá automáticamente en el equipo.
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/portal/onboarding' as never)}
-            style={[styles.primaryButton, portalButtonGradient()]}>
-            <MaterialCommunityIcons name="key-plus" size={18} color="#FFFFFF" />
-            <Text style={styles.primaryText}>Ir a activación</Text>
-          </Pressable>
+          <PortalButton icon="key-plus" onPress={() => router.push('/portal/onboarding' as never)}>Ir a activación</PortalButton>
         </View>
       ) : null}
 
@@ -201,12 +196,8 @@ export function PortalUsersScreen() {
                 <View style={styles.rowActions}>
                   {canManageUsers && item.role !== 'owner' ? (
                     <>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${item.name}`} onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
-                      </Pressable>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} onPress={() => setDeleteTarget(item)} style={[styles.iconAction, { backgroundColor: palette.dangerSoft }]}>
-                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.danger} />
-                      </Pressable>
+                      <PortalButton accessibilityLabel={`Editar ${item.name}`} icon="pencil-outline" onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} size="sm" variant="icon" />
+                      <PortalButton accessibilityLabel={`Eliminar ${item.name}`} icon="trash-can-outline" onPress={() => setDeleteTarget(item)} size="sm" variant="danger" />
                     </>
                   ) : null}
                 </View>
@@ -217,7 +208,7 @@ export function PortalUsersScreen() {
           <EmptyState
             icon="account-group-outline"
             title="Sin usuarios de gestión"
-            description="Usa las keys de activación para invitar usuarios de gestión al equipo."
+            description="No hay usuarios de gestión adicionales registrados en esta cuenta."
           />
         )}
       </PortalSectionCard>

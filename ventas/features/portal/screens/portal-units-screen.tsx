@@ -12,6 +12,7 @@ import type { Vehicle, VehicleMutationPayload, VehicleStatus } from '@/src/types
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 const MAINTENANCE_INTERVAL_KM = 10000;
@@ -241,18 +242,9 @@ export function PortalUnitsScreen() {
           </View>
           <View style={styles.actions}>
             {editingId ? (
-              <Pressable accessibilityRole="button" onPress={resetEditor} style={[styles.secondaryButton, { borderColor: palette.line }]}>
-                <Text style={[styles.secondaryText, { color: palette.text }]}>Cancelar</Text>
-              </Pressable>
+              <PortalButton onPress={resetEditor} variant="secondary">Cancelar</PortalButton>
             ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void saveUnit()}
-              disabled={isSubmitting}
-              style={[styles.primaryButton, portalButtonGradient(), isSubmitting ? styles.disabledButton : undefined]}>
-              <MaterialCommunityIcons name={editingId ? 'content-save-outline' : 'bus-multiple'} size={18} color="#FFFFFF" />
-              <Text style={styles.primaryText}>{editingId ? 'Guardar' : 'Crear unidad'}</Text>
-            </Pressable>
+            <PortalButton icon={editingId ? 'content-save-outline' : 'bus-multiple'} loading={isSubmitting} onPress={() => void saveUnit()}>{editingId ? 'Guardar' : 'Crear unidad'}</PortalButton>
           </View>
         </PortalSectionCard>
       ) : null}
@@ -261,10 +253,7 @@ export function PortalUnitsScreen() {
           <View style={[styles.continuityBanner, { backgroundColor: palette.infoSoft, borderColor: palette.line }]}>
             <MaterialCommunityIcons name="check-circle" size={18} color={palette.info} />
             <Text style={[styles.continuityText, { color: palette.text }]}>Unidad creada. El siguiente paso es asignar una ruta.</Text>
-            <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.continuityButton, portalButtonGradient()]}>
-              <Text style={styles.continuityButtonText}>Asignar ruta</Text>
-              <MaterialCommunityIcons name="arrow-right" size={16} color="#FFFFFF" />
-            </Pressable>
+            <PortalButton icon="arrow-right" onPress={() => router.push('/portal/rutas' as never)} size="sm">Asignar ruta</PortalButton>
           </View>
         ) : null}
 
@@ -272,9 +261,7 @@ export function PortalUnitsScreen() {
           title="Unidades registradas"
           subtitle={`${sortedVehicles.length} ${sortedVehicles.length === 1 ? 'unidad real' : 'unidades reales'}`}
           right={sortedVehicles.length && canManageUnits ? (
-            <Pressable accessibilityRole="button" onPress={() => router.push('/portal/rutas' as never)} style={[styles.secondaryButton, { borderColor: palette.line }]}>
-              <Text style={[styles.secondaryText, { color: palette.text }]}>Continuar a rutas</Text>
-            </Pressable>
+            <PortalButton onPress={() => router.push('/portal/rutas' as never)} variant="secondary">Continuar a rutas</PortalButton>
           ) : undefined}>
           {sortedVehicles.length ? (
           <View style={styles.list}>
@@ -328,20 +315,18 @@ export function PortalUnitsScreen() {
                   <StatusBadge label={status.label} tone={status.tone} />
                   {canManageUnits ? (
                     <View style={styles.rowActions}>
-                      <Pressable
-                        accessibilityRole="button"
+                      <PortalButton
                         accessibilityLabel={`Editar unidad ${vehicle.code}`}
                         onPress={() => startEdit(vehicle)}
-                        style={[styles.iconAction, { backgroundColor: palette.infoSoft }]}>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.info} />
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
+                        icon="pencil-outline"
+                        size="sm"
+                        variant="icon" />
+                      <PortalButton
                         accessibilityLabel={`Eliminar unidad ${vehicle.code}`}
                         onPress={() => setDeleteTarget(vehicle)}
-                        style={[styles.iconAction, { backgroundColor: palette.dangerSoft }]}>
-                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.danger} />
-                      </Pressable>
+                        icon="trash-can-outline"
+                        size="sm"
+                        variant="danger" />
                     </View>
                   ) : null}
                 </View>

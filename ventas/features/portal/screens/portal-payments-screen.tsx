@@ -10,6 +10,7 @@ import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { resolveInvoiceDownloadUrl } from '@/features/commercial';
 import { InvoiceList, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 
@@ -96,9 +97,7 @@ export function PortalPaymentsScreen() {
             <MaterialCommunityIcons name="receipt-text-outline" size={28} color={portalPalette.muted} />
             <Text style={styles.emptyTitle}>No existe una orden comercial</Text>
             <Text style={styles.emptyText}>Selecciona un plan para iniciar una contratación.</Text>
-            <Pressable accessibilityRole="button" onPress={() => router.push('/portal/plan' as never)} style={styles.secondaryButton}>
-              <Text style={styles.secondaryText}>Ver planes</Text>
-            </Pressable>
+            <PortalButton onPress={() => router.push('/portal/plan' as never)} variant="secondary">Ver planes</PortalButton>
           </View>
         </PortalSectionCard>
       )}

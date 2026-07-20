@@ -29,6 +29,7 @@
 - Frontend: botón 🗑️ Eliminar en catálogo de rutas, `ConfirmModal` con dependencias
 
 ### Users (Conductores/Equipo)
+- El alta de choferes ocurre exclusivamente mediante activation keys. `PortalUsersScreen` no crea usuarios directamente; el chofer completa su registro al canjear la key generada desde Activación.
 - **Validación de dependencias en `DELETE /api/users/:userId`** — Bloquea si es owner, único admin, o conductor con unidad/jornada activa
 - Frontend: diálogo mejorado con información de impacto
 
@@ -175,7 +176,7 @@ Antes de cada eliminación se verifica automáticamente:
 - ✅ Keys de Activación: ciclo de vida completo (Generar → Copiar/Compartir → Revocar → Eliminar si no usada)
 - ✅ Unidades: ciclo de vida completo (Crear → Editar → Eliminar con validaciones)
 - ✅ Rutas: ciclo de vida completo (Crear → Editar → Eliminar con validaciones de asignación)
-- ✅ Conductores/Equipo: ciclo de vida completo (Crear vía keys → Editar estado → Eliminar con protecciones)
+- ✅ Conductores/Equipo: ciclo de vida completo (Alta exclusiva vía activation key → Editar estado/asignación → Eliminar con protecciones; sin alta directa en el portal)
 - ✅ Comportamiento uniforme: mismos estilos de botones (✏️ 🗑️), mismos `ConfirmModal`, mismos mensajes de error
 - ✅ Integridad: ninguna eliminación deja referencias huérfanas
 - ✅ UI actualizada tras eliminaciones (zustand + socket events)

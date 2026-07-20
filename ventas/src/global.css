@@ -299,6 +299,7 @@ a {
     left: 10px !important;
     max-height: 136px !important;
     max-width: calc(100% - 20px) !important;
+    top: auto !important;
     width: 210px !important;
   }
 
@@ -306,14 +307,20 @@ a {
     background: transparent !important;
     border: 0 !important;
     border-radius: 0 !important;
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px !important;
+    display: block !important;
     overflow: visible !important;
+    padding-bottom: 0 !important;
     width: 100% !important;
   }
 
   #operations-kpi-grid > div {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  #operations-kpi-grid > div > div {
     background: rgba(10, 19, 33, 0.9) !important;
     border: 1px solid rgba(148, 163, 184, 0.14) !important;
     border-radius: 10px !important;
@@ -321,7 +328,7 @@ a {
     padding: 10px !important;
   }
 
-  #operations-kpi-grid > div * {
+  #operations-kpi-grid > div > div * {
     min-width: 0;
     overflow-wrap: anywhere;
     white-space: normal !important;
@@ -367,7 +374,7 @@ a {
     min-height: 420px !important;
   }
 
-  #operations-kpi-grid > div {
+  #operations-kpi-grid > div > div {
     min-height: 100px !important;
     padding: 9px !important;
   }

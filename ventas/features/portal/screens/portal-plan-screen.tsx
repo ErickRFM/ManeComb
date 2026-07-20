@@ -18,6 +18,7 @@ import {
 } from '@/features/commercial';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalGlass, portalPalette } from '../portal-theme';
 
 function CurrentPlanOverview({
@@ -269,35 +270,17 @@ function ChangePreview({
       </View>
 
       <View style={[styles.previewActions, compact ? styles.previewActionsCompact : undefined]}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onClose}
-          style={[styles.secondaryButton, compact ? styles.fullWidthButton : undefined]}>
-          <Text style={styles.secondaryButtonText}>Elegir otro plan</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
+        <PortalButton fullWidth={compact} onPress={onClose} variant="secondary">Elegir otro plan</PortalButton>
+        <PortalButton
           accessibilityLabel={isSubmitting ? 'Aplicando cambio de plan' : action.label}
-          accessibilityState={{ disabled: actionDisabled }}
           disabled={actionDisabled}
+          fullWidth={compact}
+          icon={action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
+          loading={isSubmitting}
           onPress={onPrimary}
-          style={[
-            styles.continueButton,
-            portalButtonGradient(),
-            compact ? styles.fullWidthButton : undefined,
-            actionDisabled ? styles.disabledButton : undefined,
-          ]}>
-          <Text style={styles.continueButtonText}>{isSubmitting ? 'Aplicando...' : action.label}</Text>
-          {isSubmitting ? (
-            <ActivityIndicator size={18} color={portalPalette.text} />
-          ) : (
-            <MaterialCommunityIcons
-              name={action.kind === 'disabled' ? 'cancel' : 'arrow-right'}
-              size={18}
-              color={portalPalette.text}
-            />
-          )}
-        </Pressable>
+          size="md">
+          {isSubmitting ? 'Aplicando...' : action.label}
+        </PortalButton>
       </View>
     </PortalSectionCard>
   );

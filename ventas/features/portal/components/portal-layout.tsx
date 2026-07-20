@@ -498,7 +498,7 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 0,
     overflow: 'hidden',
-    paddingBottom: 20,
+    paddingBottom: 0,
     paddingTop: 20,
   },
   contentCompact: {

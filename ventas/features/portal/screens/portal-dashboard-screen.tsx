@@ -28,6 +28,7 @@ import type {
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { isVehicleGpsFresh } from '../utils/tracking';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
@@ -379,7 +380,7 @@ export function PortalDashboardScreen() {
     status: 'ALL',
     vehicleId: getParam(params.vehicleId) || '',
   });
-  const [operationsFilter] = useState<OperationsFilter>('ALL');
+  const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -483,6 +484,16 @@ export function PortalDashboardScreen() {
     if (operationsFilter === 'OFF_ROUTE') return Boolean(vehicle.activeRouteProgress?.isOffRoute);
     return true;
   }), [operationalVehicleData, operationsFilter, sessionsByVehicle]);
+  const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
+    setOperationsFilter((current) => current === filter ? 'ALL' : filter);
+  };
+
+  useEffect(() => {
+    if (operationsFilter === 'ALL') return;
+    const visibleVehicleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
+    if (selectedVehicleId && !visibleVehicleIds.has(selectedVehicleId)) setSelectedVehicleId('');
+    if (routeFocusVehicleId && !visibleVehicleIds.has(routeFocusVehicleId)) setRouteFocusVehicleId(null);
+  }, [operationalVehicles, operationsFilter, routeFocusVehicleId, selectedVehicleId]);
   const operationsKpis = useMemo(() => {
     const active = operationsCounts.RUNNING;
     const gpsLost = operationalVehicleData.filter((vehicle) => getGpsState(vehicle, sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
@@ -672,10 +683,9 @@ export function PortalDashboardScreen() {
       title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
       subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : undefined}
       actions={
-        <Pressable accessibilityRole="button" onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)} disabled={activeView === 'operations' && isLoading} style={[styles.actionButton, portalButtonGradient(), styles.headerActionButton, isLoading ? styles.disabledButton : undefined]}>
-          <MaterialCommunityIcons name={activeView === 'operations' ? 'refresh' : 'arrow-left'} size={18} color={portalPalette.text} />
-          <Text style={styles.actionText}>{activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}</Text>
-        </Pressable>
+        <PortalButton icon={activeView === 'operations' ? 'refresh' : 'arrow-left'} loading={activeView === 'operations' && isLoading} onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)}>
+          {activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}
+        </PortalButton>
       }>
       {message ? (
         <View nativeID="portal-notice" style={styles.notice}>
@@ -692,13 +702,7 @@ export function PortalDashboardScreen() {
               <Text style={styles.onboardingTitle}>Completa la configuración inicial</Text>
               <Text style={styles.unitMeta}>Registra tus unidades, asigna conductores y define rutas desde el panel de activación.</Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/portal/onboarding' as never)}
-              style={[styles.primaryButton, portalButtonGradient()]}>
-              <Text style={styles.primaryText}>Ir a activación</Text>
-              <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
-            </Pressable>
+            <PortalButton icon="arrow-right" onPress={() => router.push('/portal/onboarding' as never)} size="sm">Ir a activación</PortalButton>
           </View>
         </PortalSectionCard>
       ) : null}
@@ -738,17 +742,40 @@ export function PortalDashboardScreen() {
               ) : null}
             </View>
           </View>
+          <View style={styles.operationsFilters}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: operationsFilter === 'ALL' }}
+              onPress={() => setOperationsFilter('ALL')}
+              style={[styles.operationsFilter, operationsFilter === 'ALL' ? styles.operationsFilterActive : undefined]}>
+              <View style={styles.filterStatusDot} />
+              <Text style={styles.operationsFilterText}>Todas</Text>
+              <Text style={styles.operationsFilterCount}>{operationsCounts.ALL}</Text>
+            </Pressable>
+          </View>
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-kpi-grid" style={styles.kpiRow}>
-            {operationsKpis.map((kpi, index) => (
-              <View key={kpi.label} style={[styles.kpiCard, index === operationsKpis.length - 1 ? styles.kpiCardLast : undefined]}>
-                <View style={styles.kpiTop}>
-                  <MaterialCommunityIcons name={kpi.icon} size={18} color={portalPalette.accent} />
-                  <Text style={styles.kpiLabel}>{kpi.label}</Text>
-                </View>
-                <Text style={styles.kpiValue}>{kpi.value}</Text>
-                <Text style={styles.kpiDetail}>{kpi.detail}</Text>
-              </View>
-            ))}
+            <View style={styles.kpiTrack}>
+              {operationsKpis.map((kpi, index) => {
+                const filter = index === 0 ? 'RUNNING' : index === 1 ? 'STOPPED' : index === 2 ? 'OFF_ROUTE' : null;
+                const Container = filter ? Pressable : View;
+                return (
+                <Container
+                  key={kpi.label}
+                  {...(filter ? {
+                    accessibilityRole: 'button',
+                    accessibilityState: { selected: operationsFilter === filter },
+                    onPress: () => toggleOperationsFilter(filter),
+                  } : {})}
+                  style={[styles.kpiCard, filter && operationsFilter === filter ? styles.operationsFilterActive : undefined, index === operationsKpis.length - 1 ? styles.kpiCardLast : undefined]}>
+                  <View style={styles.kpiTop}>
+                    <MaterialCommunityIcons name={kpi.icon} size={18} color={portalPalette.accent} />
+                    <Text style={styles.kpiLabel}>{kpi.label}</Text>
+                  </View>
+                  <Text style={styles.kpiValue}>{kpi.value}</Text>
+                  <Text style={styles.kpiDetail}>{kpi.detail}</Text>
+                </Container>
+              );})}
+            </View>
           </View>
         </View>
 
@@ -802,9 +829,7 @@ export function PortalDashboardScreen() {
                   />
                 ))}
                 {history.length < historyTotal ? (
-                  <Pressable accessibilityRole="button" onPress={() => void loadHistory({ append: true })} style={styles.secondaryButton}>
-                    <Text style={styles.secondaryText}>{isLoading ? 'Cargando' : `Cargar más (${historyTotal - history.length})`}</Text>
-                  </Pressable>
+                  <PortalButton loading={isLoading} onPress={() => void loadHistory({ append: true })} size="sm" variant="secondary">{`Cargar más (${historyTotal - history.length})`}</PortalButton>
                 ) : null}
               </View>
             ) : (
@@ -975,9 +1000,7 @@ function VehicleSidePanel({
           <View style={styles.inlineHeader}>
             <Text style={styles.panelTitle}>Choferes asignados ({assignedDrivers.length})</Text>
             {driverSelectorOpen ? (
-              <Pressable accessibilityRole="button" onPress={onCloseDriverSelector} style={styles.iconButton}>
-                <MaterialCommunityIcons name="close" size={16} color={portalPalette.text} />
-              </Pressable>
+              <PortalButton accessibilityLabel="Cerrar selector de chofer" icon="close" onPress={onCloseDriverSelector} size="sm" variant="icon" />
             ) : null}
           </View>
           {driverSelectorOpen ? (
@@ -1042,10 +1065,7 @@ function VehicleSidePanel({
       )}
       <View style={styles.sideActions}>
         {session ? (
-          <Pressable accessibilityRole="button" onPress={() => onOpenSession(session)} style={[styles.primaryButton, portalButtonGradient()]}>
-            <Text style={styles.primaryText}>Ver jornada</Text>
-            <MaterialCommunityIcons name="arrow-right" size={17} color={portalPalette.text} />
-          </Pressable>
+          <PortalButton icon="arrow-right" onPress={() => onOpenSession(session)} size="sm">Ver jornada</PortalButton>
         ) : null}
         <View style={styles.quickActions}>
           <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
@@ -1321,16 +1341,10 @@ function SessionDetailView({
                 <View style={[styles.sliderFill, { width: `${maxIndex ? (replayIndex / maxIndex) * 100 : 0}%` }]} />
               </View>
               <View style={styles.replaySteps}>
-                <Pressable onPress={() => onReplayIndexChange(Math.max(0, replayIndex - 1))} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>Anterior</Text>
-                </Pressable>
-                <Pressable onPress={() => onReplayIndexChange(Math.min(maxIndex, replayIndex + 1))} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>Siguiente</Text>
-                </Pressable>
+                <PortalButton onPress={() => onReplayIndexChange(Math.max(0, replayIndex - 1))} size="sm" variant="secondary">Anterior</PortalButton>
+                <PortalButton onPress={() => onReplayIndexChange(Math.min(maxIndex, replayIndex + 1))} size="sm" variant="secondary">Siguiente</PortalButton>
                 {hasMorePositions ? (
-                  <Pressable onPress={onLoadMorePositions} style={styles.secondaryButton}>
-                    <Text style={styles.secondaryText}>{isPositionsLoading ? 'Cargando' : 'Cargar más posiciones'}</Text>
-                  </Pressable>
+                  <PortalButton loading={isPositionsLoading} onPress={onLoadMorePositions} size="sm" variant="secondary">Cargar más posiciones</PortalButton>
                 ) : null}
               </View>
               <View style={styles.metricGrid}>
@@ -1408,12 +1422,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 }
 
 function QuickAction({ icon, label, onPress }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string; onPress: () => void }) {
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ hovered, pressed }: any) => [styles.quickAction, hovered ? styles.quickActionHover : undefined, pressed ? styles.controlPressed : undefined]}>
-      <MaterialCommunityIcons name={icon} size={16} color={portalPalette.text} />
-      <Text style={styles.quickActionText}>{label}</Text>
-    </Pressable>
-  );
+  return <PortalButton icon={icon} onPress={onPress} size="sm" variant="ghost">{label}</PortalButton>;
 }
 
 const styles = StyleSheet.create({
@@ -1824,7 +1833,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   operationsUnitsCol: {
+    display: 'flex' as any,
     height: '100%',
+    minHeight: 0,
     minWidth: 0,
     overflow: 'hidden',
   },
@@ -1834,6 +1845,7 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flex: 1,
+    height: '100%',
     minHeight: 0,
     overflowY: 'auto' as any,
     paddingHorizontal: AppTheme.spacing.md,
@@ -1843,12 +1855,17 @@ const styles = StyleSheet.create({
   kpiRow: {
     backgroundColor: 'rgba(10,19,33,.82)', borderColor: 'rgba(148,163,184,.12)',
     borderTopLeftRadius: 10, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderBottomLeftRadius: 10,
-    borderWidth: 1, borderRightWidth: 0, flexDirection: 'row', flexShrink: 0, flexWrap: 'nowrap', minWidth: 0, overflowX: 'auto' as any, overflowY: 'hidden' as any,
+    borderWidth: 1, borderRightWidth: 0, flexShrink: 0, minWidth: 0, overflowX: 'auto' as any, overflowY: 'hidden' as any, paddingBottom: AppTheme.spacing.xs,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,.025)' as any,
   },
+  kpiTrack: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    minWidth: '100%' as any,
+  },
   kpiCard: {
-    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, flexBasis: AppTheme.spacing.xxl * 4, gap: 3, minHeight: 76,
-    minWidth: AppTheme.spacing.xxl * 4, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: 'transparent', borderRightColor: 'rgba(148,163,184,.1)', borderRightWidth: 1, flex: 1, flexBasis: AppTheme.spacing.xxl * 3 + AppTheme.spacing.lg, gap: 3, minHeight: 76,
+    minWidth: AppTheme.spacing.xxl * 3 + AppTheme.spacing.lg, paddingHorizontal: 12, paddingVertical: 8,
     animation: 'operationsFadeIn 220ms ease-in-out both' as any,
   },
   kpiCardLast: { borderRightWidth: 0 },
@@ -2182,7 +2199,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148,163,184,.24)',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    bottom: AppTheme.spacing.md,
     gap: AppTheme.spacing.xs,
     left: AppTheme.spacing.md,
     backdropFilter: 'blur(16px)' as any,
@@ -2191,6 +2207,7 @@ const styles = StyleSheet.create({
     overflow: 'auto' as any,
     padding: AppTheme.spacing.sm,
     position: 'absolute',
+    top: AppTheme.spacing.md,
     width: 240,
   },
   mapOverlayTitle: {

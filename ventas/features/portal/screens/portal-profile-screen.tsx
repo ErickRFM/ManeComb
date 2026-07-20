@@ -9,6 +9,7 @@ import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -185,18 +186,7 @@ export function PortalProfileScreen() {
             ))}
           </View>
           <View style={styles.actions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isProfileSubmitting}
-                onPress={() => void saveProfile()}
-                style={[styles.primaryButton, portalButtonGradient(), isProfileSubmitting ? styles.disabledButton : undefined]}>
-                {isProfileSubmitting ? (
-                  <ActivityIndicator size={18} color="#FFFFFF" />
-                ) : (
-                  <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
-                )}
-                <Text style={styles.primaryText}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</Text>
-              </Pressable>
+              <PortalButton icon="content-save-outline" loading={isProfileSubmitting} onPress={() => void saveProfile()}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</PortalButton>
           </View>
         </PortalSectionCard>
       ) : null}
@@ -216,13 +206,12 @@ export function PortalProfileScreen() {
                   </View>
                   <StatusBadge label={session.current ? 'actual' : 'activa'} tone="positive" />
                   {!session.current ? (
-                    <Pressable
-                      accessibilityRole="button"
+                    <PortalButton
                       accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
                        onPress={() => setSessionToRevoke({ id: session.id, deviceName: session.deviceName })}
-                      style={[styles.iconButton, { backgroundColor: palette.dangerSoft }]}>
-                      <MaterialCommunityIcons name="close" size={18} color={palette.danger} />
-                    </Pressable>
+                      icon="close"
+                      size="sm"
+                      variant="danger" />
                   ) : null}
                 </View>
               ))}

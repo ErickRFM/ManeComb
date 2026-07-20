@@ -9,6 +9,7 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '../store/use-portal-store';
@@ -95,9 +96,7 @@ export function PortalIncidentsScreen() {
           title={detail.title}
           subtitle={message || `${detail.type} · ${formatDate(detail.createdAt, { fallback: '' })}`}
           right={
-            <Pressable accessibilityRole="button" onPress={() => setDetailTarget(null)} style={[styles.iconAction, { backgroundColor: palette.surfaceAlt }]}>
-              <MaterialCommunityIcons name="close" size={18} color={palette.text} />
-            </Pressable>
+            <PortalButton accessibilityLabel="Cerrar detalle" icon="close" onPress={() => setDetailTarget(null)} size="sm" variant="icon" />
           }>
           <View style={styles.detailGrid}>
             <View style={styles.detailField}>
@@ -142,13 +141,7 @@ export function PortalIncidentsScreen() {
             </View>
           ) : null}
           {canManage && detail.status !== 'resolved' ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => { setStatusTarget(detail); setSelectedStatus(detail.status); }}
-              style={[styles.actionButton, portalButtonGradient()]}>
-              <MaterialCommunityIcons name="pencil-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>Cambiar estado</Text>
-            </Pressable>
+            <PortalButton icon="pencil-outline" onPress={() => { setStatusTarget(detail); setSelectedStatus(detail.status); }} size="sm">Cambiar estado</PortalButton>
           ) : null}
         </PortalSectionCard>
       ) : (

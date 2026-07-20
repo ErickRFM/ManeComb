@@ -8,6 +8,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { ActivationTimeline, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import type { PortalActivationKey, PortalActivationKeysSummary, PortalOnboardingStep } from '@/src/types/app';
@@ -470,14 +471,7 @@ export function PortalOnboardingScreen() {
       title="Activación"
       subtitle="Controla el plan comprado y activa conductores con keys vinculadas a la empresa."
       actions={
-        <Pressable
-          accessibilityRole="button"
-          disabled={isLoading}
-          onPress={() => void loadOverview()}
-          style={[styles.actionButton, portalButtonGradient(), isLoading ? styles.disabledButton : undefined]}>
-          <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" />
-          <Text style={styles.actionText}>Actualizar</Text>
-        </Pressable>
+        <PortalButton icon="refresh" loading={isLoading} onPress={() => void loadOverview()}>Actualizar</PortalButton>
       }>
       <View style={styles.assistantHero}>
         <View style={styles.assistantIcon}>
@@ -501,20 +495,16 @@ export function PortalOnboardingScreen() {
             tone="info"
           />
         ) : !activationComplete && !hasAnyKey ? (
-          <Pressable
-            accessibilityRole="button"
+          <PortalButton
             accessibilityLabel="Generar key de activación"
             disabled={!canGenerate}
-            onPress={() => void handleGenerateKey()}
-            style={[styles.actionButton, portalButtonGradient(), !canGenerate ? styles.disabledButton : undefined]}>
-            {isSubmitting ? <ActivityIndicator color="#FFFFFF" size="small" /> : <MaterialCommunityIcons name="key-plus" size={18} color="#FFFFFF" />}
-            <Text style={styles.actionText}>Generar key</Text>
-          </Pressable>
+            icon="key-plus"
+            loading={isSubmitting}
+            onPress={() => void handleGenerateKey()}>
+            Generar key
+          </PortalButton>
         ) : !activationComplete && usedActivationKey && firstLoginComplete && nextStepTarget ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={`Abrir ${nextPendingStep?.title || 'siguiente paso'}`} onPress={() => router.push(nextStepTarget as never)} style={styles.stepActionButton}>
-            <Text style={styles.stepActionText}>Abrir</Text>
-            <MaterialCommunityIcons name="arrow-right" size={15} color={portalPalette.text} />
-          </Pressable>
+          <PortalButton accessibilityLabel={`Abrir ${nextPendingStep?.title || 'siguiente paso'}`} icon="arrow-right" onPress={() => router.push(nextStepTarget as never)} size="sm" variant="secondary">Abrir</PortalButton>
         ) : null}
       </View>
 

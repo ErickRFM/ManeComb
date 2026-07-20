@@ -130,6 +130,16 @@ function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: str
 
   if (map.getSource(sourceId)) {
     (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
+    if (map.getLayer(glowLayerId)) {
+      map.setPaintProperty(glowLayerId, 'line-color', color);
+      map.setPaintProperty(glowLayerId, 'line-opacity', opacity * 0.3);
+      map.setPaintProperty(glowLayerId, 'line-width', width + 6);
+    }
+    if (map.getLayer(layerId)) {
+      map.setPaintProperty(layerId, 'line-color', color);
+      map.setPaintProperty(layerId, 'line-opacity', opacity);
+      map.setPaintProperty(layerId, 'line-width', width);
+    }
     return;
   }
 
@@ -201,6 +211,8 @@ export const OperationsMap = React.memo(function OperationsMap({
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
   const vehicleRouteIdsRef = useRef(new Set<string>());
   const fittedKeyRef = useRef('');
+  const syncLinesRef = useRef<() => void>(() => undefined);
+  const styleSyncPendingRef = useRef(false);
   const initializationGuardLoggedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const mapStyle = mapMode === 'satellite'
@@ -208,10 +220,23 @@ export const OperationsMap = React.memo(function OperationsMap({
     : mapMode === 'traffic' || showTraffic
       ? 'mapbox://styles/mapbox/navigation-night-v1'
       : 'mapbox://styles/mapbox/dark-v11';
+  const appliedMapStyleRef = useRef(mapStyle);
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
     [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
   );
+  const boundsPointsRef = useRef(boundsPoints);
+  boundsPointsRef.current = boundsPoints;
+  const fitTriggerKey = useMemo(() => {
+    if (mapMode === 'operational') {
+      const locatedVehicleIds = vehicles
+        .filter((vehicle) => Boolean(getVehiclePoint(vehicle)))
+        .map((vehicle) => vehicle.id)
+        .sort();
+      return `${selectedVehicleId || 'fleet'}|${locatedVehicleIds.join('|')}`;
+    }
+    return boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
+  }, [boundsPoints, mapMode, selectedVehicleId, vehicles]);
 
   useEffect(() => {
     onClickPointRef.current = onClickPoint;
@@ -314,18 +339,20 @@ export const OperationsMap = React.memo(function OperationsMap({
   }, [highlightedSegment, replayPath, routeCoordinates, selectedVehicleId, vehicleRoutes]);
 
   useEffect(() => {
+    syncLinesRef.current = syncLines;
+  }, [syncLines]);
+
+  useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || appliedMapStyleRef.current === mapStyle) return;
+    appliedMapStyleRef.current = mapStyle;
     map.setStyle(mapStyle);
-    const onStyleLoad = () => {
-      syncLines();
-    };
-    if (map.isStyleLoaded()) {
-      onStyleLoad();
-    } else {
-      map.once('style.load', onStyleLoad);
-    }
-  }, [mapStyle, syncLines]);
+    styleSyncPendingRef.current = true;
+    map.once('style.load', () => {
+      styleSyncPendingRef.current = false;
+      syncLinesRef.current();
+    });
+  }, [mapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -334,7 +361,12 @@ export const OperationsMap = React.memo(function OperationsMap({
       syncLines();
       return;
     }
-    map.once('style.load', syncLines);
+    if (styleSyncPendingRef.current) return;
+    styleSyncPendingRef.current = true;
+    map.once('style.load', () => {
+      styleSyncPendingRef.current = false;
+      syncLinesRef.current();
+    });
   }, [syncLines]);
 
   useEffect(() => {
@@ -462,19 +494,18 @@ export const OperationsMap = React.memo(function OperationsMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !autoFit || !boundsPoints.length) return;
-    const fitKey = `${selectedVehicleId || 'fleet'}|${boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|')}`;
-    if (fitKey === fittedKeyRef.current) return;
-    fittedKeyRef.current = fitKey;
+    const points = boundsPointsRef.current;
+    if (!map || !autoFit || !points.length || fitTriggerKey === fittedKeyRef.current) return;
+    fittedKeyRef.current = fitTriggerKey;
 
-    if (boundsPoints.length === 1) {
-      map.easeTo({ center: toLngLat(boundsPoints[0]), duration: 500, easing: (value) => 1 - Math.pow(1 - value, 3), zoom: 14 });
+    if (points.length === 1) {
+      map.easeTo({ center: toLngLat(points[0]), duration: 500, easing: (value) => 1 - Math.pow(1 - value, 3), zoom: 14 });
       return;
     }
 
-    const bounds = boundsPoints.reduce(
+    const bounds = points.reduce(
       (current, point) => current.extend(toLngLat(point)),
-      new mapboxgl.LngLatBounds(toLngLat(boundsPoints[0]), toLngLat(boundsPoints[0]))
+      new mapboxgl.LngLatBounds(toLngLat(points[0]), toLngLat(points[0]))
     );
     map.fitBounds(bounds, {
       duration: 550,
@@ -486,7 +517,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         left: AppTheme.spacing.xxl * 7,
       },
     });
-  }, [autoFit, boundsPoints, selectedVehicleId]);
+  }, [autoFit, fitTriggerKey]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
     const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));
@@ -552,7 +583,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     );
   }
 
-  return <View ref={hostRef as never} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 460 }]} />;
+  return <View ref={hostRef as never} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]} />;
 });
 
 const styles = StyleSheet.create({
