@@ -43,19 +43,37 @@ function toLngLat(point: GeoPoint): [number, number] {
   return [Number(point.longitude), Number(point.latitude)];
 }
 
+// Number(null), Number(''), Number([]) y Number(false) valen 0: sin esta verificacion
+// una unidad sin GPS se colaba como una coordenada "valida" en (0, 0).
+function toFiniteCoordinate(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function toValidPoint(point?: Partial<GeoPoint> | null): GeoPoint | null {
+  const latitude = toFiniteCoordinate(point?.latitude);
+  const longitude = toFiniteCoordinate(point?.longitude);
+  if (latitude === null || longitude === null) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return { latitude, longitude };
+}
+
 function isValidPoint(point?: GeoPoint | null) {
-  return (
-    Number.isFinite(Number(point?.latitude)) &&
-    Number.isFinite(Number(point?.longitude)) &&
-    Math.abs(Number(point?.latitude)) <= 90 &&
-    Math.abs(Number(point?.longitude)) <= 180
-  );
+  return toValidPoint(point) !== null;
+}
+
+function toValidPoints(points: readonly (GeoPoint | null | undefined)[]): GeoPoint[] {
+  return points.map(toValidPoint).filter((point): point is GeoPoint => point !== null);
 }
 
 function positionToPoint(position?: RouteSessionPosition | null): GeoPoint | null {
-  if (!position) return null;
-  const point = { latitude: Number(position.latitude), longitude: Number(position.longitude) };
-  return isValidPoint(point) ? point : null;
+  return toValidPoint(position as Partial<GeoPoint> | null | undefined);
 }
 
 function getDriverName(vehicle: Vehicle) {
@@ -95,7 +113,7 @@ function createMarkerElement({ background, border, label, title, shape }: { back
 }
 
 function getVehiclePoint(vehicle: Vehicle): GeoPoint | null {
-  return isValidPoint(vehicle.location) ? vehicle.location || null : null;
+  return toValidPoint(vehicle.location);
 }
 
 function getBoundsPoints({
@@ -105,13 +123,96 @@ function getBoundsPoints({
   routeCoordinates = [],
   vehicles = [],
 }: Pick<OperationsMapProps, 'checkpoints' | 'replayPath' | 'replayPosition' | 'routeCoordinates' | 'vehicles'>) {
-  return [
-    ...vehicles.map(getVehiclePoint).filter(isValidPoint),
-    ...routeCoordinates.filter(isValidPoint),
-    ...checkpoints.filter(isValidPoint),
-    ...replayPath.map(positionToPoint).filter(isValidPoint),
+  return toValidPoints([
+    ...vehicles.map(getVehiclePoint),
+    ...routeCoordinates,
+    ...checkpoints,
+    ...replayPath.map(positionToPoint),
     positionToPoint(replayPosition),
-  ].filter(isValidPoint) as GeoPoint[];
+  ]);
+}
+
+const FIT_PADDING = {
+  top: AppTheme.spacing.xxl * 2,
+  right: AppTheme.spacing.xxl * 2,
+  bottom: AppTheme.spacing.xxl * 5,
+  left: AppTheme.spacing.xxl * 7,
+};
+// Por debajo de esto el canvas todavia no tiene layout util: reintentamos en vez de encuadrar.
+const MIN_FIT_VIEWPORT = 48;
+// mapbox-gl 2.15 `_cameraForBounds` calcula scaleX/scaleY como
+// (canvas - padding) / tamanoBounds y NO valida el signo (la guarda
+// `if (scaleX < 0 || scaleY < 0) return` del antiguo `_cameraForBoxAndBearing`
+// se perdio). Con padding >= canvas el resultado es negativo, `scaleZoom()`
+// hace log2 de un negativo -> NaN, y el centro termina en
+// `new LngLat(NaN, NaN)` -> "Invalid LngLat object: (NaN, NaN)".
+const MAX_PADDING_RATIO = 0.6;
+
+function scalePaddingPair(start: number, end: number, size: number): [number, number] {
+  const total = start + end;
+  if (total <= 0) return [0, 0];
+  const budget = size * MAX_PADDING_RATIO;
+  if (total <= budget) return [start, end];
+  const factor = budget / total;
+  return [start * factor, end * factor];
+}
+
+function resolveFitPadding(map: MapboxMap) {
+  const canvas = map.getCanvas();
+  const container = map.getContainer();
+  const width = canvas?.clientWidth || container?.clientWidth || 0;
+  const height = canvas?.clientHeight || container?.clientHeight || 0;
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (width < MIN_FIT_VIEWPORT || height < MIN_FIT_VIEWPORT) return null;
+  const [left, right] = scalePaddingPair(FIT_PADDING.left, FIT_PADDING.right, width);
+  const [top, bottom] = scalePaddingPair(FIT_PADDING.top, FIT_PADDING.bottom, height);
+  return { bottom, left, right, top };
+}
+
+const cameraEasing = (value: number) => 1 - Math.pow(1 - value, 3);
+
+// Devuelve false cuando el encuadre no se pudo aplicar todavia (canvas sin layout),
+// para que quien llama reintente en lugar de marcar el encuadre como hecho.
+function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
+  const valid = toValidPoints(points);
+  if (!valid.length) return true;
+
+  const centerOn = (point: GeoPoint) => {
+    map.easeTo({ center: toLngLat(point), duration: 500, easing: cameraEasing, zoom: 14 });
+  };
+
+  try {
+    if (valid.length === 1) {
+      centerOn(valid[0]);
+      return true;
+    }
+
+    const padding = resolveFitPadding(map);
+    if (!padding) return false;
+
+    const bounds = valid.reduce(
+      (current, point) => current.extend(toLngLat(point)),
+      new mapboxgl.LngLatBounds(toLngLat(valid[0]), toLngLat(valid[0]))
+    );
+    // Bounds degenerado (todas las unidades en el mismo punto): fitBounds divide
+    // entre un tamano 0. Centrar es equivalente y no depende de esa division.
+    if (bounds.getWest() === bounds.getEast() && bounds.getSouth() === bounds.getNorth()) {
+      centerOn(valid[0]);
+      return true;
+    }
+
+    map.fitBounds(bounds, { duration: 550, easing: cameraEasing, padding });
+    return true;
+  } catch (error) {
+    // Blindaje: un fallo de camara degrada a mapa sin encuadre, nunca tumba la pantalla.
+    console.warn('[OperationsMap] no se pudo aplicar el encuadre', error);
+    try {
+      centerOn(valid[0]);
+    } catch {
+      // Ignorado a proposito: el mapa se queda en su vista actual.
+    }
+    return true;
+  }
 }
 
 function setLine(map: MapboxMap, id: string, coordinates: GeoPoint[], color: string, width: number, opacity = 0.86) {
@@ -260,16 +361,25 @@ export const OperationsMap = React.memo(function OperationsMap({
     }
     if (initializationGuard.blocked) return;
 
-    const initialPoint = boundsPoints[0] || { latitude: 19.4326, longitude: -99.1332 };
-    const map = new mapboxgl.Map({
-      attributionControl: false,
-      center: toLngLat(initialPoint),
-      container: host,
-      interactive: true,
-      logoPosition: 'bottom-left',
-      style: mapStyle,
-      zoom: 12,
-    });
+    const initialPoint = toValidPoint(boundsPoints[0]) || { latitude: 19.4326, longitude: -99.1332 };
+    let map: MapboxMap;
+    try {
+      map = new mapboxgl.Map({
+        attributionControl: false,
+        center: toLngLat(initialPoint),
+        container: host,
+        interactive: true,
+        logoPosition: 'bottom-left',
+        style: mapStyle,
+        zoom: 12,
+      });
+    } catch (error) {
+      // Blindaje: si el mapa no se puede construir mostramos el fallback con las
+      // ubicaciones registradas en vez de propagar al error boundary.
+      console.warn('[OperationsMap] no se pudo inicializar el mapa', error);
+      setMapUnavailable(true);
+      return;
+    }
     const handleMapError = (event: mapboxgl.ErrorEvent) => {
       const err = event.error as Error & { status?: number };
       const status = Number(err?.status);
@@ -314,29 +424,43 @@ export const OperationsMap = React.memo(function OperationsMap({
     };
   }, []);
 
-  const syncLines = useCallback(() => {
+  const syncLinesUnsafe = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (routeCoordinates.length >= 2) setLine(map, 'operations-route', routeCoordinates, portalPalette.accent, 4);
+    // Las polilineas se filtran igual que los bounds: una coordenada invalida
+    // produce un LineString con NaN que Mapbox no puede teselar.
+    const routeLine = toValidPoints(routeCoordinates);
+    if (routeLine.length >= 2) setLine(map, 'operations-route', routeLine, portalPalette.accent, 4);
     else removeLine(map, 'operations-route');
     const nextVehicleRouteIds = new Set<string>();
     vehicleRoutes.forEach((entry) => {
-      if (entry.coordinates.length < 2) return;
+      const coordinates = toValidPoints(entry.coordinates);
+      if (coordinates.length < 2) return;
       const id = `operations-vehicle-route-${entry.vehicleId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
       nextVehicleRouteIds.add(id);
       const selected = entry.vehicleId === selectedVehicleId;
-      setLine(map, id, entry.coordinates, selected ? portalPalette.accent : entry.color || portalPalette.mutedSoft, selected ? 5 : 3, selected ? 0.96 : 0.52);
+      setLine(map, id, coordinates, selected ? portalPalette.accent : entry.color || portalPalette.mutedSoft, selected ? 5 : 3, selected ? 0.96 : 0.52);
     });
     vehicleRouteIdsRef.current.forEach((id) => {
       if (!nextVehicleRouteIds.has(id)) removeLine(map, id);
     });
     vehicleRouteIdsRef.current = nextVehicleRouteIds;
-    if (highlightedSegment.length === 2) setLine(map, 'operations-route-highlight', highlightedSegment, '#38bdf8', 8, 0.42);
+    const highlightLine = toValidPoints(highlightedSegment);
+    if (highlightLine.length === 2) setLine(map, 'operations-route-highlight', highlightLine, '#38bdf8', 8, 0.42);
     else removeLine(map, 'operations-route-highlight');
-    const replayCoordinates = replayPath.map(positionToPoint).filter(isValidPoint) as GeoPoint[];
+    const replayCoordinates = toValidPoints(replayPath.map(positionToPoint));
     if (replayCoordinates.length >= 2) setLine(map, 'operations-replay', replayCoordinates, portalPalette.info, 3, 0.72);
     else removeLine(map, 'operations-replay');
   }, [highlightedSegment, replayPath, routeCoordinates, selectedVehicleId, vehicleRoutes]);
+
+  const syncLines = useCallback(() => {
+    try {
+      syncLinesUnsafe();
+    } catch (error) {
+      // Blindaje: un fallo dibujando rutas degrada a mapa sin polilineas.
+      console.warn('[OperationsMap] no se pudieron sincronizar las rutas', error);
+    }
+  }, [syncLinesUnsafe]);
 
   useEffect(() => {
     syncLinesRef.current = syncLines;
@@ -496,27 +620,27 @@ export const OperationsMap = React.memo(function OperationsMap({
     const map = mapRef.current;
     const points = boundsPointsRef.current;
     if (!map || !autoFit || !points.length || fitTriggerKey === fittedKeyRef.current) return;
-    fittedKeyRef.current = fitTriggerKey;
 
-    if (points.length === 1) {
-      map.easeTo({ center: toLngLat(points[0]), duration: 500, easing: (value) => 1 - Math.pow(1 - value, 3), zoom: 14 });
-      return;
-    }
+    let cancelled = false;
+    let attempts = 0;
+    let timer = 0;
+    const attempt = () => {
+      if (cancelled || !mapRef.current) return;
+      if (applyCamera(mapRef.current, points)) {
+        fittedKeyRef.current = fitTriggerKey;
+        return;
+      }
+      // El canvas aun no tiene tamano util (montaje diferido por Suspense,
+      // panel colapsado). Reintentamos en vez de encuadrar contra 0x0.
+      attempts += 1;
+      if (attempts <= 10) timer = window.setTimeout(attempt, 120);
+    };
+    attempt();
 
-    const bounds = points.reduce(
-      (current, point) => current.extend(toLngLat(point)),
-      new mapboxgl.LngLatBounds(toLngLat(points[0]), toLngLat(points[0]))
-    );
-    map.fitBounds(bounds, {
-      duration: 550,
-      easing: (value) => 1 - Math.pow(1 - value, 3),
-      padding: {
-        top: AppTheme.spacing.xxl * 2,
-        right: AppTheme.spacing.xxl * 2,
-        bottom: AppTheme.spacing.xxl * 5,
-        left: AppTheme.spacing.xxl * 7,
-      },
-    });
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [autoFit, fitTriggerKey]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {

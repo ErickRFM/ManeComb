@@ -15,6 +15,13 @@
       "env": { "PORT": "5001" }
     },
     {
+      "name": "ventas-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--prefix", "ventas", "--", "--port", "4173", "--strictPort"],
+      "port": 4173,
+      "autoPort": false
+    },
+    {
       "name": "ventas-verify",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "ventas", "--", "--port", "5199", "--strictPort"],
