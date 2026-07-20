@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { buildSubscription } = require("../src/services/portal-account");
 const http = require("node:http");
 
 const createApp = require("../src/app");
@@ -56,6 +57,16 @@ async function requestJson(url, init = {}) {
 }
 
 async function runActivationKeyFlow() {
+  assert.equal(
+    buildSubscription({
+      activationStatus: "active",
+      paymentStatus: "pending",
+      status: "active",
+      fleetSize: 4
+    }).isActive,
+    true,
+    "una empresa ya activada debe conservar el mismo estado en Portal y registro"
+  );
   const context = await createTestServer();
   const stamp = Date.now();
   const ownerEmail = `activation-owner-${stamp}@combis.app`;

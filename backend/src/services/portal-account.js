@@ -50,7 +50,7 @@ function getSubscriptionStatus(order) {
   if (declaredStatuses.has("expired")) return "expired";
   if (declaredStatuses.has("past_due")) return "past_due";
 
-  if (paymentStatus === "paid" || paymentStatus === "paid_test") {
+  if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
     return "active";
   }
 
