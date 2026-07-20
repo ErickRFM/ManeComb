@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { router } from '@/src/navigation/router';
 import { planNavigationRouteRequest, reverseNavigationPlaceRequest } from '@/src/api/client';
 import type { GeoPoint, NavigationPlaceResult, NavigationPlan, NavigationStop } from '@/src/types/app';
@@ -19,14 +19,26 @@ import {
 type UseMapSelectorParams = {
   focusPoint: (location: GeoPoint, zoom?: 'close' | 'vehicle' | 'overview') => void;
   fitRoute: (options: { coordinates: GeoPoint[]; edgePadding: AppMapPadding }) => void;
+  /** true en cuanto el usuario hizo pan/zoom manual sobre el mapa. */
+  hasUserMovedMapRef: MutableRefObject<boolean>;
   params: MapSelectorParams;
   routeFitPadding: AppMapPadding;
   selectorMode: boolean;
 };
 
+function getRouteFitKey(origin: NavigationPlaceResult, destination: NavigationPlaceResult) {
+  return [
+    origin.location.latitude,
+    origin.location.longitude,
+    destination.location.latitude,
+    destination.location.longitude,
+  ].join(',');
+}
+
 export function useMapSelector({
   focusPoint,
   fitRoute,
+  hasUserMovedMapRef,
   params,
   routeFitPadding,
   selectorMode,
@@ -40,6 +52,9 @@ export function useMapSelector({
   const [isPlanningSelectorRoute, setIsPlanningSelectorRoute] = useState(false);
   const [isResolvingPlaceNames, setIsResolvingPlaceNames] = useState(false);
   const reverseControllersRef = useRef<Partial<Record<SelectorPointRole, AbortController>>>({});
+  // Identifica el par origen/destino ya encuadrado. Agregar paradas no cambia
+  // esta llave, asi que el encuadre automatico solo corre una vez por ruta.
+  const fittedRouteKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controllers = reverseControllersRef.current;
@@ -116,7 +131,11 @@ export function useMapSelector({
 
       setSelectorPlan(null);
       setSelectorStops((current) => [...current, stop]);
-      focusPoint(location, 'close');
+      // Si el usuario ya encuadro el mapa a mano, agregar una parada no debe
+      // robarle la camara.
+      if (!hasUserMovedMapRef.current) {
+        focusPoint(location, 'close');
+      }
       reverseNavigationPlaceRequest(location)
         .then((response) => {
           const label = getSafePlaceLabel(response.result.address || response.result.label, getSelectorFallback('stop', stopOrder));
@@ -150,6 +169,9 @@ export function useMapSelector({
     reverseControllersRef.current.origin?.abort();
     reverseControllersRef.current.destination?.abort();
     reverseControllersRef.current = {};
+    // Ruta nueva desde cero: vuelve a permitirse el encuadre automatico.
+    fittedRouteKeyRef.current = null;
+    hasUserMovedMapRef.current = false;
     setSelectorPlan(null);
     setSelectorStops([]);
     setSelectorPoints({
@@ -182,6 +204,17 @@ export function useMapSelector({
         }
 
         setSelectorPlan(response);
+
+        // El replan corre tambien al agregar/quitar paradas. El encuadre solo
+        // se justifica la primera vez que se dibuja este origen/destino, y solo
+        // si el usuario todavia no movio el mapa por su cuenta.
+        const routeFitKey = getRouteFitKey(selectorPoints.origin!, selectorPoints.destination!);
+
+        if (fittedRouteKeyRef.current === routeFitKey || hasUserMovedMapRef.current) {
+          return;
+        }
+
+        fittedRouteKeyRef.current = routeFitKey;
 
         const routeCoordinates = response.routes[0]?.polyline?.length
           ? response.routes[0].polyline

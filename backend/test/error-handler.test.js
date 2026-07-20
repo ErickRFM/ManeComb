@@ -23,7 +23,18 @@ function testProductionClientErrorMessageIsPreserved() {
   assert.equal(message, "Token de descarga invalido");
 }
 
+function testExplicitPublicMessageHidesTechnicalClientError() {
+  const error = new Error("driver=secret database detail");
+  error.statusCode = 400;
+  error.publicMessage = "No fue posible completar la operacion";
+
+  const message = getPublicErrorMessage(error, error.statusCode);
+
+  assert.equal(message, "No fue posible completar la operacion");
+}
+
 testProductionFiveHundredMessageIsSanitized();
 testProductionClientErrorMessageIsPreserved();
+testExplicitPublicMessageHidesTechnicalClientError();
 
 console.log("ok - production error messages are sanitized");

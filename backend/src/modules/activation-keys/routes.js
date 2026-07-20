@@ -20,9 +20,19 @@ const {
 const { buildAuthContext } = require("../../services/auth-context");
 const { createSessionForRequest } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
+const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 
 const adminActivationKeyRoutes = Router();
 const driverActivationRoutes = Router();
+
+// Rutas anonimas: /validate devuelve unidades de la organizacion de la key, asi
+// que se limita por IP mas estrecho que el limite global de /api (200/15min).
+const driverActivationLimiter = enterpriseRateLimit({
+  scope: "driver-activation",
+  max: 10,
+  windowMs: 60 * 1000,
+  message: "Demasiados intentos de activación. Intenta de nuevo en un minuto."
+});
 
 function handleActivationError(res, error) {
   if (error instanceof ActivationKeyError) {
@@ -258,7 +268,7 @@ adminActivationKeyRoutes.post(
   }
 );
 
-driverActivationRoutes.post("/validate", async (req, res) => {
+driverActivationRoutes.post("/validate", driverActivationLimiter, async (req, res) => {
   try {
     const data = await validateDriverActivationKey(req.app.locals.store, req.body?.key);
 
@@ -285,7 +295,7 @@ driverActivationRoutes.post("/validate", async (req, res) => {
   }
 });
 
-driverActivationRoutes.post("/register", async (req, res) => {
+driverActivationRoutes.post("/register", driverActivationLimiter, async (req, res) => {
   try {
     const activation = await registerDriverWithActivationKey(req.app.locals.store, req.body || {});
 

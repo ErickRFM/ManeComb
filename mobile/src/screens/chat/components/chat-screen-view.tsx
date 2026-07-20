@@ -477,6 +477,12 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
                     {callNotice ? <Text style={styles.callHubNotice}>{callNotice}</Text> : null}
                   </View>
+                ) : callNotice ? (
+                  <View style={styles.callHub}>
+                    <Text style={styles.callHubNotice} accessibilityLiveRegion="polite">
+                      {callNotice}
+                    </Text>
+                  </View>
                 ) : null}
 
                 <FlatList
@@ -556,13 +562,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                                     ? 'Tu'
                                     : message.sender?.name || activeConversation.title || 'Operacion'}
                               </Text>
-                              <Text
-                                style={[
-                                  styles.messageMeta,
-                                  isOwn && !isSystem ? styles.messageMetaOwn : undefined,
-                                ]}>
-                                {formatMessageTime(message.createdAt)}
-                              </Text>
+                              {!isOwn || isSystem ? (
+                                <Text style={styles.messageMeta}>
+                                  {formatMessageTime(message.createdAt)}
+                                </Text>
+                              ) : null}
                             </View>
 
                             {message.kind === 'audio' ? (

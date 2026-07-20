@@ -32,6 +32,9 @@ class SessionRepository extends StoreDomainRepository {
       endedAt: null,
       durationSeconds: 0,
       status: "active",
+      endReason: null,
+      mode: payload.mode ? String(payload.mode) : null,
+      usedRelay: null,
       sharedScreen: Boolean(payload.sharedScreen),
       offerCount: Math.max(0, Number(payload.offerCount) || 0),
       lastEventAt: new Date()

@@ -187,6 +187,29 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isCompact:
       fontSize: 12,
       lineHeight: 17,
     },
+    driverRow: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.line,
+      borderRadius: 14,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: 10,
+      minHeight: 58,
+      padding: 10,
+    },
+    driverCopy: {
+      flex: 1,
+      gap: 3,
+      minWidth: 0,
+    },
+    documentDetail: {
+      borderLeftColor: theme.colors.line,
+      borderLeftWidth: 2,
+      gap: 8,
+      marginLeft: 17,
+      paddingLeft: 18,
+    },
     emptyNotifications: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
@@ -243,18 +266,19 @@ export function ProfileScreen() {
   const isCompact = width < 1040;
   const isPhone = width < 640;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { documents, markNotificationRead, notifications, observability, presenceByUser, signOut, user } = useAppStore(
+  const { documents, mapData, observability, presenceByUser, signOut, user, users } = useAppStore(
     useShallow((state) => ({
       documents: state.documents,
-      markNotificationRead: state.markNotificationRead,
-      notifications: state.notifications,
+      mapData: state.mapData,
       observability: state.observability,
       presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
+      users: state.users,
     }))
   );
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
 
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
@@ -264,7 +288,25 @@ export function ProfileScreen() {
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
+  const drivers = users
+    .filter((entry) => entry.role === 'driver')
+    .sort((left, right) => left.name.localeCompare(right.name, 'es'));
+  const vehicles = mapData?.vehicles || [];
+  const getDriverDocuments = (driverId: string, vehicleId: string | null) =>
+    documents.filter((document) =>
+      (document.ownerType === 'driver' && document.ownerId === driverId)
+      || (document.ownerType === 'vehicle' && Boolean(vehicleId) && document.ownerId === vehicleId)
+    );
+  const getDocumentPresentation = (reviewStatus?: string) => {
+    if (reviewStatus === 'rejected') return { icon: 'alert-outline' as const, label: 'Rechazado', tone: 'danger' as const };
+    if (reviewStatus === 'approved') return { icon: 'check-circle-outline' as const, label: 'Subido', tone: 'positive' as const };
+    return { icon: 'clock-outline' as const, label: 'Pendiente', tone: 'warning' as const };
+  };
+  const getDriverPresentation = (driverDocuments: typeof documents) => {
+    if (driverDocuments.some((document) => document.reviewStatus === 'rejected')) return { label: 'Rechazado', tone: 'danger' as const };
+    if (!driverDocuments.length || driverDocuments.some((document) => document.reviewStatus !== 'approved')) return { label: 'Pendiente', tone: 'warning' as const };
+    return { label: 'Subido', tone: 'positive' as const };
+  };
   return (
     <AppShell
       scroll
@@ -306,88 +348,58 @@ export function ProfileScreen() {
         <View style={styles.sideColumn}>
           <AppCard>
             <View style={styles.pillsRow}>
-              <Text style={styles.cardTitle}>Documentos</Text>
-              {documents.length ? <StatusPill label={`${documents.length}`} tone="info" /> : null}
+              <Text style={styles.cardTitle}>Estado documental</Text>
+              {drivers.length ? <StatusPill label={`${drivers.length} conductores`} tone="info" /> : null}
             </View>
-            {documents.length ? (
+            {drivers.length ? (
               <View style={styles.notificationList}>
-                {documents.map((document) => {
-                  const reviewLabel = document.reviewStatus === 'approved'
-                    ? 'Aprobado'
-                    : document.reviewStatus === 'rejected'
-                      ? 'Rechazado'
-                      : 'Pendiente';
-                  const reviewTone = document.reviewStatus === 'approved'
-                    ? 'positive' as const
-                    : document.reviewStatus === 'rejected'
-                      ? 'danger' as const
-                      : 'warning' as const;
-                  const ownerLabel = document.owner && 'name' in document.owner
-                    ? document.owner.name
-                    : document.owner && 'code' in document.owner
-                      ? document.owner.code
-                      : document.ownerType === 'vehicle' ? 'Unidad asociada' : 'Conductor asociado';
+                {drivers.map((driver) => {
+                  const vehicle = vehicles.find((entry) => entry.id === driver.vehicleId);
+                  const driverDocuments = getDriverDocuments(driver.id, driver.vehicleId);
+                  const driverStatus = getDriverPresentation(driverDocuments);
+                  const isSelected = selectedDriverId === driver.id;
                   return (
-                    <View key={document.id} style={[styles.notificationRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surfaceAlt }]}>
-                      <View style={[styles.notificationIcon, { backgroundColor: theme.colors.infoSoft }]}>
-                        <MaterialCommunityIcons name="file-document-outline" size={19} color={theme.colors.info} />
-                      </View>
-                      <View style={styles.notificationCopy}>
-                        <Text style={styles.notificationTitle}>{document.name}</Text>
-                        <Text style={styles.notificationBody}>
-                          {document.category} · {ownerLabel} · {document.status} · Vence {new Date(document.expiresAt).toLocaleDateString('es-MX')}
-                        </Text>
-                        {document.reviewNotes ? <Text style={styles.notificationBody}>{document.reviewNotes}</Text> : null}
-                      </View>
-                      <StatusPill label={reviewLabel} tone={reviewTone} />
+                    <View key={driver.id} style={styles.notificationList}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Ver documentos de ${driver.name}`}
+                        accessibilityState={{ expanded: isSelected }}
+                        onPress={() => setSelectedDriverId(isSelected ? null : driver.id)}
+                        style={styles.driverRow}>
+                        <UserAvatar user={driver} size={38} />
+                        <View style={styles.driverCopy}>
+                          <Text style={styles.notificationTitle}>{driver.name}</Text>
+                          <Text style={styles.notificationBody}>Unidad: {vehicle?.code || 'Sin unidad asignada'}</Text>
+                        </View>
+                        <StatusPill label={driverStatus.label} tone={driverStatus.tone} />
+                        <MaterialCommunityIcons name={isSelected ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.muted} />
+                      </Pressable>
+                      {isSelected ? (
+                        <View style={styles.documentDetail}>
+                          {driverDocuments.length ? driverDocuments.map((document) => {
+                            const presentation = getDocumentPresentation(document.reviewStatus);
+                            const color = presentation.tone === 'positive'
+                              ? theme.colors.success
+                              : presentation.tone === 'danger' ? theme.colors.danger : theme.colors.warning;
+                            return (
+                              <View key={document.id} style={styles.driverRow}>
+                                <MaterialCommunityIcons name={presentation.icon} size={20} color={color} />
+                                <View style={styles.driverCopy}>
+                                  <Text style={styles.notificationTitle}>{document.name}</Text>
+                                  <Text style={styles.notificationBody}>{document.category} · {document.status}</Text>
+                                </View>
+                                <StatusPill label={presentation.label} tone={presentation.tone} />
+                              </View>
+                            );
+                          }) : <Text style={styles.emptyNotifications}>No hay documentos cargados para este conductor o su unidad.</Text>}
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })}
               </View>
             ) : (
-              <Text style={styles.emptyNotifications}>No hay documentos asociados a tu cuenta o unidad.</Text>
-            )}
-          </AppCard>
-
-          <AppCard>
-            <View style={styles.pillsRow}>
-              <Text style={styles.cardTitle}>Notificaciones</Text>
-              {unreadCount ? <StatusPill label={`${unreadCount} sin leer`} tone="warning" /> : null}
-            </View>
-            {notifications.length ? (
-              <View style={styles.notificationList}>
-                {notifications.map((notification) => {
-                  const isDanger = notification.level === 'danger' || notification.level === 'error';
-                  const color = isDanger ? theme.colors.danger : notification.level === 'warning' ? theme.colors.warning : theme.colors.info;
-                  return (
-                    <Pressable
-                      key={notification.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${notification.isRead ? 'Notificación leída' : 'Marcar como leída'}: ${notification.title}`}
-                      disabled={notification.isRead}
-                      onPress={async () => {
-                        await markNotificationRead(notification.id);
-                      }}
-                      style={[
-                        styles.notificationRow,
-                        { borderColor: notification.isRead ? theme.colors.line : color, backgroundColor: theme.colors.surfaceAlt },
-                      ]}>
-                      <View style={[styles.notificationIcon, { backgroundColor: isDanger ? theme.colors.dangerSoft : notification.level === 'warning' ? theme.colors.warningSoft : theme.colors.infoSoft }]}>
-                        <MaterialCommunityIcons name={notification.isRead ? 'bell-outline' : 'bell-badge-outline'} size={19} color={color} />
-                      </View>
-                      <View style={styles.notificationCopy}>
-                        <Text style={styles.notificationTitle}>{notification.title}</Text>
-                        <Text style={styles.notificationBody}>{notification.body}</Text>
-                        <Text style={styles.notificationBody}>
-                          {[notification.category, new Date(notification.createdAt).toLocaleString('es-MX')].filter(Boolean).join(' · ')}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={styles.emptyNotifications}>No hay notificaciones pendientes.</Text>
+              <Text style={styles.emptyNotifications}>No hay conductores registrados en la empresa.</Text>
             )}
           </AppCard>
 

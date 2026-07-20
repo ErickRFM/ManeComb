@@ -22,6 +22,8 @@ export type BackgroundLocationServiceStatus = {
   reason: string | null;
   token: string | null;
   refreshToken: string | null;
+  vehicleId: string | null;
+  sessionId: string | null;
 };
 
 const NativeLocation =
@@ -63,7 +65,7 @@ export async function startBackgroundLocationServiceAsync({
 
 export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
   if (!NativeLocation) {
-    return { active: false, reason: null, token: null, refreshToken: null };
+    return { active: false, reason: null, token: null, refreshToken: null, vehicleId: null, sessionId: null };
   }
 
   return NativeLocation.getServiceStatus();

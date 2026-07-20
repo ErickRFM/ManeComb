@@ -16,6 +16,10 @@ function getHttpStatus(error) {
 function getPublicErrorMessage(error, statusCode) {
   const fallbackMessage = "Error interno del servidor";
 
+  if (error?.publicMessage) {
+    return error.publicMessage;
+  }
+
   if (IS_PRODUCTION_RUNTIME && statusCode >= 500) {
     return fallbackMessage;
   }

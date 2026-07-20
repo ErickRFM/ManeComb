@@ -23,6 +23,7 @@ const {
   markWebhookProcessed,
   registerWebhookEvent
 } = require("../../services/webhook-idempotency");
+const logger = require("../../services/logger");
 
 const router = Router();
 
@@ -157,7 +158,7 @@ router.get("/plans", (req, res) => {
   });
 });
 
-router.get("/downloads/:token", async (req, res) => {
+router.get("/downloads/:token", async (req, res, next) => {
   try {
     const payload = verifyCommercialDownloadToken(req.params.token);
     const order = await req.app.locals.store.findCommercialOrderByExternalReference(
@@ -183,14 +184,13 @@ router.get("/downloads/:token", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`);
     return res.status(200).send(file.body);
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible procesar la descarga"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible procesar la descarga";
+    return next(error);
   }
 });
 
-router.post("/checkout", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
+router.post("/checkout", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res, next) => {
   const companyName = String(req.body.companyName || "").trim();
   const contactName = String(req.body.contactName || "").trim();
   const email = String(req.body.email || "").trim().toLowerCase();
@@ -332,14 +332,13 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
       }
     });
   } catch (error) {
-    return res.status(error.message === "Plan comercial no encontrado" ? 404 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible registrar la compra"
-    });
+    error.statusCode = error.message === "Plan comercial no encontrado" ? 404 : 400;
+    error.publicMessage = "No fue posible registrar la compra";
+    return next(error);
   }
 });
 
-router.post("/confirm", async (req, res) => {
+router.post("/confirm", async (req, res, next) => {
   try {
     const requestedExternalReference = String(req.body.externalReference || req.body.referenceCode || "").trim();
     const confirmation = await confirmCommercialPayment({
@@ -411,10 +410,9 @@ router.post("/confirm", async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(error.statusCode || 400).json({
-      ok: false,
-      message: error.message || "No fue posible confirmar el pago"
-    });
+    error.statusCode = error.statusCode || 400;
+    error.publicMessage = "No fue posible confirmar el pago";
+    return next(error);
   }
 });
 
@@ -513,12 +511,19 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       ok: true
     });
   } catch (error) {
+    logger.error({
+      action: "MercadoPagoWebhook",
+      error,
+      module: "commercial",
+      requestId: req.traceId,
+      userId: req.user?.id
+    });
     await req.app.locals.store.recordAppEvent?.({
       type: "webhook_processing_failed",
       scope: "commercial",
       level: "warning",
       status: "failed",
-      message: error.message || "Webhook no procesado",
+      message: "Webhook no procesado",
       metadata: {
         provider: "mercado_pago",
         traceId: req.traceId

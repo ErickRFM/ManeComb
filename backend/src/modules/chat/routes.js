@@ -4,7 +4,9 @@ const { authenticate } = require("../../middlewares/authenticate");
 const { getOrganizationId } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const { streamChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
+const { transcribeAudioBuffer } = require("../../services/audio-transcription");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
+const logger = require("../../services/logger");
 
 const router = Router();
 const MAX_VOICE_NOTE_SECONDS = 60;
@@ -99,7 +101,7 @@ router.post("/conversations/general", authenticate, async (req, res) => {
   });
 });
 
-router.post("/conversations/direct", authenticate, async (req, res) => {
+router.post("/conversations/direct", authenticate, async (req, res, next) => {
   try {
     const conversation = await req.app.locals.store.ensureDirectConversation(
       req.user.id,
@@ -114,10 +116,9 @@ router.post("/conversations/direct", authenticate, async (req, res) => {
       data: conversation
     });
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible abrir el canal directo"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible abrir el canal directo";
+    return next(error);
   }
 });
 
@@ -341,9 +342,19 @@ router.post(
         data: message
       });
     } catch (error) {
+      logger.error({
+        module: "Chat",
+        action: "voiceNote.upload_failed",
+        requestId: req.requestId,
+        userId: req.user?.id,
+        message: "No fue posible enviar la nota de voz",
+        metadata: { conversationId: req.params.conversationId },
+        error
+      });
+
       return res.status(422).json({
         ok: false,
-        message: error.message || "No fue posible enviar la nota de voz"
+        message: "No fue posible enviar la nota de voz"
       });
     }
   }
@@ -353,7 +364,7 @@ router.post(
   "/conversations/:conversationId/media",
   authenticate,
   mediaUpload.single("file"),
-  async (req, res) => {
+  async (req, res, next) => {
     try {
       const conversation = await req.app.locals.store.getConversationById(req.params.conversationId);
 
@@ -418,10 +429,9 @@ router.post(
         data: message
       });
     } catch (error) {
-      return res.status(422).json({
-        ok: false,
-        message: error.message || "No fue posible enviar el archivo multimedia"
-      });
+      error.statusCode = 422;
+      error.publicMessage = "No fue posible enviar el archivo multimedia";
+      return next(error);
     }
   }
 );

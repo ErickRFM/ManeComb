@@ -116,6 +116,7 @@ import {
 } from '@/src/utils/push-notifications';
 import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
+import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -190,6 +191,12 @@ export type AppState = {
   isBootstrapping: boolean;
   isRefreshing: boolean;
   isSubmitting: boolean;
+  /**
+   * Verdadero desde que arranca `signOut` hasta que la sesion queda limpia. Las
+   * pantallas usan este flag para no mostrar estados de sincronizacion mientras
+   * la sesion se esta cerrando.
+   */
+  isSigningOut: boolean;
   authContext: AuthRoutingContext | null;
   user: User | null;
   mapData: LiveLocationsData | null;
@@ -307,7 +314,9 @@ async function clearTenantCache() {
 }
 
 async function clearSessionState(set: StoreSet, error: string | null = null) {
+  beginSessionEpoch();
   cleanupSessionRuntime();
+  await stopBackgroundLocationServiceAsync().catch(() => undefined);
   setAuthToken(null);
   await persistSession(null, null);
   await clearTenantCache();
@@ -317,6 +326,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     refreshToken: null,
     authContext: null,
     user: null,
+    isSigningOut: false,
     error,
   });
 }
@@ -730,9 +740,13 @@ function shouldRefreshOperationalData(
   return false;
 }
 
-async function refreshAuthSession(set: StoreSet) {
+async function refreshAuthSession(set: StoreSet, epoch?: number) {
   const session = await getSessionRequest();
   const authContext = getAuthContextFromPayload(session);
+
+  if (typeof epoch === 'number' && isSessionEpochStale(epoch)) {
+    return { authContext, session };
+  }
 
   set({
     authContext,
@@ -748,10 +762,18 @@ async function refreshAuthSession(set: StoreSet) {
 
 async function replaceSessionFromBackend(
   set: StoreSet,
+  get: () => AppState,
   token: string,
   refreshToken: string | null | undefined,
   rememberSession: boolean
 ) {
+  // Re-armar el runtime de recuperacion (poller de healthcheck + listeners de
+  // red/app-state) en cada establecimiento de sesion. `cleanupSessionRuntime`
+  // lo desmonta en signOut/expiracion, y sin volver a montarlo un login sin
+  // reiniciar la app dejaria al ConnectionBanner sin quien lo recupere: se
+  // quedaria en "Servidor no disponible" hasta cerrar la app. Es idempotente.
+  configureMobileRuntime(set, get);
+  await stopBackgroundLocationServiceAsync().catch(() => undefined);
   await clearTenantCache();
   setAuthToken(token);
 
@@ -907,6 +929,22 @@ function cleanupSessionRuntime() {
 
 function createRealtimePacketId(scope: string) {
   return `${scope}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function timestampMs(value?: string | null) {
+  const parsed = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : -Infinity;
+}
+
+function mergeOperationalUnitsByFreshness(
+  current: OperationalUnitSnapshot[],
+  incoming: OperationalUnitSnapshot[]
+) {
+  const currentById = new Map(current.map((unit) => [unit.unitId, unit]));
+  return incoming.map((unit) => {
+    const existing = currentById.get(unit.unitId);
+    return existing && timestampMs(existing.lastEventAt) > timestampMs(unit.lastEventAt) ? existing : unit;
+  });
 }
 
 function setSocketTransition(
@@ -1277,9 +1315,11 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         ? {
             ...s.mapData,
             vehicles: s.mapData.vehicles.some(ev => ev.id === nextVehicle.id)
-              ? s.mapData.vehicles.map(ev =>
-                  ev.id === nextVehicle.id ? normalizeVehicle({ ...ev, ...nextVehicle }) : ev
-                )
+              ? s.mapData.vehicles.map(ev => ev.id === nextVehicle.id
+                  ? timestampMs(ev.locationTimestamp) > timestampMs(nextVehicle.locationTimestamp)
+                    ? ev
+                    : normalizeVehicle({ ...ev, ...nextVehicle })
+                  : ev)
               : [...s.mapData.vehicles, nextVehicle],
             updatedAt: new Date().toISOString(),
           }
@@ -1296,11 +1336,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
         : null;
     if (!unit || typeof unit !== 'object' || !unit.unitId) return;
 
-    set(s => ({
-      operationalUnits: s.operationalUnits.some(entry => entry.unitId === unit.unitId)
-        ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
-        : [...s.operationalUnits, unit],
-    }));
+    set(s => {
+      const existing = s.operationalUnits.find(entry => entry.unitId === unit.unitId);
+      if (existing && timestampMs(existing.lastEventAt) > timestampMs(unit.lastEventAt)) return s;
+      return {
+        operationalUnits: existing
+          ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
+          : [...s.operationalUnits, unit],
+      };
+    });
   });
 
   socket.on('vehicle:created', (payload: unknown) => {
@@ -1643,7 +1687,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false,
+  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false,
   authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
@@ -1684,7 +1728,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   initialize: async () => {
     configureMobileRuntime(set, get);
-    set({ isBootstrapping: true });
+    const epoch = getSessionEpoch();
+    set({ isBootstrapping: true, error: null });
     try {
       const [t, rt, m, th, cached, queue, networkSnapshot] = await Promise.all([
         getStoredItem(TOKEN_KEY),
@@ -1721,8 +1766,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       let nextRefreshToken = rt;
       let s: SessionResult;
       try {
-        s = await getSessionRequest();
+        s = await getSessionRequest({ coldStart: true });
       } catch (error) {
+        if (isSessionEpochStale(epoch)) return;
         if (isProbablyNetworkError(error) && cached?.user) {
           set({
             ...getEmptyOperationalState(),
@@ -1746,7 +1792,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         nextRefreshToken = refreshed.refreshToken || rt;
         setAuthToken(sessionToken);
         await persistSession(sessionToken, connectionMode, nextRefreshToken);
-        s = await getSessionRequest();
+        s = await getSessionRequest({ coldStart: true });
       }
       const cachedUser = cached?.user;
       const cachedIdentityChanged = Boolean(
@@ -1763,6 +1809,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const authContext = getAuthContextFromPayload(s);
+      if (isSessionEpochStale(epoch)) return;
       set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
@@ -1782,6 +1829,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await loginRequest(e, p);
       const { authContext, session } = await replaceSessionFromBackend(
         set,
+        get,
         res.token,
         res.refreshToken,
         r
@@ -1802,6 +1850,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     finally { set({ isSubmitting: false }); }
   },
   signOut: async () => {
+    // El epoch se invalida ANTES del `logoutRequest`: en el tier gratuito de
+    // Render esa llamada puede tardar decenas de segundos, y cualquier
+    // `refreshAll` en vuelo resolveria durante esa ventana reescribiendo `user`
+    // con `authContext` en null, lo que enruta a `/sync-error` en pleno logout.
+    beginSessionEpoch();
+    set({ isSigningOut: true, error: null });
     disconnectSocket();
     await stopBackgroundLocationServiceAsync().catch(() => undefined);
     const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
@@ -1812,15 +1866,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
-    const { token, user: currentUser } = get();
-    if (!token || !currentUser) return;
+    const { token, user: currentUser, isSigningOut } = get();
+    if (!token || !currentUser || isSigningOut) return;
+    const epoch = getSessionEpoch();
     set({ isRefreshing: true });
     try {
-      const refreshed = await refreshAuthSession(set);
+      const refreshed = await refreshAuthSession(set, epoch);
+      if (isSessionEpochStale(epoch)) return;
       const authContext = refreshed.authContext;
       const user = refreshed.session.profile.user;
 
       if (!shouldRefreshOperationalData(authContext, user)) {
+        if (isSessionEpochStale(epoch)) return;
         set({
           ...getEmptyOperationalState(),
           authContext,
@@ -1837,6 +1894,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const curr = get();
+      if (isSessionEpochStale(epoch)) return;
       const res = await Promise.allSettled([
         getLocationsRequest(), getOperationalUnitsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
@@ -1870,11 +1928,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         let nextAuthContext: AuthRoutingContext | null = null;
 
         try {
-          nextAuthContext = (await refreshAuthSession(set)).authContext;
+          nextAuthContext = (await refreshAuthSession(set, epoch)).authContext;
         } catch (error) {
           logStoreError('refreshAll:planRequiredSession', error);
         }
 
+        if (isSessionEpochStale(epoch)) return;
         set({
           ...getEmptyOperationalState(),
           authContext: nextAuthContext,
@@ -1887,6 +1946,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (fulfilledCount === 0) {
         const cached = await loadOfflineCache().catch(() => null);
+        if (isSessionEpochStale(epoch)) return;
         if (cached) {
           set({
             ...stateFromCache(cached),
@@ -1933,13 +1993,31 @@ export const useAppStore = create<AppState>((set, get) => ({
           [aid]: mergeConversationMessages(latestMessages[aid] || [], data.messagesByConversation[aid]),
         };
       }
+      if (isSessionEpochStale(epoch)) return;
+      if (data.operationalUnits) {
+        data.operationalUnits = mergeOperationalUnitsByFreshness(get().operationalUnits, data.operationalUnits);
+      }
+      if (data.mapData?.vehicles) {
+        const liveById = new Map((get().mapData?.vehicles || []).map(vehicle => [vehicle.id, vehicle]));
+        data.mapData = {
+          ...data.mapData,
+          vehicles: data.mapData.vehicles.map((vehicle: Vehicle) => {
+            const existing = liveById.get(vehicle.id);
+            return existing && timestampMs(existing.locationTimestamp) > timestampMs(vehicle.locationTimestamp)
+              ? existing
+              : vehicle;
+          }),
+        };
+      }
       set({ ...data, isRefreshing: false, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       persistOfflineSnapshot(get);
       connectSocket(set, get);
     } catch (error) {
       logStoreError('refreshAll', error);
+      if (isSessionEpochStale(epoch)) return;
       if (isProbablyNetworkError(error)) {
         const cached = await loadOfflineCache().catch(() => null);
+        if (isSessionEpochStale(epoch)) return;
         set({ ...stateFromCache(cached), isRefreshing: false, networkStatus: 'offline' });
         return;
       }
@@ -2057,6 +2135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await registerRequest(p);
       const { authContext, session } = await replaceSessionFromBackend(
         set,
+        get,
         res.token,
         res.refreshToken,
         r
@@ -2082,6 +2161,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await registerDriverActivationRequest(p);
       const { authContext, session } = await replaceSessionFromBackend(
         set,
+        get,
         res.token,
         res.refreshToken,
         r

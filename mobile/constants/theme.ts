@@ -86,6 +86,15 @@ export const Typography = {
       android: 'monospace',
       default: 'monospace',
     }) ?? 'monospace',
+  // Tipografia de marca (Magneto Bold), enlazada como asset nativo en assets/fonts.
+  // En Android el nombre debe coincidir con el NOMBRE DEL ARCHIVO (magneto-bold.ttf),
+  // no con el nombre interno de la fuente. Ver nota sobre fontWeight en el estilo `slogan`.
+  brand:
+    Platform.select({
+      ios: 'Magneto-Bold',
+      android: 'magneto-bold',
+      default: 'Magneto',
+    }) ?? 'Magneto',
 };
 
 export const AppTheme = {

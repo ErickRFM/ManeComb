@@ -8,9 +8,12 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { StatusBar } from '@/src/native/status-bar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
+import { useSyncWaitStage } from '@/src/hooks/use-sync-wait-stage';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import type { MobileBlockReason } from '@/src/types/app';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
+import { SYNC_ERROR_BODY, SYNC_ERROR_TITLE } from '@/src/utils/sync-copy';
+import { BrandSyncLoader } from '@/src/components/brand-sync-loader';
 
 const BLOCK_COPY: Record<MobileBlockReason, {
   action: string;
@@ -44,9 +47,9 @@ const BLOCK_COPY: Record<MobileBlockReason, {
   },
   sync_error: {
     action: 'Reintentar',
-    body: 'Revisa tu conexión e intenta de nuevo.',
+    body: SYNC_ERROR_BODY,
     icon: 'sync-alert',
-    title: 'No pudimos sincronizar tu cuenta',
+    title: SYNC_ERROR_TITLE,
   },
 };
 
@@ -66,11 +69,12 @@ function getBlockReason(value: string | undefined): MobileBlockReason {
 
 export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked' | 'onboarding' | 'sync' }) {
   const { theme } = useAppTheme();
-  const { authContext, error, isRefreshing, refreshAll, signOut, user } = useAppStore(
+  const { authContext, error, isRefreshing, isSigningOut, refreshAll, signOut, user } = useAppStore(
     useShallow((state) => ({
       authContext: state.authContext,
       error: state.error,
       isRefreshing: state.isRefreshing,
+      isSigningOut: state.isSigningOut,
       refreshAll: state.refreshAll,
       signOut: state.signOut,
       user: state.user,
@@ -90,6 +94,7 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
   );
   const copy = BLOCK_COPY[reason];
   const styles = useMemo(() => createStyles(), []);
+  const waitStage = useSyncWaitStage(reason === 'sync_error' && !isSigningOut && !error);
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -97,6 +102,18 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
 
   if (resolution.destination === 'HomeOperativo' || resolution.destination === 'HomeConductor') {
     return <Redirect href="/mapa" />;
+  }
+
+  // Cerrar sesion no depende de sincronizar nada: mientras el logout corre no
+  // mostramos ni error ni reintento de sincronizacion.
+  if (isSigningOut) {
+    return <BrandSyncLoader message="Cerrando sesión..." />;
+  }
+
+  // Sin error confirmado la sincronizacion sigue en curso: carga real hasta que
+  // la peticion falle de verdad o se agote el timeout de arranque en frio.
+  if (reason === 'sync_error' && !error && waitStage !== 'expired') {
+    return <BrandSyncLoader stage={waitStage === 'slow' ? 'slow' : 'loading'} />;
   }
 
   const handlePrimaryAction = () => {

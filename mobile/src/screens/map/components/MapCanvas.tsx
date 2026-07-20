@@ -28,6 +28,7 @@ type MapCanvasProps = {
   onSelectorDragStart: () => void;
   onSelectorPointDragEnd: (role: SelectorPointRole, location: GeoPoint) => void;
   onUnitPress: (unit: OperationalUnitSnapshot) => void;
+  onUserInteraction?: () => void;
   scaleBarPosition?:
     | { bottom: number; left: number }
     | { bottom: number; right: number }
@@ -53,6 +54,7 @@ export function MapCanvas({
   onSelectorDragStart,
   onSelectorPointDragEnd,
   onUnitPress,
+  onUserInteraction,
   scaleBarPosition,
   selectorMode,
   selectorPoints,
@@ -86,6 +88,7 @@ export function MapCanvas({
       scaleEnabled
       showsTraffic={trafficEnabled}
       themeMode={theme.mode}
+      onUserInteraction={onUserInteraction}
       onPress={(event) => {
         if (!selectorMode) return;
         const { latitude, longitude } = event.nativeEvent.coordinate || {};

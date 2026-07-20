@@ -44,7 +44,7 @@ export function MessageDeliveryMeta({
     },
     read: {
       icon: 'check-all',
-      label: 'Leido',
+      label: 'Visto',
       color: theme.colors.info,
     },
     failed: {
@@ -55,10 +55,18 @@ export function MessageDeliveryMeta({
   }[status];
 
   return (
-    <View style={styles.deliveryMeta}>
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={config.label}
+      accessibilityHint="Estado del mensaje"
+      style={styles.deliveryMeta}>
       {time ? <Text style={[styles.deliveryMetaText, { color: config.color }]}>{time}</Text> : null}
-      <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
-      <Text style={[styles.deliveryMetaText, { color: config.color }]}>{config.label}</Text>
+      {status === 'sending' ? (
+        <ActivityIndicator size={12} color={config.color} />
+      ) : (
+        <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
+      )}
     </View>
   );
 }
@@ -420,8 +428,10 @@ export function CallMediaTile({
           })
         : RTCView && showVideo
           ? createElement(RTCView as any, {
-              stream,
-              muted,
+              streamURL: (stream as any)?.toURL?.() || '',
+              objectFit: 'cover',
+              mirror: isSelf,
+              zOrder: isSelf ? 1 : 0,
               style: {
                 position: 'absolute',
                 top: 0,

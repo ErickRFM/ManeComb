@@ -118,7 +118,7 @@ router.post("/login", authLimiter, async (req, res) => {
   return buildLoginResponse(req, res, user, 200, "auth.login");
 });
 
-router.post("/register", authLimiter, async (req, res) => {
+router.post("/register", authLimiter, async (req, res, next) => {
   const { name, email, password, phone, companyName, accountType } = req.body;
 
   if (!name || !email || !password) {
@@ -167,10 +167,9 @@ router.post("/register", authLimiter, async (req, res) => {
 
     return buildLoginResponse(req, res, user, 201, "auth.register");
   } catch (error) {
-    return res.status(error.message === "El correo ya existe" ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible registrar la cuenta"
-    });
+    error.statusCode = error.message === "El correo ya existe" ? 409 : 400;
+    error.publicMessage = "No fue posible registrar la cuenta";
+    return next(error);
   }
 });
 
@@ -367,7 +366,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
   }
 });
 
-router.post("/reset-password", authLimiter, async (req, res) => {
+router.post("/reset-password", authLimiter, async (req, res, next) => {
   const { token, password } = req.body;
 
   if (!token || !password) {
@@ -394,10 +393,9 @@ router.post("/reset-password", authLimiter, async (req, res) => {
     });
   } catch (error) {
     const status = error.message.includes("expirado") || error.message.includes("invalido") ? 400 : 500;
-    return res.status(status).json({
-      ok: false,
-      message: error.message || "No fue posible restablecer la contrasena"
-    });
+    error.statusCode = status;
+    error.publicMessage = "No fue posible restablecer la contrasena";
+    return next(error);
   }
 });
 
@@ -478,7 +476,7 @@ router.get("/e2ee-backup", authenticate, async (req, res) => {
   });
 });
 
-router.put("/e2ee-backup", authenticate, async (req, res) => {
+router.put("/e2ee-backup", authenticate, async (req, res, next) => {
   try {
     const backup = await req.app.locals.store.upsertUserE2eeBackup?.(req.user.id, req.body || {});
 
@@ -487,10 +485,9 @@ router.put("/e2ee-backup", authenticate, async (req, res) => {
       data: backup
     });
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible sincronizar el respaldo E2EE"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible sincronizar el respaldo E2EE";
+    return next(error);
   }
 });
 

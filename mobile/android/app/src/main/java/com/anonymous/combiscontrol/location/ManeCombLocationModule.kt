@@ -60,6 +60,8 @@ class ManeCombLocationModule(
       putString("reason", reason)
       putString("token", prefs.getString(ManeCombLocationService.KEY_TOKEN, null))
       putString("refreshToken", prefs.getString(ManeCombLocationService.KEY_REFRESH_TOKEN, null))
+      putString("vehicleId", prefs.getString(ManeCombLocationService.KEY_VEHICLE_ID, null))
+      putString("sessionId", prefs.getString(ManeCombLocationService.KEY_SESSION_ID, null))
     })
     if (reason != null) {
       prefs.edit().remove(ManeCombLocationService.KEY_STATUS_REASON).apply()

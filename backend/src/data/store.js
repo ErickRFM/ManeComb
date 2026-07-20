@@ -2056,6 +2056,9 @@ function createEmbeddedStore() {
       endedAt: null,
       durationSeconds: 0,
       status: "active",
+      endReason: null,
+      mode: payload.mode ? String(payload.mode) : null,
+      usedRelay: null,
       sharedScreen: Boolean(payload.sharedScreen),
       offerCount: Math.max(0, Number(payload.offerCount) || 0),
       lastEventAt: new Date().toISOString()
@@ -2214,6 +2217,42 @@ function createEmbeddedStore() {
     }
 
     return enrichVehicle(vehicle);
+  }
+
+  function claimVehicleForDriver(vehicleId, { organizationId, driverId } = {}) {
+    const vehicle = getVehicleById(vehicleId);
+
+    if (!vehicle) {
+      return null;
+    }
+
+    if (organizationId && String(vehicle.organizationId || "").trim() !== String(organizationId).trim()) {
+      return null;
+    }
+
+    if (vehicle.driverId && vehicle.driverId !== driverId) {
+      return null;
+    }
+
+    vehicle.driverId = driverId;
+    vehicle.status = "assigned";
+    vehicle.updatedAt = new Date().toISOString();
+
+    return clone(vehicle);
+  }
+
+  function releaseVehicleFromDriver(vehicleId, driverId) {
+    const vehicle = getVehicleById(vehicleId);
+
+    if (!vehicle || vehicle.driverId !== driverId) {
+      return null;
+    }
+
+    vehicle.driverId = null;
+    vehicle.status = vehicle.status === "assigned" ? "available" : vehicle.status;
+    vehicle.updatedAt = new Date().toISOString();
+
+    return clone(vehicle);
   }
 
   function updateVehicle(vehicleId, payload) {
@@ -2564,8 +2603,12 @@ function createEmbeddedStore() {
       return null;
     }
 
-    const incomingTime = new Date(timestamp || vehicle.updatedAt).getTime();
-    const currentTime = vehicle.locationTimestamp ? new Date(vehicle.locationTimestamp).getTime() : -Infinity;
+    const incomingTime = new Date(temporal?.receivedAt || timestamp || vehicle.updatedAt).getTime();
+    const currentTime = vehicle.locationReceivedAt
+      ? new Date(vehicle.locationReceivedAt).getTime()
+      : vehicle.locationTimestamp
+        ? new Date(vehicle.locationTimestamp).getTime()
+        : -Infinity;
     if (Number.isFinite(currentTime) && Number.isFinite(incomingTime) && incomingTime < currentTime) {
       return enrichVehicle(vehicle);
     }
@@ -2904,6 +2947,8 @@ function createEmbeddedStore() {
     markConversationMessageDelivered,
     markConversationMessageRead,
     markActivationKeyUsed,
+    claimVehicleForDriver,
+    releaseVehicleFromDriver,
     recordAppEvent,
     registerPushSubscription,
     registerUser,

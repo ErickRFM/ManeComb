@@ -13,7 +13,7 @@ import {
 import { useRoute } from '@react-navigation/native';
 import { useShallow } from 'zustand/react/shallow';
 import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
-import { launchCameraAsync, launchImageLibraryAsync } from '@/src/native/image-picker';
+import { launchCameraAsync, launchImageLibraryAsync, requestCameraPermissionAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type {
@@ -24,16 +24,24 @@ import { createStyles } from '../chat-screen.styles';
 import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, RecordingState, RtcParticipant } from '../types';
 import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getPresenceStatus } from '@/src/utils/presence';
+import { resolveRtcJoinFailureNotice, type RtcJoinAck } from '../utils/rtc-join-ack';
+import { startCallForegroundService, stopCallForegroundService } from '@/src/native/call-service';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
 import {
   RTCPeerConnection as PlatformRTCPeerConnection,
+  createRTCIceCandidate,
+  createRTCSessionDescription,
   mediaDevices as platformMediaDevices,
   isWebRTCAvailable,
 } from '@/src/native/webrtc';
 type CloseActiveCallOptions = {
   reason?: string | null;
 };
+
+// Si el backend no acusa el rtc:join en este plazo, abortamos la llamada en
+// lugar de dejarla colgada en "llamando" para siempre.
+const RTC_JOIN_ACK_TIMEOUT_MS = 10000;
 
 export function useChatController() {
   const route = useRoute();
@@ -118,6 +126,8 @@ export function useChatController() {
   >([]);
   const isStartingCallRef = useRef(false);
   const callAttemptRef = useRef(0);
+  // Se reporta usedRelay una sola vez por llamada; se reinicia al colgar.
+  const relayStatsReportedRef = useRef(false);
   const rtcIceConfigRef = useRef<RtcIceConfig>({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     turnEnabled: false,
@@ -158,12 +168,54 @@ export function useChatController() {
       }
     };
 
+    // Determina si la llamada viajo por TURN (relay) o P2P directo, inspeccionando
+    // el candidate pair activo. Se reporta una sola vez por sesion y de forma
+    // defensiva: cualquier fallo simplemente no reporta y no rompe la llamada.
+    const reportRelayUsage = async (
+      peer: RTCPeerConnection,
+      roomId: string,
+      socket: Socket
+    ) => {
+      if (relayStatsReportedRef.current) return;
+      relayStatsReportedRef.current = true;
+
+      try {
+        const stats = await peer.getStats();
+        const candidates = new Map<string, any>();
+        let selectedPair: any = null;
+
+        stats.forEach((report: any) => {
+          if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+            candidates.set(report.id, report);
+          }
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            if (!selectedPair || report.nominated || report.selected) {
+              selectedPair = report;
+            }
+          }
+        });
+
+        if (!selectedPair) return;
+
+        const local = candidates.get(selectedPair.localCandidateId);
+        const remote = candidates.get(selectedPair.remoteCandidateId);
+        const usedRelay =
+          local?.candidateType === 'relay' || remote?.candidateType === 'relay';
+
+        socket.emit('rtc:stats', { roomId, usedRelay });
+      } catch {
+        // getStats puede no estar disponible o fallar; se mantiene usedRelay=null.
+      }
+    };
+
     const buildPeerConnection = (
       roomId: string,
       targetSocketId: string,
       mode: CallMode
     ) => {
       resetPeerConnection(false);
+      // Cada peer nuevo (quien llama o quien contesta) reporta usedRelay una vez.
+      relayStatsReportedRef.current = false;
 
       const PC = PlatformRTCPeerConnection;
       if (!PC) return null;
@@ -221,6 +273,7 @@ export function useChatController() {
               : current
           );
           setCallNotice(mode === 'video' ? 'Videollamada activa.' : 'Llamada activa.');
+          void reportRelayUsage(peer, roomId, socket);
         }
 
         if (peer.connectionState === 'disconnected') {
@@ -253,7 +306,22 @@ export function useChatController() {
 
       try {
         const md = platformMediaDevices;
-        if (!md) return false;
+        if (!md) {
+          setCallNotice('La cabina de llamadas no esta disponible.');
+          return false;
+        }
+
+        const micPermission = await requestRecordingPermissionsAsync();
+        if (!micPermission.granted) {
+          setCallNotice('Se necesita permiso de microfono para llamar.');
+          return false;
+        }
+
+        if (mode === 'video' && !(await requestCameraPermissionAsync())) {
+          setCallNotice('Se necesita permiso de camara para videollamar.');
+          return false;
+        }
+
         const stream = await md.getUserMedia({
           audio: true,
           video: mode === 'video',
@@ -343,20 +411,38 @@ export function useChatController() {
         roomId: string;
         mode?: CallMode;
       }) => {
-        if (payload.roomId !== joinedRtcRoomRef.current || !localStreamRef.current) {
+        if (payload.roomId !== joinedRtcRoomRef.current) {
           return;
         }
 
         const mode = payload.mode || currentCallModeRef.current || 'audio';
+        currentCallModeRef.current = mode;
+
+        if (!localStreamRef.current) {
+          const hasLocalMedia = await obtainLocalMediaRef.current(mode);
+          if (!hasLocalMedia || !localStreamRef.current) {
+            return;
+          }
+        }
+
+        setCallSession((current) => current || {
+          roomId: payload.roomId,
+          mode,
+          phase: 'connecting',
+          joinedAt: Date.now(),
+          remoteStream: null,
+          remoteSocketId: payload.fromSocketId,
+        });
+        setCallNotice(mode === 'video' ? 'Conectando videollamada...' : 'Conectando llamada...');
         const peer = buildPeerConnection(payload.roomId, payload.fromSocketId, mode);
         if (!peer) return;
-        await peer.setRemoteDescription(new RTCSessionDescription(payload.offer));
+        await peer.setRemoteDescription(createRTCSessionDescription(payload.offer));
         if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
           return;
         }
         for (const queued of pendingIceCandidatesRef.current.splice(0)) {
           if (queued.fromSocketId === payload.fromSocketId) {
-            await peer.addIceCandidate(new RTCIceCandidate(queued.candidate));
+            await peer.addIceCandidate(createRTCIceCandidate(queued.candidate));
           }
         }
         const answer = await peer.createAnswer();
@@ -390,13 +476,13 @@ export function useChatController() {
         }
 
         const peer = peerRef.current;
-        await peer.setRemoteDescription(new RTCSessionDescription(payload.answer));
+        await peer.setRemoteDescription(createRTCSessionDescription(payload.answer));
         if (peerRef.current !== peer || joinedRtcRoomRef.current !== payload.roomId) {
           return;
         }
         for (const queued of pendingIceCandidatesRef.current.splice(0)) {
           if (queued.fromSocketId === payload.fromSocketId) {
-            await peer.addIceCandidate(new RTCIceCandidate(queued.candidate));
+            await peer.addIceCandidate(createRTCIceCandidate(queued.candidate));
           }
         }
       }
@@ -408,7 +494,7 @@ export function useChatController() {
       }
 
       if (peerRef.current?.remoteDescription) {
-        await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        await peerRef.current.addIceCandidate(createRTCIceCandidate(payload.candidate));
       } else {
         if (pendingIceCandidatesRef.current.length >= 128) {
           pendingIceCandidatesRef.current.shift();
@@ -742,11 +828,23 @@ export function useChatController() {
       remoteSocketId: null,
     });
 
-    socketRef.current.emit('rtc:join', {
-      roomId,
-      userId: user?.id,
-      name: user?.name,
-    });
+    const joinAttempt = callAttemptRef.current;
+
+    socketRef.current
+      .timeout(RTC_JOIN_ACK_TIMEOUT_MS)
+      .emit(
+        'rtc:join',
+        { roomId, userId: user?.id, name: user?.name },
+        (ackError: Error | null, ack?: RtcJoinAck) => {
+          // Una llamada posterior (o un colgado) ya invalido este intento.
+          if (callAttemptRef.current !== joinAttempt) return;
+
+          const notice = resolveRtcJoinFailureNotice(ack, ackError);
+          if (!notice) return;
+
+          void closeActiveCallRef.current({ reason: notice });
+        }
+      );
 
     isStartingCallRef.current = false;
   }, [activeConversation, callSession, user?.id, user?.name]);
@@ -760,6 +858,22 @@ export function useChatController() {
   const canSendText =
     Boolean(activeConversation && draft.trim()) && recordingState === 'idle' && !isSubmitting;
   const canRecord = recordingState !== 'uploading' && supportsMicrophoneCapture;
+  // Un unico punto de control para el foreground service: toda via que abra o
+  // cierre la llamada (colgar, rechazo, timeout, cambio de chat, desmontaje)
+  // pasa por callSession, asi que el servicio no puede quedar huerfano.
+  const isCallActive = Boolean(callSession);
+  const isVideoCall = callSession?.mode === 'video';
+
+  useEffect(() => {
+    if (!isCallActive) return;
+
+    void startCallForegroundService(isVideoCall);
+
+    return () => {
+      void stopCallForegroundService();
+    };
+  }, [isCallActive, isVideoCall]);
+
   const activeCallSession =
     activeConversation && callSession?.roomId === activeConversation.id ? callSession : null;
   const callStatusLabel = activeCallSession

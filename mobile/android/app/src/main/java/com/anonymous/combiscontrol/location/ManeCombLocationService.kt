@@ -80,6 +80,7 @@ class ManeCombLocationService : Service(), LocationListener {
     }
 
     val startIntent = intent ?: buildIntentFromPrefs(this)
+    stopAfterFlush = false
     apiUrl = startIntent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
     token = startIntent?.getStringExtra(EXTRA_TOKEN).orEmpty()
     refreshToken = startIntent?.getStringExtra(EXTRA_REFRESH_TOKEN).orEmpty()
@@ -660,8 +661,8 @@ class ManeCombLocationService : Service(), LocationListener {
     const val KEY_TOKEN = "token"
     const val KEY_REFRESH_TOKEN = "refreshToken"
     const val KEY_STATUS_REASON = "statusReason"
-    private const val KEY_VEHICLE_ID = "vehicleId"
-    private const val KEY_SESSION_ID = "sessionId"
+    const val KEY_VEHICLE_ID = "vehicleId"
+    const val KEY_SESSION_ID = "sessionId"
     private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
     private const val KEY_SCHEDULE_START = "scheduleStart"
     private const val KEY_SCHEDULE_END = "scheduleEnd"

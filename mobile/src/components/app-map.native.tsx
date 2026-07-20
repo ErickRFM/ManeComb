@@ -91,6 +91,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
     initialRegion,
     mapPadding,
     onPress,
+    onUserInteraction,
     scaleBarPosition,
     scaleEnabled = true,
     showsTraffic = false,
@@ -100,6 +101,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   ref
 ) {
   const cameraRef = useRef<Mapbox.Camera>(null);
+  const cameraInitializedRef = useRef(false);
   const mapReadyRef = useRef(false);
   const mapPaddingRef = useRef(mapPadding);
   const initialRegionRef = useRef(initialRegion);
@@ -192,13 +194,18 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
         mapReadyRef.current = true;
         const pendingAction = pendingCameraActionRef.current;
         pendingCameraActionRef.current = null;
-        executeCameraAction(
-          pendingAction || {
+        const needsInitialCamera = !cameraInitializedRef.current;
+        cameraInitializedRef.current = true;
+
+        if (pendingAction) {
+          executeCameraAction(pendingAction);
+        } else if (needsInitialCamera) {
+          executeCameraAction({
             type: 'region',
             region: initialRegionRef.current,
             duration: 0,
-          }
-        );
+          });
+        }
       }}
       onWillStartLoadingMap={() => {
         mapReadyRef.current = false;
@@ -206,6 +213,21 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       onPress={(feature) => {
         onPress?.({ nativeEvent: { coordinate: toPoint(feature.geometry?.coordinates) } });
       }}
+      {...(onUserInteraction
+        ? {
+            // `onRegionWillChange` NO existe en iOS (el case esta comentado en
+            // RNMBXEvent.swift). `onRegionIsChanging` si se emite en ambas
+            // plataformas y trae `isUserInteraction`, que solo es true cuando el
+            // movimiento viene de un gesto real (pan, pinch, rotate e inercia),
+            // no de nuestros setCamera/fitBounds. Solo se registra si alguien
+            // escucha, para no pagar el evento por frame de gratis.
+            onRegionIsChanging: (feature: { properties?: { isUserInteraction?: boolean } }) => {
+              if (feature?.properties?.isUserInteraction) {
+                onUserInteraction();
+              }
+            },
+          }
+        : {})}
       scaleBarEnabled={scaleEnabled}
       scaleBarPosition={scaleBarPosition}
       scaleBarUnits="metric"

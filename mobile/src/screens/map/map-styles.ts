@@ -179,7 +179,10 @@ export const mapStyles = StyleSheet.create({
     fontSize: 11,
     fontFamily: Typography.body,
   },
-  trackList: { gap: 8, paddingRight: 2 },
+  // El scroller sangra el padding del card (12) para poder desplazarse de borde a borde,
+  // y el contenido lo repone para que las pestanas queden alineadas con el resto del panel.
+  trackScroller: { marginHorizontal: -12, flexGrow: 0 },
+  trackList: { gap: 8, paddingHorizontal: 12 },
   trackChip: { minHeight: 36, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 11, borderWidth: 1 },
   trackChipTitle: { fontSize: 13, fontWeight: '800', fontFamily: Typography.body },
   trackChipTitleSelected: { color: '#FFF' },

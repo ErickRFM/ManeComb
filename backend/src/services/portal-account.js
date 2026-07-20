@@ -50,7 +50,7 @@ function getSubscriptionStatus(order) {
   if (declaredStatuses.has("expired")) return "expired";
   if (declaredStatuses.has("past_due")) return "past_due";
 
-  if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
+  if (paymentStatus === "paid" || paymentStatus === "paid_test") {
     return "active";
   }
 
@@ -130,6 +130,7 @@ function buildSubscription(order) {
 }
 
 function buildActivationTimeline(user, order, users = []) {
+  const subscription = buildSubscription(order);
   const invitedUsers = users.filter((entry) => entry.id !== user?.id);
   const firstOperationalLogin = invitedUsers
     .filter((entry) => entry.lastAccessAt)
@@ -146,7 +147,9 @@ function buildActivationTimeline(user, order, users = []) {
     {
       id: "payment-confirmed",
       title: "Pago confirmado",
-      status: ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
+      status: ["paid", "paid_test", "trial_active"].includes(
+        String(order?.paymentStatus || "").trim().toLowerCase()
+      )
         ? "completed"
         : "pending",
       at: toIso(order?.paymentApprovedAt || order?.trialStartedAt),
@@ -155,7 +158,7 @@ function buildActivationTimeline(user, order, users = []) {
     {
       id: "plan-active",
       title: "Plan activo",
-      status: order?.activationStatus === "active" ? "completed" : "pending",
+      status: subscription.isActive ? "completed" : "pending",
       at: toIso(order?.activatedAt),
       description: "La suscripcion esta lista para operar."
     },
@@ -188,10 +191,8 @@ function getDefaultOnboardingSteps({ user, order, users, vehicles = [], activati
   const generatedKeys = activationKeys.length;
   const availableKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "available").length;
   const usedKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "used").length;
-  const hasPaymentProfile = Boolean(
-    user?.paymentProfile?.preferredMethod ||
-      user?.paymentProfile?.cardLast4 ||
-      ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
+  const paymentConfirmed = ["paid", "paid_test", "trial_active"].includes(
+    String(order?.paymentStatus || "").trim().toLowerCase()
   );
 
   return [
@@ -204,14 +205,14 @@ function getDefaultOnboardingSteps({ user, order, users, vehicles = [], activati
     {
       id: "plan-active",
       title: "Plan activo",
-      status: order?.activationStatus === "active" ? "completed" : "pending",
+      status: subscription.isActive ? "completed" : "pending",
       description: `${subscription.planName || "Sin plan"} · ${subscription.totalUnits} combis.`
     },
     {
       id: "payment",
       title: "Pago",
-      status: hasPaymentProfile ? "completed" : "pending",
-      description: ["paid", "paid_test", "trial_active"].includes(String(order?.paymentStatus || ""))
+      status: paymentConfirmed ? "completed" : "pending",
+      description: paymentConfirmed
         ? "Pago confirmado o prueba activa."
         : "Pago pendiente de confirmación."
     },
@@ -236,7 +237,7 @@ function getDefaultOnboardingSteps({ user, order, users, vehicles = [], activati
     {
       id: "gps-radio",
       title: "GPS / Radio",
-      status: assignedUnits > 0 && order?.activationStatus === "active" ? "completed" : "pending",
+      status: assignedUnits > 0 && subscription.isActive ? "completed" : "pending",
       description: order?.radioFeatureEnabled
         ? "GPS y radio operativo listos para conductores."
         : "GPS listo; radio disponible como modulo adicional."

@@ -295,6 +295,10 @@ export async function getVehiclesRequest() {
   return await unwrapData<any[]>(apiClient.get('/vehicles'));
 }
 
+export async function getOperationalUnitsRequest() {
+  return await unwrapData<any[]>(apiClient.get('/operational-units'));
+}
+
 export async function createVehicleRequest(payload: any) {
   return await unwrapData<any>(apiClient.post('/vehicles', payload));
 }

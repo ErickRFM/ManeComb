@@ -86,7 +86,7 @@ router.get("/me", authenticate, async (req, res) => {
   });
 });
 
-router.patch("/me", authenticate, async (req, res) => {
+router.patch("/me", authenticate, async (req, res, next) => {
   try {
     const user = await req.app.locals.store.updateUser(
       req.user.id,
@@ -100,10 +100,9 @@ router.patch("/me", authenticate, async (req, res) => {
   } catch (error) {
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
-    return res.status(isConflict ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible actualizar el perfil"
-    });
+    error.statusCode = isConflict ? 409 : 400;
+    error.publicMessage = "No fue posible actualizar el perfil";
+    return next(error);
   }
 });
 
@@ -116,7 +115,7 @@ router.get("/", authenticate, requireOrganization, requirePermission("canViewAna
   });
 });
 
-router.post("/", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res) => {
+router.post("/", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
   try {
     const organizationId = getOrganizationId(req.user);
     if (!organizationId) {
@@ -167,14 +166,13 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
   } catch (error) {
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
-    return res.status(isConflict ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible crear el usuario"
-    });
+    error.statusCode = isConflict ? 409 : 400;
+    error.publicMessage = "No fue posible crear el usuario";
+    return next(error);
   }
 });
 
-router.patch("/:userId", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res) => {
+router.patch("/:userId", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
   try {
     const scopedUsers = await req.app.locals.store.listUsers(req.user);
 
@@ -286,10 +284,9 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
   } catch (error) {
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
-    return res.status(isConflict ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible actualizar el usuario"
-    });
+    error.statusCode = isConflict ? 409 : 400;
+    error.publicMessage = "No fue posible actualizar el usuario";
+    return next(error);
   }
 });
 

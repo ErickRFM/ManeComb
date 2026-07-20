@@ -36,22 +36,22 @@ export function createStyles(
       lineHeight: isPhone ? 31 : 38,
     },
     headerActionButton: {
-      width: 52,
-      height: 52,
-      borderRadius: 18,
+      width: 44,
+      height: 44,
+      borderRadius: 14,
       backgroundColor: theme.colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
       ...(Platform.OS === 'web'
         ? {
-            boxShadow: '0px 14px 26px rgba(229, 30, 45, 0.28)',
+            boxShadow: '0px 8px 16px rgba(229, 30, 45, 0.2)',
           }
         : {
             shadowColor: theme.colors.accent,
-            shadowOpacity: 0.28,
-            shadowRadius: 14,
-            shadowOffset: { width: 0, height: 8 },
-            elevation: 6,
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 4,
           }),
     },
     headerPills: {
@@ -998,9 +998,6 @@ export function createStyles(
       fontWeight: '700',
       flexShrink: 0,
     },
-    messageMetaOwn: {
-      color: 'rgba(255,255,255,0.76)',
-    },
     messageText: {
       color: theme.colors.text,
       fontFamily: Typography.body,
@@ -1015,7 +1012,8 @@ export function createStyles(
       alignSelf: 'flex-end',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 3,
+      gap: 4,
+      minHeight: 14,
       marginTop: -1,
     },
     deliveryMetaText: {

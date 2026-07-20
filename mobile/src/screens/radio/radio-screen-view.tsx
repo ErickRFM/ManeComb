@@ -50,6 +50,7 @@ import { formatRelativeTime, formatRole } from '@/src/utils/format';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 import { createStyles } from './radio-screen.styles';
 import { VoiceTransmissionCard } from './components/radio-transmission-card';
+import { PttAudioWave } from './components/ptt-audio-wave';
 import {
   initialRadioSessionState,
   radioSessionReducer,
@@ -1830,6 +1831,9 @@ export function RadioScreen() {
 
             <View style={styles.pttCenter}>
               <Animated.View style={[styles.pttHalo, haloAnimatedStyle]} />
+              {radioPhase === 'TRANSMITTING' ? (
+                <PttAudioWave diameter={isPhone ? 244 : 284} samples={waveformLevels} />
+              ) : null}
               <Animated.View style={[styles.pttOuter, pttAnimatedStyle]}>
                 <Pressable
                   onPress={() => { handlePttPress(); }}

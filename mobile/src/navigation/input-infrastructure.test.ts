@@ -60,4 +60,17 @@ describe('shared input infrastructure', () => {
     expect(authScreen).toContain('source={fasterArtwork}');
     expect(authScreen).not.toContain("marginTop: 'auto'");
   });
+
+  it('keeps chat delivery labels accessible without rendering redundant visible text', () => {
+    const deliveryMeta = fs.readFileSync(
+      path.join(mobileRoot, 'src', 'screens', 'chat', 'components', 'message-media.tsx'),
+      'utf8'
+    );
+
+    expect(deliveryMeta).toContain('accessibilityLabel={config.label}');
+    expect(deliveryMeta).toContain('accessibilityHint="Estado del mensaje"');
+    expect(deliveryMeta).not.toContain('>{config.label}</Text>');
+    expect(deliveryMeta).toContain("icon: 'check'");
+    expect(deliveryMeta).toContain("icon: 'check-all'");
+  });
 });

@@ -47,12 +47,13 @@ class PaymentRepository extends StoreDomainRepository {
       return this.store.listCommercialOrdersForUser(user);
     }
 
-    if (!user?.id && !user?.email) {
+    const organizationId = getUserOrganizationId(user);
+
+    if (!user?.id && !user?.email && !organizationId) {
       return [];
     }
 
     const normalizedEmail = String(user.email || "").trim().toLowerCase();
-    const organizationId = getUserOrganizationId(user);
     const orders = await this.CommercialLeadModel.find({
       $or: [
         { ownerUserId: user.id || null },

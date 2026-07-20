@@ -191,22 +191,20 @@ router.post("/", authenticate, requireOrganization, requireOperationalAccess, up
       data: hydratedDocument
     });
   } catch (error) {
-    return res.status(
+    error.statusCode =
       error.message === "La fecha de vencimiento no es valida" ||
       error.message === "ownerId y name son obligatorios"
         ? 400
         : error.message === "Propietario del documento no encontrado" ||
             error.message === "Unidad del documento no encontrada"
           ? 404
-          : 422
-    ).json({
-      ok: false,
-      message: error.message || "No fue posible guardar el documento"
-    });
+          : 422;
+    error.publicMessage = "No fue posible guardar el documento";
+    return next(error);
   }
 });
 
-router.patch("/:documentId/review", authenticate, requireOrganization, requireOperationalAccess, requirePermission("canManageDocuments"), async (req, res) => {
+router.patch("/:documentId/review", authenticate, requireOrganization, requireOperationalAccess, requirePermission("canManageDocuments"), async (req, res, next) => {
   try {
     const scopedDocuments = await req.app.locals.store.listDocuments({
       organizationId: getOrganizationId(req.user)
@@ -237,10 +235,9 @@ router.patch("/:documentId/review", authenticate, requireOrganization, requireOp
       data: reviewedDocument
     });
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible revisar el documento"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible revisar el documento";
+    return next(error);
   }
 });
 

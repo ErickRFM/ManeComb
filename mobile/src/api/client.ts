@@ -460,8 +460,19 @@ export async function registerRequest(payload: RegisterPayload) {
   return response.data;
 }
 
-export async function getSessionRequest() {
-  const response = await apiClient.get<SessionResult>('/auth/me');
+/**
+ * Timeout para el primer `/auth/me` tras abrir la app o iniciar sesion. El
+ * backend vive en el tier gratuito de Render, que suspende el servicio tras
+ * inactividad y puede tardar 30-60s en despertar: con el timeout normal de 15s
+ * el arranque en frio se abortaba y se reportaba como fallo de sincronizacion.
+ */
+export const COLD_START_SESSION_TIMEOUT_MS = 75000;
+
+export async function getSessionRequest(options: { coldStart?: boolean } = {}) {
+  const response = await apiClient.get<SessionResult>(
+    '/auth/me',
+    options.coldStart ? { timeout: COLD_START_SESSION_TIMEOUT_MS } : undefined
+  );
   return response.data;
 }
 

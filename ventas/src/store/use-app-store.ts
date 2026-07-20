@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios';
 import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { hasPortalPermission } from '@/features/portal/utils/access';
 import type {
@@ -27,6 +28,7 @@ import {
   forgotPasswordRequest,
   getUsersRequest,
   getVehiclesRequest,
+  getOperationalUnitsRequest,
   loginRequest,
   logoutRequest,
   registerRequest,
@@ -59,6 +61,7 @@ type AppState = {
   user: User | null;
   users: User[];
   vehicles: Vehicle[];
+  operationalUnits: OperationalUnitSnapshot[];
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
@@ -244,12 +247,26 @@ function connectSocket(get: () => AppState) {
     'vehicle:updated',
     'vehicle:deleted',
     'location:updated',
+    'operational-unit:updated',
     'route-session:updated',
     'user:updated',
     'user:deleted',
   ].forEach((eventName) => {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
+
+      if (eventName === 'operational-unit:updated') {
+        const unit = payload && typeof payload === 'object' && 'unit' in payload
+          ? (payload as { unit?: OperationalUnitSnapshot }).unit
+          : null;
+        if (unit?.unitId) {
+          useAppStore.setState((state) => ({
+            operationalUnits: state.operationalUnits.some((entry) => entry.unitId === unit.unitId)
+              ? state.operationalUnits.map((entry) => entry.unitId === unit.unitId ? unit : entry)
+              : [...state.operationalUnits, unit],
+          }));
+        }
+      }
 
       if (eventName === 'users:invited' || eventName === 'user:first-login' || eventName === 'user:updated') {
         void useAppStore.getState().loadUsers();
@@ -308,6 +325,7 @@ async function clearSession(set: (partial: Partial<AppState>) => void) {
     user: null,
     users: [],
     vehicles: [],
+    operationalUnits: [],
     lastRouteSessionUpdateId: null,
     routeSessionVersion: 0,
   });
@@ -326,6 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   user: null,
   users: [],
   vehicles: [],
+  operationalUnits: [],
   error: null,
   clearError: () => set({ error: null }),
   initialize: async () => {
@@ -497,8 +516,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      const vehicles = await getVehiclesRequest();
-      set({ vehicles, error: null });
+      const [vehicles, operationalUnits] = await Promise.all([
+        getVehiclesRequest(),
+        getOperationalUnitsRequest(),
+      ]);
+      set({ vehicles, operationalUnits, error: null });
     } catch (error) {
       set({ error: getReadableError(error, 'No fue posible cargar unidades.') });
     }

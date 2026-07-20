@@ -276,7 +276,49 @@ async function testPaidOrderUsesCanonicalActiveStatus() {
 
   assert.equal(authContext.subscription.status, "active");
   assert.equal(authContext.subscription.isActive, true);
+  assert.equal(
+    authContext.onboarding.steps.find((step) => step.id === "plan-active").status,
+    "completed"
+  );
+  assert.equal(
+    authContext.onboarding.steps.find((step) => step.id === "payment").status,
+    "completed"
+  );
   console.log("ok - pago aprobado se normaliza al estado canonico active");
+}
+
+async function testLegacyActivationFlagCannotBypassPayment() {
+  const authContext = await assertAccess("flag activo sin pago", {
+    expected: {
+      canAccessMobile: false,
+      mobileBlockReason: "payment_pending"
+    },
+    orders: [
+      createOrder({
+        activationStatus: "active",
+        paymentStatus: "pending",
+        status: "active"
+      })
+    ],
+    user: createUser({
+      paymentProfile: {
+        preferredMethod: "card",
+        cardLast4: "4242"
+      }
+    })
+  });
+
+  assert.equal(authContext.subscription.status, "pending");
+  assert.equal(authContext.subscription.isActive, false);
+  assert.equal(
+    authContext.onboarding.steps.find((step) => step.id === "plan-active").status,
+    "pending"
+  );
+  assert.equal(
+    authContext.onboarding.steps.find((step) => step.id === "payment").status,
+    "pending"
+  );
+  console.log("ok - flag heredado active y tarjeta guardada no sustituyen el pago confirmado");
 }
 
 async function testSuspendedSubscriptionOverridesOldPaidFlag() {
@@ -311,6 +353,7 @@ async function run() {
   await testActiveDriverCanAccess();
   await testActiveTrialCanAccessMobile();
   await testPaidOrderUsesCanonicalActiveStatus();
+  await testLegacyActivationFlagCannotBypassPayment();
   await testSuspendedSubscriptionOverridesOldPaidFlag();
 }
 

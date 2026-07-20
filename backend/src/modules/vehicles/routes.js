@@ -14,7 +14,7 @@ router.get("/", authenticate, requireOrganization, requireOperationalAccess, asy
   });
 });
 
-router.post("/", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res) => {
+router.post("/", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res, next) => {
   try {
     const organizationId = getOrganizationId(req.user);
     if (!organizationId) return res.status(400).json({ ok: false, message: "La organizacion es obligatoria" });
@@ -64,14 +64,13 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       "Ya existe una unidad con ese nombre o placas"
     ];
     const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
-    return res.status(isConflict ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible crear la unidad"
-    });
+    error.statusCode = isConflict ? 409 : 400;
+    error.publicMessage = "No fue posible crear la unidad";
+    return next(error);
   }
 });
 
-router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res) => {
+router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res, next) => {
   try {
     const vehicleId = String(req.params.vehicleId || "").trim();
     const currentVehicle = await req.app.locals.store.getVehicleById(vehicleId);
@@ -149,14 +148,13 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
       "Ya existe una unidad con ese nombre o placas"
     ];
     const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
-    return res.status(isConflict ? 409 : 400).json({
-      ok: false,
-      message: error.message || "No fue posible actualizar la unidad"
-    });
+    error.statusCode = isConflict ? 409 : 400;
+    error.publicMessage = "No fue posible actualizar la unidad";
+    return next(error);
   }
 });
 
-router.delete("/:vehicleId", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res) => {
+router.delete("/:vehicleId", authenticate, requireOrganization, requirePermission("canManageVehicles"), async (req, res, next) => {
   try {
     const vehicleId = String(req.params.vehicleId || "").trim();
     const currentVehicle = await req.app.locals.store.getVehicleById(vehicleId);
@@ -214,10 +212,9 @@ router.delete("/:vehicleId", authenticate, requireOrganization, requirePermissio
       data: deleted
     });
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible eliminar la unidad"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible eliminar la unidad";
+    return next(error);
   }
 });
 

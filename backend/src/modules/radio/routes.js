@@ -104,7 +104,7 @@ router.get("/messages", async (req, res) => {
   });
 });
 
-router.post("/messages", audioUpload.single("file"), async (req, res) => {
+router.post("/messages", audioUpload.single("file"), async (req, res, next) => {
   try {
     const conversation = await getAccessibleRadioConversation(req, req.body.channelId);
 
@@ -152,10 +152,9 @@ router.post("/messages", audioUpload.single("file"), async (req, res) => {
       data: message
     });
   } catch (error) {
-    return res.status(422).json({
-      ok: false,
-      message: error.message || "No fue posible guardar el audio de radio"
-    });
+    error.statusCode = 422;
+    error.publicMessage = "No fue posible guardar el audio de radio";
+    return next(error);
   }
 });
 

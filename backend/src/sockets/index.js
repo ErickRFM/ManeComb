@@ -258,6 +258,7 @@ function registerSocketServer(server, store) {
       organizationId: payload.organizationId,
       initiatedBy: payload.initiatedBy,
       offerCount: Math.max(1, Number(payload.offerCount) || 1),
+      mode: payload.mode || null,
       sharedScreen: Boolean(payload.sharedScreen),
       ...snapshot
     });
@@ -266,7 +267,7 @@ function registerSocketServer(server, store) {
     return session;
   }
 
-  async function finishRtcSession(roomId, status, participants = getRtcParticipants(roomId)) {
+  async function finishRtcSession(roomId, status, participants = getRtcParticipants(roomId), endReason = "hangup") {
     const activeSessionId = activeRtcSessions.get(roomId);
 
     if (!activeSessionId) {
@@ -278,6 +279,7 @@ function registerSocketServer(server, store) {
     return await store.updateRtcSession(activeSessionId, {
       ...getRtcParticipantSnapshot(participants),
       status,
+      endReason,
       endedAt: new Date().toISOString()
     });
   }
@@ -337,7 +339,7 @@ function registerSocketServer(server, store) {
     return rtcRooms.get(roomId)?.has(socket.id) || false;
   }
 
-  async function leaveRtcRoom(socket, roomId) {
+  async function leaveRtcRoom(socket, roomId, endReason = "hangup") {
     const disconnectTimer = rtcDisconnectTimers.get(socket.id);
     if (disconnectTimer) {
       clearTimeout(disconnectTimer);
@@ -359,7 +361,7 @@ function registerSocketServer(server, store) {
     socket.leave(getRoomKey(roomId));
 
     if (!members.size) {
-      await finishRtcSession(roomId, "completed", previousParticipants);
+      await finishRtcSession(roomId, "completed", previousParticipants, endReason);
       rtcRooms.delete(roomId);
     } else {
       await syncRtcSession(roomId, getRtcParticipantSnapshot(Array.from(members.values())));
@@ -1181,6 +1183,7 @@ function registerSocketServer(server, store) {
             initiatedBy: authenticatedUser.id,
             organizationId: getOrganizationId(authenticatedUser),
             offerCount: 1,
+            mode: payload.mode || null,
             sharedScreen: payload.mode === "screen"
           });
         }
@@ -1200,6 +1203,29 @@ function registerSocketServer(server, store) {
         socket.to(getRoomKey(safeRoomId)).emit(eventName, eventPayload);
         observeSocketEvent(socket, eventName, startedAt, "success", { roomId: safeRoomId });
       });
+    });
+
+    socket.on("rtc:stats", async ({ roomId, usedRelay }) => {
+      const startedAt = Date.now();
+      const safeRoomId = String(roomId || "").trim();
+
+      if (
+        !safeRoomId ||
+        !socket.data.user ||
+        !(await canUseOperations(socket)) ||
+        !isSocketInRtcRoom(socket, safeRoomId)
+      ) {
+        observeSocketEvent(socket, "rtc:stats", startedAt, "forbidden", { roomId: safeRoomId });
+        return;
+      }
+
+      // Solo persistir si el cliente resolvio el dato; null/undefined no
+      // sobrescribe (tri-estado: true/false/desconocido).
+      if (typeof usedRelay === "boolean") {
+        await syncRtcSession(safeRoomId, { usedRelay });
+      }
+
+      observeSocketEvent(socket, "rtc:stats", startedAt, "success", { roomId: safeRoomId, usedRelay });
     });
 
     socket.on("disconnect", async () => {
@@ -1225,7 +1251,7 @@ function registerSocketServer(server, store) {
         const disconnectTimer = setTimeout(() => {
         rtcDisconnectTimers.delete(socket.id);
         joinedRtcRoomIds.forEach((roomId) => {
-          void leaveRtcRoom(socket, roomId);
+          void leaveRtcRoom(socket, roomId, "timeout");
         });
         }, 15000);
         rtcDisconnectTimers.set(socket.id, disconnectTimer);

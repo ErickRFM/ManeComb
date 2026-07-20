@@ -184,6 +184,12 @@ export type PortalActivationKeysResponse = {
   activationKey?: PortalActivationKey;
 };
 
+export type DriverActivationUnit = {
+  id: string;
+  code: string;
+  plate?: string | null;
+};
+
 export type DriverActivationValidation = {
   valid: boolean;
   keyId: string;
@@ -193,6 +199,7 @@ export type DriverActivationValidation = {
   planName: string;
   expiresAt: string | null;
   availableDrivers: number;
+  availableUnits?: DriverActivationUnit[];
 };
 
 export type DriverActivationRegisterPayload = {
@@ -202,6 +209,7 @@ export type DriverActivationRegisterPayload = {
   phone?: string;
   password: string;
   unit?: {
+    vehicleId?: string;
     code?: string;
     vehicleCode?: string;
     plate?: string;

@@ -840,6 +840,9 @@ const rtcSessionSchema = new mongoose.Schema(
     endedAt: { type: Date, default: null },
     durationSeconds: { type: Number, default: 0 },
     status: { type: String, default: "active" },
+    endReason: { type: String, default: null },
+    mode: { type: String, default: null },
+    usedRelay: { type: Boolean, default: null },
     sharedScreen: { type: Boolean, default: false },
     offerCount: { type: Number, default: 0 },
     lastEventAt: { type: Date, default: Date.now }

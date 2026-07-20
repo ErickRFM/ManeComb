@@ -38,6 +38,8 @@ export type AppMapProps = {
   initialRegion: AppMapRegion;
   mapPadding?: AppMapPadding;
   onPress?: (event: { nativeEvent: { coordinate?: GeoPoint } }) => void;
+  /** Se dispara en el primer gesto de pan/zoom del usuario sobre el mapa. */
+  onUserInteraction?: () => void;
   scaleBarPosition?:
     | { bottom: number; left: number }
     | { bottom: number; right: number }

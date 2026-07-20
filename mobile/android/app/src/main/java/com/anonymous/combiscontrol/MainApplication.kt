@@ -14,6 +14,7 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.anonymous.combiscontrol.audio.ManeCombAudioPackage
+import com.anonymous.combiscontrol.calls.ManeCombCallPackage
 import com.anonymous.combiscontrol.location.ManeCombLocationPackage
 import com.anonymous.combiscontrol.notifications.ManeCombNotificationPackage
 
@@ -26,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
               // Packages that cannot be autolinked yet can be added manually here, for example:
               // add(MyReactNativePackage())
               add(ManeCombAudioPackage())
+              add(ManeCombCallPackage())
               add(ManeCombLocationPackage())
               add(ManeCombNotificationPackage())
             }

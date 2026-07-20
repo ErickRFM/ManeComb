@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -8,11 +8,13 @@ import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
 
 export function ConnectionBanner() {
   const { theme } = useAppTheme();
-  const { networkStatus, pendingSyncCount, realtimeDiagnostics, socketStatus, user } = useAppStore(
+  const { isRefreshing, networkStatus, pendingSyncCount, realtimeDiagnostics, refreshAll, socketStatus, user } = useAppStore(
     useShallow((state) => ({
+      isRefreshing: state.isRefreshing,
       networkStatus: state.networkStatus,
       pendingSyncCount: state.pendingSyncCount,
       realtimeDiagnostics: state.realtimeDiagnostics,
+      refreshAll: state.refreshAll,
       socketStatus: state.socketStatus,
       user: state.user,
     }))
@@ -41,6 +43,7 @@ export function ConnectionBanner() {
     : pendingSyncCount > 0
       ? 'Sincronizando pendientes...'
       : realtime.detail;
+  const tint = offline ? theme.colors.warning : theme.colors.info;
 
   return (
     <View
@@ -48,20 +51,33 @@ export function ConnectionBanner() {
         styles.banner,
         {
           backgroundColor: offline ? theme.colors.warningSoft : theme.colors.infoSoft,
-          borderColor: offline ? theme.colors.warning : theme.colors.info,
+          borderColor: tint,
         },
       ]}>
-      <MaterialCommunityIcons
-        name={offline ? 'wifi-off' : 'sync'}
-        size={16}
-        color={offline ? theme.colors.warning : theme.colors.info}
-      />
+      <Pressable
+        onPress={() => {
+          if (!isRefreshing) {
+            refreshAll();
+          }
+        }}
+        disabled={isRefreshing}
+        accessibilityRole="button"
+        accessibilityLabel="Reintentar conexion"
+        accessibilityState={{ busy: isRefreshing, disabled: isRefreshing }}
+        hitSlop={10}
+        style={styles.retryButton}>
+        {isRefreshing ? (
+          <ActivityIndicator size="small" color={tint} />
+        ) : (
+          <MaterialCommunityIcons name={offline ? 'wifi-off' : 'sync'} size={16} color={tint} />
+        )}
+      </Pressable>
       <Text
         numberOfLines={2}
         style={[
           styles.text,
           {
-            color: offline ? theme.colors.warning : theme.colors.info,
+            color: tint,
           },
         ]}>
         {pendingSyncCount > 0 ? `${label} (${pendingSyncCount})` : label}
@@ -80,6 +96,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  retryButton: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   text: {
     flex: 1,

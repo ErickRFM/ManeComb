@@ -11,7 +11,9 @@ const ACTIVATION_ERRORS = {
   keyExpired: "Esta key está vencida.",
   planInactive: "El plan de la empresa no está activo.",
   limitReached: "Ya se alcanzó el límite de conductores del plan.",
-  activationFailed: "No se pudo activar la cuenta. Intenta nuevamente."
+  activationFailed: "No se pudo activar la cuenta. Intenta nuevamente.",
+  unitNotFound: "La unidad seleccionada no está disponible.",
+  unitTaken: "Esta unidad ya no está disponible, elige otra."
 };
 
 class ActivationKeyError extends Error {
@@ -106,10 +108,6 @@ function getPlanLimit(order) {
   return buildSubscription(order).unitsLimit;
 }
 
-function getPlanPaidUntil(order) {
-  return buildSubscription(order).expiresAt;
-}
-
 function assertPlanCanActivate(order) {
   if (!buildSubscription(order).isActive) {
     throw new ActivationKeyError(ACTIVATION_ERRORS.planInactive, 403);
@@ -151,7 +149,9 @@ function buildActivationSummary({ order, users = [], activationKeys = [] }) {
     keysUsed: usedKeys,
     keysExpired: expiredKeys,
     keysRevoked: revokedKeys,
-    availableSlots: Math.max(0, maxDrivers - activeDrivers.length - availableKeys),
+    availableSlots: subscription.isActive
+      ? Math.max(0, maxDrivers - activeDrivers.length - availableKeys)
+      : 0,
     remainingDriverSlots: Math.max(0, maxDrivers - activeDrivers.length)
   };
 }
@@ -178,7 +178,7 @@ async function getAdminActivationContext(store, user) {
 }
 
 async function getKeyActivationContext(store, activationKey) {
-  const order = activationKey?.orderId
+  let order = activationKey?.orderId
     ? await store.getCommercialOrderById?.(activationKey.orderId)
     : null;
   const scopedUser = {
@@ -186,6 +186,20 @@ async function getKeyActivationContext(store, activationKey) {
     accountType: "company_owner",
     organizationId: activationKey?.companyId
   };
+
+  // Las keys creadas antes de que `orderId` formara parte del contrato siguen
+  // perteneciendo a la empresa y al plan que ya almacenan. Resolvemos su orden
+  // con la misma autoridad usada por Portal y por la generacion de keys.
+  if (!order && activationKey?.companyId && activationKey?.planId) {
+    const companyOrders = await store.listCommercialOrdersForUser(scopedUser);
+    order = pickActiveOrder(
+      companyOrders.filter(
+        (entry) =>
+          String(entry?.planId || "").trim() === String(activationKey.planId).trim()
+      )
+    );
+  }
+
   const [users, activationKeys] = await Promise.all([
     store.listUsers(scopedUser),
     store.listActivationKeysForCompany(activationKey?.companyId)
@@ -405,6 +419,62 @@ function assertActivationKeyCanBeUsed(activationKey) {
   }
 }
 
+async function listAvailableActivationUnits(store, companyId) {
+  const organizationId = String(companyId || "").trim();
+
+  if (!organizationId || typeof store.getLiveLocations !== "function") {
+    return [];
+  }
+
+  const live = await store.getLiveLocations();
+  const fleet = live?.vehicles;
+
+  return (Array.isArray(fleet) ? fleet : [])
+    .filter(
+      (vehicle) =>
+        String(vehicle?.organizationId || "").trim() === organizationId && !vehicle?.driverId
+    )
+    // Minimo necesario para que el conductor reconozca su unidad en el selector.
+    // La ruta y el estado se omiten a proposito: no ayudan a identificarla y
+    // este endpoint es anonimo.
+    .map((vehicle) => ({
+      id: vehicle.id,
+      code: String(vehicle.code || "").trim() || "Sin número económico",
+      plate: String(vehicle.plate || "").trim() || null
+    }));
+}
+
+async function claimSelectedUnit(store, payload, companyId, driverId) {
+  const vehicleId = String(payload?.unit?.vehicleId || "").trim();
+
+  if (!vehicleId) {
+    return null;
+  }
+
+  const vehicle = await store.getVehicleById(vehicleId);
+
+  if (!vehicle || String(vehicle.organizationId || "").trim() !== String(companyId || "").trim()) {
+    throw new ActivationKeyError(ACTIVATION_ERRORS.unitNotFound, 404);
+  }
+
+  if (typeof store.claimVehicleForDriver !== "function") {
+    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 500);
+  }
+
+  // Update condicional: solo tiene efecto si la unidad sigue libre. Devuelve
+  // null cuando otro conductor la tomo entre la validacion y el registro.
+  const claimed = await store.claimVehicleForDriver(vehicleId, {
+    organizationId: companyId,
+    driverId
+  });
+
+  if (!claimed) {
+    throw new ActivationKeyError(ACTIVATION_ERRORS.unitTaken, 409);
+  }
+
+  return claimed;
+}
+
 async function validateDriverActivationKey(store, keyValue) {
   const normalizedKey = normalizeActivationKey(keyValue);
   const activationKey = await store.findActivationKeyByKey(normalizedKey);
@@ -429,7 +499,8 @@ async function validateDriverActivationKey(store, keyValue) {
     planId: context.order?.planId || activationKey.planId,
     planName: context.order?.planName || "Plan activo",
     expiresAt: toIso(activationKey.expiresAt),
-    availableDrivers: summary.remainingDriverSlots
+    availableDrivers: summary.remainingDriverSlots,
+    availableUnits: await listAvailableActivationUnits(store, activationKey.companyId)
   };
 }
 
@@ -546,67 +617,82 @@ async function registerDriverWithActivationKey(store, payload = {}) {
   }
 
   const driverId = existingUser?.id || randomUUID();
-  const claimedKey = await store.markActivationKeyUsed(activationKey.id, {
-    companyId: context.companyId,
-    driverId
-  });
+  // La unidad se reclama de forma atomica ANTES de consumir la key: si dos
+  // conductores eligen la misma unidad, solo uno gana y el perdedor conserva
+  // su key intacta para volver a intentar con otra unidad.
+  const selectedVehicle = await claimSelectedUnit(store, payload, context.companyId, driverId);
 
-  if (!claimedKey) {
-    const latestKey = await store.findActivationKeyByKey(normalizedKey);
-    assertActivationKeyCanBeUsed(latestKey);
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
-  }
+  try {
+    const claimedKey = await store.markActivationKeyUsed(activationKey.id, {
+      companyId: context.companyId,
+      driverId
+    });
 
-  const nowIso = new Date().toISOString();
-  const vehiclePayload = buildVehiclePayload({
-    payload,
-    companyId: context.companyId,
-    driverId,
-    activationKey
-  });
-  const vehicle = existingVehicle || await store.createVehicle(vehiclePayload);
-  const userPayload = {
-    id: driverId,
-    name: identity.name,
-    email: identity.email,
-    phone: identity.phone,
-    password: identity.password,
-    role: "driver",
-    accountType: "operations",
-    organizationId: context.companyId,
-    userStatus: "active",
-    status: "offline",
-    vehicleId: vehicle?.id || existingUser?.vehicleId || null,
-    activationKeyId: activationKey.id,
-    activatedAt: nowIso
-  };
-  const user = existingUser
-    ? await store.updateUser(existingUser.id, userPayload)
-    : await store.createUser(userPayload, "driver");
-
-  await updateStarterFleet(store, context.order, user, vehicle);
-
-  return {
-    user,
-    vehicle,
-    activationKey: presentActivationKey(
-      {
-        ...claimedKey,
-        usedByDriverId: user.id,
-        usedAt: claimedKey.usedAt || nowIso
-      },
-      [user]
-    ),
-    company: {
-      id: context.companyId,
-      name: context.order?.companyName || "Empresa ManeComb"
-    },
-    plan: {
-      id: context.order?.planId || activationKey.planId,
-      name: context.order?.planName || "Plan activo",
-      maxDrivers: getPlanLimit(context.order)
+    if (!claimedKey) {
+      const latestKey = await store.findActivationKeyByKey(normalizedKey);
+      assertActivationKeyCanBeUsed(latestKey);
+      throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
     }
-  };
+
+    const nowIso = new Date().toISOString();
+    const vehiclePayload = buildVehiclePayload({
+      payload,
+      companyId: context.companyId,
+      driverId,
+      activationKey
+    });
+    const vehicle = selectedVehicle || existingVehicle || await store.createVehicle(vehiclePayload);
+    const userPayload = {
+      id: driverId,
+      name: identity.name,
+      email: identity.email,
+      phone: identity.phone,
+      password: identity.password,
+      role: "driver",
+      accountType: "operations",
+      organizationId: context.companyId,
+      userStatus: "active",
+      status: "offline",
+      vehicleId: vehicle?.id || existingUser?.vehicleId || null,
+      activationKeyId: activationKey.id,
+      activatedAt: nowIso
+    };
+    const user = existingUser
+      ? await store.updateUser(existingUser.id, userPayload)
+      : await store.createUser(userPayload, "driver");
+
+    await updateStarterFleet(store, context.order, user, vehicle);
+
+    return {
+      user,
+      vehicle,
+      activationKey: presentActivationKey(
+        {
+          ...claimedKey,
+          usedByDriverId: user.id,
+          usedAt: claimedKey.usedAt || nowIso
+        },
+        [user]
+      ),
+      company: {
+        id: context.companyId,
+        name: context.order?.companyName || "Empresa ManeComb"
+      },
+      plan: {
+        id: context.order?.planId || activationKey.planId,
+        name: context.order?.planName || "Plan activo",
+        maxDrivers: getPlanLimit(context.order)
+      }
+    };
+  } catch (error) {
+    // Si el registro falla despues de reclamar la unidad, se libera para no
+    // dejarla bloqueada por un conductor que nunca llego a existir.
+    if (selectedVehicle && typeof store.releaseVehicleFromDriver === "function") {
+      await store.releaseVehicleFromDriver(selectedVehicle.id, driverId).catch(() => null);
+    }
+
+    throw error;
+  }
 }
 
 module.exports = {

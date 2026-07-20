@@ -2674,6 +2674,45 @@ async function createMongoStore() {
     return enrichVehicle(vehicle.toObject());
   }
 
+  async function claimVehicleForDriver(vehicleId, { organizationId, driverId } = {}) {
+    const vehicle = await VehicleModel.findOneAndUpdate(
+      {
+        _id: vehicleId,
+        ...(organizationId ? { organizationId } : {}),
+        $or: [{ driverId: null }, { driverId: { $exists: false } }, { driverId }]
+      },
+      {
+        $set: {
+          driverId,
+          status: "assigned",
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return toPlain(vehicle);
+  }
+
+  async function releaseVehicleFromDriver(vehicleId, driverId) {
+    const vehicle = await VehicleModel.findOneAndUpdate(
+      {
+        _id: vehicleId,
+        driverId
+      },
+      {
+        $set: {
+          driverId: null,
+          status: "available",
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    return toPlain(vehicle);
+  }
+
   async function updateVehicle(vehicleId, payload) {
     const updates = {};
 
@@ -3235,14 +3274,14 @@ async function createMongoStore() {
       update.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
-    const incomingTimestamp = update.locationTimestamp || update.updatedAt;
+    const incomingTimestamp = update.locationReceivedAt || update.locationTimestamp || update.updatedAt;
     const vehicle = await VehicleModel.findOneAndUpdate(
       {
         _id: vehicleId,
         $or: [
-          { locationTimestamp: null },
-          { locationTimestamp: { $exists: false } },
-          { locationTimestamp: { $lte: incomingTimestamp } }
+          { locationReceivedAt: null },
+          { locationReceivedAt: { $exists: false } },
+          { locationReceivedAt: { $lte: incomingTimestamp } }
         ]
       },
       {
@@ -3563,6 +3602,8 @@ async function createMongoStore() {
     listTripLogs,
     listUsers,
     markActivationKeyUsed,
+    claimVehicleForDriver,
+    releaseVehicleFromDriver,
     markNotificationAsRead,
     markConversationMessageDelivered,
     markConversationMessageRead,

@@ -15,6 +15,8 @@ import {
   startBackgroundLocationServiceAsync,
   stopBackgroundLocationServiceAsync,
 } from '@/src/native/background-location';
+import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
+import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
 import { requestBackgroundPermission } from './map/services/location-service';
 import * as Location from '@/src/native/location';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
@@ -189,6 +191,7 @@ export function MapScreen() {
     authContext,
     error,
     isRefreshing,
+    isSigningOut,
     mapData,
     operationalUnits,
     lastSyncedAt,
@@ -200,7 +203,8 @@ export function MapScreen() {
     apiUrl,
     token,
     refreshToken,
-    syncBackgroundLocationCredentials,
+    connectionMode,
+    sendVehicleLocation,
     user,
   } = useAppStore(
     useShallow((state) => ({
@@ -208,6 +212,7 @@ export function MapScreen() {
       authContext: state.authContext,
       error: state.error,
       isRefreshing: state.isRefreshing,
+      isSigningOut: state.isSigningOut,
       mapData: state.mapData,
       operationalUnits: state.operationalUnits,
       lastSyncedAt: state.lastSyncedAt,
@@ -219,7 +224,8 @@ export function MapScreen() {
       apiUrl: state.apiUrl,
       token: state.token,
       refreshToken: state.refreshToken,
-      syncBackgroundLocationCredentials: state.syncBackgroundLocationCredentials,
+      connectionMode: state.connectionMode,
+      sendVehicleLocation: state.sendVehicleLocation,
       user: state.user,
     }))
   );
@@ -244,8 +250,9 @@ export function MapScreen() {
   useEffect(() => {
     const inspectBackgroundTracking = async () => {
       const status = await getBackgroundLocationServiceStatusAsync();
-      if (status.token && status.refreshToken && (status.token !== token || status.refreshToken !== refreshToken)) {
-        await syncBackgroundLocationCredentials(status.token, status.refreshToken);
+      const currentVehicleId = user?.vehicleId || null;
+      if (status.active && status.vehicleId && status.vehicleId !== currentVehicleId) {
+        await stopBackgroundLocationServiceAsync().catch(() => undefined);
       }
       if (status.reason === 'auth_failed') {
         Alert.alert(
@@ -259,7 +266,7 @@ export function MapScreen() {
       if (state === 'active') inspectBackgroundTracking().catch(() => undefined);
     });
     return () => subscription.remove();
-  }, [refreshToken, syncBackgroundLocationCredentials, token]);
+  }, [user?.vehicleId]);
 
   // Reconciliacion de datos operativos: al montar la pantalla y al volver a
   // primer plano se re-sincroniza mapData (incluida la ruta asignada) por si el
@@ -274,6 +281,17 @@ export function MapScreen() {
   }, [refreshAll]);
 
   const selectorMode = isSelectorMode(params.point);
+  const scheduleState = useScheduleTick(user?.operationalSchedule);
+
+  useLocationSync({
+    connectionMode,
+    coordinates,
+    enabled: Boolean(user?.role === 'driver' && activeRouteSession && activeRouteSession.status === 'RUNNING'),
+    isWithinSchedule: scheduleState.isWithinSchedule,
+    lastUpdatedAt: deviceLocation.lastUpdatedAt,
+    sendVehicleLocation,
+    vehicleId: user?.vehicleId,
+  });
 
   // While picking route points the map is a fresh (reset) module root, so the
   // hardware back button would otherwise fall through to the OS and exit the app.
@@ -301,6 +319,23 @@ export function MapScreen() {
   }, [selectorMode, params.returnTo, params.vehicleId, params.returnFilter, params.historyScrollY]);
 
   const { fitRoute, focusMap, focusPoint, mapPadding, mapRef, routeFitPadding } = useMapCamera(insets);
+  // Se levanta con el primer pan/zoom manual y bloquea los auto-encuadres
+  // posteriores del selector, para no pisar el encuadre que eligio el usuario.
+  const hasUserMovedMapRef = useRef(false);
+  // `onRegionIsChanging` llega por frame mientras dura el gesto: el ref evita
+  // un setState por frame y el stale closure de `followMode`.
+  const followModeRef = useRef(followMode);
+  followModeRef.current = followMode;
+  const handleMapUserInteraction = useCallback(() => {
+    hasUserMovedMapRef.current = true;
+
+    // Seguir a la unidad re-centra en cada poll de GPS. Si el usuario paneo o
+    // hizo zoom, deja de seguir; se reactiva con el boton de seguimiento.
+    if (followModeRef.current) {
+      followModeRef.current = false;
+      setFollowMode(false);
+    }
+  }, []);
   const locationStatus = useMemo(
     () =>
       getLocationStatus({
@@ -340,6 +375,7 @@ export function MapScreen() {
   const selector = useMapSelector({
     focusPoint,
     fitRoute,
+    hasUserMovedMapRef,
     params,
     routeFitPadding,
     selectorMode,
@@ -463,6 +499,7 @@ export function MapScreen() {
         authContext={authContext}
         error={error}
         isRefreshing={isRefreshing}
+        isSigningOut={isSigningOut}
         onRefresh={handleRefresh}
         onResetSession={handleResetSession}
         user={user}
@@ -587,6 +624,7 @@ export function MapScreen() {
           onSelectorDragStart={() => selector.setSelectorPlan(null)}
           onSelectorPointDragEnd={selector.updateSelectorPoint}
           onUnitPress={handleSelectTrackingUnit}
+          onUserInteraction={handleMapUserInteraction}
           scaleBarPosition={{ left: 24, top: insets.top + 62 }}
           selectorMode={selectorMode}
           selectorPoints={selector.selectorPoints}

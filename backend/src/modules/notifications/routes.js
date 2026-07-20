@@ -10,7 +10,7 @@ router.get("/", authenticate, async (req, res) => {
   });
 });
 
-router.post("/push-subscriptions", authenticate, async (req, res) => {
+router.post("/push-subscriptions", authenticate, async (req, res, next) => {
   try {
     await req.app.locals.store.registerPushSubscription(req.user.id, req.body || {});
 
@@ -18,10 +18,9 @@ router.post("/push-subscriptions", authenticate, async (req, res) => {
       ok: true
     });
   } catch (error) {
-    return res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible registrar el dispositivo para push"
-    });
+    error.statusCode = 400;
+    error.publicMessage = "No fue posible registrar el dispositivo para push";
+    return next(error);
   }
 });
 

@@ -5,7 +5,6 @@ const {
   pickActiveOrder
 } = require("./portal-account");
 
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trial", "trial_active"]);
 const PAYMENT_PENDING_STATUSES = new Set([
   "pending",
   "pending_payment",
@@ -33,36 +32,12 @@ function normalizeStatus(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function isPastDate(value) {
-  if (!value) {
-    return false;
-  }
-
-  const date = new Date(value);
-  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
-}
-
 function getOrderOrganizationId(order) {
   return String(order?.organizationId || order?.organizationSlug || "").trim();
 }
 
 function isActiveSubscription(subscription) {
-  const expiresAt = subscription?.expiresAt || subscription?.currentPeriodEnd;
-
-  if (subscription?.isActive === true) {
-    return !isPastDate(expiresAt);
-  }
-
-  if (subscription?.isActive === false && isPastDate(expiresAt)) {
-    return false;
-  }
-
-  return ACTIVE_SUBSCRIPTION_STATUSES.has(normalizeStatus(subscription?.status)) &&
-    !isPastDate(expiresAt);
-}
-
-function hasOperationalTenant(user, order) {
-  return Boolean(getOrganizationId(user) || getOrderOrganizationId(order));
+  return subscription?.isActive === true;
 }
 
 function getTenantStatus(user, order, subscription) {
@@ -110,10 +85,6 @@ function isActiveTenant(tenant) {
   return normalizeStatus(tenant?.status) === "active";
 }
 
-function hasActiveMobileSubscription(subscription) {
-  return isActiveSubscription(subscription);
-}
-
 function getMobileBlockReason(subscription, tenant) {
   const status = normalizeStatus(subscription?.status);
   const hasPlan = Boolean(subscription?.id || subscription?.planId);
@@ -142,7 +113,7 @@ function getMobileBlockReason(subscription, tenant) {
 }
 
 function resolveMobileAccess(subscription, tenant) {
-  const canAccessMobile = hasActiveMobileSubscription(subscription) && isActiveTenant(tenant);
+  const canAccessMobile = isActiveSubscription(subscription) && isActiveTenant(tenant);
 
   return {
     canAccessMobile,
@@ -276,7 +247,6 @@ module.exports = {
   buildTenantContext,
   buildAuthContext,
   getMobileBlockReason,
-  hasOperationalTenant,
   isActiveSubscription,
   isActiveTenant,
   resolveMobileAccess,

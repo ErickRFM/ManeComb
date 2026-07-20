@@ -376,7 +376,8 @@ async function testMissingCheckoutUrlFailsSafely() {
         const checkout = await createCheckout(context, owner);
 
         assert.equal(checkout.status, 400);
-        assert.match(checkout.payload.message, /sandbox_init_point/);
+        assert.equal(checkout.payload.message, "No fue posible registrar la compra");
+        assert.equal(checkout.payload.message.includes("sandbox_init_point"), false);
       } finally {
         mp.restore();
         await context.close();
@@ -403,7 +404,8 @@ async function testMissingCheckoutUrlFailsSafely() {
         const checkout = await createCheckout(context, owner);
 
         assert.equal(checkout.status, 400);
-        assert.match(checkout.payload.message, /init_point/);
+        assert.equal(checkout.payload.message, "No fue posible registrar la compra");
+        assert.equal(checkout.payload.message.includes("init_point"), false);
       } finally {
         mp.restore();
         await context.close();
@@ -428,8 +430,9 @@ async function testMissingExplicitEnvironmentFailsSafely() {
         const checkout = await createCheckout(context, owner);
 
         assert.equal(checkout.status, 400);
-        assert.match(checkout.payload.message, /MERCADO_PAGO_ENV/);
-        assert.match(checkout.payload.message, /MERCADOPAGO_ENV/);
+        assert.equal(checkout.payload.message, "No fue posible registrar la compra");
+        assert.equal(checkout.payload.message.includes("MERCADO_PAGO_ENV"), false);
+        assert.equal(checkout.payload.message.includes("MERCADOPAGO_ENV"), false);
         assert.equal(mp.preferenceCalls, 0);
       } finally {
         mp.restore();

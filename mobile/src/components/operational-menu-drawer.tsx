@@ -39,7 +39,6 @@ export function OperationalMenuDrawer({
     conversations,
     incidents,
     mapData,
-    notifications,
     signOut,
     user,
     users,
@@ -48,7 +47,6 @@ export function OperationalMenuDrawer({
       conversations: state.conversations,
       incidents: state.incidents,
       mapData: state.mapData,
-      notifications: state.notifications,
       signOut: state.signOut,
       user: state.user,
       users: state.users,
@@ -132,10 +130,6 @@ export function OperationalMenuDrawer({
         return users.length ? `${users.length}` : undefined;
       case 'chat':
         return conversations.length ? `${conversations.length}` : undefined;
-      case 'perfil': {
-        const unreadNotifications = notifications.filter((notification) => !notification.isRead).length;
-        return unreadNotifications ? `${unreadNotifications}` : undefined;
-      }
       default:
         return undefined;
     }
@@ -188,7 +182,11 @@ export function OperationalMenuDrawer({
           },
         ]}>
         <View style={styles.drawerHeader}>
-          <BrandLogo size="md" subtitle={subtitle} />
+          <BrandLogo
+            size="md"
+            subtitle={subtitle}
+            tone={theme.mode === 'light' ? 'dark' : 'light'}
+          />
           <View
             style={[
               styles.headerBadge,

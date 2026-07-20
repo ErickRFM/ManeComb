@@ -29,6 +29,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { getTextInputProps } from '@/src/utils/text-input-props';
+import type { DriverActivationUnit } from '@/src/types/app';
 
 type CustomerAuthScreenProps = {
   mode: 'login' | 'register';
@@ -67,13 +68,12 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 
 export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const { height, width } = useWindowDimensions();
-  const { activateDriverWithKey, authContext, forgotPassword, isSubmitting, register, resetPassword, signIn, user } = useAppStore(
+  const { activateDriverWithKey, authContext, forgotPassword, isSubmitting, resetPassword, signIn, user } = useAppStore(
     useShallow((state) => ({
       activateDriverWithKey: state.activateDriverWithKey,
       authContext: state.authContext,
       forgotPassword: state.forgotPassword,
       isSubmitting: state.isSubmitting,
-      register: state.register,
       resetPassword: state.resetPassword,
       signIn: state.signIn,
       user: state.user,
@@ -88,11 +88,11 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const [recoveryToken, setRecoveryToken] = useState('');
   const [recoveryPassword, setRecoveryPassword] = useState('');
   const [recoveryPasswordConfirmation, setRecoveryPasswordConfirmation] = useState('');
-  const [registerProfile, setRegisterProfile] = useState<'owner' | 'driver'>('owner');
   const [driverActivationKey, setDriverActivationKey] = useState('');
   const [driverName, setDriverName] = useState('');
-  const [driverUnitCode, setDriverUnitCode] = useState('');
-  const [driverUnitPlate, setDriverUnitPlate] = useState('');
+  const [driverUnits, setDriverUnits] = useState<DriverActivationUnit[] | null>(null);
+  const [validatedKey, setValidatedKey] = useState('');
+  const [selectedUnitId, setSelectedUnitId] = useState('');
   const [registerIdentity, setRegisterIdentity] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
@@ -105,11 +105,8 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const identityInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const confirmPasswordInputRef = useRef<TextInput>(null);
-  const unitCodeInputRef = useRef<TextInput>(null);
-  const unitPlateInputRef = useRef<TextInput>(null);
 
   const isRegister = mode === 'register';
-  const isDriverRegister = isRegister && registerProfile === 'driver';
 
   const isNarrow = width < 390;
   const isShortViewport = height < 720;
@@ -138,6 +135,55 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     router.replace((nextMode === 'login' ? '/login' : '/registro') as never);
   };
 
+  const validateActivationKey = async (rawKey: string) => {
+    const key = rawKey.trim();
+
+    if (!key) {
+      return null;
+    }
+
+    setIsValidatingDriverKey(true);
+
+    try {
+      const validation = await validateDriverActivationKeyRequest(key);
+      const units = validation.availableUnits ?? [];
+
+      setDriverUnits(units);
+      setValidatedKey(key);
+      setSelectedUnitId((current) => {
+        if (units.some((unit) => unit.id === current)) {
+          return current;
+        }
+
+        return units.length === 1 ? units[0].id : '';
+      });
+
+      return validation;
+    } catch (error) {
+      setDriverUnits(null);
+      setValidatedKey('');
+      setSelectedUnitId('');
+      setHelperMessage(
+        getApiErrorMessage(error, 'No se pudo validar la key de activación.', {
+          apiUrl: API_URL,
+        })
+      );
+      return null;
+    } finally {
+      setIsValidatingDriverKey(false);
+    }
+  };
+
+  const handleActivationKeyBlur = () => {
+    const key = driverActivationKey.trim();
+
+    if (!key || key === validatedKey || isValidatingDriverKey) {
+      return;
+    }
+
+    validateActivationKey(key);
+  };
+
   const handleSubmit = async () => {
     setHelperMessage(null);
     setHelperTone('error');
@@ -161,13 +207,13 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
       return;
     }
 
-    if (!registerIdentity.trim() || !registerPassword.trim() || !registerConfirmPassword.trim()) {
-      setHelperMessage('Completa correo o número, contraseña y confirmación.');
+    if (!driverActivationKey.trim() || !driverName.trim()) {
+      setHelperMessage('Ingresa tu key de activación y tu nombre.');
       return;
     }
 
-    if (isDriverRegister && (!driverActivationKey.trim() || !driverName.trim())) {
-      setHelperMessage('Ingresa tu key de activación y tu nombre.');
+    if (!registerIdentity.trim() || !registerPassword.trim() || !registerConfirmPassword.trim()) {
+      setHelperMessage('Completa correo o número, contraseña y confirmación.');
       return;
     }
 
@@ -176,61 +222,37 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
       return;
     }
 
-    const identity = normalizeIdentity(registerIdentity);
+    const activation = await validateActivationKey(driverActivationKey);
 
-    if (isDriverRegister) {
-      const isEmailIdentity = registerIdentity.trim().includes('@');
-      setIsValidatingDriverKey(true);
-
-      try {
-        await validateDriverActivationKeyRequest(driverActivationKey);
-      } catch (error) {
-        setHelperMessage(
-          getApiErrorMessage(error, 'No se pudo validar la key de activación.', {
-            apiUrl: API_URL,
-          })
-        );
-        setIsValidatingDriverKey(false);
-        return;
-      }
-
-      setIsValidatingDriverKey(false);
-
-      const result = await activateDriverWithKey(
-        {
-          key: driverActivationKey,
-          name: driverName.trim(),
-          email: isEmailIdentity ? identity.email : undefined,
-          phone: identity.phone,
-          password: registerPassword,
-          unit: {
-            code: driverUnitCode.trim() || undefined,
-            plate: driverUnitPlate.trim() || undefined,
-          },
-        },
-        rememberSession
-      );
-
-      if (!result.ok) {
-        setHelperMessage(result.message || 'No se pudo activar la cuenta. Intenta nuevamente.');
-      }
-
+    if (!activation) {
       return;
     }
 
-    const result = await register(
+    const units = activation.availableUnits ?? [];
+    const unitId = units.length === 1 ? units[0].id : selectedUnitId;
+
+    if (units.length > 0 && !units.some((unit) => unit.id === unitId)) {
+      setHelperMessage('Selecciona la unidad que te fue asignada.');
+      return;
+    }
+
+    const identity = normalizeIdentity(registerIdentity);
+    const isEmailIdentity = registerIdentity.trim().includes('@');
+
+    const result = await activateDriverWithKey(
       {
-        name: identity.displayName,
-        email: identity.email,
-        password: registerPassword,
+        key: driverActivationKey,
+        name: driverName.trim(),
+        email: isEmailIdentity ? identity.email : undefined,
         phone: identity.phone,
-        accountType: 'operations',
+        password: registerPassword,
+        unit: unitId ? { vehicleId: unitId } : undefined,
       },
       rememberSession
     );
 
     if (!result.ok) {
-      setHelperMessage(result.message || 'No fue posible registrar la cuenta.');
+      setHelperMessage(result.message || 'No se pudo activar la cuenta. Intenta nuevamente.');
     }
   };
 
@@ -315,21 +337,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                 />
               </View>
 
-              {isRegister ? (
-                <View style={styles.registerTypeControl}>
-                  <SegmentButton
-                    label="Cliente"
-                    active={!isDriverRegister}
-                    onPress={() => setRegisterProfile('owner')}
-                  />
-                  <SegmentButton
-                    label="Soy conductor"
-                    active={isDriverRegister}
-                    onPress={() => setRegisterProfile('driver')}
-                  />
-                </View>
-              ) : null}
-
               <View style={styles.fields}>
                 {showRecovery && !isRegister ? (
                   <>
@@ -385,13 +392,14 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   </>
                 ) : (
                   <>
-                    {isDriverRegister ? (
+                    {isRegister ? (
                   <>
                     <AuthField
                       label="Key de activación"
                       placeholder="MNCB-XXXXXX-XXXXXX-XXXXXX"
                       value={driverActivationKey}
                       onChangeText={setDriverActivationKey}
+                      onBlur={handleActivationKeyBlur}
                       autoCapitalize="characters"
                       returnKeyType="next"
                       onSubmitEditing={() => driverNameInputRef.current?.focus()}
@@ -449,41 +457,19 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     secureTextEntry
                     autoCapitalize="none"
                     autoComplete="new-password"
-                    returnKeyType={isDriverRegister ? 'next' : 'done'}
+                    returnKeyType="done"
                     textContentType="newPassword"
                     inputRef={confirmPasswordInputRef}
-                    onSubmitEditing={() => {
-                      if (isDriverRegister) {
-                        unitCodeInputRef.current?.focus();
-                      } else {
-                        handleSubmit();
-                      }
-                    }}
+                    onSubmitEditing={() => { handleSubmit(); }}
                   />
                 ) : null}
-                {isDriverRegister ? (
-                  <>
-                    <AuthField
-                      label="Codigo de unidad"
-                      placeholder="CB-101"
-                      value={driverUnitCode}
-                      onChangeText={setDriverUnitCode}
-                      autoCapitalize="characters"
-                      inputRef={unitCodeInputRef}
-                      returnKeyType="next"
-                      onSubmitEditing={() => unitPlateInputRef.current?.focus()}
-                    />
-                    <AuthField
-                      label="Placa"
-                      placeholder="ABC-123-A"
-                      value={driverUnitPlate}
-                      onChangeText={setDriverUnitPlate}
-                      autoCapitalize="characters"
-                      inputRef={unitPlateInputRef}
-                      returnKeyType="done"
-                      onSubmitEditing={() => { handleSubmit(); }}
-                    />
-                  </>
+                {isRegister ? (
+                  <UnitSelector
+                    units={driverUnits}
+                    isLoading={isValidatingDriverKey}
+                    selectedUnitId={selectedUnitId}
+                    onSelect={setSelectedUnitId}
+                  />
                     ) : null}
                   </>
                 )}
@@ -536,7 +522,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   <Text style={styles.primaryButtonText}>
                     {showRecovery && !isRegister
                       ? recoveryStage === 'reset' ? 'Cambiar contrasena' : 'Enviar instrucciones'
-                      : isDriverRegister ? 'Activar cuenta' : isRegister ? 'Registrarse' : 'Iniciar sesión'}
+                      : isRegister ? 'Activar cuenta' : 'Iniciar sesión'}
                   </Text>
                 )}
               </Pressable>
@@ -596,12 +582,81 @@ function SegmentButton({
   );
 }
 
+function UnitSelector({
+  isLoading,
+  onSelect,
+  selectedUnitId,
+  units,
+}: {
+  isLoading: boolean;
+  onSelect: (unitId: string) => void;
+  selectedUnitId: string;
+  units: DriverActivationUnit[] | null;
+}) {
+  if (isLoading) {
+    return (
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Unidad asignada</Text>
+        <View style={styles.unitPlaceholder}>
+          <ActivityIndicator color="#EA1F23" />
+        </View>
+      </View>
+    );
+  }
+
+  if (!units) {
+    return null;
+  }
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>Unidad asignada</Text>
+      {units.length === 0 ? (
+        <View style={styles.unitPlaceholder}>
+          <Text style={styles.unitEmptyText}>
+            No hay unidades disponibles. Tu administrador podrá asignarte una después de activar tu cuenta.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.unitList}>
+          {units.map((unit) => {
+            const selected = unit.id === selectedUnitId;
+            const details = unit.plate || '';
+
+            return (
+              <Pressable
+                key={unit.id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                onPress={() => onSelect(unit.id)}
+                style={({ pressed }) => [
+                  styles.unitOption,
+                  selected ? styles.unitOptionActive : undefined,
+                  pressed ? styles.pressed : undefined,
+                ]}>
+                <View style={[styles.unitRadio, selected ? styles.unitRadioActive : undefined]}>
+                  {selected ? <View style={styles.unitRadioDot} /> : null}
+                </View>
+                <View style={styles.unitTextBlock}>
+                  <Text style={styles.unitCode}>{unit.code}</Text>
+                  {details ? <Text style={styles.unitDetails}>{details}</Text> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function AuthField({
   autoComplete,
   autoCapitalize = 'sentences',
   inputRef,
   keyboardType = 'default',
   label,
+  onBlur,
   onChangeText,
   onSubmitEditing,
   placeholder,
@@ -615,6 +670,7 @@ function AuthField({
   inputRef?: Ref<TextInput>;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   label: string;
+  onBlur?: () => void;
   onChangeText: (value: string) => void;
   onSubmitEditing?: TextInputProps['onSubmitEditing'];
   placeholder: string;
@@ -650,7 +706,10 @@ function AuthField({
           {...inputProps}
           value={value}
           onChangeText={onChangeText}
-          onBlur={() => setFocused(false)}
+          onBlur={() => {
+            setFocused(false);
+            onBlur?.();
+          }}
           onFocus={() => setFocused(true)}
           onSubmitEditing={onSubmitEditing}
           keyboardType={keyboardType}
@@ -696,25 +755,29 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   loginPanel: {
-    justifyContent: 'center',
+    justifyContent: 'space-between',
   },
   brandRow: {
     alignItems: 'flex-start',
   },
   artworkWrap: {
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 8,
   },
   slogan: {
-    marginTop: 2,
+    marginTop: 0,
     color: '#71788A',
-    fontFamily: Typography.body,
-    fontSize: 11,
-    lineHeight: 16,
+    fontFamily: Typography.brand,
+    // Sin fontWeight a proposito: en Android RN resuelve la fuente como
+    // assets/fonts/<fontFamily><_bold|_italic>.ttf. Con fontWeight '700' buscaria
+    // magneto-bold_bold.ttf, no lo encontraria y caeria en silencio a la fuente del
+    // sistema. Magneto ya es un solo corte bold, asi que no se pierde nada.
+    fontSize: 15,
+    lineHeight: 24,
     textAlign: 'center',
   },
   form: {
-    marginTop: 18,
+    marginTop: 12,
     gap: 18,
   },
   segmentedControl: {
@@ -724,12 +787,76 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     overflow: 'hidden',
   },
-  registerTypeControl: {
-    minHeight: 40,
-    borderRadius: 7,
-    backgroundColor: '#F4F0E9',
+  unitList: {
+    gap: 8,
+  },
+  unitOption: {
+    minHeight: DesignSystem.control.md,
+    borderRadius: DesignSystem.radius.input,
+    borderWidth: 1.5,
+    borderColor: '#2F2F2F',
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
-    overflow: 'hidden',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  unitOptionActive: {
+    borderColor: '#EA1F23',
+    backgroundColor: '#FDF3F3',
+  },
+  unitRadio: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unitRadioActive: {
+    borderColor: '#EA1F23',
+  },
+  unitRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EA1F23',
+  },
+  unitTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  unitCode: {
+    color: '#333333',
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  unitDetails: {
+    color: '#71788A',
+    fontFamily: Typography.body,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  unitPlaceholder: {
+    minHeight: DesignSystem.control.md,
+    borderRadius: DesignSystem.radius.input,
+    borderWidth: 1.5,
+    borderColor: '#D8D2C8',
+    backgroundColor: '#FAF8F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  unitEmptyText: {
+    color: '#71788A',
+    fontFamily: Typography.body,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   segmentButton: {
     flex: 1,

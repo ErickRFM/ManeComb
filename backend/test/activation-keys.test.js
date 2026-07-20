@@ -112,6 +112,32 @@ async function runActivationKeyFlow() {
       activatedAt: new Date().toISOString()
     });
 
+    // Regresion: las keys creadas antes de persistir `orderId` deben resolver
+    // la misma orden activa que Portal, no caer falsamente en plan inactivo.
+    const legacyKey = await context.store.createActivationKey({
+      key: `MNCB-LEGACY-${stamp}`,
+      companyId: registerOwner.payload.user.organizationId,
+      adminId: registerOwner.payload.user.id,
+      planId: "starter-2",
+      status: "available",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    });
+    const legacyValidation = await requestJson(`${context.url}/driver/activation/validate`, {
+      body: JSON.stringify({ key: legacyKey.key }),
+      method: "POST"
+    });
+
+    assert.equal(legacyValidation.status, 200);
+    assert.equal(legacyValidation.payload.data.valid, true);
+    await context.store.updateActivationKey(legacyKey.id, { status: "revoked" });
+    const revokedValidation = await requestJson(`${context.url}/driver/activation/validate`, {
+      body: JSON.stringify({ key: legacyKey.key }),
+      method: "POST"
+    });
+
+    assert.equal(revokedValidation.status, 409);
+    assert.match(revokedValidation.payload.message, /revocada/i);
+
     const expiringKeyResponse = await requestJson(`${context.url}/admin/activation-keys/generate`, {
       headers: {
         Authorization: `Bearer ${token}`
@@ -152,8 +178,9 @@ async function runActivationKeyFlow() {
 
     assert.equal(firstKeyResponse.status, 201);
     assert.equal(secondKeyResponse.status, 201);
-    assert.equal(secondKeyResponse.payload.data.summary.keysGenerated, 3);
+    assert.equal(secondKeyResponse.payload.data.summary.keysGenerated, 4);
     assert.equal(secondKeyResponse.payload.data.summary.keysExpired, 1);
+    assert.equal(secondKeyResponse.payload.data.summary.keysRevoked, 1);
     assert.equal(secondKeyResponse.payload.data.summary.keysAvailable, 2);
     assert.equal(secondKeyResponse.payload.data.summary.availableSlots, 0);
 

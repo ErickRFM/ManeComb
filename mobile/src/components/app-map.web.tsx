@@ -83,6 +83,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
     initialRegion,
     mapPadding,
     onPress,
+    onUserInteraction,
     scaleEnabled = true,
     showsTraffic = false,
     style,
@@ -95,6 +96,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   const initialRegionRef = useRef(initialRegion);
   const mapPaddingRef = useRef(mapPadding);
   const onPressRef = useRef(onPress);
+  const onUserInteractionRef = useRef(onUserInteraction);
   const styleURLRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = React.useState(false);
   const styleURL = resolveMapStyleUrl(showsTraffic, themeMode);
@@ -106,6 +108,10 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
   useEffect(() => {
     mapPaddingRef.current = mapPadding;
   }, [mapPadding]);
+
+  useEffect(() => {
+    onUserInteractionRef.current = onUserInteraction;
+  }, [onUserInteraction]);
 
   useEffect(() => {
     styleURLRef.current = styleURL;
@@ -156,6 +162,13 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       setMapReady(true);
       if (mapPaddingRef.current) {
         map.easeTo({ padding: toPadding(mapPaddingRef.current), duration: 0 });
+      }
+    });
+    // `originalEvent` solo existe cuando el movimiento viene de un gesto real,
+    // no de easeTo/fitBounds disparados por la app.
+    map.on('movestart', (event) => {
+      if ((event as { originalEvent?: unknown }).originalEvent) {
+        onUserInteractionRef.current?.();
       }
     });
     map.on('click', (event: mapboxgl.MapMouseEvent) => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -13,6 +13,7 @@ import { ChatScreen } from '@/src/screens/chat-screen';
 import { IncidentsScreen } from '@/src/screens/incidents-screen';
 import { LegalScreen } from '@/src/screens/legal-screen';
 import { MapScreen } from '@/src/screens/map-screen';
+import { BrandSyncLoader } from '@/src/components/brand-sync-loader';
 import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 import { ProfileEditScreen } from '@/src/screens/profile-edit-screen';
 import { ProfileScreen } from '@/src/screens/profile-screen';
@@ -49,7 +50,14 @@ const ChatStack = createNativeStackNavigator();
 const RadioStack = createNativeStackNavigator();
 const ChecklistStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
-const BOOT_SYNC_TIMEOUT_MS = 16000;
+// El backend corre en el tier gratuito de Render: un servicio dormido tarda
+// 30-60s en despertar. El timeout de arranque debe cubrir ese caso (va alineado
+// con COLD_START_SESSION_TIMEOUT_MS del cliente HTTP) para que un arranque en
+// frio lento no se presente como un fallo de sincronizacion.
+const BOOT_SYNC_TIMEOUT_MS = 80000;
+// A partir de aqui avisamos que el servidor se esta despertando, sin salir aun
+// del estado de carga.
+const BOOT_SLOW_NOTICE_MS = 7000;
 
 type AppStyles = ReturnType<typeof createStyles>;
 type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
@@ -543,6 +551,7 @@ export default function App() {
   const splashHiddenRef = useRef(false);
   const pushNavigationRequestRef = useRef(new LatestNavigationRequest());
   const [bootTimedOut, setBootTimedOut] = useState(false);
+  const [bootIsSlow, setBootIsSlow] = useState(false);
   const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
     useShallow((state) => ({
       authContext: state.authContext,
@@ -600,6 +609,7 @@ export default function App() {
     if (isReady) {
       hideSplash();
       setBootTimedOut(false);
+      setBootIsSlow(false);
     }
   }, [hideSplash, isReady]);
 
@@ -608,14 +618,22 @@ export default function App() {
       return undefined;
     }
 
+    // Mientras la sincronizacion sigue en curso mostramos carga, no error: solo
+    // al agotarse el timeout generoso pasamos al estado recuperable.
+    const slowNotice = setTimeout(() => setBootIsSlow(true), BOOT_SLOW_NOTICE_MS);
     const timeout = setTimeout(() => {
       setBootTimedOut(true);
       hideSplash();
     }, BOOT_SYNC_TIMEOUT_MS);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      clearTimeout(slowNotice);
+      clearTimeout(timeout);
+    };
   }, [hideSplash, isReady]);
 
+  // La splash nativa se oculta pronto para dar paso al loader de marca, que es
+  // quien comunica el progreso real de la sincronizacion.
   useEffect(() => {
     const timeout = setTimeout(hideSplash, 2500);
     return () => clearTimeout(timeout);
@@ -703,12 +721,7 @@ export default function App() {
                     theme={theme}
                   />
                 ) : (
-                  <View style={styles.loader}>
-                    <ActivityIndicator size="large" color={theme.colors.accent} />
-                    <Text style={[styles.loaderText, { color: theme.colors.text }]}>
-                      Sincronizando centro de control...
-                    </Text>
-                  </View>
+                  <BrandSyncLoader stage={bootIsSlow ? 'slow' : 'loading'} />
                 )
               ) : (
                 <AppStack />
@@ -727,19 +740,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   return StyleSheet.create({
     container: {
       flex: 1,
-    },
-    loader: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: AppTheme.spacing.md,
-      paddingHorizontal: AppTheme.spacing.xl,
-      backgroundColor: theme.colors.background,
-    },
-    loaderText: {
-      color: AppTheme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 15,
     },
     recoveryScreen: {
       flex: 1,

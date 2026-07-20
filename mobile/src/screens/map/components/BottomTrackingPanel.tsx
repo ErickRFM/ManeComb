@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   LayoutAnimation,
@@ -177,6 +177,26 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     setHistoryOpen(false);
     setSelectedSession(null);
   }, [selectedUnit?.unitId]);
+
+  // Geometria del selector de unidades. Se guarda en refs para que medir no provoque re-render.
+  const trackScrollRef = useRef<ScrollView | null>(null);
+  const trackViewportWidthRef = useRef(0);
+  const trackChipLayoutRef = useRef<Record<string, { x: number; width: number }>>({});
+
+  const handleTrackChipLayout = useCallback((unitId: string, x: number, width: number) => {
+    trackChipLayoutRef.current[unitId] = { x, width };
+  }, []);
+
+  // Centra la pestana seleccionada para que nunca quede fuera del viewport.
+  const selectedUnitId = selectedUnit?.unitId;
+  useEffect(() => {
+    if (!selectedUnitId) return;
+    const chip = trackChipLayoutRef.current[selectedUnitId];
+    const viewportWidth = trackViewportWidthRef.current;
+    if (!chip || viewportWidth <= 0) return;
+    const target = Math.max(0, chip.x + chip.width / 2 - viewportWidth / 2);
+    trackScrollRef.current?.scrollTo({ x: target, animated: true });
+  }, [selectedUnitId]);
 
   const vehicleSession = useMemo(
     () => selectVehicleActiveSession(selectedUnit?.unitId, activeSession, sessionHistory),
@@ -394,13 +414,22 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         </View>
 
         {trackingUnits.length > 1 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+          <ScrollView
+            ref={trackScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.trackScroller}
+            onLayout={(event) => {
+              trackViewportWidthRef.current = event.nativeEvent.layout.width;
+            }}
+            contentContainerStyle={styles.trackList}>
             {trackingUnits.map((unit) => {
               const isSelected = unit.unitId === selectedUnit?.unitId;
               return (
                 <Pressable
                   key={unit.unitId}
                   onPress={() => onSelectTrackingUnit(unit)}
+                  onLayout={(event) => handleTrackChipLayout(unit.unitId, event.nativeEvent.layout.x, event.nativeEvent.layout.width)}
                   style={({ pressed }) => [
                     styles.trackChip,
                     { borderColor: isSelected ? theme.colors.accent : theme.colors.line },
@@ -528,7 +557,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               </Pressable>
             ) : null}
 
-            {trackingUnits.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+            {trackingUnits.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.trackScroller} contentContainerStyle={styles.trackList}>
               {trackingUnits.map((unit) => {
                 const isSelected = unit.unitId === selectedUnit?.unitId;
                 return (

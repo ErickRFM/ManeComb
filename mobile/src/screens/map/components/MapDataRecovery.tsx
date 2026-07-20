@@ -3,15 +3,19 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useSyncWaitStage } from '@/src/hooks/use-sync-wait-stage';
 import type { AuthRoutingContext, User } from '@/src/types/app';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
+import { SYNC_ERROR_BODY, SYNC_ERROR_TITLE } from '@/src/utils/sync-copy';
+import { BrandSyncLoader } from '@/src/components/brand-sync-loader';
 import { mapStyles as styles } from '../map-styles';
 
 type MapDataRecoveryProps = {
   authContext: AuthRoutingContext | null;
   error?: string | null;
   isRefreshing: boolean;
+  isSigningOut?: boolean;
   onRefresh: () => void;
   onResetSession: () => void;
   user: User;
@@ -21,11 +25,13 @@ export function MapDataRecovery({
   authContext,
   error,
   isRefreshing,
+  isSigningOut = false,
   onRefresh,
   onResetSession,
   user,
 }: MapDataRecoveryProps) {
   const { theme } = useAppTheme();
+  const waitStage = useSyncWaitStage(!isSigningOut && !error);
   const resolution = resolveMobilePostLoginRoute({
     authContext,
     error: error && !authContext ? error : undefined,
@@ -44,7 +50,7 @@ export function MapDataRecovery({
           ? 'Plan no activo'
           : isOnboarding
             ? 'Completa tu configuración'
-            : 'No pudimos sincronizar tu cuenta';
+            : SYNC_ERROR_TITLE;
   const recoveryMessage = isBlocked && resolution.reason === 'payment_pending'
     ? 'Tu pago aún no se ha confirmado. Revisa tu cuenta desde el portal web.'
     : isBlocked && resolution.reason === 'no_plan'
@@ -55,7 +61,7 @@ export function MapDataRecovery({
         ? 'Renueva tu plan para volver a operar ManeComb.'
         : isOnboarding
           ? 'Tu plan esta activo. Configura tu empresa para comenzar.'
-          : error || 'Revisa tu conexion e intenta de nuevo.';
+          : error || SYNC_ERROR_BODY;
   const primaryLabel = isBlocked && resolution.reason === 'payment_pending'
     ? 'Revisar pago'
     : isBlocked && resolution.reason === 'no_plan'
@@ -65,6 +71,18 @@ export function MapDataRecovery({
         : isOnboarding
           ? 'Continuar configuracion'
           : 'Reintentar';
+
+  // Cerrar sesion no depende de sincronizar nada.
+  if (isSigningOut) {
+    return <BrandSyncLoader message="Cerrando sesión..." />;
+  }
+
+  // Sin error confirmado la sincronizacion sigue en curso: mostramos carga real
+  // hasta que la peticion falle de verdad o se agote el timeout de arranque en
+  // frio, nunca la pantalla de error mientras el request sigue pendiente.
+  if (isSyncError && !error && waitStage !== 'expired') {
+    return <BrandSyncLoader stage={waitStage === 'slow' ? 'slow' : 'loading'} />;
+  }
 
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -106,22 +124,31 @@ export function MapDataRecovery({
             ]}>
             <Text style={styles.recoveryPrimaryText}>{primaryLabel}</Text>
           </Pressable>
-          <Pressable
-            onPress={onRefresh}
-            disabled={isRefreshing}
-            style={({ pressed }) => [
-              styles.recoverySecondaryButton,
-              { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
-              pressed && !isRefreshing ? styles.recoveryPressed : undefined,
-              isRefreshing ? styles.recoveryDisabled : undefined,
-            ]}>
-            {isRefreshing ? (
-              <MaterialCommunityIcons name="sync" size={18} color={theme.colors.accent} />
-            ) : null}
-            <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
-              {isRefreshing ? 'Sincronizando...' : isSyncError ? 'Sincronizar' : 'Reintentar'}
-            </Text>
-          </Pressable>
+          {/*
+            En el caso de sincronizacion el boton primario ya es "Reintentar":
+            un secundario que llama al mismo `onRefresh` solo duplicaba la
+            accion. Se conserva para los casos de plan/onboarding, donde el
+            primario abre el portal de ventas y reintentar sigue teniendo
+            sentido.
+          */}
+          {!isSyncError ? (
+            <Pressable
+              onPress={onRefresh}
+              disabled={isRefreshing}
+              style={({ pressed }) => [
+                styles.recoverySecondaryButton,
+                { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
+                pressed && !isRefreshing ? styles.recoveryPressed : undefined,
+                isRefreshing ? styles.recoveryDisabled : undefined,
+              ]}>
+              {isRefreshing ? (
+                <MaterialCommunityIcons name="sync" size={18} color={theme.colors.accent} />
+              ) : null}
+              <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
+                {isRefreshing ? 'Sincronizando...' : 'Reintentar'}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={onResetSession}
             style={({ pressed }) => [
@@ -129,7 +156,7 @@ export function MapDataRecovery({
               pressed ? styles.recoveryPressed : undefined,
             ]}>
             <Text style={[styles.recoveryGhostText, { color: theme.colors.muted }]}>
-              Reiniciar sesion
+              Cerrar sesión
             </Text>
           </Pressable>
         </View>
