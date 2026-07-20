@@ -9,7 +9,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_SECTION_START
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -21,7 +21,7 @@ from lxml import etree
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
 ASSET_DIR = DOCS_DIR / "generated-doc-assets"
-OUT_DOCX = DOCS_DIR / "documentacion-tecnica-sistema-inteligente-gestion-combis.docx"
+OUT_DOCX = DOCS_DIR / "documentacion-tecnica-sistema-inteligente-gestion-combis-ampliada.docx"
 
 PAGE_WIDTH_DXA = 9360
 
@@ -114,6 +114,30 @@ def set_cell_width(cell, width_dxa: int):
         tc_pr.append(tc_w)
     tc_w.set(qn("w:w"), str(width_dxa))
     tc_w.set(qn("w:type"), "dxa")
+
+
+def set_cell_border(cell, **edges):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    borders = tc_pr.first_child_found_in("w:tcBorders")
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tc_pr.append(borders)
+    for edge, options in edges.items():
+        tag = qn(f"w:{edge}")
+        node = borders.find(tag)
+        if node is None:
+            node = OxmlElement(f"w:{edge}")
+            borders.append(node)
+        for key, value in options.items():
+            node.set(qn(f"w:{key}"), str(value))
+
+
+def keep_row_together(row):
+    tr_pr = row._tr.get_or_add_trPr()
+    cant_split = tr_pr.find(qn("w:cantSplit"))
+    if cant_split is None:
+        cant_split = OxmlElement("w:cantSplit")
+        tr_pr.append(cant_split)
 
 
 def set_table_geometry(table, widths_dxa: list[int], indent_dxa: int = 120):
@@ -368,13 +392,15 @@ def add_picture(paragraph, image_path: Path, width, alt_text: str):
     return picture
 
 
-def add_table(doc: Document, headers: list[str], rows: list[list[str]], widths: list[int], header_fill="F2F4F7", font_size=9):
+def add_table(doc: Document, headers: list[str], rows: list[list[str]], widths: list[int], header_fill="0B2545", font_size=9):
     table = doc.add_table(rows=1, cols=len(headers))
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    table.style = "Table Grid"
     set_table_geometry(table, widths, 120)
     header_cells = table.rows[0].cells
     set_repeat_table_header(table.rows[0])
+    keep_row_together(table.rows[0])
+    table.rows[0].height = Pt(24)
+    table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     for i, header in enumerate(headers):
         cell = header_cells[i]
         set_cell_shading(cell, header_fill)
@@ -382,17 +408,28 @@ def add_table(doc: Document, headers: list[str], rows: list[list[str]], widths: 
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.space_after = Pt(0)
         r = p.add_run(header)
-        set_run_font(r, size=font_size, bold=True, color=NAVY)
-    for row in rows:
+        header_text_color = WHITE if header_fill in {"0B2545", "1F4D78", "2E74B5"} else NAVY
+        set_run_font(r, size=font_size, bold=True, color=header_text_color)
+        set_cell_border(cell, bottom={"val": "single", "sz": "10", "color": "2E74B5"})
+    for row_index, row in enumerate(rows):
         cells = table.add_row().cells
+        keep_row_together(table.rows[-1])
         for i, value in enumerate(row):
+            if row_index % 2:
+                set_cell_shading(cells[i], "F7F9FC")
+            set_cell_border(
+                cells[i],
+                bottom={"val": "single", "sz": "4", "color": "D7E2EC"},
+                start={"val": "nil"},
+                end={"val": "nil"},
+                top={"val": "nil"},
+            )
             p = cells[i].paragraphs[0]
-            p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.line_spacing = 1.05
-            if i in [2, 3]:
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.line_spacing = 1.08
             r = p.add_run(str(value))
-            set_run_font(r, size=font_size, color=BLACK)
+            set_run_font(r, size=font_size, bold=(i == 0), color=NAVY if i == 0 else BLACK)
     doc.add_paragraph()
     return table
 
@@ -443,7 +480,25 @@ def arrow(draw, start, end, fill=PIL_BLUE, width=5):
 
 
 def rounded_card(draw, box, fill="#FFFFFF", outline="#C9D3DF", width=3, radius=24):
+    x1, y1, x2, y2 = box
+    draw.rounded_rectangle((x1 + 10, y1 + 12, x2 + 10, y2 + 12), radius=radius, fill="#DCE5EF")
     draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+
+
+def diagram_title(draw, title: str, subtitle: str | None = None):
+    draw.rounded_rectangle((70, 38, 86, 126), radius=8, fill=PIL_BLUE)
+    draw.text((112, 48), title, font=pil_font(46, bold=True), fill=PIL_NAVY)
+    if subtitle:
+        draw.text((114, 105), subtitle, font=pil_font(23), fill=PIL_MUTED)
+
+
+def diagram_legend(draw, items: list[tuple[str, str]], y: int, x: int = 90):
+    cursor = x
+    font = pil_font(21)
+    for color, label in items:
+        draw.rounded_rectangle((cursor, y, cursor + 28, y + 28), radius=7, fill=color)
+        draw.text((cursor + 40, y - 1), label, font=font, fill=PIL_MUTED)
+        cursor += 70 + draw.textbbox((0, 0), label, font=font)[2]
 
 
 def save_cover_icon(path: Path):
@@ -473,10 +528,9 @@ def save_cover_icon(path: Path):
 def save_architecture_diagram(path: Path):
     img = Image.new("RGB", (2200, 1350), PIL_BG)
     d = ImageDraw.Draw(img)
-    h = pil_font(48, bold=True)
     body = pil_font(28)
     small = pil_font(22)
-    d.text((90, 55), "Arquitectura lógica del sistema", font=h, fill=PIL_NAVY)
+    diagram_title(d, "Arquitectura lógica del sistema", "Capas, protocolos e integraciones principales")
     boxes = {
         "mobile": (90, 180, 520, 460, "Flutter / App móvil\nExpo Router en implementación actual\nZustand, mapas, secure storage"),
         "api": (820, 170, 1380, 500, "Backend API REST\nNode.js + Express\nJWT, validación, rate limit"),
@@ -485,33 +539,35 @@ def save_architecture_diagram(path: Path):
         "maps": (140, 720, 560, 960, "Google Maps API\nGeocodificación,\nrutas y ETA"),
         "pay": (1440, 720, 1860, 960, "Servicios externos\nPagos, correo,\nSentry, Cloudinary"),
     }
+    # Draw connectors first so node cards mask line endings and protect labels.
+    arrow(d, (520, 320), (820, 320))
+    arrow(d, (1380, 320), (1540, 320))
+    arrow(d, (1040, 500), (1010, 685))
+    arrow(d, (440, 720), (820, 470))
+    arrow(d, (1380, 470), (1550, 720))
     for key, (x1, y1, x2, y2, text) in boxes.items():
         fill = "#FFFFFF" if key != "api" else "#E8EEF5"
         rounded_card(d, (x1, y1, x2, y2), fill=fill, outline="#B7C9DA", width=4)
         lines = text.split("\n")
         d.text((x1 + 34, y1 + 34), lines[0], font=pil_font(31, bold=True), fill=PIL_NAVY)
         yy = y1 + 88
-        for line in lines[1:]:
+        body_lines = wrapped_lines(d, "\n".join(lines[1:]), body, x2 - x1 - 68)
+        for line in body_lines:
             d.text((x1 + 34, yy), line, font=body, fill=PIL_MUTED)
             yy += 42
-    arrow(d, (520, 320), (820, 320))
-    arrow(d, (1380, 320), (1540, 320))
-    arrow(d, (1040, 500), (1010, 685))
-    arrow(d, (440, 720), (820, 470))
-    arrow(d, (1380, 470), (1550, 720))
     d.text((610, 275), "HTTPS / JSON", font=small, fill=PIL_DARK)
     d.text((1410, 275), "Eventos", font=small, fill=PIL_DARK)
     d.text((1020, 595), "Persistencia", font=small, fill=PIL_DARK)
+    diagram_legend(d, [(PIL_NAVY, "Núcleo"), (PIL_LIGHT, "Servicio"), (PIL_BLUE, "Flujo de datos")], 1245)
     img.save(path)
 
 
 def save_mer_diagram(path: Path):
     img = Image.new("RGB", (2400, 1600), PIL_BG)
     d = ImageDraw.Draw(img)
-    title = pil_font(48, bold=True)
     head = pil_font(28, bold=True)
     txt = pil_font(21)
-    d.text((80, 55), "Modelo Entidad-Relación (MER)", font=title, fill=PIL_NAVY)
+    diagram_title(d, "Modelo Entidad-Relación (MER)", "Entidades, atributos clave y cardinalidades")
     entities = {
         "Usuarios": (95, 180, 520, 420, ["PK id_usuario", "correo UNIQUE", "rol", "estado"]),
         "Conductores": (95, 690, 520, 930, ["PK id_conductor", "licencia", "telefono", "estado"]),
@@ -522,14 +578,7 @@ def save_mer_diagram(path: Path):
         "Pagos": (95, 1130, 520, 1390, ["PK id_pago", "FK id_usuario", "monto", "estado"]),
         "Participantes": (1545, 1130, 1985, 1390, ["PK id_participante", "FK id_usuario", "FK id_conversacion"]),
     }
-    for name, (x1, y1, x2, y2, fields) in entities.items():
-        rounded_card(d, (x1, y1, x2, y2), fill="#FFFFFF", outline="#ADC5DA", width=4)
-        d.rounded_rectangle((x1, y1, x2, y1 + 58), radius=18, fill=PIL_LIGHT, outline="#ADC5DA", width=0)
-        d.text((x1 + 24, y1 + 16), name, font=head, fill=PIL_NAVY)
-        yy = y1 + 82
-        for f in fields:
-            d.text((x1 + 30, yy), f, font=txt, fill=PIL_MUTED)
-            yy += 38
+    relation_labels = []
     def conn(a, b, label):
         ax = (a[0] + a[2]) // 2
         ay = (a[1] + a[3]) // 2
@@ -538,10 +587,9 @@ def save_mer_diagram(path: Path):
         d.line((ax, ay, bx, by), fill=PIL_BLUE, width=5)
         mx = (ax + bx) // 2
         my = (ay + by) // 2
-        d.rounded_rectangle((mx - 64, my - 22, mx + 64, my + 22), radius=12, fill="#FFFFFF", outline="#D7E2EC", width=2)
-        tw = d.textbbox((0, 0), label, font=pil_font(20, bold=True))
-        d.text((mx - (tw[2] - tw[0]) / 2, my - 13), label, font=pil_font(20, bold=True), fill=PIL_DARK)
+        relation_labels.append((mx, my, label))
     e = entities
+    # Relationships form the back layer; entity cards are painted over them.
     conn(e["Conductores"][:4], e["Combis"][:4], "1:N")
     conn(e["Combis"][:4], e["Rutas"][:4], "N:1")
     conn(e["Combis"][:4], e["Viajes"][:4], "1:N")
@@ -549,13 +597,28 @@ def save_mer_diagram(path: Path):
     conn(e["Combis"][:4], e["UbicacionesGPS"][:4], "1:N")
     conn(e["Usuarios"][:4], e["Pagos"][:4], "1:N")
     conn(e["Usuarios"][:4], e["Participantes"][:4], "N:M")
+    # Cardinality labels belong to the relationship layer too; cards mask any
+    # label whose midpoint would otherwise fall over entity content.
+    for mx, my, label in relation_labels:
+        d.rounded_rectangle((mx - 64, my - 22, mx + 64, my + 22), radius=12, fill="#FFFFFF", outline="#D7E2EC", width=2)
+        tw = d.textbbox((0, 0), label, font=pil_font(20, bold=True))
+        d.text((mx - (tw[2] - tw[0]) / 2, my - 13), label, font=pil_font(20, bold=True), fill=PIL_DARK)
+    for name, (x1, y1, x2, y2, fields) in entities.items():
+        rounded_card(d, (x1, y1, x2, y2), fill="#FFFFFF", outline="#ADC5DA", width=4)
+        d.rounded_rectangle((x1, y1, x2, y1 + 58), radius=18, fill=PIL_LIGHT, outline="#ADC5DA", width=0)
+        d.text((x1 + 24, y1 + 16), name, font=head, fill=PIL_NAVY)
+        yy = y1 + 82
+        for f in fields:
+            d.text((x1 + 30, yy), f, font=txt, fill=PIL_MUTED)
+            yy += 38
+    diagram_legend(d, [(PIL_LIGHT, "Entidad"), (PIL_BLUE, "Relación"), (PIL_NAVY, "Clave")], 1510)
     img.save(path)
 
 
 def save_relational_diagram(path: Path):
     img = Image.new("RGB", (2200, 1300), PIL_BG)
     d = ImageDraw.Draw(img)
-    d.text((90, 55), "Modelo relacional normalizado", font=pil_font(48, bold=True), fill=PIL_NAVY)
+    diagram_title(d, "Modelo relacional normalizado", "Tablas, claves y dependencias de referencia")
     tables = [
         ("usuarios", "PK id_usuario\ncorreo UNIQUE\nrol, estado"),
         ("conductores", "PK id_conductor\nFK id_usuario opcional\nlicencia UNIQUE"),
@@ -595,10 +658,8 @@ def save_relational_diagram(path: Path):
 def save_modules_diagram(path: Path):
     img = Image.new("RGB", (2200, 1250), PIL_BG)
     d = ImageDraw.Draw(img)
-    d.text((90, 60), "Módulos funcionales", font=pil_font(48, bold=True), fill=PIL_NAVY)
+    diagram_title(d, "Módulos funcionales", "Mapa de capacidades alrededor del núcleo operativo")
     center = (860, 455, 1340, 795)
-    rounded_card(d, center, fill=PIL_NAVY, outline=PIL_NAVY, width=4)
-    centered_text(d, center, "API REST + Socket.IO\nCentro operativo", pil_font(35, bold=True), "#FFFFFF")
     modules = [
         ("Login y autenticación", 120, 220),
         ("Usuarios y roles", 650, 190),
@@ -609,18 +670,58 @@ def save_modules_diagram(path: Path):
         ("Pagos y ventas", 120, 840),
         ("Administración", 120, 520),
     ]
+    # Paint spokes before cards so no connector crosses node text.
+    center_point = ((center[0] + center[2]) // 2, (center[1] + center[3]) // 2)
+    for _, x, y in modules:
+        box = (x, y, x + 430, y + 150)
+        module_point = ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
+        arrow(d, module_point, center_point, fill="#8AB8E6", width=4)
     for label, x, y in modules:
         box = (x, y, x + 430, y + 150)
         rounded_card(d, box, fill="#FFFFFF", outline="#B9CADB", width=4)
         centered_text(d, box, label, pil_font(27, bold=True), PIL_NAVY)
-        arrow(d, ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2), ((center[0] + center[2]) // 2, (center[1] + center[3]) // 2), fill="#8AB8E6", width=4)
+    rounded_card(d, center, fill=PIL_NAVY, outline=PIL_NAVY, width=4)
+    centered_text(d, center, "API REST + Socket.IO\nCentro operativo", pil_font(35, bold=True), "#FFFFFF")
+    diagram_legend(d, [(PIL_NAVY, "Núcleo"), ("#FFFFFF", "Módulo"), ("#8AB8E6", "Integración")], 1170)
+    img.save(path)
+
+
+def save_ecosystem_diagram(path: Path):
+    img = Image.new("RGB", (2200, 1250), PIL_BG)
+    d = ImageDraw.Draw(img)
+    diagram_title(d, "Interconexión de aplicaciones", "App móvil, plataforma central y portal de ventas")
+    cards = {
+        "mobile": (90, 250, 650, 800, "App móvil", ["Operación en ruta", "GPS y navegación", "Chat, radio y llamadas", "Documentos e incidencias"]),
+        "backend": (820, 200, 1380, 850, "Backend central", ["API REST + JWT", "Socket.IO y señalización RTC", "Reglas multiempresa", "Persistencia y auditoría"]),
+        "sales": (1550, 250, 2110, 800, "Portal de ventas", ["Planes y checkout", "Onboarding y activación", "Unidades, rutas y usuarios", "Pagos, sesiones y documentos"]),
+    }
+    # Connectors are the back layer; cards keep all text unobstructed.
+    arrow(d, (650, 455), (820, 455), fill=PIL_BLUE, width=6)
+    arrow(d, (820, 590), (650, 590), fill=PIL_GREEN, width=6)
+    arrow(d, (1380, 455), (1550, 455), fill=PIL_BLUE, width=6)
+    arrow(d, (1550, 590), (1380, 590), fill=PIL_GOLD, width=6)
+    for key, (x1, y1, x2, y2, title, items) in cards.items():
+        fill = PIL_LIGHT if key == "backend" else "#FFFFFF"
+        rounded_card(d, (x1, y1, x2, y2), fill=fill, outline="#ADC5DA", width=4)
+        d.rounded_rectangle((x1, y1, x2, y1 + 82), radius=22, fill=PIL_NAVY)
+        d.text((x1 + 34, y1 + 24), title, font=pil_font(32, bold=True), fill="#FFFFFF")
+        yy = y1 + 125
+        for item in items:
+            d.ellipse((x1 + 36, yy + 7, x1 + 54, yy + 25), fill=PIL_BLUE)
+            d.text((x1 + 74, yy), item, font=pil_font(27), fill=PIL_NAVY)
+            yy += 78
+    d.text((680, 408), "REST", font=pil_font(22, bold=True), fill=PIL_DARK)
+    d.text((680, 615), "Eventos", font=pil_font(22, bold=True), fill=PIL_GREEN)
+    d.text((1420, 408), "REST", font=pil_font(22, bold=True), fill=PIL_DARK)
+    d.text((1410, 615), "Socket", font=pil_font(22, bold=True), fill=PIL_GOLD)
+    diagram_legend(d, [(PIL_BLUE, "Solicitud"), (PIL_GREEN, "Actualización operativa"), (PIL_GOLD, "Evento comercial")], 1120)
     img.save(path)
 
 
 def save_flow_diagram(path: Path, title: str, steps: list[str], accent=PIL_BLUE):
     img = Image.new("RGB", (2200, 900), PIL_BG)
     d = ImageDraw.Draw(img)
-    d.text((80, 50), title, font=pil_font(44, bold=True), fill=PIL_NAVY)
+    diagram_title(d, title, "Secuencia operativa y puntos de responsabilidad")
     n = len(steps)
     cols = min(4, n)
     box_w = 450
@@ -628,7 +729,7 @@ def save_flow_diagram(path: Path, title: str, steps: list[str], accent=PIL_BLUE)
     gap_x = 60
     gap_y = 90
     start_x = 120
-    start_y = 210
+    start_y = 220
     positions = []
     for i, step in enumerate(steps):
         row = i // cols
@@ -645,9 +746,14 @@ def save_flow_diagram(path: Path, title: str, steps: list[str], accent=PIL_BLUE)
         a = positions[i]
         b = positions[i + 1]
         if (i + 1) % cols == 0:
-            arrow(d, ((a[0] + a[2]) // 2, a[3]), ((b[0] + b[2]) // 2, b[1] - 12), fill=accent, width=5)
+            ax = (a[0] + a[2]) // 2
+            bx = (b[0] + b[2]) // 2
+            mid_y = a[3] + gap_y // 2
+            d.line(((ax, a[3]), (ax, mid_y), (bx, mid_y)), fill=accent, width=5)
+            arrow(d, (bx, mid_y), (bx, b[1] - 12), fill=accent, width=5)
         else:
             arrow(d, (a[2] + 10, (a[1] + a[3]) // 2), (b[0] - 12, (b[1] + b[3]) // 2), fill=accent, width=5)
+    diagram_legend(d, [(accent, "Paso"), (PIL_NAVY, "Secuencia")], 820)
     img.save(path)
 
 
@@ -659,12 +765,14 @@ def create_assets():
         "mer": ASSET_DIR / "modelo-entidad-relacion.png",
         "relational": ASSET_DIR / "modelo-relacional.png",
         "architecture": ASSET_DIR / "arquitectura-sistema.png",
+        "ecosystem": ASSET_DIR / "interconexion-aplicaciones.png",
     }
     save_cover_icon(paths["cover"])
     save_modules_diagram(paths["modules"])
     save_mer_diagram(paths["mer"])
     save_relational_diagram(paths["relational"])
     save_architecture_diagram(paths["architecture"])
+    save_ecosystem_diagram(paths["ecosystem"])
 
     flows = {
         "login": ("Proceso: inicio de sesión", ["Captura credenciales", "Valida formato", "Autentica en backend", "Genera JWT y refresh token", "Carga dashboard", "Abre canal Socket.IO"], PIL_BLUE),
@@ -1036,6 +1144,90 @@ def add_architecture(doc: Document, assets: dict[str, Path]):
         ["Comercial", "GET /api/commercial/plans; POST /api/commercial/checkout; POST /api/commercial/confirm", "Planes, compras y confirmación de pagos."],
     ]
     add_table(doc, ["Módulo", "Endpoint", "Uso"], endpoint_rows, [1600, 4500, 3260], font_size=8.3)
+    doc.add_page_break()
+
+    add_heading(doc, "7.2 Aplicación móvil operativa", 2)
+    add_body(doc, "La aplicación móvil es la herramienta de trabajo del personal en campo. Consume la misma identidad y los mismos datos organizacionales que el portal, pero prioriza continuidad operativa, navegación, ubicación y comunicación. El cliente centraliza el acceso HTTP, adjunta el token de sesión, intenta renovar credenciales cuando corresponde y mantiene separadas las acciones del usuario de la representación visual de cada pantalla.")
+    for item in [
+        "Autenticación y sesión: inicio de sesión, registro, renovación de token, recuperación de contraseña y almacenamiento seguro de credenciales.",
+        "Operación de unidades: consulta de la proyección operacional, conductor, ruta, estado, coordenadas, velocidad, ETA e incidencias asociadas.",
+        "Navegación: búsqueda y geocodificación, cálculo de ruta, paradas, asignación a unidad, inicio o pausa de sesión y bitácora de viajes.",
+        "Comunicación: conversaciones directas o generales, mensajes de texto, audio y medios, radio operativa, notificaciones y sesiones RTC.",
+        "Trabajo en segundo plano: envío de ubicación y protección de llamadas activas mediante un servicio foreground nativo en Android.",
+        "Seguridad: control de acceso por rol, aislamiento por organización y soporte de sobres cifrados para conversaciones directas.",
+    ]:
+        add_bullet(doc, item)
+    add_small_note(doc, "Fuente de verdad", "La proyección /operational-units concentra estado, GPS, ruta, conductor y ETA. Las pantallas no deben reconstruir esos datos a partir de fuentes paralelas.")
+
+    add_heading(doc, "7.3 Portal web de ventas y administración", 2)
+    add_body(doc, "El portal de ventas no es únicamente una página de cobro. Funciona como consola de cuenta para propietarios, administradores y responsables de facturación. El frontend web comparte el backend con la app móvil y organiza la experiencia en pantallas de operaciones, unidades, rutas, usuarios, documentos, incidencias, onboarding, plan, pagos, facturación, sesiones y perfil.")
+    sales_rows = [
+        ["Operaciones", "Resumen de cuenta, métricas, accesos rápidos y estado general.", "GET /portal/overview"],
+        ["Onboarding", "Pasos de activación, claves, usuarios y unidades necesarias para arrancar.", "GET /portal/onboarding"],
+        ["Comercial", "Planes, checkout, confirmación, webhook y activación de suscripción.", "/commercial/*"],
+        ["Cuenta", "Plan contratado, cambio o cancelación, facturas y sesiones abiertas.", "/account/*"],
+        ["Operación", "Unidades, rutas guardadas, sesiones de ruta, posiciones, métricas e incidencias.", "/vehicles, /navigation, /incidents"],
+        ["Control", "Usuarios, claves de activación, documentos y revisión administrativa.", "/users, /admin, /documents"],
+    ]
+    add_table(doc, ["Área", "Responsabilidad", "Integración principal"], sales_rows, [1700, 4760, 2900], font_size=8.5)
+    add_body(doc, "El estado del portal se conserva en un store compartido. Las cargas relacionadas se agrupan, se evita duplicar solicitudes concurrentes y se aplica una ventana corta de caché. Después de una acción —por ejemplo cambiar el plan, revocar una sesión o revisar un documento— se actualiza el estado local y se solicita únicamente la información necesaria.")
+    doc.add_page_break()
+
+    add_heading(doc, "7.4 Interconexión entre app, ventas y backend", 2)
+    add_body(doc, "Las dos aplicaciones cliente no se conectan directamente entre sí. El backend actúa como punto de coordinación: autentica, aplica permisos, filtra por organizationId, persiste cambios y publica eventos a las salas correctas. De esta manera una acción comercial puede habilitar capacidades operativas sin compartir bases locales ni duplicar reglas de negocio.")
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_picture(p, assets["ecosystem"], Inches(6.35), "Interconexión entre aplicación móvil, backend central y portal web de ventas")
+    add_caption(doc, "Figura 12. Interconexión funcional de la app móvil y el portal de ventas mediante el backend.")
+    for step in [
+        "El cliente inicia sesión y recibe identidad, rol, organización, access token y mecanismo de renovación.",
+        "Las solicitudes REST llegan a módulos especializados; los middlewares verifican autenticación, permiso y acceso al portal u operación.",
+        "El backend consulta o modifica la persistencia y devuelve una respuesta normalizada al cliente que originó la acción.",
+        "Cuando el cambio afecta a otros usuarios, Socket.IO emite el evento a salas por usuario, rol u organización.",
+        "El portal aplica eventos comerciales como payment:confirmed, plan:active, subscription:updated u onboarding:updated y refresca la vista correspondiente.",
+        "La app recibe eventos operativos de ubicación, chat, radio, notificaciones o señalización RTC y actualiza la experiencia en tiempo real.",
+    ]:
+        add_numbered(doc, step)
+
+    add_heading(doc, "7.5 Sistema de llamadas y comunicación RTC", 2)
+    add_body(doc, "La base de llamadas ya está implementada sobre WebRTC. El backend entrega configuración ICE autenticada; siempre incluye STUN y añade TURN cuando existen credenciales dinámicas o estáticas. Socket.IO se utiliza como canal de señalización para coordinar participantes y registrar sesiones, mientras que el audio o video viaja por la conexión RTC entre clientes o a través de TURN cuando la red no permite conexión directa.")
+    call_rows = [
+        ["Configuración", "GET /rtc/config entrega iceServers y modo de credenciales.", "Implementado"],
+        ["Señalización", "Eventos Socket.IO coordinan unión, oferta, respuesta, candidatos y cierre.", "Implementado"],
+        ["Cliente", "Capa WebRTC detecta disponibilidad y crea descripciones y candidatos ICE.", "Implementado"],
+        ["Android", "Servicio foreground conserva micrófono/cámara durante una llamada en segundo plano.", "Implementado"],
+        ["Auditoría", "Administradores pueden consultar sesiones RTC registradas.", "Implementado"],
+        ["Robustez futura", "TURN administrado, métricas de calidad, reconexión y pruebas multioperador.", "Planificado"],
+    ]
+    add_table(doc, ["Componente", "Detalle", "Estado"], call_rows, [1900, 5660, 1800], font_size=8.5)
+    add_small_note(doc, "Limitación actual", "Sin TURN configurado el sistema opera en modo STUN-only. Puede funcionar en redes sencillas, pero no garantiza llamadas estables detrás de NAT restrictivo, redes corporativas o ciertos operadores móviles.")
+    doc.add_page_break()
+
+    add_heading(doc, "7.6 Sistema de correo y notificaciones", 2)
+    add_body(doc, "El correo comercial se integra mediante el módulo de comunicación y el proveedor Resend. El servicio selecciona una plantilla según el evento y el estado de pago, incorpora datos de la orden y registra proveedor, plantilla, resultado, error y fecha de contacto. Si faltan RESEND_API_KEY o RESEND_FROM_EMAIL, el envío se omite de forma explícita y el estado queda marcado como no configurado.")
+    email_rows = [
+        ["order-created", "Confirmación de orden, referencia, plan, monto y siguiente paso."],
+        ["payment-pending", "Pago pendiente o en espera de configuración o confirmación manual."],
+        ["payment-approved", "Pago aprobado y continuidad de activación."],
+        ["payment-rejected", "Pago fallido, cancelado o rechazado con instrucciones de recuperación."],
+        ["subscription-activated", "Cuenta y suscripción activadas; acceso al dashboard."],
+        ["subscription-cancelled", "Confirmación de cancelación y estado final de la cuenta."],
+    ]
+    add_table(doc, ["Plantilla", "Propósito"], email_rows, [2800, 6560], font_size=8.8)
+    add_body(doc, "Las notificaciones operativas siguen otro canal complementario: se guardan en la cuenta, se emiten por Socket.IO y, cuando existen suscripciones válidas, se envían como push. El cliente Android puede mostrar categorías de chat, radio, SOS, incidencias y notificaciones, con deep links hacia la pantalla correspondiente. El registro de token push remoto permanece como trabajo de integración hasta disponer de credenciales FCM o un proveedor equivalente.")
+
+    add_heading(doc, "7.7 Actualizaciones futuras recomendadas", 2)
+    roadmap_rows = [
+        ["Corto plazo", "Correo", "Configurar dominio, SPF, DKIM y DMARC; activar Resend en producción; verificar rebotes y quejas."],
+        ["Corto plazo", "Llamadas", "Desplegar TURN con credenciales dinámicas, TLS y monitoreo de disponibilidad."],
+        ["Corto plazo", "Push", "Integrar FCM/Notifee, alta y rotación de tokens, apertura fiable por deep link."],
+        ["Mediano plazo", "Correo", "Cola persistente, reintentos con backoff, idempotencia, métricas y panel de entregabilidad."],
+        ["Mediano plazo", "Llamadas", "Timbrado entrante, reconexión, selección de dispositivo, mute, altavoz y transferencia."],
+        ["Mediano plazo", "Ventas", "Automatizar recordatorios de pago, renovaciones, vencimientos y secuencias de onboarding."],
+        ["Largo plazo", "RTC", "Indicadores de jitter, pérdida, latencia y duración; alertas y análisis de calidad por operador."],
+        ["Largo plazo", "Omnicanal", "Unificar historial de correo, WhatsApp, push, llamadas e incidencias por cuenta."],
+    ]
+    add_table(doc, ["Horizonte", "Área", "Actualización"], roadmap_rows, [1600, 1700, 6060], font_size=8.4)
     doc.add_page_break()
 
 

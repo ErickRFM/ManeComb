@@ -1713,6 +1713,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     flex: 1,
+    // Piso de seguridad: con flex-basis 0 y min-height 0 (base de RNW) el mapa
+    // puede colapsar a cero si un ancestro deja de aportar alto. Preferimos
+    // desbordar a que el mapa desaparezca.
+    minHeight: AppTheme.spacing.xxl * 6,
     overflow: 'hidden',
     position: 'relative',
     boxShadow: '0 22px 52px rgba(0,0,0,.34)' as any,
@@ -1740,7 +1744,9 @@ const styles = StyleSheet.create({
   controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong, boxShadow: '0 8px 20px rgba(0,0,0,.18)' as any },
   controlPressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
   operationsFilters: {
-    alignItems: 'center', flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
+    // Sin `flex: 1`: la fila de filtros es hermana del mapa en una columna, y
+    // con flex:1 competia por el alto y se repartia el espacio con el mapa.
+    alignItems: 'center', flexDirection: 'row', flexShrink: 0, flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
   },
   operationsFilter: {
     alignItems: 'center', backgroundColor: 'rgba(8, 16, 32, 0.42)', borderColor: 'transparent', borderRadius: 18,
@@ -1809,11 +1815,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   mainOperationsGrid: {
+    // react-native-web fija `align-content: flex-start` en todo View. En un
+    // contenedor grid eso deja la fila implicita dimensionada por contenido en
+    // vez de estirarse, y como la columna del mapa aporta 0 al contenido
+    // (flex-basis 0), la fila quedaba mas corta que el contenedor y sobraba
+    // espacio debajo. La fila explicita 1fr no depende de align-content.
+    alignContent: 'stretch',
     alignItems: 'stretch',
     display: 'grid' as any,
     flex: 1,
     gap: 0,
     gridTemplateColumns: 'minmax(0, 1fr)' as any,
+    gridTemplateRows: 'minmax(0, 1fr)' as any,
     minHeight: 0,
     minWidth: 0,
   },
