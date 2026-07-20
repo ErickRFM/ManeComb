@@ -179,27 +179,24 @@ async function getAdminActivationContext(store, user) {
 }
 
 async function getKeyActivationContext(store, activationKey) {
-  let order = activationKey?.orderId
-    ? await store.getCommercialOrderById?.(activationKey.orderId)
-    : null;
   const scopedUser = {
     role: "owner",
     accountType: "company_owner",
     organizationId: activationKey?.companyId
   };
 
-  // Las keys creadas antes de que `orderId` formara parte del contrato siguen
-  // perteneciendo a la empresa y al plan que ya almacenan. Resolvemos su orden
-  // con la misma autoridad usada por Portal y por la generacion de keys.
-  if (!order && activationKey?.companyId && activationKey?.planId) {
-    const companyOrders = await store.listCommercialOrdersForUser(scopedUser);
-    order = pickActiveOrder(
-      companyOrders.filter(
-        (entry) =>
-          String(entry?.planId || "").trim() === String(activationKey.planId).trim()
-      )
-    );
-  }
+  // La vigencia del plan se resuelve siempre con la misma fuente que Portal.
+  // `orderId` conserva trazabilidad, pero no puede fijar la Key a una orden
+  // histórica si la empresa renovó o reactivó el mismo plan.
+  const companyOrders = activationKey?.companyId
+    ? await store.listCommercialOrdersForUser(scopedUser)
+    : [];
+  const order = pickActiveOrder(
+    companyOrders.filter(
+      (entry) =>
+        String(entry?.planId || "").trim() === String(activationKey?.planId || "").trim()
+    )
+  );
 
   const [users, activationKeys] = await Promise.all([
     store.listUsers(scopedUser),

@@ -18,6 +18,7 @@ Implementación terminada y certificada para el alcance solicitado. El registro 
 
 ## Causa raíz
 
+- En producción, una Key podía conservar el `orderId` de una orden histórica y validar esa orden en vez de resolver el plan activo con la misma selección utilizada por Portal.
 - El backend listaba unidades sin conductor, pero no exigía el estado `available`.
 - El claim atómico comprobaba la organización y el conductor, pero no el estado disponible.
 - El registro aceptaba la ausencia de `vehicleId` y creaba una unidad provisional con código y placa generados.
@@ -28,6 +29,7 @@ Implementación terminada y certificada para el alcance solicitado. El registro 
 
 - Endpoints existentes `/driver/activation/validate` y `/driver/activation/register`.
 - Resolución existente de Key, empresa, orden, plan y cupo.
+- Selección compartida `pickActiveOrder`; la validación por Key vuelve a resolver la orden vigente de empresa y plan igual que Portal, manteniendo `orderId` únicamente como trazabilidad.
 - Consulta existente `listAvailableActivationUnits`.
 - Claim atómico existente `claimVehicleForDriver`, tanto en el store embebido como en Mongo.
 - Liberación compensatoria existente `releaseVehicleFromDriver`.
@@ -56,6 +58,7 @@ Implementación terminada y certificada para el alcance solicitado. El registro 
 - Una unidad: se preselecciona la única opción disponible.
 - Cero unidades: se muestra “No hay unidades disponibles para esta empresa.” y no se registra.
 - Key modificada: se descarta inmediatamente la selección obtenida con la Key anterior.
+- Backend sin el contrato actualizado: la aplicación informa que no pudo consultar unidades y no confunde el campo ausente con una empresa sin unidades.
 - Unidad ocupada mientras el formulario está abierto: el claim rechaza el registro, conserva la Key y la aplicación actualiza el Combo.
 - Otra organización: la consulta no expone la unidad y el registro la rechaza.
 - Unidad inactiva, ocupada o eliminada: no aparece como disponible.
@@ -66,6 +69,7 @@ Implementación terminada y certificada para el alcance solicitado. El registro 
 - Prueba de dos registros concurrentes sobre la misma unidad: aprobada; un ganador, un rechazo y Key del perdedor intacta.
 - Empresa sin unidades disponibles: aprobada; no crea usuario y no consume la Key.
 - Filtro de unidad inactiva: aprobado.
+- Key vinculada a una orden histórica cuando existe una orden activa del mismo plan: aprobada.
 - Aislamiento por organización existente: aprobado por la suite de backend.
 - TypeScript móvil (`tsc --noEmit`): aprobado.
 - ESLint de los archivos modificados: aprobado.
@@ -76,6 +80,7 @@ El ESLint global conserva un error preexistente y fuera de alcance en `mobile/sr
 
 ## Riesgos remanentes
 
+- El 19 de julio de 2026 se comprobó que `https://manecomb.onrender.com/api/driver/activation/validate` aún respondía sin `availableUnits`; el backend publicado debe actualizarse antes de probar el Combo contra producción.
 - La verificación contra Mongo está cubierta por el filtro atómico implementado y por las pruebas de contrato con el store embebido; no se ejecutó una carrera contra una instancia Mongo real en esta sesión.
 - La comprobación visual final en dispositivo queda pendiente del ciclo manual del responsable de la aplicación; no se generó APK.
 

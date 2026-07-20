@@ -146,7 +146,15 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
     try {
       const validation = await validateDriverActivationKeyRequest(key);
-      const units = validation.availableUnits ?? [];
+      const units = validation.availableUnits;
+
+      if (!Array.isArray(units)) {
+        setDriverUnits(null);
+        setValidatedKey('');
+        setSelectedUnitId('');
+        setHelperMessage('No fue posible consultar las unidades disponibles. Intenta nuevamente.');
+        return null;
+      }
 
       setDriverUnits(units);
       setValidatedKey(key);
@@ -238,7 +246,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
       return;
     }
 
-    const units = activation.availableUnits ?? [];
+    const units = activation.availableUnits;
     const unitId = units.length === 1 ? units[0].id : selectedUnitId;
 
     if (units.length === 0) {

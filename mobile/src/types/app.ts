@@ -199,7 +199,7 @@ export type DriverActivationValidation = {
   planName: string;
   expiresAt: string | null;
   availableDrivers: number;
-  availableUnits?: DriverActivationUnit[];
+  availableUnits: DriverActivationUnit[];
 };
 
 export type DriverActivationRegisterPayload = {

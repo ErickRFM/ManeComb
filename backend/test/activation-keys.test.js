@@ -162,6 +162,33 @@ async function runActivationKeyFlow() {
     assert.equal(revokedValidation.status, 409);
     assert.match(revokedValidation.payload.message, /revocada/i);
 
+    const historicalOrder = await context.store.createCommercialOrder({
+      companyName: "Plan Dos Combis",
+      contactName: "Admin Plan Dos",
+      email: ownerEmail,
+      phone: "+52 55 1000 0000",
+      planId: "starter-2",
+      paymentMethod: "transfer",
+      organizationId: registerOwner.payload.user.organizationId
+    });
+    const historicalOrderKey = await context.store.createActivationKey({
+      key: `MNCB-HISTORICAL-${stamp}`,
+      companyId: registerOwner.payload.user.organizationId,
+      adminId: registerOwner.payload.user.id,
+      planId: "starter-2",
+      orderId: historicalOrder.id,
+      status: "available",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    });
+    const historicalOrderValidation = await requestJson(`${context.url}/driver/activation/validate`, {
+      body: JSON.stringify({ key: historicalOrderKey.key }),
+      method: "POST"
+    });
+
+    assert.equal(historicalOrderValidation.status, 200);
+    assert.equal(historicalOrderValidation.payload.data.planId, "starter-2");
+    await context.store.deleteActivationKey(historicalOrderKey.id);
+
     const expiringKeyResponse = await requestJson(`${context.url}/admin/activation-keys/generate`, {
       headers: {
         Authorization: `Bearer ${token}`
