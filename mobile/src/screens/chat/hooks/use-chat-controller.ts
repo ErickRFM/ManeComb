@@ -273,7 +273,7 @@ export function useChatController() {
               : current
           );
           setCallNotice(mode === 'video' ? 'Videollamada activa.' : 'Llamada activa.');
-          void reportRelayUsage(peer, roomId, socket);
+          reportRelayUsage(peer, roomId, socket);
         }
 
         if (peer.connectionState === 'disconnected') {
@@ -842,7 +842,7 @@ export function useChatController() {
           const notice = resolveRtcJoinFailureNotice(ack, ackError);
           if (!notice) return;
 
-          void closeActiveCallRef.current({ reason: notice });
+          closeActiveCallRef.current({ reason: notice });
         }
       );
 
@@ -867,10 +867,10 @@ export function useChatController() {
   useEffect(() => {
     if (!isCallActive) return;
 
-    void startCallForegroundService(isVideoCall);
+    startCallForegroundService(isVideoCall);
 
     return () => {
-      void stopCallForegroundService();
+      stopCallForegroundService();
     };
   }, [isCallActive, isVideoCall]);
 

@@ -9,6 +9,7 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -161,33 +162,31 @@ export function PortalIncidentsScreen() {
           </View>
 
           {filtered.length ? (
-            <View style={styles.list}>
+            <PortalDataList>
               {filtered.map((inc) => {
                 const sm = getStatusMeta(inc.status);
                 const sev = getSeverityMeta(inc.severity);
                 return (
-                  <Pressable
+                  <PortalDataRow
                     key={inc.id}
-                    accessibilityRole="button"
                     onPress={() => setDetailTarget(inc)}
-                    style={[styles.incRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                    <View style={[styles.incIcon, { backgroundColor: inc.severity === 'critical' ? palette.dangerSoft : palette.surfaceAlt }]}>
+                    leading={<View style={[styles.incIcon, { backgroundColor: inc.severity === 'critical' ? palette.dangerSoft : palette.surfaceAlt }]}>
                       <MaterialCommunityIcons name={getTypeIcon(inc.type)} size={20} color={inc.severity === 'critical' ? palette.danger : palette.accent} />
-                    </View>
-                    <View style={styles.incBody}>
+                    </View>}
+                    body={<>
                       <Text style={[styles.incTitle, { color: palette.text }]}>{inc.title}</Text>
                       <Text style={[styles.incMeta, { color: palette.muted }]} numberOfLines={1}>
                         {inc.type} · {inc.vehicle?.code || inc.vehicleId || 'Sin unidad'} · {formatDate(inc.createdAt, { fallback: '' })}
                       </Text>
-                    </View>
-                    <View style={styles.incBadges}>
+                    </>}
+                    meta={<View style={styles.incBadges}>
                       <StatusBadge label={inc.severity === 'critical' ? 'SOS' : sev.label} tone={sev.tone} />
                       <StatusBadge label={sm.label} tone={sm.tone} />
-                    </View>
-                  </Pressable>
+                    </View>}
+                  />
                 );
               })}
-            </View>
+            </PortalDataList>
           ) : (
             <EmptyState icon="alert-circle-outline" title="Sin incidencias" description="No hay incidencias registradas." />
           )}

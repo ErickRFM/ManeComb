@@ -12,6 +12,7 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import type { DocumentItem as ApiDocumentItem } from '@/src/types/app';
@@ -110,15 +111,13 @@ export function PortalDocumentsScreen() {
         </View>
 
         {filtered.length ? (
-          <View style={styles.list}>
+          <PortalDataList>
             {filtered.map((doc) => {
               const meta = getStatusMeta(doc.reviewStatus || doc.status);
               return (
-                <View key={doc.id} style={[styles.docRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                  <View style={styles.docIcon}>
+                <PortalDataRow key={doc.id} leading={<View style={styles.docIcon}>
                     <MaterialCommunityIcons name="file-document-outline" size={24} color={palette.accent} />
-                  </View>
-                  <View style={styles.docBody}>
+                  </View>} body={<>
                     <Text style={[styles.docName, { color: palette.text }]}>{doc.name}</Text>
                     <Text style={[styles.docMeta, { color: palette.muted }]}>
                       {doc.ownerType === 'vehicle' ? 'Unidad' : 'Conductor'}: {doc.ownerName || doc.ownerId} · {doc.category}
@@ -126,10 +125,7 @@ export function PortalDocumentsScreen() {
                     <Text style={[styles.docMeta, { color: palette.muted }]}>
                       Subido: {formatDate(doc.uploadedAt, { fallback: '—' })} · Vence: {formatDate(doc.expiresAt, { fallback: 'Sin vencimiento' })}
                     </Text>
-                  </View>
-                  <View style={styles.docActions}>
-                    <StatusBadge label={meta.label} tone={meta.tone} />
-                    <View style={styles.rowActions}>
+                  </>} meta={<StatusBadge label={meta.label} tone={meta.tone} />} actions={<View style={styles.rowActions}>
                       {doc.fileUrl || doc.storageKey ? (
                         <Pressable
                           accessibilityRole="button"
@@ -151,12 +147,10 @@ export function PortalDocumentsScreen() {
                           <MaterialCommunityIcons name="check-circle-outline" size={16} color={palette.accent} />
                         </Pressable>
                       ) : null}
-                    </View>
-                  </View>
-                </View>
+                    </View>} />
               );
             })}
-          </View>
+          </PortalDataList>
         ) : (
           <EmptyState icon="file-document-outline" title="Sin documentos" description="No hay documentos disponibles para revisión." />
         )}

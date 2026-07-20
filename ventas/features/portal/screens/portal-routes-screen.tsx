@@ -14,6 +14,7 @@ import { RouteGeometryThumbnail } from '../components/route-geometry-thumbnail';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
@@ -490,13 +491,10 @@ export function PortalRoutesScreen() {
           <>
             <View style={styles.unitsPanel}>
               <View style={styles.panelHeading}><Text style={styles.panelTitle}>Selecciona una unidad</Text><Text style={styles.panelCount}>{routeVehicles.length}</Text></View>
-              <View style={styles.unitsList}>{routeVehicles.map((vehicle) => {
+              <PortalDataList>{routeVehicles.map((vehicle) => {
                 const active = editor.vehicleId === vehicle.id;
-                return <Pressable accessibilityState={{ selected: active }} key={vehicle.id} onPress={() => setField('vehicleId', vehicle.id)} style={[styles.unitCard, active ? styles.unitCardActive : undefined]}>
-                  <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}><MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} /></View>
-                  <View style={styles.routeBody}><Text style={styles.unitCode}>{vehicle.code}</Text><Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text><Text style={styles.unitStatus}>● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}</Text></View>
-                </Pressable>;
-              })}</View>
+                return <PortalDataRow key={vehicle.id} selected={active} onPress={() => setField('vehicleId', vehicle.id)} leading={<View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}><MaterialCommunityIcons name="bus" size={20} color={active ? portalPalette.text : portalPalette.accent} /></View>} body={<><Text style={styles.unitCode}>{vehicle.code}</Text><Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text><Text style={styles.unitStatus}>● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}</Text></>} />;
+              })}</PortalDataList>
             </View>
 
             <View style={styles.catalogPanel}>

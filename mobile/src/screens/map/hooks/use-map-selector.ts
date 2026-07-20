@@ -239,6 +239,7 @@ export function useMapSelector({
     return () => controller.abort();
   }, [
     fitRoute,
+    hasUserMovedMapRef,
     routeFitPadding,
     selectorMode,
     selectorPoints.destination,

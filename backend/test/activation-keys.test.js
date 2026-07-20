@@ -60,7 +60,7 @@ async function runActivationKeyFlow() {
   assert.equal(
     buildSubscription({
       activationStatus: "active",
-      paymentStatus: "pending",
+      paymentStatus: "paid",
       status: "active",
       fleetSize: 4
     }).isActive,

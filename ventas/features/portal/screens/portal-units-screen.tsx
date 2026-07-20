@@ -13,6 +13,7 @@ import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 const MAINTENANCE_INTERVAL_KM = 10000;
@@ -264,18 +265,16 @@ export function PortalUnitsScreen() {
             <PortalButton onPress={() => router.push('/portal/rutas' as never)} variant="secondary">Continuar a rutas</PortalButton>
           ) : undefined}>
           {sortedVehicles.length ? (
-          <View style={styles.list}>
+          <PortalDataList>
             {sortedVehicles.map((vehicle) => {
               const status = getUnitStatus(vehicle);
               const routeLabel = vehicle.assignedRoute
                 ? `${vehicle.assignedRoute.originLabel || 'Origen'} -> ${vehicle.assignedRoute.destinationLabel || 'Destino'}`
                 : null;
               return (
-                <View key={vehicle.id} style={[styles.unitRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                  <View style={[styles.unitIcon, { backgroundColor: palette.surfaceAlt }]}>
+                <PortalDataRow key={vehicle.id} leading={<View style={[styles.unitIcon, { backgroundColor: palette.surfaceAlt }]}>
                     <MaterialCommunityIcons name="bus" size={21} color={palette.accent} />
-                  </View>
-                  <View style={styles.unitBody}>
+                  </View>} body={<>
                     <Text style={[styles.unitName, { color: palette.text }]}>{vehicle.code}</Text>
                     <Text style={[styles.unitMeta, { color: palette.muted }]}>
                       {vehicle.plate} · {getKilometersLabel(vehicle.currentKilometers)}
@@ -311,10 +310,7 @@ export function PortalUnitsScreen() {
                         </View>
                       );
                     })()}
-                  </View>
-                  <StatusBadge label={status.label} tone={status.tone} />
-                  {canManageUnits ? (
-                    <View style={styles.rowActions}>
+                  </>} meta={<StatusBadge label={status.label} tone={status.tone} />} actions={canManageUnits ? <View style={styles.rowActions}>
                       <PortalButton
                         accessibilityLabel={`Editar unidad ${vehicle.code}`}
                         onPress={() => startEdit(vehicle)}
@@ -327,12 +323,10 @@ export function PortalUnitsScreen() {
                         icon="trash-can-outline"
                         size="sm"
                         variant="danger" />
-                    </View>
-                  ) : null}
-                </View>
+                    </View> : undefined} />
               );
             })}
-          </View>
+          </PortalDataList>
         ) : (
           <EmptyState
             icon="bus-alert"

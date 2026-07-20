@@ -10,6 +10,7 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient } from '../portal-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, User, UserAccountStatus } from '@/src/types/app';
@@ -108,7 +109,7 @@ export function PortalUsersScreen() {
       {canManageUsers ? (
         <PortalSectionCard title="Asignacion de unidades" subtitle={`${driverUsers.length} conductores activados`}>
           {driverUsers.length ? (
-            <View style={styles.list}>
+            <PortalDataList>
               {driverUsers.map((driver) => {
                 const driverVehicleOptions = availableVehicles.filter(
                   (vehicle) => !vehicle.driverId || vehicle.driverId === driver.id || vehicle.id === driver.vehicleId
@@ -116,14 +117,12 @@ export function PortalUsersScreen() {
                 const assignedVehicle = vehicles.find((vehicle) => vehicle.id === driver.vehicleId);
 
                 return (
-                  <View key={driver.id} style={[styles.assignmentRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                    <View style={styles.userBody}>
+                  <PortalDataRow key={driver.id} body={<>
                       <Text style={[styles.userName, { color: palette.text }]}>{driver.name}</Text>
                       <Text style={[styles.userMeta, { color: palette.muted }]}>
                         {driver.email} / Unidad: {assignedVehicle?.code || 'Sin unidad'}
                       </Text>
-                    </View>
-                    <View style={styles.assignmentOptions}>
+                    </>} actions={<View style={styles.assignmentOptions}>
                       <Pressable
                         accessibilityRole="button"
                         onPress={() => void assignVehicleToDriver(driver.id, null)}
@@ -161,11 +160,10 @@ export function PortalUsersScreen() {
                           </Text>
                         </Pressable>
                       ))}
-                    </View>
-                  </View>
+                    </View>} />
                 );
               })}
-            </View>
+            </PortalDataList>
           ) : (
             <EmptyState
               icon="account-hard-hat-outline"
@@ -180,30 +178,25 @@ export function PortalUsersScreen() {
         title="Usuarios de gestión"
         subtitle={`${administrativeUsers.length} ${administrativeUsers.length === 1 ? 'usuario de gestión' : 'usuarios de gestión'}`}>
         {administrativeUsers.length ? (
-          <View style={styles.list}>
+          <PortalDataList>
             {administrativeUsers.map((item) => (
-              <View key={item.id} style={[styles.userRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                <View style={[styles.avatar, { backgroundColor: palette.accentSoft }]}>
+              <PortalDataRow key={item.id} leading={<View style={[styles.avatar, { backgroundColor: palette.accentSoft }]}>
                   <Text style={[styles.avatarText, { color: palette.accent }]}>{item.avatar && !item.avatar.startsWith('http') ? item.avatar : item.name.slice(0, 2)}</Text>
-                </View>
-                <View style={styles.userBody}>
+                </View>} body={<>
                   <Text style={[styles.userName, { color: palette.text }]}>{item.name}</Text>
                   <Text style={[styles.userMeta, { color: palette.muted }]}>
                     {item.email} / {item.accountType === 'company_owner' && item.role === 'owner' ? 'Owner' : formatRole(item.role)} / Ultimo acceso: {formatDate(item.lastAccessAt, { fallback: 'Sin acceso' })}
                   </Text>
-                </View>
-                <StatusBadge label={formatPortalStatus(item.userStatus || 'active')} tone={getPortalStatusTone(item.userStatus)} />
-                <View style={styles.rowActions}>
+                </>} meta={<StatusBadge label={formatPortalStatus(item.userStatus || 'active')} tone={getPortalStatusTone(item.userStatus)} />} actions={<View style={styles.rowActions}>
                   {canManageUsers && item.role !== 'owner' ? (
                     <>
                       <PortalButton accessibilityLabel={`Editar ${item.name}`} icon="pencil-outline" onPress={() => { setEditTarget(item); setEditStatus(item.userStatus || 'active'); }} size="sm" variant="icon" />
                       <PortalButton accessibilityLabel={`Eliminar ${item.name}`} icon="trash-can-outline" onPress={() => setDeleteTarget(item)} size="sm" variant="danger" />
                     </>
                   ) : null}
-                </View>
-              </View>
+                </View>} />
             ))}
-          </View>
+          </PortalDataList>
         ) : (
           <EmptyState
             icon="account-group-outline"

@@ -29,6 +29,7 @@ import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from 
 import { formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { isVehicleGpsFresh } from '../utils/tracking';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
@@ -1022,12 +1023,9 @@ function VehicleSidePanel({
               )}
             </View>
           ) : (
-            assignedDrivers.map((driver) => (
-              <View key={driver.id} style={styles.driverRow}>
-                <Text style={styles.driverRowText} numberOfLines={1}>{driver.name}</Text>
-                <StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />
-              </View>
-            ))
+            <PortalDataList>{assignedDrivers.map((driver) => (
+              <PortalDataRow key={driver.id} body={<Text style={styles.driverRowText} numberOfLines={1}>{driver.name}</Text>} meta={<StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />} />
+            ))}</PortalDataList>
           )}
           {driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
         </View>
@@ -1386,12 +1384,9 @@ function SessionDetailView({
       </View>
       <View style={styles.detailGrid}>
         <PortalSectionCard title="Checkpoints" subtitle={`${detail.visits.length} visitas persistidas`}>
-          {detail.visits.length ? detail.visits.slice(0, 12).map((visit, index) => (
-            <View key={visit.id} style={styles.compactRow}>
-              <Text style={styles.compactTitle}>Checkpoint #{index + 1}</Text>
-              <Text style={styles.unitMeta}>{formatDate(visit.timestamp)}</Text>
-            </View>
-          )) : <EmptyState icon="flag-outline" title="Sin checkpoints" description="No existen visitas registradas para esta jornada." />}
+          {detail.visits.length ? <PortalDataList>{detail.visits.slice(0, 12).map((visit, index) => (
+            <PortalDataRow key={visit.id} body={<Text style={styles.compactTitle}>Checkpoint #{index + 1}</Text>} meta={<Text style={styles.unitMeta}>{formatDate(visit.timestamp)}</Text>} />
+          ))}</PortalDataList> : <EmptyState icon="flag-outline" title="Sin checkpoints" description="No existen visitas registradas para esta jornada." />}
         </PortalSectionCard>
         <PortalSectionCard title="GPS" subtitle="Cobertura y precisión registradas">
           {hasPositions ? (

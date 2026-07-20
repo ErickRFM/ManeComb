@@ -9,6 +9,7 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import { ActivationTimeline, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import type { PortalActivationKey, PortalActivationKeysSummary, PortalOnboardingStep } from '@/src/types/app';
@@ -261,15 +262,13 @@ function ActivationKeyRow({
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
 
   return (
-    <View style={styles.keyRow}>
-      <View style={styles.keyIcon}>
+    <PortalDataRow leading={<View style={styles.keyIcon}>
         <MaterialCommunityIcons
           name={activationKey.status === 'used' ? 'account-check-outline' : 'key-variant'}
           size={21}
           color={activationKey.status === 'available' ? portalPalette.success : portalPalette.accent}
         />
-      </View>
-      <View style={styles.keyBody}>
+      </View>} body={<>
         <View style={styles.keyTopLine}>
           <Text style={styles.keyValue} selectable>
             {activationKey.key}
@@ -284,8 +283,7 @@ function ActivationKeyRow({
             ? `Conductor: ${usedBy || 'asociado'}`
             : `Vence: ${activationKey.expiresAt ? new Date(activationKey.expiresAt).toLocaleDateString('es-MX') : 'sin fecha'}`}
         </Text>
-      </View>
-      <View style={styles.keyActions}>
+      </>} actions={<View style={styles.keyActions}>
         <KeyActionButton
           icon="content-copy"
           label="Copiar"
@@ -323,8 +321,7 @@ function ActivationKeyRow({
             tone="danger"
           />
         ) : null}
-      </View>
-    </View>
+      </View>} />
   );
 }
 
@@ -536,7 +533,7 @@ export function PortalOnboardingScreen() {
               </View>
             ) : null}
             {activationKeys.length ? (
-              <View style={styles.keysList}>
+              <PortalDataList>
                 {activationKeys.map((activationKey) => (
                   <ActivationKeyRow
                     key={activationKey.id}
@@ -549,7 +546,7 @@ export function PortalOnboardingScreen() {
                     showShare={!hasAvailableKey}
                   />
                 ))}
-              </View>
+              </PortalDataList>
             ) : (
               <EmptyState
                 icon="key-variant"

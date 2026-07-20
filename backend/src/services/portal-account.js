@@ -50,6 +50,12 @@ function getSubscriptionStatus(order) {
   if (declaredStatuses.has("expired")) return "expired";
   if (declaredStatuses.has("past_due")) return "past_due";
 
+  // El estado de pago es la fuente de verdad para habilitar una suscripcion.
+  // Un flag de activacion legado no debe convertir un pago pendiente en activo.
+  if (["pending", "pending_payment", "payment_pending", "unpaid", "requires_payment"].includes(paymentStatus)) {
+    return paymentStatus;
+  }
+
   if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
     return "active";
   }
