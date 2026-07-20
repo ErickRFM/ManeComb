@@ -112,6 +112,25 @@ async function runActivationKeyFlow() {
       activatedAt: new Date().toISOString()
     });
 
+    const firstVehicle = await context.store.createVehicle({
+      organizationId: registerOwner.payload.user.organizationId,
+      code: "CB-T01",
+      plate: "TST-001-A",
+      status: "available"
+    });
+    const secondVehicle = await context.store.createVehicle({
+      organizationId: registerOwner.payload.user.organizationId,
+      code: "CB-T02",
+      plate: "TST-002-A",
+      status: "available"
+    });
+    const inactiveVehicle = await context.store.createVehicle({
+      organizationId: registerOwner.payload.user.organizationId,
+      code: "CB-INACTIVA",
+      plate: "TST-003-A",
+      status: "inactive"
+    });
+
     // Regresion: las keys creadas antes de persistir `orderId` deben resolver
     // la misma orden activa que Portal, no caer falsamente en plan inactivo.
     const legacyKey = await context.store.createActivationKey({
@@ -129,6 +148,11 @@ async function runActivationKeyFlow() {
 
     assert.equal(legacyValidation.status, 200);
     assert.equal(legacyValidation.payload.data.valid, true);
+    assert.deepEqual(
+      legacyValidation.payload.data.availableUnits.map((unit) => unit.id).sort(),
+      [firstVehicle.id, secondVehicle.id].sort()
+    );
+    await context.store.deleteVehicle(inactiveVehicle.id);
     await context.store.updateActivationKey(legacyKey.id, { status: "revoked" });
     const revokedValidation = await requestJson(`${context.url}/driver/activation/validate`, {
       body: JSON.stringify({ key: legacyKey.key }),
@@ -207,8 +231,7 @@ async function runActivationKeyFlow() {
         email: `conductor-uno-${stamp}@combis.app`,
         password,
         unit: {
-          code: "CB-T01",
-          plate: "TST-001-A"
+          vehicleId: firstVehicle.id
         }
       }),
       method: "POST"
@@ -273,8 +296,7 @@ async function runActivationKeyFlow() {
         email: `conductor-dos-${stamp}@combis.app`,
         password,
         unit: {
-          code: "CB-T02",
-          plate: "TST-002-A"
+          vehicleId: secondVehicle.id
         }
       }),
       method: "POST"

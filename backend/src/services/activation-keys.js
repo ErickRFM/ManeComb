@@ -13,7 +13,8 @@ const ACTIVATION_ERRORS = {
   limitReached: "Ya se alcanzó el límite de conductores del plan.",
   activationFailed: "No se pudo activar la cuenta. Intenta nuevamente.",
   unitNotFound: "La unidad seleccionada no está disponible.",
-  unitTaken: "Esta unidad ya no está disponible, elige otra."
+  unitTaken: "Esta unidad ya no está disponible, elige otra.",
+  unitRequired: "Selecciona una unidad disponible para continuar."
 };
 
 class ActivationKeyError extends Error {
@@ -432,7 +433,9 @@ async function listAvailableActivationUnits(store, companyId) {
   return (Array.isArray(fleet) ? fleet : [])
     .filter(
       (vehicle) =>
-        String(vehicle?.organizationId || "").trim() === organizationId && !vehicle?.driverId
+        String(vehicle?.organizationId || "").trim() === organizationId &&
+        String(vehicle?.status || "").trim().toLowerCase() === "available" &&
+        !vehicle?.driverId
     )
     // Minimo necesario para que el conductor reconozca su unidad en el selector.
     // La ruta y el estado se omiten a proposito: no ayudan a identificarla y
@@ -448,7 +451,7 @@ async function claimSelectedUnit(store, payload, companyId, driverId) {
   const vehicleId = String(payload?.unit?.vehicleId || "").trim();
 
   if (!vehicleId) {
-    return null;
+    throw new ActivationKeyError(ACTIVATION_ERRORS.unitRequired, 400);
   }
 
   const vehicle = await store.getVehicleById(vehicleId);
@@ -527,24 +530,6 @@ function normalizeDriverIdentity(payload) {
     email,
     phone: rawPhone || phoneDigits || "Pendiente",
     password
-  };
-}
-
-function buildVehiclePayload({ payload, companyId, driverId, activationKey }) {
-  const unit = payload?.unit && typeof payload.unit === "object" ? payload.unit : {};
-  const suffix = String(activationKey.key || activationKey.id || randomUUID())
-    .replace(/[^A-Z0-9]/gi, "")
-    .slice(-5)
-    .toUpperCase();
-
-  return {
-    organizationId: companyId,
-    code: String(unit.code || unit.vehicleCode || `CB-${suffix}`).trim(),
-    plate: String(unit.plate || `PEND-${suffix}`).trim().toUpperCase(),
-    routeId: String(unit.routeId || "").trim() || null,
-    capacity: Math.max(1, Number(unit.capacity) || 18),
-    status: "available",
-    driverId
   };
 }
 
@@ -635,13 +620,7 @@ async function registerDriverWithActivationKey(store, payload = {}) {
     }
 
     const nowIso = new Date().toISOString();
-    const vehiclePayload = buildVehiclePayload({
-      payload,
-      companyId: context.companyId,
-      driverId,
-      activationKey
-    });
-    const vehicle = selectedVehicle || existingVehicle || await store.createVehicle(vehiclePayload);
+    const vehicle = selectedVehicle;
     const userPayload = {
       id: driverId,
       name: identity.name,

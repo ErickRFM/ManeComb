@@ -184,6 +184,16 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     validateActivationKey(key);
   };
 
+  const handleActivationKeyChange = (value: string) => {
+    setDriverActivationKey(value);
+
+    if (value.trim() !== validatedKey) {
+      setDriverUnits(null);
+      setSelectedUnitId('');
+      setValidatedKey('');
+    }
+  };
+
   const handleSubmit = async () => {
     setHelperMessage(null);
     setHelperTone('error');
@@ -231,8 +241,13 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     const units = activation.availableUnits ?? [];
     const unitId = units.length === 1 ? units[0].id : selectedUnitId;
 
-    if (units.length > 0 && !units.some((unit) => unit.id === unitId)) {
-      setHelperMessage('Selecciona la unidad que te fue asignada.');
+    if (units.length === 0) {
+      setHelperMessage('No hay unidades disponibles para esta empresa.');
+      return;
+    }
+
+    if (!units.some((unit) => unit.id === unitId)) {
+      setHelperMessage('Selecciona una unidad disponible para continuar.');
       return;
     }
 
@@ -246,13 +261,14 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
         email: isEmailIdentity ? identity.email : undefined,
         phone: identity.phone,
         password: registerPassword,
-        unit: unitId ? { vehicleId: unitId } : undefined,
+        unit: { vehicleId: unitId },
       },
       rememberSession
     );
 
     if (!result.ok) {
       setHelperMessage(result.message || 'No se pudo activar la cuenta. Intenta nuevamente.');
+      await validateActivationKey(driverActivationKey);
     }
   };
 
@@ -398,7 +414,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                       label="Key de activación"
                       placeholder="MNCB-XXXXXX-XXXXXX-XXXXXX"
                       value={driverActivationKey}
-                      onChangeText={setDriverActivationKey}
+                      onChangeText={handleActivationKeyChange}
                       onBlur={handleActivationKeyBlur}
                       autoCapitalize="characters"
                       returnKeyType="next"
@@ -593,6 +609,8 @@ function UnitSelector({
   selectedUnitId: string;
   units: DriverActivationUnit[] | null;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+
   if (isLoading) {
     return (
       <View style={styles.field}>
@@ -614,40 +632,61 @@ function UnitSelector({
       {units.length === 0 ? (
         <View style={styles.unitPlaceholder}>
           <Text style={styles.unitEmptyText}>
-            No hay unidades disponibles. Tu administrador podrá asignarte una después de activar tu cuenta.
+            No hay unidades disponibles para esta empresa.
           </Text>
         </View>
       ) : (
-        <View style={styles.unitList}>
-          {units.map((unit) => {
-            const selected = unit.id === selectedUnitId;
-            const details = unit.plate || '';
-
-            return (
-              <Pressable
-                key={unit.id}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-                onPress={() => onSelect(unit.id)}
-                style={({ pressed }) => [
-                  styles.unitOption,
-                  selected ? styles.unitOptionActive : undefined,
-                  pressed ? styles.pressed : undefined,
-                ]}>
-                <View style={[styles.unitRadio, selected ? styles.unitRadioActive : undefined]}>
-                  {selected ? <View style={styles.unitRadioDot} /> : null}
-                </View>
-                <View style={styles.unitTextBlock}>
+        <View style={styles.unitCombo}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isOpen }}
+            onPress={() => setIsOpen((current) => !current)}
+            style={({ pressed }) => [styles.unitComboTrigger, pressed ? styles.pressed : undefined]}>
+            <Text style={selectedUnitId ? styles.unitComboValue : styles.unitComboPlaceholder}>
+              {selectedUnitId
+                ? formatActivationUnit(units.find((unit) => unit.id === selectedUnitId))
+                : 'Selecciona una unidad'}
+            </Text>
+            <MaterialCommunityIcons
+              name={isOpen ? 'chevron-up' : 'chevron-down'}
+              color="#333333"
+              size={22}
+            />
+          </Pressable>
+          {isOpen ? (
+            <View style={styles.unitComboMenu}>
+              {units.map((unit) => (
+                <Pressable
+                  key={unit.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: unit.id === selectedUnitId }}
+                  onPress={() => {
+                    onSelect(unit.id);
+                    setIsOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.unitComboOption,
+                    unit.id === selectedUnitId ? styles.unitComboOptionActive : undefined,
+                    pressed ? styles.pressed : undefined,
+                  ]}>
                   <Text style={styles.unitCode}>{unit.code}</Text>
-                  {details ? <Text style={styles.unitDetails}>{details}</Text> : null}
-                </View>
-              </Pressable>
-            );
-          })}
+                  {unit.plate ? <Text style={styles.unitDetails}>{unit.plate}</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
       )}
     </View>
   );
+}
+
+function formatActivationUnit(unit: DriverActivationUnit | undefined) {
+  if (!unit) {
+    return 'Selecciona una unidad';
+  }
+
+  return unit.plate ? `${unit.code} · ${unit.plate}` : unit.code;
 }
 
 function AuthField({
@@ -787,10 +826,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     overflow: 'hidden',
   },
-  unitList: {
-    gap: 8,
+  unitCombo: {
+    gap: 6,
   },
-  unitOption: {
+  unitComboTrigger: {
     minHeight: DesignSystem.control.md,
     borderRadius: DesignSystem.radius.input,
     borderWidth: 1.5,
@@ -798,35 +837,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  unitOptionActive: {
-    borderColor: '#EA1F23',
-    backgroundColor: '#FDF3F3',
-  },
-  unitRadio: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#111111',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unitRadioActive: {
-    borderColor: '#EA1F23',
-  },
-  unitRadioDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EA1F23',
-  },
-  unitTextBlock: {
+  unitComboValue: {
     flex: 1,
+    color: '#333333',
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  unitComboPlaceholder: {
+    flex: 1,
+    color: '#71788A',
+    fontFamily: Typography.body,
+    fontSize: 13,
+  },
+  unitComboMenu: {
+    borderRadius: DesignSystem.radius.input,
+    borderWidth: 1,
+    borderColor: '#D8D2C8',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  unitComboOption: {
+    minHeight: DesignSystem.control.md,
+    justifyContent: 'center',
     gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  unitComboOptionActive: {
+    backgroundColor: '#FDF3F3',
   },
   unitCode: {
     color: '#333333',

@@ -208,13 +208,8 @@ export type DriverActivationRegisterPayload = {
   email?: string;
   phone?: string;
   password: string;
-  unit?: {
-    vehicleId?: string;
-    code?: string;
-    vehicleCode?: string;
-    plate?: string;
-    routeId?: string;
-    capacity?: number;
+  unit: {
+    vehicleId: string;
   };
 };
 

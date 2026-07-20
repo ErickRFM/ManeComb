@@ -2679,7 +2679,8 @@ async function createMongoStore() {
       {
         _id: vehicleId,
         ...(organizationId ? { organizationId } : {}),
-        $or: [{ driverId: null }, { driverId: { $exists: false } }, { driverId }]
+        status: "available",
+        $or: [{ driverId: null }, { driverId: { $exists: false } }]
       },
       {
         $set: {

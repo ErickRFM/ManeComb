@@ -2230,6 +2230,10 @@ function createEmbeddedStore() {
       return null;
     }
 
+    if (String(vehicle.status || "").trim().toLowerCase() !== "available") {
+      return null;
+    }
+
     if (vehicle.driverId && vehicle.driverId !== driverId) {
       return null;
     }

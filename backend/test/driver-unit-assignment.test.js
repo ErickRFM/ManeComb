@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
 
 const { createEmbeddedStore } = require("../src/data/store");
-const { registerDriverWithActivationKey } = require("../src/services/activation-keys");
+const {
+  registerDriverWithActivationKey,
+  validateDriverActivationKey
+} = require("../src/services/activation-keys");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -155,7 +158,38 @@ async function runConcurrentUnitClaim() {
   console.log("ok - dos registros concurrentes por la misma unidad: solo uno gana y el perdedor conserva su key");
 }
 
-runConcurrentUnitClaim().catch((error) => {
+async function runNoAvailableUnitScenario() {
+  const store = createEmbeddedStore();
+  const { vehicle, keys } = await seedCompanyWithOneUnit(store);
+  const stamp = Date.now();
+  const email = `sin-unidad-${stamp}@combis.app`;
+
+  await store.updateVehicle(vehicle.id, { status: "inactive" });
+
+  const validation = await validateDriverActivationKey(store, keys[0].key);
+  assert.deepEqual(validation.availableUnits, []);
+
+  await assert.rejects(
+    registerDriverWithActivationKey(store, {
+      key: keys[0].key,
+      name: "Conductor Sin Unidad",
+      email,
+      password: "Ruta123!"
+    }),
+    /Selecciona una unidad disponible/i
+  );
+
+  const storedKey = await store.findActivationKeyByKey(keys[0].key);
+  const storedUser = await store.findUserByEmail(email);
+  assert.equal(storedKey.status, "available");
+  assert.equal(storedUser, null);
+  console.log("ok - sin unidades disponibles: no crea usuario ni consume la key");
+}
+
+Promise.resolve()
+  .then(runConcurrentUnitClaim)
+  .then(runNoAvailableUnitScenario)
+  .catch((error) => {
   console.error(error);
   process.exit(1);
-});
+  });
