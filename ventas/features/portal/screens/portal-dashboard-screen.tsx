@@ -62,6 +62,7 @@ const maxRenderedReplayPoints = 900;
 const replaySpeeds = [1, 2, 4] as const;
 const OperationsMap = lazy(() => import('../components/operations-map').then((module) => ({ default: module.OperationsMap })));
 const OPERATIONS_DETAIL_WIDTH = 360;
+const OPERATIONS_UNIT_SELECTOR_WIDTH = 240;
 const driverAvatarImageStyle: CSSProperties = {
   borderRadius: 20,
   height: 40,
@@ -727,7 +728,7 @@ export function PortalDashboardScreen() {
                 />
               </Suspense>
               {operationalVehicles.length ? (
-                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={styles.unitSelectorOverlay}>
+                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={[styles.mapOverlaySurface, styles.unitSelectorOverlay]}>
                   <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
                   {operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
@@ -741,18 +742,22 @@ export function PortalDashboardScreen() {
                   ))}
                 </View>
               ) : null}
+              {/* El carril no captura eventos: solo el chip es interactivo, para
+                  no bloquear el arrastre del mapa a lo ancho de la franja. */}
+              <View nativeID="operations-filters-lane" pointerEvents="box-none" style={styles.filtersOverlayLane}>
+                <View style={[styles.mapOverlaySurface, styles.filtersOverlay]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: operationsFilter === 'ALL' }}
+                    onPress={() => setOperationsFilter('ALL')}
+                    style={[styles.operationsFilter, operationsFilter === 'ALL' ? styles.operationsFilterActive : undefined]}>
+                    <View style={styles.filterStatusDot} />
+                    <Text style={styles.operationsFilterText}>Todas</Text>
+                    <Text style={styles.operationsFilterCount}>{operationsCounts.ALL}</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
-          </View>
-          <View style={styles.operationsFilters}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: operationsFilter === 'ALL' }}
-              onPress={() => setOperationsFilter('ALL')}
-              style={[styles.operationsFilter, operationsFilter === 'ALL' ? styles.operationsFilterActive : undefined]}>
-              <View style={styles.filterStatusDot} />
-              <Text style={styles.operationsFilterText}>Todas</Text>
-              <Text style={styles.operationsFilterCount}>{operationsCounts.ALL}</Text>
-            </Pressable>
           </View>
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-kpi-grid" style={styles.kpiRow}>
             <View style={styles.kpiTrack}>
@@ -1743,11 +1748,6 @@ const styles = StyleSheet.create({
   },
   controlHover: { backgroundColor: 'rgba(255,255,255,.09)', borderColor: portalPalette.lineStrong, boxShadow: '0 8px 20px rgba(0,0,0,.18)' as any },
   controlPressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
-  operationsFilters: {
-    // Sin `flex: 1`: la fila de filtros es hermana del mapa en una columna, y
-    // con flex:1 competia por el alto y se repartia el espacio con el mapa.
-    alignItems: 'center', flexDirection: 'row', flexShrink: 0, flexWrap: 'wrap', gap: 6, justifyContent: 'center', minWidth: 0,
-  },
   operationsFilter: {
     alignItems: 'center', backgroundColor: 'rgba(8, 16, 32, 0.42)', borderColor: 'transparent', borderRadius: 18,
     borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 28, paddingHorizontal: 8,
@@ -1856,7 +1856,8 @@ const styles = StyleSheet.create({
     height: '100%',
     minHeight: 0,
     overflowY: 'auto' as any,
-    paddingHorizontal: AppTheme.spacing.md,
+    // El contenido quedaba pegado a los bordes laterales del panel.
+    paddingHorizontal: AppTheme.spacing.lg,
     paddingVertical: AppTheme.spacing.md,
     boxShadow: '-14px 0 34px rgba(0,0,0,.18), inset 1px 0 0 rgba(255,255,255,.025)' as any,
   },
@@ -2075,7 +2076,8 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flex: 1,
-    gap: AppTheme.spacing.sm,
+    // Separacion entre grupos: cada bloque se lee como una unidad sin anadir bordes.
+    gap: AppTheme.spacing.md,
     animation: 'operationsFadeIn 200ms ease-in-out both' as any,
   },
   sideMetricGrid: {
@@ -2112,7 +2114,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.45,
-    marginTop: 5,
+    marginTop: AppTheme.spacing.xs,
     textTransform: 'uppercase',
   },
   sideHighlightRow: {
@@ -2122,8 +2124,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: AppTheme.spacing.sm,
     minWidth: 0,
+    // Aire alrededor de los divisores: sin esto el contenido queda pegado a las reglas.
+    paddingVertical: AppTheme.spacing.sm,
   },
   sideTitle: {
     color: portalPalette.text,
@@ -2202,21 +2206,47 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: 'space-between',
   },
-  unitSelectorOverlay: {
+  // Tratamiento visual compartido por los overlays del mapa. Se declara una sola
+  // vez y se compone en el render para no duplicar los literales de color.
+  mapOverlaySurface: {
     backgroundColor: 'rgba(5, 12, 25, 0.9)',
     borderColor: 'rgba(148,163,184,.24)',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
-    gap: AppTheme.spacing.xs,
-    left: AppTheme.spacing.md,
     backdropFilter: 'blur(16px)' as any,
     boxShadow: '0 20px 48px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.05)' as any,
+    padding: AppTheme.spacing.sm,
+  },
+  unitSelectorOverlay: {
+    gap: AppTheme.spacing.xs,
+    left: AppTheme.spacing.md,
     maxHeight: AppTheme.spacing.xxl * 7 + AppTheme.spacing.lg,
     overflow: 'auto' as any,
-    padding: AppTheme.spacing.sm,
     position: 'absolute',
     top: AppTheme.spacing.md,
-    width: 240,
+    width: OPERATIONS_UNIT_SELECTOR_WIDTH,
+  },
+  // Carril centrado en la franja superior del mapa. Arranca despues del panel
+  // de unidades y termina antes de los controles de zoom, de modo que el chip
+  // se centra en el hueco libre y no en el ancho total: al abrir el panel de
+  // unidad el mapa se estrecha y un centrado global lo hacia chocar con el
+  // panel de unidades. El borde inferior queda intacto para la escala, el logo
+  // y la atribucion de Mapbox.
+  filtersOverlayLane: {
+    alignItems: 'center',
+    left: OPERATIONS_UNIT_SELECTOR_WIDTH + AppTheme.spacing.md * 2,
+    position: 'absolute',
+    right: AppTheme.spacing.xxl + AppTheme.spacing.md,
+    top: AppTheme.spacing.md,
+  },
+  filtersOverlay: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: AppTheme.spacing.xs,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    minWidth: 0,
   },
   mapOverlayTitle: {
     color: portalPalette.text,

@@ -202,6 +202,19 @@ a {
   backdrop-filter: blur(12px);
 }
 
+/* La fila de KPI solo desborda cuando el panel de unidad estrecha la columna.
+   Ahi hace falta desplazamiento horizontal, pero la barra nativa restaba 17px
+   de alto al contenido y quedaba pegada a los valores. Se oculta el chrome
+   nativo y se conserva el desplazamiento por rueda, gesto y teclado. */
+#operations-kpi-grid {
+  scrollbar-width: none;
+}
+
+#operations-kpi-grid::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
 /* Portal responsive system: phone <= 479, mobile <= 767, tablet <= 979. */
 #operations-workspace #operations-detail-column {
   display: none !important;
@@ -301,6 +314,13 @@ a {
     max-width: calc(100% - 20px) !important;
     top: auto !important;
     width: 210px !important;
+  }
+
+  /* En movil el panel de unidades baja al pie del mapa, asi que la franja
+     superior queda libre y el chip puede centrarse a todo el ancho. */
+  #operations-filters-lane {
+    left: 0 !important;
+    right: 0 !important;
   }
 
   #operations-kpi-grid {
