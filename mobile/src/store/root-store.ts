@@ -17,6 +17,7 @@ import {
   type OfflineCacheSnapshot,
   type PendingSyncOperation,
 } from '@/src/api/offline-cache';
+import { APP_VERSION, BUILD_NUMBER } from '@/src/utils/version';
 import {
   API_URL,
   SOCKET_URL,
@@ -227,6 +228,13 @@ export type AppState = {
   isLoadingConversation: boolean;
   isLoadingChatContacts: boolean;
   error: string | null;
+  updateInfo: {
+    updateAvailable: boolean;
+    latestVersion: string;
+    mandatory: boolean;
+    releaseNotes: string[];
+    downloadUrl: string;
+  } | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
   register: (payload: RegisterPayload, rememberSession?: boolean) => Promise<ActionResult>;
@@ -328,6 +336,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     user: null,
     isSigningOut: false,
     error,
+    updateInfo: null,
   });
 }
 
@@ -1687,7 +1696,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false,
+  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
@@ -1766,7 +1775,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       let nextRefreshToken = rt;
       let s: SessionResult;
       try {
-        s = await getSessionRequest({ coldStart: true });
+        s = await getSessionRequest({ coldStart: true, appVersion: APP_VERSION });
       } catch (error) {
         if (isSessionEpochStale(epoch)) return;
         if (isProbablyNetworkError(error) && cached?.user) {
@@ -1787,12 +1796,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           return;
         }
         if (!rt) throw error;
-        const refreshed = await refreshSessionRequest(rt);
+        const refreshed = await refreshSessionRequest(rt, APP_VERSION);
         sessionToken = refreshed.token;
         nextRefreshToken = refreshed.refreshToken || rt;
         setAuthToken(sessionToken);
         await persistSession(sessionToken, connectionMode, nextRefreshToken);
-        s = await getSessionRequest({ coldStart: true });
+        s = await getSessionRequest({ coldStart: true, appVersion: APP_VERSION });
       }
       const cachedUser = cached?.user;
       const cachedIdentityChanged = Boolean(
@@ -1810,6 +1819,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const authContext = getAuthContextFromPayload(s);
       if (isSessionEpochStale(epoch)) return;
+      if (s.updateAvailable !== undefined) {
+        const updateInfoPayload = {
+          updateAvailable: s.updateAvailable,
+          latestVersion: s.latestVersion || '',
+          mandatory: s.mandatory || false,
+          releaseNotes: s.releaseNotes || [],
+          downloadUrl: s.downloadUrl || '',
+        };
+        set({ updateInfo: updateInfoPayload });
+      }
       set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
@@ -1826,7 +1845,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   signIn: async (e, p, r = true) => {
     set({ isSubmitting: true, error: null });
     try {
-      const res = await loginRequest(e, p);
+      const res = await loginRequest(e, p, APP_VERSION, BUILD_NUMBER);
+      if (res.updateAvailable !== undefined) {
+        const info = {
+          updateAvailable: res.updateAvailable,
+          latestVersion: res.latestVersion || '',
+          mandatory: res.mandatory || false,
+          releaseNotes: res.releaseNotes || [],
+          downloadUrl: res.downloadUrl || '',
+        };
+        set({ updateInfo: info });
+      }
       const { authContext, session } = await replaceSessionFromBackend(
         set,
         get,

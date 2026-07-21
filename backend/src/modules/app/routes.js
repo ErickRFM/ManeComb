@@ -19,6 +19,7 @@ router.get("/info", async (req, res) => {
     data: {
       name: "ManeComb",
       version: "1.0.2",
+      status: "disponible",
       apkUrl: "https://1drv.ms/u/s!Aq6TgxRWNbScgQah2wPwI8wZGn3L?e=JCh8cX",
       androidMin: "8.0",
       size: "42 MB",
@@ -32,6 +33,8 @@ router.get("/info", async (req, res) => {
           size: "42 MB",
           androidMin: "8.0",
           notes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
+          archived: false,
+          mandatory: false,
         },
         {
           version: "1.0.1",
@@ -40,6 +43,8 @@ router.get("/info", async (req, res) => {
           size: "45 MB",
           androidMin: "8.0",
           notes: ["Nueva radio operativa", "Optimización de consumo de datos", "Correcciones generales de interfaz"],
+          archived: false,
+          mandatory: false,
         },
         {
           version: "1.0.0",
@@ -48,6 +53,8 @@ router.get("/info", async (req, res) => {
           size: "48 MB",
           androidMin: "8.0",
           notes: ["Primera versión pública", "Mapa en tiempo real", "Chat con la central", "Gestión de incidencias"],
+          archived: false,
+          mandatory: false,
         },
       ],
     },
@@ -97,5 +104,14 @@ router.patch("/info", authenticate, wrapErrors(async (req, res) => {
     return res.json({ ok: true, data: updated });
   });
 }));
+
+router.get("/device-stats", authenticate, async (req, res) => {
+  const store = req.app.locals.store;
+  if (!store?.getDeviceVersionStats) {
+    return res.json({ ok: true, data: { total: 0, versions: {}, mostUsedVersion: null, lastPublication: null } });
+  }
+  const stats = store.getDeviceVersionStats();
+  return res.json({ ok: true, data: stats });
+});
 
 module.exports = router;

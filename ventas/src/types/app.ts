@@ -602,6 +602,7 @@ export type PortalAppVersion = {
   androidMin: string;
   notes: string[];
   archived?: boolean;
+  mandatory?: boolean;
 };
 
 export type PortalAppInfo = {

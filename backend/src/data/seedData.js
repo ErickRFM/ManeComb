@@ -482,6 +482,7 @@ function createSeedState() {
           androidMin: "8.0",
           notes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
           archived: false,
+          mandatory: false,
         },
         {
           version: "1.0.1",
@@ -491,6 +492,7 @@ function createSeedState() {
           androidMin: "8.0",
           notes: ["Nueva radio operativa", "Optimización de consumo de datos", "Correcciones generales de interfaz"],
           archived: false,
+          mandatory: false,
         },
         {
           version: "1.0.0",
@@ -500,6 +502,7 @@ function createSeedState() {
           androidMin: "8.0",
           notes: ["Primera versión pública", "Mapa en tiempo real", "Chat con la central", "Gestión de incidencias"],
           archived: false,
+          mandatory: false,
         },
       ],
     },

@@ -6,7 +6,9 @@ import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '../store/use-portal-store';
 import { portalButtonGradient, portalGlass, portalPalette } from '../portal-theme';
+import { getDeviceVersionStatsRequest } from '../api';
 import type { PortalAppInfo, PortalAppVersion } from '../types';
+import type { DeviceVersionStats } from '@/src/api/client';
 
 function deepEq(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -23,6 +25,17 @@ export function PortalAppAdmin() {
   const [historyEditor, setHistoryEditor] = useState<PortalAppVersion[]>([]);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deviceStats, setDeviceStats] = useState<DeviceVersionStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    setStatsLoading(true);
+    getDeviceVersionStatsRequest()
+      .then(setDeviceStats)
+      .catch(() => undefined)
+      .finally(() => setStatsLoading(false));
+  }, [isAdmin]);
 
   useEffect(() => {
     if (appInfo) {
@@ -73,6 +86,7 @@ export function PortalAppAdmin() {
         androidMin: '',
         notes: [],
         archived: false,
+        mandatory: false,
       },
       ...prev,
     ]);
@@ -369,6 +383,35 @@ export function PortalAppAdmin() {
         ))}
       </View>
 
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Estado de los dispositivos</Text>
+        <Text style={styles.sectionSubtitle}>Versiones instaladas en los teléfonos de los conductores</Text>
+        {statsLoading ? (
+          <Text style={styles.loadingText}>Cargando...</Text>
+        ) : deviceStats ? (
+          <View style={styles.statsGrid}>
+            <View style={styles.statCell}>
+              <Text style={styles.statValue}>{deviceStats.total}</Text>
+              <Text style={styles.statLabel}>Dispositivos</Text>
+            </View>
+            <View style={styles.statCell}>
+              <Text style={styles.statValue}>{deviceStats.mostUsedVersion || '—'}</Text>
+              <Text style={styles.statLabel}>Versión más usada</Text>
+            </View>
+            <View style={styles.statCell}>
+              <Text style={styles.statValue}>{deviceStats.lastPublication ? deviceStats.lastPublication.slice(0, 10) : '—'}</Text>
+              <Text style={styles.statLabel}>Última publicación</Text>
+            </View>
+            <View style={styles.statCell}>
+              <Text style={styles.statValue}>{Object.keys(deviceStats.versions).length}</Text>
+              <Text style={styles.statLabel}>Versiones distintas</Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.loadingText}>Sin datos de dispositivos</Text>
+        )}
+      </View>
+
       <View style={styles.saveBar}>
         {dirty && <View style={styles.dirtyDot} />}
         <Text style={styles.saveStatus}>
@@ -646,5 +689,42 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 14,
     fontWeight: '900',
+  },
+  loadingText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 4,
+  },
+  statCell: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexBasis: 140,
+    gap: 2,
+    minWidth: 0,
+    padding: AppTheme.spacing.md,
+  },
+  statValue: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  statLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

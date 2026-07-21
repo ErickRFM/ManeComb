@@ -1,4 +1,5 @@
 import axios, { isAxiosError, type AxiosError } from 'axios';
+import { Platform } from 'react-native';
 import {
   API_ORIGIN as RESOLVED_API_ORIGIN,
   API_TIMEOUT_MS as RESOLVED_API_TIMEOUT_MS,
@@ -440,10 +441,13 @@ export function getAuthHeaderSnapshot(fallbackToken?: string | null) {
   return value ? { Authorization: value } : undefined;
 }
 
-export async function loginRequest(email: string, password: string) {
+export async function loginRequest(email: string, password: string, appVersion?: string, buildNumber?: string) {
   const response = await apiClient.post<LoginResult>('/auth/login', {
     email,
     password,
+    appVersion,
+    buildNumber,
+    platform: Platform.OS,
   }, {
     _allowRetry: true,
     _skipAuthRefresh: true,
@@ -468,17 +472,22 @@ export async function registerRequest(payload: RegisterPayload) {
  */
 export const COLD_START_SESSION_TIMEOUT_MS = 75000;
 
-export async function getSessionRequest(options: { coldStart?: boolean } = {}) {
+export async function getSessionRequest(options: { coldStart?: boolean; appVersion?: string } = {}) {
+  const params: Record<string, string> = {};
+  if (options.appVersion) params.appVersion = options.appVersion;
   const response = await apiClient.get<SessionResult>(
     '/auth/me',
-    options.coldStart ? { timeout: COLD_START_SESSION_TIMEOUT_MS } : undefined
+    options.coldStart
+      ? { params, timeout: COLD_START_SESSION_TIMEOUT_MS }
+      : { params }
   );
   return response.data;
 }
 
-export async function refreshSessionRequest(refreshToken: string) {
+export async function refreshSessionRequest(refreshToken: string, appVersion?: string) {
   const response = await apiClient.post<LoginResult>('/auth/refresh', {
     refreshToken,
+    appVersion,
   }, {
     _allowRetry: true,
     _skipAuthRefresh: true,

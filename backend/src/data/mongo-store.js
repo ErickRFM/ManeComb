@@ -3562,6 +3562,7 @@ async function createMongoStore() {
 
   const seed = createSeedState();
   let appConfigStore = seed.appConfig ? JSON.parse(JSON.stringify(seed.appConfig)) : null;
+  const deviceVersionsStore = {};
 
   function getAppConfig() {
     return appConfigStore ? JSON.parse(JSON.stringify(appConfigStore)) : null;
@@ -3582,6 +3583,45 @@ async function createMongoStore() {
 
     appConfigStore = appConfig;
     return JSON.parse(JSON.stringify(appConfigStore));
+  }
+
+  function recordDeviceVersion(userId, versionInfo) {
+    deviceVersionsStore[userId] = {
+      version: versionInfo.version || "0.0.0",
+      buildNumber: versionInfo.buildNumber || "",
+      platform: versionInfo.platform || "",
+      deviceModel: versionInfo.deviceModel || "",
+      lastLogin: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function getDeviceVersionStats() {
+    const versions = Object.values(deviceVersionsStore);
+    const total = versions.length;
+    if (total === 0) {
+      return { total: 0, versions: {}, mostUsedVersion: null, lastPublication: null };
+    }
+
+    const versionCounts = {};
+    let mostUsedVersion = null;
+    let maxCount = 0;
+
+    for (const entry of versions) {
+      const v = entry.version || "unknown";
+      versionCounts[v] = (versionCounts[v] || 0) + 1;
+      if (versionCounts[v] > maxCount) {
+        maxCount = versionCounts[v];
+        mostUsedVersion = v;
+      }
+    }
+
+    return {
+      total,
+      versions: versionCounts,
+      mostUsedVersion,
+      lastPublication: appConfigStore?.releaseDate || null
+    };
   }
 
   return buildBackendStore({
@@ -3607,6 +3647,8 @@ async function createMongoStore() {
     findActivationKeyByKey,
     getAppConfig,
     updateAppConfig,
+    recordDeviceVersion,
+    getDeviceVersionStats,
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,

@@ -14,6 +14,7 @@ import { IncidentsScreen } from '@/src/screens/incidents-screen';
 import { LegalScreen } from '@/src/screens/legal-screen';
 import { MapScreen } from '@/src/screens/map-screen';
 import { BrandSyncLoader } from '@/src/components/brand-sync-loader';
+import { UpdateBanner } from '@/src/components/update-banner';
 import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 import { ProfileEditScreen } from '@/src/screens/profile-edit-screen';
 import { ProfileScreen } from '@/src/screens/profile-screen';
@@ -727,6 +728,7 @@ export default function App() {
                 <AppStack />
               )}
             </MobileErrorBoundary>
+            {isReady && user ? <UpdateBanner /> : null}
             <StatusBar style={theme.statusBar} backgroundColor={theme.colors.background} />
           </ThemeProvider>
           </NavigationContainer>

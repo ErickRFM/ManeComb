@@ -14,6 +14,48 @@ const { RESEND_API_KEY, RESEND_FROM_EMAIL, APP_URL } = require("../../config/env
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
 
+function compareVersions(a, b) {
+  const pa = String(a || "0.0.0").split(".").map(Number);
+  const pb = String(b || "0.0.0").split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+function getAppUpdateInfo(store, currentVersion) {
+  try {
+    const appConfig = store?.getAppConfig ? store.getAppConfig() : null;
+    if (!appConfig) return {};
+
+    const publishedVersion = appConfig.version;
+    if (!publishedVersion) return {};
+
+    const comparison = compareVersions(currentVersion, publishedVersion);
+
+    if (comparison >= 0) {
+      return { updateAvailable: false };
+    }
+
+    const latestEntry = Array.isArray(appConfig.versionHistory)
+      ? appConfig.versionHistory.find((v) => v.version === publishedVersion)
+      : null;
+
+    return {
+      updateAvailable: true,
+      latestVersion: publishedVersion,
+      mandatory: latestEntry ? Boolean(latestEntry.mandatory) : false,
+      releaseNotes: appConfig.releaseNotes || [],
+      downloadUrl: appConfig.apkUrl || "",
+    };
+  } catch (e) {
+    return {};
+  }
+}
+
 const router = Router();
 const authLimiter = enterpriseRateLimit({ scope: "auth", max: 20, windowMs: 60 * 1000 });
 const refreshLimiter = enterpriseRateLimit({ scope: "auth-refresh", max: 30, windowMs: 60 * 1000 });
@@ -72,6 +114,15 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
     severity: "info"
   });
 
+  const store = req.app.locals.store;
+  const { appVersion, buildNumber, platform } = req.body || {};
+  const deviceModel = req.headers["x-device-model"] || "";
+  const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};
+
+  if (appVersion && store?.recordDeviceVersion) {
+    store.recordDeviceVersion(user.id, { version: appVersion, buildNumber, platform, deviceModel });
+  }
+
   return res.status(statusCode).json({
     ok: true,
     token: session.token,
@@ -81,8 +132,9 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
     session: refresh.session,
     user,
     ...buildAuthContextPayload(authContext),
+    ...updateInfo,
     dashboard: authContext.canUseOperations
-      ? await req.app.locals.store.getDashboardOverview(user)
+      ? await store.getDashboardOverview(user)
       : null
   });
 }
@@ -219,6 +271,10 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
     severity: "info"
   });
 
+  const refreshStore = req.app.locals.store;
+  const { appVersion } = req.body || {};
+  const refreshUpdateInfo = appVersion ? getAppUpdateInfo(refreshStore, appVersion) : {};
+
   return res.json({
     ok: true,
     token: session.token,
@@ -227,7 +283,8 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
     refreshTokenExpiresAt: rotated.session.expiresAt,
     session: rotated.session,
     user,
-    ...buildAuthContextPayload(authContext)
+    ...buildAuthContextPayload(authContext),
+    ...refreshUpdateInfo
   });
 });
 
@@ -448,15 +505,20 @@ router.post("/logout-all", authenticate, async (req, res) => {
 });
 
 async function sendSessionResponse(req, res) {
-  const authContext = await buildAuthContext(req.app.locals.store, req.user);
+  const store = req.app.locals.store;
+  const authContext = await buildAuthContext(store, req.user);
   logAuthAccessDecision(req.path === "/session" ? "auth.session" : "auth.me", req.user, authContext);
+
+  const { appVersion } = req.query || {};
+  const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};
 
   return res.json({
     ok: true,
-    profile: await req.app.locals.store.getUserProfile(req.user.id),
+    profile: await store.getUserProfile(req.user.id),
     ...buildAuthContextPayload(authContext),
+    ...updateInfo,
     dashboard: authContext.canUseOperations
-      ? await req.app.locals.store.getDashboardOverview(req.user)
+      ? await store.getDashboardOverview(req.user)
       : null
   });
 }

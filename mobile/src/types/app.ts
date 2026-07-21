@@ -1007,6 +1007,11 @@ export type LoginResult = {
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;
   tenant?: AuthTenantContext | null;
+  updateAvailable?: boolean;
+  latestVersion?: string;
+  mandatory?: boolean;
+  releaseNotes?: string[];
+  downloadUrl?: string;
 };
 
 export type SessionResult = {
@@ -1023,6 +1028,11 @@ export type SessionResult = {
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;
   tenant?: AuthTenantContext | null;
+  updateAvailable?: boolean;
+  latestVersion?: string;
+  mandatory?: boolean;
+  releaseNotes?: string[];
+  downloadUrl?: string;
 };
 
 export type IncidentDraft = {

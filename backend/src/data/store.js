@@ -1527,6 +1527,47 @@ function createEmbeddedStore() {
     return clone(state.appConfig);
   }
 
+  state.deviceVersions = state.deviceVersions || {};
+
+  function recordDeviceVersion(userId, versionInfo) {
+    state.deviceVersions[userId] = {
+      version: versionInfo.version || "0.0.0",
+      buildNumber: versionInfo.buildNumber || "",
+      platform: versionInfo.platform || "",
+      deviceModel: versionInfo.deviceModel || "",
+      lastLogin: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function getDeviceVersionStats() {
+    const versions = Object.values(state.deviceVersions);
+    const total = versions.length;
+    if (total === 0) {
+      return { total: 0, versions: {}, mostUsedVersion: null, lastPublication: null };
+    }
+
+    const versionCounts = {};
+    let mostUsedVersion = null;
+    let maxCount = 0;
+
+    for (const entry of versions) {
+      const v = entry.version || "unknown";
+      versionCounts[v] = (versionCounts[v] || 0) + 1;
+      if (versionCounts[v] > maxCount) {
+        maxCount = versionCounts[v];
+        mostUsedVersion = v;
+      }
+    }
+
+    return {
+      total,
+      versions: versionCounts,
+      mostUsedVersion,
+      lastPublication: state.appConfig?.releaseDate || null
+    };
+  }
+
   function getOperationalInsights({ hours = 24, limit = 10 } = {}) {
     const safeHours = Math.max(1, Number(hours) || 24);
     const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
@@ -2977,6 +3018,8 @@ function createEmbeddedStore() {
     recordAppEvent,
     getAppConfig,
     updateAppConfig,
+    recordDeviceVersion,
+    getDeviceVersionStats,
     registerPushSubscription,
     registerUser,
     resetPasswordWithToken,

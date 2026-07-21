@@ -8,6 +8,7 @@ export {
   getAccountSubscriptionRequest,
   getApiErrorMessage,
   getAppInfoRequest,
+  getDeviceVersionStatsRequest,
   getDocumentsRequest,
   getIncidentsRequest,
   getPortalOnboardingRequest,
