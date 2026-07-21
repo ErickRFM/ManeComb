@@ -434,8 +434,183 @@ def add_cross_team(doc: Document):
     doc.add_page_break()
 
 
+def add_detailed_annexes(doc: Document):
+    add_heading(doc, "7. Informes detallados por disciplina", 1)
+    add_body(doc, "Los apartados siguientes amplían el reporte principal con un nivel de detalle orientado a seguimiento de proyecto. Describen qué se trabajó, cómo aporta al producto, qué evidencia existe y qué falta para considerar cada frente terminado.")
+
+    add_heading(doc, "7.1 Informe extenso del Analista", 2)
+    add_heading(doc, "Levantamiento y delimitación del producto", 3)
+    add_body(doc, "El análisis parte de una necesidad operativa: controlar unidades de transporte, conocer su ubicación, asignar rutas y conductores, mantener comunicación y conservar evidencia de viajes e incidencias. A esta necesidad se añadió un frente comercial para contratar planes, activar empresas y administrar facturación. La solución resultante se delimitó como una plataforma multiempresa con dos experiencias cliente y un backend compartido.")
+    add_body(doc, "La app móvil atiende al personal que trabaja con conectividad cambiante y necesita acciones rápidas. El portal web atiende a responsables de operación, propietarios y personal administrativo. Esta separación evita trasladar una interfaz de escritorio al conductor, pero obliga a compartir identidad, permisos, estados y reglas. Por ello se definió al backend como autoridad y a los clientes como representaciones especializadas.")
+    add_heading(doc, "Descomposición funcional", 3)
+    analyst_rows = [
+        ["Identidad", "Registro, login, recuperación, refresh, logout y sesiones.", "Acceso seguro y continuidad."],
+        ["Organización", "Empresa, roles, permisos, usuarios y aislamiento.", "Operación multiempresa."],
+        ["Flota", "Unidades, conductores, capacidad, estado y asociación.", "Inventario operacional."],
+        ["Rutas", "Origen, destino, paradas, geometría, asignación y sesiones.", "Planeación y ejecución."],
+        ["Seguimiento", "GPS, posición, velocidad, ETA, polilínea y eventos.", "Visibilidad en tiempo real."],
+        ["Comunicación", "Chat, radio, llamadas, presencia y notificaciones.", "Coordinación del equipo."],
+        ["Control", "Documentos, incidencias, auditoría y observabilidad.", "Cumplimiento y respuesta."],
+        ["Comercial", "Planes, pago, activación, onboarding y facturación.", "Monetización y administración."],
+    ]
+    add_table(doc, ["Dominio", "Capacidades analizadas", "Objetivo"], analyst_rows, [1700, 5160, 2500], font_size=8.3)
+    add_heading(doc, "Criterios de negocio consolidados", 3)
+    for item in [
+        "Una organización solo debe consultar y modificar recursos que le pertenecen; el rol complementa, pero no sustituye, el aislamiento por empresa.",
+        "Una unidad puede existir sin ruta activa, pero no debe mostrarse como operando si no cumple las condiciones definidas de asignación y sesión.",
+        "El estado mostrado en mapas debe provenir de la proyección operacional canónica, no de combinaciones locales de endpoints.",
+        "La activación comercial habilita el acceso al portal y enlaza la cuenta con la organización; los eventos duplicados no deben duplicar recursos.",
+        "Los cambios críticos —plan, pago, documento, incidencia, ruta o sesión— deben dejar evidencia suficiente para auditoría.",
+        "Las funciones dependientes de proveedores externos deben declarar disponibilidad, degradación y mensajes comprensibles para el usuario.",
+    ]:
+        add_bullet(doc, item)
+    add_heading(doc, "Resultados y valor del análisis", 3)
+    add_body(doc, "El principal resultado del análisis es la coherencia entre dominios que inicialmente podían crecer por separado. El ciclo de venta termina en una cuenta operativa; la cuenta produce usuarios y claves; los usuarios operan unidades y rutas; esa operación genera posiciones, viajes, incidencias y comunicaciones; finalmente el portal convierte los datos en supervisión y administración. Esta cadena permite revisar una historia completa y detectar dónde faltan contratos o pruebas.")
+    add_body(doc, "También se identificó deuda de experiencia: múltiples pantallas resolvían patrones visuales de manera independiente. El inventario de componentes permitió iniciar extracciones controladas sin forzar casos especializados. Desde análisis, esta decisión reduce costo de cambio y ayuda a que los estados funcionales tengan una presentación consistente.")
+    doc.add_page_break()
+
+    add_heading(doc, "7.2 Informe extenso de Backend", 2)
+    add_heading(doc, "Estructura del servicio", 3)
+    add_body(doc, "El backend expone una API Express organizada en rutas, middlewares y servicios. Las rutas traducen HTTP a operaciones del dominio; los middlewares aplican autenticación, permisos y contexto; los servicios concentran reglas reutilizables; el store o los repositorios encapsulan persistencia. Esta estructura reduce el riesgo de que una regla de activación, tenant o estado se implemente de forma distinta en varios endpoints.")
+    add_body(doc, "Socket.IO se integra al mismo contexto de identidad. Las conexiones se agrupan en salas por usuario, rol y organización, lo que permite emitir solo a los destinatarios autorizados. Los eventos no reemplazan a la persistencia: notifican que un cambio ocurrió y permiten refrescar o aplicar una proyección segura.")
+    add_heading(doc, "Detalle de módulos implementados", 3)
+    backend_rows = [
+        ["Auth", "Login, registro, refresh, recuperación, sesión y respaldo E2EE.", "JWT, bcrypt, sesión y validación."],
+        ["Portal", "Overview y onboarding construidos con órdenes, usuarios, keys y unidades.", "Acceso de portal y tenant."],
+        ["Commercial", "Planes, checkout, confirmación, webhook, activación y descarga.", "Permiso de facturación e idempotencia."],
+        ["Account", "Suscripción, plan, cancelación, facturas y sesiones.", "Propiedad de cuenta y auditoría."],
+        ["Navigation", "Búsqueda, plan, rutas, asignación, sesiones, posiciones y métricas.", "Acceso operacional y validación GPS."],
+        ["RTC", "Configuración ICE y consulta administrativa de sesiones.", "STUN/TURN y CDR."],
+        ["Notifications", "Persistencia, lectura, suscripciones push y entrega.", "Destinatarios por usuario/rol."],
+        ["Communication", "Plantillas, proveedor, cola, historial, métricas y reintento.", "Configuración segura de correo."],
+    ]
+    add_table(doc, ["Módulo", "Responsabilidad", "Control principal"], backend_rows, [1800, 5160, 2400], font_size=8.1)
+    add_heading(doc, "Procesamiento de una operación típica", 3)
+    for item in [
+        "La solicitud entra con un trace id y pasa por autenticación cuando el recurso lo exige.",
+        "El middleware recupera identidad, rol y organización y rechaza accesos fuera de alcance.",
+        "La ruta valida el payload y delega la operación a un servicio o store.",
+        "La regla comprueba transición de estado, pertenencia e idempotencia cuando aplica.",
+        "La persistencia se actualiza y la respuesta se normaliza para el cliente.",
+        "Si el cambio afecta a terceros se emite un evento a salas autorizadas y se registra telemetría.",
+        "Las integraciones externas devuelven un estado explícito; el fallo se registra sin ocultarlo como éxito.",
+    ]:
+        add_bullet(doc, item)
+    add_heading(doc, "Problemas atendidos", 3)
+    add_body(doc, "Los ajustes recientes sobre suscripción activa y activación de conductor atacan un problema común en plataformas con varios módulos: dos representaciones del mismo estado pueden divergir. La corrección busca que la cuenta, el portal y el acceso operativo compartan una interpretación. Del mismo modo, las mejoras de geolocalización y tracking refuerzan la integridad de posiciones y sesiones para que el mapa no compense errores de datos con lógica visual.")
+    add_heading(doc, "Pendientes de endurecimiento", 3)
+    for item in [
+        "Completar contratos OpenAPI con ejemplos de éxito, error, permisos y transiciones.",
+        "Probar idempotencia bajo reintentos simultáneos de webhook, correo y activación.",
+        "Asegurar índices para consultas por organización, unidad, sesión, fecha y estado.",
+        "Definir retención y anonimización para ubicaciones, eventos y sesiones RTC.",
+        "Incorporar health/readiness específicos de MongoDB, Redis, correo, pagos, mapas y TURN.",
+        "Establecer límites y alertas de latencia para endpoints críticos y emisiones Socket.IO.",
+    ]:
+        add_bullet(doc, item)
+    doc.add_page_break()
+
+    add_heading(doc, "7.3 Informe extenso de Frontend", 2)
+    add_heading(doc, "Aplicación móvil: experiencia operativa", 3)
+    add_body(doc, "La aplicación móvil está diseñada para sesiones prolongadas, cambios de red y operación en movimiento. La navegación por rol evita mostrar acciones administrativas al conductor. El cliente HTTP maneja token, refresh y tiempos de espera, mientras el estado local conserva información necesaria para que una reconexión no obligue a reiniciar toda la experiencia.")
+    add_body(doc, "El mapa evolucionó para representar posición actual, ruta asignada y recorrido con polilínea. Los servicios de ubicación separan adquisición, permisos, envío y visualización. Los paneles muestran estado de seguimiento y acciones disponibles según sesión. Esta separación facilita probar la lógica sin depender totalmente del componente de mapa.")
+    add_heading(doc, "Portal de ventas: experiencia administrativa", 3)
+    add_body(doc, "El portal reúne la contratación y la administración posterior. El usuario puede revisar plan, pagos, facturas, sesiones y perfil, pero también operar unidades, rutas, usuarios, documentos e incidencias. La navegación debe comunicar claramente cuándo una función depende del plan, del rol o de completar onboarding.")
+    add_body(doc, "El store del portal agrupa cargas relacionadas y aplica eventos en tiempo real. Esta estrategia reduce llamadas repetidas, pero exige invalidar correctamente después de cambios. Las pantallas deben evitar estados intermedios engañosos: una acción que se envía no debe mostrarse confirmada hasta recibir respuesta o evento válido.")
+    add_heading(doc, "Detalle de trabajo visual y estructural", 3)
+    frontend_rows = [
+        ["Mapas", "Seguimiento, geometría, polilíneas y miniaturas de ruta.", "Mejor comprensión espacial."],
+        ["Paneles", "Controles contextuales y métricas operativas.", "Decisión rápida del usuario."],
+        ["Botones", "Variantes, tamaños, iconos, loading y disabled compartidos.", "Consistencia y menos duplicación."],
+        ["Listas", "Filas componibles con leading, body, meta y actions.", "Reuso sin acoplar dominios."],
+        ["Errores", "Error boundary y mensajes por pantalla.", "Aislamiento de fallos."],
+        ["Responsive", "Composición web sobre React Native Web.", "Una base visual adaptable."],
+        ["Estado", "Zustand, caché temporal y eventos.", "Sincronización predecible."],
+    ]
+    add_table(doc, ["Frente", "Trabajo", "Beneficio"], frontend_rows, [1600, 5260, 2500], font_size=8.3)
+    add_heading(doc, "Casos que requieren especial atención", 3)
+    for item in [
+        "Mapas con miles de posiciones o geometrías incompletas, para evitar congelamientos y trazos incorrectos.",
+        "Pantallas abiertas durante un cambio de plan, activación o revocación de sesión.",
+        "Estados vacíos reales frente a errores de red; ambos no deben verse iguales.",
+        "Módulos nativos ausentes en web o en builds incompletos, especialmente WebRTC, ubicación y notificaciones.",
+        "Acciones repetidas por doble clic o reconexión que podrían duplicar una mutación.",
+        "Accesibilidad de tablas, modales, botones de icono, navegación por teclado y contraste.",
+    ]:
+        add_bullet(doc, item)
+    add_heading(doc, "Pendientes de frontend", 3)
+    add_body(doc, "El siguiente esfuerzo debe equilibrar unificación visual y validación runtime. Conviene completar componentes compartidos solo cuando existe repetición verificada, migrar pantallas en lotes pequeños y cargar cada ruta con datos reales. En ventas es prioritario añadir pruebas automatizadas, porque typecheck y build no detectan fallos de evaluación de módulos, incompatibilidades de props ni datos que rompen el render.")
+    doc.add_page_break()
+
+    add_heading(doc, "7.4 Informe extenso del Tester", 2)
+    add_heading(doc, "Estrategia actual", 3)
+    add_body(doc, "La calidad se aborda en varias capas. Backend contiene pruebas de arquitectura e integración para reglas críticas. La app móvil declara suites Jest para navegación, caché, cifrado, presencia, RTC, ubicación, mapas y radio, además de Playwright y Detox para recorridos. El portal de ventas valida tipos y empaquetado, pero la ausencia de una suite propia deja un riesgo visible en regresiones de pantalla.")
+    add_heading(doc, "Inventario de áreas de prueba", 3)
+    test_rows = [
+        ["Seguridad", "Auth, RBAC, tenant, CORS, errores y secretos.", "Acceso indebido o filtración."],
+        ["Operación", "Unidades, asignación, sesión, GPS, ruta y métricas.", "Seguimiento inconsistente."],
+        ["Comercial", "Plan, checkout, confirmación, webhook y activación.", "Cobro o acceso incorrecto."],
+        ["Comunicación", "Chat, push, correo, radio y RTC.", "Mensajes perdidos o duplicados."],
+        ["Frontend", "Rutas, estados, mapas, listas, modales y formularios.", "Caída o bloqueo del usuario."],
+        ["Resiliencia", "Offline, timeout, refresh, reconexión y reintento.", "Datos obsoletos o duplicados."],
+        ["No funcional", "Rendimiento, accesibilidad, compatibilidad y batería.", "Mala experiencia en campo."],
+    ]
+    add_table(doc, ["Área", "Cobertura necesaria", "Riesgo que controla"], test_rows, [1700, 4860, 2800], font_size=8.3)
+    add_heading(doc, "Casos de prueba detallados prioritarios", 3)
+    detailed_cases = [
+        ["QA-01", "Compra y activación", "Pago confirmado activa una sola cuenta y permite onboarding.", "P0"],
+        ["QA-02", "Webhook repetido", "Múltiples entregas no duplican cuenta, factura ni correo.", "P0"],
+        ["QA-03", "Tenant cruzado", "Usuario A no consulta unidades, rutas, sockets ni archivos de B.", "P0"],
+        ["QA-04", "GPS offline", "Posiciones se recuperan en orden y sin saltos inválidos.", "P0"],
+        ["QA-05", "Ruta activa", "Asignación, inicio, pausa y cierre actualizan móvil y portal.", "P0"],
+        ["QA-06", "Llamada móvil", "Audio conecta, permanece en background y cierra CDR.", "P1"],
+        ["QA-07", "TURN", "Llamada funciona entre redes restrictivas o falla con mensaje claro.", "P1"],
+        ["QA-08", "Correo", "Plantilla correcta, una entrega lógica y estado auditable.", "P1"],
+        ["QA-09", "Portal completo", "Todas las pantallas cargan datos sin error boundary.", "P1"],
+        ["QA-10", "Accesibilidad", "Teclado, foco, etiquetas y contraste cumplen criterios.", "P2"],
+    ]
+    add_table(doc, ["ID", "Escenario", "Resultado esperado", "Prioridad"], detailed_cases, [1000, 2500, 4560, 1300], font_size=8.0)
+    add_heading(doc, "Evidencia de ejecución esperada", 3)
+    for item in [
+        "Resultado de comando, versión del código, ambiente y variables no sensibles utilizadas.",
+        "Captura o video para recorridos visuales, acompañado de logs con trace id.",
+        "Datos de prueba identificables y procedimiento para restaurar el ambiente.",
+        "Reporte de defectos con severidad, reproducibilidad, componente y prueba de regresión.",
+        "Matriz final con casos ejecutados, aprobados, fallidos, bloqueados y riesgo residual.",
+    ]:
+        add_bullet(doc, item)
+    doc.add_page_break()
+
+    add_heading(doc, "8. Anexo de trazabilidad", 1)
+    add_body(doc, "La matriz siguiente conecta capacidades del producto con el trabajo de cada disciplina. Sirve como base para convertir este reporte en un plan verificable de liberación.")
+    trace_rows = [
+        ["Autenticación", "Roles y sesión", "Auth/JWT", "Login y rutas", "Auth/RBAC"],
+        ["Compra", "Estados comerciales", "Checkout/webhook", "Flujo ventas", "Pago/idempotencia"],
+        ["Activación", "Criterios de acceso", "Cuenta/keys", "Onboarding", "Primer acceso"],
+        ["Unidades", "Reglas de alta", "Vehicles/store", "Portal/app", "CRUD/tenant"],
+        ["Rutas", "Ciclo operativo", "Navigation", "Mapa/panel", "Sesión/métricas"],
+        ["GPS", "Fuente canónica", "Locations/socket", "Tracking", "Offline/integridad"],
+        ["Incidencias", "Estados/severidad", "Incidents", "Lista/acciones", "Permisos/transición"],
+        ["Documentos", "Revisión/vigencia", "Documents", "Carga/revisión", "Archivo/acceso"],
+        ["Llamadas", "Casos RTC", "ICE/CDR/socket", "WebRTC/nativo", "Red/reconexión"],
+        ["Correo", "Eventos/plantillas", "Communication", "Feedback", "Entrega/reintento"],
+    ]
+    add_table(doc, ["Capacidad", "Analista", "Backend", "Frontend", "Tester"], trace_rows, [1400, 1900, 2100, 1960, 2000], font_size=7.8)
+    add_heading(doc, "8.1 Indicadores recomendados", 2)
+    metrics_rows = [
+        ["Producto", "Tasa de activación, tiempo a primera unidad, usuarios activos."],
+        ["Backend", "Disponibilidad, p95, errores, sockets, webhooks duplicados."],
+        ["Frontend", "Errores de pantalla, tiempo de carga, renders y fallos de mapa."],
+        ["Operación", "Frecuencia GPS, posiciones descartadas, sesiones completas."],
+        ["Comunicación", "Llamadas conectadas, duración, jitter, correo entregado/rebotado."],
+        ["Calidad", "Cobertura P0, defectos reabiertos, regresiones y tiempo de corrección."],
+    ]
+    add_table(doc, ["Dimensión", "Indicadores"], metrics_rows, [2200, 7160], font_size=8.6)
+    doc.add_page_break()
+
+
 def add_close(doc: Document):
-    add_heading(doc, "7. Conclusión y próximos hitos", 1)
+    add_heading(doc, "9. Conclusión y próximos hitos", 1)
     add_body(doc, "El producto cuenta con una base funcional amplia y una integración coherente entre operación móvil, servicios backend y administración comercial. El avance reciente mejoró especialmente seguimiento, mapas, interfaz y activación. La siguiente fase debe priorizar confiabilidad de producción y evidencia de calidad, no únicamente nuevas pantallas.")
     for item in [
         "Cerrar criterios de aceptación y matriz de trazabilidad por rol.",
@@ -462,6 +637,7 @@ def build():
     add_frontend(doc)
     add_tester(doc)
     add_cross_team(doc)
+    add_detailed_annexes(doc)
     add_close(doc)
     doc.core_properties.title = "Reporte de avances por rol"
     doc.core_properties.subject = "Analista, backend, frontend y tester"

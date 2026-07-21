@@ -97,8 +97,10 @@ function isActive(pathname: string, href: string, currentSection?: string, itemS
 }
 
 export function PortalLayout({ title, subtitle, actions, children, compact = false, wide = false }: PortalLayoutProps) {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const isWide = width >= 980;
+  // Desplazamiento del drawer bajo la barra superior movil (barra ~44 + aire).
+  const mobileMenuTop = AppTheme.spacing.xxl + AppTheme.spacing.xl;
   const isWeb = Platform.OS === 'web';
   const pathname = usePathname();
   const params = useLocalSearchParams<{ section?: string | string[] }>();
@@ -222,17 +224,6 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         </View>
       ) : null}
 
-      {!isWide && mobileMenuOpen ? (
-        <View style={styles.mobileMenu}>
-          {navSections.map((section) => (
-            <View key={section.title} style={styles.mobileNavSection}>
-              <Text style={styles.navSectionTitle}>{section.title}</Text>
-              <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
       <View nativeID="portal-header" style={[styles.header, fadeInUp(0)]}>
         <View nativeID="portal-header-text" style={styles.headerText}>
           <View nativeID="portal-breadcrumb" style={styles.breadcrumb}>
@@ -308,6 +299,29 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
           </KeyboardSafeScrollView>
         )}
       </View>
+
+      {/* Menu movil como drawer superpuesto: se monta al nivel del SafeAreaView
+          (fuera del flujo del contenido) para que abrirlo o cerrarlo NO desplace
+          el encabezado, la accion ni el mapa. El tap-catcher transparente cierra
+          al tocar fuera. */}
+      {!isWide && mobileMenuOpen ? (
+        <View nativeID="portal-mobile-menu-overlay" style={[styles.mobileMenuOverlay, { top: mobileMenuTop }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar menú"
+            onPress={() => setMobileMenuOpen(false)}
+            style={styles.mobileMenuScrim}
+          />
+          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-mobile-menu" style={[styles.mobileMenuPanel, { maxHeight: height - mobileMenuTop - AppTheme.spacing.lg }, portalGlass()]}>
+            {navSections.map((section) => (
+              <View key={section.title} style={styles.mobileNavSection}>
+                <Text style={styles.navSectionTitle}>{section.title}</Text>
+                <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -523,14 +537,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 42,
   },
-  mobileMenu: {
+  mobileMenuOverlay: {
+    bottom: 0,
+    left: 0,
+    right: 0,
+    position: 'absolute',
+    zIndex: 200,
+    ...(Platform.OS === 'web' ? ({ position: 'fixed' } as any) : {}),
+  },
+  mobileMenuScrim: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  mobileMenuPanel: {
     backgroundColor: portalPalette.surface,
     borderColor: portalPalette.line,
-    borderRadius: 14,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
-    gap: 10,
-    maxWidth: '100%',
-    padding: 12,
+    gap: AppTheme.spacing.sm,
+    left: AppTheme.spacing.md,
+    overflow: 'auto' as any,
+    padding: AppTheme.spacing.sm,
+    position: 'absolute',
+    right: AppTheme.spacing.md,
+    top: 0,
   },
   mobileNavSection: {
     gap: 6,

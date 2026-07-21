@@ -61,6 +61,20 @@ a {
   color: inherit;
 }
 
+/* El autocompletado de Chromium/Brave pinta los inputs con un fondo claro que
+   rompe el tema oscuro (login y portal). Se mantiene el texto claro y se simula
+   el fondo oscuro del input con un box-shadow interior. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f8fafc;
+  -webkit-box-shadow: 0 0 0 1000px rgba(8, 13, 27, 0.92) inset;
+  box-shadow: 0 0 0 1000px rgba(8, 13, 27, 0.92) inset;
+  caret-color: #f8fafc;
+  transition: background-color 9999s ease-out 0s;
+}
+
 *:focus-visible {
   outline: 2px solid #00C2FF;
   outline-offset: 3px;
@@ -277,8 +291,21 @@ a {
     min-height: 44px !important;
   }
 
+  /* La accion de Operaciones es un boton de solo icono (item 2): no debe
+     estirarse a ancho completo ni ocupar una fila propia. */
+  #portal-header-actions:has(#operations-header-action) {
+    justify-content: flex-end !important;
+    width: auto !important;
+  }
+
+  #portal-header-actions > #operations-header-action {
+    flex: 0 0 auto !important;
+  }
+
+  /* En movil el breadcrumb se oculta: el titulo ya nombra la vista y liberar la
+     linea evita que choque con el logo/hamburguesa (item 1). */
   #portal-breadcrumb {
-    overflow: hidden;
+    display: none !important;
   }
 
   #portal-notice {
@@ -307,10 +334,13 @@ a {
     width: 100% !important;
   }
 
+  /* Panel de unidades: ancla abajo-izquierda. Colapsado (por defecto) mide solo
+     su encabezado; expandido se limita a ~46vh y desplaza, sin cubrir el mapa
+     entero ni cortar la primera unidad (item 4). */
   #operations-unit-selector {
     bottom: 10px !important;
     left: 10px !important;
-    max-height: 136px !important;
+    max-height: 46vh !important;
     max-width: calc(100% - 20px) !important;
     top: auto !important;
     width: 210px !important;
@@ -321,6 +351,17 @@ a {
   #operations-filters-lane {
     left: 0 !important;
     right: 0 !important;
+  }
+
+  /* Chip de filtro compacto (item 3): se reduce el relleno del contenedor y del
+     propio chip para que no tape el mapa, conservando 44px de area tactil. */
+  #operations-filters-lane > div {
+    padding: 4px !important;
+  }
+
+  #operations-filters-lane [role="button"] {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
   }
 
   #operations-kpi-grid {

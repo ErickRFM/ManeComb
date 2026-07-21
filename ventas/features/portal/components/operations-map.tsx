@@ -171,6 +171,14 @@ function resolveFitPadding(map: MapboxMap) {
 
 const cameraEasing = (value: number) => 1 - Math.pow(1 - value, 3);
 
+// Encuadre inicial por geolocalizacion del navegador, solo cuando no hay ninguna
+// unidad posicionable. Constantes de logica (no estilos): sin marcador, sin envio
+// al backend, sin persistencia mas alla de esta sesion de pantalla.
+const GEO_GRACE_MS = 800; // margen para que lleguen las unidades antes de pedir permiso
+const GEO_TIMEOUT_MS = 8000;
+const GEO_MAX_AGE_MS = 300000; // una posicion de hasta 5 min basta para centrar ciudad
+const GEO_CITY_ZOOM = 11; // nivel ciudad/region
+
 // Devuelve false cuando el encuadre no se pudo aplicar todavia (canvas sin layout),
 // para que quien llama reintente en lugar de marcar el encuadre como hecho.
 function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
@@ -312,6 +320,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const replayMarkerRef = useRef<MapboxMarker | null>(null);
   const vehicleRouteIdsRef = useRef(new Set<string>());
   const fittedKeyRef = useRef('');
+  const geolocationRequestedRef = useRef(false);
   const syncLinesRef = useRef<() => void>(() => undefined);
   const styleSyncPendingRef = useRef(false);
   const initializationGuardLoggedRef = useRef(false);
@@ -642,6 +651,41 @@ export const OperationsMap = React.memo(function OperationsMap({
       if (timer) window.clearTimeout(timer);
     };
   }, [autoFit, fitTriggerKey]);
+
+  // Encuadre por geolocalizacion: SOLO cuando no hay ninguna unidad posicionable.
+  // No toca la logica de fitBounds; solo mueve el centro por defecto. Se pide una
+  // sola vez por sesion de pantalla (geolocationRequestedRef) y degrada en silencio
+  // si el navegador no la soporta, el contexto no es seguro, o el usuario la niega.
+  useEffect(() => {
+    if (geolocationRequestedRef.current) return;
+    if (!autoFit) return;
+    if (!mapRef.current) return; // el mapa aun no monta
+    if (boundsPointsRef.current.length > 0) return; // hay unidades -> manda fitBounds
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (typeof window !== 'undefined' && window.isSecureContext === false) return; // requiere HTTPS
+
+    // Margen de gracia: si en este lapso llega una unidad, boundsPoints cambia, el
+    // efecto se re-ejecuta, se cancela este timer y ya no se pide la ubicacion.
+    const graceTimer = window.setTimeout(() => {
+      if (geolocationRequestedRef.current || !mapRef.current || boundsPointsRef.current.length > 0) return;
+      geolocationRequestedRef.current = true;
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const map = mapRef.current;
+          // Si ya llegaron unidades, fitBounds tomo el control aunque la respuesta
+          // llegue tarde: no mover la camara.
+          if (!map || boundsPointsRef.current.length > 0) return;
+          const point = toValidPoint({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+          if (!point) return;
+          map.easeTo({ center: toLngLat(point), duration: 600, easing: cameraEasing, zoom: GEO_CITY_ZOOM });
+        },
+        () => undefined, // permiso denegado / timeout / error: conservar encuadre por defecto
+        { enableHighAccuracy: false, maximumAge: GEO_MAX_AGE_MS, timeout: GEO_TIMEOUT_MS }
+      );
+    }, GEO_GRACE_MS);
+
+    return () => window.clearTimeout(graceTimer);
+  }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
     const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));

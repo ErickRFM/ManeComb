@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import type { CSSProperties } from 'react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -343,6 +343,9 @@ function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
 
 export function PortalDashboardScreen() {
   const params = useLocalSearchParams<{ sessionId?: string | string[]; vehicleId?: string | string[]; view?: string | string[] }>();
+  const { width } = useWindowDimensions();
+  // Movil (<768): la accion "Actualizar" pasa a icono para no comer alto vertical.
+  const isMobile = width < 768;
   const {
     isSubmitting,
     lastRouteSessionUpdateId,
@@ -383,6 +386,9 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
+  // En movil el panel "Unidades en mapa" arranca colapsado (item 4). En desktop
+  // siempre expandido: `showUnitList` combina el ancho con este estado.
+  const [unitListExpanded, setUnitListExpanded] = useState(false);
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -685,9 +691,18 @@ export function PortalDashboardScreen() {
       title={activeView === 'history' ? 'Historial de jornadas' : activeView === 'detail' ? 'Detalle de jornada' : 'Centro de operaciones'}
       subtitle={activeView === 'history' ? 'Consulta las jornadas guardadas por unidad, conductor y estado.' : activeView === 'detail' ? 'Recorrido, eventos y métricas persistidas de la jornada.' : undefined}
       actions={
-        <PortalButton icon={activeView === 'operations' ? 'refresh' : 'arrow-left'} loading={activeView === 'operations' && isLoading} onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)}>
-          {activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}
-        </PortalButton>
+        <View nativeID="operations-header-action" style={styles.headerAction}>
+          <PortalButton
+            accessibilityLabel={activeView === 'operations' ? 'Actualizar' : 'Volver a operaciones'}
+            icon={activeView === 'operations' ? 'refresh' : 'arrow-left'}
+            loading={activeView === 'operations' && isLoading}
+            onPress={activeView === 'operations' ? () => void loadHistory() : () => router.push('/portal' as never)}>
+            {/* En movil el boton es de solo icono: sin children PortalButton lo
+                renderiza cuadrado. Los datos siguen frescos por el socket en
+                tiempo real y el icono mantiene un refresco manual disponible. */}
+            {isMobile ? undefined : activeView === 'operations' ? (isLoading ? 'Actualizando' : 'Actualizar') : 'Volver a operaciones'}
+          </PortalButton>
+        </View>
       }>
       {message ? (
         <View nativeID="portal-notice" style={styles.notice}>
@@ -728,9 +743,23 @@ export function PortalDashboardScreen() {
                 />
               </Suspense>
               {operationalVehicles.length ? (
-                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={[styles.mapOverlaySurface, styles.unitSelectorOverlay]}>
-                  <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
-                  {operationalVehicles.map((vehicle) => (
+                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={[styles.mapOverlaySurface, styles.unitSelectorOverlay, isMobile && !unitListExpanded ? styles.unitSelectorCollapsed : undefined]}>
+                  <Pressable
+                    accessibilityRole={isMobile ? 'button' : undefined}
+                    accessibilityLabel={isMobile ? `Unidades en mapa (${operationalVehicles.length})` : undefined}
+                    accessibilityState={isMobile ? { expanded: unitListExpanded } : undefined}
+                    disabled={!isMobile}
+                    onPress={() => setUnitListExpanded((current) => !current)}
+                    style={styles.unitSelectorHeader}>
+                    <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                    {isMobile ? (
+                      <View style={styles.unitSelectorHeaderMeta}>
+                        <Text style={styles.unitSelectorCount}>{operationalVehicles.length}</Text>
+                        <MaterialCommunityIcons name={unitListExpanded ? 'chevron-down' : 'chevron-up'} size={18} color={portalPalette.muted} />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                  {!isMobile || unitListExpanded ? operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
                       active={vehicle.id === selectedVehicle?.id}
@@ -739,7 +768,7 @@ export function PortalDashboardScreen() {
                       vehicle={vehicle}
                       onOpen={() => showRoute(vehicle)}
                     />
-                  ))}
+                  )) : null}
                 </View>
               ) : null}
               {/* El carril no captura eventos: solo el chip es interactivo, para
@@ -1814,6 +1843,12 @@ const styles = StyleSheet.create({
     gap: 10,
     minWidth: 0,
   },
+  // Envuelve la accion del header; en movil evita que la regla global de
+  // `#portal-header-actions > *` la estire a ancho completo (item 2).
+  headerAction: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
+  },
   mainOperationsGrid: {
     // react-native-web fija `align-content: flex-start` en todo View. En un
     // contenedor grid eso deja la fila implicita dimensionada por contenido en
@@ -2254,6 +2289,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     lineHeight: AppTheme.spacing.lg,
+  },
+  unitSelectorHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: AppTheme.spacing.xs,
+    justifyContent: 'space-between',
+    minWidth: 0,
+  },
+  unitSelectorHeaderMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: AppTheme.spacing.xs,
+  },
+  unitSelectorCount: {
+    backgroundColor: portalPalette.surfaceSoft,
+    borderRadius: AppTheme.radius.pill,
+    color: portalPalette.text,
+    fontFamily: Typography.mono,
+    fontSize: 11,
+    fontWeight: '900',
+    minWidth: AppTheme.spacing.lg,
+    paddingHorizontal: AppTheme.spacing.xs,
+    textAlign: 'center',
+  },
+  // Colapsado: solo el encabezado, sin reservar alto para la lista (item 4).
+  unitSelectorCollapsed: {
+    gap: 0,
   },
   unitMeta: {
     color: portalPalette.muted,

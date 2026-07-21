@@ -115,7 +115,9 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
       formPadding: isNarrow ? 16 : isCompactForm ? 18 : 20,
       contentPadding: isNarrow ? 16 : 20,
       panelMaxWidth: isRegister ? 460 : 410,
-      scrollJustify: isCompactForm ? ('flex-start' as const) : ('center' as const),
+      // Solo el registro (formulario largo) se ancla arriba en pantallas cortas
+      // para no cortarse. El login siempre se centra en el viewport visible.
+      scrollJustify: isRegister && isCompactForm ? ('flex-start' as const) : ('center' as const),
     }),
     [isCompactForm, isNarrow, isRegister]
   );
@@ -231,7 +233,9 @@ export function SalesAuthScreen({ mode }: SalesAuthScreenProps) {
               paddingTop: isCompactForm ? 14 : Math.max(22, sizing.contentPadding),
               paddingBottom: isCompactForm ? 18 : 30,
               justifyContent: sizing.scrollJustify,
-              ...(Platform.OS === 'web' ? ({ minHeight: '100vh' } as any) : {}),
+              // dvh = alto de viewport visible (excluye la barra de URL movil),
+              // asi el centrado usa el area real y no queda un vacio abajo.
+              ...(Platform.OS === 'web' ? ({ minHeight: '100dvh' } as any) : {}),
             },
           ]}>
           <View style={[styles.panel, { maxWidth: sizing.panelMaxWidth }]}>
@@ -484,12 +488,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#050816',
     ...(Platform.OS === 'web'
-      ? ({ minHeight: '100vh', overflow: 'visible' } as any)
+      ? ({ minHeight: '100dvh', overflow: 'visible' } as any)
       : { overflow: 'hidden' as const }),
   },
   flex: {
     flex: 1,
-    ...(Platform.OS === 'web' ? ({ minHeight: '100vh' } as any) : {}),
+    ...(Platform.OS === 'web' ? ({ minHeight: '100dvh' } as any) : {}),
   },
   scroll: {
     flex: 1,
