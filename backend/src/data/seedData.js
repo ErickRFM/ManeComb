@@ -463,7 +463,46 @@ function createSeedState() {
         activatedAt: daysAgo(30)
       }
     ],
-    rtcSessions: []
+    rtcSessions: [],
+    appConfig: {
+      name: "ManeComb",
+      version: "1.0.2",
+      status: "disponible",
+      apkUrl: "https://1drv.ms/u/s!Aq6TgxRWNbScgQah2wPwI8wZGn3L?e=JCh8cX",
+      androidMin: "8.0",
+      size: "42 MB",
+      releaseDate: "2026-07-20",
+      releaseNotes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
+      versionHistory: [
+        {
+          version: "1.0.2",
+          date: "2026-07-20",
+          current: true,
+          size: "42 MB",
+          androidMin: "8.0",
+          notes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
+          archived: false,
+        },
+        {
+          version: "1.0.1",
+          date: "2026-07-15",
+          current: false,
+          size: "45 MB",
+          androidMin: "8.0",
+          notes: ["Nueva radio operativa", "Optimización de consumo de datos", "Correcciones generales de interfaz"],
+          archived: false,
+        },
+        {
+          version: "1.0.0",
+          date: "2026-07-10",
+          current: false,
+          size: "48 MB",
+          androidMin: "8.0",
+          notes: ["Primera versión pública", "Mapa en tiempo real", "Chat con la central", "Gestión de incidencias"],
+          archived: false,
+        },
+      ],
+    },
   };
 }
 

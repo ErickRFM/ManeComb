@@ -7,6 +7,7 @@ export {
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
+  getAppInfoRequest,
   getDocumentsRequest,
   getIncidentsRequest,
   getPortalOnboardingRequest,
@@ -21,6 +22,7 @@ export {
   revokeAccountSessionRequest,
   revokeAdminActivationKeyRequest,
   shareAdminActivationKeyRequest,
+  updateAppInfoRequest,
   updateIncidentStatusRequest,
   deleteAdminActivationKeyRequest,
 } from '@/src/api/client';

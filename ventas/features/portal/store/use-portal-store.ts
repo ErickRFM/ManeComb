@@ -9,6 +9,7 @@ import {
   getAccountSessionsRequest,
   getAccountSubscriptionRequest,
   getApiErrorMessage,
+  getAppInfoRequest,
   getDocumentsRequest,
   getIncidentsRequest,
   getPortalOnboardingRequest,
@@ -18,11 +19,14 @@ import {
   revokeAdminActivationKeyRequest,
   shareAdminActivationKeyRequest,
   deleteAdminActivationKeyRequest,
+  updateAppInfoRequest,
   updateIncidentStatusRequest,
 } from '../api';
 import type {
   DocumentItem,
   Incident,
+  PortalAppInfo,
+  PortalAppVersion,
   PortalInvoice,
   PortalActivationKey,
   PortalActivationKeysSummary,
@@ -47,10 +51,13 @@ type PortalStore = {
   sessions: PortalSession[];
   documents: DocumentItem[];
   incidents: Incident[];
+  appInfo: PortalAppInfo | null;
   isLoading: boolean;
   isSubmitting: boolean;
   error: string | null;
   loadOverview: () => Promise<void>;
+  loadAppInfo: () => Promise<void>;
+  updateAppInfo: (payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) => Promise<PortalActionResult>;
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
   loadSessions: () => Promise<void>;
@@ -81,6 +88,7 @@ const emptyPortalState = {
   sessions: [],
   documents: [],
   incidents: [],
+  appInfo: null,
   isLoading: false,
   isSubmitting: false,
   error: null,
@@ -119,6 +127,7 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
   sessions: [],
   documents: [],
   incidents: [],
+  appInfo: null,
   isLoading: false,
   isSubmitting: false,
   error: null,
@@ -148,6 +157,28 @@ export const usePortalStore = create<PortalStore>((set, get) => ({
       });
     } catch (error) {
       set({ error: getMessage(error, 'No fue posible cargar el portal.'), isLoading: false });
+    }
+  },
+  loadAppInfo: async () => {
+    set({ error: null });
+    try {
+      const appInfo = await getAppInfoRequest();
+      set({ appInfo });
+    } catch (error) {
+      set({ error: getMessage(error, 'No fue posible cargar info de la app.') });
+    }
+  },
+  updateAppInfo: async (payload) => {
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const appInfo = await updateAppInfoRequest(payload);
+      set({ appInfo, isSubmitting: false });
+      return { ok: true };
+    } catch (error) {
+      const message = getMessage(error, 'No fue posible actualizar la app.');
+      set({ error: message, isSubmitting: false });
+      return { ok: false, message };
     }
   },
   loadActivationKeys: async () => {

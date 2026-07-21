@@ -1506,6 +1506,27 @@ function createEmbeddedStore() {
     return clone(event);
   }
 
+  function getAppConfig() {
+    return state.appConfig ? clone(state.appConfig) : null;
+  }
+
+  function updateAppConfig(data) {
+    const appConfig = state.appConfig || {};
+
+    if (data.name !== undefined) appConfig.name = data.name;
+    if (data.version !== undefined) appConfig.version = data.version;
+    if (data.status !== undefined) appConfig.status = data.status;
+    if (data.apkUrl !== undefined) appConfig.apkUrl = data.apkUrl;
+    if (data.androidMin !== undefined) appConfig.androidMin = data.androidMin;
+    if (data.size !== undefined) appConfig.size = data.size;
+    if (data.releaseDate !== undefined) appConfig.releaseDate = data.releaseDate;
+    if (data.releaseNotes !== undefined) appConfig.releaseNotes = Array.isArray(data.releaseNotes) ? data.releaseNotes : [];
+    if (data.versionHistory !== undefined) appConfig.versionHistory = Array.isArray(data.versionHistory) ? data.versionHistory : [];
+
+    state.appConfig = appConfig;
+    return clone(state.appConfig);
+  }
+
   function getOperationalInsights({ hours = 24, limit = 10 } = {}) {
     const safeHours = Math.max(1, Number(hours) || 24);
     const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
@@ -2954,6 +2975,8 @@ function createEmbeddedStore() {
     claimVehicleForDriver,
     releaseVehicleFromDriver,
     recordAppEvent,
+    getAppConfig,
+    updateAppConfig,
     registerPushSubscription,
     registerUser,
     resetPasswordWithToken,

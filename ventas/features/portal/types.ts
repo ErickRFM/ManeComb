@@ -8,6 +8,8 @@ export type {
   PortalActivationKeysResponse,
   PortalActivationKeysSummary,
   PortalActivationEvent,
+  PortalAppInfo,
+  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOnboardingStep,

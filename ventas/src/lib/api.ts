@@ -5,6 +5,8 @@ import type {
   Incident,
   PaginatedResult,
   PortalActivationKeysResponse,
+  PortalAppInfo,
+  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
@@ -373,6 +375,10 @@ export async function getPortalOverviewRequest() {
   return await unwrapData<PortalOverview>(apiClient.get('/portal/overview'));
 }
 
+export async function getAppInfoRequest() {
+  return await unwrapData<PortalAppInfo>(apiClient.get('/app/info'));
+}
+
 export async function getPortalOnboardingRequest() {
   return await unwrapData<PortalOnboarding>(apiClient.get('/portal/onboarding'));
 }
@@ -454,4 +460,8 @@ export async function updateIncidentStatusRequest(incidentId: string, status: 'o
   return await unwrapData<Incident>(
     apiClient.patch(`/incidents/${encodeURIComponent(incidentId)}/status`, { status })
   );
+}
+
+export async function updateAppInfoRequest(payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) {
+  return await unwrapData<PortalAppInfo>(apiClient.patch('/app/info', payload));
 }

@@ -43,7 +43,8 @@ type PortalNavItem = {
     | '/portal/perfil'
     | '/portal/onboarding'
     | '/portal/documentos'
-    | '/portal/incidencias';
+    | '/portal/incidencias'
+    | '/portal/app-movil';
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   section?: string;
   permission?: PortalPermission;
@@ -75,6 +76,7 @@ const navSections: { title: string; items: PortalNavItem[] }[] = [
     title: 'Ayuda',
     items: [
       { label: 'Activación', href: '/portal/onboarding', icon: 'flag-checkered' },
+      { label: 'App Móvil', href: '/portal/app-movil', icon: 'cellphone-arrow-down' },
       { label: 'Soporte', href: '/portal/perfil', icon: 'lifebuoy', section: 'soporte' },
     ],
   },

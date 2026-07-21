@@ -21,6 +21,7 @@ const PortalUnitsScreen = lazy(() => import('@/features/portal/screens/portal-un
 const PortalUsersScreen = lazy(() => import('@/features/portal/screens/portal-users-screen').then((module) => ({ default: module.PortalUsersScreen })));
 const PortalDocumentsScreen = lazy(() => import('@/features/portal/screens/portal-documents-screen').then((module) => ({ default: module.PortalDocumentsScreen })));
 const PortalIncidentsScreen = lazy(() => import('@/features/portal/screens/portal-incidents-screen').then((module) => ({ default: module.PortalIncidentsScreen })));
+const PortalAppMovilScreen = lazy(() => import('@/features/portal/screens/portal-app-movil-screen').then((module) => ({ default: module.PortalAppMovilScreen })));
 
 function BootScreen() {
   return (
@@ -71,6 +72,7 @@ function Routes() {
     '/portal/pagos': 'billing',
     '/portal/documentos': 'billing',
     '/portal/incidencias': 'billing',
+    '/portal/app-movil': null,
   };
   const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
 
@@ -119,6 +121,8 @@ function Routes() {
       return <ScreenErrorBoundary name="Documentos"><PortalDocumentsScreen /></ScreenErrorBoundary>;
     case '/portal/incidencias':
       return <ScreenErrorBoundary name="Incidencias"><PortalIncidentsScreen /></ScreenErrorBoundary>;
+    case '/portal/app-movil':
+      return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
     case '/mapa':
       return <OperationalPlaceholder title="Panel operativo" />;
     case '/radio':

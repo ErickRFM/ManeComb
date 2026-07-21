@@ -3560,6 +3560,30 @@ async function createMongoStore() {
     return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
   }
 
+  const seed = createSeedState();
+  let appConfigStore = seed.appConfig ? JSON.parse(JSON.stringify(seed.appConfig)) : null;
+
+  function getAppConfig() {
+    return appConfigStore ? JSON.parse(JSON.stringify(appConfigStore)) : null;
+  }
+
+  function updateAppConfig(data) {
+    const appConfig = appConfigStore || {};
+
+    if (data.name !== undefined) appConfig.name = data.name;
+    if (data.version !== undefined) appConfig.version = data.version;
+    if (data.status !== undefined) appConfig.status = data.status;
+    if (data.apkUrl !== undefined) appConfig.apkUrl = data.apkUrl;
+    if (data.androidMin !== undefined) appConfig.androidMin = data.androidMin;
+    if (data.size !== undefined) appConfig.size = data.size;
+    if (data.releaseDate !== undefined) appConfig.releaseDate = data.releaseDate;
+    if (data.releaseNotes !== undefined) appConfig.releaseNotes = Array.isArray(data.releaseNotes) ? data.releaseNotes : [];
+    if (data.versionHistory !== undefined) appConfig.versionHistory = Array.isArray(data.versionHistory) ? data.versionHistory : [];
+
+    appConfigStore = appConfig;
+    return JSON.parse(JSON.stringify(appConfigStore));
+  }
+
   return buildBackendStore({
     addMessage,
     assignRouteToVehicle,
@@ -3581,6 +3605,8 @@ async function createMongoStore() {
     ensureDirectConversation,
     ensureGeneralConversation,
     findActivationKeyByKey,
+    getAppConfig,
+    updateAppConfig,
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,

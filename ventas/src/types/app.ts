@@ -593,3 +593,25 @@ export type DocumentItem = {
   reviewNotes?: string;
   owner?: { id: string; name?: string; code?: string } | null;
 };
+
+export type PortalAppVersion = {
+  version: string;
+  date: string;
+  current: boolean;
+  size: string;
+  androidMin: string;
+  notes: string[];
+  archived?: boolean;
+};
+
+export type PortalAppInfo = {
+  name: string;
+  version: string;
+  status?: string;
+  apkUrl: string;
+  androidMin: string;
+  size: string;
+  releaseDate: string;
+  releaseNotes: string[];
+  versionHistory?: PortalAppVersion[];
+};

@@ -30,6 +30,7 @@ const notificationRoutes = require("./modules/notifications/routes");
 const opsRoutes = require("./modules/ops/routes");
 const operationalUnitRoutes = require("./modules/operational-units/routes");
 const portalRoutes = require("./modules/portal/routes");
+const appRoutes = require("./modules/app/routes");
 const radioRoutes = require("./modules/radio/routes");
 const rtcRoutes = require("./modules/rtc/routes");
 const userRoutes = require("./modules/users/routes");
@@ -241,6 +242,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/ops", opsRoutes);
   app.use("/api/operational-units", operationalUnitRoutes);
   app.use("/api/portal", portalRoutes);
+  app.use("/api/app", appRoutes);
   app.use("/api/radio", radioRoutes);
   app.use("/api/rtc", rtcRoutes);
   app.use("/api/users", userRoutes);
