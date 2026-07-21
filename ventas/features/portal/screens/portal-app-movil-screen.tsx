@@ -7,6 +7,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { BrandLogo } from '@/src/components/brand-logo';
+import { useShallow } from 'zustand/react/shallow';
 import { PortalLayout } from '../components/portal-layout';
 import { usePortalStore } from '../store/use-portal-store';
 import { portalButtonGradient, portalGlass, portalPalette } from '../portal-theme';
@@ -31,7 +32,14 @@ function useNovidadesScroll() {
 export function PortalAppMovilScreen() {
   const { width } = useWindowDimensions();
   const compact = width < 720;
-  const { appInfo, error, isLoading, loadAppInfo } = usePortalStore();
+  const { appInfo, error, isLoading, loadAppInfo } = usePortalStore(
+    useShallow((state) => ({
+      appInfo: state.appInfo,
+      error: state.error,
+      isLoading: state.isLoading,
+      loadAppInfo: state.loadAppInfo,
+    }))
+  );
   const [qrSvg, setQrSvg] = useState<string | null>(null);
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<TabKey>('info');

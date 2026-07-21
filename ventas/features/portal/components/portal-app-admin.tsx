@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -16,7 +17,13 @@ function deepEq(a: unknown, b: unknown): boolean {
 
 export function PortalAppAdmin() {
   const user = useAppStore((s) => s.user);
-  const { appInfo, isSubmitting, updateAppInfo } = usePortalStore();
+  const { appInfo, isSubmitting, updateAppInfo } = usePortalStore(
+    useShallow((state) => ({
+      appInfo: state.appInfo,
+      isSubmitting: state.isSubmitting,
+      updateAppInfo: state.updateAppInfo,
+    }))
+  );
 
   const isAdmin = Boolean(user && ['owner', 'admin'].includes(user.role));
 

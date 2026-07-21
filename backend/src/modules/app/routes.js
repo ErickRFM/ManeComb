@@ -2,7 +2,6 @@ const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const { requireAdmin } = require("../../middlewares/require-admin");
 const { recordAuditLog } = require("../../services/audit");
-const { wrapErrors } = require("../../middlewares/error-handler");
 
 const router = Router();
 
@@ -61,13 +60,13 @@ router.get("/info", async (req, res) => {
   });
 });
 
-router.patch("/info", authenticate, wrapErrors(async (req, res) => {
-  const store = req.app.locals.store;
-  if (!store?.updateAppConfig) {
-    return res.status(503).json({ ok: false, message: "Store no disponible" });
-  }
+router.patch("/info", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const store = req.app.locals.store;
+    if (!store?.updateAppConfig) {
+      return res.status(503).json({ ok: false, message: "Store no disponible" });
+    }
 
-  requireAdmin(req, res, async () => {
     const { name, version, status, apkUrl, androidMin, size, releaseDate, releaseNotes, versionHistory } = req.body;
 
     if (version !== undefined && typeof version !== "string") {
@@ -102,8 +101,10 @@ router.patch("/info", authenticate, wrapErrors(async (req, res) => {
     });
 
     return res.json({ ok: true, data: updated });
-  });
-}));
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/device-stats", authenticate, async (req, res) => {
   const store = req.app.locals.store;
