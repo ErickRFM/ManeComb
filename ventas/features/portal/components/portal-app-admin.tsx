@@ -1,19 +1,21 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '../store/use-portal-store';
-import { portalButtonGradient, portalGlass, portalPalette } from '../portal-theme';
+import { portalPalette } from '../portal-theme';
 import { getDeviceVersionStatsRequest } from '../api';
-import type { PortalAppInfo, PortalAppVersion } from '../types';
+import { deepEq } from '../app-mobile/app-mobile.utils';
+import { styles } from '../app-mobile/app-mobile.styles';
 import type { DeviceVersionStats } from '@/src/api/client';
-
-function deepEq(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
+import { AppAdminGeneralForm } from '../app-mobile/components/app-admin-general-form';
+import { AppAdminReleaseNotesEditor } from '../app-mobile/components/app-admin-release-notes-editor';
+import { AppAdminVersionHistoryEditor } from '../app-mobile/components/app-admin-version-history-editor';
+import { AppAdminDeviceStats } from '../app-mobile/components/app-admin-device-stats';
+import { AppAdminSaveBar } from '../app-mobile/components/app-admin-save-bar';
+import type { PortalAppInfo, PortalAppVersion } from '../types';
 
 export function PortalAppAdmin() {
   const user = useAppStore((s) => s.user);
@@ -138,6 +140,10 @@ export function PortalAppAdmin() {
     }
   }, [form, historyEditor, updateAppInfo]);
 
+  const handleSaveClick = useCallback(() => {
+    setConfirmVisible(true);
+  }, []);
+
   if (!appInfo) return null;
 
   if (!isAdmin) {
@@ -154,286 +160,38 @@ export function PortalAppAdmin() {
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Información general</Text>
-        <Text style={styles.sectionSubtitle}>Campos principales de la aplicación</Text>
+      {form && (
+        <AppAdminGeneralForm form={form} onFieldChange={setField} />
+      )}
 
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Versión</Text>
-            <TextInput
-              value={form?.version ?? ''}
-              onChangeText={(v) => setField('version', v)}
-              placeholder="1.0.0"
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Estado</Text>
-            <TextInput
-              value={form?.status ?? ''}
-              onChangeText={(v) => setField('status', v)}
-              placeholder="disponible"
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-        </View>
+      {form && (
+        <AppAdminReleaseNotesEditor
+          noteInput={noteInput}
+          notes={form.releaseNotes}
+          onNoteInputChange={setNoteInput}
+          onAddNote={addNote}
+          onEditNote={editNote}
+          onRemoveNote={removeNote}
+        />
+      )}
 
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Android mínimo</Text>
-            <TextInput
-              value={form?.androidMin ?? ''}
-              onChangeText={(v) => setField('androidMin', v)}
-              placeholder="8.0"
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Tamaño</Text>
-            <TextInput
-              value={form?.size ?? ''}
-              onChangeText={(v) => setField('size', v)}
-              placeholder="42 MB"
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-        </View>
+      <AppAdminVersionHistoryEditor
+        versions={historyEditor}
+        onAddVersion={addVersion}
+        onUpdateVersion={updateVersion}
+        onRemoveVersion={removeVersion}
+        onToggleArchived={toggleArchived}
+        onMarkCurrent={markCurrent}
+      />
 
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Fecha de publicación</Text>
-            <TextInput
-              value={form?.releaseDate ?? ''}
-              onChangeText={(v) => setField('releaseDate', v)}
-              placeholder="2026-07-20"
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>URL del APK</Text>
-            <TextInput
-              value={form?.apkUrl ?? ''}
-              onChangeText={(v) => setField('apkUrl', v)}
-              placeholder="https://..."
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={styles.input}
-            />
-          </View>
-        </View>
-      </View>
+      <AppAdminDeviceStats stats={deviceStats} loading={statsLoading} />
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Notas de publicación</Text>
-        <Text style={styles.sectionSubtitle}>Novedades que se muestran en la sección de descarga</Text>
-
-        <View style={styles.noteInputRow}>
-          <TextInput
-            value={noteInput}
-            onChangeText={setNoteInput}
-            placeholder="Escribe una nota..."
-            placeholderTextColor={portalPalette.mutedSoft}
-            style={[styles.input, styles.noteInputField]}
-            onSubmitEditing={addNote}
-          />
-          <Pressable accessibilityRole="button" onPress={addNote} style={styles.addNoteButton}>
-            <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-          </Pressable>
-        </View>
-
-        {form?.releaseNotes.map((note, index) => (
-          <View key={index} style={styles.noteItem}>
-            <TextInput
-              value={note}
-              onChangeText={(v) => editNote(index, v)}
-              placeholder="Nota..."
-              placeholderTextColor={portalPalette.mutedSoft}
-              style={[styles.input, styles.noteEditField]}
-            />
-            <Pressable accessibilityRole="button" onPress={() => removeNote(index)} style={styles.removeNoteButton}>
-              <MaterialCommunityIcons name="close" size={18} color={portalPalette.danger} />
-            </Pressable>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Historial de versiones</Text>
-            <Text style={styles.sectionSubtitle}>Agrega, edita o archiva versiones anteriores</Text>
-          </View>
-          <Pressable accessibilityRole="button" onPress={addVersion} style={styles.addVersionButton}>
-            <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
-            <Text style={styles.addVersionText}>Nueva</Text>
-          </Pressable>
-        </View>
-
-        {historyEditor.map((ver, index) => (
-          <View key={index} style={styles.historyVersionCard}>
-            <View style={styles.historyHeader}>
-              <Text style={styles.historyIndex}>#{historyEditor.length - index}</Text>
-              {ver.archived && <Text style={styles.archivedBadge}>Archivada</Text>}
-              {ver.current && <Text style={styles.currentBadge}>ACTUAL</Text>}
-            </View>
-
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Versión</Text>
-                <TextInput
-                  value={ver.version}
-                  onChangeText={(v) => updateVersion(index, 'version', v)}
-                  placeholder="1.0.0"
-                  placeholderTextColor={portalPalette.mutedSoft}
-                  style={styles.input}
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Fecha</Text>
-                <TextInput
-                  value={ver.date}
-                  onChangeText={(v) => updateVersion(index, 'date', v)}
-                  placeholder="2026-07-20"
-                  placeholderTextColor={portalPalette.mutedSoft}
-                  style={styles.input}
-                />
-              </View>
-            </View>
-
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Android mínimo</Text>
-                <TextInput
-                  value={ver.androidMin}
-                  onChangeText={(v) => updateVersion(index, 'androidMin', v)}
-                  placeholder="8.0"
-                  placeholderTextColor={portalPalette.mutedSoft}
-                  style={styles.input}
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Tamaño</Text>
-                <TextInput
-                  value={ver.size}
-                  onChangeText={(v) => updateVersion(index, 'size', v)}
-                  placeholder="42 MB"
-                  placeholderTextColor={portalPalette.mutedSoft}
-                  style={styles.input}
-                />
-              </View>
-            </View>
-
-            <Text style={styles.label}>Notas de la versión</Text>
-            {ver.notes.map((note, ni) => (
-              <View key={ni} style={styles.noteItem}>
-                <TextInput
-                  value={note}
-                  onChangeText={(v) => {
-                    const next = [...ver.notes];
-                    next[ni] = v;
-                    updateVersion(index, 'notes', next);
-                  }}
-                  placeholder="Nota..."
-                  placeholderTextColor={portalPalette.mutedSoft}
-                  style={[styles.input, styles.noteEditField]}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => updateVersion(index, 'notes', ver.notes.filter((_, i) => i !== ni))}
-                  style={styles.removeNoteButton}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color={portalPalette.danger} />
-                </Pressable>
-              </View>
-            ))}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => updateVersion(index, 'notes', [...ver.notes, ''])}
-              style={styles.addVersionNoteBtn}
-            >
-              <MaterialCommunityIcons name="plus-circle-outline" size={16} color={portalPalette.accent} />
-              <Text style={styles.addVersionNoteText}>Agregar nota</Text>
-            </Pressable>
-
-            <View style={styles.historyActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => markCurrent(index)}
-                style={[styles.historyActionBtn, ver.current && styles.historyActionBtnActive]}
-              >
-                <MaterialCommunityIcons name="star" size={16} color={ver.current ? '#FFFFFF' : portalPalette.muted} />
-                <Text style={[styles.historyActionText, ver.current && styles.historyActionTextActive]}>
-                  {ver.current ? 'Actual' : 'Marcar actual'}
-                </Text>
-              </Pressable>
-
-              <Pressable accessibilityRole="button" onPress={() => toggleArchived(index)} style={styles.historyActionBtn}>
-                <MaterialCommunityIcons
-                  name={ver.archived ? 'archive-arrow-up' : 'archive-arrow-down'}
-                  size={16}
-                  color={portalPalette.muted}
-                />
-                <Text style={styles.historyActionText}>{ver.archived ? 'Restaurar' : 'Archivar'}</Text>
-              </Pressable>
-
-              <Pressable accessibilityRole="button" onPress={() => removeVersion(index)} style={styles.historyActionBtn}>
-                <MaterialCommunityIcons name="delete-outline" size={16} color={portalPalette.danger} />
-                <Text style={[styles.historyActionText, { color: portalPalette.danger }]}>Eliminar</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Estado de los dispositivos</Text>
-        <Text style={styles.sectionSubtitle}>Versiones instaladas en los teléfonos de los conductores</Text>
-        {statsLoading ? (
-          <Text style={styles.loadingText}>Cargando...</Text>
-        ) : deviceStats ? (
-          <View style={styles.statsGrid}>
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{deviceStats.total}</Text>
-              <Text style={styles.statLabel}>Dispositivos</Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{deviceStats.mostUsedVersion || '—'}</Text>
-              <Text style={styles.statLabel}>Versión más usada</Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{deviceStats.lastPublication ? deviceStats.lastPublication.slice(0, 10) : '—'}</Text>
-              <Text style={styles.statLabel}>Última publicación</Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{Object.keys(deviceStats.versions).length}</Text>
-              <Text style={styles.statLabel}>Versiones distintas</Text>
-            </View>
-          </View>
-        ) : (
-          <Text style={styles.loadingText}>Sin datos de dispositivos</Text>
-        )}
-      </View>
-
-      <View style={styles.saveBar}>
-        {dirty && <View style={styles.dirtyDot} />}
-        <Text style={styles.saveStatus}>
-          {saved ? 'Guardado correctamente' : dirty ? 'Hay cambios sin guardar' : 'Sin cambios'}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          disabled={!dirty || isSubmitting}
-          onPress={() => setConfirmVisible(true)}
-          style={[styles.saveButton, (!dirty || isSubmitting) && styles.saveButtonDisabled, portalButtonGradient()]}
-        >
-          <MaterialCommunityIcons name="content-save" size={18} color="#FFFFFF" />
-          <Text style={styles.saveButtonText}>{isSubmitting ? 'Guardando...' : 'Guardar'}</Text>
-        </Pressable>
-      </View>
+      <AppAdminSaveBar
+        dirty={dirty}
+        saved={saved}
+        isSubmitting={isSubmitting}
+        onSave={handleSaveClick}
+      />
 
       <ConfirmModal
         visible={confirmVisible}
@@ -447,291 +205,3 @@ export function PortalAppAdmin() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    gap: 16,
-    paddingBottom: 32,
-  },
-  card: {
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.md,
-    borderWidth: 1,
-    gap: 12,
-    minWidth: 0,
-    padding: AppTheme.spacing.lg,
-    ...portalGlass(),
-  },
-  emptyState: {
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 32,
-  },
-  emptyTitle: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  emptyDesc: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  sectionSubtitle: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    marginTop: -8,
-  },
-  sectionHeader: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    minWidth: 0,
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  fieldGroup: {
-    flex: 1,
-    flexBasis: 200,
-    gap: 4,
-    minWidth: 0,
-  },
-  label: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  input: {
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 14,
-    minHeight: 42,
-    paddingHorizontal: 12,
-  },
-  noteInputRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  noteInputField: {
-    flex: 1,
-  },
-  addNoteButton: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.accent,
-    borderRadius: AppTheme.radius.sm,
-    height: 42,
-    justifyContent: 'center',
-    width: 42,
-  },
-  noteItem: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  noteEditField: {
-    flex: 1,
-  },
-  removeNoteButton: {
-    alignItems: 'center',
-    borderRadius: 8,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  addVersionButton: {
-    alignItems: 'center',
-    backgroundColor: portalPalette.accent,
-    borderRadius: AppTheme.radius.sm,
-    flexDirection: 'row',
-    gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 14,
-  },
-  addVersionText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  historyVersionCard: {
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    gap: 10,
-    padding: AppTheme.spacing.md,
-  },
-  historyHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  historyIndex: {
-    color: portalPalette.mutedSoft,
-    fontFamily: Typography.display,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  archivedBadge: {
-    backgroundColor: portalPalette.warningSoft,
-    borderRadius: AppTheme.radius.pill,
-    color: portalPalette.warning,
-    fontFamily: Typography.body,
-    fontSize: 10,
-    fontWeight: '900',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  currentBadge: {
-    backgroundColor: portalPalette.successSoft,
-    borderRadius: AppTheme.radius.pill,
-    color: portalPalette.success,
-    fontFamily: Typography.body,
-    fontSize: 10,
-    fontWeight: '900',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  historyActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  historyActionBtn: {
-    alignItems: 'center',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 5,
-    minHeight: 32,
-    paddingHorizontal: 10,
-  },
-  historyActionBtnActive: {
-    backgroundColor: portalPalette.accent,
-    borderColor: portalPalette.accent,
-  },
-  historyActionText: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  historyActionTextActive: {
-    color: '#FFFFFF',
-  },
-  addVersionNoteBtn: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    gap: 6,
-    minHeight: 32,
-    paddingHorizontal: 4,
-  },
-  addVersionNoteText: {
-    color: portalPalette.accent,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  saveBar: {
-    alignItems: 'center',
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    minWidth: 0,
-    padding: AppTheme.spacing.md,
-    ...portalGlass(),
-  },
-  dirtyDot: {
-    backgroundColor: portalPalette.warning,
-    borderRadius: 6,
-    height: 10,
-    width: 10,
-  },
-  saveStatus: {
-    color: portalPalette.muted,
-    flex: 1,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    minWidth: 0,
-  },
-  saveButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 40,
-    paddingHorizontal: 18,
-  },
-  saveButtonDisabled: {
-    opacity: 0.4,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  loadingText: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    textAlign: 'center',
-    paddingVertical: 12,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 4,
-  },
-  statCell: {
-    backgroundColor: portalPalette.surfaceSoft,
-    borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 140,
-    gap: 2,
-    minWidth: 0,
-    padding: AppTheme.spacing.md,
-  },
-  statValue: {
-    color: portalPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 28,
-  },
-  statLabel: {
-    color: portalPalette.muted,
-    fontFamily: Typography.body,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-});
