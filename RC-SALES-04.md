@@ -257,22 +257,32 @@ $ git add RC-SALES-04.md
 $ git commit -m "refactor(ventas): consolidate shared screen utilities"
 
 $ git rev-parse --short HEAD
-(por generar tras commit)
+9c2a77f
 
 $ git status --short
 (árbol limpio)
 
 $ git show --stat --oneline HEAD
-(confirmación del commit)
+9c2a77f refactor(ventas): consolidate shared screen utilities
+ RC-SALES-04.md                            | 293 ++++++++++++++++++++++
+ ventas/screens/auth/auth.utils.ts         |   5 +-
+ ventas/screens/checkout/checkout.utils.ts |  13 +-
+ ventas/screens/sales/utils.ts             |  13 +-
+ ventas/screens/shared/utils.ts            |  11 ++
+ 5 files changed, 309 insertions(+), 26 deletions(-)
 
 $ git show --name-status --format= HEAD
-(confirmación del commit)
+A  RC-SALES-04.md
+M  ventas/screens/auth/auth.utils.ts
+M  ventas/screens/checkout/checkout.utils.ts
+M  ventas/screens/sales/utils.ts
+A  ventas/screens/shared/utils.ts
 ```
 
 ## 11. Rollback
 
 ```bash
-git revert <commit-real-de-rc-sales-04>
+git revert 9c2a77f
 ```
 
 No ejecutar el revert.
@@ -290,4 +300,4 @@ No ejecutar el revert.
 | ¿Se verificó con typecheck?                  | SÍ |
 | ¿Se verificó con build?                      | SÍ |
 | ¿Se verificó con `git diff --check`?         | SÍ |
-| ¿El commit es independiente?                 | Por realizar |
+| ¿El commit es independiente?                 | SÍ (9c2a77f) |
