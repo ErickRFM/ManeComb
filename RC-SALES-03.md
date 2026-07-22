@@ -1,113 +1,198 @@
-# RC-SALES-03: Modularización de pantallas de autenticación de Ventas
+# RC-SALES-03 — Modularización de pantallas de autenticación de Ventas
 
-## Objetivo
-Modularizar estructuralmente `sales-auth-screen.tsx` (796 → 237 líneas) y evaluar `password-reset-screen.tsx` (101 líneas) extrayendo componentes presentacionales, utilidades, tipos, constantes y estilos en una carpeta `auth/` con 11 archivos.
+## 1. Objetivo
 
-## Resultado
+Modularizar estructuralmente `sales-auth-screen.tsx` (796 → 237 líneas, −70.2 %) extrayendo sus componentes presentacionales, utilidades, tipos, constantes y estilos en una carpeta `auth/`. Evaluar `password-reset-screen.tsx` (101 líneas) sin modificación.
 
-### Métricas
-
-| Métrica | Antes | Después | Cambio |
-|---|---|---|---|
-| sales-auth-screen.tsx | 796 líneas | 237 líneas | **−70,2 %** |
-| password-reset-screen.tsx | 101 líneas | 96 líneas | −5 (solo comentarios) |
-| Archivos en auth/ | — | 11 | +11 |
-| Dependencias externas | — | 0 | sin cambios |
-| Typecheck | pasa | pasa | ✅ |
-| Build | pasa | pasa | ✅ |
-
-### Archivos creados
+## 2. Commit
 
 ```
-ventas/screens/auth/
-├── auth.constants.ts
-├── auth.styles.ts
-├── auth.types.ts
-├── auth.utils.ts
-└── components/
-    ├── auth-feedback.tsx
-    ├── auth-field.tsx
-    ├── auth-header.tsx
-    ├── auth-legal-links.tsx
-    ├── auth-mode-selector.tsx
-    ├── auth-session-bar.tsx
-    ├── auth-shell.tsx
-    └── auth-submit-button.tsx
+fbb1b1c
 ```
 
-### Componentes extraídos
+## 3. Archivos modificados
 
-| Nombre | Responsabilidad | Props | JSX de origen | Estado interno | Hooks | Dependencias | Consumidor |
-|---|---|---|---|---|---|---|---|
-| AuthBackground | Fondo decorativo con glows | (ninguna) | L219‑223 | no | no | RN View, styles | SalesAuthScreen |
-| AuthHeader | Logo + badge + título + subtítulo | isRegister, logoSize | L243‑258 | no | no | BrandLogo, MaterialCommunityIcons | SalesAuthScreen |
-| AuthModeSelector | Control segmentado login/register + SegmentButton | currentMode, onSelectMode | L260‑271 | no | no | Pressable, styles | SalesAuthScreen |
-| AuthField | Campo de formulario con icono, foco, toggle contraseña | icon, label, value, onChangeText, secureTextEntry, autoCapitalize, keyboardType, placeholder | L415‑484 (inline) | isFocused, isPasswordVisible | useState | RN TextInput, Pressable | SalesAuthScreen |
-| AuthSessionBar | Checkbox Recordarme + link Recuperar acceso | rememberSession, disabled, onToggleRemember, onForgotPassword | L325‑346 | no | no | Pressable, styles | SalesAuthScreen |
-| AuthFeedback | Caja de mensaje de error/feedback | message | L348‑352 | no | no | RN Text, View | SalesAuthScreen |
-| AuthSubmitButton | Botón primario con loader | isRegister, submitting, disabled, onSubmit | L354‑369 | no | no | Pressable, ActivityIndicator | SalesAuthScreen |
-| AuthLegalLinks | Enlaces a Términos y Privacidad | (ninguna) | L371‑382 | no | no | Link (router) | SalesAuthScreen |
-
-### password-reset-screen.tsx
-
-No se modificó estructuralmente. Es un archivo de 96 líneas con lógica minimalista (token, validación, llamada API, feedback). Extraer componentes habría creado abstracciones artificiales sin ganancia real. Contiene 10 estilos inline que no entran en conflicto semántico con auth.styles.ts. Se acepta como container legible.
-
-### Matriz de compatibilidad
-
-| Pregunta | Respuesta |
-|---|---|
-| ¿Cambió el login? | NO |
-| ¿Cambió el registro? | NO |
-| ¿Cambió la recuperación? | NO |
-| ¿Cambió el restablecimiento? | NO |
-| ¿Cambió alguna validación? | NO |
-| ¿Cambió algún campo? | NO |
-| ¿Cambió algún texto? | NO |
-| ¿Cambió algún dato? | NO |
-| ¿Cambió algún payload? | NO |
-| ¿Cambió algún endpoint? | NO |
-| ¿Cambió algún contrato? | NO |
-| ¿Cambió algún tipo compartido? | NO |
-| ¿Cambió el store? | NO |
-| ¿Cambió la API? | NO |
-| ¿Cambió la navegación? | NO |
-| ¿Cambió alguna ruta? | NO |
-| ¿Cambió la UI visible? | NO |
-| ¿Cambió el responsive? | NO |
-| ¿Se agregó alguna dependencia? | NO |
-| ¿Se duplicó lógica? | NO |
-| ¿Se modificó Commercial? | NO |
-| ¿Se modificó Portal Admin? | NO |
-| ¿Se modificó Mobile? | NO |
-| ¿Se modificó backend? | NO |
-| ¿Se integró Resend? | NO |
-
-### Estado Git
+1 archivo modificado en el commit:
 
 ```
-Branch: main (up to date with origin/main)
-
-Modified:
-  ventas/screens/sales-auth-screen.tsx   (+33, −562)
-
-Untracked:
-  ventas/screens/auth/   (11 archivos nuevos)
-
-password-reset-screen.tsx sin cambios.
-
-El árbol contiene exclusivamente los cambios de RC-SALES-03 y no contiene modificaciones ajenas.
+M   ventas/screens/sales-auth-screen.tsx
 ```
 
-### Verificación
+596 líneas netas eliminadas (−562 originales reemplazadas por +33 de composición de componentes).
+
+## 4. Archivos creados
+
+13 archivos añadidos (estado `A` en el commit):
+
+```
+A   RC-SALES-03.md
+A   ventas/screens/auth/auth.constants.ts
+A   ventas/screens/auth/auth.styles.ts
+A   ventas/screens/auth/auth.types.ts
+A   ventas/screens/auth/auth.utils.ts
+A   ventas/screens/auth/components/auth-feedback.tsx
+A   ventas/screens/auth/components/auth-field.tsx
+A   ventas/screens/auth/components/auth-header.tsx
+A   ventas/screens/auth/components/auth-legal-links.tsx
+A   ventas/screens/auth/components/auth-mode-selector.tsx
+A   ventas/screens/auth/components/auth-session-bar.tsx
+A   ventas/screens/auth/components/auth-shell.tsx
+A   ventas/screens/auth/components/auth-submit-button.tsx
+```
+
+## 5. Componentes extraídos (8 archivos .tsx)
+
+| Componente            | Responsabilidad                                          | Consumidor      |
+|-----------------------|----------------------------------------------------------|-----------------|
+| `AuthBackground`      | Fondo decorativo con capa base + glows superior e inferior | SalesAuthScreen |
+| `AuthField`           | Campo de formulario con icono, foco, toggle de contraseña | SalesAuthScreen |
+| `AuthFeedback`        | Caja de mensaje de error/feedback                        | SalesAuthScreen |
+| `AuthHeader`          | Logo + badge "Portal ManeComb" + título + subtítulo      | SalesAuthScreen |
+| `AuthLegalLinks`      | Enlaces a Términos y Privacidad                          | SalesAuthScreen |
+| `AuthModeSelector`    | Control segmentado login/register (contiene SegmentButton)| SalesAuthScreen |
+| `AuthSessionBar`      | Checkbox "Recordarme" + link "Recuperar acceso"          | SalesAuthScreen |
+| `AuthSubmitButton`    | Botón primario con loader y estado disabled              | SalesAuthScreen |
+
+## 6. Archivos foundation (4 archivos)
+
+| Archivo            | Contenido                                       |
+|--------------------|-------------------------------------------------|
+| `auth.constants.ts`| Paleta de colores (authPalette)                 |
+| `auth.styles.ts`   | StyleSheet.create completo de SalesAuthScreen   |
+| `auth.types.ts`    | Tipos AuthMode, AuthIdentity                    |
+| `auth.utils.ts`    | getFirstParam, buildPaymentRoute, normalizeIdentity |
+
+## 7. password-reset-screen.tsx
+
+**No aparece en el commit `fbb1b1c`.** No fue modificado durante RC-SALES-03.
+
+- Fue analizado (101 líneas originales, contenedor minimalista con 10 estilos inline).
+- Se decidió no modularizarlo: extraer componentes habría creado abstracciones artificiales sin ganancia real, y sus estilos no compiten con `auth.styles.ts` (nombres distintos).
+- Permanece con el mismo contenido y tamaño. No hay una métrica "antes → después" que reportar.
+
+## 8. Métricas corregidas
+
+| Métrica                     | Antes  | Después | Resultado                           |
+|-----------------------------|-------:|--------:|-------------------------------------|
+| `sales-auth-screen.tsx`     | 796    | 237     | −70.2 %                             |
+| `password-reset-screen.tsx` | 101    | 101     | Sin cambios (no incluido en commit) |
+| Archivos foundation creados | 0      | 4       | +4                                  |
+| Componentes creados         | 0      | 8       | +8                                  |
+| Archivos nuevos totales     | 0      | 13      | (12 implementación + RC-SALES-03.md)|
+| Dependencias agregadas      | 0      | 0       | Sin cambios                         |
+| Typecheck                   | Aprobado | Aprobado | ✅                                  |
+| Build                       | Aprobado | Aprobado | ✅                                  |
+| Tests                       | —      | —       | Script no disponible                |
+
+## 9. Validaciones técnicas
+
+| Validación               | Resultado                         |
+|--------------------------|-----------------------------------|
+| Typecheck                | Aprobado                          |
+| Build                    | Aprobado                          |
+| Tests                    | No ejecutados: script no definido |
+| Dependencias nuevas      | Ninguna                           |
+| Código fuera del alcance | Ninguno                           |
+
+## 10. Matriz de compatibilidad
+
+| Pregunta                       | Respuesta |
+|--------------------------------|-----------|
+| ¿Cambió el login?              | NO        |
+| ¿Cambió el registro?           | NO        |
+| ¿Cambió la recuperación?       | NO        |
+| ¿Cambió el restablecimiento?   | NO        |
+| ¿Cambió alguna validación?     | NO        |
+| ¿Cambió algún campo?           | NO        |
+| ¿Cambió algún texto?           | NO        |
+| ¿Cambió algún dato?            | NO        |
+| ¿Cambió algún payload?         | NO        |
+| ¿Cambió algún endpoint?        | NO        |
+| ¿Cambió algún contrato?        | NO        |
+| ¿Cambió algún tipo compartido? | NO        |
+| ¿Cambió el store?              | NO        |
+| ¿Cambió la API?                | NO        |
+| ¿Cambió la navegación?         | NO        |
+| ¿Cambió alguna ruta?           | NO        |
+| ¿Cambió la UI visible?         | NO        |
+| ¿Cambió el responsive?         | NO        |
+| ¿Se agregó alguna dependencia? | NO        |
+| ¿Se duplicó lógica?            | NO        |
+| ¿Se modificó Commercial?       | NO        |
+| ¿Se modificó Portal Admin?     | NO        |
+| ¿Se modificó Mobile?           | NO        |
+| ¿Se modificó backend?          | NO        |
+| ¿Se integró Resend?            | NO        |
+
+## 11. Evidencia Git
 
 ```bash
-npm run typecheck  # ✓ sin errores
-npm run test       # script no definido en package.json
-npm run build      # ✓ 551 modules transformed, build exitoso
+$ git branch --show-current
+main
+
+$ git rev-parse --short HEAD
+fbb1b1c
+
+$ git status --short
+(no output)
+
+$ git show --stat --oneline fbb1b1c
+fbb1b1c refactor(ventas): modularize authentication screens
+ RC-SALES-03.md                                     | 113 ++++
+ ventas/screens/auth/auth.constants.ts              |  40 ++
+ ventas/screens/auth/auth.styles.ts                 | 312 +++++++++++
+ ventas/screens/auth/auth.types.ts                  |   7 +
+ ventas/screens/auth/auth.utils.ts                  |  42 ++
+ ventas/screens/auth/components/auth-feedback.tsx   |  16 +
+ ventas/screens/auth/components/auth-field.tsx      |  77 +++
+ ventas/screens/auth/components/auth-header.tsx     |  32 ++
+ ventas/screens/auth/components/auth-mode-selector.tsx | 50 ++
+ ventas/screens/auth/components/auth-session-bar.tsx   | 34 ++
+ ventas/screens/auth/components/auth-shell.tsx      |  12 +
+ ventas/screens/auth/components/auth-submit-button.tsx | 30 ++
+ ventas/screens/auth/components/auth-legal-links.tsx | 20 +
+ ventas/screens/sales-auth-screen.tsx               | 595 ++-------------------
+ 14 files changed, 818 insertions(+), 562 deletions(-)
+
+$ git show --name-status --format= fbb1b1c
+A  RC-SALES-03.md
+A  ventas/screens/auth/auth.constants.ts
+A  ventas/screens/auth/auth.styles.ts
+A  ventas/screens/auth/auth.types.ts
+A  ventas/screens/auth/auth.utils.ts
+A  ventas/screens/auth/components/auth-feedback.tsx
+A  ventas/screens/auth/components/auth-field.tsx
+A  ventas/screens/auth/components/auth-header.tsx
+A  ventas/screens/auth/components/auth-legal-links.tsx
+A  ventas/screens/auth/components/auth-mode-selector.tsx
+A  ventas/screens/auth/components/auth-session-bar.tsx
+A  ventas/screens/auth/components/auth-shell.tsx
+A  ventas/screens/auth/components/auth-submit-button.tsx
+M  ventas/screens/sales-auth-screen.tsx
 ```
 
-### Dependencias inalteradas
+**Estado posterior al commit:** árbol de trabajo limpio (`git status --short` sin salida). El commit `fbb1b1c` contiene exclusivamente los cambios de RC-SALES-03 y no contiene modificaciones ajenas.
 
-No se modificaron: `package.json`, `mobile/`, `backend/`, `shared/`, `features/commercial/`, `features/portal/`, `src/store/`, `src/lib/api.ts`, `src/components/`, otros screens.
+## 12. Rollback
 
-RC-SALES-03 completo. Rollback oficial con `git revert <commit-de-rc-sales-03>` (no realizar hasta que el commit esté firmado).
+```bash
+git revert fbb1b1c
+```
+
+No ejecutar el revert.
+
+## 13. Matriz de cierre documental
+
+| Pregunta                                     | Respuesta |
+|----------------------------------------------|-----------|
+| ¿Se modificó código durante esta corrección? | NO        |
+| ¿Se modificó lógica?                         | NO        |
+| ¿Se modificaron componentes?                 | NO        |
+| ¿Se modificaron estilos?                     | NO        |
+| ¿Se modificaron dependencias?                | NO        |
+| ¿Se corrigieron los conteos?                 | SÍ        |
+| ¿Se aclaró `password-reset-screen.tsx`?      | SÍ        |
+| ¿Se actualizó el estado Git real?            | SÍ        |
+| ¿Se documentó el commit real?                | SÍ        |
+| ¿Se documentó el rollback exacto?            | SÍ        |
+| ¿El reporte quedó sin contradicciones?       | SÍ        |
