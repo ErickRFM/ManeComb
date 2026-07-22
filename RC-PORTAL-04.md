@@ -1,239 +1,253 @@
 # RC-PORTAL-04 — Modularización de Administración de la App Móvil
 
-**Estado**: Cerrado
+**Estado:** Cerrado
+
+**Base del cierre final:** `8b8e366`
+
+**Extracción inicial:** `633a6e3`
+
+**Cierre final:** `69d2029`
+
+**Commit restaurador:** `e4f597f`
 
 ## Objetivo
 
-Modularización estructural del módulo administrativo de la aplicación móvil dentro del Portal, extrayendo componentes presentacionales, estilos y utilidades de `portal-app-movil-screen.tsx` y `portal-app-admin.tsx`, conservando exactamente datos, lógica, UI, store, API, navegación, permisos, versiones, dispositivos, activaciones, estadísticas y configuración.
+Modularizar internamente la administración de la App Móvil dentro del Portal, trasladando JSX presentacional, estilos y helpers privados desde los dos contenedores originales, sin cambiar UI, datos, store, API, navegación, RBAC, versiones, APK, enlaces, estadísticas, payloads ni comportamiento.
 
-## Estado inicial
+## Historial verificado
 
-| Campo | Valor |
-|---|---|
-| Rama | `main` |
-| Commit | `8b8e366` (RC-PORTAL-06) |
-| Estado Git | Limpio |
-| Líneas originales (screen) | 951 |
-| Líneas originales (admin) | 699 |
-| Total original | 1,650 |
+| Commit | Clasificación | Archivos |
+|---|---|---:|
+| `633a6e3` | Extracción inicial | 14 creados y 2 modificados |
+| `69d2029` | Cierre final | 1 creado y 2 modificados |
+| `30b3976` | Incidente: revert accidental de `69d2029` | 1 eliminado y 2 modificados |
+| `e4f597f` | Restauración mediante revert del revert | 1 recreado y 2 modificados |
 
-## Arquitectura anterior
+### Archivos de `633a6e3`
 
-```
-screens/portal-app-movil-screen.tsx  (951 líneas)
-  └── Todo: layout, store, estados, efectos, JSX completo, estilos inline
+- Creados: `RC-PORTAL-04.md`, los 2 archivos foundation y 11 componentes iniciales.
+- Modificados: `portal-app-movil-screen.tsx` y `portal-app-admin.tsx`.
 
-components/portal-app-admin.tsx  (699 líneas)
-  └── Todo: store, estados, efectos, callbacks, JSX completo, estilos inline
-```
+### Archivos de `69d2029`
+
+- Creado: `app-admin-access-restricted.tsx`.
+- Modificados: `RC-PORTAL-04.md` y `portal-app-admin.tsx`.
+
+### Totales acumulados de la implementación
+
+- 14 archivos fuente nuevos dentro de `app-mobile/`: 12 componentes y 2 foundation.
+- 1 reporte nuevo: `RC-PORTAL-04.md`.
+- 2 contenedores existentes modificados.
+- 17 rutas distintas involucradas en la implementación y su documentación.
+
+## Recuperación del estado final
+
+- `30b3976` revirtió accidentalmente el commit final `69d2029`.
+- Después se inició accidentalmente un revert de `633a6e3`; esa operación fue abortada con `git revert --abort`, sin resolver conflictos manualmente.
+- El contenido final se restauró mediante `git revert --no-edit 30b3976`.
+- El commit restaurador resultante es `e4f597f`.
+- No se utilizó `reset`, `cherry-pick`, `commit --amend` ni `rebase`.
+- `.claude/settings.local.json` permanece local y se excluyó únicamente mediante `.git/info/exclude`.
+
+`30b3976` se clasifica como incidente de historial, no como parte funcional de RC-PORTAL-04.
 
 ## Arquitectura final
 
-```
-PortalAppMovilScreen (151 líneas)
-  └── Container: layout, store, efectos, tab state, QR, download
-       ├── AppMobileHero — hero card + phone mockup
-       ├── AppMobileTabBar — tabs (info/history/admin)
-       ├── AppMobileInfoFacts — cards: versión, android, tamaño, fecha
-       ├── AppMobileDownloadCard — QR + metadatos + botón
-       ├── AppMobileReleaseNotes — notas de versión
-       ├── AppMobileVersionTimeline — historial de versiones
-       └── PortalAppAdmin (173 líneas)
-            └── Container: form state, CRUD callbacks, dirty detection
-                 ├── AppAdminAccessRestricted — guard visual
-                 ├── AppAdminGeneralForm — campos principales
-                 ├── AppAdminReleaseNotesEditor — notas CRUD
-                 ├── AppAdminVersionHistoryEditor — versiones CRUD
-                 ├── AppAdminDeviceStats — estadísticas dispositivos
-                 ├── AppAdminSaveBar — barra guardado
-                 └── ConfirmModal — confirmación guardado
+```text
+PortalAppMovilScreen
+├── AppMobileHero
+├── AppMobileTabBar
+├── AppMobileInfoFacts
+├── AppMobileDownloadCard
+├── AppMobileReleaseNotes
+├── AppMobileVersionTimeline
+└── PortalAppAdmin
+    ├── AppAdminAccessRestricted
+    ├── AppAdminGeneralForm
+    ├── AppAdminReleaseNotesEditor
+    ├── AppAdminVersionHistoryEditor
+    ├── AppAdminDeviceStats
+    ├── AppAdminSaveBar
+    └── ConfirmModal existente
 ```
 
-## Responsabilidad de cada contenedor
+## Archivos foundation (2)
 
-| Contenedor | Conserva |
+| Archivo | Clasificación comprobada |
 |---|---|
-| `PortalAppMovilScreen` | `PortalLayout`, store (`usePortalStore`), loading/error/empty states, `activeTab`, `expandedVersions`, `qrSvg`, QR effect, `handleDownload`, `useNovidadesScroll` |
-| `PortalAppAdmin` | RBAC (`isAdmin`), `form`, `noteInput`, `historyEditor`, `confirmVisible`, `saved`, `deviceStats`, `statsLoading`, 10 `useCallback` CRUD handlers, `dirty` memo, device stats fetch effect, form init effect |
+| `app-mobile.styles.ts` | StyleSheet privado compartido por los contenedores y componentes del módulo |
+| `app-mobile.utils.ts` | Helpers y hooks locales del módulo |
 
-## Archivos creados (14)
+`app-mobile.utils.ts` no es una utilidad completamente pura:
 
-### Foundation (2)
+- `deepEq`: helper puro y determinista basado en serialización JSON.
+- `useNovidadesScroll`: custom hook local de comportamiento visual y scroll; utiliza `useRef`, `useCallback`, `Platform` y APIs de scroll web.
 
-| Archivo | Responsabilidad | Exports | Consumidores |
-|---|---|---|---|
-| `app-mobile/app-mobile.styles.ts` | Todos los estilos del módulo (~150 entradas StyleSheet) | `styles` | Todos los componentes + contenedores |
-| `app-mobile/app-mobile.utils.ts` | Hook `useNovidadesScroll` + `deepEq` | `useNovidadesScroll`, `deepEq` | Screen, Admin |
+## Componentes presentacionales (12)
 
-### Componentes — Screen (6)
+### Screen (6)
 
-| Componente | Responsabilidad | Props |
+| Componente | Consumidor | Estado o hooks propios |
 |---|---|---|
-| `AppMobileHero` | Hero card: logo, título, badge, botón descarga, botón novedades, phone mockup | `compact`, `appName`, `appStatus`, `appVersion`, `onDownload`, `onNovidades` |
-| `AppMobileTabBar` | Tabs: Información/Historial/Administración | `activeTab: TabKey`, `onTabChange` |
-| `AppMobileInfoFacts` | 4 cards informativos en fila | `facts: { icon, label, value }[]` |
-| `AppMobileDownloadCard` | Card descarga: QR, metadatos, botón grande | `compact`, `qrSvg`, `androidMin`, `size`, `version`, `onDownload` |
-| `AppMobileReleaseNotes` | Sección "Qué incluye esta versión" (forwardRef) | `ref`, `version`, `notes` |
-| `AppMobileVersionTimeline` | Timeline versiones con items expandibles | `versions`, `expandedVersions`, `onToggleVersion`, `onDownload`, `compact` |
+| `AppMobileHero` | `PortalAppMovilScreen` | Ninguno |
+| `AppMobileTabBar` | `PortalAppMovilScreen` | Ninguno |
+| `AppMobileInfoFacts` | `PortalAppMovilScreen` | Ninguno |
+| `AppMobileDownloadCard` | `PortalAppMovilScreen` | Ninguno |
+| `AppMobileReleaseNotes` | `PortalAppMovilScreen` | Ninguno; conserva `forwardRef` |
+| `AppMobileVersionTimeline` | `PortalAppMovilScreen` | Ninguno; el item interno no se exporta |
 
-### Componentes — Admin (7)
+### Admin (6)
 
-| Componente | Responsabilidad | Props |
+| Componente | Consumidor | Estado o hooks propios |
 |---|---|---|
-| `AppAdminAccessRestricted` | Guard visual: icono candado + texto "Acceso restringido" | ninguna |
-| `AppAdminGeneralForm` | Formulario: versión, estado, android min, tamaño, fecha, APK URL | `form`, `onFieldChange` |
-| `AppAdminReleaseNotesEditor` | Editor CRUD de notas de publicación | `noteInput`, `notes`, `onNoteInputChange`, `onAddNote`, `onEditNote`, `onRemoveNote` |
-| `AppAdminVersionHistoryEditor` | Editor CRUD de historial de versiones (6 acciones) | `versions`, `onAddVersion`, `onUpdateVersion`, `onRemoveVersion`, `onToggleArchived`, `onMarkCurrent` |
-| `AppAdminDeviceStats` | Estadísticas de dispositivos (total, versión, publicación, versiones) | `stats: DeviceVersionStats \| null`, `loading` |
-| `AppAdminSaveBar` | Barra guardado con dirty/saved/isSubmitting | `dirty`, `saved`, `isSubmitting`, `onSave` |
+| `AppAdminAccessRestricted` | `PortalAppAdmin` | Ninguno |
+| `AppAdminGeneralForm` | `PortalAppAdmin` | Ninguno |
+| `AppAdminReleaseNotesEditor` | `PortalAppAdmin` | Ninguno |
+| `AppAdminVersionHistoryEditor` | `PortalAppAdmin` | Ninguno |
+| `AppAdminDeviceStats` | `PortalAppAdmin` | Ninguno |
+| `AppAdminSaveBar` | `PortalAppAdmin` | Ninguno |
 
-## Pureza de componentes
+Todos los componentes tienen export, import y consumidor. Ninguno quedó duplicado o sin referencias. La clasificación comprobada es **presentacional sin acceso a infraestructura**: ninguno importa stores, API, router, persistencia, navegación o funciones administrativas.
 
-Ningún componente presentacional importa store, API o router. Todos reciben datos y callbacks mediante props.
+## AppAdminAccessRestricted
 
-| Componente | `usePortalStore` | `useAppStore` | `axios/fetch` | `router` | Permisos |
-|---|---|---|---|---|---|
-| `AppMobileHero` | NO | NO | NO | NO | recibe flags |
-| `AppMobileTabBar` | NO | NO | NO | NO | recibe flags |
-| `AppMobileInfoFacts` | NO | NO | NO | NO | recibe flags |
-| `AppMobileDownloadCard` | NO | NO | NO | NO | recibe flags |
-| `AppMobileReleaseNotes` | NO | NO | NO | NO | recibe flags |
-| `AppMobileVersionTimeline` | NO | NO | NO | NO | recibe flags |
-| `AppAdminAccessRestricted` | NO | NO | NO | NO | NO |
-| `AppAdminGeneralForm` | NO | NO | NO | NO | recibe flags |
-| `AppAdminReleaseNotesEditor` | NO | NO | NO | NO | recibe flags |
-| `AppAdminVersionHistoryEditor` | NO | NO | NO | NO | recibe flags |
-| `AppAdminDeviceStats` | NO | NO | NO | NO | recibe flags |
-| `AppAdminSaveBar` | NO | NO | NO | NO | recibe flags |
+- Representa únicamente el estado visual de acceso restringido.
+- No consulta usuario, rol o permisos.
+- No calcula `isAdmin`.
+- No usa store, API o router.
+- La decisión RBAC continúa en `PortalAppAdmin`:
 
-## Pureza de utilidades
+```tsx
+if (!isAdmin) {
+  return <AppAdminAccessRestricted />;
+}
+```
 
-| Archivo | Verificación | Resultado |
-|---|---|---|
-| `app-mobile.utils.ts` | Sin store, API, router, timers, localStorage | ✅ Puro |
+## Responsabilidades conservadas
 
-## Estado conservado
+### PortalAppMovilScreen
 
-- `PortalAppMovilScreen`: `qrSvg`, `expandedVersions`, `activeTab` (3 estados)
-- `PortalAppAdmin`: `form`, `noteInput`, `historyEditor`, `confirmVisible`, `saved`, `deviceStats`, `statsLoading` (7 estados)
+Conserva `PortalLayout`, `usePortalStore`, `loadAppInfo`, loading, error, empty state, `activeTab`, `expandedVersions`, `qrSvg`, generación del QR, descarga, scroll a novedades, composición de tabs y render de `PortalAppAdmin`.
 
-## Hooks conservados (orden exacto)
+Orden real de hooks:
 
-**PortalAppMovilScreen**:
-1. `useWindowDimensions` → `compact`
-2. `usePortalStore` (useShallow) → `appInfo`, `error`, `isLoading`, `loadAppInfo`
-3. `useState` → `qrSvg`
-4. `useState` → `expandedVersions`
-5. `useState` → `activeTab`
-6. `useNovidadesScroll` → `ref`, `scrollToNovidades`
+1. `useWindowDimensions`.
+2. `usePortalStore` con `useShallow`.
+3. `useState` para `qrSvg`.
+4. `useState` para `expandedVersions`.
+5. `useState` para `activeTab`.
+6. `useNovidadesScroll`.
+7. `useCallback` para `toggleVersionExpanded`.
+8. `useEffect` para `loadAppInfo`.
+9. `useEffect` para generar el QR.
 
-**PortalAppAdmin**:
-1. `useAppStore` → `user`
-2. `usePortalStore` (useShallow) → `appInfo`, `isSubmitting`, `updateAppInfo`
-3. `useState` → `form`
-4. `useState` → `noteInput`
-5. `useState` → `historyEditor`
-6. `useState` → `confirmVisible`
-7. `useState` → `saved`
-8. `useState` → `deviceStats`
-9. `useState` → `statsLoading`
-10. `useEffect` → device stats fetch
-11. `useEffect` → form/historyEditor init
-12. `useMemo` → `dirty`
-13-22. `useCallback` → CRUD handlers (setField, addNote, removeNote, editNote, addVersion, updateVersion, removeVersion, toggleArchived, markCurrent, handleSave, handleSaveClick)
+### PortalAppAdmin
 
-## Efectos conservados
+Conserva `useAppStore`, `usePortalStore`, cálculo de `isAdmin`, formulario, notas, historial, confirmación, `saved`, estadísticas, loading de estadísticas, inicialización, dirty detection, callbacks CRUD y guardado.
 
-- `PortalAppMovilScreen`: `useEffect` para `loadAppInfo` inicial, `useEffect` para QR generation
-- `PortalAppAdmin`: `useEffect` para `getDeviceVersionStatsRequest`, `useEffect` para inicializar `form`/`historyEditor`
+Orden real de hooks:
 
-## Duplicación eliminada
+1. `useAppStore`.
+2. `usePortalStore` con `useShallow`.
+3. Siete `useState`: `form`, `noteInput`, `historyEditor`, `confirmVisible`, `saved`, `deviceStats`, `statsLoading`.
+4. `useEffect` de estadísticas.
+5. `useEffect` de inicialización.
+6. `useMemo` de dirty detection.
+7. Once `useCallback`: `setField`, `addNote`, `removeNote`, `editNote`, `addVersion`, `updateVersion`, `removeVersion`, `toggleArchived`, `markCurrent`, `handleSave` y `handleSaveClick`.
 
-- ~150 entradas de `StyleSheet.create` duplicadas entre screen y admin → consolidadas en `app-mobile.styles.ts`
-- `deepEq` inline en admin → movida a `app-mobile.utils.ts`
-- `useNovidadesScroll` inline en screen → movida a `app-mobile.utils.ts`
-- `!isAdmin` block inline en admin → extraído a `AppAdminAccessRestricted`
+No se detectó duplicación de estado, permisos, formulario, historial, notas o estadísticas entre contenedores y componentes.
 
-## Código sin referencias
+## Estilos
 
-No se detectó código preexistente sin referencias. Toda la eliminación fue consecuencia directa de la extracción.
+- `app-mobile.styles.ts` tiene 850 líneas físicas.
+- Contiene un único `StyleSheet.create`.
+- Define 130 claves únicas.
+- Las 130 claves tienen consumidor.
+- No existen claves duplicadas ni referencias a claves ausentes.
+- Screen, Admin y los 12 componentes consumen el mismo StyleSheet.
+- No contiene store, API ni constantes de negocio.
+- No se detectó dependencia circular.
 
-## Matriz de compatibilidad
+Redacción comprobada: los estilos inline de ambos contenedores fueron trasladados mecánicamente a un módulo compartido privado de `app-mobile`. No existe evidencia suficiente para afirmar que se eliminaron 150 estilos duplicados.
 
-| Pregunta | Respuesta |
-|---|---|
-| ¿Cambió la app móvil? | NO |
-| ¿Cambió `mobile/`? | NO |
-| ¿Cambió alguna versión? | NO |
-| ¿Cambió algún enlace? | NO |
-| ¿Cambió el APK? | NO |
-| ¿Cambió algún dispositivo? | NO |
-| ¿Cambió alguna activación? | NO |
-| ¿Cambió algún código? | NO |
-| ¿Cambió alguna estadística? | NO |
-| ¿Cambió alguna configuración? | NO |
-| ¿Cambió algún payload? | NO |
-| ¿Cambió algún endpoint? | NO |
-| ¿Cambió el store? | NO |
-| ¿Cambió la API? | NO |
-| ¿Cambió la navegación? | NO |
-| ¿Cambió alguna ruta? | NO |
-| ¿Cambió RBAC? | NO |
-| ¿Cambió la UI? | NO |
-| ¿Cambió el responsive? | NO |
-| ¿Cambió algún texto? | NO |
-| ¿Se agregó alguna dependencia? | NO |
-| ¿Se modificó Commercial? | NO |
-| ¿Se modificó Dashboard? | NO |
-| ¿Se modificó Rutas? | NO |
-| ¿Se modificó Plan? | NO |
-| ¿Se modificó backend? | NO |
-| ¿Se modificó shared? | NO |
-| ¿Componentes presentacionales importan store/API/router? | NO |
-| ¿Se duplicó estado o lógica? | NO |
-| ¿Typecheck aprobó? | SÍ |
-| ¿Build aprobó? | SÍ |
-| ¿Árbol limpio? | SÍ |
+## Métricas verificadas
 
-## Validaciones técnicas
+Los conteos se obtuvieron con el contenido del padre de `633a6e3` y los archivos actuales:
+
+| Contenedor | Original | Actual | Reducción del contenedor |
+|---|---:|---:|---:|
+| `portal-app-movil-screen.tsx` | 971 | 166 | 805 líneas (82.9 %) |
+| `portal-app-admin.tsx` | 737 | 198 | 539 líneas (73.1 %) |
+| **Combinado** | **1,708** | **364** | **1,344 líneas (78.7 %)** |
+
+Estas cifras describen la reducción de los dos contenedores, no una eliminación equivalente de código del módulo. El código correspondiente fue distribuido entre componentes, estilos y helpers privados.
+
+## Integridad funcional
+
+La comparación de commits, imports y consumidores no encontró cambios en:
+
+- datos, versiones, APK o enlaces;
+- orden de versiones o release notes;
+- activaciones, estadísticas o payloads;
+- store, API, servicios o endpoints;
+- navegación o rutas;
+- condición RBAC;
+- dirty detection y confirmación de guardado;
+- generación de QR y descarga;
+- tabs, estado expandido, loading o empty state;
+- textos visibles, breakpoints o `compact`;
+- uso de `ConfirmModal`.
+
+Los commits `633a6e3`, `69d2029` y `e4f597f` no modifican `mobile/`, `package.json` ni `package-lock.json`.
+
+## Validaciones posteriores a la recuperación
 
 | Validación | Resultado |
 |---|---|
-| `npm run typecheck` | ✅ Aprobado (0 errores) |
-| `npm run build` | ✅ Aprobado (606 modules) |
-| `npm run test` | ❌ No disponible (script `test` no definido) |
-| `git diff --check` | ✅ Sin errores |
+| `npm run typecheck` | Aprobado, 0 errores |
+| `npm run build` | Aprobado, 606 módulos transformados |
+| `npm run test` | No disponible: el script `test` no está definido en `ventas/package.json` |
+| `git diff --check` antes de editar el reporte | Aprobado |
+| Estado previo a la auditoría documental | Limpio |
+| `.claude/settings.local.json` | Local, no rastreado y excluido solo mediante `.git/info/exclude` |
 
-## Métricas finales
+## Auditoría de congruencia posterior
 
-| Métrica | Valor |
+- Commits de implementación y recuperación verificados mediante `git show`.
+- 12 componentes confirmados: 6 de Screen y 6 de Admin.
+- 2 archivos foundation confirmados.
+- Todos los componentes tienen consumidor y carecen de acceso a infraestructura.
+- `AppAdminAccessRestricted` volvió a existir, está rastreado y conserva RBAC en el contenedor.
+- Hooks, efectos, callbacks y estados permanecen en sus contenedores correspondientes.
+- `deepEq` y `useNovidadesScroll` quedaron clasificados correctamente.
+- Las métricas anteriores del reporte fueron corregidas con conteos reales.
+- La afirmación de estilos duplicados fue sustituida por una descripción demostrable del traslado mecánico.
+- No se detectaron imports rotos, exports públicos perdidos, componentes huérfanos ni dependencias circulares.
+- No fue necesario modificar código fuente durante la auditoría.
+
+## Rollback futuro
+
+No ejecutar como parte de esta auditoría. Una vez creado el commit documental, el rollback completo debe realizarse en orden inverso:
+
+```bash
+git revert <HASH_COMMIT_AUDITORIA>
+git revert e4f597f
+git revert 633a6e3
+```
+
+`69d2029` y `30b3976` se neutralizan entre sí dentro del historial. El hash documental debe obtenerse con `git rev-parse --short HEAD` después de crear el commit; no puede incluirse dentro del mismo commit que identifica.
+
+## Matriz final
+
+| Pregunta | Respuesta |
 |---|---|
-| Líneas originales (screen) | 951 |
-| Líneas finales (screen) | 151 |
-| Reducción (screen) | 800 (−84.1%) |
-| Líneas originales (admin) | 699 |
-| Líneas finales (admin) | 173 |
-| Reducción (admin) | 526 (−75.3%) |
-| Reducción absoluta total | 1,326 |
-| Reducción porcentual total | 80.4% |
-| Componentes presentacionales | 12 |
-| Archivos foundation | 2 (styles, utils) |
-| Archivos creados | 14 |
-| Archivos modificados | 2 |
-| Commits involucrados | 2 |
-
-## Rollback
-
-```bash
-git revert 633a6e3
-git revert <HASH_ADDITIONAL_FIX>
-```
-
-Para revertir todo RC-PORTAL-04 en orden inverso (primero el fix, luego la implementación original):
-
-```bash
-git revert <HASH_ADDITIONAL_FIX>
-git revert 633a6e3
-```
-
-No ejecutar a menos que sea necesario.
+| ¿Cambió la lógica durante la recuperación o auditoría? | NO |
+| ¿Cambió la UI? | NO |
+| ¿Cambió algún dato, versión, APK o enlace? | NO |
+| ¿Cambió store, API, endpoint o payload? | NO |
+| ¿Cambió navegación o RBAC? | NO |
+| ¿Se modificó `mobile/`? | NO |
+| ¿Se modificaron dependencias? | NO |
+| ¿Los 12 componentes tienen consumidor? | SÍ |
+| ¿Los componentes acceden a infraestructura? | NO |
+| ¿Typecheck y build aprobaron? | SÍ |
