@@ -1,14 +1,16 @@
 # RC-PORTAL-04 — Modularización de Administración de la App Móvil
 
-**Estado:** Cerrado
+**Estado:** Cerrado técnicamente — pendiente de commit documental
 
-**Base del cierre final:** `8b8e366`
+**Base de la RC:** `8b8e366`
 
 **Extracción inicial:** `633a6e3`
 
-**Cierre final:** `69d2029`
+**Cierre funcional original:** `69d2029`
 
-**Commit restaurador:** `e4f597f`
+**Incidente de historial:** `30b3976`
+
+**Restauración del cierre funcional:** `e4f597f`
 
 ## Objetivo
 
