@@ -1,15 +1,14 @@
-import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '../store/use-portal-store';
-import { portalPalette } from '../portal-theme';
 import { getDeviceVersionStatsRequest } from '../api';
 import { deepEq } from '../app-mobile/app-mobile.utils';
 import { styles } from '../app-mobile/app-mobile.styles';
 import type { DeviceVersionStats } from '@/src/api/client';
+import { AppAdminAccessRestricted } from '../app-mobile/components/app-admin-access-restricted';
 import { AppAdminGeneralForm } from '../app-mobile/components/app-admin-general-form';
 import { AppAdminReleaseNotesEditor } from '../app-mobile/components/app-admin-release-notes-editor';
 import { AppAdminVersionHistoryEditor } from '../app-mobile/components/app-admin-version-history-editor';
@@ -147,15 +146,7 @@ export function PortalAppAdmin() {
   if (!appInfo) return null;
 
   if (!isAdmin) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.emptyState}>
-          <MaterialCommunityIcons name="shield-lock-outline" size={48} color={portalPalette.muted} />
-          <Text style={styles.emptyTitle}>Acceso restringido</Text>
-          <Text style={styles.emptyDesc}>Solo el administrador puede gestionar la aplicación.</Text>
-        </View>
-      </View>
-    );
+    return <AppAdminAccessRestricted />;
   }
 
   return (
