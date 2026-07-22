@@ -1,34 +1,22 @@
-import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, palette, Typography } from '@/constants/theme';
-import { EmptyState } from '@/src/components/ui/empty-state';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
-import { StatusBadge } from '@/src/components/ui/status-badge';
-import { PortalSectionCard } from '../cards';
+import { useAppStore } from '@/src/store/use-app-store';
 import { PortalLayout } from '../components/portal-layout';
-import { PortalButton } from '../components/portal-button';
+import { PortalProfileCompanySection } from '../profile/components/portal-profile-company-section';
+import { PortalProfilePersonalSection } from '../profile/components/portal-profile-personal-section';
+import { PortalProfileSessionsSection } from '../profile/components/portal-profile-sessions-section';
+import { PortalProfileSupportSection } from '../profile/components/portal-profile-support-section';
+import type { ProfileForm } from '../profile/profile.types';
+import { getProfileSection } from '../profile/profile.utils';
 import { portalButtonGradient } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
-import { useAppStore } from '@/src/store/use-app-store';
-
-type ProfileSection = 'resumen' | 'empresa' | 'seguridad' | 'soporte';
-
-function getParam(value: string | string[] | undefined): ProfileSection {
-  const normalized = Array.isArray(value) ? value[0] : value;
-
-  if (['empresa', 'seguridad', 'soporte'].includes(String(normalized || ''))) {
-    return normalized as ProfileSection;
-  }
-
-  return 'resumen';
-}
 
 export function PortalProfileScreen() {
   const params = useLocalSearchParams<{ section?: string | string[] }>();
-  const activeSection = getParam(params.section);
+  const activeSection = getProfileSection(params.section);
   const { isSubmitting: isProfileSubmitting, updateProfile, user } = useAppStore(
     useShallow((state) => ({
       isSubmitting: state.isSubmitting,
@@ -43,7 +31,7 @@ export function PortalProfileScreen() {
       sessions: state.sessions,
     }))
   );
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ProfileForm>({
     name: '',
     email: '',
     phone: '',
@@ -73,7 +61,7 @@ export function PortalProfileScreen() {
     });
   }, [user]);
 
-  const setField = (field: keyof typeof form, value: string) => {
+  const setField = (field: keyof ProfileForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -139,119 +127,32 @@ export function PortalProfileScreen() {
       }
       subtitle="Configuración de cuenta, empresa y acceso administrativo.">
       {activeSection === 'resumen' ? (
-        <PortalSectionCard title="Datos personales" subtitle={message || undefined}>
-          <View style={styles.formGrid}>
-            {(['name', 'email', 'phone'] as const).map((field) => (
-              <TextInput
-                key={field}
-                value={form[field]}
-                onChangeText={(value) => setField(field, value)}
-                 placeholder={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Telefono'}
-                 accessibilityLabel={field === 'name' ? 'Nombre' : field === 'email' ? 'Correo' : 'Teléfono'}
-                placeholderTextColor={palette.muted}
-                autoCapitalize={field === 'email' ? 'none' : 'sentences'}
-                style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
-              />
-            ))}
-          </View>
-        </PortalSectionCard>
+        <PortalProfilePersonalSection form={form} message={message} onFieldChange={setField} />
       ) : null}
 
       {activeSection === 'resumen' || activeSection === 'empresa' ? (
-        <PortalSectionCard title="Datos de empresa" subtitle="Información fiscal y de activación.">
-          <View style={styles.formGrid}>
-            {(['companyName', 'legalName', 'taxId', 'billingEmail', 'billingAddress'] as const).map((field) => (
-              <TextInput
-                key={field}
-                value={form[field]}
-                onChangeText={(value) => setField(field, value)}
-                 placeholder={
-                  field === 'companyName'
-                    ? 'Empresa'
-                    : field === 'legalName'
-                      ? 'Razon social'
-                      : field === 'taxId'
-                        ? 'RFC'
-                        : field === 'billingEmail'
-                          ? 'Correo fiscal'
-                          : 'Direccion fiscal'
-                 }
-                accessibilityLabel={
-                  field === 'companyName' ? 'Empresa' : field === 'legalName' ? 'Razón social' : field === 'taxId' ? 'RFC' : field === 'billingEmail' ? 'Correo fiscal' : 'Dirección fiscal'
-                }
-                placeholderTextColor={palette.muted}
-                autoCapitalize={field === 'billingEmail' ? 'none' : 'sentences'}
-                style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
-              />
-            ))}
-          </View>
-          <View style={styles.actions}>
-              <PortalButton icon="content-save-outline" loading={isProfileSubmitting} onPress={() => void saveProfile()}>{isProfileSubmitting ? 'Guardando...' : 'Guardar perfil'}</PortalButton>
-          </View>
-        </PortalSectionCard>
+        <PortalProfileCompanySection
+          form={form}
+          isSubmitting={isProfileSubmitting}
+          onFieldChange={setField}
+          onSave={() => void saveProfile()}
+        />
       ) : null}
 
       {activeSection === 'resumen' || activeSection === 'seguridad' ? (
-        <PortalSectionCard title="Sesiones activas" subtitle={sessions.length ? `${sessions.length} ${sessions.length === 1 ? 'sesión' : 'sesiones'}` : undefined}>
-          {sessions.length ? (
-            <View style={styles.sessionList}>
-              {sessions.map((session) => (
-                <View key={session.id} style={[styles.sessionRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-                  <MaterialCommunityIcons name="monitor-cellphone" size={22} color={palette.accent} />
-                  <View style={styles.sessionBody}>
-                    <Text style={[styles.sessionTitle, { color: palette.text }]}>{session.deviceName}</Text>
-                    <Text style={[styles.sessionMeta, { color: palette.muted }]}>
-                      Vence: {session.expiresAt ? new Date(session.expiresAt).toLocaleDateString('es-MX') : 'Sin fecha disponible'}
-                    </Text>
-                  </View>
-                  <StatusBadge label={session.current ? 'actual' : 'activa'} tone="positive" />
-                  {!session.current ? (
-                    <PortalButton
-                      accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
-                       onPress={() => setSessionToRevoke({ id: session.id, deviceName: session.deviceName })}
-                      icon="close"
-                      size="sm"
-                      variant="danger" />
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ) : (
-            <EmptyState
-              icon="shield-lock-outline"
-              title="Sin sesiones activas"
-              description="Las sesiones administrativas aparecerán cuando haya accesos registrados."
-            />
-          )}
-        </PortalSectionCard>
+        <PortalProfileSessionsSection
+          sessions={sessions}
+          onRevoke={(session) => setSessionToRevoke({ id: session.id, deviceName: session.deviceName })}
+        />
       ) : null}
 
       {activeSection === 'soporte' ? (
-        <PortalSectionCard title="Soporte" subtitle="Canales y contexto para administradores.">
-          <View style={styles.supportGrid}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void Linking.openURL('mailto:soporte@manecomb.com')}
-              style={[styles.supportItem, { backgroundColor: palette.surface, borderColor: palette.line }]}>
-              <MaterialCommunityIcons name="email-outline" size={22} color={palette.info} />
-              <View style={styles.supportCopy}>
-                <Text style={[styles.sessionTitle, { color: palette.text }]}>Soporte comercial</Text>
-                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Pagos, facturación, contrato y activación. Envía un correo a soporte@manecomb.com</Text>
-              </View>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/portal' as never)}
-              style={[styles.supportItem, { backgroundColor: palette.surface, borderColor: palette.line }]}>
-              <MaterialCommunityIcons name="bus-alert" size={22} color={palette.warning} />
-              <View style={styles.supportCopy}>
-                <Text style={[styles.sessionTitle, { color: palette.text }]}>Soporte operativo</Text>
-                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Incidencias de rutas, radio y monitoreo se atienden desde el panel operativo.</Text>
-              </View>
-            </Pressable>
-          </View>
-        </PortalSectionCard>
+        <PortalProfileSupportSection
+          onOpenCommercialSupport={() => void Linking.openURL('mailto:soporte@manecomb.com')}
+          onOpenOperationalSupport={() => router.push('/portal' as never)}
+        />
       ) : null}
+
       <ConfirmModal
         visible={Boolean(sessionToRevoke)}
         title="Cerrar sesión remota"
@@ -270,108 +171,3 @@ export function PortalProfileScreen() {
     </PortalLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  disabledButton: {
-    opacity: 0.55,
-  },
-  formGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    minWidth: 0,
-  },
-  input: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexBasis: 220,
-    fontFamily: Typography.body,
-    fontSize: 14,
-    minHeight: 46,
-    minWidth: 0,
-    paddingHorizontal: 14,
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'flex-end',
-    minWidth: 0,
-  },
-  primaryButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.sm,
-    flexShrink: 0,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  primaryText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 13,
-    fontWeight: '900',
-    flexShrink: 1,
-  },
-  sessionList: {
-    gap: 10,
-    minWidth: 0,
-  },
-  sessionRow: {
-    alignItems: 'flex-start',
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    minWidth: 0,
-    padding: 12,
-  },
-  sessionBody: {
-    flex: 1,
-    flexBasis: 240,
-    minWidth: 0,
-  },
-  sessionTitle: {
-    fontFamily: Typography.body,
-    fontSize: 14,
-    fontWeight: '900',
-    minWidth: 0,
-  },
-  sessionMeta: {
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 18,
-    minWidth: 0,
-  },
-  iconButton: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.xs,
-    flexShrink: 0,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  supportGrid: {
-    gap: 10,
-    minWidth: 0,
-  },
-  supportItem: {
-    alignItems: 'flex-start',
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    minWidth: 0,
-    padding: 12,
-  },
-  supportCopy: {
-    flex: 1,
-    flexBasis: 240,
-    minWidth: 0,
-  },
-});
