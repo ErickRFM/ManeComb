@@ -6,7 +6,7 @@
 ## Commits
 | Hash | Descripción |
 |------|-------------|
-| `PENDING` | refactor(ventas): modularize portal dashboard screen |
+| `891d002` | refactor(ventas): modularize portal dashboard screen |
 
 ## Resumen
 Se redujo `portal-dashboard-screen.tsx` de **2,333 → 599 líneas** (–74.3\%) extrayendo
