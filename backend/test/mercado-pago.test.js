@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
 
@@ -17,6 +18,11 @@ const paymentEnvKeys = [
   "MERCADOPAGO_WEBHOOK_SECRET",
   "MP_WEBHOOK_SECRET",
   "WEBHOOK_SECRET",
+  "MERCADO_PAGO_WEBHOOK_URL",
+  "PUBLIC_WEBHOOK_BASE_URL",
+  "MERCADO_PAGO_SUCCESS_URL",
+  "MERCADO_PAGO_FAILURE_URL",
+  "MERCADO_PAGO_PENDING_URL",
   "NODE_ENV",
   "PAYMENT_PROVIDER",
   "RENDER",
@@ -46,6 +52,11 @@ async function withPaymentEnv(overrides, callback) {
     MONGODB_URI: "",
     NODE_ENV: "test",
     PAYMENT_PROVIDER: "mercado_pago",
+    MERCADO_PAGO_WEBHOOK_SECRET: "unit-test-webhook-secret",
+    MERCADO_PAGO_WEBHOOK_URL: "https://payments.example.test/api/commercial/webhooks/mercadopago",
+    MERCADO_PAGO_SUCCESS_URL: "https://payments.example.test/ventas/?checkout=success",
+    MERCADO_PAGO_FAILURE_URL: "https://payments.example.test/ventas/?checkout=failure",
+    MERCADO_PAGO_PENDING_URL: "https://payments.example.test/ventas/?checkout=pending",
     RENDER: "",
     REQUIRE_MONGO: "false",
     ...overrides
@@ -73,6 +84,19 @@ async function withPaymentEnv(overrides, callback) {
     });
     clearBackendRequireCache();
   }
+}
+
+function buildWebhookHeaders(paymentId, {
+  requestId = "request-unit-test",
+  secret = "unit-test-webhook-secret",
+  ts = "1720000000000"
+} = {}) {
+  const manifest = `id:${paymentId};request-id:${requestId};ts:${ts};`;
+  const signature = crypto.createHmac("sha256", secret).update(manifest).digest("hex");
+  return {
+    "x-request-id": requestId,
+    "x-signature": `ts=${ts},v1=${signature}`
+  };
 }
 
 function jsonResponse(body, status = 200) {
@@ -614,6 +638,7 @@ async function testWebhookApprovedIsIdempotent() {
             },
             type: "payment"
           }),
+          headers: buildWebhookHeaders("pay-webhook"),
           method: "POST"
         });
         const secondWebhook = await requestJson(`${context.url}/commercial/webhooks/mercadopago`, {
@@ -623,6 +648,7 @@ async function testWebhookApprovedIsIdempotent() {
             },
             type: "payment"
           }),
+          headers: buildWebhookHeaders("pay-webhook"),
           method: "POST"
         });
 
@@ -652,10 +678,10 @@ function testCredentialValidation() {
   return withPaymentEnv({}, async () => {
     const payments = loadPaymentService();
 
-    assert.equal(payments.detectMercadoPagoEnvironment("TEST-token", ""), "sandbox");
-    assert.equal(payments.detectMercadoPagoEnvironment("APP_USR-token", ""), "production");
+    assert.equal(payments.detectMercadoPagoEnvironment("TEST-token", ""), "missing_environment");
+    assert.equal(payments.detectMercadoPagoEnvironment("APP_USR-token", ""), "missing_environment");
     assert.equal(payments.detectMercadoPagoEnvironment("APP_USR-token", "sandbox"), "sandbox");
-    assert.equal(payments.getPaymentProviderName("card"), "manual");
+    assert.equal(payments.getPaymentProviderName("card"), "mercado_pago");
 
     assert.doesNotThrow(() =>
       payments.validateMercadoPagoCredentials("TEST-token-secreto", "TEST-public-secreto", "sandbox")
@@ -719,13 +745,136 @@ function testCredentialValidation() {
   });
 }
 
+async function testWebhookSignatureFailsClosed() {
+  await withPaymentEnv({}, async () => {
+    const payments = loadPaymentService();
+    const paymentId = "pay-signature";
+    const validHeaders = buildWebhookHeaders(paymentId);
+    const validate = (overrides = {}) =>
+      payments.isMercadoPagoWebhookSignatureValid({
+        paymentId,
+        requestId: validHeaders["x-request-id"],
+        secret: "unit-test-webhook-secret",
+        signatureHeader: validHeaders["x-signature"],
+        ...overrides
+      });
+
+    assert.equal(validate(), true);
+    assert.equal(validate({ secret: "" }), false);
+    assert.equal(validate({ requestId: "" }), false);
+    assert.equal(validate({ signatureHeader: "" }), false);
+    assert.equal(validate({ signatureHeader: "ts=invalid,v1=00" }), false);
+    assert.equal(validate({ paymentId: "altered-payment" }), false);
+    assert.equal(
+      validate({ signatureHeader: validHeaders["x-signature"].replace(/[a-f0-9]$/, "0") }),
+      false
+    );
+
+    const context = await createTestServer({ webhookStub: true });
+    try {
+      const response = await requestJson(`${context.url}/commercial/webhooks/mercadopago`, {
+        body: JSON.stringify({ data: { id: paymentId }, type: "payment" }),
+        headers: {
+          "x-request-id": "request-unit-test",
+          "x-signature": "ts=1720000000000,v1=invalid"
+        },
+        method: "POST"
+      });
+      assert.equal(response.status, 401);
+      assert.equal(context.webhookState.received, 0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  console.log("ok - webhook rechaza firma ausente o invalida antes de idempotencia");
+}
+
+async function testPaymentReadinessRestrictions() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const readiness = loadPaymentService().getPaymentReadiness();
+      assert.equal(readiness.ready, true);
+      assert.deepEqual(readiness.issues, []);
+      assert.equal(JSON.stringify(readiness).includes("unit-test-webhook-secret"), false);
+    }
+  );
+
+  for (const [overrides, expectedIssue] of [
+    [{ MERCADO_PAGO_ENV: "" }, "missing_environment"],
+    [{ MERCADO_PAGO_ENV: "dev" }, "invalid_environment"],
+    [{ MERCADO_PAGO_ENV: "test" }, "invalid_environment"],
+    [{ MERCADO_PAGO_WEBHOOK_SECRET: "" }, "missing_webhook_secret"],
+    [{ MERCADO_PAGO_WEBHOOK_URL: "" }, "missing_webhook_url"],
+    [{ MERCADO_PAGO_WEBHOOK_URL: "http://payments.example.test/api/commercial/webhooks/mercadopago" }, "invalid_webhook_url"],
+    [{ MERCADO_PAGO_WEBHOOK_URL: "https://localhost/api/commercial/webhooks/mercadopago" }, "invalid_webhook_url"],
+    [{ MERCADO_PAGO_WEBHOOK_URL: "https://192.168.1.20/api/commercial/webhooks/mercadopago" }, "invalid_webhook_url"],
+    [{ MERCADO_PAGO_WEBHOOK_URL: "https://payments.example.test/api/commercial/webhooks/mercadopago?secret=hidden" }, "invalid_webhook_url"]
+  ]) {
+    await withPaymentEnv(
+      {
+        MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+        MERCADO_PAGO_ENV: "sandbox",
+        MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor",
+        ...overrides
+      },
+      async () => {
+        const readiness = loadPaymentService().getPaymentReadiness();
+        assert.equal(readiness.ready, false);
+        assert.ok(readiness.issues.includes(expectedIssue), JSON.stringify(readiness));
+      }
+    );
+  }
+
+  console.log("ok - readiness exige ambiente, secreto y webhook HTTPS publico");
+}
+
+async function testProviderTestRejectedInProduction() {
+  await withPaymentEnv(
+    {
+      NODE_ENV: "production",
+      PAYMENT_PROVIDER: "test"
+    },
+    async () => {
+      const payments = loadPaymentService();
+      assert.equal(payments.getPaymentReadiness().ready, false);
+      assert.ok(payments.getPaymentReadiness().issues.includes("test_provider_forbidden_in_production"));
+
+      const context = await createTestServer();
+      try {
+        const owner = await registerOwner(context, "test-provider-production");
+        const checkout = await createCheckout(context, owner);
+        assert.equal(checkout.status, 400);
+        const orders = await context.store.listCommercialOrders();
+        const createdOrder = orders.find((order) => order.ownerAccountEmail === owner.email);
+        assert.ok(createdOrder);
+        assert.equal(createdOrder.paymentStatus, "pending");
+        assert.notEqual(createdOrder.paymentProvider, "test");
+        assert.equal(orders.some((order) => order.paymentStatus === "paid_test"), false);
+      } finally {
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - PAYMENT_PROVIDER=test no activa ordenes en produccion");
+}
+
 async function main() {
   await testCredentialValidation();
+  await testWebhookSignatureFailsClosed();
+  await testPaymentReadinessRestrictions();
   await testCheckoutUrlsByEnvironment();
   await testMissingCheckoutUrlFailsSafely();
   await testMissingExplicitEnvironmentFailsSafely();
   await testPaymentStatusesDoNotActivateUnlessApproved();
   await testPaymentProviderTestActivatesWithoutMercadoPago();
+  await testProviderTestRejectedInProduction();
   await testWebhookApprovedIsIdempotent();
 }
 

@@ -239,7 +239,11 @@ function testMercadoPagoProviderSelection() {
       "if(payments.getPaymentProviderName('card')!=='mercado_pago') process.exit(4);"
     ].join(""),
     {
-      MERCADO_PAGO_ACCESS_TOKEN: "mp-token",
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-env-token",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-env-public",
+      MERCADO_PAGO_WEBHOOK_SECRET: "env-test-webhook-secret",
+      MERCADO_PAGO_WEBHOOK_URL: "https://payments.example.test/api/commercial/webhooks/mercadopago",
       NODE_ENV: "development",
       PAYMENT_PROVIDER: "mercado_pago",
       RENDER: ""
@@ -249,6 +253,25 @@ function testMercadoPagoProviderSelection() {
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   console.log("ok - Mercado Pago procesa tarjeta y SPEI cuando esta configurado");
+}
+
+function testProductionRejectsTestPaymentProvider() {
+  const result = runEnvScript(
+    [
+      "const payments=require('./src/services/commercial-payment');",
+      "const readiness=payments.getPaymentReadiness();",
+      "if(readiness.ready) process.exit(2);",
+      "if(!readiness.issues.includes('test_provider_forbidden_in_production')) process.exit(3);"
+    ].join(""),
+    {
+      NODE_ENV: "production",
+      PAYMENT_PROVIDER: "test",
+      RENDER: ""
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  console.log("ok - produccion rechaza PAYMENT_PROVIDER=test");
 }
 
 function testMercadoPagoShortAliasesAndReturnUrls() {
@@ -309,4 +332,5 @@ testDeploymentEnvAliases();
 testClientOriginFallbackForAppUrl();
 testRenderWebhookBaseUrlFallback();
 testMercadoPagoProviderSelection();
+testProductionRejectsTestPaymentProvider();
 testMercadoPagoShortAliasesAndReturnUrls();

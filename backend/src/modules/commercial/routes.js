@@ -1,14 +1,13 @@
-const crypto = require("node:crypto");
 const { Router } = require("express");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
-const { MERCADO_PAGO_WEBHOOK_SECRET } = require("../../config/env");
 const { authenticate } = require("../../middlewares/authenticate");
 const { getRolesWithPermission } = require("../../middlewares/access-control");
 const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
   confirmCommercialPayment,
-  createCommercialCheckout
+  createCommercialCheckout,
+  isMercadoPagoWebhookSignatureValid
 } = require("../../services/commercial-payment");
 const { buildCommercialActivationUpdate } = require("../../services/commercial-activation");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
@@ -106,49 +105,6 @@ function buildPaymentConfirmationUpdate(order, confirmation) {
         : order.activationStartedAt || null,
     status: paidConfirmation ? "paid" : order.status
   };
-}
-
-function parseMercadoPagoSignature(value) {
-  return String(value || "")
-    .split(",")
-    .map((part) => part.trim().split("="))
-    .reduce((signature, [key, entryValue]) => {
-      if (key && entryValue) {
-        signature[key] = entryValue;
-      }
-
-      return signature;
-    }, {});
-}
-
-function compareHexDigest(left, right) {
-  const leftBuffer = Buffer.from(String(left || ""), "hex");
-  const rightBuffer = Buffer.from(String(right || ""), "hex");
-
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function isMercadoPagoWebhookSignatureValid(req, paymentId) {
-  if (!MERCADO_PAGO_WEBHOOK_SECRET) {
-    return true;
-  }
-
-  const signature = parseMercadoPagoSignature(req.headers["x-signature"]);
-  const requestId = String(req.headers["x-request-id"] || "").trim();
-  const ts = String(signature.ts || "").trim();
-  const v1 = String(signature.v1 || "").trim();
-
-  if (!paymentId || !requestId || !ts || !v1) {
-    return false;
-  }
-
-  const manifest = `id:${paymentId};request-id:${requestId};ts:${ts};`;
-  const expectedSignature = crypto
-    .createHmac("sha256", MERCADO_PAGO_WEBHOOK_SECRET)
-    .update(manifest)
-    .digest("hex");
-
-  return compareHexDigest(expectedSignature, v1);
 }
 
 router.get("/plans", (req, res) => {
@@ -432,7 +388,11 @@ router.post("/webhooks/mercadopago", async (req, res) => {
 
     const normalizedPaymentId = String(paymentId).trim();
 
-    if (!isMercadoPagoWebhookSignatureValid(req, normalizedPaymentId)) {
+    if (!isMercadoPagoWebhookSignatureValid({
+      paymentId: normalizedPaymentId,
+      requestId: String(req.headers["x-request-id"] || "").trim(),
+      signatureHeader: req.headers["x-signature"]
+    })) {
       return res.status(401).json({
         ok: false,
         message: "Firma de Mercado Pago invalida"
