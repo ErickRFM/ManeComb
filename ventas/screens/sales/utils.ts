@@ -5,13 +5,10 @@ import type { CommercialPlan } from '@/src/types/app';
 import { accentByTone, planVisualTones, neonPalette } from './constants';
 import { buildCheckoutParams } from '@/src/utils/checkout-context';
 import type { IconName, PointerVector } from './types';
-
+import { formatCurrency as _formatCurrency, getFirstParam as _getFirstParam } from '../shared/utils';
+export const getFirstParam = _getFirstParam;
 export function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    maximumFractionDigits: 0,
-  }).format(value);
+  return _formatCurrency(value);
 }
 
 export function getPlanAccent(plan: CommercialPlan, index: number) {
@@ -119,10 +116,6 @@ export function usePointerParallax(enabled: boolean, toTransform: (cursor: Point
 
 export function webStyle(style: Record<string, unknown>) {
   return Platform.OS === 'web' ? (style as any) : undefined;
-}
-
-export function getFirstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
 }
 
 export function openExternalUrl(url: string) {

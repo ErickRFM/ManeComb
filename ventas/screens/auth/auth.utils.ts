@@ -1,8 +1,5 @@
 import type { AuthIdentity } from './auth.types';
-
-export function getFirstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
+export { getFirstParam } from '../shared/utils';
 
 export function buildPaymentRoute(planId: string | undefined, requestTrial: boolean) {
   const params: Record<string, string> = {};

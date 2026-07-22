@@ -1,16 +1,5 @@
 import { Platform } from 'react-native';
-
-export function getFirstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-export function formatCurrency(value?: number | null) {
-  return new Intl.NumberFormat('es-MX', {
-    currency: 'MXN',
-    maximumFractionDigits: 0,
-    style: 'currency',
-  }).format(Number(value || 0));
-}
+export { getFirstParam, formatCurrency } from '../shared/utils';
 
 export function openCheckoutUrl(url: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
