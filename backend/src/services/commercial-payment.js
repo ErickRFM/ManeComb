@@ -641,8 +641,72 @@ async function fetchMercadoPagoPayment(paymentId) {
   return payment;
 }
 
-async function confirmCommercialPayment({ externalReference, paymentId }) {
-  if (!isAutomaticPaymentEnabled()) {
+function toMinorUnits(amount, currency = "MXN") {
+  const normalizedCurrency = String(currency || "").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalizedCurrency)) return null;
+  if (typeof amount !== "number" && typeof amount !== "string") return null;
+  const normalizedAmount = String(amount).trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(normalizedAmount)) return null;
+  const [whole, fraction = ""] = normalizedAmount.split(".");
+  const minorUnits = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(minorUnits) && minorUnits >= 0 ? minorUnits : null;
+}
+
+function reconciliationFailure(code, safeMessage, checks, normalized) {
+  return { ok: false, code, safeMessage, checks, normalized };
+}
+
+function reconcileMercadoPagoPaymentWithOrder(payment, order, configuration = {}) {
+  const environment = normalizeExplicitMercadoPagoEnvironment(configuration.environment || MERCADO_PAGO_ENV);
+  const paymentId = String(payment?.id || "").trim();
+  const externalReference = String(payment?.external_reference || "").trim();
+  const currency = String(payment?.currency_id || "").trim().toUpperCase();
+  const expectedCurrency = String(order?.currency || "MXN").trim().toUpperCase();
+  const paymentAmountMinor = toMinorUnits(payment?.transaction_amount, currency);
+  const orderAmountMinor = toMinorUnits(order?.totalPrice, expectedCurrency);
+  const metadataOrderId = String(payment?.metadata?.order_id || "").trim();
+  const linkedOrderId = String(configuration.linkedOrderId || "").trim();
+  const normalized = {
+    paymentId,
+    externalReference,
+    amountMinor: paymentAmountMinor,
+    currency,
+    liveMode: typeof payment?.live_mode === "boolean" ? payment.live_mode : null,
+    collectorId: payment?.collector_id == null ? null : String(payment.collector_id),
+    metadataOrderId: metadataOrderId || null
+  };
+  const checks = {
+    paymentId: Boolean(paymentId),
+    externalReference: Boolean(order?.id) && externalReference === String(order.id),
+    amount: paymentAmountMinor !== null && orderAmountMinor !== null && paymentAmountMinor === orderAmountMinor,
+    currency: Boolean(currency && expectedCurrency) && currency === expectedCurrency,
+    environment:
+      typeof payment?.live_mode === "boolean" &&
+      ((environment === "sandbox" && payment.live_mode === false) ||
+        (environment === "production" && payment.live_mode === true)),
+    metadata: !metadataOrderId || metadataOrderId === String(order?.id || ""),
+    uniquePayment: !linkedOrderId || linkedOrderId === String(order?.id || ""),
+    collector: null,
+    preference: null
+  };
+
+  if (!checks.paymentId) return reconciliationFailure("invalid_payment_id", "Payment ID is invalid.", checks, normalized);
+  if (!externalReference) return reconciliationFailure("missing_external_reference", "Payment reference is missing.", checks, normalized);
+  if (!checks.externalReference) return reconciliationFailure("external_reference_mismatch", "Payment reference does not match the commercial order.", checks, normalized);
+  if (!currency) return reconciliationFailure("invalid_currency", "Payment currency is invalid.", checks, normalized);
+  if (!checks.currency) return reconciliationFailure("currency_mismatch", "Payment currency does not match the commercial order.", checks, normalized);
+  if (paymentAmountMinor === null) return reconciliationFailure("invalid_payment_amount", "Payment amount is invalid.", checks, normalized);
+  if (orderAmountMinor === null) return reconciliationFailure("invalid_order_amount", "Commercial order amount is invalid.", checks, normalized);
+  if (!checks.amount) return reconciliationFailure("amount_mismatch", "Payment amount does not match the commercial order.", checks, normalized);
+  if (!checks.environment) return reconciliationFailure("payment_environment_mismatch", "Payment environment does not match the configured environment.", checks, normalized);
+  if (!checks.metadata) return reconciliationFailure("metadata_mismatch", "Payment metadata does not match the commercial order.", checks, normalized);
+  if (!checks.uniquePayment) return reconciliationFailure("payment_already_linked_to_another_order", "Payment is already linked to another commercial order.", checks, normalized);
+
+  return { ok: true, status: String(payment?.status || "unknown").trim().toLowerCase() || "unknown", checks, normalized };
+}
+
+function confirmCommercialPayment({ payment, order, linkedOrderId = "" }) {
+  if (!isAutomaticPaymentEnabled() && !payment) {
     return {
       paymentStatus: isManualTransferConfigured() ? "pending_manual_confirmation" : "pending_configuration",
       activationStatus: "pending_payment",
@@ -654,32 +718,24 @@ async function confirmCommercialPayment({ externalReference, paymentId }) {
     };
   }
 
-  if (!paymentId) {
-    return {
-      paymentStatus: "pending",
-      activationStatus: "pending_payment",
-      approvedAt: null,
-      paymentInstructions: null,
-      nextStep: "Aún no recibimos un identificador de pago válido."
-    };
-  }
-
-  const payment = await fetchMercadoPagoPayment(paymentId);
-  const approved = payment.status === "approved" && Boolean(String(payment.external_reference || "").trim());
-  const paymentStatus = approved ? "paid" : String(payment.status || "pending");
-  const activationStatus = approved ? "ready_for_activation" : "pending_payment";
+  const reconciliation = reconcileMercadoPagoPaymentWithOrder(payment, order, {
+    environment: MERCADO_PAGO_ENV,
+    linkedOrderId
+  });
+  if (!reconciliation.ok) return { reconciliation };
+  const approved = reconciliation.status === "approved";
 
   return {
-    paymentStatus,
-    activationStatus,
+    reconciliation,
+    paymentStatus: approved ? "paid" : reconciliation.status,
+    activationStatus: approved ? "ready_for_activation" : "pending_payment",
     approvedAt: approved ? new Date().toISOString() : null,
-    paymentProviderReference: String(payment.id || paymentId),
-    paymentExternalReference: String(payment.external_reference || "").trim(),
+    paymentProviderReference: reconciliation.normalized.paymentId,
+    paymentExternalReference: reconciliation.normalized.externalReference,
     paymentInstructions: null,
-    nextStep:
-      approved
-        ? "El pago fue aprobado y la cuenta ya puede pasar a activación."
-        : "El pago sigue pendiente o en revisión."
+    nextStep: approved
+      ? "El pago fue aprobado y la cuenta ya puede pasar a activación."
+      : "El pago sigue pendiente o en revisión."
   };
 }
 
@@ -693,11 +749,14 @@ module.exports = {
   getMercadoPagoTokenPrefix,
   getPaymentReadiness,
   getPaymentProviderName,
+  fetchMercadoPagoPayment,
   isAutomaticPaymentEnabled,
   isMercadoPagoWebhookSignatureValid,
   isTestPaymentEnabled,
   isValidPublicWebhookUrl,
   logMercadoPagoRuntimeDiagnostics,
+  reconcileMercadoPagoPaymentWithOrder,
   selectMercadoPagoCheckoutUrl,
+  toMinorUnits,
   validateMercadoPagoCredentials
 };

@@ -111,6 +111,7 @@ function jsonResponse(body, status = 200) {
 function installMercadoPagoFetchMock({
   paymentId = "pay-manecomb",
   paymentStatus = "approved",
+  paymentOverrides = {},
   preference = {
     id: "pref-manecomb",
     init_point: "https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=prod",
@@ -137,9 +138,14 @@ function installMercadoPagoFetchMock({
       state.paymentCalls += 1;
       const requestedPaymentId = safeUrl.split("/").pop() || paymentId;
       return jsonResponse({
+        currency_id: "MXN",
         external_reference: state.preferencePayload?.external_reference || "",
         id: requestedPaymentId,
-        status: paymentStatus
+        live_mode: process.env.MERCADO_PAGO_ENV === "production",
+        metadata: state.preferencePayload?.metadata || {},
+        status: paymentStatus,
+        transaction_amount: state.preferencePayload?.items?.[0]?.unit_price,
+        ...paymentOverrides
       });
     }
 
@@ -865,10 +871,197 @@ async function testProviderTestRejectedInProduction() {
   console.log("ok - PAYMENT_PROVIDER=test no activa ordenes en produccion");
 }
 
+async function testPureFinancialReconciliation() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const { reconcileMercadoPagoPaymentWithOrder, toMinorUnits } = loadPaymentService();
+      const order = { id: "order-1", totalPrice: 169, currency: "MXN" };
+      const payment = {
+        id: "pay-1",
+        status: "approved",
+        external_reference: "order-1",
+        transaction_amount: "169.00",
+        currency_id: "mxn",
+        live_mode: false,
+        metadata: { order_id: "order-1" }
+      };
+      const reconcile = (paymentOverrides = {}, orderOverrides = {}, configuration = {}) =>
+        reconcileMercadoPagoPaymentWithOrder(
+          { ...payment, ...paymentOverrides },
+          { ...order, ...orderOverrides },
+          { environment: "sandbox", ...configuration }
+        );
+
+      assert.equal(toMinorUnits(99, "MXN"), 9900);
+      assert.equal(toMinorUnits(99.0, "MXN"), 9900);
+      assert.equal(toMinorUnits("99.00", "MXN"), 9900);
+      for (const invalid of ["", "x", -1, "1.001", NaN, Infinity, null, {}]) {
+        assert.equal(toMinorUnits(invalid, "MXN"), null);
+      }
+
+      assert.equal(reconcile().ok, true);
+      assert.equal(reconcile({ transaction_amount: 169 }).ok, true);
+      assert.equal(reconcile({ transaction_amount: "169.0" }).ok, true);
+      assert.equal(reconcile({ currency_id: "MXN" }).ok, true);
+      assert.equal(reconcile({ transaction_amount: "168.99" }).code, "amount_mismatch");
+      assert.equal(reconcile({ transaction_amount: "169.01" }).code, "amount_mismatch");
+      assert.equal(reconcile({ transaction_amount: "" }).code, "invalid_payment_amount");
+      assert.equal(reconcile({ transaction_amount: "invalid" }).code, "invalid_payment_amount");
+      assert.equal(reconcile({ transaction_amount: -1 }).code, "invalid_payment_amount");
+      assert.equal(reconcile({ transaction_amount: "169.001" }).code, "invalid_payment_amount");
+      assert.equal(reconcile({}, { totalPrice: "invalid" }).code, "invalid_order_amount");
+      assert.equal(reconcile({ currency_id: "USD" }).code, "currency_mismatch");
+      assert.equal(reconcile({ currency_id: "" }).code, "invalid_currency");
+      assert.equal(reconcile({ currency_id: "ZZZ" }).code, "currency_mismatch");
+      assert.equal(reconcile({ external_reference: "other" }).code, "external_reference_mismatch");
+      assert.equal(reconcile({ external_reference: "" }).code, "missing_external_reference");
+      assert.equal(reconcile({ live_mode: true }).code, "payment_environment_mismatch");
+      assert.equal(reconcile({ live_mode: undefined }).code, "payment_environment_mismatch");
+      assert.equal(reconcile({ live_mode: "false" }).code, "payment_environment_mismatch");
+      assert.equal(reconcile({ metadata: { order_id: "other" } }).code, "metadata_mismatch");
+      assert.equal(reconcile({ metadata: {} }).ok, true);
+      assert.equal(reconcile({ id: "" }).code, "invalid_payment_id");
+      assert.equal(reconcile({}, {}, { linkedOrderId: "order-1" }).ok, true);
+      assert.equal(reconcile({}, {}, { linkedOrderId: "order-2" }).code, "payment_already_linked_to_another_order");
+
+      const production = reconcileMercadoPagoPaymentWithOrder(
+        { ...payment, live_mode: true },
+        order,
+        { environment: "production" }
+      );
+      assert.equal(production.ok, true);
+    }
+  );
+
+  console.log("ok - conciliacion pura valida monto, moneda, referencia, ambiente, metadata y Payment ID");
+}
+
+async function testFinancialMismatchCannotActivate() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const mp = installMercadoPagoFetchMock({
+        paymentStatus: "approved",
+        paymentOverrides: { transaction_amount: "1.00" }
+      });
+      const context = await createTestServer();
+      try {
+        const owner = await registerOwner(context, "financial-mismatch");
+        const checkout = await createCheckout(context, owner);
+        const orderId = checkout.payload.data.id;
+        const confirmation = await requestJson(`${context.url}/commercial/confirm`, {
+          body: JSON.stringify({
+            externalReference: orderId,
+            paymentId: "pay-wrong-amount"
+          }),
+          method: "POST"
+        });
+        assert.equal(confirmation.status, 409);
+        assert.equal(confirmation.payload.message, "No fue posible confirmar el pago");
+        const order = await context.store.getCommercialOrderById(orderId);
+        assert.equal(order.paymentStatus, "pending");
+        assert.notEqual(order.activationStatus, "active");
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - mismatch financiero responde 409 y no muta ni activa la orden");
+}
+
+async function testWebhookUsesFinancialReconciliation() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const mp = installMercadoPagoFetchMock({
+        paymentId: "pay-webhook-mismatch",
+        paymentStatus: "approved",
+        paymentOverrides: { currency_id: "USD" }
+      });
+      const context = await createTestServer({ webhookStub: true });
+      try {
+        const owner = await registerOwner(context, "webhook-financial-mismatch");
+        const checkout = await createCheckout(context, owner);
+        const response = await requestJson(`${context.url}/commercial/webhooks/mercadopago`, {
+          body: JSON.stringify({ data: { id: "pay-webhook-mismatch" }, external_reference: "manipulated" }),
+          headers: buildWebhookHeaders("pay-webhook-mismatch"),
+          method: "POST"
+        });
+        assert.equal(response.status, 202);
+        const order = await context.store.getCommercialOrderById(checkout.payload.data.id);
+        assert.equal(order.paymentStatus, "pending");
+        assert.notEqual(order.activationStatus, "active");
+        assert.equal(context.webhookState.processed, 0);
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - webhook usa la misma conciliacion y no confia en su body financiero");
+}
+
+async function testPaymentCannotBeLinkedToAnotherOrder() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const mp = installMercadoPagoFetchMock({ paymentId: "pay-reused", paymentStatus: "approved" });
+      const context = await createTestServer();
+      try {
+        const firstOwner = await registerOwner(context, "payment-owner-one");
+        const firstCheckout = await createCheckout(context, firstOwner);
+        await context.store.updateCommercialOrder(firstCheckout.payload.data.id, {
+          paymentProviderReference: "pay-reused"
+        });
+
+        const secondOwner = await registerOwner(context, "payment-owner-two");
+        const secondCheckout = await createCheckout(context, secondOwner);
+        const confirmation = await requestJson(`${context.url}/commercial/confirm`, {
+          body: JSON.stringify({
+            externalReference: secondCheckout.payload.data.id,
+            paymentId: "pay-reused"
+          }),
+          method: "POST"
+        });
+        assert.equal(confirmation.status, 409);
+        const secondOrder = await context.store.getCommercialOrderById(secondCheckout.payload.data.id);
+        assert.equal(secondOrder.paymentStatus, "pending");
+        assert.notEqual(secondOrder.activationStatus, "active");
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - un Payment ID persistido en otra orden no puede reutilizarse");
+}
+
 async function main() {
   await testCredentialValidation();
   await testWebhookSignatureFailsClosed();
   await testPaymentReadinessRestrictions();
+  await testPureFinancialReconciliation();
   await testCheckoutUrlsByEnvironment();
   await testMissingCheckoutUrlFailsSafely();
   await testMissingExplicitEnvironmentFailsSafely();
@@ -876,6 +1069,9 @@ async function main() {
   await testPaymentProviderTestActivatesWithoutMercadoPago();
   await testProviderTestRejectedInProduction();
   await testWebhookApprovedIsIdempotent();
+  await testFinancialMismatchCannotActivate();
+  await testWebhookUsesFinancialReconciliation();
+  await testPaymentCannotBeLinkedToAnotherOrder();
 }
 
 main().catch((error) => {

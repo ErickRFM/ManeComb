@@ -7,6 +7,8 @@ const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
   confirmCommercialPayment,
   createCommercialCheckout,
+  fetchMercadoPagoPayment,
+  isAutomaticPaymentEnabled,
   isMercadoPagoWebhookSignatureValid
 } = require("../../services/commercial-payment");
 const { buildCommercialActivationUpdate } = require("../../services/commercial-activation");
@@ -73,6 +75,34 @@ function isCommercialOrderPaid(order) {
       ["active", "paid"].includes(String(order?.status || "").toLowerCase()) ||
       String(order?.activationStatus || "").toLowerCase() === "active"
   );
+}
+
+async function findOrderLinkedToPayment(store, paymentId, currentOrderId) {
+  const orders = await store.listCommercialOrders();
+  return orders.find(
+    (candidate) =>
+      String(candidate?.paymentProviderReference || "").trim() === String(paymentId || "").trim() &&
+      String(candidate?.id || "").trim() !== String(currentOrderId || "").trim()
+  ) || null;
+}
+
+function assertReconciliationSucceeded(reconciliation, { orderId, paymentId }) {
+  if (reconciliation?.ok) return;
+
+  logger.warn({
+    action: "MercadoPagoReconciliation",
+    metadata: {
+      code: reconciliation?.code || "reconciliation_failed",
+      orderId: String(orderId || ""),
+      paymentId: String(paymentId || "").slice(-12)
+    },
+    module: "Payments",
+    status: "rejected"
+  });
+  const error = new Error("Mercado Pago payment reconciliation failed.");
+  error.code = reconciliation?.code || "reconciliation_failed";
+  error.statusCode = 409;
+  throw error;
 }
 
 function buildPaymentConfirmationUpdate(order, confirmation) {
@@ -297,19 +327,35 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
 router.post("/confirm", async (req, res, next) => {
   try {
     const requestedExternalReference = String(req.body.externalReference || req.body.referenceCode || "").trim();
-    const confirmation = await confirmCommercialPayment({
-      externalReference: requestedExternalReference,
-      paymentId: String(req.body.paymentId || "").trim()
-    });
-    const externalReference = String(confirmation.paymentExternalReference || requestedExternalReference).trim();
-    const order = externalReference
-      ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
+    const paymentId = String(req.body.paymentId || "").trim();
+    const automaticPayment = isAutomaticPaymentEnabled();
+    if (automaticPayment && !paymentId) {
+      return res.status(400).json({ ok: false, message: "Identificador de pago obligatorio" });
+    }
+    const payment = automaticPayment ? await fetchMercadoPagoPayment(paymentId) : null;
+    const providerExternalReference = String(payment?.external_reference || "").trim();
+    const lookupReference = requestedExternalReference || providerExternalReference;
+    const order = lookupReference
+      ? await req.app.locals.store.findCommercialOrderByExternalReference(lookupReference)
       : null;
 
     if (!order) {
       return res.status(404).json({
         ok: false,
         message: "Orden comercial no encontrada"
+      });
+    }
+
+    const linkedOrder = automaticPayment
+      ? await findOrderLinkedToPayment(req.app.locals.store, payment.id, order.id)
+      : null;
+    const confirmation = confirmCommercialPayment(
+      automaticPayment ? { payment, order, linkedOrderId: linkedOrder?.id } : {}
+    );
+    if (automaticPayment) {
+      assertReconciliationSucceeded(confirmation.reconciliation, {
+        orderId: order.id,
+        paymentId: payment.id
       });
     }
 
@@ -416,20 +462,24 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       });
     }
 
-    await confirmCommercialPayment({
-      paymentId: normalizedPaymentId
-    }).then(async (confirmation) => {
-      const externalReference = String(confirmation.paymentExternalReference || "").trim();
+    const payment = await fetchMercadoPagoPayment(normalizedPaymentId);
+    const externalReference = String(payment.external_reference || "").trim();
+    const order = externalReference
+      ? await req.app.locals.store.findCommercialOrderByExternalReference(externalReference)
+      : null;
 
-      if (!externalReference) {
-        return;
-      }
+    if (!order) {
+      throw Object.assign(new Error("Commercial order not found for Mercado Pago payment."), {
+        code: "commercial_order_not_found"
+      });
+    }
 
-      const order = await req.app.locals.store.findCommercialOrderByExternalReference(externalReference);
-
-      if (!order) {
-        return;
-      }
+    const linkedOrder = await findOrderLinkedToPayment(req.app.locals.store, payment.id, order.id);
+    const confirmation = confirmCommercialPayment({ payment, order, linkedOrderId: linkedOrder?.id });
+    assertReconciliationSucceeded(confirmation.reconciliation, {
+      orderId: order.id,
+      paymentId: payment.id
+    });
 
       const updatedOrder = await req.app.locals.store.updateCommercialOrder(
         order.id,
@@ -464,7 +514,6 @@ router.post("/webhooks/mercadopago", async (req, res) => {
         });
       }
       emitSubscriptionUpdate(req, enrichCommercialOrder(activatedOrder));
-    });
     await markWebhookProcessed(webhookEvent.event?._id || webhookEvent.event?.id, "processed");
 
     return res.status(202).json({
