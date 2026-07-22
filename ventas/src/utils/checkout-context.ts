@@ -4,6 +4,8 @@ export type CheckoutContext = {
   planId: string;
   requestTrial: boolean;
   updatedAt: number;
+  intentFingerprint?: string;
+  idempotencyKey?: string;
 };
 
 function canUseStorage() {
@@ -17,10 +19,13 @@ export function saveCheckoutContext(planId: string, requestTrial = false) {
     return;
   }
 
+  const current = readCheckoutContext();
+  const preserveIntent = current?.planId === cleanPlanId && current.requestTrial === requestTrial;
   const context: CheckoutContext = {
     planId: cleanPlanId,
     requestTrial,
     updatedAt: Date.now(),
+    ...(preserveIntent ? { intentFingerprint: current.intentFingerprint, idempotencyKey: current.idempotencyKey } : {}),
   };
 
   window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify(context));
@@ -44,10 +49,53 @@ export function readCheckoutContext(): CheckoutContext | null {
       planId: String(parsed.planId),
       requestTrial: Boolean(parsed.requestTrial),
       updatedAt: Number(parsed.updatedAt || Date.now()),
+      intentFingerprint: parsed.intentFingerprint ? String(parsed.intentFingerprint) : undefined,
+      idempotencyKey: parsed.idempotencyKey ? String(parsed.idempotencyKey) : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function createOpaqueCheckoutKey() {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID();
+  if (typeof cryptoApi?.getRandomValues !== 'function') throw new Error('No hay un generador seguro disponible para iniciar el checkout.');
+  const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function getOrCreateCheckoutIdempotencyKey(input: {
+  userId: string;
+  planId: string;
+  paymentMethod: string;
+  requestTrial: boolean;
+  selectedAddOns: string[];
+}) {
+  const normalized = {
+    userId: String(input.userId || '').trim(),
+    planId: String(input.planId || '').trim().toLowerCase(),
+    paymentMethod: String(input.paymentMethod || '').trim().toLowerCase(),
+    requestTrial: Boolean(input.requestTrial),
+    selectedAddOns: Array.from(new Set(input.selectedAddOns.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean))).sort(),
+  };
+  const intentFingerprint = JSON.stringify(normalized);
+  const current = readCheckoutContext();
+  if (current?.intentFingerprint === intentFingerprint && current.idempotencyKey) return current.idempotencyKey;
+  const idempotencyKey = createOpaqueCheckoutKey();
+  if (canUseStorage()) {
+    window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
+      planId: normalized.planId,
+      requestTrial: normalized.requestTrial,
+      updatedAt: Date.now(),
+      intentFingerprint,
+      idempotencyKey,
+    } satisfies CheckoutContext));
+  }
+  return idempotencyKey;
 }
 
 export function clearCheckoutContext() {

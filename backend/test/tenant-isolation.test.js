@@ -119,7 +119,7 @@ async function runTenantIsolationFlow() {
         paymentMethod: "transfer",
         requestTrial: true
       }),
-      headers: authHeaders,
+      headers: { ...authHeaders, "Idempotency-Key": `tenant-checkout-${stamp}` },
       method: "POST"
     });
 

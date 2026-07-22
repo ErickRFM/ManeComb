@@ -1,6 +1,7 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
 const { getUserOrganizationId, toPlain } = require("../serializers");
 const { evaluatePaymentTransition } = require("../../services/commercial-payment");
+const { buildCheckoutReservation, CHECKOUT_LEASE_DURATION_MS } = require("../../services/checkout-idempotency");
 
 const PAYMENT_METHODS = [
   "createCommercialOrder",
@@ -11,13 +12,84 @@ const PAYMENT_METHODS = [
   "applyPaymentTransitionAtomically",
   "claimPaymentEffects",
   "completePaymentEffects",
+  "claimCheckoutCreation",
+  "completeCheckoutCreation",
+  "failCheckoutCreation",
   "updateCommercialOrder"
 ];
 
 class PaymentRepository extends StoreDomainRepository {
-  constructor(store, { CommercialLeadModel } = {}) {
+  constructor(store, { CommercialLeadModel, CheckoutIdempotencyModel } = {}) {
     super(store, PAYMENT_METHODS);
     this.CommercialLeadModel = CommercialLeadModel || null;
+    this.CheckoutIdempotencyModel = CheckoutIdempotencyModel || null;
+  }
+
+  async claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId, now = new Date() }) {
+    if (!this.CheckoutIdempotencyModel) {
+      return this.store.claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId, now });
+    }
+    const leaseUntil = new Date(now.getTime() + CHECKOUT_LEASE_DURATION_MS);
+    const reservation = buildCheckoutReservation({ scope, keyHash, requestFingerprint, workerId, now });
+    try {
+      const created = await this.CheckoutIdempotencyModel.findOneAndUpdate(
+        { scope, keyHash },
+        { $setOnInsert: { ...reservation, _id: reservation.id } },
+        { upsert: true, returnDocument: "after" }
+      ).lean();
+      if (created.leaseOwner === workerId && created.attemptCount === 1) {
+        return { claimed: true, reason: "new", reservation: this.serialize(created) };
+      }
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+    }
+    const current = await this.CheckoutIdempotencyModel.findOne({ scope, keyHash }).lean();
+    if (!current) throw new Error("Checkout idempotency reservation disappeared");
+    if (current.requestFingerprint !== requestFingerprint) {
+      return { claimed: false, reason: "key_reused", reservation: this.serialize(current) };
+    }
+    if (current.status === "ready") return { claimed: false, reason: "ready", reservation: this.serialize(current) };
+    if (current.status === "failed_permanent") return { claimed: false, reason: "permanent_failure", reservation: this.serialize(current) };
+    if (current.status === "provider_result_unknown") return { claimed: false, reason: "provider_result_unknown", reservation: this.serialize(current) };
+    const recovered = await this.CheckoutIdempotencyModel.findOneAndUpdate(
+      {
+        _id: current._id,
+        requestFingerprint,
+        $or: [
+          { status: "failed_retryable" },
+          { status: "initializing", leaseUntil: { $lte: now } }
+        ]
+      },
+      {
+        $set: { status: "initializing", leaseOwner: workerId, leaseUntil, updatedAt: now, lastErrorCode: null },
+        $inc: { attemptCount: 1 }
+      },
+      { returnDocument: "after" }
+    ).lean();
+    if (recovered) {
+      return { claimed: true, reason: current.status === "failed_retryable" ? "retry" : "expired_lease", reservation: this.serialize(recovered) };
+    }
+    return { claimed: false, reason: "currently_processing", reservation: this.serialize(current) };
+  }
+
+  async completeCheckoutCreation({ reservationId, workerId, safeResponse }) {
+    if (!this.CheckoutIdempotencyModel) return this.store.completeCheckoutCreation({ reservationId, workerId, safeResponse });
+    const reservation = await this.CheckoutIdempotencyModel.findOneAndUpdate(
+      { _id: reservationId, leaseOwner: workerId, status: "initializing" },
+      { $set: { status: "ready", safeResponse, readyAt: new Date(), updatedAt: new Date(), leaseOwner: null, leaseUntil: null } },
+      { returnDocument: "after" }
+    ).lean();
+    return this.serialize(reservation);
+  }
+
+  async failCheckoutCreation({ reservationId, workerId, status, errorCode }) {
+    if (!this.CheckoutIdempotencyModel) return this.store.failCheckoutCreation({ reservationId, workerId, status, errorCode });
+    const reservation = await this.CheckoutIdempotencyModel.findOneAndUpdate(
+      { _id: reservationId, leaseOwner: workerId, status: "initializing" },
+      { $set: { status, lastErrorCode: errorCode, failedAt: new Date(), updatedAt: new Date(), leaseOwner: null, leaseUntil: null } },
+      { returnDocument: "after" }
+    ).lean();
+    return this.serialize(reservation);
   }
 
   serialize(order) {

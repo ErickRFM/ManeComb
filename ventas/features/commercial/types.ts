@@ -179,6 +179,7 @@ export type PaymentProviderMode = 'hosted' | 'test' | 'unavailable';
 export type CheckoutPaymentMethod = 'card' | 'spei' | 'trial';
 
 export type PaymentSessionRequest = {
+  idempotencyKey: string;
   planId: string;
   companyName: string;
   contactName: string;

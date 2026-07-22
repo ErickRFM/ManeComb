@@ -22,6 +22,7 @@ const {
   encodeCursor,
   normalizeLimit
 } = require("./repositories/chat-message-repository");
+const { buildCheckoutReservation, CHECKOUT_LEASE_DURATION_MS } = require("../services/checkout-idempotency");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -36,6 +37,7 @@ function createEmbeddedStore() {
   state.routeSessionPositions = Array.isArray(state.routeSessionPositions) ? state.routeSessionPositions : [];
   state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
+  state.checkoutIdempotency = Array.isArray(state.checkoutIdempotency) ? state.checkoutIdempotency : [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -1875,8 +1877,8 @@ function createEmbeddedStore() {
     const pricing = getCommercialPlanPricing(plan, payload.selectedAddOns || []);
 
     const order = {
-      id: randomUUID(),
-      referenceCode: `MNCB-${String(state.commercialOrders.length + 1).padStart(4, "0")}`,
+      id: payload.id || randomUUID(),
+      referenceCode: payload.referenceCode || `MNCB-${String(state.commercialOrders.length + 1).padStart(4, "0")}`,
       ownerUserId: String(payload.ownerUserId || "").trim() || null,
       ownerAccountEmail: String(payload.ownerAccountEmail || payload.email || "")
         .trim()
@@ -1960,6 +1962,48 @@ function createEmbeddedStore() {
     });
 
     return clone(order);
+  }
+
+  function claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId, now = new Date() }) {
+    const current = state.checkoutIdempotency.find((entry) => entry.scope === scope && entry.keyHash === keyHash);
+    if (!current) {
+      const reservation = buildCheckoutReservation({ scope, keyHash, requestFingerprint, workerId, now });
+      state.checkoutIdempotency.push(reservation);
+      return { claimed: true, reason: "new", reservation: clone(reservation) };
+    }
+    if (current.requestFingerprint !== requestFingerprint) return { claimed: false, reason: "key_reused", reservation: clone(current) };
+    if (current.status === "ready") return { claimed: false, reason: "ready", reservation: clone(current) };
+    if (current.status === "failed_permanent") return { claimed: false, reason: "permanent_failure", reservation: clone(current) };
+    if (current.status === "provider_result_unknown") return { claimed: false, reason: "provider_result_unknown", reservation: clone(current) };
+    const nowMs = new Date(now).getTime();
+    const leaseExpired = new Date(current.leaseUntil || 0).getTime() <= nowMs;
+    if (current.status !== "failed_retryable" && !leaseExpired) {
+      return { claimed: false, reason: "currently_processing", reservation: clone(current) };
+    }
+    const reason = current.status === "failed_retryable" ? "retry" : "expired_lease";
+    Object.assign(current, {
+      status: "initializing",
+      attemptCount: Number(current.attemptCount || 0) + 1,
+      leaseOwner: workerId,
+      leaseUntil: new Date(nowMs + CHECKOUT_LEASE_DURATION_MS).toISOString(),
+      updatedAt: new Date(nowMs).toISOString(),
+      lastErrorCode: null
+    });
+    return { claimed: true, reason, reservation: clone(current) };
+  }
+
+  function completeCheckoutCreation({ reservationId, workerId, safeResponse }) {
+    const reservation = state.checkoutIdempotency.find((entry) => entry.id === reservationId);
+    if (!reservation || reservation.status !== "initializing" || reservation.leaseOwner !== workerId) return null;
+    Object.assign(reservation, { status: "ready", safeResponse: clone(safeResponse), readyAt: new Date().toISOString(), updatedAt: new Date().toISOString(), leaseOwner: null, leaseUntil: null });
+    return clone(reservation);
+  }
+
+  function failCheckoutCreation({ reservationId, workerId, status, errorCode }) {
+    const reservation = state.checkoutIdempotency.find((entry) => entry.id === reservationId);
+    if (!reservation || reservation.status !== "initializing" || reservation.leaseOwner !== workerId) return null;
+    Object.assign(reservation, { status, lastErrorCode: errorCode, failedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), leaseOwner: null, leaseUntil: null });
+    return clone(reservation);
   }
 
   function applyPaymentTransitionAtomically({ orderId, provider, paymentId, incomingStatus, confirmation }) {
@@ -3034,6 +3078,9 @@ function createEmbeddedStore() {
     applyPaymentTransitionAtomically,
     claimPaymentEffects,
     completePaymentEffects,
+    claimCheckoutCreation,
+    completeCheckoutCreation,
+    failCheckoutCreation,
     createNotification,
     createIncident,
     createRtcSession,

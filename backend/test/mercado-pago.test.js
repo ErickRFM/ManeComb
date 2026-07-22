@@ -308,7 +308,7 @@ async function registerOwner(context, stamp = Date.now()) {
   };
 }
 
-async function createCheckout(context, owner) {
+async function createCheckout(context, owner, idempotencyKey = `mp-checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`) {
   return await requestJson(`${context.url}/commercial/checkout`, {
     body: JSON.stringify({
       companyName: owner.companyName,
@@ -320,7 +320,8 @@ async function createCheckout(context, owner) {
       selectedAddOns: ["radio_dispatch"]
     }),
     headers: {
-      Authorization: `Bearer ${owner.token}`
+      Authorization: `Bearer ${owner.token}`,
+      "Idempotency-Key": idempotencyKey
     },
     method: "POST"
   });
@@ -1156,6 +1157,89 @@ async function testConcurrentPaymentAssociationHasSingleWinner() {
   console.log("ok - dos asociaciones concurrentes del mismo Payment ID tienen un solo ganador");
 }
 
+async function testCheckoutCreationIdempotency() {
+  await withPaymentEnv(
+    { MERCADO_PAGO_ACCESS_TOKEN: "TEST-checkout-idempotency", MERCADO_PAGO_ENV: "sandbox", MERCADO_PAGO_PUBLIC_KEY: "TEST-checkout-public" },
+    async () => {
+      const mp = installMercadoPagoFetchMock();
+      const context = await createTestServer();
+      try {
+        const owner = await registerOwner(context, "checkout-idempotency");
+        const key = "checkout-idempotency-stable-key-0001";
+        const first = await createCheckout(context, owner, key);
+        const replay = await createCheckout(context, owner, key);
+        assert.equal(first.status, 201);
+        assert.equal(replay.status, 201);
+        assert.equal(replay.payload.data.id, first.payload.data.id);
+        assert.equal(replay.payload.data.referenceCode, first.payload.data.referenceCode);
+        assert.equal(replay.payload.data.checkoutUrl, first.payload.data.checkoutUrl);
+        assert.equal(mp.preferenceCalls, 1);
+        assert.equal((await context.store.listCommercialOrdersForUser({ email: owner.email })).filter((order) => order.id === first.payload.data.id).length, 1);
+
+        const conflict = await requestJson(`${context.url}/commercial/checkout`, {
+          body: JSON.stringify({ companyName: owner.companyName, contactName: "MP Owner", email: owner.email, paymentMethod: "card", phone: "+52 55 2000 0000", planId: "value-4", selectedAddOns: [] }),
+          headers: { Authorization: `Bearer ${owner.token}`, "Idempotency-Key": key },
+          method: "POST"
+        });
+        assert.equal(conflict.status, 409);
+        assert.equal(conflict.payload.code, "idempotency_key_reused");
+
+        const missing = await requestJson(`${context.url}/commercial/checkout`, {
+          body: JSON.stringify({ companyName: owner.companyName, contactName: "MP Owner", email: owner.email, paymentMethod: "card", phone: "+52 55 2000 0000", planId: "starter-2" }),
+          headers: { Authorization: `Bearer ${owner.token}` },
+          method: "POST"
+        });
+        assert.equal(missing.status, 400);
+        assert.equal(missing.payload.code, "missing_idempotency_key");
+
+        const concurrentKey = "checkout-idempotency-concurrent-0001";
+        const concurrent = await Promise.all([createCheckout(context, owner, concurrentKey), createCheckout(context, owner, concurrentKey)]);
+        assert.ok(concurrent.every((result) => result.status === 201 || (result.status === 409 && result.payload.code === "checkout_in_progress")));
+        if (concurrent.every((result) => result.status === 201)) {
+          assert.equal(concurrent[0].payload.data.id, concurrent[1].payload.data.id);
+        }
+        assert.equal(mp.preferenceCalls, 2);
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+  console.log("ok - checkout usa una orden y una preferencia por clave e intencion");
+}
+
+async function testUnknownPreferenceResultDoesNotRetryBlindly() {
+  await withPaymentEnv(
+    { MERCADO_PAGO_ACCESS_TOKEN: "TEST-checkout-timeout", MERCADO_PAGO_ENV: "sandbox", MERCADO_PAGO_PUBLIC_KEY: "TEST-checkout-timeout-public" },
+    async () => {
+      const nativeFetch = global.fetch;
+      let preferenceCalls = 0;
+      global.fetch = async (url, init) => {
+        if (String(url) === "https://api.mercadopago.com/checkout/preferences") {
+          preferenceCalls += 1;
+          throw new Error("simulated timeout after send");
+        }
+        return nativeFetch(url, init);
+      };
+      const context = await createTestServer();
+      try {
+        const owner = await registerOwner(context, "checkout-timeout");
+        const key = "checkout-provider-result-unknown-0001";
+        const first = await createCheckout(context, owner, key);
+        const retry = await createCheckout(context, owner, key);
+        assert.equal(first.status, 503);
+        assert.equal(retry.status, 503);
+        assert.equal(retry.payload.code, "provider_result_unknown");
+        assert.equal(preferenceCalls, 1);
+      } finally {
+        global.fetch = nativeFetch;
+        await context.close();
+      }
+    }
+  );
+  console.log("ok - timeout ambiguo no crea otra preferencia a ciegas");
+}
+
 async function main() {
   await testCredentialValidation();
   await testWebhookSignatureFailsClosed();
@@ -1173,6 +1257,8 @@ async function main() {
   await testPaymentCannotBeLinkedToAnotherOrder();
   await testPendingWebhookCanAdvanceToApproved();
   await testConcurrentPaymentAssociationHasSingleWinner();
+  await testCheckoutCreationIdempotency();
+  await testUnknownPreferenceResultDoesNotRetryBlindly();
 }
 
 main().catch((error) => {

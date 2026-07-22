@@ -178,7 +178,8 @@ async function testCriticalFlows() {
         notes: "Smoke test"
       }),
       headers: {
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        "Idempotency-Key": "app-smoke-trial-checkout-0001"
       },
       method: "POST"
     });
@@ -202,7 +203,8 @@ async function testCriticalFlows() {
         requestTrial: false
       }),
       headers: {
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        "Idempotency-Key": "app-smoke-operational-checkout-0001"
       },
       method: "POST"
     });

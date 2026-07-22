@@ -71,7 +71,7 @@ async function createActiveTenant(context) {
 
   const checkout = await requestJson(`${context.url}/commercial/checkout`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": "operational-units-checkout-0001" },
     body: JSON.stringify({
       companyName,
       contactName: "Operador Pruebas",

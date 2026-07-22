@@ -14,6 +14,7 @@ const {
   ChatAttachmentModel,
   ChatMessageModel,
   CheckpointVisitModel,
+  CheckoutIdempotencyModel,
   CommercialLeadModel,
   ConversationModel,
   DocumentModel,
@@ -1329,8 +1330,8 @@ async function createMongoStore() {
     const billingProfile = buildCompanyProfile(payload, payload.email);
     const pricing = getCommercialPlanPricing(plan, payload.selectedAddOns);
     const order = await CommercialLeadModel.create({
-      _id: randomUUID(),
-      referenceCode: `MNCB-${String(orderCount + 1).padStart(4, "0")}`,
+      _id: payload.id || randomUUID(),
+      referenceCode: payload.referenceCode || `MNCB-${String(orderCount + 1).padStart(4, "0")}`,
       ownerUserId: String(payload.ownerUserId || "").trim() || null,
       ownerAccountEmail: String(payload.ownerAccountEmail || payload.email || "")
         .trim()
@@ -3706,6 +3707,7 @@ async function createMongoStore() {
   }, {
     models: {
       AppEventModel,
+      CheckoutIdempotencyModel,
       CommercialLeadModel,
       DocumentModel,
       RtcSessionModel,

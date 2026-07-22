@@ -787,6 +787,31 @@ commercialLeadSchema.index(
   { unique: true, partialFilterExpression: { providerPaymentId: { $type: "string" } } }
 );
 
+const checkoutIdempotencySchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    scope: { type: String, required: true },
+    keyHash: { type: String, required: true },
+    requestFingerprint: { type: String, required: true },
+    orderId: { type: String, required: true },
+    providerIdempotencyKey: { type: String, required: true },
+    status: { type: String, required: true },
+    attemptCount: { type: Number, default: 1 },
+    leaseOwner: { type: String, default: null },
+    leaseUntil: { type: Date, default: null },
+    safeResponse: { type: mongoose.Schema.Types.Mixed, default: null },
+    lastErrorCode: { type: String, default: null },
+    readyAt: { type: Date, default: null },
+    failedAt: { type: Date, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "checkout_idempotency", versionKey: false }
+);
+
+checkoutIdempotencySchema.index({ scope: 1, keyHash: 1 }, { unique: true });
+checkoutIdempotencySchema.index({ status: 1, leaseUntil: 1 });
+
 const activationKeySchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
@@ -918,6 +943,7 @@ module.exports = {
   ChatAttachmentModel: getModel("ChatAttachment", chatAttachmentSchema),
   ChatMessageModel: getModel("ChatMessage", chatMessageSchema),
   CheckpointVisitModel: getModel("CheckpointVisit", checkpointVisitSchema),
+  CheckoutIdempotencyModel: getModel("CheckoutIdempotency", checkoutIdempotencySchema),
   CommercialLeadModel: getModel("CommercialLead", commercialLeadSchema),
   ConversationModel: getModel("Conversation", conversationSchema),
   DocumentModel: getModel("Document", documentSchema),

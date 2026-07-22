@@ -488,14 +488,21 @@ async function createMercadoPagoPreference(order) {
     ...(MERCADO_PAGO_WEBHOOK_URL ? { notification_url: MERCADO_PAGO_WEBHOOK_URL } : {})
   };
 
-  const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(preference)
-  });
+  let response;
+  try {
+    response = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(preference)
+    });
+  } catch (error) {
+    error.providerResultUnknown = true;
+    error.code = "mercado_pago_preference_result_unknown";
+    throw error;
+  }
   const responseBodyText = await response.text();
   let preferenceResponse = {};
 
@@ -508,7 +515,11 @@ async function createMercadoPagoPreference(order) {
   }
 
   if (!response.ok) {
-    throw new Error(`Mercado Pago no pudo crear el checkout. ${responseBodyText}`);
+    const error = new Error(`Mercado Pago no pudo crear el checkout. ${responseBodyText}`);
+    error.providerResultKnown = true;
+    error.code = `mercado_pago_preference_http_${response.status}`;
+    error.statusCode = response.status >= 500 ? 503 : 400;
+    throw error;
   }
 
   const checkout = selectMercadoPagoCheckoutUrl(preferenceResponse, environment);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CommercialPlan, User } from '@/src/types/app';
+import { clearCheckoutContext, getOrCreateCheckoutIdempotencyKey } from '@/src/utils/checkout-context';
 import { createCheckoutService } from '../create-commercial-service';
 import { readCachedPlans, writeCachedPlans } from '../services/plans-cache';
 import {
@@ -84,6 +85,13 @@ export function useCheckoutExperience({
     try {
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
       const nextResult = await service.createPaymentSession({
+        idempotencyKey: getOrCreateCheckoutIdempotencyKey({
+          userId: user.id,
+          planId: selectedPlan.id,
+          paymentMethod: requestTrial ? 'trial' : method,
+          requestTrial,
+          selectedAddOns,
+        }),
         companyName,
         contactName: user.name || companyName,
         email: user.email,
@@ -170,6 +178,7 @@ export function usePublicCommercialFlow({
     setConfirmation({ status: 'checking' });
     void service.confirmPaymentReturn({ paymentId: cleanPaymentId, externalReference })
       .then((result) => {
+        if (result.ok) clearCheckoutContext();
         setConfirmation({
           message: result.message,
           paymentStatus: result.rawPaymentStatus,

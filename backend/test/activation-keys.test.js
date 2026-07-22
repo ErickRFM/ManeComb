@@ -108,7 +108,8 @@ async function runActivationKeyFlow() {
         paymentMethod: "transfer"
       }),
       headers: {
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        "Idempotency-Key": "activation-keys-checkout-0001"
       },
       method: "POST"
     });

@@ -1,4 +1,5 @@
 const { Router } = require("express");
+const { randomUUID } = require("crypto");
 const { getCommercialPlanById, listCommercialPlans } = require("../../config/commercial-plans");
 const { authenticate } = require("../../middlewares/authenticate");
 const { getRolesWithPermission } = require("../../middlewares/access-control");
@@ -27,6 +28,12 @@ const {
   failWebhookDelivery
 } = require("../../services/webhook-idempotency");
 const logger = require("../../services/logger");
+const {
+  buildCheckoutKeyHash,
+  buildCheckoutRequestFingerprint,
+  buildCheckoutScope,
+  validateCheckoutIdempotencyKey
+} = require("../../services/checkout-idempotency");
 
 const router = Router();
 
@@ -55,6 +62,21 @@ function emitCommercialEvent(req, eventName, order, payload = {}) {
   }
 
   req.app.locals.io?.to("platform:admin").emit(eventName, eventPayload);
+}
+
+function buildCheckoutSafeResponse(order, nextStep) {
+  const fields = [
+    "id", "referenceCode", "planId", "planName", "fleetSize", "basePlanPrice", "addOns",
+    "addOnsTotal", "radioFeatureEnabled", "totalPrice", "pricePerVehicle", "currency",
+    "paymentMethod", "paymentProvider", "checkoutUrl", "paymentExternalReference",
+    "paymentProviderReference", "paymentStatus", "status", "activationStatus", "trialStatus",
+    "onboardingStatus", "paymentInstructions", "downloads", "createdAt"
+  ];
+  const response = fields.reduce((result, field) => {
+    if (typeof order?.[field] !== "undefined") result[field] = order[field];
+    return result;
+  }, {});
+  return { ...response, nextStep };
 }
 
 function emitSubscriptionUpdate(req, order) {
@@ -239,6 +261,14 @@ router.get("/downloads/:token", async (req, res, next) => {
 });
 
 router.post("/checkout", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res, next) => {
+  const keyValidation = validateCheckoutIdempotencyKey(req.get("Idempotency-Key"));
+  if (!keyValidation.valid) {
+    return res.status(400).json({
+      ok: false,
+      code: keyValidation.code,
+      message: "Idempotency-Key es obligatorio y debe ser un identificador opaco valido"
+    });
+  }
   const companyName = String(req.body.companyName || "").trim();
   const contactName = String(req.body.contactName || "").trim();
   const email = String(req.body.email || "").trim().toLowerCase();
@@ -273,8 +303,52 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
     });
   }
 
+  const scope = buildCheckoutScope({ userId: req.user.id, organizationId: req.user.organizationId });
+  const keyHash = buildCheckoutKeyHash(scope, keyValidation.key);
+  const requestFingerprint = buildCheckoutRequestFingerprint({
+    userId: req.user.id,
+    organizationId: req.user.organizationId,
+    planId: plan.id,
+    paymentMethod,
+    requestTrial,
+    selectedAddOns
+  });
+  const workerId = `${req.traceId || randomUUID()}:checkout`;
+  let claim;
+
   try {
-    const order = await req.app.locals.store.createCommercialOrder({
+    claim = await req.app.locals.store.claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId });
+    logger.info({
+      action: "CheckoutIdempotencyClaim",
+      module: "Payments",
+      status: claim.claimed ? "claimed" : claim.reason,
+      metadata: {
+        attemptCount: claim.reservation?.attemptCount || 0,
+        claimReason: claim.reason,
+        keyHashPrefix: keyHash.slice(0, 12),
+        orderId: claim.reservation?.orderId || null
+      }
+    });
+    if (!claim.claimed) {
+      if (claim.reason === "ready") {
+        return res.status(201).json({ ok: true, data: claim.reservation.safeResponse });
+      }
+      if (claim.reason === "key_reused") {
+        return res.status(409).json({ ok: false, code: "idempotency_key_reused", message: "La clave ya identifica otra intencion de checkout" });
+      }
+      if (claim.reason === "currently_processing") {
+        return res.status(409).json({ ok: false, code: "checkout_in_progress", message: "El checkout se esta preparando" });
+      }
+      if (claim.reason === "provider_result_unknown") {
+        return res.status(503).json({ ok: false, code: "provider_result_unknown", message: "El resultado del proveedor requiere conciliacion; no se creara otra preferencia" });
+      }
+      return res.status(409).json({ ok: false, code: "checkout_permanent_failure", message: "La intencion de checkout no puede reintentarse" });
+    }
+
+    let order = await req.app.locals.store.getCommercialOrderById(claim.reservation.orderId);
+    if (!order) order = await req.app.locals.store.createCommercialOrder({
+      id: claim.reservation.orderId,
+      referenceCode: `MNCB-${claim.reservation.orderId.slice(0, 8).toUpperCase()}`,
       ownerUserId: req.user.id,
       ownerAccountEmail: req.user.email,
       accountStatus: "authenticated",
@@ -335,6 +409,18 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
         user: req.user
       }
     );
+    const safeResponse = buildCheckoutSafeResponse(presentedOrder, checkout.nextStep);
+    const completedReservation = await req.app.locals.store.completeCheckoutCreation({
+      reservationId: claim.reservation.id || claim.reservation._id,
+      workerId,
+      safeResponse
+    });
+    if (!completedReservation) {
+      const leaseError = new Error("Checkout lease lost before completion");
+      leaseError.code = "checkout_lease_lost";
+      leaseError.statusCode = 409;
+      throw leaseError;
+    }
     await req.app.locals.store.recordAppEvent?.({
       type: "checkout_created",
       scope: "commercial",
@@ -374,13 +460,25 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
 
     return res.status(201).json({
       ok: true,
-      data: {
-        ...responseOrder,
-        nextStep: checkout.nextStep
-      }
+      data: completedReservation.safeResponse
     });
   } catch (error) {
-    error.statusCode = error.message === "Plan comercial no encontrado" ? 404 : 400;
+    if (claim?.claimed) {
+      const failureStatus = error.providerResultUnknown
+        ? "provider_result_unknown"
+        : error.providerResultKnown && Number(error.statusCode) >= 500
+          ? "failed_retryable"
+          : "failed_permanent";
+      await Promise.resolve(req.app.locals.store.failCheckoutCreation({
+        reservationId: claim.reservation.id || claim.reservation._id,
+        workerId,
+        status: failureStatus,
+        errorCode: String(error.code || "checkout_creation_failed").slice(0, 120)
+      })).catch(() => null);
+    }
+    error.statusCode = error.providerResultUnknown
+      ? 503
+      : (error.statusCode || (error.message === "Plan comercial no encontrado" ? 404 : 400));
     error.publicMessage = "No fue posible registrar la compra";
     return next(error);
   }

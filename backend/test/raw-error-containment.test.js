@@ -88,6 +88,7 @@ async function run() {
     cases.push(await withInjectedStoreError(context.store, "createCommercialOrder", "TECH_COMMERCIAL_701", () =>
       requestJson(`${context.baseUrl}/commercial/checkout`, {
         token: context.ownerToken,
+        headers: { "Idempotency-Key": "raw-error-checkout-0001" },
         method: "POST",
         body: JSON.stringify({
           companyName: "Empresa Prueba",

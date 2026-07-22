@@ -63,7 +63,8 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
 
   async createPaymentSession(request: PaymentSessionRequest): Promise<PaymentResult> {
     try {
-      const response = await createCommercialCheckoutRequest(request) as LegacyCheckoutResponse;
+      const { idempotencyKey, ...payload } = request;
+      const response = await createCommercialCheckoutRequest(payload, idempotencyKey) as LegacyCheckoutResponse;
       const status = resolveResultStatus(response);
       const nextStep = response.nextStep
         || response.paymentInstructions?.summary
