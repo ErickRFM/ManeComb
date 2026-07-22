@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge } from '@/src/components/ui/status-badge';
-import { formatPortalStatus, getPortalStatusTone } from '../../components/portal-cards';
+import { formatPortalStatus, getPortalStatusTone } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';

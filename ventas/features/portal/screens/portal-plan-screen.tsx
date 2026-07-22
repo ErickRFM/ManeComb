@@ -9,7 +9,7 @@ import {
   CommercialActivityList,
   useCommercialExperience,
 } from '@/features/commercial';
-import { PortalSectionCard } from '../components/portal-cards';
+import { PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { portalPalette } from '../portal-theme';
 import { styles } from '../plan/plan.styles';

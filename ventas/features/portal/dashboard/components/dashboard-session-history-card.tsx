@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { StatusBadge } from '@/src/components/ui/status-badge';
-import { formatPortalStatus, getPortalStatusTone } from '../../components/portal-cards';
+import { formatPortalStatus, getPortalStatusTone } from '../../cards';
 import { styles } from '../dashboard.styles';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPercent } from '../dashboard.utils';

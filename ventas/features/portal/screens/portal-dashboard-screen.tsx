@@ -16,7 +16,7 @@ import {
 import { useAppStore } from '@/src/store/use-app-store';
 import type { RouteEvent, RouteSession, User, Vehicle } from '@/src/types/app';
 import { formatDate } from '@/src/utils/format';
-import { formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../components/portal-cards';
+import { formatPortalStatus, getPortalStatusTone, PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { portalPalette } from '../portal-theme';

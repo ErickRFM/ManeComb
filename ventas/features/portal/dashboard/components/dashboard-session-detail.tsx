@@ -4,7 +4,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import type { RouteSession, RouteSessionPosition, RouteEvent } from '@/src/types/app';
-import { PortalSectionCard } from '../../components/portal-cards';
+import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';

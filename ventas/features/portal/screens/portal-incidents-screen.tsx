@@ -7,7 +7,7 @@ import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { formatDate } from '@/src/utils/format';
-import { PortalSectionCard } from '../components/portal-cards';
+import { PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { PortalButton } from '../components/portal-button';

@@ -7,7 +7,7 @@ import { styles } from '../dashboard.styles';
 import type { Filters } from '../dashboard.types';
 import { getRouteLabel } from '../dashboard.utils';
 import { portalPalette } from '../../portal-theme';
-import { formatPortalStatus } from '../../components/portal-cards';
+import { formatPortalStatus } from '../../cards';
 
 function FilterChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
   return (

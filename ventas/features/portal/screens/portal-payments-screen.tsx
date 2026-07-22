@@ -8,7 +8,7 @@ import { formatCurrency, formatDate } from '@/src/utils/format';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { resolveInvoiceDownloadUrl } from '@/features/commercial';
-import { InvoiceList, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
+import { InvoiceList, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { portalButtonGradient, portalPalette } from '../portal-theme';

@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { formatCurrency } from '@/src/utils/format';
-import { PortalSectionCard } from '../../components/portal-cards';
+import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { portalPalette } from '../../portal-theme';
 import { styles } from '../plan.styles';

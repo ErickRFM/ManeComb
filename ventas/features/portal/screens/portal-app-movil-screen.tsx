@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
@@ -32,7 +32,7 @@ export function PortalAppMovilScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>('info');
   const { ref: novidadesRef, scrollToNovidades } = useNovidadesScroll();
 
-  const toggleVersionExpanded = (version: string) => {
+  const toggleVersionExpanded = useCallback((version: string) => {
     setExpandedVersions((prev) => {
       const next = new Set(prev);
       if (next.has(version)) {
@@ -42,7 +42,7 @@ export function PortalAppMovilScreen() {
       }
       return next;
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (!appInfo) {

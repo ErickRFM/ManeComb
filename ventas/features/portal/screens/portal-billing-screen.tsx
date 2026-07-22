@@ -8,7 +8,7 @@ import { resolveInvoiceDownloadUrl } from '@/features/commercial';
 import { apiClient, getApiErrorMessage } from '@/src/api/client';
 import type { PortalInvoice } from '@/src/types/app';
 import { AppTheme, palette, Typography } from '@/constants/theme';
-import { InvoiceList, PortalSectionCard } from '../components/portal-cards';
+import { InvoiceList, PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { usePortalStore } from '../store/use-portal-store';
 

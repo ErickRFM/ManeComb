@@ -1,20 +1,20 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, palette, Typography } from '@/constants/theme';
+import { palette } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { EmptyState } from '@/src/components/ui/empty-state';
-import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { resolveDocumentUrl } from '@/src/api/client';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatDate } from '@/src/utils/format';
-import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
+import { PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
-import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
+import { styles } from '../documents/documents.styles';
+import { getStatusMeta } from '../documents/documents.utils';
 import type { DocumentItem as ApiDocumentItem } from '@/src/types/app';
 
 type DocumentItem = ApiDocumentItem & {
@@ -24,12 +24,6 @@ type DocumentItem = ApiDocumentItem & {
 };
 
 const REVIEW_STATUS_OPTIONS = ['pending_review', 'approved', 'rejected'] as const;
-
-function getStatusMeta(status: string) {
-  if (status === 'approved' || status === 'active') return { label: 'Aprobado', tone: 'positive' as const };
-  if (status === 'rejected') return { label: 'Rechazado', tone: 'danger' as const };
-  return { label: 'Pendiente', tone: 'warning' as const };
-}
 
 export function PortalDocumentsScreen() {
   const { user, vehicles } = useAppStore(
@@ -52,7 +46,6 @@ export function PortalDocumentsScreen() {
   const [reviewStatus, setReviewStatus] = useState<string>('pending_review');
   const [reviewNotes, setReviewNotes] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-  const [uploadMode, setUploadMode] = useState(false);
 
   useEffect(() => {
     void loadDocuments();
@@ -193,150 +186,3 @@ export function PortalDocumentsScreen() {
     </PortalLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  contextNotice: {
-    alignItems: 'flex-start',
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    padding: AppTheme.spacing.md,
-  },
-  contextIcon: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.xs,
-    flexShrink: 0,
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  contextCopy: {
-    flex: 1,
-    flexBasis: 260,
-    minWidth: 0,
-  },
-  contextTitle: {
-    fontFamily: Typography.body,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  contextText: {
-    fontFamily: Typography.body,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  filterChip: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    borderColor: portalPalette.lineStrong,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  filterChipActive: {
-    backgroundColor: portalPalette.accent,
-    borderColor: portalPalette.accent,
-  },
-  filterChipText: {
-    color: portalPalette.text,
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  filterChipTextActive: {
-    color: '#FFFFFF',
-  },
-  list: {
-    gap: 10,
-    minWidth: 0,
-  },
-  docRow: {
-    alignItems: 'flex-start',
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    minWidth: 0,
-    padding: 10,
-  },
-  docIcon: {
-    alignItems: 'center',
-    flexShrink: 0,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  docBody: {
-    flex: 1,
-    flexBasis: 200,
-    gap: 2,
-    minWidth: 0,
-  },
-  docName: {
-    fontFamily: Typography.body,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  docMeta: {
-    fontFamily: Typography.body,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  docActions: {
-    alignItems: 'flex-end',
-    flexShrink: 0,
-    gap: 6,
-  },
-  rowActions: {
-    flexDirection: 'row',
-    flexShrink: 0,
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  iconAction: {
-    alignItems: 'center',
-    borderRadius: AppTheme.radius.xs,
-    flexShrink: 0,
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
-  },
-  reviewSelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    minWidth: 0,
-    paddingVertical: 8,
-  },
-  reviewOption: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    flexGrow: 1,
-    minHeight: 38,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  reviewOptionText: {
-    fontFamily: Typography.body,
-    fontSize: 12,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  reviewInput: {
-    borderRadius: AppTheme.radius.sm,
-    borderWidth: 1,
-    fontFamily: Typography.body,
-    fontSize: 13,
-    minHeight: 60,
-    padding: 10,
-    textAlignVertical: 'top',
-  },
-});

@@ -1,6 +1,6 @@
 import type { StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
-import { formatPortalStatus, getPortalStatusTone } from '../components/portal-cards';
+import { formatPortalStatus, getPortalStatusTone } from '../cards';
 import { isVehicleGpsFresh } from '../utils/tracking';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import type { RouteEvent, RouteSession, RouteSessionPosition, User, Vehicle } from '@/src/types/app';

@@ -10,7 +10,7 @@ import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-ba
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Vehicle, VehicleMutationPayload, VehicleStatus } from '@/src/types/app';
 import { formatDate } from '@/src/utils/format';
-import { PortalSectionCard } from '../components/portal-cards';
+import { PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
