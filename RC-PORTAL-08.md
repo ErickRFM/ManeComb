@@ -1,6 +1,6 @@
 # RC-PORTAL-08 — Modularización de Gestión de Unidades
 
-> **Estado:** Cerrado técnicamente — pendiente de commit
+> **Estado:** Cerrado
 >
 > **Rama:** `main`
 >
@@ -143,7 +143,7 @@ No existían búsqueda, filtros, reset de filtros o paginación. El único orden
 
 El `StyleSheet.create` completo fue trasladado a `units.styles.ts` manteniendo todos sus valores, incluidas claves históricas sin consumidor actual. No se rediseñaron inputs, segmentos, filas, banners, badges, botones ni responsive.
 
-El import histórico sin uso `portalButtonGradient` permanece en el contenedor para no introducir una limpieza ajena a la modularización. Las claves de estilo históricas sin referencias también se conservaron y solo se trasladaron.
+`portalButtonGradient` es un hallazgo histórico preexistente y queda expresamente fuera del alcance de RC-PORTAL-08. Su import sin uso permanece en el contenedor porque retirarlo sería una limpieza independiente de la modularización. Las claves de estilo históricas sin referencias también se conservaron y solo se trasladaron.
 
 ## 11. Métricas
 
@@ -160,8 +160,8 @@ El import histórico sin uso `portalButtonGradient` permanece en el contenedor p
 | Módulos de constantes | 1 |
 | Módulos de utilidades | 1 |
 | Diff del contenedor | 29 inserciones, 430 eliminaciones |
-| Reportes nuevos | 1 |
-| Archivos previstos en el commit | 9 |
+| Reporte nuevo | 1 |
+| Archivos totales afectados | 9 |
 
 ## 12. Validaciones
 
@@ -178,7 +178,7 @@ El import histórico sin uso `portalButtonGradient` permanece en el contenedor p
 
 ### Runtime
 
-La ruta pública, el bundle y el guard de autenticación fueron verificados. La gestión autenticada de unidades, creación, edición, asignación y eliminación no pudo validarse manualmente por falta de credenciales de prueba.
+La ruta pública, el bundle y el guard de autenticación fueron verificados. La creación, edición, eliminación y navegación autenticada de unidades no pudieron validarse manualmente por falta de credenciales de prueba.
 
 La navegación pública a `/portal/unidades` cargó sin errores de importación o evaluación y redirigió a `/ventas/login`, cuya interfaz se renderizó correctamente. No se utilizaron credenciales reales ni datos simulados.
 
