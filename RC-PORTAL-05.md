@@ -1,6 +1,6 @@
 # RC-PORTAL-05 — Auditoría técnica, histórica y documental
 
-**Estado:** Cerrado técnicamente — pendiente de auditoría documental
+**Estado:** Cerrado
 
 **Commit de implementación:** `ce1a500`
 
@@ -23,6 +23,7 @@ La implementación completa está contenida en un único commit:
 | Commit | Responsabilidad |
 |---|---|
 | `ce1a500` | Modularización de Cards, Onboarding y Documents; eliminación de JSX muerto en Routes; estabilización del callback de App Mobile; creación del reporte inicial |
+| `4674b80` | Corrección mínima del barrel: `getStatusTone` permanece interno y deja de reexportarse públicamente |
 | `<HASH_DOCUMENTAL>` | Auditoría documental; se registra externamente después del commit |
 
 El commit afecta 36 rutas:
@@ -89,7 +90,7 @@ El archivo anterior `components/portal-cards.tsx` tenía 343 líneas físicas en
 | `formatPortalStatus` | `formatPortalStatus` | Conservado |
 | `getPortalStatusTone` | `getPortalStatusTone` | Conservado |
 
-`getStatusTone`, que antes era helper privado del monolito, también quedó exportado por el barrel. Es una ampliación aditiva de la superficie pública; no elimina ni renombra ningún export anterior.
+`getStatusTone` era helper privado del monolito y solo tiene consumidores internos en `cards/`. El commit técnico `4674b80` eliminó únicamente su reexportación desde el barrel; el helper y su lógica permanecen intactos. La API pública vuelve a contener exclusivamente los seis exports originales.
 
 ### Consumidores
 
@@ -283,10 +284,11 @@ Portal Cards fue redistribuido desde un archivo de 343 líneas hacia siete archi
 
 ## Rollback futuro
 
-No ejecutar durante esta auditoría. Al existir implementación y documentación separadas, el orden futuro es:
+No ejecutar durante esta auditoría. Al existir implementación, corrección técnica y documentación separadas, el orden futuro es:
 
 ```bash
 git revert <HASH_DOCUMENTAL>
+git revert 4674b80
 git revert ce1a500
 ```
 
