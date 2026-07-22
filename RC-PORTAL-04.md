@@ -7,7 +7,7 @@ Cerrado
 ## Commit de implementación
 
 ```
-<commit>
+633a6e3
 ```
 
 ## Objetivo
