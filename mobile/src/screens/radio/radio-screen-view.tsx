@@ -17,7 +17,6 @@ import * as Haptics from '@/src/native/haptics';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -25,7 +24,6 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -42,15 +40,14 @@ import { DesignSystem } from '@/constants/theme';
 import { useShallow } from 'zustand/react/shallow';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
-import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getSharedRealtimeSocket } from '@/src/store/use-app-store';
-import { formatRelativeTime, formatRole } from '@/src/utils/format';
-import { getTextInputProps } from '@/src/utils/text-input-props';
+import { formatRelativeTime } from '@/src/utils/format';
 import { createStyles } from './radio-screen.styles';
-import { VoiceTransmissionCard } from './components/radio-transmission-card';
 import { PttAudioWave } from './components/ptt-audio-wave';
+import { RadioAudiosPage } from './components/radio-audios-page';
+import { RadioDirectoryPage } from './components/radio-directory-page';
 import {
   initialRadioSessionState,
   radioSessionReducer,
@@ -79,7 +76,6 @@ import {
   getConversationContact,
   getConversationPreview,
 } from './utils/radio-format';
-import { getPresenceStatus } from '@/src/utils/presence';
 import { useLocalSearchParams } from '@/src/navigation/router';
 
 const RADIO_MOTION = {
@@ -1653,117 +1649,22 @@ export function RadioScreen() {
           contentOffset={{ x: pageWidth * INITIAL_RADIO_PAGE_INDEX, y: 0 }}
           style={styles.pager}>
           <View style={[styles.page, { width: pageWidth }]}>
-        <View style={styles.directoryPanel}>
-          <View style={styles.searchShell}>
-            <MaterialCommunityIcons name="magnify" size={20} color={theme.colors.muted} />
-            <TextInput
-              {...getTextInputProps(theme, { autoComplete: 'off', returnKeyType: 'search' })}
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar canal o contacto"
-              placeholderTextColor={theme.colors.muted}
-              style={styles.searchInput}
-            />
-          </View>
-
-          <Pressable onPress={() => { handleOpenGeneralRadio(); }} style={styles.quickActionCard}>
-            <View style={styles.quickActionLead}>
-              <MaterialCommunityIcons name="radio-tower" size={20} color="#FFFFFF" />
-              <Text style={styles.quickActionTitle}>Abrir radio general</Text>
-            </View>
-            <MaterialCommunityIcons name="radio-handheld" size={22} color="#FFFFFF" />
-          </Pressable>
-
-          <ScrollView
-            style={styles.directoryScroll}
-            contentContainerStyle={styles.directoryContent}
-            showsVerticalScrollIndicator={false}>
-            <View style={styles.sectionBlock}>
-              <View style={styles.sectionRow}>
-                <Text style={styles.sectionTitle}>Canales</Text>
-                <StatusPill label={`${filteredChannels.length}`} tone="info" />
-              </View>
-
-              {filteredChannels.map((channel) => {
-                const contact = getConversationContact(channel, user.id);
-                const isActive = channel.id === activeChannel?.id;
-                const connectedCount = channel.participants.length;
-                const channelStatus = channel.unreadCount ? 'Nuevo audio' : 'En espera';
-
-                return (
-                  <Pressable
-                    key={channel.id}
-                    onHoverIn={Platform.OS === 'web' ? () => setHoveredRadioItemId(channel.id) : undefined}
-                    onHoverOut={Platform.OS === 'web' ? () => setHoveredRadioItemId(null) : undefined}
-                    onPress={() => { handleSelectChannel(channel.id); }}
-                    style={[
-                      styles.channelCard,
-                      isActive ? styles.channelCardActive : undefined,
-                      hoveredRadioItemId === channel.id ? styles.listCardHover : undefined,
-                    ]}>
-                    <View style={styles.channelRow}>
-                      <View style={styles.channelAvatar}>
-                        <MaterialCommunityIcons
-                          name={channel.kind === 'group' ? 'radio-handheld' : 'radio'}
-                          size={20}
-                          color={isActive ? '#FFFFFF' : theme.colors.accent}
-                        />
-                      </View>
-                      <View style={styles.channelCopy}>
-                        <Text style={styles.channelTitle} numberOfLines={1}>{channel.title}</Text>
-                        <Text style={styles.channelMeta} numberOfLines={1}>
-                          {contact ? formatRole(contact.role) : 'Canal'}
-                          {` - ${channelStatus}`}
-                          {connectedCount ? ` - ${connectedCount} usuarios` : ''}
-                        </Text>
-                      </View>
-                      <View style={styles.channelStatusDot} />
-                      {channel.unreadCount ? (
-                        <View style={styles.unreadBubble}>
-                          <Text style={styles.unreadBubbleText}>{channel.unreadCount}</Text>
-                        </View>
-                      ) : null}
-                      <View style={styles.channelActionIcon}>
-                        <MaterialCommunityIcons name="radio" size={16} color={theme.colors.accent} />
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {filteredContacts.length ? (
-            <View style={styles.sectionBlock}>
-              <View style={styles.sectionRow}>
-                <Text style={styles.sectionTitle}>Directo rápido</Text>
-                <StatusPill label={`${filteredContacts.length}`} tone="info" />
-              </View>
-
-              {filteredContacts.map((contact) => (
-                <Pressable
-                  key={contact.id}
-                  onHoverIn={Platform.OS === 'web' ? () => setHoveredRadioItemId(`contact-${contact.id}`) : undefined}
-                  onHoverOut={Platform.OS === 'web' ? () => setHoveredRadioItemId(null) : undefined}
-                  onPress={() => { handleOpenDirectRadio(contact.id); }}
-                  style={[
-                    styles.contactRow,
-                    hoveredRadioItemId === `contact-${contact.id}` ? styles.listCardHover : undefined,
-                  ]}>
-                  <View style={styles.contactLead}>
-                    <UserAvatar user={contact} status={getPresenceStatus(presenceByUser, contact.id)} showStatus size={42} />
-                    <View style={styles.contactCopy}>
-                      <Text style={styles.contactTitle}>{contact.name}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.contactActionButton}>
-                    <MaterialCommunityIcons name="radio" size={18} color="#FFFFFF" />
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-            ) : null}
-          </ScrollView>
-        </View>
+        <RadioDirectoryPage
+          activeChannelId={activeChannel?.id || null}
+          channels={filteredChannels}
+          contacts={filteredContacts}
+          currentUserId={user.id}
+          hoveredItemId={hoveredRadioItemId}
+          onHoverItem={setHoveredRadioItemId}
+          onOpenDirectContact={handleOpenDirectRadio}
+          onOpenGeneralRadio={handleOpenGeneralRadio}
+          onSearchChange={setSearch}
+          onSelectChannel={handleSelectChannel}
+          presenceByUser={presenceByUser}
+          search={search}
+          styles={styles}
+          theme={theme}
+        />
 
           </View>
 
@@ -1888,63 +1789,16 @@ export function RadioScreen() {
           </View>
 
           <View style={[styles.page, { width: pageWidth }]}>
-          <View style={styles.historyPanel}>
-            <View style={styles.audioPageHeader}>
-              <View style={styles.sectionRow}>
-                <Text style={styles.sectionTitle}>Audios</Text>
-                <StatusPill label={`${filteredVoiceNotes.length}`} tone="info" />
-              </View>
-
-              {availableAudioFilters.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}>
-                  {availableAudioFilters.map((filter) => (
-                    <Pressable
-                      key={filter.key}
-                      onPress={() => setAudioFilter(filter.key)}
-                      style={[
-                        styles.filterChip,
-                        audioFilter === filter.key ? styles.filterChipActive : undefined,
-                      ]}>
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          audioFilter === filter.key ? styles.filterChipTextActive : undefined,
-                        ]}>
-                        {filter.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              ) : null}
-            </View>
-
-            <FlatList
-              data={filteredVoiceNotes}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.historyContent}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <VoiceTransmissionCard
-                  message={item.message}
-                  presence={getPresenceStatus(presenceByUser, item.message.sender?.id)}
-                  channelTitle={item.channelTitle}
-                  token={token}
-                  theme={theme}
-                />
-              )}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIconShell}>
-                    <MaterialCommunityIcons name="radio-handheld" size={28} color={theme.colors.muted} />
-                  </View>
-                  <Text style={styles.emptyTitle}>Sin audios</Text>
-                </View>
-              }
-            />
-          </View>
+          <RadioAudiosPage
+            activeFilter={audioFilter}
+            filters={availableAudioFilters}
+            onFilterChange={setAudioFilter}
+            presenceByUser={presenceByUser}
+            styles={styles}
+            theme={theme}
+            token={token}
+            voiceNotes={filteredVoiceNotes}
+          />
           </View>
         </ScrollView>
       </View>
