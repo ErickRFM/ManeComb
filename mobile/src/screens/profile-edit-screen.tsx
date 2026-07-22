@@ -2,9 +2,8 @@ import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import * as ImagePicker from '@/src/native/image-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, type ScrollView, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
@@ -14,12 +13,14 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
-import { getTextInputProps } from '@/src/utils/text-input-props';
 import {
   DEFAULT_ACTIVE_DAYS,
   getOperationalScheduleState,
   normalizeOperationalSchedule,
 } from '@/src/utils/operational-schedule';
+import { Field } from './profile-edit/components/field';
+import { DAY_OPTIONS } from './profile-edit/constants';
+import { createStyles } from './profile-edit/profile-edit-screen.styles';
 
 type ProfileForm = {
   name: string;
@@ -45,16 +46,6 @@ type ProfileForm = {
   scheduleActiveDays: number[];
   scheduleTimezone: string;
 };
-
-const DAY_OPTIONS = [
-  { id: 1, label: 'Lun' },
-  { id: 2, label: 'Mar' },
-  { id: 3, label: 'Mie' },
-  { id: 4, label: 'Jue' },
-  { id: 5, label: 'Vie' },
-  { id: 6, label: 'Sab' },
-  { id: 0, label: 'Dom' },
-];
 
 function createProfileForm(): ProfileForm {
   return {
@@ -665,255 +656,4 @@ export function ProfileEditScreen() {
       </AppCard>
     </AppShell>
   );
-}
-
-type FieldProps = {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad';
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  secureTextEntry?: boolean;
-};
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType = 'default',
-  autoCapitalize = 'sentences',
-  secureTextEntry = false,
-}: FieldProps) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        {...getTextInputProps(theme, {
-          autoComplete: secureTextEntry ? 'current-password' : 'off',
-          returnKeyType: 'done',
-          submitBehavior: 'blurAndSubmit',
-        })}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.colors.muted}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        secureTextEntry={secureTextEntry}
-        style={styles.input}
-      />
-    </View>
-  );
-}
-
-function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
-  return StyleSheet.create({
-    header: {
-      gap: AppTheme.spacing.md,
-      paddingTop: AppTheme.spacing.md,
-    },
-    backButton: {
-      alignSelf: 'flex-start',
-      minHeight: 42,
-      borderRadius: AppTheme.radius.pill,
-      borderWidth: 1,
-      paddingHorizontal: 14,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    backButtonText: {
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    title: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: 34,
-    },
-    subtitle: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 15,
-      lineHeight: 24,
-      maxWidth: 760,
-    },
-    editorCard: {
-      backgroundColor: theme.colors.surface,
-      gap: AppTheme.spacing.lg,
-    },
-    topRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: AppTheme.spacing.lg,
-      alignItems: 'center',
-      padding: AppTheme.spacing.md,
-      borderRadius: AppTheme.radius.lg,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-    },
-    avatarColumn: {
-      gap: AppTheme.spacing.sm,
-      alignItems: 'center',
-    },
-    identityBlock: {
-      flex: 1,
-      gap: 8,
-    },
-    userName: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: 30,
-    },
-    userMeta: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 14,
-    },
-    identityPills: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-    },
-    passwordHelperCard: {
-      borderRadius: AppTheme.radius.md,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: AppTheme.spacing.md,
-      paddingVertical: 12,
-      gap: 6,
-    },
-    passwordHelperTitle: {
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '800',
-    },
-    passwordHelperValue: {
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '800',
-    },
-    passwordHelperValueWeak: {
-      color: theme.colors.accent,
-    },
-    passwordHelperValueMedium: {
-      color: theme.colors.warning,
-    },
-    passwordHelperValueStrong: {
-      color: theme.colors.success,
-    },
-    formGrid: {
-      gap: 12,
-      padding: AppTheme.spacing.md,
-      borderRadius: AppTheme.radius.lg,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-    },
-    inlineGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 12,
-    },
-    sectionHeading: {
-      color: theme.colors.text,
-      fontFamily: Typography.display,
-      fontSize: 22,
-      fontWeight: '800',
-      marginTop: 4,
-    },
-    field: {
-      gap: 8,
-      flex: 1,
-      minWidth: 170,
-    },
-    fieldLabel: {
-      color: theme.colors.muted,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '700',
-      letterSpacing: 0.3,
-    },
-    input: {
-      minHeight: DesignSystem.control.md,
-      borderRadius: DesignSystem.radius.input,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.input,
-      paddingHorizontal: AppTheme.spacing.md,
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 15,
-    },
-    methodRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-    },
-    methodChip: {
-      minHeight: 42,
-      borderRadius: AppTheme.radius.pill,
-      borderWidth: 1,
-      borderColor: theme.colors.line,
-      backgroundColor: theme.colors.surfaceAlt,
-      paddingHorizontal: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    methodChipActive: {
-      borderColor: theme.colors.accent,
-      backgroundColor: theme.colors.accentSoft,
-    },
-    methodChipText: {
-      color: theme.colors.text,
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '700',
-    },
-    methodChipTextActive: {
-      color: theme.colors.accent,
-    },
-    messageBox: {
-      borderRadius: AppTheme.radius.md,
-      borderWidth: 1,
-      paddingHorizontal: AppTheme.spacing.md,
-      paddingVertical: 12,
-    },
-    successBox: {
-      backgroundColor: theme.colors.successSoft,
-      borderColor: theme.colors.success,
-    },
-    errorBox: {
-      backgroundColor: theme.colors.accentSoft,
-      borderColor: theme.colors.accent,
-    },
-    messageText: {
-      fontFamily: Typography.body,
-      fontSize: 14,
-      fontWeight: '700',
-    },
-    successText: {
-      color: theme.colors.success,
-    },
-    errorText: {
-      color: theme.colors.accent,
-    },
-    actionRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 12,
-      justifyContent: 'flex-end',
-      paddingTop: 8,
-    },
-  });
 }
