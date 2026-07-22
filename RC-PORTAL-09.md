@@ -29,7 +29,7 @@ El contenedor pasó de **415 a 90 líneas físicas**, una reducción de **325 l�
 | RBAC | `owner`, `admin` o `supervisor` |
 | API directa | Ninguna; el flujo permanece delegado al store |
 | Navegación local | Ninguna |
-| Confirmación | `ConfirmModal` para cambio de estado |
+| Confirmación | `ConfirmModal` para confirmar la actualización del estado de una incidencia. |
 
 La implementación real no tenía búsqueda, paginación, ordenamiento explícito, categorías configurables, asignación de responsables, formulario libre, adjuntos interactivos, navegación local o API directa. No se añadieron ni se atribuyen a esta RC.
 
@@ -93,7 +93,7 @@ PortalIncidentsScreen
 
 Ningún componente importa stores, API, clientes HTTP, sesión, router, persistencia o temporizadores. Todos reciben datos, permiso calculado y callbacks mediante props.
 
-## 6. Incidencias, estados y prioridades
+## 6. Incidencias, estados y severidades
 
 No cambiaron datos, identificadores, orden recibido, títulos, descripciones, tipos, vehículo, reportante, ubicación, medios, fechas o fallbacks.
 
@@ -175,7 +175,7 @@ La apertura de `/portal/incidencias` cargó sin errores de importación o evalua
 |---|---|
 | ¿Cambió el export público o la ruta? | NO |
 | ¿Cambió alguna incidencia? | NO |
-| ¿Cambió algún estado o prioridad? | NO |
+| ¿Cambió algún estado o severidad? | NO |
 | ¿Se añadieron categorías o responsables? | NO |
 | ¿Cambió algún permiso o RBAC? | NO |
 | ¿Cambió el filtro o la selección? | NO |
