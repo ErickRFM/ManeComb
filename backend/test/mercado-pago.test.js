@@ -119,6 +119,7 @@ function installMercadoPagoFetchMock({
   }
 } = {}) {
   const nativeFetch = global.fetch;
+  let currentPaymentStatus = paymentStatus;
   const state = {
     paymentCalls: 0,
     preferenceCalls: 0,
@@ -143,7 +144,7 @@ function installMercadoPagoFetchMock({
         id: requestedPaymentId,
         live_mode: process.env.MERCADO_PAGO_ENV === "production",
         metadata: state.preferencePayload?.metadata || {},
-        status: paymentStatus,
+        status: currentPaymentStatus,
         transaction_amount: state.preferencePayload?.items?.[0]?.unit_price,
         ...paymentOverrides
       });
@@ -162,6 +163,9 @@ function installMercadoPagoFetchMock({
     get preferencePayload() {
       return state.preferencePayload;
     },
+    setPaymentStatus(status) {
+      currentPaymentStatus = status;
+    },
     restore() {
       global.fetch = nativeFetch;
     }
@@ -178,24 +182,29 @@ function installWebhookIdempotencyStub() {
 
   require.cache[webhookPath] = {
     exports: {
-      markWebhookProcessed: async () => {
+      buildWebhookDeliveryKey: ({ requestId, paymentId, notificationType, signatureTimestamp }) =>
+        [requestId, paymentId, notificationType, signatureTimestamp].join("|"),
+      completeWebhookDelivery: async () => {
         state.processed += 1;
         return { ok: true };
       },
-      registerWebhookEvent: async ({ providerEventId }) => {
+      failWebhookDelivery: async () => ({ ok: true }),
+      claimWebhookDelivery: async ({ deliveryKey }) => {
         state.received += 1;
-        const id = String(providerEventId || "").trim();
+        const id = String(deliveryKey || "").trim();
 
         if (seen.has(id)) {
           return {
-            duplicate: true,
+            claimed: false,
+            reason: "already_processed",
             event: { id: `evt-${id}` }
           };
         }
 
         seen.add(id);
         return {
-          duplicate: false,
+          claimed: true,
+          reason: "new",
           event: { id: `evt-${id}` }
         };
       }
@@ -621,12 +630,17 @@ async function testWebhookApprovedIsIdempotent() {
       const context = await createTestServer({
         onStore: (store) => {
           const updateCommercialOrder = store.updateCommercialOrder.bind(store);
+          const completePaymentEffects = store.completePaymentEffects.bind(store);
           store.updateCommercialOrder = (orderId, payload) => {
             if (payload?.activationStatus === "active") {
               activationUpdates += 1;
             }
 
             return updateCommercialOrder(orderId, payload);
+          };
+          store.completePaymentEffects = (input) => {
+            if (input?.updates?.activationStatus === "active") activationUpdates += 1;
+            return completePaymentEffects(input);
           };
         },
         webhookStub: true
@@ -879,7 +893,7 @@ async function testPureFinancialReconciliation() {
       MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
     },
     async () => {
-      const { reconcileMercadoPagoPaymentWithOrder, toMinorUnits } = loadPaymentService();
+      const { evaluatePaymentTransition, reconcileMercadoPagoPaymentWithOrder, toMinorUnits } = loadPaymentService();
       const order = { id: "order-1", totalPrice: 169, currency: "MXN" };
       const payment = {
         id: "pay-1",
@@ -935,6 +949,12 @@ async function testPureFinancialReconciliation() {
         { environment: "production" }
       );
       assert.equal(production.ok, true);
+      assert.deepEqual(evaluatePaymentTransition("pending", "approved"), { decision: "apply", shouldActivate: true });
+      assert.equal(evaluatePaymentTransition("paid", "approved").decision, "duplicate");
+      assert.equal(evaluatePaymentTransition("paid", "pending").decision, "stale");
+      assert.equal(evaluatePaymentTransition("paid", "rejected").decision, "stale");
+      assert.equal(evaluatePaymentTransition("paid", "cancelled").decision, "stale");
+      assert.equal(evaluatePaymentTransition("pending", "unknown").decision, "unknown");
     }
   );
 
@@ -1057,6 +1077,85 @@ async function testPaymentCannotBeLinkedToAnotherOrder() {
   console.log("ok - un Payment ID persistido en otra orden no puede reutilizarse");
 }
 
+async function testPendingWebhookCanAdvanceToApproved() {
+  await withPaymentEnv(
+    {
+      MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
+    },
+    async () => {
+      const mp = installMercadoPagoFetchMock({ paymentId: "pay-evolving", paymentStatus: "pending" });
+      const context = await createTestServer({ webhookStub: true });
+      try {
+        const owner = await registerOwner(context, "payment-evolving");
+        const checkout = await createCheckout(context, owner);
+        const pending = await requestJson(`${context.url}/commercial/webhooks/mercadopago`, {
+          body: JSON.stringify({ data: { id: "pay-evolving" }, type: "payment" }),
+          headers: buildWebhookHeaders("pay-evolving", { requestId: "delivery-pending" }),
+          method: "POST"
+        });
+        assert.equal(pending.status, 202);
+        let order = await context.store.getCommercialOrderById(checkout.payload.data.id);
+        assert.equal(order.paymentStatus, "pending");
+        assert.notEqual(order.activationStatus, "active");
+
+        mp.setPaymentStatus("approved");
+        const approved = await requestJson(`${context.url}/commercial/webhooks/mercadopago`, {
+          body: JSON.stringify({ data: { id: "pay-evolving" }, type: "payment" }),
+          headers: buildWebhookHeaders("pay-evolving", { requestId: "delivery-approved" }),
+          method: "POST"
+        });
+        assert.equal(approved.status, 202);
+        order = await context.store.getCommercialOrderById(checkout.payload.data.id);
+        assert.equal(order.paymentStatus, "paid");
+        assert.equal(order.activationStatus, "active");
+        assert.deepEqual(order.appliedPaymentTransitions.sort(), ["pay-evolving:paid", "pay-evolving:pending"]);
+
+        const confirmation = await requestJson(`${context.url}/commercial/confirm`, {
+          body: JSON.stringify({ paymentId: "pay-evolving" }),
+          method: "POST"
+        });
+        assert.equal(confirmation.status, 200);
+        order = await context.store.getCommercialOrderById(checkout.payload.data.id);
+        assert.equal(order.appliedPaymentTransitions.filter((key) => key === "pay-evolving:paid").length, 1);
+      } finally {
+        mp.restore();
+        await context.close();
+      }
+    }
+  );
+
+  console.log("ok - entregas distintas permiten pending a approved sin repetir la transicion");
+}
+
+async function testConcurrentPaymentAssociationHasSingleWinner() {
+  const context = await createTestServer();
+  try {
+    const first = await context.store.createCommercialOrder({ companyName: "One", contactName: "One", email: "one@test.invalid", phone: "1", planId: "starter-2", paymentMethod: "card" });
+    const second = await context.store.createCommercialOrder({ companyName: "Two", contactName: "Two", email: "two@test.invalid", phone: "2", planId: "starter-2", paymentMethod: "card" });
+    const results = await Promise.all(
+      [first, second].map((order) =>
+        context.store.applyPaymentTransitionAtomically({
+          orderId: order.id,
+          provider: "mercado_pago",
+          paymentId: "pay-concurrent",
+          incomingStatus: "approved",
+          confirmation: {
+            approvedAt: new Date().toISOString(),
+            paymentExternalReference: order.id
+          }
+        })
+      )
+    );
+    assert.equal(results.filter((result) => result.applied).length, 1);
+    assert.equal(results.filter((result) => result.reason === "payment_linked_elsewhere").length, 1);
+  } finally {
+    await context.close();
+  }
+  console.log("ok - dos asociaciones concurrentes del mismo Payment ID tienen un solo ganador");
+}
+
 async function main() {
   await testCredentialValidation();
   await testWebhookSignatureFailsClosed();
@@ -1072,6 +1171,8 @@ async function main() {
   await testFinancialMismatchCannotActivate();
   await testWebhookUsesFinancialReconciliation();
   await testPaymentCannotBeLinkedToAnotherOrder();
+  await testPendingWebhookCanAdvanceToApproved();
+  await testConcurrentPaymentAssociationHasSingleWinner();
 }
 
 main().catch((error) => {

@@ -1962,6 +1962,67 @@ function createEmbeddedStore() {
     return clone(order);
   }
 
+  function applyPaymentTransitionAtomically({ orderId, provider, paymentId, incomingStatus, confirmation }) {
+    const order = getCommercialOrderById(orderId);
+    if (!order) return { applied: false, reason: "order_not_found", shouldActivate: false, shouldNotify: false };
+    const conflict = state.commercialOrders.find(
+      (candidate) => candidate.id !== orderId && candidate.providerPaymentId === paymentId
+    );
+    if (conflict || (order.providerPaymentId && order.providerPaymentId !== paymentId)) {
+      return { applied: false, reason: "payment_linked_elsewhere", shouldActivate: false, shouldNotify: false };
+    }
+    const normalized = incomingStatus === "approved" ? "paid" : String(incomingStatus || "").toLowerCase();
+    const transitionKey = `${paymentId}:${normalized}`;
+    order.appliedPaymentTransitions = Array.isArray(order.appliedPaymentTransitions) ? order.appliedPaymentTransitions : [];
+    if (order.appliedPaymentTransitions.includes(transitionKey)) {
+      return { applied: false, reason: "already_applied", shouldActivate: false, shouldNotify: false, order: clone(order) };
+    }
+    if (order.paymentStatus === "paid" && normalized !== "paid") {
+      return { applied: false, reason: "stale_transition", shouldActivate: false, shouldNotify: false, order: clone(order) };
+    }
+    if (!["pending", "paid", "rejected", "cancelled"].includes(normalized)) {
+      return { applied: false, reason: "unknown_status", shouldActivate: false, shouldNotify: false, order: clone(order) };
+    }
+    const shouldActivate = normalized === "paid" && order.paymentStatus !== "paid";
+    order.providerPaymentId = paymentId;
+    order.paymentProvider = provider;
+    order.paymentProviderReference = paymentId;
+    order.paymentExternalReference = confirmation.paymentExternalReference;
+    order.paymentStatus = normalized;
+    order.paymentApprovedAt = normalized === "paid" ? confirmation.approvedAt : null;
+    order.activationStatus = normalized === "paid" ? "ready_for_activation" : "pending_payment";
+    order.appliedPaymentTransitions.push(transitionKey);
+    if (shouldActivate) {
+      order.paymentEffectsStatus = "pending";
+      order.paymentEffectsTransition = transitionKey;
+    }
+    return { applied: true, previousStatus: shouldActivate ? "pending" : null, currentStatus: normalized, shouldActivate, shouldNotify: true, transitionKey, order: clone(order) };
+  }
+
+  function claimPaymentEffects({ orderId, transitionKey, workerId, leaseUntil, now = new Date() }) {
+    const order = getCommercialOrderById(orderId);
+    const expired = order?.paymentEffectsStatus === "processing" && new Date(order.paymentEffectsLeaseUntil || 0) <= now;
+    if (!order || order.paymentEffectsTransition !== transitionKey || (!expired && order.paymentEffectsStatus !== "pending")) {
+      return { claimed: false, order: clone(order) };
+    }
+    order.paymentEffectsStatus = "processing";
+    order.paymentEffectsLeaseUntil = leaseUntil;
+    order.paymentEffectsWorker = workerId;
+    return { claimed: true, order: clone(order) };
+  }
+
+  function completePaymentEffects({ orderId, transitionKey, updates = {} }) {
+    const order = getCommercialOrderById(orderId);
+    if (!order || order.paymentEffectsTransition !== transitionKey || order.paymentEffectsStatus !== "processing") return clone(order);
+    Object.assign(order, updates, {
+      paymentEffectsStatus: "completed",
+      paymentEffectsCompletedAt: new Date().toISOString(),
+      paymentEffectsLeaseUntil: null,
+      paymentEffectsWorker: null
+    });
+    return clone(order);
+  }
+
   function listCommercialOrders() {
     return clone(
       state.commercialOrders.sort(
@@ -2970,6 +3031,9 @@ function createEmbeddedStore() {
     createActivationKey,
     deleteActivationKey,
     createCommercialOrder,
+    applyPaymentTransitionAtomically,
+    claimPaymentEffects,
+    completePaymentEffects,
     createNotification,
     createIncident,
     createRtcSession,

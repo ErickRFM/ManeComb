@@ -734,6 +734,13 @@ const commercialLeadSchema = new mongoose.Schema(
     checkoutUrl: { type: String, default: null },
     paymentExternalReference: { type: String, default: "" },
     paymentProviderReference: { type: String, default: "" },
+    providerPaymentId: { type: String, default: null },
+    appliedPaymentTransitions: { type: [String], default: [] },
+    paymentEffectsStatus: { type: String, default: null },
+    paymentEffectsTransition: { type: String, default: null },
+    paymentEffectsLeaseUntil: { type: Date, default: null },
+    paymentEffectsWorker: { type: String, default: null },
+    paymentEffectsCompletedAt: { type: Date, default: null },
     paymentStatus: { type: String, default: "pending" },
     paymentApprovedAt: { type: Date, default: null },
     currentPeriodStart: { type: Date, default: null },
@@ -775,6 +782,10 @@ const commercialLeadSchema = new mongoose.Schema(
 
 commercialLeadSchema.index({ organizationId: 1, paymentStatus: 1, createdAt: -1 });
 commercialLeadSchema.index({ ownerUserId: 1, createdAt: -1 });
+commercialLeadSchema.index(
+  { paymentProvider: 1, providerPaymentId: 1 },
+  { unique: true, partialFilterExpression: { providerPaymentId: { $type: "string" } } }
+);
 
 const activationKeySchema = new mongoose.Schema(
   {
@@ -811,12 +822,25 @@ const webhookEventSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
     providerEventId: { type: String, required: true },
+    deliveryKey: { type: String, default: null, index: true },
+    paymentId: { type: String, default: null, index: true },
+    observedStatus: { type: String, default: null },
+    requestId: { type: String, default: null },
+    signatureTimestamp: { type: String, default: null },
     provider: { type: String, required: true, index: true },
     payloadHash: { type: String, required: true },
     receivedAt: { type: Date, default: Date.now },
     processedAt: { type: Date, default: null },
     status: { type: String, default: "received", index: true },
     retries: { type: Number, default: 0 },
+    attemptCount: { type: Number, default: 0 },
+    leaseOwner: { type: String, default: null },
+    leaseUntil: { type: Date, default: null },
+    processingStartedAt: { type: Date, default: null },
+    failedAt: { type: Date, default: null },
+    lastErrorCode: { type: String, default: null },
+    nextRetryAt: { type: Date, default: null },
+    orderId: { type: String, default: null },
     metadata: { type: mongoose.Schema.Types.Mixed, default: null }
   },
   {
@@ -827,6 +851,7 @@ const webhookEventSchema = new mongoose.Schema(
 
 webhookEventSchema.index({ provider: 1, providerEventId: 1 }, { unique: true });
 webhookEventSchema.index({ status: 1, receivedAt: -1 });
+webhookEventSchema.index({ status: 1, leaseUntil: 1, nextRetryAt: 1 });
 
 const rtcSessionSchema = new mongoose.Schema(
   {

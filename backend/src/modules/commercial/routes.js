@@ -21,8 +21,10 @@ const {
   verifyCommercialDownloadToken
 } = require("../../services/commercial-downloads");
 const {
-  markWebhookProcessed,
-  registerWebhookEvent
+  buildWebhookDeliveryKey,
+  claimWebhookDelivery,
+  completeWebhookDelivery,
+  failWebhookDelivery
 } = require("../../services/webhook-idempotency");
 const logger = require("../../services/logger");
 
@@ -135,6 +137,66 @@ function buildPaymentConfirmationUpdate(order, confirmation) {
         : order.activationStartedAt || null,
     status: paidConfirmation ? "paid" : order.status
   };
+}
+
+async function applyReconciledPayment(req, order, confirmation) {
+  const incomingStatus = confirmation.reconciliation?.status || confirmation.paymentStatus;
+  const transition = await req.app.locals.store.applyPaymentTransitionAtomically({
+    orderId: order.id,
+    provider: "mercado_pago",
+    paymentId: confirmation.paymentProviderReference,
+    incomingStatus,
+    confirmation
+  });
+  if (transition.reason === "payment_linked_elsewhere") {
+    const error = new Error("Mercado Pago payment is linked to another order.");
+    error.code = "payment_already_linked_to_another_order";
+    error.statusCode = 409;
+    throw error;
+  }
+
+  let currentOrder = transition.order || await req.app.locals.store.getCommercialOrderById(order.id);
+  const transitionKey = transition.transitionKey || currentOrder?.paymentEffectsTransition;
+  const needsEffects = currentOrder?.paymentStatus === "paid" && currentOrder?.paymentEffectsStatus !== "completed";
+
+  if (needsEffects && transitionKey) {
+    const now = new Date();
+    const effectClaim = await req.app.locals.store.claimPaymentEffects({
+      orderId: order.id,
+      transitionKey,
+      workerId: req.traceId || `http-${process.pid}`,
+      now,
+      leaseUntil: new Date(now.getTime() + 60_000)
+    });
+    if (effectClaim.claimed) {
+      const activated = {
+        ...effectClaim.order,
+        ...buildCommercialActivationUpdate(effectClaim.order, "active")
+      };
+      const paymentDelivery = await notifyCommercialOrder(enrichCommercialOrder(activated), confirmation.nextStep);
+      const activationDelivery = await notifyCommercialOrder(
+        enrichCommercialOrder({ ...activated, ...paymentDelivery }),
+        "Tu suscripción ya está activa.",
+        "subscription_activated"
+      );
+      currentOrder = await req.app.locals.store.completePaymentEffects({
+        orderId: order.id,
+        transitionKey,
+        updates: { ...buildCommercialActivationUpdate(activated, "active"), ...paymentDelivery, ...activationDelivery }
+      });
+    }
+  } else if (transition.applied && transition.shouldNotify) {
+    const delivery = await notifyCommercialOrder(enrichCommercialOrder(currentOrder), confirmation.nextStep);
+    currentOrder = await req.app.locals.store.updateCommercialOrder(order.id, delivery);
+  }
+
+  const presentedOrder = enrichCommercialOrder(currentOrder);
+  if (transition.applied) {
+    emitCommercialEvent(req, "payment:confirmed", presentedOrder, { status: presentedOrder.paymentStatus });
+    if (transition.shouldActivate) emitCommercialEvent(req, "plan:active", presentedOrder, { status: presentedOrder.activationStatus });
+    emitSubscriptionUpdate(req, presentedOrder);
+  }
+  return { order: presentedOrder, transition };
 }
 
 router.get("/plans", (req, res) => {
@@ -359,50 +421,38 @@ router.post("/confirm", async (req, res, next) => {
       });
     }
 
-    const updatedOrder = await req.app.locals.store.updateCommercialOrder(
-      order.id,
-      buildPaymentConfirmationUpdate(order, confirmation)
-    );
-    const activatedOrder =
-      confirmation.paymentStatus === "paid"
-        ? await req.app.locals.store.updateCommercialOrder(
-            order.id,
-            buildCommercialActivationUpdate(updatedOrder, "active")
+    const processed = automaticPayment
+      ? await applyReconciledPayment(req, order, confirmation)
+      : {
+          order: enrichCommercialOrder(
+            await req.app.locals.store.updateCommercialOrder(
+              order.id,
+              buildPaymentConfirmationUpdate(order, confirmation)
+            )
           )
-        : updatedOrder;
-    const presentedOrder = enrichCommercialOrder(activatedOrder);
-    await req.app.locals.store.recordAppEvent?.({
-      type: "checkout_confirmed",
-      scope: "commercial",
-      level: confirmation.paymentStatus === "paid" ? "info" : "warning",
-      status: confirmation.paymentStatus,
-      entityId: presentedOrder.id,
-      message: `Pago ${confirmation.paymentStatus} para ${presentedOrder.referenceCode}`,
-      metadata: {
-        paymentProviderReference: confirmation.paymentProviderReference
-      }
-    });
-    const notificationStatus = await notifyCommercialOrder(presentedOrder, confirmation.nextStep);
-    const hydratedOrder = await req.app.locals.store.updateCommercialOrder(order.id, notificationStatus);
-    if (presentedOrder.activationStatus === "active" && order.activationStatus !== "active") {
-      const activationDelivery = await notifyCommercialOrder(
-        presentedOrder,
-        "Tu suscripción ya está activa.",
-        "subscription_activated"
-      );
-      await req.app.locals.store.updateCommercialOrder(order.id, activationDelivery);
-    }
-    const responseOrder = enrichCommercialOrder(hydratedOrder);
-    emitCommercialEvent(req, "payment:confirmed", responseOrder, {
-      status: responseOrder.paymentStatus
-    });
-
-    if (responseOrder.activationStatus === "active") {
-      emitCommercialEvent(req, "plan:active", responseOrder, {
-        status: responseOrder.activationStatus
+        };
+    const presentedOrder = processed.order;
+    if (!automaticPayment || processed.transition?.applied) {
+      await req.app.locals.store.recordAppEvent?.({
+        type: "checkout_confirmed",
+        scope: "commercial",
+        level: confirmation.paymentStatus === "paid" ? "info" : "warning",
+        status: confirmation.paymentStatus,
+        entityId: presentedOrder.id,
+        message: `Pago ${confirmation.paymentStatus} para ${presentedOrder.referenceCode}`,
+        metadata: {
+          paymentProviderReference: confirmation.paymentProviderReference
+        }
       });
     }
-    emitSubscriptionUpdate(req, responseOrder);
+    const responseOrder = automaticPayment
+      ? presentedOrder
+      : enrichCommercialOrder(
+          await req.app.locals.store.updateCommercialOrder(
+            order.id,
+            await notifyCommercialOrder(presentedOrder, confirmation.nextStep)
+          )
+        );
 
     return res.json({
       ok: true,
@@ -419,6 +469,7 @@ router.post("/confirm", async (req, res, next) => {
 });
 
 router.post("/webhooks/mercadopago", async (req, res) => {
+  let claimedEvent = null;
   try {
     const paymentId =
       req.body?.data?.id ||
@@ -445,20 +496,30 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       });
     }
 
-    const webhookEvent = await registerWebhookEvent({
+    const requestId = String(req.headers["x-request-id"] || "").trim();
+    const signatureTimestamp = String(req.headers["x-signature"] || "").match(/(?:^|,)ts=([^,]+)/)?.[1] || "";
+    const notificationType = String(req.body?.type || req.query.type || "payment").trim();
+    const deliveryKey = buildWebhookDeliveryKey({
       provider: "mercado_pago",
-      providerEventId: normalizedPaymentId,
-      payload: req.body,
-      metadata: {
-        query: req.query,
-        traceId: req.traceId
-      }
+      requestId,
+      paymentId: normalizedPaymentId,
+      notificationType,
+      signatureTimestamp
     });
-
-    if (webhookEvent.duplicate) {
-      return res.status(202).json({
+    const claim = await claimWebhookDelivery({
+      provider: "mercado_pago",
+      deliveryKey,
+      paymentId: normalizedPaymentId,
+      requestId,
+      signatureTimestamp,
+      workerId: req.traceId || `webhook-${process.pid}`
+    });
+    claimedEvent = claim.event;
+    if (!claim.claimed) {
+      return res.status(claim.reason === "retry_scheduled" ? 503 : 202).json({
         ok: true,
-        duplicate: true
+        duplicate: true,
+        reason: claim.reason
       });
     }
 
@@ -481,40 +542,11 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       paymentId: payment.id
     });
 
-      const updatedOrder = await req.app.locals.store.updateCommercialOrder(
-        order.id,
-        buildPaymentConfirmationUpdate(order, confirmation)
-      );
-
-      const activatedOrder =
-        confirmation.paymentStatus === "paid"
-          ? await req.app.locals.store.updateCommercialOrder(
-              order.id,
-              buildCommercialActivationUpdate(updatedOrder, "active")
-            )
-          : updatedOrder;
-
-      await notifyCommercialOrder(enrichCommercialOrder(activatedOrder), confirmation.nextStep).then((deliveryStatus) =>
-        req.app.locals.store.updateCommercialOrder(activatedOrder.id, deliveryStatus)
-      );
-      if (activatedOrder.activationStatus === "active" && order.activationStatus !== "active") {
-        await notifyCommercialOrder(
-          enrichCommercialOrder(activatedOrder),
-          "Tu suscripción ya está activa.",
-          "subscription_activated"
-        ).then((deliveryStatus) => req.app.locals.store.updateCommercialOrder(activatedOrder.id, deliveryStatus));
-      }
-      emitCommercialEvent(req, "payment:confirmed", enrichCommercialOrder(activatedOrder), {
-        status: activatedOrder.paymentStatus
-      });
-
-      if (activatedOrder.activationStatus === "active") {
-        emitCommercialEvent(req, "plan:active", enrichCommercialOrder(activatedOrder), {
-          status: activatedOrder.activationStatus
-        });
-      }
-      emitSubscriptionUpdate(req, enrichCommercialOrder(activatedOrder));
-    await markWebhookProcessed(webhookEvent.event?._id || webhookEvent.event?.id, "processed");
+    const processed = await applyReconciledPayment(req, order, confirmation);
+    await completeWebhookDelivery(claimedEvent?._id || claimedEvent?.id, {
+      orderId: order.id,
+      observedStatus: confirmation.reconciliation.status
+    });
 
     return res.status(202).json({
       ok: true
@@ -539,7 +571,28 @@ router.post("/webhooks/mercadopago", async (req, res) => {
       }
     });
 
-    return res.status(202).json({
+    const permanentCodes = new Set([
+      "commercial_order_not_found",
+      "external_reference_mismatch",
+      "missing_external_reference",
+      "invalid_payment_id",
+      "invalid_payment_amount",
+      "invalid_order_amount",
+      "amount_mismatch",
+      "invalid_currency",
+      "currency_mismatch",
+      "payment_environment_mismatch",
+      "metadata_mismatch",
+      "payment_already_linked_to_another_order"
+    ]);
+    const permanent = permanentCodes.has(error.code);
+    if (claimedEvent) {
+      await failWebhookDelivery(claimedEvent._id || claimedEvent.id, {
+        code: error.code || "webhook_processing_failed",
+        permanent
+      }).catch(() => null);
+    }
+    return res.status(permanent ? 202 : 503).json({
       ok: true
     });
   }

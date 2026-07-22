@@ -656,6 +656,31 @@ function reconciliationFailure(code, safeMessage, checks, normalized) {
   return { ok: false, code, safeMessage, checks, normalized };
 }
 
+function normalizePaymentTransitionStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return status === "approved" ? "paid" : status;
+}
+
+function evaluatePaymentTransition(currentState, incomingState) {
+  const current = normalizePaymentTransitionStatus(currentState || "pending");
+  const incoming = normalizePaymentTransitionStatus(incomingState);
+  const known = new Set(["pending", "paid", "rejected", "cancelled"]);
+  if (!known.has(incoming)) return { decision: "unknown", shouldActivate: false };
+  if (current === "paid") {
+    return incoming === "paid"
+      ? { decision: "duplicate", shouldActivate: false }
+      : { decision: "stale", shouldActivate: false };
+  }
+  if (current === incoming) return { decision: "duplicate", shouldActivate: false };
+  if (["pending", "rejected", "cancelled"].includes(current) && incoming === "paid") {
+    return { decision: "apply", shouldActivate: true };
+  }
+  if (known.has(current)) return { decision: "apply", shouldActivate: false };
+  return incoming === "paid"
+    ? { decision: "invalid", shouldActivate: false }
+    : { decision: "unknown", shouldActivate: false };
+}
+
 function reconcileMercadoPagoPaymentWithOrder(payment, order, configuration = {}) {
   const environment = normalizeExplicitMercadoPagoEnvironment(configuration.environment || MERCADO_PAGO_ENV);
   const paymentId = String(payment?.id || "").trim();
@@ -744,6 +769,7 @@ module.exports = {
   confirmCommercialPayment,
   createCommercialCheckout,
   detectMercadoPagoEnvironment,
+  evaluatePaymentTransition,
   getMercadoPagoRuntimeDiagnostics,
   getMercadoPagoConfigurationIssues,
   getMercadoPagoTokenPrefix,
