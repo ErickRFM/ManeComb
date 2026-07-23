@@ -728,6 +728,9 @@ function testCredentialValidation() {
       payments.validateMercadoPagoCredentials("TEST-token-secreto", "TEST-public-secreto", "sandbox")
     );
     assert.doesNotThrow(() =>
+      payments.validateMercadoPagoCredentials("APP_USR-token-secreto", "APP_USR-public-secreto", "sandbox")
+    );
+    assert.doesNotThrow(() =>
       payments.validateMercadoPagoCredentials("APP_USR-token-secreto", "APP_USR-public-secreto", "production")
     );
     assert.throws(
@@ -739,11 +742,14 @@ function testCredentialValidation() {
       /MERCADO_PAGO_ENV.*MERCADOPAGO_ENV.*MP_ENV/
     );
 
+    assert.doesNotThrow(() =>
+      payments.validateMercadoPagoCredentials("TEST-token-secreto", "APP_USR-public-secreto", "sandbox")
+    );
+
     for (const [accessToken, publicKey, environment] of [
-      ["APP_USR-token-secreto", "APP_USR-public-secreto", "sandbox"],
       ["TEST-token-secreto", "TEST-public-secreto", "production"],
-      ["TEST-token-secreto", "APP_USR-public-secreto", "sandbox"],
-      ["APP_USR-token-secreto", "TEST-public-secreto", "production"]
+      ["APP_USR-token-secreto", "TEST-public-secreto", "production"],
+      ["UNKNOWN-token-secreto", "APP_USR-public-secreto", "sandbox"]
     ]) {
       assert.throws(
         () => payments.validateMercadoPagoCredentials(accessToken, publicKey, environment),
@@ -782,7 +788,7 @@ function testCredentialValidation() {
       /init_point/
     );
 
-    console.log("ok - validacion de credenciales y seleccion de URL no mezcla TEST/PROD");
+    console.log("ok - ambiente explicito acepta APP_USR ambiguo y rechaza TEST en produccion");
   });
 }
 
@@ -834,6 +840,27 @@ async function testWebhookSignatureFailsClosed() {
 async function testPaymentReadinessRestrictions() {
   await withPaymentEnv(
     {
+      MERCADO_PAGO_ACCESS_TOKEN: "APP_USR-token-vendedor",
+      MERCADO_PAGO_ENV: "sandbox",
+      MERCADO_PAGO_PUBLIC_KEY: "APP_USR-public-vendedor"
+    },
+    async () => {
+      const readiness = loadPaymentService().getPaymentReadiness();
+      assert.equal(readiness.ready, true);
+      assert.deepEqual(readiness.issues, []);
+      assert.equal(
+        readiness.issues.includes("credential_environment_mismatch"),
+        false
+      );
+      assert.equal(
+        JSON.stringify(readiness).includes("APP_USR-token-vendedor"),
+        false
+      );
+    }
+  );
+
+  await withPaymentEnv(
+    {
       MERCADO_PAGO_ACCESS_TOKEN: "TEST-token-vendedor",
       MERCADO_PAGO_ENV: "sandbox",
       MERCADO_PAGO_PUBLIC_KEY: "TEST-public-vendedor"
@@ -850,6 +877,7 @@ async function testPaymentReadinessRestrictions() {
     [{ MERCADO_PAGO_ENV: "" }, "missing_environment"],
     [{ MERCADO_PAGO_ENV: "dev" }, "invalid_environment"],
     [{ MERCADO_PAGO_ENV: "test" }, "invalid_environment"],
+    [{ MERCADO_PAGO_ACCESS_TOKEN: "" }, "missing_access_token"],
     [{ MERCADO_PAGO_WEBHOOK_SECRET: "" }, "missing_webhook_secret"],
     [{ MERCADO_PAGO_WEBHOOK_URL: "" }, "missing_webhook_url"],
     [{ MERCADO_PAGO_WEBHOOK_URL: "http://payments.example.test/api/commercial/webhooks/mercadopago" }, "invalid_webhook_url"],

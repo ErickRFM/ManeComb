@@ -57,6 +57,18 @@ function getMercadoPagoTokenPrefix() {
   return getMercadoPagoCredentialPrefix(MERCADO_PAGO_ACCESS_TOKEN);
 }
 
+function isCredentialPrefixAllowedForEnvironment(prefix, environment) {
+  if (environment === "sandbox") {
+    return prefix === "TEST" || prefix === "APP_USR";
+  }
+
+  if (environment === "production") {
+    return prefix === "APP_USR";
+  }
+
+  return false;
+}
+
 function normalizeExplicitMercadoPagoEnvironment(value) {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -120,17 +132,18 @@ function validateMercadoPagoCredentials(
     );
   }
 
-  const expectedPrefix = environment === "sandbox" ? "TEST" : "APP_USR";
-
-  if (tokenPrefix !== expectedPrefix) {
+  if (!isCredentialPrefixAllowedForEnvironment(tokenPrefix, environment)) {
     throw new Error(
-      `Credenciales Mercado Pago inconsistentes: ambiente ${environment} requiere access token ${expectedPrefix}.`
+      `Credenciales Mercado Pago inconsistentes con el ambiente ${environment}.`
     );
   }
 
-  if (publicKey && publicKeyPrefix !== expectedPrefix) {
+  if (
+    publicKey &&
+    !isCredentialPrefixAllowedForEnvironment(publicKeyPrefix, environment)
+  ) {
     throw new Error(
-      `Credenciales Mercado Pago inconsistentes: ambiente ${environment} requiere public key ${expectedPrefix}.`
+      `Credenciales Mercado Pago inconsistentes con el ambiente ${environment}.`
     );
   }
 
