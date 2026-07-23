@@ -231,8 +231,8 @@ export function createStyles(
     },
     modalCard: {
       maxHeight: '96%',
-      borderTopLeftRadius: 26,
-      borderTopRightRadius: 26,
+      borderTopLeftRadius: AppTheme.radius.lg,
+      borderTopRightRadius: AppTheme.radius.lg,
       backgroundColor: theme.colors.background,
       paddingHorizontal: isPhone ? 14 : 18,
       paddingTop: 0,
@@ -246,7 +246,7 @@ export function createStyles(
       justifyContent: 'center',
     },
     modalDragHandle: {
-      width: 38,
+      width: 40,
       height: 4,
       borderRadius: 999,
       backgroundColor: theme.colors.line,

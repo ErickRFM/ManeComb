@@ -274,7 +274,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
       fontWeight: '800',
     },
     emptyState: {
-      alignItems: 'flex-start',
+      alignItems: 'center',
       backgroundColor: theme.colors.surfaceAlt,
       borderColor: theme.colors.line,
       borderRadius: AppTheme.radius.md,

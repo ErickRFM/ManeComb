@@ -1249,7 +1249,7 @@ export function createStyles(
           }),
     },
     sheetHandle: {
-      width: 36,
+      width: 40,
       height: 4,
       borderRadius: 999,
       backgroundColor: theme.colors.line,
