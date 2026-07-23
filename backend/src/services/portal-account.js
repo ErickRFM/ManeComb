@@ -42,12 +42,14 @@ function deriveSubscriptionStatus(order, { now = new Date() } = {}) {
   const orderStatus = String(order.status || "").trim().toLowerCase();
   const declaredStatuses = new Set([activationStatus, paymentStatus, orderStatus].filter(Boolean));
   const nowTime = new Date(now).getTime();
+  const financialStatus = String(order.financialStatus || "").toLowerCase();
 
   if (order.cancelledAt || declaredStatuses.has("cancelled") || declaredStatuses.has("canceled")) {
     return "cancelled";
   }
 
   if (declaredStatuses.has("suspended")) return "suspended";
+  if (activationStatus === "suspended_financial" || ["refunded", "chargeback_open", "chargeback_lost"].includes(financialStatus)) return "suspended";
   if (declaredStatuses.has("expired")) return "expired";
   if (declaredStatuses.has("past_due")) return "past_due";
 
@@ -105,7 +107,12 @@ function buildSubscription(order, { now = new Date() } = {}) {
       expiresAt: null,
       cancelAt: null,
       cancelAtPeriodEnd: false,
-      cancelledAt: null
+      cancelledAt: null,
+      financialStatus: null,
+      refundedAmountMinor: 0,
+      refundableAmountMinor: 0,
+      chargebackStatus: null,
+      serviceSuspendedReason: null
     };
   }
 
@@ -141,7 +148,12 @@ function buildSubscription(order, { now = new Date() } = {}) {
     expiresAt,
     cancelAt: toIso(order.cancelAt),
     cancelAtPeriodEnd: Boolean(order.cancelAtPeriodEnd),
-    cancelledAt: toIso(order.cancelledAt)
+    cancelledAt: toIso(order.cancelledAt),
+    financialStatus: order.financialStatus || null,
+    refundedAmountMinor: Number(order.refundedAmountMinor || 0),
+    refundableAmountMinor: Number(order.refundableAmountMinor || 0),
+    chargebackStatus: order.chargebackStatus || null,
+    serviceSuspendedReason: order.serviceSuspendedReason || null
   };
 }
 

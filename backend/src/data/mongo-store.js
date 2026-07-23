@@ -15,6 +15,7 @@ const {
   ChatMessageModel,
   CheckpointVisitModel,
   CheckoutIdempotencyModel,
+  ChargebackModel,
   CommercialLeadModel,
   ConversationModel,
   DocumentModel,
@@ -25,6 +26,7 @@ const {
   RouteModel,
   RouteSessionModel,
   RouteSessionPositionModel,
+  RefundOperationModel,
   TripLogModel,
   TrialEntitlementModel,
   UserModel,
@@ -3708,10 +3710,12 @@ async function createMongoStore() {
   }, {
     models: {
       AppEventModel,
+      ChargebackModel,
       CheckoutIdempotencyModel,
       CommercialLeadModel,
       DocumentModel,
       RtcSessionModel,
+      RefundOperationModel,
       TrialEntitlementModel,
       UserModel
     }

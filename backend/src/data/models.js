@@ -749,6 +749,12 @@ const commercialLeadSchema = new mongoose.Schema(
     nextBillingAt: { type: Date, default: null },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     cancelledAt: { type: Date, default: null },
+    financialStatus: { type: String, default: null },
+    refundedAmountMinor: { type: Number, default: 0 },
+    refundReservedMinor: { type: Number, default: 0 },
+    refundableAmountMinor: { type: Number, default: 0 },
+    chargebackStatus: { type: String, default: null },
+    serviceSuspendedReason: { type: String, default: null },
     status: { type: String, default: "new" },
     source: { type: String, default: "landing-web" },
     needsOnboarding: { type: Boolean, default: true },
@@ -831,6 +837,32 @@ const trialEntitlementSchema = new mongoose.Schema(
 );
 
 trialEntitlementSchema.index({ organizationId: 1 }, { unique: true });
+
+const refundOperationSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true }, provider: { type: String, required: true }, providerRefundId: { type: String, default: null },
+    providerPaymentId: { type: String, required: true }, orderId: { type: String, required: true }, organizationId: { type: String, required: true },
+    amountMinor: { type: Number, required: true }, currency: { type: String, required: true }, type: { type: String, required: true }, status: { type: String, required: true },
+    idempotencyKeyHash: { type: String, required: true }, requestFingerprint: { type: String, required: true }, requestedBy: { type: String, required: true },
+    requestedAt: { type: Date, required: true }, confirmedAt: { type: Date, default: null }, failedAt: { type: Date, default: null }, lastErrorCode: { type: String, default: null },
+    leaseOwner: { type: String, default: null }, leaseUntil: { type: Date, default: null }, attemptCount: { type: Number, default: 1 }, safeResponse: { type: mongoose.Schema.Types.Mixed, default: null }
+  },
+  { collection: "refund_operations", versionKey: false }
+);
+refundOperationSchema.index({ organizationId: 1, idempotencyKeyHash: 1 }, { unique: true });
+refundOperationSchema.index({ orderId: 1, status: 1 });
+
+const chargebackSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true }, provider: { type: String, required: true }, providerChargebackId: { type: String, required: true }, providerPaymentId: { type: String, required: true },
+    orderId: { type: String, required: true }, organizationId: { type: String, required: true }, amountMinor: { type: Number, required: true }, currency: { type: String, required: true }, status: { type: String, required: true },
+    coverageEligible: { type: Boolean, default: false }, coverageApplied: { type: Boolean, default: false }, documentationRequired: { type: Boolean, default: false },
+    documentationDeadline: { type: Date, default: null }, openedAt: { type: Date, required: true }, updatedAt: { type: Date, required: true }, resolvedAt: { type: Date, default: null }, resolution: { type: String, default: null }
+  },
+  { collection: "chargebacks", versionKey: false }
+);
+chargebackSchema.index({ provider: 1, providerChargebackId: 1 }, { unique: true });
+chargebackSchema.index({ orderId: 1, updatedAt: -1 });
 
 const activationKeySchema = new mongoose.Schema(
   {
@@ -974,8 +1006,10 @@ module.exports = {
   RouteEventModel: getModel("RouteEvent", routeEventSchema),
   RouteSessionModel: getModel("RouteSession", routeSessionSchema),
   RouteSessionPositionModel: getModel("RouteSessionPosition", routeSessionPositionSchema),
+  RefundOperationModel: getModel("RefundOperation", refundOperationSchema),
   TripLogModel: getModel("TripLog", tripLogSchema),
   TrialEntitlementModel: getModel("TrialEntitlement", trialEntitlementSchema),
+  ChargebackModel: getModel("Chargeback", chargebackSchema),
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),
   VehicleModel: getModel("Vehicle", vehicleSchema),

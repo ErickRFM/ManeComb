@@ -415,6 +415,11 @@ export type PortalSubscription = {
   cancelAt?: string | null;
   cancelAtPeriodEnd?: boolean;
   cancelledAt?: string | null;
+  financialStatus?: string | null;
+  refundedAmountMinor?: number;
+  refundableAmountMinor?: number;
+  chargebackStatus?: string | null;
+  serviceSuspendedReason?: string | null;
 };
 
 export type PortalActivationKeyDriver = {

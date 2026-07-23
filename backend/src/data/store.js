@@ -39,6 +39,8 @@ function createEmbeddedStore() {
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
   state.checkoutIdempotency = Array.isArray(state.checkoutIdempotency) ? state.checkoutIdempotency : [];
   state.trialEntitlements = Array.isArray(state.trialEntitlements) ? state.trialEntitlements : [];
+  state.refundOperations = Array.isArray(state.refundOperations) ? state.refundOperations : [];
+  state.chargebacks = Array.isArray(state.chargebacks) ? state.chargebacks : [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -1919,6 +1921,12 @@ function createEmbeddedStore() {
       nextBillingAt: null,
       cancelAtPeriodEnd: false,
       cancelledAt: null,
+      financialStatus: null,
+      refundedAmountMinor: 0,
+      refundReservedMinor: 0,
+      refundableAmountMinor: 0,
+      chargebackStatus: null,
+      serviceSuspendedReason: null,
       status: "new",
       source: String(payload.source || "landing-web").trim() || "landing-web",
       needsOnboarding:
@@ -2005,6 +2013,52 @@ function createEmbeddedStore() {
     const entitlement = { id: randomUUID(), organizationId, orderId, planId, status: "active", trialStartedAt, trialEndsAt, consumedAt: trialStartedAt, createdAt: trialStartedAt };
     state.trialEntitlements.push(entitlement);
     return { claimed: true, reason: "claimed", entitlement: clone(entitlement) };
+  }
+
+  function claimRefundOperation(payload) {
+    const now = payload.now || new Date();
+    const current = state.refundOperations.find((entry) => entry.organizationId === payload.organizationId && entry.idempotencyKeyHash === payload.idempotencyKeyHash);
+    if (current) {
+      if (current.requestFingerprint !== payload.requestFingerprint) return { claimed: false, reason: "key_reused", operation: clone(current) };
+      if (current.status === "confirmed") return { claimed: false, reason: "ready", operation: clone(current) };
+      if (current.status === "provider_result_unknown") return { claimed: false, reason: "provider_result_unknown", operation: clone(current) };
+      if (current.status === "processing" && new Date(current.leaseUntil) > now) return { claimed: false, reason: "currently_processing", operation: clone(current) };
+      Object.assign(current, { status: "processing", leaseOwner: payload.workerId, leaseUntil: new Date(now.getTime() + 60_000).toISOString(), attemptCount: Number(current.attemptCount || 0) + 1 });
+      return { claimed: true, reason: "recovered", operation: clone(current) };
+    }
+    const operation = { id: randomUUID(), provider: "mercado_pago", ...payload, status: "processing", requestedAt: now.toISOString(), leaseOwner: payload.workerId, leaseUntil: new Date(now.getTime() + 60_000).toISOString(), attemptCount: 1 };
+    state.refundOperations.push(operation);
+    return { claimed: true, reason: "new", operation: clone(operation) };
+  }
+
+  function completeRefundOperation({ operationId, workerId, providerRefundId, safeResponse }) {
+    const operation = state.refundOperations.find((entry) => entry.id === operationId && entry.leaseOwner === workerId && entry.status === "processing");
+    if (!operation) return null;
+    Object.assign(operation, { status: "confirmed", providerRefundId, safeResponse, confirmedAt: new Date().toISOString(), leaseOwner: null, leaseUntil: null });
+    return clone(operation);
+  }
+
+  function failRefundOperation({ operationId, workerId, status, errorCode }) {
+    const operation = state.refundOperations.find((entry) => entry.id === operationId && entry.leaseOwner === workerId && entry.status === "processing");
+    if (!operation) return null;
+    Object.assign(operation, { status, lastErrorCode: errorCode, failedAt: new Date().toISOString(), leaseOwner: null, leaseUntil: null });
+    return clone(operation);
+  }
+
+  const listRefundOperations = (orderId) => clone(state.refundOperations.filter((entry) => entry.orderId === orderId));
+  function upsertChargeback(payload) {
+    let record = state.chargebacks.find((entry) => entry.provider === payload.provider && entry.providerChargebackId === payload.providerChargebackId);
+    if (record) Object.assign(record, payload);
+    else { record = { id: randomUUID(), openedAt: payload.updatedAt, ...payload }; state.chargebacks.push(record); }
+    return clone(record);
+  }
+  const listChargebacks = (orderId) => clone(state.chargebacks.filter((entry) => entry.orderId === orderId));
+  const findCommercialOrderByProviderPaymentId = (paymentId) => clone(state.commercialOrders.find((entry) => entry.providerPaymentId === paymentId) || null);
+  function reserveRefundAmount({ orderId, organizationId, amountMinor, paidAmountMinor }) {
+    const order = state.commercialOrders.find((entry) => entry.id === orderId && entry.organizationId === organizationId && entry.paymentStatus === "paid");
+    if (!order || Number(order.refundReservedMinor || 0) + amountMinor > paidAmountMinor) return null;
+    order.refundReservedMinor = Number(order.refundReservedMinor || 0) + amountMinor;
+    return clone(order);
   }
 
   function completeCheckoutCreation({ reservationId, workerId, safeResponse }) {
@@ -3095,6 +3149,14 @@ function createEmbeddedStore() {
     completePaymentEffects,
     claimCheckoutCreation,
     claimTrialEntitlement,
+    claimRefundOperation,
+    completeRefundOperation,
+    failRefundOperation,
+    listRefundOperations,
+    upsertChargeback,
+    listChargebacks,
+    findCommercialOrderByProviderPaymentId,
+    reserveRefundAmount,
     completeCheckoutCreation,
     failCheckoutCreation,
     createNotification,

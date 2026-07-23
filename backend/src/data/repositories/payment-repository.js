@@ -16,16 +16,90 @@ const PAYMENT_METHODS = [
   "claimCheckoutCreation",
   "completeCheckoutCreation",
   "failCheckoutCreation",
+  "claimRefundOperation",
+  "completeRefundOperation",
+  "failRefundOperation",
+  "listRefundOperations",
+  "upsertChargeback",
+  "listChargebacks",
+  "findCommercialOrderByProviderPaymentId",
+  "reserveRefundAmount",
   "claimTrialEntitlement",
   "updateCommercialOrder"
 ];
 
 class PaymentRepository extends StoreDomainRepository {
-  constructor(store, { CommercialLeadModel, CheckoutIdempotencyModel, TrialEntitlementModel } = {}) {
+  constructor(store, { CommercialLeadModel, CheckoutIdempotencyModel, TrialEntitlementModel, RefundOperationModel, ChargebackModel } = {}) {
     super(store, PAYMENT_METHODS);
     this.CommercialLeadModel = CommercialLeadModel || null;
     this.CheckoutIdempotencyModel = CheckoutIdempotencyModel || null;
     this.TrialEntitlementModel = TrialEntitlementModel || null;
+    this.RefundOperationModel = RefundOperationModel || null;
+    this.ChargebackModel = ChargebackModel || null;
+  }
+
+  async claimRefundOperation(payload) {
+    if (!this.RefundOperationModel) return this.store.claimRefundOperation(payload);
+    const now = payload.now || new Date();
+    const leaseUntil = new Date(now.getTime() + 60_000);
+    try {
+      const created = await this.RefundOperationModel.findOneAndUpdate(
+        { organizationId: payload.organizationId, idempotencyKeyHash: payload.idempotencyKeyHash },
+        { $setOnInsert: { _id: randomUUID(), provider: "mercado_pago", ...payload, status: "processing", requestedAt: now, leaseOwner: payload.workerId, leaseUntil, attemptCount: 1 } },
+        { upsert: true, returnDocument: "after" }
+      ).lean();
+      if (created.leaseOwner === payload.workerId && Number(created.attemptCount) === 1) return { claimed: true, reason: "new", operation: this.serialize(created) };
+    } catch (error) { if (error?.code !== 11000) throw error; }
+    const current = await this.RefundOperationModel.findOne({ organizationId: payload.organizationId, idempotencyKeyHash: payload.idempotencyKeyHash }).lean();
+    if (current.requestFingerprint !== payload.requestFingerprint) return { claimed: false, reason: "key_reused", operation: this.serialize(current) };
+    if (current.status === "confirmed") return { claimed: false, reason: "ready", operation: this.serialize(current) };
+    if (current.status === "provider_result_unknown") return { claimed: false, reason: "provider_result_unknown", operation: this.serialize(current) };
+    const recovered = await this.RefundOperationModel.findOneAndUpdate(
+      { _id: current._id, $or: [{ status: "failed_retryable" }, { status: "processing", leaseUntil: { $lte: now } }] },
+      { $set: { status: "processing", leaseOwner: payload.workerId, leaseUntil, lastErrorCode: null }, $inc: { attemptCount: 1 } },
+      { returnDocument: "after" }
+    ).lean();
+    return recovered ? { claimed: true, reason: "recovered", operation: this.serialize(recovered) } : { claimed: false, reason: "currently_processing", operation: this.serialize(current) };
+  }
+
+  async completeRefundOperation({ operationId, workerId, providerRefundId, safeResponse }) {
+    if (!this.RefundOperationModel) return this.store.completeRefundOperation({ operationId, workerId, providerRefundId, safeResponse });
+    return this.serialize(await this.RefundOperationModel.findOneAndUpdate({ _id: operationId, leaseOwner: workerId, status: "processing" }, { $set: { status: "confirmed", providerRefundId, safeResponse, confirmedAt: new Date(), leaseOwner: null, leaseUntil: null } }, { returnDocument: "after" }).lean());
+  }
+
+  async failRefundOperation({ operationId, workerId, status, errorCode }) {
+    if (!this.RefundOperationModel) return this.store.failRefundOperation({ operationId, workerId, status, errorCode });
+    return this.serialize(await this.RefundOperationModel.findOneAndUpdate({ _id: operationId, leaseOwner: workerId, status: "processing" }, { $set: { status, lastErrorCode: errorCode, failedAt: new Date(), leaseOwner: null, leaseUntil: null } }, { returnDocument: "after" }).lean());
+  }
+
+  async listRefundOperations(orderId) {
+    if (!this.RefundOperationModel) return this.store.listRefundOperations(orderId);
+    return (await this.RefundOperationModel.find({ orderId }).lean()).map((entry) => this.serialize(entry));
+  }
+
+  async upsertChargeback(payload) {
+    if (!this.ChargebackModel) return this.store.upsertChargeback(payload);
+    return this.serialize(await this.ChargebackModel.findOneAndUpdate({ provider: payload.provider, providerChargebackId: payload.providerChargebackId }, { $set: payload, $setOnInsert: { _id: randomUUID(), openedAt: payload.updatedAt } }, { upsert: true, returnDocument: "after" }).lean());
+  }
+
+  async listChargebacks(orderId) {
+    if (!this.ChargebackModel) return this.store.listChargebacks(orderId);
+    return (await this.ChargebackModel.find({ orderId }).lean()).map((entry) => this.serialize(entry));
+  }
+
+  async findCommercialOrderByProviderPaymentId(paymentId) {
+    if (!this.CommercialLeadModel) return this.store.findCommercialOrderByProviderPaymentId(paymentId);
+    return this.serialize(await this.CommercialLeadModel.findOne({ providerPaymentId: paymentId }).lean());
+  }
+
+  async reserveRefundAmount({ orderId, organizationId, amountMinor, paidAmountMinor }) {
+    if (!this.CommercialLeadModel) return this.store.reserveRefundAmount({ orderId, organizationId, amountMinor, paidAmountMinor });
+    const order = await this.CommercialLeadModel.findOneAndUpdate(
+      { _id: orderId, organizationId, paymentStatus: "paid", $expr: { $lte: [{ $add: [{ $ifNull: ["$refundReservedMinor", 0] }, amountMinor] }, paidAmountMinor] } },
+      { $inc: { refundReservedMinor: amountMinor } },
+      { returnDocument: "after" }
+    ).lean();
+    return this.serialize(order);
   }
 
   async claimTrialEntitlement({ organizationId, orderId, planId, trialStartedAt, trialEndsAt }) {

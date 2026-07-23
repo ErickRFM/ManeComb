@@ -546,6 +546,60 @@ async function createMercadoPagoPreference(order) {
   };
 }
 
+async function parseMercadoPagoResponse(response, operation) {
+  const bodyText = await response.text();
+  let payload = {};
+  try {
+    payload = bodyText ? JSON.parse(bodyText) : {};
+  } catch {
+    payload = {};
+  }
+  if (!response.ok) {
+    const error = new Error(`Mercado Pago ${operation} failed.`);
+    error.code = `mercado_pago_${operation}_http_${response.status}`;
+    error.statusCode = response.status >= 500 ? 503 : 409;
+    error.providerResultKnown = true;
+    throw error;
+  }
+  return payload;
+}
+
+async function createMercadoPagoRefund({ paymentId, amount, idempotencyKey }) {
+  assertPaymentConfigurationReady();
+  let response;
+  try {
+    response = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}/refunds`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`, "Content-Type": "application/json", "X-Idempotency-Key": idempotencyKey },
+      ...(amount == null ? {} : { body: JSON.stringify({ amount }) }),
+      signal: AbortSignal.timeout(15_000)
+    });
+  } catch (error) {
+    error.providerResultUnknown = true;
+    error.code = "mercado_pago_refund_result_unknown";
+    throw error;
+  }
+  return parseMercadoPagoResponse(response, "refund");
+}
+
+async function fetchMercadoPagoRefunds(paymentId) {
+  assertPaymentConfigurationReady();
+  const response = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}/refunds`, {
+    headers: { Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}` },
+    signal: AbortSignal.timeout(15_000)
+  });
+  return parseMercadoPagoResponse(response, "refund_lookup");
+}
+
+async function fetchMercadoPagoChargeback(chargebackId) {
+  assertPaymentConfigurationReady();
+  const response = await fetch(`https://api.mercadopago.com/v1/chargebacks/${encodeURIComponent(chargebackId)}`, {
+    headers: { Authorization: `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}` },
+    signal: AbortSignal.timeout(15_000)
+  });
+  return parseMercadoPagoResponse(response, "chargeback_lookup");
+}
+
 async function createCommercialCheckout(order) {
   if (PAYMENT_PROVIDER === "mercado_pago" || (PAYMENT_PROVIDER === "test" && IS_PRODUCTION_RUNTIME)) {
     assertPaymentConfigurationReady();
@@ -778,6 +832,7 @@ function confirmCommercialPayment({ payment, order, linkedOrderId = "" }) {
 module.exports = {
   assertPaymentConfigurationReady,
   confirmCommercialPayment,
+  createMercadoPagoRefund,
   createCommercialCheckout,
   detectMercadoPagoEnvironment,
   evaluatePaymentTransition,
@@ -787,6 +842,8 @@ module.exports = {
   getPaymentReadiness,
   getPaymentProviderName,
   fetchMercadoPagoPayment,
+  fetchMercadoPagoRefunds,
+  fetchMercadoPagoChargeback,
   isAutomaticPaymentEnabled,
   isMercadoPagoWebhookSignatureValid,
   isTestPaymentEnabled,

@@ -8,10 +8,13 @@ const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
   confirmCommercialPayment,
   createCommercialCheckout,
+  fetchMercadoPagoChargeback,
   fetchMercadoPagoPayment,
   isAutomaticPaymentEnabled,
-  isMercadoPagoWebhookSignatureValid
+  isMercadoPagoWebhookSignatureValid,
+  toMinorUnits
 } = require("../../services/commercial-payment");
+const { deriveEntitlementAfterFinancialReversal, derivePaymentFinancialState, evaluateChargebackTransition, reconcileChargebackWithOrder } = require("../../services/financial-reversal");
 const {
   addDaysToIso,
   buildCommercialActivationUpdate,
@@ -611,6 +614,45 @@ router.post("/confirm", async (req, res, next) => {
     error.statusCode = error.statusCode || 400;
     error.publicMessage = "No fue posible confirmar el pago";
     return next(error);
+  }
+});
+
+router.post("/webhooks/mercadopago/chargebacks", async (req, res) => {
+  let claimedEvent = null;
+  try {
+    const type = String(req.body?.type || req.query.type || "").toLowerCase();
+    if (!type.includes("chargeback")) return res.status(202).json({ ok: true, ignored: true });
+    const chargebackId = String(req.body?.data?.id || req.query["data.id"] || req.body?.id || req.query.id || "").trim();
+    const requestId = String(req.headers["x-request-id"] || "").trim();
+    if (!chargebackId) return res.status(400).json({ ok: false, message: "Chargeback ID obligatorio" });
+    if (!isMercadoPagoWebhookSignatureValid({ paymentId: chargebackId, requestId, signatureHeader: req.headers["x-signature"] })) {
+      return res.status(401).json({ ok: false, message: "Firma de Mercado Pago invalida" });
+    }
+    const signatureTimestamp = String(req.headers["x-signature"] || "").match(/(?:^|,)ts=([^,]+)/)?.[1] || "";
+    const deliveryKey = buildWebhookDeliveryKey({ provider: "mercado_pago_chargeback", requestId, paymentId: chargebackId, notificationType: type, signatureTimestamp });
+    const claim = await claimWebhookDelivery({ provider: "mercado_pago_chargeback", deliveryKey, paymentId: chargebackId, requestId, signatureTimestamp, workerId: req.traceId || `chargeback-${process.pid}` });
+    claimedEvent = claim.event;
+    if (!claim.claimed) return res.status(claim.reason === "retry_scheduled" ? 503 : 202).json({ ok: true, duplicate: true, reason: claim.reason });
+    const providerChargeback = await fetchMercadoPagoChargeback(chargebackId);
+    const providerPaymentId = String(providerChargeback?.payments?.[0] || providerChargeback?.payment_id || "").trim();
+    const order = await req.app.locals.store.findCommercialOrderByProviderPaymentId(providerPaymentId);
+    if (!order) throw Object.assign(new Error("Commercial order not found for chargeback"), { code: "chargeback_order_not_found", permanent: true });
+    const reconciliation = reconcileChargebackWithOrder(providerChargeback, order);
+    if (!reconciliation.ok) throw Object.assign(new Error(reconciliation.code), { code: reconciliation.code, permanent: true });
+    const existing = (await req.app.locals.store.listChargebacks(order.id)).find((entry) => entry.providerChargebackId === reconciliation.normalized.providerChargebackId);
+    const transition = evaluateChargebackTransition(existing?.status, reconciliation.normalized.status);
+    if (transition.apply) {
+      const now = new Date().toISOString();
+      await req.app.locals.store.upsertChargeback({ provider: "mercado_pago", orderId: order.id, organizationId: order.organizationId, ...reconciliation.normalized, updatedAt: now, resolvedAt: ["won", "lost", "covered", "closed_won", "closed_lost"].includes(reconciliation.normalized.status) ? now : null, resolution: ["won", "covered", "closed_won"].includes(reconciliation.normalized.status) ? "won" : ["lost", "closed_lost"].includes(reconciliation.normalized.status) ? "lost" : null });
+      const financialState = derivePaymentFinancialState({ paidAmountMinor: toMinorUnits(order.totalPrice, order.currency || "MXN"), refundRecords: await req.app.locals.store.listRefundOperations(order.id), chargebackRecords: await req.app.locals.store.listChargebacks(order.id) });
+      const entitlement = deriveEntitlementAfterFinancialReversal({ order, financialState });
+      await req.app.locals.store.updateCommercialOrder(order.id, { financialStatus: financialState.status, chargebackStatus: financialState.chargebackStatus, ...(entitlement.action === "none" ? {} : { activationStatus: entitlement.activationStatus, serviceSuspendedReason: entitlement.serviceSuspendedReason }) });
+    }
+    await completeWebhookDelivery(claimedEvent?._id || claimedEvent?.id, { orderId: order.id, observedStatus: reconciliation.normalized.status });
+    return res.status(202).json({ ok: true, applied: transition.apply });
+  } catch (error) {
+    if (claimedEvent) await failWebhookDelivery(claimedEvent._id || claimedEvent.id, { code: error.code || "chargeback_processing_failed", permanent: Boolean(error.permanent) }).catch(() => null);
+    return res.status(error.permanent ? 202 : 503).json({ ok: true });
   }
 });
 

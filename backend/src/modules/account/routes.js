@@ -8,6 +8,8 @@ const { requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const { recordAuditLog } = require("../../services/audit");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
+const { createMercadoPagoRefund, toMinorUnits } = require("../../services/commercial-payment");
+const { buildRefundFingerprint, deriveEntitlementAfterFinancialReversal, derivePaymentFinancialState, hashRefundKey } = require("../../services/financial-reversal");
 const { listSessionsForUser, revokeSession } = require("../../services/sessions");
 const {
   buildInvoices,
@@ -184,6 +186,61 @@ router.get("/invoices", authenticate, requirePortalAccess, requirePermission("ca
     ok: true,
     data: buildInvoices(await getOrders(req))
   });
+});
+
+router.post("/orders/:orderId/refunds", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res, next) => {
+  const rawKey = String(req.get("Idempotency-Key") || "").trim();
+  if (rawKey.length < 16 || rawKey.length > 200) return res.status(400).json({ ok: false, code: "missing_refund_idempotency_key", message: "Idempotency-Key es obligatorio" });
+  const order = (await getOrders(req)).find((entry) => entry.id === req.params.orderId);
+  if (!order) return res.status(404).json({ ok: false, message: "Orden no encontrada" });
+  if (order.paymentProvider !== "mercado_pago" || order.paymentStatus !== "paid" || !order.providerPaymentId) {
+    return res.status(409).json({ ok: false, code: "payment_not_refundable", message: "La orden no admite reembolso automatico" });
+  }
+  const paidAmountMinor = toMinorUnits(order.totalPrice, order.currency || "MXN");
+  const requestedAmount = req.body?.amount;
+  const amountMinor = requestedAmount == null ? paidAmountMinor - Number(order.refundReservedMinor || 0) : toMinorUnits(requestedAmount, order.currency || "MXN");
+  if (!Number.isInteger(amountMinor) || amountMinor <= 0) return res.status(400).json({ ok: false, code: "invalid_refund_amount", message: "Importe de reembolso invalido" });
+  const completesRefund = Number(order.refundReservedMinor || 0) + amountMinor === paidAmountMinor;
+  const organizationId = getOrganizationId(req.user);
+  const keyHash = hashRefundKey(rawKey);
+  const requestFingerprint = buildRefundFingerprint({ organizationId, orderId: order.id, amountMinor });
+  const workerId = req.traceId || `refund-${process.pid}`;
+  let claim;
+  try {
+    claim = await req.app.locals.store.claimRefundOperation({ organizationId, orderId: order.id, providerPaymentId: order.providerPaymentId, amountMinor, currency: order.currency || "MXN", type: completesRefund ? "full_refund" : "partial_refund", idempotencyKeyHash: keyHash, requestFingerprint, requestedBy: req.user.id, workerId });
+    if (!claim.claimed) {
+      if (claim.reason === "ready") return res.status(200).json({ ok: true, data: claim.operation.safeResponse, replay: true });
+      if (claim.reason === "key_reused") return res.status(409).json({ ok: false, code: "refund_idempotency_key_reused", message: "La clave ya fue usada con otra solicitud" });
+      return res.status(claim.reason === "provider_result_unknown" ? 503 : 409).json({ ok: false, code: claim.reason, message: "El reembolso no puede repetirse en este momento" });
+    }
+    if (claim.reason === "new") {
+      const reserved = await req.app.locals.store.reserveRefundAmount({ orderId: order.id, organizationId, amountMinor, paidAmountMinor });
+      if (!reserved) {
+        await req.app.locals.store.failRefundOperation({ operationId: claim.operation.id, workerId, status: "failed_permanent", errorCode: "refund_amount_exceeds_balance" });
+        return res.status(409).json({ ok: false, code: "refund_amount_exceeds_balance", message: "El importe supera el saldo reembolsable" });
+      }
+    }
+    const providerRefund = await createMercadoPagoRefund({ paymentId: order.providerPaymentId, amount: completesRefund && Number(order.refundReservedMinor || 0) === 0 ? null : amountMinor / 100, idempotencyKey: rawKey });
+    const providerPaymentId = String(providerRefund.payment_id || providerRefund.paymentId || "");
+    const providerAmountMinor = toMinorUnits(providerRefund.amount, order.currency || "MXN");
+    if (!providerRefund.id || providerPaymentId !== order.providerPaymentId || providerAmountMinor !== amountMinor || !["approved", "refunded"].includes(String(providerRefund.status || "").toLowerCase())) {
+      throw Object.assign(new Error("Refund provider response mismatch"), { code: "refund_reconciliation_failed", statusCode: 409, providerResultKnown: true });
+    }
+    const safeResponse = { id: String(providerRefund.id), orderId: order.id, amount: amountMinor / 100, currency: order.currency || "MXN", status: "confirmed", type: completesRefund ? "full_refund" : "partial_refund" };
+    await req.app.locals.store.completeRefundOperation({ operationId: claim.operation.id, workerId, providerRefundId: safeResponse.id, safeResponse });
+    const refundRecords = await req.app.locals.store.listRefundOperations(order.id);
+    const chargebackRecords = await req.app.locals.store.listChargebacks(order.id);
+    const financialState = derivePaymentFinancialState({ paidAmountMinor, refundRecords, chargebackRecords });
+    const entitlement = deriveEntitlementAfterFinancialReversal({ order, financialState });
+    await req.app.locals.store.updateCommercialOrder(order.id, { financialStatus: financialState.status, refundedAmountMinor: financialState.refundedAmountMinor, refundableAmountMinor: financialState.refundableAmountMinor, ...(entitlement.action === "none" ? {} : { activationStatus: entitlement.activationStatus, serviceSuspendedReason: entitlement.serviceSuspendedReason }) });
+    await recordAudit(req, { type: "payment_refunded", level: "warning", status: financialState.status, entityId: order.id, message: "Reembolso conciliado", metadata: { amountMinor, currency: order.currency || "MXN", refundId: safeResponse.id.slice(-8) } });
+    return res.status(201).json({ ok: true, data: safeResponse });
+  } catch (error) {
+    if (claim?.operation) await req.app.locals.store.failRefundOperation({ operationId: claim.operation.id, workerId, status: error.providerResultUnknown ? "provider_result_unknown" : "failed_retryable", errorCode: error.code || "refund_failed" }).catch(() => null);
+    error.statusCode = error.statusCode || (error.providerResultUnknown ? 503 : 409);
+    error.publicMessage = "No fue posible confirmar el reembolso";
+    return next(error);
+  }
 });
 
 router.get("/invoices/:invoiceId/download", authenticate, requirePortalAccess, requirePermission("canManageBilling"), async (req, res) => {
