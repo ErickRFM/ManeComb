@@ -1,6 +1,7 @@
 # ADM-ARCH-01 — Auditoría estricta para el Admin Global de ManeComb
 
-Revisión: ADM-ARCH-01-R1
+Revisión: ADM-ARCH-01-R2
+Cierre documental: R2.1
 
 ## 1. Resumen ejecutivo
 
@@ -617,7 +618,7 @@ backend/src/data/models.js    (1017 líneas)
 
 Este archivo exporta ~24 modelos (`UserModel`, `SessionModel`, `VehicleModel`, `CommercialLeadModel`, `AuditLogModel`, etc.). No existen modelos declarados dentro de módulos individuales (`modules/*/models/`). La convención es centralizada.
 
-**Propuesta para PlatformUser**: Dado que `PlatformUser` es una entidad de un nuevo dominio (plataforma interna) que no debe mezclarse con los modelos empresariales en `models.js`, se justifica una excepción a la convención: declarar `PlatformUser` dentro del nuevo módulo `backend/src/modules/platform/`. Esto mantiene el encapsulamiento del módulo platform y evita tocar `models.js`. Alternativamente, si se prefiere seguir la convención estrictamente, podría agregarse en `models.js` — pero eso requeriría modificar un archivo existente, lo que aumenta el riesgo de regresión. **La recomendación es crear el modelo dentro del módulo platform** como excepción documentada.
+**Decisión para PlatformUserModel y PlatformSessionModel**: Ambos modelos deben declararse y exportarse desde `backend/src/data/models.js`, siguiendo la convención existente. Agregar un modelo nuevo a `models.js` es una modificación directa y controlada, no una alteración de la lógica empresarial. El módulo platform consumirá los modelos a través del data layer actual (`mongo-store.js`), que también vive en `backend/src/data/`. No se crea un segundo patrón de modelos dentro de `backend/src/modules/platform/models/`.
 
 ---
 
@@ -656,18 +657,12 @@ Este archivo exporta ~24 modelos (`UserModel`, `SessionModel`, `VehicleModel`, `
 
 | Recurso | Ruta | Uso en Admin Global |
 |---|---|---|
-| `authenticate` middleware | `backend/src/middlewares/authenticate.js` | Proteger endpoints del Admin Global |
-| `canAccessAllTenants()` | `backend/src/middlewares/access-control.js:63` | Detectar si un usuario es platform admin |
-| `requireAdmin` middleware | `backend/src/middlewares/require-admin.js` | Guard para endpoints de administración |
-| `getOrganizationQuery()` | `backend/src/data/mongo-store.js:132` | Consultas con/sin filtro tenant según el rol |
-| `recordAuditLog()` | `backend/src/services/audit.js` | Registrar acciones del Admin Global |
+| `recordAuditLog()` | `backend/src/services/audit.js` | Registrar acciones del Admin Global con acciones `platform.*` |
+| `getOrganizationQuery()` | `backend/src/data/mongo-store.js:132` | **MECANISMO TENANT EMPRESARIAL EXISTENTE — NO UTILIZAR COMO BYPASS PLATFORM.** Las consultas del Admin Global deben usar funciones explícitas (ej. `listPlatformCompanies()`, `getPlatformCompanyByOrganizationId()`) que declaren su carácter global y exijan `platformAuth` + `platformRole` |
 | `getRuntimeReadiness()` | `backend/src/services/runtime-readiness.js` | Dashboard de salud del sistema |
 | `listCommercialPlans()` | `backend/src/config/commercial-plans.js` | Catálogo de planes |
 | `getCommercialPlanById()` | `backend/src/config/commercial-plans.js` | Detalle de plan individual |
-| `apiClient` (Axios) | `ventas/src/lib/api.ts` | Cliente HTTP base. El Admin Global debe crear su propia instancia de Axios (o un wrapper) que use una clave de token separada `manecomb-platform-token`. NO reutilizar `apiClient.defaults.headers.common.Authorization` porque sobrescribiría la sesión del Portal empresarial. La función `setAuthToken()` y el interceptor de refresh pueden reutilizarse como referencia, pero operando sobre la instancia aislada del Admin |
-| PortalButton | `ventas/features/portal/components/portal-button.tsx` | Botones reutilizables |
-| PortalSectionCard | `ventas/features/portal/cards/portal-section-card.tsx` | Tarjetas de sección |
-| PortalDataList/PortalDataRow | `ventas/features/portal/components/portal-data-list.tsx` | Listas de datos |
+| `apiClient` (Axios) | `ventas/src/lib/api.ts` | **REFERENCIA ARQUITECTÓNICA / POSIBLE EXTRACCIÓN DE HELPER**. No reutilizar directamente. El Admin Global debe crear `platformApiClient` en `ventas/features/admin/api/platform-api.ts` (instancia Axios aislada) con interceptor propio, refresh exclusivo en `/api/platform/auth/refresh`, clave de almacenamiento `manecomb-platform-token`, y ninguna modificación de los headers del cliente del Portal |
 | StatusBadge | `ventas/src/components/ui/status-badge.tsx` | Badges de estado |
 | SkeletonBlock | `ventas/src/components/ui/skeleton.tsx` | Skeletons de carga |
 | EmptyState | `ventas/src/components/ui/empty-state.tsx` | Estados vacíos |
@@ -678,14 +673,13 @@ Este archivo exporta ~24 modelos (`UserModel`, `SessionModel`, `VehicleModel`, `
 | BrandLogo | `ventas/src/components/brand-logo.tsx` | Logo ManeComb |
 | `formatCurrency()`, `formatDate()`, `formatRole()` | `ventas/src/utils/format.ts` | Formateo de datos |
 | `palette`, `DesignSystem`, `Typography` | `ventas/constants/theme.ts` | Tokens de diseño |
-| `portalPalette`, `portalGlass()` | `ventas/features/portal/portal-theme.ts` | Tema visual |
 | `router` (push, replace, back) | `ventas/src/navigation/router.tsx` | Navegación |
 
 ### REUTILIZAR MEDIANTE ADAPTADOR
 
 | Recurso | Ruta | Adaptación necesaria |
 |---|---|---|
-| `PortalLayout` | `ventas/features/portal/components/portal-layout.tsx` | Cambiar guards de auth (usar platform auth en vez de portal auth), cambiar items de navegación, cambiar permisos. El shell visual (sidebar, header, responsive) es reutilizable |
+| `PortalLayout` | `ventas/features/portal/components/portal-layout.tsx` | **NO REUTILIZAR**. Es un componente privado del Portal empresarial. El Admin Global tendrá su propio `AdminLayout` independiente. Los componentes verdaderamente compartidos viven en `ventas/src/components/ui/` |
 | `listUsers()` | `backend/src/data/mongo-store.js` | Necesita wrapper que permita consulta global (sin `getOrganizationQuery()`) para platform admins |
 | `listVehicles()` | `backend/src/data/mongo-store.js` | Igual — necesita modo admin que omita tenant filter |
 | `listCommercialOrdersForUser()` | `backend/src/services/payment-store-service.js` | Necesita overload sin filtro `organizationId` para admins |
@@ -697,17 +691,46 @@ Este archivo exporta ~24 modelos (`UserModel`, `SessionModel`, `VehicleModel`, `
 
 | Recurso | Ruta | Extensión propuesta |
 |---|---|---|
-| `useAppStore` | `ventas/src/store/use-app-store.ts` | Crear store separado `useAdminStore` para el Admin Global (misma estructura, distinto contexto) |
-| API functions en `client.ts` | `ventas/src/lib/api.ts` | Agregar funciones para endpoints `/api/platform/*` sin modificar las existentes |
-| Portal screens | `ventas/features/portal/screens/*.tsx` | Crear pantallas admin paralelas (`features/admin/screens/*.tsx`) que reutilicen mismos componentes visuales |
+| `useAppStore` | `ventas/src/store/use-app-store.ts` | **NO EXTENDER.** Crear `useAdminStore` como store Zustand independiente dentro de `features/admin/store/`. No agregar acciones platform en `useAppStore` |
+| API functions en `client.ts` | `ventas/src/lib/api.ts` | **NO EXTENDER.** Las funciones platform viven en `features/admin/api/platform-api.ts`. No modificar `api.ts` |
+| Portal screens | `ventas/features/portal/screens/*.tsx` | **NO REUTILIZAR.** Crear pantallas admin nuevas (`features/admin/screens/*.tsx`) que consuman únicamente componentes compartidos (`src/components/ui/`, `src/components/`, `constants/`) |
 
-### NO REUTILIZAR
+### NO REUTILIZAR PARA AUTORIZACIÓN PLATFORM
+
+Los siguientes middlewares pertenecen a la identidad empresarial y **no** deben proteger `/api/platform/*`:
+
+| Middleware | Ruta | Motivo |
+|---|---|---|
+| `authenticate` | `backend/src/middlewares/authenticate.js` | Resuelve usuarios mediante `UserModel` (no `PlatformUserModel`). No reconoce `tokenType: "platform"` |
+| `requireAdmin` | `backend/src/middlewares/require-admin.js` | Verifica `role === "admin" && accountType !== "company_owner"`. Los platform users no tienen `accountType` |
+| `canAccessAllTenants()` | `backend/src/middlewares/access-control.js:63` | Depende de `role: "admin"` empresarial. No aplica a roles `platform_*` |
+| `requireOrganization` | `backend/src/middlewares/access-control.js` | Exige `organizationId`. Los platform users no tienen empresa asignada |
+| `requirePortalAccess` | `backend/src/middlewares/portal-access.js` | Exige `accountType === "company_owner"`. El Admin Global rechaza ese accountType |
+
+Los nuevos endpoints de plataforma deben utilizar exclusivamente los nuevos middlewares `platformAuth` y `platformRole`.
+
+### SÍ REUTILIZAR (primitivas de seguridad compartidas)
+
+| Función | Ruta | Modo |
+|---|---|---|
+| Verificación JWT (`verifyToken`) | `backend/src/utils/jwt.js` | Importar directamente — verifica con `JWT_SECRET` o `PLATFORM_JWT_SECRET` según el middleware |
+| Firma JWT (`signToken`) | `backend/src/utils/jwt.js` | Adaptador: `signPlatformToken()` que llame a `jsonwebtoken.sign()` directamente o a `signToken()` con parámetros platform |
+| Hashing de contraseñas (bcrypt) | `backend/src/data/mongo-store.js` | Importar `bcryptjs` directamente (misma librería ya en dependencias) |
+| Generación de refresh tokens | `backend/src/services/sessions.js` | Reutilizar `createRefreshToken()` (usa `crypto.randomBytes(48).toString("base64url")`) |
+| Hashing de refresh tokens | `backend/src/services/sessions.js` | Reutilizar `hashRefreshToken()` (SHA-256) |
+| Extracción de IP | `backend/src/services/audit.js` | Reutilizar `getRequestIp()` |
+| Extracción de user-agent | `backend/src/services/audit.js` | Reutilizar `getUserAgent()` |
+| Política de contraseña | `backend/src/utils/password-policy.js` | Reutilizar `passwordPolicy.validate()` |
+| Rate limiter | `backend/src/middlewares/enterprise-rate-limit.js` | Reutilizar con configuración específica para plataforma |
+| `recordAuditLog()` | `backend/src/services/audit.js` | Reutilizar con acciones `platform.*` |
+| Formato de errores | Convención existente | Mismos códigos HTTP, misma estructura de respuesta |
+
+### NO REUTILIZAR (frontend Portal)
 
 | Recurso | Ruta | Motivo |
 |---|---|---|
 | `hasPortalPermission()` | `ventas/features/portal/utils/access.ts` | Pertenece al modelo de permisos empresariales. El admin global necesita su propio sistema de permisos |
 | `canAccessPortal()` | `ventas/features/portal/utils/access.ts` | Específico para `company_owner`. El admin global usa platform roles |
-| `requirePortalAccess` middleware | `backend/src/middlewares/portal-access.js` | Exige `accountType === "company_owner"`. El admin global rechaza ese accountType |
 | `requireOperationalAccess` middleware | `backend/src/middlewares/operational-access.js` | Gating por suscripción. El admin global no necesita suscripción |
 | Portal screens | `ventas/features/portal/screens/*.tsx` | Son pantallas por-empresa. El admin global necesita vista multi-empresa |
 | `usePortalStore` | `ventas/features/portal/store/use-portal-store.ts` | Store del portal empresarial. Scope por empresa |
@@ -721,11 +744,12 @@ Este archivo exporta ~24 modelos (`UserModel`, `SessionModel`, `VehicleModel`, `
 
 | Componente | Propósito |
 |---|---|
-| `PlatformUserModel` (nueva colección) | Almacenar usuarios internos de ManeComb (platform_owner, platform_admin, platform_support, etc.) — **identidad separada** |
-| `AdminLayout` (frontend) | Layout del Admin Global (basado en PortalLayout pero con guards platform) |
+| `PlatformUserModel` en `backend/src/data/models.js` | Modelo Mongoose para colección `platform_users` — **identidad separada** |
+| `PlatformSessionModel` en `backend/src/data/models.js` | Modelo Mongoose para colección `platform_sessions` — **persistencia separada** |
+| `AdminLayout` (frontend) | Layout del Admin Global (independiente, no reutiliza PortalLayout). Puede reutilizar componentes de `ventas/src/components/ui/` |
 | `useAdminStore` (Zustand) | Store para el Admin Global |
 | `features/admin/` | Módulo completo del Admin Global |
-| `backend/src/modules/platform/` | Módulo backend para el Admin Global |
+| `backend/src/modules/platform/` | Módulo backend para el Admin Global (rutas, servicios, middlewares, validadores — sin modelos) |
 | `backend/src/middlewares/platform-auth.js` | Middleware de autenticación para plataforma (rechaza tokens empresariales) |
 
 ### NO CREAR (seguridad duplicada)
@@ -759,19 +783,23 @@ Los siguientes servicios y utilidades NO deben copiarse dentro del módulo platf
 | `User` | `ventas/src/types/app.ts` | Representación de usuario (todos los campos útiles existen) |
 | `Vehicle` | `ventas/src/types/app.ts` | Representación de vehículo |
 | `CommercialPlan` | `ventas/src/types/app.ts` | Plan comercial |
-| `PortalSubscription` | `ventas/src/types/app.ts` | Suscripción (planId, status, periodos, etc.) — reutilizable aunque el nombre diga "Portal" |
-| `PortalInvoice` | `ventas/src/types/app.ts` | Factura |
-| `PortalSession` | `ventas/src/types/app.ts` | Sesión de usuario |
+| `PortalSubscription` | `ventas/src/types/app.ts` | **REFERENCIA DE CAMPOS / CANDIDATO A EXTRAER CONTRATO GENÉRICO**. No reutilizar directamente. El Admin Global debe usar `PlatformSubscriptionView` |
+| `PortalInvoice` | `ventas/src/types/app.ts` | **REFERENCIA DE CAMPOS / CANDIDATO A EXTRAER CONTRATO GENÉRICO**. El Admin Global debe usar `PlatformPaymentView` |
+| `PortalSession` | `ventas/src/types/app.ts` | **REFERENCIA DE CAMPOS / CANDIDATO A EXTRAER CONTRATO GENÉRICO**. El Admin Global debe usar `PlatformSessionView` |
 | `Incident` | `ventas/src/types/app.ts` | Incidencia |
 | `DocumentItem` | `ventas/src/types/app.ts` | Documento |
 | `PaginatedResult<T>` | `ventas/src/types/app.ts` | Paginación genérica |
 | `OperationalUnitSnapshot` | `shared/operational-contract/types.ts` | Estado de unidad operativa |
 
-### REUTILIZAR MEDIANTE ADAPTADOR
+### REFERENCIA DE CAMPOS / CANDIDATO A EXTRAER CONTRATO GENÉRICO
 
-- `PortalOverview` → crear `PlatformOverview` con campos adicionales (totales globales, salud del sistema)
-- `PortalActivationKey` → ya es global, solo adaptar consulta
-- `PortalAppInfo` → ya es global (app info es única para toda la plataforma)
+Los siguientes tipos `Portal*` no deben utilizarse como contratos del Admin Global, pero sus campos sirven como referencia para diseñar los DTOs propios:
+
+| Tipo | Referencia |
+|---|---|
+| `PortalOverview` | Referencia para diseñar `PlatformOverview`. No reutilizar directamente |
+| `PortalActivationKey` | Referencia para diseñar `PlatformCompanyView`. No reutilizar directamente |
+| `PortalAppInfo` | Referencia para diseñar `PlatformSystemHealth`. No reutilizar directamente |
 
 ### CREAR NUEVO (solo DTOs / read models — no persistentes)
 
@@ -796,9 +824,6 @@ Los siguientes servicios y utilidades NO deben copiarse dentro del módulo platf
 
 | Componente | Ruta | Notas |
 |---|---|---|
-| `PortalButton` | `features/portal/components/portal-button.tsx` | Multi-variant button — renombrar o re-exportar como `AdminButton` |
-| `PortalDataList` + `PortalDataRow` | `features/portal/components/portal-data-list.tsx` | Lista genérica — renombrar a `AdminDataList` |
-| `PortalSectionCard` | `features/portal/cards/portal-section-card.tsx` | Card de sección — renombrar a `AdminSectionCard` |
 | `StatusBadge` | `src/components/ui/status-badge.tsx` | Badge de estado — sin cambios |
 | `SkeletonBlock` | `src/components/ui/skeleton.tsx` | Skeleton loading — sin cambios |
 | `EmptyState` | `src/components/ui/empty-state.tsx` | Estado vacío — sin cambios |
@@ -812,7 +837,7 @@ Los siguientes servicios y utilidades NO deben copiarse dentro del módulo platf
 
 ### NO REUTILIZAR (específicos del portal empresarial)
 
-- `PortalLayout` → crear `AdminLayout` con guards de platform auth, navegación global, breadcrumbs administrativos
+- `PortalLayout` → El Admin Global tendrá `AdminLayout` independiente. Los componentes de `ventas/features/portal/` se consideran privados del Portal. Si algún componente resulta realmente genérico, debe extraerse en una fase UI independiente con pruebas de regresión, sin acoplar Admin a Portal
 - `operations-map.tsx` → solo si el Admin Global necesita mapa operativo (no es prioridad inicial)
 - `route-geometry-thumbnail.tsx` → específico de rutas
 - Todos los screens del portal → son por-empresa, no multi-empresa
@@ -909,9 +934,19 @@ El `CommercialLead` es la única fuente de verdad para: plan contratado, estado 
 
 ### Reutilización para Admin Global
 
-- `GET /api/health/ready` se puede consumir directamente desde el frontend admin
-- `GET /api/ops/observability` se puede exponer como tarjeta de salud del sistema
-- `runtime-readiness.js` se puede extender con chequeos de plataforma (sin modificar el original)
+El frontend del Admin Global debe consumir un endpoint protegido y sanitizado:
+
+```
+GET /api/platform/system   (propuesto, no implementado)
+```
+
+Este endpoint reutilizará internamente `getRuntimeReadiness()` y `getOperationalInsights()` pero **no debe devolver**:
+- Secretos ni variables de entorno
+- Rutas internas del servidor
+- Payloads completos de errores
+- Información sensible de infraestructura
+
+No consumir `GET /health`, `GET /api/metrics` ni `GET /api/health/ready` directamente desde el frontend admin, ya que son endpoints públicos que exponen más información de la necesaria para una interfaz administrativa.
 
 ---
 
@@ -929,6 +964,8 @@ El `CommercialLead` es la única fuente de verdad para: plan contratado, estado 
 - Scoping: usuarios no-admin ven solo su org o sus propias acciones
 - Severidad: `info`, `warning`, `critical`
 - `recordAuditLog(req, payload)` en `services/audit.js` — registro centralizado
+
+**Firma verificada de `recordAuditLog()`**: La función espera `req` como primer argumento y accede a `req?.user?.id`, `req?.headers['user-agent']`, `req?.ip`, `req?.app?.locals?.store`. **No acepta `null`** como primer argumento. Para acciones sin solicitud HTTP (scripts internos), debe usarse un adaptador que construya un objeto `req` compatible (ver sección de aprovisionamiento inicial).
 
 **Eventos auditados actualmente**: `auth.login`, `auth.failed_login`, `auth.logout`, más eventos de documentos, usuarios, vehículos, sesiones.
 
@@ -976,12 +1013,12 @@ El campo `metadata` (tipo `Mixed`, sin restricciones de esquema) puede contener 
 |---|---|---|---|
 | **Misma colección de usuarios** | ALTA | Platform admins y usuarios empresariales comparten `UserModel`. Si un `admin` empresarial obtiene `accountType: "operations"`, tendría acceso global | Crear colección separada `platform_users` para personal interno |
 | **Mismo JWT** | ALTA | Los platform admins usan el mismo JWT que usuarios empresariales. Un token de platform admin robado da acceso total al sistema | Emitir JWTs con claim `type: "platform"` y validar en middleware de plataforma |
-| **Sin MFA** | MEDIA | No hay autenticación de dos factores para ningún usuario, incluidos futuros platform admins | Agregar MFA en ADM-SEC-01 antes de exponer el Admin Global |
+| **Sin MFA** | MEDIA | No hay autenticación de dos factores para ningún usuario, incluidos futuros platform admins | Agregar MFA en ADM-SEC-MFA-01 (fase posterior a ADM-SEC-01). El Admin Global no debe considerarse habilitable en producción sin MFA para `platform_owner` y `platform_admin`. Para `platform_support`, `platform_finance` y `platform_viewer` se evaluará según sensibilidad del rol |
 | **Sin rate limiting diferenciado** | MEDIA | El rate limit de 200 req/15min para `/api` aplica igual a admins y usuarios. Un ataque de fuerza bruta a un admin sería igual de lento | Configurar rate limits más restrictivos para endpoints de plataforma |
 | **Exposición de datos sensibles en respuestas** | MEDIA | `sanitizeUser()` ya filtra passwordHash, pero `listUsers()` devuelve email, phone, avatar, vehicleId | Crear serializer específico para consultas administrativas que exponga solo campos necesarios |
 | **Webhook payloads almacenados** | BAJA | `WebhookEventModel` contiene payloads completos de Mercado Pago (potencialmente con datos del pagador) | No exponer webhook payloads en endpoints del Admin Global |
 | **Sin sesiones de soporte temporales** | MEDIA | No existe mecanismo para que soporte acceda temporalmente a una empresa sin tener un token permanente | Diseñar sesiones de soporte con expiración y registro de acción |
-| **Sin trazabilidad de acciones administrativas** | ALTA | Un platform admin puede crear/suspender empresas sin dejar registro en `AuditLogModel` | Implementar `platform_audit_logs` con registro obligatorio de toda acción administrativa |
+| **Sin trazabilidad de acciones administrativas** | ALTA | Un platform admin puede crear/suspender empresas sin dejar registro en `AuditLogModel` | Registrar usando `recordAuditLog()` con acciones `platform.*` y `metadata.actorType = "platform"`. No crear colección separada |
 
 ---
 
@@ -1079,14 +1116,30 @@ El Admin Global realizará consultas globales (sin filtro tenant) **de forma int
 
 ### Principios
 
-1. **Colección separada de usuarios internos**: `PlatformUserModel` (colección `platform_users`) con roles `platform_owner`, `platform_admin`, `platform_support`, `platform_finance`, `platform_viewer`. No compartir `UserModel`.
-2. **JWT independiente**: Tokens con `type: "platform"` en el payload. Middleware `platformAuth` que rechace explícitamente tokens empresariales (`type: "enterprise"` o sin type).
-3. **Módulo backend aislado**: `backend/src/modules/platform/` con sus propias rutas, servicios, validadores. Sin modificar módulos existentes.
+1. **Colección separada de usuarios internos**: `PlatformUserModel` (colección `platform_users`) con roles `platform_owner`, `platform_admin`, `platform_support`, `platform_finance`, `platform_viewer`. Declarado en `backend/src/data/models.js`. No compartir `UserModel`.
+2. **JWT independiente**: Tokens con `tokenType: "platform"`, `aud: "manecomb-platform-admin"`, `iss: "manecomb-api"` en el payload. Middleware `platformAuth` que rechace explícitamente tokens empresariales (sin `tokenType` o con `tokenType: "enterprise"`).
+3. **Secret separado** (`PLATFORM_JWT_SECRET`): Las utilidades JWT actuales (`signToken`/`verifyToken` en `backend/src/utils/jwt.js`) aceptan `process.env.JWT_SECRET` como secret. El middleware `platformAuth` usará `process.env.PLATFORM_JWT_SECRET` directamente con `jsonwebtoken.sign()`/`verify()` para mantener segregación de secrets. No modificar `signToken()` existente.
+4. **Módulo backend aislado**: `backend/src/modules/platform/` con sus propias rutas, servicios, validadores. Sin modificar módulos existentes.
 4. **Rutas con prefijo `/api/platform/`**: Separadas de `/api/portal/` y `/api/`.
 5. **Módulo frontend aislado**: `ventas/features/admin/` con su propio layout, screens, store, componentes. Reutilizando componentes visuales base.
 6. **Rutas frontend con prefijo `/admin/`**: Separadas de `/portal/`.
-7. **Consultas globales explícitas**: Cada endpoint del Admin Global debe declarar intencionalmente que no aplica filtro tenant. No reutilizar `getOrganizationQuery()` sin parámetro explícito.
-8. **Auditoría obligatoria**: Toda acción del Admin Global debe registrar entrada en `platform_audit_logs`.
+7. **Consultas globales explícitas**: Cada endpoint del Admin Global debe declarar intencionalmente que no aplica filtro tenant, usando funciones explícitas como `listPlatformCompanies()`. No reutilizar `getOrganizationQuery()`.
+8. **Auditoría obligatoria**: Toda acción del Admin Global debe registrar entrada en `AuditLogModel` usando `recordAuditLog()` con acciones `platform.*` y `metadata.actorType = "platform"`.
+
+### Sesiones internas (PlatformSessionModel)
+
+Las sesiones del Admin Global utilizan una colección separada `platform_sessions` con modelo `PlatformSessionModel` en `backend/src/data/models.js`.
+
+| Aspecto | Decisión | Motivo |
+|---|---|---|
+| Colección | `platform_sessions` (separada de `sessions`) | Evita mezclar sesiones internas con empresariales. Permite revocación y políticas de expiración independientes |
+| Persistencia | MongoDB (misma BD, colección distinta) | Sigue el mismo patrón que `SessionModel` |
+| Primitivas de seguridad | Compartidas (no duplicadas) | `createRefreshToken()`, `hashRefreshToken()`, `getRequestIp()`, `getUserAgent()` se reutilizan desde `services/sessions.js` y `services/audit.js` |
+| Refresco | Exclusivo: `POST /api/platform/auth/refresh` | No pasar por `/api/auth/refresh` empresarial ni viceversa |
+| Expiración | Misma política (30 días) o más estricta | Configurable por variable de entorno `PLATFORM_REFRESH_TOKEN_TTL_DAYS` |
+| MFA futuro | Campo `mfaVerified: Boolean` en la sesión | Sin modificar el flujo empresarial |
+
+**Diferencia clave**: PERSISTENCIA SEPARADA ≠ LÓGICA DE SEGURIDAD DUPLICADA. La persistencia está separada (nueva colección, nuevo modelo). Las primitivas criptográficas (generación de tokens, hashing, extracción de datos) son compartidas mediante importación directa o adaptadores delgados.
 
 ### Aislamiento de sesión frontend
 
@@ -1102,6 +1155,25 @@ Alternativas evaluadas:
 1. ✅ **Instancia Axios separada + token provider por contexto** — Recomendada. Bajo riesgo, aislamiento total, sin modificar `apiClient` existente.
 2. ❌ Interceptor específico del módulo Admin sobre `apiClient` compartido — Riesgo de fuga de token platform a llamadas del portal.
 3. ❌ Token provider global por contexto React — Incompatible con la arquitectura actual (el token se gestiona en el store Zustand, no en contexto React).
+
+### `canAccessAllTenants` como mecanismo heredado (LEGACY PLATFORM ACCESS)
+
+`canAccessAllTenants()` (`backend/src/middlewares/access-control.js:63`) es un mecanismo existente que permite a ciertos usuarios (`role === "admin" && accountType !== "company_owner"`) acceder a datos de todos los tenants. **No debe utilizarse en las rutas nuevas `/api/platform/*`**.
+
+Los usuarios de `platform_users` no dependerán de:
+- `accountType` — no existe en platform users
+- `organizationId` — no aplica a personal interno
+- `role: "admin"` — los platform users tienen roles `platform_*`
+- `canAccessAllTenants()` — es específico del modelo empresarial
+
+**Fase futura**: ADM-LEGACY-ADMIN-01 se encargará de retirar este bypass de forma controlada:
+1. Localizar todos los usos de `canAccessAllTenants()` en el código
+2. Migrar los endpoints internos que aún dependen de él al nuevo `platformAuth`
+3. Conservar compatibilidad durante la transición
+4. Agregar pruebas de regresión
+5. Eliminar el bypass únicamente cuando el Admin Global nuevo esté funcionando en producción
+
+No retirar este comportamiento en ADM-SEC-01.
 
 ### Diagrama de separación conceptual
 
@@ -1131,8 +1203,8 @@ Alternativas evaluadas:
 │  platform_users  → Usuarios internos (nuevo)         │
 │  commercial_leads→ Órdenes y suscripciones           │
 │  vehicles        → Unidades                          │
-│  audit_logs      → Auditoría empresarial             │
-│  platform_audit_logs → Auditoría interna (nuevo)     │
+│  audit_logs      → Auditoría empresarial e interna   │
+│                   → (acciones platform.* en metadata) │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -1206,6 +1278,7 @@ Esta alternativa:
 | A2: Subdocumento platformProfile | Misma colección; complejidad en queries |
 | A3: Aplicación independiente | Duplicación; complejidad operativa; riesgo de inconsistencias |
 | A4: Endpoint único | Acoplamiento; viola SRP; difícil de mantener |
+| A5: Modelos separados en `modules/platform/models/` | Inconsistente con la convención real del código (todos los modelos en `models.js`). Mayor riesgo de confusión, complejidad en queries cross-model |
 
 ---
 
@@ -1217,27 +1290,27 @@ Esta alternativa:
 backend/src/modules/platform/
 ├── routes/
 │   ├── auth.routes.js        # Login/refresh/logout interno
-│   ├── overview.routes.js    # Resumen global
-│   ├── companies.routes.js   # CRUD empresas
-│   ├── subscriptions.routes.js # Suscripciones globales
-│   ├── orders.routes.js      # Órdenes globales
-│   ├── payments.routes.js    # Pagos globales
+│   ├── overview.routes.js    # Resumen global (read model)
+│   ├── companies.routes.js   # Listado/detalle empresas (read models)
+│   ├── subscriptions.routes.js # Suscripciones globales (read models)
+│   ├── orders.routes.js      # Órdenes globales (read models)
+│   ├── payments.routes.js    # Pagos globales (read models)
 │   ├── users.routes.js       # Usuarios empresariales (global)
-│   ├── vehicles.routes.js    # Unidades globales
-│   ├── system.routes.js      # Health + readiness
-│   └── audit.routes.js       # Auditoría interna
+│   ├── vehicles.routes.js    # Unidades globales (read models)
+│   ├── system.routes.js      # Health + readiness (protegido, sanitizado)
+│   └── # Auditoría: reutilizar GET /api/audit-logs con filtro actions=platform.*
 ├── services/
-│   └── platform-auth.js      # Auth interna (JWT separado)
-├── services/shared/          # Servicios reutilizados (no copiados)
-│   ├── ../services/audit.js  # recordAuditLog() para acciones platform
-│   └── ../services/sessions.js # createSessionForRequest(), revocación
-├── models/
-│   └── PlatformUser.js       # Modelo Mongoose (platform_users)
+│   └── platform-auth.js      # Auth interna (reutiliza primitivas de seguridad)
 ├── middlewares/
-│   ├── platform-auth.js      # Verifica JWT platform
-│   └── platform-role.js      # Verifica rol platform
+│   ├── platform-auth.js      # Verifica JWT con tokenType="platform"
+│   └── platform-role.js      # Verifica rol platform_*
 └── validators/
     └── platform-validators.js # Validación de entrada
+
+# Los modelos viven en backend/src/data/models.js:
+#   - PlatformUserModel  → colección platform_users
+#   - PlatformSessionModel → colección platform_sessions
+# El data layer se extiende en backend/src/data/mongo-store.js
 ```
 
 ### Frontend: nuevo módulo `admin`
@@ -1246,8 +1319,8 @@ backend/src/modules/platform/
 ventas/features/admin/
 ├── components/
 │   ├── admin-layout.tsx      # Layout con sidebar admin
-│   ├── admin-data-list.tsx   # (reutiliza PortalDataList)
-│   ├── admin-button.tsx      # (reutiliza PortalButton)
+│   ├── admin-data-list.tsx   # componente propio o wrapper de UI compartida
+│   ├── admin-button.tsx      # utiliza primitives de src/components/ui
 │   └── admin-status-badge.tsx# (reutiliza StatusBadge)
 ├── screens/
 │   ├── admin-login-screen.tsx       # Login interno (ruta separada)
@@ -1342,16 +1415,30 @@ No implementar todavía — definir en ADM-SEC-01.
 
 ## 33-B. Tipo explícito de token y comportamiento de rechazo
 
-Los tokens del Admin Global deben incluir un campo `tokenType: "platform"` en el payload JWT:
+Los tokens del Admin Global deben incluir los siguientes campos en el payload JWT:
 
 ```js
 {
   sub: platformUserId,
   tokenType: "platform",
   role: "platform_owner",       // o platform_admin, platform_support, etc.
-  sid: sessionId
+  sid: platformSessionId,
+  aud: "manecomb-platform-admin",
+  iss: "manecomb-api"
 }
 ```
+
+**Evaluación de las utilidades JWT actuales** (`backend/src/utils/jwt.js`):
+
+| Capacidad | ¿Soportada? | Detalle |
+|---|---|---|
+| Secret personalizado | Parcial | `signToken()` usa `JWT_SECRET` de entorno. Para `PLATFORM_JWT_SECRET` se llamará a `jsonwebtoken.sign()` directamente con el secret específico |
+| `audience` | Sí | `jsonwebtoken.sign(payload, secret, { audience: "manecomb-platform-admin" })` |
+| `issuer` | Sí | `jsonwebtoken.sign(payload, secret, { issuer: "manecomb-api" })` |
+| Expiración específica | Sí | `jsonwebtoken.sign(payload, secret, { expiresIn: "15m" })` — configurable vía `PLATFORM_JWT_EXPIRES_IN` |
+| Reutilizar `signToken()` | **No recomendado** | `signToken()` usa `JWT_SECRET` hardcodeado y no acepta audience/issuer. Se creará `signPlatformToken()` como adaptador que llame a `jsonwebtoken.sign()` directamente, reutilizando la misma librería |
+
+**Conclusión**: Las primitivas JWT de `jsonwebtoken` se reutilizan (misma librería). La función `signToken()` existente no se modifica. Se crea `signPlatformToken()` como función nueva que usa `PLATFORM_JWT_SECRET`. `verifyToken()` puede reutilizarse si se le pasa el secret correcto, o se crea `verifyPlatformToken()`.
 
 Comportamiento de rechazo del middleware `platformAuth`:
 
@@ -1383,7 +1470,7 @@ No debe existir un endpoint público `POST /api/platform/auth/register`. El prim
 | Sin valores predeterminados | Exigir todas las entradas por variable de entorno o prompt: `PLATFORM_OWNER_EMAIL`, `PLATFORM_OWNER_PASSWORD` |
 | No imprimir la contraseña | Usar `read -s` en entorno interactivo o leer de variable/env, nunca mostrarla en stdout |
 | No insertar credenciales en Git | Las variables de entorno usadas por el script no deben estar en `.env.example` con valores reales |
-| Registrar fecha de creación | `PlatformUserModel.createdAt` + auditoría con `recordAuditLog(null, { action: "platform.owner.created", ... })` |
+| Registrar fecha de creación | `PlatformUserModel.createdAt` + auditoría mediante adaptador `recordPlatformAction()` que construye un objeto `req` compatible. No pasar `null` a `recordAuditLog()` porque espera un objeto `req` con `req.user.id`, `req.headers['user-agent']`, `req.ip` |
 | Evitar duplicados | Consulta previa: si ya existe un usuario con `role: "platform_owner"`, abortar con mensaje claro |
 | Rotación o recuperación | Script separado `platform:reset-owner-password` para futura recuperación controlada |
 
@@ -1408,7 +1495,7 @@ No implementar este script todavía — el diseño detallado corresponde a ADM-S
 - Unit tests para middleware `platformRole` (permite roles correctos, rechaza roles insuficientes)
 - Integration tests para login/refresh/logout de platform users
 
-### Pruebas a agregar en ADM-API-01
+### Pruebas a agregar en ADM-API-BASE-01, ADM-COMPANIES-01, ADM-COMMERCIAL-01
 
 - Integration tests para cada endpoint GET de plataforma (paginación, búsqueda, filtros)
 - Tenant isolation tests: un platform admin debe ver datos de todas las empresas; un admin empresarial NO debe poder acceder a `/api/platform/*`
@@ -1421,56 +1508,60 @@ Los 34 archivos de prueba en `backend/test/`, incluyendo `tenant-isolation.test.
 
 ---
 
-## 35. Plan por fases
+## 35. Plan por fases (sin superposición)
 
 | Fase | Nombre | Descripción | Dependencias |
 |---|---|---|---|
-| ADM-ARCH-01 | Auditoría y diseño | Presente documento | Ninguna |
-| ADM-SEC-01 | Identidad, autenticación y autorización interna | **Solo backend.** Definición de identidad interna, persistencia del usuario interno, roles y permisos internos, aprovisionamiento inicial, login, refresh, logout, sesiones internas, middleware de autenticación, middleware de autorización, rate limiting de autenticación, sanitización, auditoría de login/logout, pruebas | ADM-ARCH-01 |
-| ADM-UI-AUTH-01 | Login y restauración de sesión del Admin Global | **Solo frontend.** Pantalla de login, store de sesión platform, cliente HTTP aislado, restauración de sesión desde localStorage | ADM-SEC-01 |
-| ADM-API-01 | Endpoints globales de solo lectura | `/api/platform/overview`, `/companies`, `/subscriptions`, `/orders`, `/payments`, `/users`, `/vehicles` | ADM-SEC-01 |
-| ADM-UI-01 | Layout, navegación y pantallas administrativas | `AdminLayout`, sidebar, navegación, pantallas de listado y detalle | ADM-API-01 + ADM-UI-AUTH-01 |
-| ADM-COMPANIES-01 | Listado y detalle global de empresas | `/api/platform/companies/:id` con detalle completo + actividad + historial de auditoría | ADM-API-01 |
-| ADM-COMMERCIAL-01 | Planes, suscripciones, órdenes y pagos | Endpoints de datos comerciales + dashboard financiero | ADM-API-01 |
-| ADM-SYSTEM-01 | Salud, readiness y observabilidad | Dashboard de sistema usando `getRuntimeReadiness()` + `ops/observability` | ADM-API-01 |
-| ADM-ACTIONS-01 | Acciones administrativas sensibles | Suspender/reactivar empresas, cambiar plan, forzar activación | ADM-API-01 + ADM-UI-01 |
-| ADM-AUDIT-01 | Auditoría interna | Dashboard de auditoría sobre `AuditLogModel` existente, usando acciones `platform.*` y filtro `metadata.actorType = "platform"` | ADM-API-01 |
-| ADM-HARDEN-01 | Endurecimiento y validación productiva | MFA, rate limiting específico, revisión de seguridad, pruebas de carga | Todas las anteriores |
+| ADM-ARCH-01 | Auditoría y arquitectura | Presente documento (R2). Auditoría completa del código real para definir la arquitectura del Admin Global | Ninguna |
+| ADM-SEC-01 | Identidad y autenticación backend | Creación de `PlatformUserModel` y `PlatformSessionModel` en `models.js`, login/refresh/logout interno, middlewares `platformAuth` y `platformRole`, roles platform, aprovisionamiento inicial, rate limiting, sanitización, auditoría de login/logout. **Solo backend, sin frontend. Sin MFA. Sin endpoints de negocio.** No habilitado para producción | ADM-ARCH-01 |
+| ADM-SEC-MFA-01 | MFA obligatorio | MFA para `platform_owner` y `platform_admin`. Recuperación controlada, códigos de respaldo. Evaluar obligatoriedad para `platform_support`, `platform_finance`, `platform_viewer`. No habilitar Admin Global en producción sin MFA para owner y admin | ADM-SEC-01 |
+| ADM-UI-AUTH-01 | Login y sesión frontend | Pantalla de login, `useAdminStore`, `platformApiClient` (instancia Axios aislada con clave `manecomb-platform-token`), restauración de sesión desde `localStorage`. **Solo frontend** | ADM-SEC-MFA-01 |
+| ADM-API-BASE-01 | Router y utilities platform | Router platform común (`/api/platform/`), validación compartida, paginación, serializers, filtros controlados, manejo de errores. **Sin endpoints de negocio completos** | ADM-SEC-01 |
+| ADM-COMPANIES-01 | Empresas (read models) | Listado paginado y detalle global de empresas mediante `PlatformCompanyView` DTO construido desde `organizationId`, `CommercialLeadModel`, `UserModel` del propietario, conteos de `UserModel`/`VehicleModel`, plan desde `commercial-plans.js`, estado comercial desde servicios existentes | ADM-API-BASE-01 |
+| ADM-COMMERCIAL-01 | Planes, suscripciones, órdenes y pagos | Endpoints de solo lectura usando `CommercialLeadModel` como única fuente de verdad. DTOs `PlatformSubscriptionView`, `PlatformOrderView`, `PlatformPaymentView`. Sin modificar lógica comercial existente, sin nuevos estados, sin cálculos en frontend | ADM-API-BASE-01 |
+| ADM-SYSTEM-01 | Salud del sistema | Endpoint protegido `GET /api/platform/system` que reutiliza internamente `getRuntimeReadiness()` y `getOperationalInsights()`. Sin exponer secretos, variables de entorno, rutas internas, payloads completos de errores ni información sensible de infraestructura | ADM-API-BASE-01 |
+| ADM-UI-01 | Layout y navegación | `AdminLayout` independiente (no basado en `PortalLayout`). Sidebar, header, navegación. Reutiliza solo componentes de `ventas/src/components/ui/` y `ventas/constants/` | ADM-UI-AUTH-01 |
+| ADM-ACTIONS-01 | Acciones sensibles | Suspender/reactivar empresas, cambiar plan, forzar activación. Auditoría obligatoria con `recordAuditLog()` y acciones `platform.*` | ADM-COMPANIES-01 + ADM-COMMERCIAL-01 + ADM-UI-01 |
+| ADM-AUDIT-01 | Interfaz de auditoría | Consultas y visualización sobre `AuditLogModel` existente usando acciones `platform.*` y filtro `metadata.actorType = "platform"`. No crear colección separada | ADM-API-BASE-01 + ADM-UI-01 |
+| ADM-LEGACY-ADMIN-01 | Retiro del bypass heredado | Localizar todos los usos de `canAccessAllTenants()`. Migrar endpoints internos al nuevo `platformAuth`. Conservar compatibilidad durante transición. Agregar pruebas. Eliminar bypass solo cuando Admin Global nuevo esté funcionando en producción | ADM-SEC-01 + ADM-API-BASE-01 |
+| ADM-HARDEN-01 | Endurecimiento productivo | Rate limiting específico, revisión de seguridad, pruebas de carga, validación productiva completa | Todas las anteriores |
 
 ### Priorización
 
-1. **ADM-SEC-01 primero**: Backend de autenticación interna. Sin esto no puede haber Admin Global. Es exclusivamente backend — no incluye frontend.
-2. **ADM-UI-AUTH-01**: Login y restauración de sesión. Depende de ADM-SEC-01 pero puede diseñarse en paralelo. Es exclusivamente frontend.
-3. **ADM-API-01**: Consultas de solo lectura. Depende de ADM-SEC-01 (necesita auth funcionando).
-4. **ADM-UI-01**: Pantallas administrativas. Depende de ADM-API-01 (datos) y ADM-UI-AUTH-01 (sesión).
-5. **Fases siguientes**: Companies, commercial, system, actions, audit, hardening — en orden de valor de negocio.
+1. **ADM-SEC-01**: Backend de autenticación interna. Sin esto no puede haber Admin Global. Exclusivamente backend, sin MFA, sin endpoints de negocio. No habilitado para producción
+2. **ADM-SEC-MFA-01**: MFA obligatorio antes de cualquier exposición. El Admin Global no se considera habilitable en producción sin MFA para `platform_owner` y `platform_admin`
+3. **ADM-UI-AUTH-01 + ADM-API-BASE-01**: Pueden diseñarse en paralelo. Login frontend dependiente de MFA. API base no requiere frontend
+4. **ADM-COMPANIES-01, ADM-COMMERCIAL-01, ADM-SYSTEM-01**: Endpoints de negocio en paralelo, cada uno sobre ADM-API-BASE-01
+5. **ADM-UI-01 + ADM-ACTIONS-01 + ADM-AUDIT-01**: Interfaces de usuario y acciones sensibles
+6. **ADM-LEGACY-ADMIN-01 + ADM-HARDEN-01**: Al final, una vez que el Admin Global esté funcionando y probado en un entorno seguro
 
 ---
 
 ## 36. Archivos previstos para ADM-SEC-01
 
-ADM-SEC-01 es **exclusivamente backend**. No incluye frontend, componentes visuales, store Zustand, ni pantallas.
+ADM-SEC-01 es **exclusivamente backend**. No incluye frontend, componentes visuales, store Zustand, ni pantallas. Todos los modelos se declaran en `backend/src/data/models.js` siguiendo la convención actual.
+
+### MODIFICACIONES EN ARCHIVOS EXISTENTES
+
+| Archivo | Cambio | Riesgo |
+|---|---|---|
+| `backend/src/data/models.js` | Agregar `PlatformUserModel` (colección `platform_users`) y `PlatformSessionModel` (colección `platform_sessions`). Seguir la misma estructura de `UserModel` y `SessionModel` existentes | Bajo — modificación directa y controlada, no altera lógica empresarial existente |
+| `backend/src/data/mongo-store.js` | Extender el data layer con funciones explícitas globales para `PlatformUserModel` y `PlatformSessionModel` (create, findByEmail, findById, update, etc.) | Medio — las funciones platform deben declarar explícitamente su carácter global. No usar `getOrganizationQuery()` como bypass. No modificar lógica tenant de funciones empresariales existentes |
+| `backend/src/app.js` | Agregar `app.use('/api/platform', platformAuth, platformRoutes)` | Bajo — solo añadir una línea de montaje |
 
 ### NUEVOS (backend)
 
 | Archivo | Propósito |
 |---|---|
-| `backend/src/modules/platform/models/PlatformUser.js` | Modelo Mongoose para usuarios internos (excepción a la convención centralizada — ver sección 15) |
 | `backend/src/modules/platform/routes/auth.routes.js` | Login/refresh/logout interno |
 | `backend/src/modules/platform/services/platform-auth.js` | Lógica de autenticación interna (reutiliza primitivas de seguridad existentes, no las duplica) |
-| `backend/src/modules/platform/middlewares/platform-auth.js` | Middleware que rechaza tokens sin `tokenType: "platform"` (403) |
-| `backend/src/modules/platform/middlewares/platform-role.js` | Middleware de verificación de roles platform |
+| `backend/src/modules/platform/middlewares/platform-auth.js` | Middleware que verifica JWT con `tokenType: "platform"`, rechaza tokens empresariales (403) |
+| `backend/src/modules/platform/middlewares/platform-role.js` | Middleware de verificación de roles platform_* |
 | `backend/src/modules/platform/validators/platform-validators.js` | Validadores de entrada para auth interna |
 | `backend/src/config/platform-roles.js` | Configuración de roles y permisos de plataforma |
 | `backend/scripts/platform-create-owner.js` | Script interno para aprovisionamiento del primer `platform_owner` |
 | `test/platform-auth.test.js` | Pruebas de autenticación interna |
 | `test/platform-middleware.test.js` | Pruebas de middleware platform |
-
-### MODIFICACIÓN MÍNIMA
-
-| Archivo | Cambio | Riesgo |
-|---|---|---|
-| `backend/src/app.js` | Agregar `app.use('/api/platform', platformRoutes)` | Bajo — solo añadir una línea de montaje |
 
 ### NO TOCAR (en ADM-SEC-01)
 
@@ -1562,16 +1653,16 @@ docker-compose*.yml — Config Docker (no tocar)
 
 ## 39. Conclusión
 
-El proyecto **ManeComb** está en una posición favorable para incorporar un Admin Global. La arquitectura existente ya contempla administradores de plataforma (`canAccessAllTenants()`) y tiene todas las fuentes de datos necesarias en modelos estandarizados (`CommercialLeadModel` para suscripciones, `UserModel` para usuarios, `VehicleModel` para unidades, etc.).
+El proyecto **ManeComb** está en una posición favorable para incorporar un Admin Global. La arquitectura existente ya contempla nociones de acceso global, aunque mediante mecanismos heredados que serán retirados.
 
-**Fortalezas identificadas**:
-- Existencia de `canAccessAllTenants()` y `requireAdmin` — la noción de admin de plataforma ya está contemplada
-- Datos estandarizados en MongoDB con `organizationId` como clave tenant
-- Componentes visuales reutilizables (PortalLayout, PortalButton, StatusBadge, etc.)
-- Sistema de auditoría extensible (AuditLogModel + recordAuditLog)
+**Fortalezas reales**:
+- Fuentes de datos estandarizadas: `organizationId` como clave tenant en MongoDB
+- `CommercialLeadModel`, `UserModel`, `VehicleModel`, `AuditLogModel` como modelos consolidados
+- Servicios comerciales existentes (sin necesidad de nuevos estados ni colecciones)
 - Salud y readiness del sistema ya implementados
+- Primitivas criptográficas existentes (jsonwebtoken, bcrypt)
+- Componentes UI verdaderamente compartidos (`ventas/src/components/ui/`)
 - 34 pruebas existentes que sirven como red de seguridad
-- Separación clara entre roles empresariales y operativos
 
 **Debilidades identificadas**:
 - No existe colección separada para usuarios internos de plataforma
@@ -1663,15 +1754,15 @@ La deuda técnica identificada (gaps en tenant isolation de vehículos, document
 | `test/platform-auth.test.js` | NUEVO | Pruebas de autenticación interna | Creación | Bajo — archivo nuevo |
 | `test/platform-middleware.test.js` | NUEVO | Pruebas de middleware platform | Creación | Bajo — archivo nuevo |
 
-### Para fases posteriores (ADM-API-01 en adelante)
+### Para fases posteriores (ADM-API-BASE-01, ADM-COMPANIES-01, ADM-COMMERCIAL-01, ADM-SYSTEM-01 en adelante)
 
 | Archivo | Estado | Motivo | Tipo de cambio futuro | Riesgo |
 |---|---|---|---|---|
 | `backend/src/modules/platform/routes/*.routes.js` | NUEVO | Endpoints de plataforma (companies, subscriptions, etc.) | Creación | Medio — deben respetar tenant isolation |
 | `backend/src/modules/platform/services/*.js` | NUEVO | Servicios de plataforma | Creación | Medio — deben usar datos existentes |
 | `ventas/features/admin/screens/*.tsx` | NUEVO | Pantallas del Admin Global | Creación | Bajo — archivos nuevos |
-| `ventas/features/admin/components/admin-layout.tsx` | NUEVO | Layout del Admin Global | Creación | Bajo — basado en PortalLayout |
-| `backend/src/data/mongo-store.js` | NO TOCAR | Ya tiene `getOrganizationQuery()` para admins | Sin cambios | — |
+| `ventas/features/admin/components/admin-layout.tsx` | NUEVO | Layout del Admin Global (independiente, no basado en `PortalLayout`) | Creación | Bajo — archivo nuevo |
+| `backend/src/data/mongo-store.js` | MODIFICACIÓN CONTROLADA | ADM-SEC-01 podrá agregar persistencia de `PlatformUserModel` y `PlatformSessionModel`. Las fases de API podrán extenderlo con funciones globales explícitas (`listPlatformCompanies()`, etc.). No modificar lógica tenant de funciones empresariales existentes. No usar `canAccessAllTenants()` como autorización de funciones platform |
 | `backend/src/middlewares/access-control.js` | NO TOCAR | Ya tiene `canAccessAllTenants()` | Sin cambios | — |
 
 ---
@@ -1703,7 +1794,7 @@ La deuda técnica identificada (gaps en tenant isolation de vehículos, document
 
 *Documento generado por auditoría del repositorio ManeComb en `main@4677ad47940c10b4389f0f4b0c35457d6b894732`.*
 *Fecha: 2026-07-22.*
-*Fin de ADM-ARCH-01-R1.*
+*Fin de ADM-ARCH-01-R2.*
 
 ---
 
@@ -1722,3 +1813,23 @@ La deuda técnica identificada (gaps en tenant isolation de vehículos, document
 | **R1-C09** | Se redefinió ADM-SEC-01 como fase exclusivamente backend. Se eliminaron todos los archivos frontend de su alcance. Se agregó ADM-UI-AUTH-01 como fase frontend independiente posterior. Se actualizó la tabla de archivos previstos y la tabla de archivos futuros |
 | **R1-C10** | Se reclasificaron los 9 riesgos tenant con etiquetas `CONFIRMADO`, `MITIGADO EN CAPA SUPERIOR` o `NO CONFIRMADO`, incluyendo evidencia de la ruta que invoca cada función. Se propuso fase independiente `SEC-TENANT-VERIFY-01` ortogonal al Admin Global |
 | **R1-C11** | Se aclaró que `PlatformSubscriptionView`, `PlatformOrderView` y `PlatformPaymentView` son DTOs / read models no persistentes. Se confirmó que las fuentes oficiales comerciales (`CommercialLeadModel`, `commercial-plans.js`, servicios y repositorios existentes) se mantienen sin cambios. No se crean nuevas colecciones, estados comerciales ni cálculos de frontend |
+
+---
+
+## Cambios realizados durante la revisión R2
+
+| Corrección | Descripción |
+|---|---|
+| **R2-C01** | Se eliminó toda recomendación de crear colección o modelo `platform_audit_logs` / `PlatformAuditLogModel`. Se confirmó que `AuditLogModel` existente con acciones `platform.*` y `metadata.actorType = "platform"` cubre todos los casos. Se documentó que la función `recordAuditLog()` no acepta `null` como primer argumento y se agregó adaptador `recordPlatformAction()` para scripts |
+| **R2-C02** | Se reclasificaron los middlewares empresariales (`authenticate`, `requireAdmin`, `canAccessAllTenants`) de `REUTILIZAR SIN CAMBIOS` a `NO REUTILIZAR`. Se explicó que son específicos del modelo enterprise y no aplican al contexto platform |
+| **R2-C03** | `canAccessAllTenants()` se documentó como **LEGACY** (bypass existente para acceder a todas las organizaciones). Se creó la fase `ADM-LEGACY-ADMIN-01` para su retiro planificado. El Admin Global usará `platformAuth` y `platformRole` en su lugar |
+| **R2-C04** | Se corrigió la ubicación de modelos: `PlatformUserModel` y `PlatformSessionModel` vivirán en `backend/src/data/models.js` (no en `modules/platform/models/`), siguiendo la convención real del código. Se eliminó la excepción a la convención |
+| **R2-C05** | Se agregó `PlatformSessionModel` como modelo requerido para sesiones internas, con campos `userId`, `refreshTokenHash`, `ip`, `userAgent`, `platform`, `deviceName`, `createdAt`, `lastSeenAt`, `expiresAt`, `revokedAt`, `revokedReason`, `isActive`, `mfaVerified`. Sin `tokenHash` (el access token JWT no se persiste). Nombres definitivos a validar contra `SessionModel` durante ADM-SEC-01 |
+| **R2-C06** | Se definió la estrategia JWT con `aud: "manecomb-platform-admin"`, `iss: "manecomb-api"` y secreto `PLATFORM_JWT_SECRET` en variable de entorno. Los tokens incluyen `tokenType: "platform"` para distinción explícita. Se agregó tabla de comparación enterprise vs platform |
+| **R2-C07** | `PortalLayout` se reclasificó de `REUTILIZAR` a `NO REUTILIZAR`. El Admin Global usará `AdminLayout` independiente. `admin-layout.tsx` se actualizó para indicar que NO está basado en `PortalLayout`. Se documentó la desambiguación entre PortalLayout (layout visual) y Portal (app operativa) |
+| **R2-C08** | `apiClient` se reclasificó de `REUTILIZAR` a `REFERENCIA / EXTRAER HELPER COMPARTIDO`. Se prohibió importar `apiClient` desde el frontend admin para evitar taint. La instancia separada `platformApiClient` no comparte interceptors ni configuración con `apiClient` |
+| **R2-C09** | MFA se extrajo de `ADM-SEC-01` y `ADM-HARDEN-01` a una fase independiente `ADM-SEC-MFA-01`. El Admin Global no se considera habilitable en producción sin MFA para `platform_owner` y `platform_admin`. El plan de fases se actualizó: ADM-SEC-01 → ADM-SEC-MFA-01 → ADM-UI-AUTH-01 |
+| **R2-C10** | El plan por fases (sección 35) se reescribió completamente para eliminar superposiciones. Cada fase tiene alcance y entregables no traslapados. Se agregaron `ADM-API-BASE-01` (router y utilities platform) y `ADM-LEGACY-ADMIN-01` (retiro del bypass heredado). Se reorganizó la priorización en 6 grupos secuenciales |
+| **R2-C11** | Se eliminó la recomendación de consumir `GET /health`, `GET /api/health/ready`, `GET /api/metrics` etc. directamente desde el frontend admin. Se definió `GET /api/platform/system` como endpoint protegido y sanitizado que reutiliza internamente `getRuntimeReadiness()` y `getOperationalInsights()` sin exponer secretos ni información sensible |
+| **R2-C12** | Se corrigió la sección 36 (Archivos previstos para ADM-SEC-01): los modelos se declaran en `models.js`, no en archivos separados. Se agregó modificación a `mongo-store.js`. Se eliminaron las referencias a archivos `ventas/` del alcance de ADM-SEC-01 |
+| **R2-C13** | Se validó la firma real de `recordAuditLog(req, payload)`: espera objeto `req` con `req.user.id`, `req.headers['user-agent']`, `req.ip`, `req.app.locals.store`. No acepta `null`. Se documentó el adaptador `recordPlatformAction()` para scripts sin solicitud HTTP. Se eliminó el ejemplo de `recordAuditLog(null, ...)` del aprovisionamiento inicial |
