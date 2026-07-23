@@ -14,7 +14,10 @@ const baseSpacing = {
 
 const baseRadius = {
   xs: 10,
+  xs2: 12,
+  xs3: 14,
   sm: 16,
+  sm2: 18,
   md: 20,
   lg: 28,
   xl: 34,

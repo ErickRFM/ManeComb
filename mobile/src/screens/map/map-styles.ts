@@ -23,7 +23,7 @@ export const mapStyles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 30,
-    borderRadius: 18,
+    borderRadius: AppTheme.radius.sm2,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -37,7 +37,7 @@ export const mapStyles = StyleSheet.create({
   selectorStepBadge: {
     minWidth: 54,
     minHeight: 34,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.xs2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EAF2FF',
@@ -62,7 +62,7 @@ export const mapStyles = StyleSheet.create({
   },
   selectorEditChip: {
     minHeight: 34,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.xs2,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -102,7 +102,7 @@ export const mapStyles = StyleSheet.create({
   bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 8, paddingHorizontal: 14, zIndex: 10 },
   locationNotice: {
     alignSelf: 'center',
-    borderRadius: 18,
+    borderRadius: AppTheme.radius.sm2,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -116,7 +116,7 @@ export const mapStyles = StyleSheet.create({
   locationNoticeTitle: { flexShrink: 1, fontSize: 13, fontWeight: '900', fontFamily: Typography.body, minWidth: 0 },
   locationNoticeText: { flexShrink: 1, fontSize: 11, lineHeight: 15, fontFamily: Typography.body, minWidth: 0 },
   locationRetry: { width: 38, height: 38, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  followCard: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, gap: 8, elevation: 8, shadowOpacity: 0.12, shadowRadius: 10 },
+  followCard: { borderRadius: AppTheme.radius.sm2, borderWidth: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, gap: 8, elevation: 8, shadowOpacity: 0.12, shadowRadius: 10 },
   trackingPanelCard: { overflow: 'hidden' },
   panelGestureArea: { minHeight: 14, alignItems: 'center', justifyContent: 'center', marginTop: -4 },
   panelHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 999, marginBottom: 1 },
@@ -132,7 +132,7 @@ export const mapStyles = StyleSheet.create({
   expandedPanelScroll: { flexGrow: 0 },
   expandedPanelContent: { gap: 8, paddingBottom: 2 },
   metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  metricCard: { width: '48%', minHeight: 66, borderRadius: 12, padding: 9, gap: 2 },
+  metricCard: { width: '48%', minHeight: 66, borderRadius: AppTheme.radius.xs2, padding: 9, gap: 2 },
   metricLabel: { fontSize: 10, fontWeight: '700', fontFamily: Typography.body },
   metricValue: { fontSize: 13, fontWeight: '900', fontFamily: Typography.body },
   detailsButton: {
@@ -153,7 +153,7 @@ export const mapStyles = StyleSheet.create({
   detailLabel: { flex: 1, fontSize: 11, fontWeight: '700', fontFamily: Typography.body, minWidth: 0 },
   detailValue: { flex: 1.4, fontSize: 12, fontWeight: '800', fontFamily: Typography.body, minWidth: 0, textAlign: 'right' },
   alertStrip: {
-    borderRadius: 14,
+    borderRadius: AppTheme.radius.xs3,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -302,7 +302,7 @@ export const mapStyles = StyleSheet.create({
   },
   recoveryPrimaryButton: {
     minHeight: 46,
-    borderRadius: 14,
+    borderRadius: AppTheme.radius.xs3,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -315,7 +315,7 @@ export const mapStyles = StyleSheet.create({
   },
   recoverySecondaryButton: {
     minHeight: 46,
-    borderRadius: 14,
+    borderRadius: AppTheme.radius.xs3,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',

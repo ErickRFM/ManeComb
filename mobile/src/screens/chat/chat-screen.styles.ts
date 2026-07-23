@@ -38,7 +38,7 @@ export function createStyles(
     headerActionButton: {
       width: 44,
       height: 44,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       backgroundColor: theme.colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
@@ -438,7 +438,7 @@ export function createStyles(
     contactActionButton: {
       width: 36,
       height: 36,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -833,7 +833,7 @@ export function createStyles(
     messageBubble: {
       maxWidth: isPhone ? '88%' : '78%',
       minWidth: 0,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       backgroundColor: theme.colors.surfaceAlt,
       paddingHorizontal: 12,
       paddingVertical: 9,

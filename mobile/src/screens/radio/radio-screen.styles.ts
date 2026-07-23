@@ -114,7 +114,7 @@ export function createStyles(
     deviceCompactChip: {
       minHeight: 40,
       maxWidth: isPhone ? 82 : 152,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -142,7 +142,7 @@ export function createStyles(
     settingsPanel: {
       alignSelf: 'stretch',
       width: '100%',
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -180,7 +180,7 @@ export function createStyles(
     deviceChip: {
       paddingHorizontal: 12,
       paddingVertical: 8,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
       backgroundColor: theme.colors.surfaceAlt,
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -205,7 +205,7 @@ export function createStyles(
       backgroundColor: theme.colors.accentSoft,
       width: 34,
       height: 34,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
     },
     directoryPanel: {
       flex: 1,
@@ -232,7 +232,7 @@ export function createStyles(
     },
     searchShell: {
       minHeight: 52,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -249,7 +249,7 @@ export function createStyles(
     },
     quickActionCard: {
       minHeight: 56,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
@@ -297,7 +297,7 @@ export function createStyles(
       lineHeight: 26,
     },
     channelCard: {
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -326,7 +326,7 @@ export function createStyles(
     channelAvatar: {
       width: 38,
       height: 38,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.06)',
@@ -359,7 +359,7 @@ export function createStyles(
     channelActionIcon: {
       width: 32,
       height: 32,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -382,7 +382,7 @@ export function createStyles(
       fontWeight: '800',
     },
     contactRow: {
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -413,7 +413,7 @@ export function createStyles(
     contactActionButton: {
       width: 40,
       height: 40,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.colors.accent,
@@ -477,7 +477,7 @@ export function createStyles(
     },
     operationalBanner: {
       minHeight: 58,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       flexDirection: 'row',
       alignItems: 'center',
@@ -488,7 +488,7 @@ export function createStyles(
     operationalIcon: {
       width: 38,
       height: 38,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
     },

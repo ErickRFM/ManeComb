@@ -5,7 +5,7 @@ import {
 } from '@/src/native/audio';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Typography } from '@/constants/theme';
+import { AppTheme, Typography } from '@/constants/theme';
 import { getAuthHeaderSnapshot, resolveAssetUrl } from '@/src/api/client';
 import { UserAvatar } from '@/src/components/user-avatar';
 import type { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -234,7 +234,7 @@ export function VoiceTransmissionCard({
 
 const styles = StyleSheet.create({
   voiceCard: {
-    borderRadius: 18,
+    borderRadius: AppTheme.radius.sm2,
     borderWidth: 1,
     padding: 12,
     gap: 10,
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
   voicePlayShell: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.xs2,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

@@ -73,7 +73,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     infoTile: {
       backgroundColor: theme.colors.surfaceAlt,
       borderColor: theme.colors.line,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       flex: 1,
       gap: 8,
@@ -84,7 +84,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     infoIcon: {
       alignItems: 'center',
       backgroundColor: theme.colors.accentSoft,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       height: 42,
       justifyContent: 'center',
       width: 42,
@@ -139,7 +139,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     },
     notificationRow: {
       minHeight: 58,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       padding: 10,
       flexDirection: 'row',
@@ -149,7 +149,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     notificationIcon: {
       width: 36,
       height: 36,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -174,7 +174,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
       alignItems: 'center',
       backgroundColor: theme.colors.surfaceAlt,
       borderColor: theme.colors.line,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       flexDirection: 'row',
       gap: 10,
@@ -202,7 +202,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     logoutBtn: {
       alignItems: 'center',
       borderColor: theme.colors.accent,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1.5,
       flexDirection: 'row',
       gap: 10,

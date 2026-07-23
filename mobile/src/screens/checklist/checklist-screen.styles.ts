@@ -101,7 +101,7 @@ export function createStyles(
       gap: 12,
     },
     recordCard: {
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -138,7 +138,7 @@ export function createStyles(
     recordIcon: {
       width: 44,
       height: 44,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -186,7 +186,7 @@ export function createStyles(
     },
     miniAction: {
       minHeight: 36,
-      borderRadius: 12,
+      borderRadius: AppTheme.radius.xs2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -202,7 +202,7 @@ export function createStyles(
     },
     emptyState: {
       minHeight: 170,
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderStyle: 'dashed',
       borderColor: theme.colors.line,
@@ -284,7 +284,7 @@ export function createStyles(
     modalClose: {
       width: 42,
       height: 42,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -300,7 +300,7 @@ export function createStyles(
     },
     routeNameInput: {
       minHeight: 46,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -449,7 +449,7 @@ export function createStyles(
       flexShrink: 1,
     },
     progressCard: {
-      borderRadius: 18,
+      borderRadius: AppTheme.radius.sm2,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -485,7 +485,7 @@ export function createStyles(
     },
     routeAlert: {
       minHeight: 42,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.danger,
       backgroundColor: theme.colors.dangerSoft,
@@ -545,7 +545,7 @@ export function createStyles(
     savedRouteButton: {
       flex: 1,
       minHeight: 42,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -557,7 +557,7 @@ export function createStyles(
     savedRouteDelete: {
       width: 42,
       height: 42,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
@@ -567,7 +567,7 @@ export function createStyles(
     savedRouteEdit: {
       width: 42,
       height: 42,
-      borderRadius: 14,
+      borderRadius: AppTheme.radius.xs3,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
