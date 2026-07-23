@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, Typography, type DesignTone as Tone } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
@@ -13,8 +13,6 @@ import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, Vehicle } from '@/src/types/app';
 import { formatRole } from '@/src/utils/format';
 import { getPresenceStatus } from '@/src/utils/presence';
-
-type Tone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
 
 function roleTone(role: Role): Tone {
   if (role === 'admin') return 'danger';
