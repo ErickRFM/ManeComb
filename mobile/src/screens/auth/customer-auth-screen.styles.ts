@@ -135,7 +135,7 @@ export const styles = StyleSheet.create({
     borderRadius: 6,
   },
   segmentButtonActive: {
-    backgroundColor: '#EA1F23',
+    backgroundColor: '#E31E24',
   },
   segmentText: {
     color: '#333333',
@@ -211,8 +211,8 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxActive: {
-    backgroundColor: '#EA1F23',
-    borderColor: '#EA1F23',
+    backgroundColor: '#E31E24',
+    borderColor: '#E31E24',
   },
   checkboxDot: {
     width: 7,
@@ -227,7 +227,7 @@ export const styles = StyleSheet.create({
     lineHeight: 17,
   },
   recoveryActionText: {
-    color: '#EA1F23',
+    color: '#E31E24',
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '700',
@@ -240,7 +240,7 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#FDE7E8',
     borderWidth: 1,
-    borderColor: '#EA1F23',
+    borderColor: '#E31E24',
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
@@ -261,7 +261,7 @@ export const styles = StyleSheet.create({
   primaryButton: {
     minHeight: 40,
     borderRadius: 7,
-    backgroundColor: '#EA1F23',
+    backgroundColor: '#E31E24',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -292,7 +292,7 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
   },
   legalLink: {
-    color: '#EA1F23',
+    color: '#E31E24',
     fontFamily: Typography.body,
     fontSize: 10,
     fontWeight: '700',

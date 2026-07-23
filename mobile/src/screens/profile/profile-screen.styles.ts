@@ -109,7 +109,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
       backgroundColor: theme.colors.surfaceAlt,
       borderWidth: 1,
       borderColor: theme.colors.line,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       flexDirection: 'row',
       gap: 8,
       padding: 6,

@@ -22,7 +22,7 @@ export function UnitSelector({
       <View style={styles.field}>
         <Text style={styles.fieldLabel}>Unidad asignada</Text>
         <View style={styles.unitPlaceholder}>
-          <ActivityIndicator color="#EA1F23" />
+          <ActivityIndicator color="#E31E24" />
         </View>
       </View>
     );

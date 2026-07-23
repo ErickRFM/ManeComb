@@ -285,7 +285,7 @@ export function createStyles(
       textAlign: 'right',
     },
     quickActionCard: {
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -313,7 +313,7 @@ export function createStyles(
       lineHeight: 16,
     },
     conversationTile: {
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.mode === 'light' ? '#E5EAF1' : 'rgba(159, 176, 202, 0.14)',
       backgroundColor: theme.colors.surface,
@@ -446,7 +446,7 @@ export function createStyles(
       justifyContent: 'center',
     },
     emptyStateCard: {
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -635,7 +635,7 @@ export function createStyles(
     },
     callStarterCard: {
       flex: 1,
-      borderRadius: 20,
+      borderRadius: AppTheme.radius.md,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.08)',
       backgroundColor: theme.colors.accent,
@@ -668,7 +668,7 @@ export function createStyles(
     callTile: {
       flex: 1,
       minHeight: isPhone ? 180 : 196,
-      borderRadius: 20,
+      borderRadius: AppTheme.radius.md,
       overflow: 'hidden',
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -739,7 +739,7 @@ export function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       backgroundColor: theme.colors.accent,
       borderWidth: 1,
       borderColor: theme.colors.accent,
@@ -754,7 +754,7 @@ export function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       backgroundColor: theme.colors.info,
       borderWidth: 1,
       borderColor: theme.colors.info,
@@ -769,7 +769,7 @@ export function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       backgroundColor: theme.colors.danger,
       borderWidth: 1,
       borderColor: theme.colors.danger,
@@ -868,7 +868,7 @@ export function createStyles(
     mediaPreviewShell: {
       position: 'relative',
       overflow: 'hidden',
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       backgroundColor: theme.colors.surfaceAlt,
       ...(Platform.OS === 'web'
         ? {
@@ -885,13 +885,13 @@ export function createStyles(
     messageImage: {
       width: '100%',
       aspectRatio: 1,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       maxHeight: isPhone ? 260 : 320,
     },
     messageVideo: {
       width: '100%',
       aspectRatio: 16 / 9,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       maxHeight: isPhone ? 220 : 280,
     },
     mediaLoadingOverlay: {
@@ -918,7 +918,7 @@ export function createStyles(
     },
     videoUnavailableBox: {
       minHeight: 150,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
@@ -1143,7 +1143,7 @@ export function createStyles(
       minWidth: 0,
       minHeight: 44,
       maxHeight: 92,
-      borderRadius: 20,
+      borderRadius: AppTheme.radius.md,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -1288,7 +1288,7 @@ export function createStyles(
     },
     driverActionRow: {
       minHeight: 68,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,
@@ -1352,7 +1352,7 @@ export function createStyles(
       width: '100%',
       maxWidth: 420,
       alignSelf: 'center',
-      borderRadius: 20,
+      borderRadius: AppTheme.radius.md,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -1421,7 +1421,7 @@ export function createStyles(
       justifyContent: 'center',
       gap: 6,
       paddingVertical: 10,
-      borderRadius: 10,
+      borderRadius: AppTheme.radius.xs,
       backgroundColor: theme.colors.background,
     },
     sheetMediaLabel: {

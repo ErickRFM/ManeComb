@@ -326,7 +326,7 @@ export function createStyles(
     channelAvatar: {
       width: 38,
       height: 38,
-      borderRadius: 13,
+      borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.06)',
@@ -423,7 +423,7 @@ export function createStyles(
     heroCard: {
       flex: 1,
       minWidth: 0,
-      borderRadius: 28,
+      borderRadius: AppTheme.radius.lg,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,

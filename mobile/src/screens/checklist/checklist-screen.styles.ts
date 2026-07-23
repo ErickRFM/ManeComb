@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { Typography } from '@/constants/theme';
+import { AppTheme, Typography } from '@/constants/theme';
 import type { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MANECOMB_ROUTE_COLOR } from './checklist.utils';
 
@@ -37,7 +37,7 @@ export function createStyles(
       lineHeight: isPhone ? 32 : 42,
     },
     filterFrame: {
-      borderRadius: 28,
+      borderRadius: AppTheme.radius.lg,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -358,7 +358,7 @@ export function createStyles(
     miniMapMarkerDestination: {
       width: 32,
       height: 32,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       backgroundColor: MANECOMB_ROUTE_COLOR,
     },
     miniMapMarkerText: {
@@ -430,7 +430,7 @@ export function createStyles(
     },
     routeSummaryItem: {
       flex: 1,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -502,7 +502,7 @@ export function createStyles(
       lineHeight: 17,
     },
     configCard: {
-      borderRadius: 20,
+      borderRadius: AppTheme.radius.md,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
@@ -697,7 +697,7 @@ export function createStyles(
     },
     unitRouteCard: {
       minHeight: 54,
-      borderRadius: 16,
+      borderRadius: AppTheme.radius.sm,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surfaceAlt,

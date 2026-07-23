@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { Typography } from '@/constants/theme';
+import { AppTheme, Typography } from '@/constants/theme';
 
 export const mapStyles = StyleSheet.create({
   safeArea: { flex: 1 },
@@ -276,7 +276,7 @@ export const mapStyles = StyleSheet.create({
   recoveryIcon: {
     width: 62,
     height: 62,
-    borderRadius: 20,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
