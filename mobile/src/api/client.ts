@@ -673,6 +673,41 @@ export async function getDocumentsRequest() {
   return response.data.data;
 }
 
+export type DocumentUploadFile =
+  | Blob
+  | {
+      uri: string;
+      name: string;
+      type: string;
+    };
+
+export async function uploadDriverDocumentRequest(payload: {
+  category: string;
+  expiresAt: string;
+  file: DocumentUploadFile;
+  name: string;
+}) {
+  const formData = new FormData();
+  formData.append('category', payload.category);
+  formData.append('expiresAt', payload.expiresAt);
+  formData.append('name', payload.name);
+  formData.append('file', payload.file as Blob);
+
+  const response = await apiClient.post<{ ok: boolean; data: DocumentItem }>(
+    '/documents',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 45000,
+      _allowRetry: true,
+    } as RetryableRequestConfig
+  );
+
+  return response.data.data;
+}
+
 export function resolveAssetUrl(fileUrl: string | null | undefined) {
   if (!fileUrl) {
     return null;

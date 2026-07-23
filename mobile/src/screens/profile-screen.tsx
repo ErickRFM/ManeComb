@@ -1,8 +1,16 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useMemo, useState } from 'react';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
+import { AppTheme } from '@/constants/theme';
+import {
+  getApiErrorMessage,
+  getDocumentsRequest,
+  resolveAssetUrl,
+  uploadDriverDocumentRequest,
+  type DocumentUploadFile,
+} from '@/src/api/client';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
@@ -10,6 +18,7 @@ import { PresenceBadge } from '@/src/components/presence-indicator';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import * as ImagePicker from '@/src/native/image-picker';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRole } from '@/src/utils/format';
 import { getPresenceStatus } from '@/src/utils/presence';
@@ -19,7 +28,46 @@ import {
 } from '@/src/utils/operational-schedule';
 import { InfoTile } from './profile/components/info-tile';
 import { createStyles } from './profile/profile-screen.styles';
-import { getDocumentPresentation, getDriverPresentation } from './profile/profile.utils';
+import {
+  canReplaceDriverDocument,
+  DEFAULT_DRIVER_DOCUMENT,
+  getDocumentPresentation,
+  getDocumentSectionTitle,
+  getDriverDocumentEmptyMessage,
+  getDriverDocumentPresentation,
+  getDriverPresentation,
+} from './profile/profile.utils';
+import type { DocumentItem } from '@/src/types/app';
+
+async function pickDriverDocument(): Promise<DocumentUploadFile | null> {
+  if (Platform.OS === 'web') {
+    const documentApi = globalThis.document;
+    if (!documentApi?.createElement) return null;
+
+    return await new Promise((resolve) => {
+      const input = documentApi.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/pdf,image/jpeg,image/png,image/webp';
+      input.onchange = () => resolve(input.files?.[0] || null);
+      input.oncancel = () => resolve(null);
+      input.click();
+    });
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    quality: 0.9,
+  });
+  const asset = result.assets[0];
+
+  if (result.canceled || !asset?.uri) return null;
+
+  return {
+    uri: asset.uri,
+    name: asset.fileName || `documento-${Date.now()}.jpg`,
+    type: asset.mimeType || 'image/jpeg',
+  };
+}
 
 export function ProfileScreen() {
   const { width } = useWindowDimensions();
@@ -39,8 +87,18 @@ export function ProfileScreen() {
   );
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [documentExpiresAt, setDocumentExpiresAt] = useState('');
+  const [documentMessage, setDocumentMessage] = useState<string | null>(null);
+  const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
 
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
+
+  useEffect(() => {
+    if (!user) return;
+    getDocumentsRequest()
+      .then((nextDocuments) => useAppStore.setState({ documents: nextDocuments }))
+      .catch(() => undefined);
+  }, [user?.id]);
 
   if (!user) return null;
 
@@ -57,6 +115,37 @@ export function ProfileScreen() {
       (document.ownerType === 'driver' && document.ownerId === driverId)
       || (document.ownerType === 'vehicle' && Boolean(vehicleId) && document.ownerId === vehicleId)
     );
+  const ownDocuments = getDriverDocuments(user.id, user.vehicleId);
+  const handleDriverDocumentUpload = async (document?: DocumentItem) => {
+    const expiresAt = new Date(documentExpiresAt);
+    if (!documentExpiresAt || Number.isNaN(expiresAt.getTime())) {
+      setDocumentMessage('Ingresa la vigencia con formato AAAA-MM-DD.');
+      return;
+    }
+
+    const file = await pickDriverDocument();
+    if (!file) return;
+
+    setDocumentMessage(null);
+    setUploadingDocumentId(document?.id || 'new');
+    try {
+      await uploadDriverDocumentRequest({
+        category: document?.category || DEFAULT_DRIVER_DOCUMENT.category,
+        expiresAt: expiresAt.toISOString(),
+        file,
+        name: document?.name || DEFAULT_DRIVER_DOCUMENT.name,
+      });
+      const nextDocuments = await getDocumentsRequest();
+      useAppStore.setState({ documents: nextDocuments });
+      setDocumentExpiresAt('');
+      setDocumentMessage('Documento enviado para revisión.');
+    } catch (error) {
+      setDocumentMessage(getApiErrorMessage(error, 'No fue posible subir el documento.'));
+    } finally {
+      setUploadingDocumentId(null);
+    }
+  };
+
   return (
     <AppShell
       scroll
@@ -98,10 +187,83 @@ export function ProfileScreen() {
         <View style={styles.sideColumn}>
           <AppCard>
             <View style={styles.pillsRow}>
-              <Text style={styles.cardTitle}>Estado documental</Text>
-              {drivers.length ? <StatusPill label={`${drivers.length} conductores`} tone="info" /> : null}
+              <Text style={styles.cardTitle}>{getDocumentSectionTitle(user.role)}</Text>
+              {user.role !== 'driver' && drivers.length ? <StatusPill label={`${drivers.length} conductores`} tone="info" /> : null}
             </View>
-            {drivers.length ? (
+            {user.role === 'driver' ? (
+              <View style={styles.notificationList}>
+                {getDriverDocumentEmptyMessage(ownDocuments) ? (
+                  <Text style={styles.emptyNotifications}>{getDriverDocumentEmptyMessage(ownDocuments)}</Text>
+                ) : null}
+                {ownDocuments.map((document) => {
+                  const presentation = getDriverDocumentPresentation(document);
+                  const color = presentation.tone === 'positive'
+                    ? theme.colors.success
+                    : presentation.tone === 'danger' ? theme.colors.danger : theme.colors.warning;
+                  const documentUrl = resolveAssetUrl(document.fileUrl);
+                  const canReplace = canReplaceDriverDocument(document);
+
+                  return (
+                    <View key={document.id} style={styles.driverDocumentBlock}>
+                      <View style={styles.driverRow}>
+                        <MaterialCommunityIcons name={presentation.icon} size={20} color={color} />
+                        <View style={styles.driverCopy}>
+                          <Text style={styles.notificationTitle}>{document.name}</Text>
+                          <Text style={styles.notificationBody}>{document.category} · {document.status}</Text>
+                        </View>
+                        <StatusPill label={presentation.label} tone={presentation.tone} />
+                      </View>
+                      {document.reviewStatus === 'rejected' && document.reviewNotes ? (
+                        <Text style={styles.documentReviewNote}>{document.reviewNotes}</Text>
+                      ) : null}
+                      {documentUrl || canReplace ? (
+                        <View style={styles.documentActions}>
+                          {documentUrl ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => Linking.openURL(documentUrl).catch(() => setDocumentMessage('No fue posible abrir el archivo.'))}
+                              style={styles.documentActionButton}>
+                              <Text style={styles.documentActionText}>Ver archivo</Text>
+                            </Pressable>
+                          ) : null}
+                          {canReplace ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              disabled={Boolean(uploadingDocumentId)}
+                              onPress={() => handleDriverDocumentUpload(document)}
+                              style={styles.documentActionButton}>
+                              {uploadingDocumentId === document.id
+                                ? <ActivityIndicator size="small" color={theme.colors.accent} />
+                                : <Text style={styles.documentActionText}>Reemplazar</Text>}
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+                <TextInput
+                  accessibilityLabel="Fecha de vencimiento del documento"
+                  value={documentExpiresAt}
+                  onChangeText={setDocumentExpiresAt}
+                  placeholder="Vigencia AAAA-MM-DD"
+                  placeholderTextColor={theme.colors.muted}
+                  style={styles.documentExpiryInput}
+                />
+                {!ownDocuments.length ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={Boolean(uploadingDocumentId)}
+                    onPress={() => handleDriverDocumentUpload()}
+                    style={styles.documentUploadButton}>
+                    {uploadingDocumentId === 'new'
+                      ? <ActivityIndicator size="small" color={AppTheme.colors.text} />
+                      : <Text style={styles.documentUploadText}>Subir documento</Text>}
+                  </Pressable>
+                ) : null}
+                {documentMessage ? <Text style={styles.documentMessage}>{documentMessage}</Text> : null}
+              </View>
+            ) : drivers.length ? (
               <View style={styles.notificationList}>
                 {drivers.map((driver) => {
                   const vehicle = vehicles.find((entry) => entry.id === driver.vehicleId);

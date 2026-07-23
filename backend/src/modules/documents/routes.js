@@ -34,6 +34,23 @@ const upload = multer({
   }
 });
 
+function receiveDocumentFile(req, res, next) {
+  upload.single("file")(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    const tooLarge = error.code === "LIMIT_FILE_SIZE";
+    res.status(tooLarge ? 413 : 415).json({
+      ok: false,
+      message: tooLarge
+        ? "El archivo supera el limite de 15 MB"
+        : "Solo se permiten archivos PDF, JPG, PNG o WEBP"
+    });
+  });
+}
+
 function canAccessDocument(user, document) {
   if (!canAccessTenantResource(user, document)) {
     return false;
@@ -47,6 +64,28 @@ function canAccessDocument(user, document) {
     (document.ownerType === "driver" && document.ownerId === user.id) ||
     (document.ownerType === "vehicle" && document.ownerId === user.vehicleId)
   );
+}
+
+function resolveUploadOwner(user, body = {}) {
+  if (user?.role === "driver") {
+    return {
+      ownerType: "driver",
+      ownerId: String(user.id || "").trim()
+    };
+  }
+
+  const requestedOwnerType = String(body.ownerType || "").trim().toLowerCase();
+  const ownerType =
+    requestedOwnerType === "vehicle" && (body.ownerId || user?.vehicleId)
+      ? "vehicle"
+      : "driver";
+
+  return {
+    ownerType,
+    ownerId: String(
+      body.ownerId || (ownerType === "vehicle" ? user?.vehicleId : user?.id) || ""
+    ).trim()
+  };
 }
 
 async function getAccessibleOwner(req, ownerType, ownerId) {
@@ -130,7 +169,7 @@ router.get("/admin", authenticate, requireOrganization, requireOperationalAccess
   });
 });
 
-router.post("/", authenticate, requireOrganization, requireOperationalAccess, uploadLimiter, upload.single("file"), async (req, res, next) => {
+router.post("/", authenticate, requireOrganization, requireOperationalAccess, uploadLimiter, receiveDocumentFile, async (req, res, next) => {
   const storedFile = req.file;
 
   try {
@@ -141,14 +180,7 @@ router.post("/", authenticate, requireOrganization, requireOperationalAccess, up
       });
     }
 
-    const requestedOwnerType = String(req.body.ownerType || "").trim().toLowerCase();
-    const ownerType =
-      requestedOwnerType === "vehicle" && (req.body.ownerId || req.user.vehicleId)
-        ? "vehicle"
-        : "driver";
-    const ownerId = String(
-      req.body.ownerId || (ownerType === "vehicle" ? req.user.vehicleId : req.user.id) || ""
-    ).trim();
+    const { ownerId, ownerType } = resolveUploadOwner(req.user, req.body);
 
     if (!ownerId) {
       return res.status(400).json({
@@ -242,3 +274,5 @@ router.patch("/:documentId/review", authenticate, requireOrganization, requireOp
 });
 
 module.exports = router;
+module.exports.canAccessDocument = canAccessDocument;
+module.exports.resolveUploadOwner = resolveUploadOwner;
