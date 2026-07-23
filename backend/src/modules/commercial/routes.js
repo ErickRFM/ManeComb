@@ -12,7 +12,11 @@ const {
   isAutomaticPaymentEnabled,
   isMercadoPagoWebhookSignatureValid
 } = require("../../services/commercial-payment");
-const { buildCommercialActivationUpdate } = require("../../services/commercial-activation");
+const {
+  addDaysToIso,
+  buildCommercialActivationUpdate,
+  evaluateTrialEligibility
+} = require("../../services/commercial-activation");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { enrichCommercialOrder } = require("../../services/commercial-profile");
 const { buildSubscription } = require("../../services/portal-account");
@@ -315,6 +319,7 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
   });
   const workerId = `${req.traceId || randomUUID()}:checkout`;
   let claim;
+  let trialPeriod = null;
 
   try {
     claim = await req.app.locals.store.claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId });
@@ -343,6 +348,41 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
         return res.status(503).json({ ok: false, code: "provider_result_unknown", message: "El resultado del proveedor requiere conciliacion; no se creara otra preferencia" });
       }
       return res.status(409).json({ ok: false, code: "checkout_permanent_failure", message: "La intencion de checkout no puede reintentarse" });
+    }
+
+    if (requestTrial) {
+      const now = new Date();
+      const existingOrders = await req.app.locals.store.listCommercialOrdersForUser(req.user);
+      const eligibility = evaluateTrialEligibility({
+        organizationId: req.user.organizationId,
+        existingOrders,
+        requestedPlan: plan,
+        now
+      });
+      if (!eligibility.eligible) {
+        const eligibilityError = new Error(eligibility.code);
+        eligibilityError.code = eligibility.code;
+        eligibilityError.statusCode = 409;
+        eligibilityError.publicMessage = "La prueba gratuita no esta disponible para esta organizacion";
+        throw eligibilityError;
+      }
+      const trialStartedAt = now.toISOString();
+      const trialEndsAt = addDaysToIso(trialStartedAt, eligibility.durationDays);
+      const entitlement = await req.app.locals.store.claimTrialEntitlement({
+        organizationId: req.user.organizationId,
+        orderId: claim.reservation.orderId,
+        planId: plan.id,
+        trialStartedAt,
+        trialEndsAt
+      });
+      if (!entitlement.claimed) {
+        const consumedError = new Error(entitlement.reason);
+        consumedError.code = "trial_already_consumed";
+        consumedError.statusCode = 409;
+        consumedError.publicMessage = "La prueba gratuita ya fue utilizada por esta organizacion";
+        throw consumedError;
+      }
+      trialPeriod = entitlement.entitlement;
     }
 
     let order = await req.app.locals.store.getCommercialOrderById(claim.reservation.orderId);
@@ -375,7 +415,7 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
           : true,
       needsInvoice: typeof req.body.needsInvoice === "boolean" ? req.body.needsInvoice : true,
       requestTrial,
-      trialDays: requestTrial ? 7 : 0,
+      trialDays: requestTrial ? Number(plan.trialDays) : 0,
       selectedAddOns,
       notes: String(req.body.notes || "").trim(),
       source: "landing-web"
@@ -389,6 +429,14 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
       paymentStatus: checkout.paymentStatus,
       paymentApprovedAt: checkout.approvedAt
     });
+    if (requestTrial && trialPeriod) {
+      orderWithCheckout = await req.app.locals.store.updateCommercialOrder(order.id, {
+        trialDays: plan.trialDays,
+        trialStatus: "active",
+        trialStartedAt: trialPeriod.trialStartedAt,
+        trialEndsAt: trialPeriod.trialEndsAt
+      });
+    }
 
     if (checkout.paymentStatus === "trial_active" || checkout.paymentStatus === "paid_test") {
       orderWithCheckout = await req.app.locals.store.updateCommercialOrder(
@@ -479,7 +527,7 @@ router.post("/checkout", authenticate, requirePortalAccess, requirePermission("c
     error.statusCode = error.providerResultUnknown
       ? 503
       : (error.statusCode || (error.message === "Plan comercial no encontrado" ? 404 : 400));
-    error.publicMessage = "No fue posible registrar la compra";
+    error.publicMessage = error.publicMessage || "No fue posible registrar la compra";
     return next(error);
   }
 });

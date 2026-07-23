@@ -1,6 +1,7 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
 const { getUserOrganizationId, toPlain } = require("../serializers");
 const { evaluatePaymentTransition } = require("../../services/commercial-payment");
+const { randomUUID } = require("crypto");
 const { buildCheckoutReservation, CHECKOUT_LEASE_DURATION_MS } = require("../../services/checkout-idempotency");
 
 const PAYMENT_METHODS = [
@@ -15,14 +16,39 @@ const PAYMENT_METHODS = [
   "claimCheckoutCreation",
   "completeCheckoutCreation",
   "failCheckoutCreation",
+  "claimTrialEntitlement",
   "updateCommercialOrder"
 ];
 
 class PaymentRepository extends StoreDomainRepository {
-  constructor(store, { CommercialLeadModel, CheckoutIdempotencyModel } = {}) {
+  constructor(store, { CommercialLeadModel, CheckoutIdempotencyModel, TrialEntitlementModel } = {}) {
     super(store, PAYMENT_METHODS);
     this.CommercialLeadModel = CommercialLeadModel || null;
     this.CheckoutIdempotencyModel = CheckoutIdempotencyModel || null;
+    this.TrialEntitlementModel = TrialEntitlementModel || null;
+  }
+
+  async claimTrialEntitlement({ organizationId, orderId, planId, trialStartedAt, trialEndsAt }) {
+    if (!this.TrialEntitlementModel) return this.store.claimTrialEntitlement({ organizationId, orderId, planId, trialStartedAt, trialEndsAt });
+    try {
+      const entitlement = await this.TrialEntitlementModel.findOneAndUpdate(
+        { organizationId },
+        {
+          $setOnInsert: {
+            _id: randomUUID(), organizationId, orderId, planId, status: "active",
+            trialStartedAt, trialEndsAt, consumedAt: trialStartedAt, createdAt: trialStartedAt
+          }
+        },
+        { upsert: true, returnDocument: "after" }
+      ).lean();
+      const serialized = this.serialize(entitlement);
+      return { claimed: serialized.orderId === orderId, reason: serialized.orderId === orderId ? "claimed" : "trial_already_consumed", entitlement: serialized };
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const entitlement = await this.TrialEntitlementModel.findOne({ organizationId }).lean();
+      const serialized = this.serialize(entitlement);
+      return { claimed: serialized?.orderId === orderId, reason: serialized?.orderId === orderId ? "claimed" : "trial_already_consumed", entitlement: serialized };
+    }
   }
 
   async claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId, now = new Date() }) {

@@ -143,10 +143,13 @@ router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePe
     });
   }
 
+  const cancelledAt = new Date().toISOString();
   const updatedOrder = await req.app.locals.store.updateCommercialOrder(activeOrder.id, {
     activationStatus: "cancelled",
     status: "cancelled",
-    cancelAt: new Date().toISOString(),
+    cancelAt: cancelledAt,
+    cancelAtPeriodEnd: false,
+    cancelledAt,
     activationNotes: String(req.body?.reason || "").trim()
   });
   const subscription = buildSubscription(updatedOrder);

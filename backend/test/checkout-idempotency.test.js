@@ -48,6 +48,17 @@ async function main() {
   const otherClaim = store.claimCheckoutCreation({ scope: otherScope, keyHash: buildCheckoutKeyHash(otherScope, "checkout-valid-key-0001"), requestFingerprint: buildCheckoutRequestFingerprint({ ...intent, userId: "user-2", organizationId: "org-2" }), workerId: "worker-other" });
   assert.equal(otherClaim.claimed, true);
 
+  const trialStart = "2026-01-01T00:00:00.000Z";
+  const trialEnd = "2026-01-08T00:00:00.000Z";
+  const trialFirst = store.claimTrialEntitlement({ organizationId: "org-trial", orderId: "trial-order-1", planId: "starter-2", trialStartedAt: trialStart, trialEndsAt: trialEnd });
+  const trialReplay = store.claimTrialEntitlement({ organizationId: "org-trial", orderId: "trial-order-1", planId: "starter-2", trialStartedAt: trialStart, trialEndsAt: trialEnd });
+  const trialConflict = store.claimTrialEntitlement({ organizationId: "org-trial", orderId: "trial-order-2", planId: "starter-2", trialStartedAt: trialStart, trialEndsAt: trialEnd });
+  assert.equal(trialFirst.claimed, true);
+  assert.equal(trialReplay.claimed, true);
+  assert.equal(trialReplay.entitlement.trialEndsAt, trialEnd);
+  assert.equal(trialConflict.claimed, false);
+  assert.equal(trialConflict.reason, "trial_already_consumed");
+
   console.log("checkout idempotency tests passed");
 }
 

@@ -38,6 +38,7 @@ function createEmbeddedStore() {
   state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
   state.checkoutIdempotency = Array.isArray(state.checkoutIdempotency) ? state.checkoutIdempotency : [];
+  state.trialEntitlements = Array.isArray(state.trialEntitlements) ? state.trialEntitlements : [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -1912,6 +1913,12 @@ function createEmbeddedStore() {
       paymentProviderReference: String(payload.paymentProviderReference || "").trim(),
       paymentStatus: "pending",
       paymentApprovedAt: null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      paidUntil: null,
+      nextBillingAt: null,
+      cancelAtPeriodEnd: false,
+      cancelledAt: null,
       status: "new",
       source: String(payload.source || "landing-web").trim() || "landing-web",
       needsOnboarding:
@@ -1990,6 +1997,14 @@ function createEmbeddedStore() {
       lastErrorCode: null
     });
     return { claimed: true, reason, reservation: clone(current) };
+  }
+
+  function claimTrialEntitlement({ organizationId, orderId, planId, trialStartedAt, trialEndsAt }) {
+    const current = state.trialEntitlements.find((entry) => entry.organizationId === organizationId);
+    if (current) return { claimed: current.orderId === orderId, reason: current.orderId === orderId ? "claimed" : "trial_already_consumed", entitlement: clone(current) };
+    const entitlement = { id: randomUUID(), organizationId, orderId, planId, status: "active", trialStartedAt, trialEndsAt, consumedAt: trialStartedAt, createdAt: trialStartedAt };
+    state.trialEntitlements.push(entitlement);
+    return { claimed: true, reason: "claimed", entitlement: clone(entitlement) };
   }
 
   function completeCheckoutCreation({ reservationId, workerId, safeResponse }) {
@@ -3079,6 +3094,7 @@ function createEmbeddedStore() {
     claimPaymentEffects,
     completePaymentEffects,
     claimCheckoutCreation,
+    claimTrialEntitlement,
     completeCheckoutCreation,
     failCheckoutCreation,
     createNotification,

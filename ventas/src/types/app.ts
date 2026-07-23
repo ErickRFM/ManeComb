@@ -410,8 +410,11 @@ export type PortalSubscription = {
   currency?: string;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
+  nextBillingAt?: string | null;
   expiresAt?: string | null;
   cancelAt?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  cancelledAt?: string | null;
 };
 
 export type PortalActivationKeyDriver = {

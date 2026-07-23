@@ -26,6 +26,7 @@ const {
   RouteSessionModel,
   RouteSessionPositionModel,
   TripLogModel,
+  TrialEntitlementModel,
   UserModel,
   VehicleModel
 } = require("./models");
@@ -3711,6 +3712,7 @@ async function createMongoStore() {
       CommercialLeadModel,
       DocumentModel,
       RtcSessionModel,
+      TrialEntitlementModel,
       UserModel
     }
   });

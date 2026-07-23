@@ -16,8 +16,45 @@ function addDaysToIso(baseValue, days) {
     return null;
   }
 
-  safeDate.setDate(safeDate.getDate() + Math.max(1, Number(days) || DEFAULT_TRIAL_DAYS));
+  safeDate.setUTCDate(safeDate.getUTCDate() + Math.max(1, Number(days) || DEFAULT_TRIAL_DAYS));
   return safeDate.toISOString();
+}
+
+function addUtcCalendarMonths(value, months = 1) {
+  const source = new Date(value);
+  if (Number.isNaN(source.getTime())) return null;
+  const target = new Date(source.getTime());
+  const originalDay = source.getUTCDate();
+  target.setUTCDate(1);
+  target.setUTCMonth(target.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(originalDay, lastDay));
+  return target.toISOString();
+}
+
+function buildInitialSubscriptionPeriod({ activatedAt }) {
+  const currentPeriodStart = toIsoDate(activatedAt);
+  if (!currentPeriodStart) return null;
+  const currentPeriodEnd = addUtcCalendarMonths(currentPeriodStart, 1);
+  return {
+    currentPeriodStart,
+    currentPeriodEnd,
+    paidUntil: currentPeriodEnd,
+    nextBillingAt: currentPeriodEnd
+  };
+}
+
+function evaluateTrialEligibility({ organizationId, existingOrders = [], requestedPlan, now = new Date() }) {
+  if (!String(organizationId || "").trim()) return { eligible: false, code: "trial_organization_required" };
+  if (!requestedPlan?.trialEligible) return { eligible: false, code: "trial_plan_not_eligible" };
+  if (existingOrders.some((order) => ["paid", "paid_test"].includes(String(order.paymentStatus || "").toLowerCase()) || String(order.activationStatus || "").toLowerCase() === "active" && !order.requestTrial)) {
+    return { eligible: false, code: "paid_subscription_exists" };
+  }
+  if (existingOrders.some((order) => Boolean(order.requestTrial) || ["active", "consumed", "expired"].includes(String(order.trialStatus || "").toLowerCase()))) {
+    const active = existingOrders.some((order) => String(order.trialStatus || "").toLowerCase() === "active" && new Date(order.trialEndsAt || 0).getTime() > new Date(now).getTime());
+    return { eligible: false, code: active ? "trial_already_active" : "trial_already_consumed" };
+  }
+  return { eligible: true, code: "eligible", durationDays: Math.max(1, Number(requestedPlan.trialDays) || DEFAULT_TRIAL_DAYS), planId: requestedPlan.id };
 }
 
 function buildStarterFleet(order) {
@@ -83,10 +120,10 @@ function buildLaunchSummary(order, { isTrial = false } = {}) {
   return `Cuenta activa con onboarding ${order?.needsOnboarding ? "guiado" : "self-service"} y alta inicial para ${fleetCount} unidades.${radioSummary}`;
 }
 
-function buildCommercialActivationUpdate(order, mode = "active") {
-  const nowIso = new Date().toISOString();
+function buildCommercialActivationUpdate(order, mode = "active", { now = new Date() } = {}) {
+  const nowIso = toIsoDate(now);
   const existingTrialStart = toIsoDate(order?.trialStartedAt);
-  const isTrial = mode === "trial" || Boolean(order?.requestTrial);
+  const isTrial = mode === "trial";
   const trialDays = isTrial
     ? Math.max(1, Number(order?.trialDays) || DEFAULT_TRIAL_DAYS)
     : Math.max(0, Number(order?.trialDays) || 0);
@@ -94,12 +131,25 @@ function buildCommercialActivationUpdate(order, mode = "active") {
   const activatedAt = activationStatus === "active" ? toIsoDate(order?.activatedAt) || nowIso : null;
   const trialStartedAt = isTrial ? existingTrialStart || activatedAt || nowIso : null;
 
+  const existingPaidPeriod = order?.currentPeriodStart && order?.currentPeriodEnd
+    ? {
+        currentPeriodStart: toIsoDate(order.currentPeriodStart),
+        currentPeriodEnd: toIsoDate(order.currentPeriodEnd),
+        paidUntil: toIsoDate(order.paidUntil || order.currentPeriodEnd),
+        nextBillingAt: toIsoDate(order.nextBillingAt || order.currentPeriodEnd)
+      }
+    : null;
+  const paidPeriod = !isTrial && activationStatus === "active"
+    ? existingPaidPeriod || buildInitialSubscriptionPeriod({ activatedAt })
+    : null;
+
   return {
     requestTrial: isTrial,
     trialDays,
     trialStatus: isTrial ? (activationStatus === "active" ? "active" : "scheduled") : "not_requested",
     trialStartedAt,
-    trialEndsAt: isTrial ? addDaysToIso(trialStartedAt || nowIso, trialDays) : null,
+    trialEndsAt: isTrial ? toIsoDate(order?.trialEndsAt) || addDaysToIso(trialStartedAt || nowIso, trialDays) : toIsoDate(order?.trialEndsAt),
+    ...(paidPeriod || {}),
     activationStatus,
     activationStartedAt: toIsoDate(order?.activationStartedAt) || nowIso,
     activatedAt,
@@ -131,5 +181,9 @@ function buildCommercialActivationUpdate(order, mode = "active") {
 
 module.exports = {
   DEFAULT_TRIAL_DAYS,
-  buildCommercialActivationUpdate
+  addDaysToIso,
+  addUtcCalendarMonths,
+  buildCommercialActivationUpdate,
+  buildInitialSubscriptionPeriod,
+  evaluateTrialEligibility
 };

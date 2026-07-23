@@ -327,6 +327,26 @@ async function createCheckout(context, owner, idempotencyKey = `mp-checkout-${Da
   });
 }
 
+async function createTrialCheckout(context, owner, idempotencyKey) {
+  return await requestJson(`${context.url}/commercial/checkout`, {
+    body: JSON.stringify({
+      companyName: owner.companyName,
+      contactName: "MP Owner",
+      email: owner.email,
+      paymentMethod: "trial",
+      phone: "+52 55 2000 0000",
+      planId: "starter-2",
+      requestTrial: true,
+      selectedAddOns: []
+    }),
+    headers: {
+      Authorization: `Bearer ${owner.token}`,
+      "Idempotency-Key": idempotencyKey
+    },
+    method: "POST"
+  });
+}
+
 function loadPaymentService() {
   clearBackendRequireCache();
   return require("../src/services/commercial-payment");
@@ -1208,6 +1228,49 @@ async function testCheckoutCreationIdempotency() {
   console.log("ok - checkout usa una orden y una preferencia por clave e intencion");
 }
 
+async function testTrialEligibilityAndUniqueConsumption() {
+  await withPaymentEnv(
+    { PAYMENT_PROVIDER: "test" },
+    async () => {
+      const context = await createTestServer();
+      try {
+        const owner = await registerOwner(context, "trial-eligibility");
+        const key = "trial-eligibility-stable-key-0001";
+        const first = await createTrialCheckout(context, owner, key);
+        const replay = await createTrialCheckout(context, owner, key);
+
+        assert.equal(first.status, 201);
+        assert.equal(replay.status, 201);
+        assert.equal(replay.payload.data.id, first.payload.data.id);
+        assert.equal(replay.payload.data.trialStartedAt, first.payload.data.trialStartedAt);
+        assert.equal(replay.payload.data.trialEndsAt, first.payload.data.trialEndsAt);
+
+        const secondKey = await createTrialCheckout(context, owner, "trial-eligibility-second-key-0001");
+        assert.equal(secondKey.status, 409);
+
+        const concurrentOwner = await registerOwner(context, "trial-concurrent");
+        const concurrent = await Promise.all([
+          createTrialCheckout(context, concurrentOwner, "trial-concurrent-key-0001"),
+          createTrialCheckout(context, concurrentOwner, "trial-concurrent-key-0002")
+        ]);
+        assert.deepEqual(concurrent.map((result) => result.status).sort(), [201, 409]);
+
+        const concurrentOrders = await context.store.listCommercialOrdersForUser({ email: concurrentOwner.email });
+        assert.equal(concurrentOrders.filter((order) => order.requestTrial).length, 1);
+
+        const paidOwner = await registerOwner(context, "trial-paid-block");
+        const paid = await createCheckout(context, paidOwner, "trial-paid-checkout-key-0001");
+        assert.equal(paid.status, 201);
+        const trialAfterPaid = await createTrialCheckout(context, paidOwner, "trial-after-paid-key-0001");
+        assert.equal(trialAfterPaid.status, 409);
+      } finally {
+        await context.close();
+      }
+    }
+  );
+  console.log("ok - trial es unico por organizacion, idempotente y bloqueado tras pago");
+}
+
 async function testUnknownPreferenceResultDoesNotRetryBlindly() {
   await withPaymentEnv(
     { MERCADO_PAGO_ACCESS_TOKEN: "TEST-checkout-timeout", MERCADO_PAGO_ENV: "sandbox", MERCADO_PAGO_PUBLIC_KEY: "TEST-checkout-timeout-public" },
@@ -1258,6 +1321,7 @@ async function main() {
   await testPendingWebhookCanAdvanceToApproved();
   await testConcurrentPaymentAssociationHasSingleWinner();
   await testCheckoutCreationIdempotency();
+  await testTrialEligibilityAndUniqueConsumption();
   await testUnknownPreferenceResultDoesNotRetryBlindly();
 }
 

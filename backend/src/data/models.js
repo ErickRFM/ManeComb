@@ -746,6 +746,9 @@ const commercialLeadSchema = new mongoose.Schema(
     currentPeriodStart: { type: Date, default: null },
     currentPeriodEnd: { type: Date, default: null },
     paidUntil: { type: Date, default: null },
+    nextBillingAt: { type: Date, default: null },
+    cancelAtPeriodEnd: { type: Boolean, default: false },
+    cancelledAt: { type: Date, default: null },
     status: { type: String, default: "new" },
     source: { type: String, default: "landing-web" },
     needsOnboarding: { type: Boolean, default: true },
@@ -811,6 +814,23 @@ const checkoutIdempotencySchema = new mongoose.Schema(
 
 checkoutIdempotencySchema.index({ scope: 1, keyHash: 1 }, { unique: true });
 checkoutIdempotencySchema.index({ status: 1, leaseUntil: 1 });
+
+const trialEntitlementSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, required: true },
+    orderId: { type: String, required: true },
+    planId: { type: String, required: true },
+    status: { type: String, default: "active" },
+    trialStartedAt: { type: Date, required: true },
+    trialEndsAt: { type: Date, required: true },
+    consumedAt: { type: Date, required: true },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { collection: "trial_entitlements", versionKey: false }
+);
+
+trialEntitlementSchema.index({ organizationId: 1 }, { unique: true });
 
 const activationKeySchema = new mongoose.Schema(
   {
@@ -955,6 +975,7 @@ module.exports = {
   RouteSessionModel: getModel("RouteSession", routeSessionSchema),
   RouteSessionPositionModel: getModel("RouteSessionPosition", routeSessionPositionSchema),
   TripLogModel: getModel("TripLog", tripLogSchema),
+  TrialEntitlementModel: getModel("TrialEntitlement", trialEntitlementSchema),
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),
   VehicleModel: getModel("Vehicle", vehicleSchema),

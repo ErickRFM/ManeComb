@@ -159,7 +159,7 @@ export function PortalPlanScreen() {
         visible={cancelOpen}
         destructive
         title="Cancelar suscripción"
-        description={`La cancelación será efectiva al final del periodo pagado (${subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString('es-MX') : 'por definir'}). Hasta entonces, la cuenta seguirá activa.`}
+        description="La cancelación será efectiva de inmediato y el acceso operativo dejará de estar activo. Esta acción conserva el historial de la cuenta."
         confirmLabel={isSubmitting ? 'Cancelando...' : 'Cancelar suscripción'}
         processing={isSubmitting}
         onCancel={() => setCancelOpen(false)}
@@ -172,5 +172,4 @@ export function PortalPlanScreen() {
     </PortalLayout>
   );
 }
-
 

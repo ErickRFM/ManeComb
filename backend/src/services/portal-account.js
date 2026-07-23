@@ -32,7 +32,7 @@ function getActivationKeyStatus(activationKey) {
   return status;
 }
 
-function getSubscriptionStatus(order) {
+function deriveSubscriptionStatus(order, { now = new Date() } = {}) {
   if (!order) {
     return "inactive";
   }
@@ -41,8 +41,9 @@ function getSubscriptionStatus(order) {
   const paymentStatus = String(order.paymentStatus || "").trim().toLowerCase();
   const orderStatus = String(order.status || "").trim().toLowerCase();
   const declaredStatuses = new Set([activationStatus, paymentStatus, orderStatus].filter(Boolean));
+  const nowTime = new Date(now).getTime();
 
-  if (declaredStatuses.has("cancelled") || declaredStatuses.has("canceled")) {
+  if (order.cancelledAt || declaredStatuses.has("cancelled") || declaredStatuses.has("canceled")) {
     return "cancelled";
   }
 
@@ -56,30 +57,35 @@ function getSubscriptionStatus(order) {
     return paymentStatus;
   }
 
-  if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
-    return "active";
+  if (paymentStatus === "trial_active" || order.requestTrial || String(order.trialStatus || "").toLowerCase() === "active") {
+    const trialEnd = new Date(order.trialEndsAt || 0).getTime();
+    return trialEnd && nowTime >= trialEnd ? "expired" : "trial";
   }
 
-  if (paymentStatus === "trial_active") {
-    return "trial";
+  if (activationStatus === "active" || paymentStatus === "paid" || paymentStatus === "paid_test") {
+    const periodEnd = new Date(order.currentPeriodEnd || order.paidUntil || 0).getTime();
+    return periodEnd && nowTime >= periodEnd ? "expired" : "active";
   }
 
   return paymentStatus || activationStatus || "pending";
 }
 
-function pickActiveOrder(orders = []) {
+function pickActiveOrder(orders = [], { now = new Date() } = {}) {
   const sorted = [...orders].sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
-
-  return (
-    sorted.find((order) => order.activationStatus === "active") ||
-    sorted.find((order) => ["paid", "paid_test", "trial_active"].includes(order.paymentStatus)) ||
-    sorted.find((order) => order.status === "active" || order.status === "paid") ||
-    sorted[0] ||
-    null
-  );
+  const score = (order) => {
+    const status = deriveSubscriptionStatus(order, { now });
+    const paid = ["paid", "paid_test"].includes(String(order.paymentStatus || "").toLowerCase());
+    if (status === "active" && paid) return 60;
+    if (status === "trial") return 50;
+    if (["pending", "pending_payment", "pending_manual_confirmation"].includes(status)) return 30;
+    if (status === "past_due") return 20;
+    if (["cancelled", "expired"].includes(status)) return 10;
+    return 0;
+  };
+  return sorted.sort((left, right) => score(right) - score(left))[0] || null;
 }
 
-function buildSubscription(order) {
+function buildSubscription(order, { now = new Date() } = {}) {
   if (!order) {
     return {
       id: null,
@@ -95,8 +101,11 @@ function buildSubscription(order) {
       currency: "MXN",
       currentPeriodStart: null,
       currentPeriodEnd: null,
+      nextBillingAt: null,
       expiresAt: null,
-      cancelAt: null
+      cancelAt: null,
+      cancelAtPeriodEnd: false,
+      cancelledAt: null
     };
   }
 
@@ -104,15 +113,13 @@ function buildSubscription(order) {
   const activeUnits = Array.isArray(order.starterFleet)
     ? order.starterFleet.filter((entry) => entry.status === "active").length
     : 0;
-  const sourceStatus = getSubscriptionStatus(order);
+  const sourceStatus = deriveSubscriptionStatus(order, { now });
   const expiresAt = sourceStatus === "trial"
     ? toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil)
     : toIso(order.currentPeriodEnd || order.paidUntil);
-  const status = ["active", "trial", "trial_active"].includes(sourceStatus) && isPastDate(expiresAt)
-    ? "expired"
-    : sourceStatus;
-  const isActive =
-    ["active", "trial", "trial_active"].includes(status) && !isPastDate(expiresAt);
+  const status = sourceStatus;
+  const expiresTime = new Date(expiresAt || 0).getTime();
+  const isActive = ["active", "trial"].includes(status) && (!expiresTime || new Date(now).getTime() < expiresTime);
 
   return {
     id: order.id,
@@ -130,8 +137,11 @@ function buildSubscription(order) {
       ? toIso(order.trialStartedAt || order.createdAt)
       : toIso(order.currentPeriodStart || order.paymentApprovedAt || order.createdAt),
     currentPeriodEnd: expiresAt,
+    nextBillingAt: status === "active" ? toIso(order.nextBillingAt || order.currentPeriodEnd) : null,
     expiresAt,
-    cancelAt: toIso(order.cancelAt)
+    cancelAt: toIso(order.cancelAt),
+    cancelAtPeriodEnd: Boolean(order.cancelAtPeriodEnd),
+    cancelledAt: toIso(order.cancelledAt)
   };
 }
 
@@ -325,6 +335,7 @@ module.exports = {
   buildOnboarding,
   buildPortalOverview,
   buildSubscription,
+  deriveSubscriptionStatus,
   enrichOrdersForUser,
   getOrganizationId,
   pickActiveOrder
