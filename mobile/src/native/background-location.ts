@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import type { OperationalSchedule } from '@/src/types/app';
 
 type ManeCombLocationModule = {
@@ -26,6 +26,30 @@ export type BackgroundLocationServiceStatus = {
   sessionId: string | null;
 };
 
+export type LocationCaptureOwner =
+  | 'FOREGROUND_REACT'
+  | 'BACKGROUND_ANDROID'
+  | 'TRANSITIONING'
+  | 'DISABLED';
+
+export function getLocationCaptureOwner({
+  appState,
+  backgroundServiceActive,
+  foregroundWatcherActive,
+}: {
+  appState: string;
+  backgroundServiceActive: boolean;
+  foregroundWatcherActive: boolean;
+}): LocationCaptureOwner {
+  if (appState === 'active') {
+    if (foregroundWatcherActive && backgroundServiceActive) return 'TRANSITIONING';
+    return foregroundWatcherActive ? 'FOREGROUND_REACT' : 'DISABLED';
+  }
+
+  if (foregroundWatcherActive && backgroundServiceActive) return 'TRANSITIONING';
+  return backgroundServiceActive ? 'BACKGROUND_ANDROID' : 'DISABLED';
+}
+
 const NativeLocation =
   Platform.OS === 'android'
     ? (NativeModules.ManeCombLocation as ManeCombLocationModule | undefined)
@@ -48,6 +72,13 @@ export async function startBackgroundLocationServiceAsync({
 }) {
   if (!NativeLocation || !apiUrl || !token || !vehicleId) {
     return false;
+  }
+
+  // Foreground capture belongs to useLocationEngine. Calls made while the app
+  // is visible are treated as prepared successfully; App.tsx starts the native
+  // service only after React has released foreground ownership.
+  if (AppState.currentState === 'active') {
+    return true;
   }
 
   return await NativeLocation.startService(

@@ -1,5 +1,15 @@
 const mongoose = require("mongoose");
 
+const PLATFORM_ROLES = [
+  "platform_owner",
+  "platform_admin",
+  "platform_support",
+  "platform_finance",
+  "platform_viewer"
+];
+
+const PLATFORM_USER_STATUSES = ["active", "suspended", "disabled"];
+
 const ENTERPRISE_ROLES = [
   "owner",
   "admin",
@@ -203,6 +213,57 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ organizationId: 1, role: 1, userStatus: 1 });
 userSchema.index({ organizationId: 1, accountType: 1 });
+
+const platformUserSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true, index: true },
+    passwordHash: { type: String, required: true },
+    role: { type: String, enum: PLATFORM_ROLES, required: true, index: true },
+    status: { type: String, enum: PLATFORM_USER_STATUSES, default: "active", index: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+    lastLoginAt: { type: Date, default: null },
+    passwordChangedAt: { type: Date, default: null },
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date, default: null },
+    createdBy: { type: String, default: null },
+    suspendedAt: { type: Date, default: null },
+    suspendedReason: { type: String, default: "" }
+  },
+  {
+    collection: "platform_users",
+    versionKey: false
+  }
+);
+
+platformUserSchema.index({ status: 1, createdAt: -1 });
+
+const platformSessionSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    userId: { type: String, required: true, index: true },
+    refreshTokenHash: { type: String, required: true, index: true },
+    ip: { type: String, default: "" },
+    userAgent: { type: String, default: "" },
+    platform: { type: String, default: "unknown" },
+    deviceName: { type: String, default: "Sesion" },
+    createdAt: { type: Date, default: Date.now },
+    lastSeenAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true, index: true },
+    revokedAt: { type: Date, default: null, index: true },
+    revokedReason: { type: String, default: "" },
+    isActive: { type: Boolean, default: true, index: true },
+    mfaVerified: { type: Boolean, default: false }
+  },
+  {
+    collection: "platform_sessions",
+    versionKey: false
+  }
+);
+
+platformSessionSchema.index({ userId: 1, isActive: 1, lastSeenAt: -1 });
 
 const vehicleSchema = new mongoose.Schema(
   {
@@ -1010,6 +1071,8 @@ module.exports = {
   TripLogModel: getModel("TripLog", tripLogSchema),
   TrialEntitlementModel: getModel("TrialEntitlement", trialEntitlementSchema),
   ChargebackModel: getModel("Chargeback", chargebackSchema),
+  PlatformUserModel: getModel("PlatformUser", platformUserSchema),
+  PlatformSessionModel: getModel("PlatformSession", platformSessionSchema),
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),
   VehicleModel: getModel("Vehicle", vehicleSchema),

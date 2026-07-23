@@ -41,6 +41,8 @@ function createEmbeddedStore() {
   state.trialEntitlements = Array.isArray(state.trialEntitlements) ? state.trialEntitlements : [];
   state.refundOperations = Array.isArray(state.refundOperations) ? state.refundOperations : [];
   state.chargebacks = Array.isArray(state.chargebacks) ? state.chargebacks : [];
+  state.platformUsers = [];
+  state.platformSessions = [];
 
   function getUserById(userId) {
     return state.users.find((user) => user.id === userId) || null;
@@ -3131,9 +3133,72 @@ function createEmbeddedStore() {
     );
   }
 
+  function countPlatformOwners() {
+    return state.platformUsers.filter((u) => u.role === "platform_owner").length;
+  }
+
+  function getPlatformUserById(userId) {
+    return state.platformUsers.find((u) => u.id === userId) || null;
+  }
+
+  function getPlatformUserByEmail(email) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    return state.platformUsers.find((u) => u.email === normalizedEmail) || null;
+  }
+
+  function createPlatformUser(payload) {
+    const name = String(payload.name || "").trim();
+    const email = String(payload.email || "").trim().toLowerCase();
+    const password = String(payload.password || "").trim();
+    if (!name || !email || !password) {
+      throw new Error("Nombre, correo y contraseña son obligatorios");
+    }
+    if (state.platformUsers.find((u) => u.email === email)) {
+      throw new Error("El correo ya existe");
+    }
+    const id = randomUUID();
+    const user = {
+      id,
+      _id: id,
+      name,
+      email,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role: payload.role || "platform_viewer",
+      status: payload.status || "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastLoginAt: null,
+      passwordChangedAt: null,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      createdBy: payload.createdBy || null,
+      suspendedAt: null,
+      suspendedReason: ""
+    };
+    state.platformUsers.push(user);
+    return clone(user);
+  }
+
+  function updatePlatformUser(userId, updates) {
+    const user = state.platformUsers.find((u) => u.id === userId || u._id === userId);
+    if (!user) return null;
+    Object.keys(updates).forEach((key) => {
+      if (updates[key] !== undefined) user[key] = updates[key];
+    });
+    user.updatedAt = new Date();
+    return clone(user);
+  }
+
   return buildBackendStore({
     authenticate,
     addMessage,
+    assignRouteToVehicle,
+    clearAssignedRouteFromVehicle,
+    countPlatformOwners,
+    createPlatformUser,
+    getPlatformUserById,
+    getPlatformUserByEmail,
+    updatePlatformUser,
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
     createRoute,

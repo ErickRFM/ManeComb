@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as Location from '@/src/native/location';
 import { MAX_ACCEPTED_ACCURACY_METERS } from '../constants/tracking';
@@ -19,10 +19,11 @@ import {
 } from '../services/location-service';
 import type { LiveLocationPoint, LocationPosition } from '../types/location-engine';
 
-export function useLocationEngine() {
+export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}) {
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const webWatcherIdRef = useRef<number | null>(null);
   const lastAcceptedPointRef = useRef<LiveLocationPoint | null>(null);
+  const [watcherActive, setWatcherActive] = useState(false);
   const [state, dispatch] = useReducer(locationReducer, initialLocationEngineState);
 
   const stopTracking = useCallback(() => {
@@ -47,9 +48,15 @@ export function useLocationEngine() {
     }
 
     watcherRef.current = null;
+    setWatcherActive(false);
   }, []);
 
   const requestLocation = useCallback(async () => {
+    if (!enabled) {
+      stopTracking();
+      return;
+    }
+
     dispatch({ type: 'REQUEST_START' });
 
     const servicesEnabled = await hasLocationServicesEnabled();
@@ -140,11 +147,13 @@ export function useLocationEngine() {
             timeout: 12000,
           }
         );
+        setWatcherActive(true);
 
         return;
       }
 
       watcherRef.current = await watchNativeLocation(acceptPosition, applyIssue);
+      setWatcherActive(true);
     };
 
     try {
@@ -155,9 +164,14 @@ export function useLocationEngine() {
     }
 
     await startWatching().catch(applyIssue);
-  }, [stopTracking]);
+  }, [enabled, stopTracking]);
 
   useEffect(() => {
+    if (!enabled) {
+      stopTracking();
+      return undefined;
+    }
+
     requestLocation().catch(async () => {
       const foreground = await getForegroundPermission();
 
@@ -174,10 +188,11 @@ export function useLocationEngine() {
     return () => {
       stopTracking();
     };
-  }, [requestLocation, stopTracking]);
+  }, [enabled, requestLocation, stopTracking]);
 
   return {
     ...state,
     refresh: requestLocation,
+    watcherActive,
   };
 }

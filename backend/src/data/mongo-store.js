@@ -3628,9 +3628,83 @@ async function createMongoStore() {
     };
   }
 
+  async function countPlatformOwners() {
+    return PlatformUserModel.countDocuments({ role: "platform_owner" });
+  }
+
+  async function getPlatformUserById(userId) {
+    if (!userId) return null;
+    return PlatformUserModel.findById(userId).lean();
+  }
+
+  async function getPlatformUserByEmail(email) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail) return null;
+    return PlatformUserModel.findOne({ email: normalizedEmail }).lean();
+  }
+
+  async function createPlatformUser(payload) {
+    const name = String(payload.name || "").trim();
+    const email = String(payload.email || "").trim().toLowerCase();
+    const password = String(payload.password || "").trim();
+    if (!name || !email || !password) {
+      throw new Error("Nombre, correo y contraseña son obligatorios");
+    }
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) throw new Error(passwordError);
+
+    const existing = await PlatformUserModel.findOne({ email }).lean();
+    if (existing) throw new Error("El correo ya existe");
+
+    return PlatformUserModel.create({
+      _id: randomUUID(),
+      name,
+      email,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role: payload.role || "platform_viewer",
+      status: payload.status || "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastLoginAt: null,
+      passwordChangedAt: null,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      createdBy: payload.createdBy || null,
+      suspendedAt: null,
+      suspendedReason: ""
+    });
+  }
+
+  async function updatePlatformUser(userId, updates) {
+    const setFields = {};
+    if (updates.name !== undefined) setFields.name = String(updates.name).trim();
+    if (updates.role !== undefined) setFields.role = updates.role;
+    if (updates.status !== undefined) setFields.status = updates.status;
+    if (updates.lastLoginAt !== undefined) setFields.lastLoginAt = updates.lastLoginAt;
+    if (updates.failedLoginAttempts !== undefined) setFields.failedLoginAttempts = updates.failedLoginAttempts;
+    if (updates.lockedUntil !== undefined) setFields.lockedUntil = updates.lockedUntil;
+    if (updates.passwordHash !== undefined) setFields.passwordHash = updates.passwordHash;
+    if (updates.passwordChangedAt !== undefined) setFields.passwordChangedAt = updates.passwordChangedAt;
+    if (updates.suspendedAt !== undefined) setFields.suspendedAt = updates.suspendedAt;
+    if (updates.suspendedReason !== undefined) setFields.suspendedReason = updates.suspendedReason;
+    setFields.updatedAt = new Date();
+
+    return PlatformUserModel.findByIdAndUpdate(
+      userId,
+      { $set: setFields },
+      { returnDocument: "after" }
+    ).lean();
+  }
+
   return buildBackendStore({
     addMessage,
     assignRouteToVehicle,
+    clearAssignedRouteFromVehicle,
+    countPlatformOwners,
+    createPlatformUser,
+    getPlatformUserById,
+    getPlatformUserByEmail,
+    updatePlatformUser,
     clearAssignedRouteFromVehicle,
     createRoute,
     deleteRoute,

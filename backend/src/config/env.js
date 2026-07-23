@@ -113,6 +113,15 @@ if (JWT_SECRET.length < 32) {
     "JWT_SECRET debe tener al menos 32 caracteres. Configura un secreto seguro antes de iniciar el backend."
   );
 }
+const PLATFORM_JWT_SECRET = String(process.env.PLATFORM_JWT_SECRET || "").trim();
+if (!PLATFORM_JWT_SECRET) {
+  throw new Error("PLATFORM_JWT_SECRET es obligatorio. Configúralo antes de iniciar el backend de plataforma.");
+}
+if (PLATFORM_JWT_SECRET.length < 32) {
+  throw new Error("PLATFORM_JWT_SECRET debe tener al menos 32 caracteres.");
+}
+const PLATFORM_ACCESS_TOKEN_TTL = process.env.PLATFORM_ACCESS_TOKEN_TTL || "15m";
+const PLATFORM_REFRESH_TOKEN_TTL_DAYS = Math.max(1, Number(process.env.PLATFORM_REFRESH_TOKEN_TTL_DAYS) || 30);
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_TTL_DAYS = Math.max(1, Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 30);
 const CHAT_ENCRYPTION_SECRET = process.env.CHAT_ENCRYPTION_SECRET || JWT_SECRET;
@@ -356,5 +365,8 @@ module.exports = {
   ENABLE_QUEUES,
   IS_RENDER_RUNTIME,
   RUNTIME_COMMIT,
-  TRUST_PROXY
+  TRUST_PROXY,
+  PLATFORM_JWT_SECRET,
+  PLATFORM_ACCESS_TOKEN_TTL,
+  PLATFORM_REFRESH_TOKEN_TTL_DAYS
 };

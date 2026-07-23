@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer, ThemeProvider } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -64,7 +64,9 @@ type AppStyles = ReturnType<typeof createStyles>;
 type AppThemeValue = ReturnType<typeof useAppTheme>['theme'];
 
 function OperationalBackgroundServices() {
-  const location = useLocationEngine();
+  const [applicationState, setApplicationState] = useState(AppState.currentState);
+  const foregroundOwnsCapture = applicationState === 'active';
+  const location = useLocationEngine({ enabled: foregroundOwnsCapture });
   const { activeRouteSession, authContext, connectionMode, refreshToken, sendVehicleLocation, token, user } = useAppStore(
     useShallow((state) => ({
       activeRouteSession: state.activeRouteSession,
@@ -77,6 +79,11 @@ function OperationalBackgroundServices() {
     }))
   );
   const scheduleState = useScheduleTick(user?.operationalSchedule);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setApplicationState);
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     useAppStore.setState({
@@ -111,6 +118,13 @@ function OperationalBackgroundServices() {
 
     let cancelled = false;
     const syncService = async () => {
+      if (foregroundOwnsCapture) {
+        if (location.watcherActive || location.permission !== 'undetermined' || location.issue) {
+          await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        }
+        return;
+      }
+
       const canTryStart =
         Boolean(token && user?.vehicleId) &&
         authContext?.canAccessMobile === true;
@@ -160,18 +174,17 @@ function OperationalBackgroundServices() {
     activeRouteSession?.id,
     activeRouteSession?.status,
     authContext?.canAccessMobile,
+    foregroundOwnsCapture,
     location.backgroundPermission,
+    location.issue,
     location.permission,
+    location.watcherActive,
     token,
     refreshToken,
     user?.operationalSchedule,
     user?.role,
     user?.vehicleId,
   ]);
-
-  useEffect(() => () => {
-    stopBackgroundLocationServiceAsync().catch(() => undefined);
-  }, []);
 
   return null;
 }
