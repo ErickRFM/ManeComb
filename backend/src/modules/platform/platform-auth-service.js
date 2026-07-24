@@ -68,8 +68,9 @@ async function login(email, password, req) {
   const mfaRequired = isMfaRequired(user.role) && isMfaOperational();
 
   if (mfaRequired) {
-    const challengeToken = signPlatformChallengeToken(user, session.id);
     const needsSetup = !user.mfaEnabled;
+    const purpose = needsSetup ? "mfa_enroll" : "mfa_verify";
+    const challengeToken = signPlatformChallengeToken(user, session.id, purpose);
 
     await recordPlatformAction(req, {
       action: "platform.auth.login",
@@ -124,6 +125,11 @@ async function refresh(refreshTokenValue, req) {
     const user = await getStore(req).getPlatformUserById(result.session.userId);
     if (!user || user.status !== "active") {
       return { error: "Cuenta no activa", status: 401 };
+    }
+
+    const mfaRequired = isMfaRequired(user.role) && isMfaOperational();
+    if (mfaRequired && !result.session.mfaVerified) {
+      return { error: "MFA requerido", status: 403 };
     }
 
     const token = signPlatformToken(user, result.session.id);

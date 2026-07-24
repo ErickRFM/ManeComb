@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const { PLATFORM_JWT_SECRET, PLATFORM_ACCESS_TOKEN_TTL, PLATFORM_MFA_CHALLENGE_TTL } = require("../config/env");
 
 const PLATFORM_AUDIENCE = "manecomb-platform-admin";
+const PLATFORM_MFA_AUDIENCE = "manecomb-platform-mfa";
 const PLATFORM_ISSUER = "manecomb-api";
 
 function isPlatformSecretValid() {
@@ -50,19 +51,20 @@ function getPlatformTokenExpiration(token) {
   return new Date(exp * 1000).toISOString();
 }
 
-function signPlatformChallengeToken(user, sessionId) {
+function signPlatformChallengeToken(user, sessionId, purpose) {
   if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
   return jwt.sign(
     {
       tokenType: "platform_mfa_challenge",
       role: user.role,
-      sid: sessionId
+      sid: sessionId,
+      purpose: purpose || "mfa_verify"
     },
     PLATFORM_JWT_SECRET,
     {
       expiresIn: PLATFORM_MFA_CHALLENGE_TTL,
       subject: user.id || user._id,
-      audience: PLATFORM_AUDIENCE,
+      audience: PLATFORM_MFA_AUDIENCE,
       issuer: PLATFORM_ISSUER
     }
   );
@@ -71,13 +73,14 @@ function signPlatformChallengeToken(user, sessionId) {
 function verifyPlatformChallengeToken(token) {
   if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
   return jwt.verify(token, PLATFORM_JWT_SECRET, {
-    audience: PLATFORM_AUDIENCE,
+    audience: PLATFORM_MFA_AUDIENCE,
     issuer: PLATFORM_ISSUER
   });
 }
 
 module.exports = {
   PLATFORM_AUDIENCE,
+  PLATFORM_MFA_AUDIENCE,
   PLATFORM_ISSUER,
   signPlatformToken,
   verifyPlatformToken,

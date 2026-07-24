@@ -19,8 +19,7 @@ function isMfaOperational() {
 
 function isMfaRequired(role) {
   if (!role) return false;
-  const sensitivePermissions = ["platform.actions.execute", "platform.users.manage", "platform.sessions.manage"];
-  return sensitivePermissions.some((perm) => hasPlatformPermission(role, perm));
+  return true;
 }
 
 function getStore(req) {
@@ -187,6 +186,10 @@ async function mfaVerify(req) {
     return { error: "Challenge token inválido", status: 401 };
   }
 
+  if (payload.purpose !== "mfa_verify") {
+    return { error: "Challenge token inválido para verificación", status: 401 };
+  }
+
   const userId = payload.sub;
   const sessionId = payload.sid;
 
@@ -268,6 +271,10 @@ async function mfaRecovery(req) {
 
   if (payload.tokenType !== "platform_mfa_challenge") {
     return { error: "Challenge token inválido", status: 401 };
+  }
+
+  if (payload.purpose !== "mfa_verify") {
+    return { error: "Challenge token inválido para verificación", status: 401 };
   }
 
   const userId = payload.sub;

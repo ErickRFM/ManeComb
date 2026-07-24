@@ -103,7 +103,7 @@ const mfaVerifyLimiter = rateLimit({
   message: { ok: false, message: "Demasiados intentos. Intenta de nuevo más tarde." }
 });
 
-router.post("/mfa/setup", mfaSetupLimiter, platformMfaChallenge, async (req, res, next) => {
+router.post("/mfa/setup", mfaSetupLimiter, platformMfaChallenge("mfa_enroll"), async (req, res, next) => {
   try {
     const result = await platformMfaService.mfaSetup(req.platformUser.id, req);
     if (result.error) {
@@ -115,7 +115,7 @@ router.post("/mfa/setup", mfaSetupLimiter, platformMfaChallenge, async (req, res
   }
 });
 
-router.post("/mfa/confirm", mfaSetupLimiter, platformMfaChallenge, async (req, res, next) => {
+router.post("/mfa/confirm", mfaSetupLimiter, platformMfaChallenge("mfa_enroll"), async (req, res, next) => {
   try {
     const { token } = req.body;
     if (!token) {

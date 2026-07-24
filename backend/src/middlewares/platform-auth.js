@@ -59,6 +59,11 @@ async function platformAuth(req, res, next) {
       return res.status(401).json({ ok: false, message: "Sesión expirada" });
     }
 
+    const { isMfaRequired, isMfaOperational } = require("../modules/platform/platform-mfa-service");
+    if (isMfaRequired(user.role) && isMfaOperational() && !session.mfaVerified) {
+      return res.status(403).json({ ok: false, message: "MFA requerido para acceder" });
+    }
+
     req.platformAuth = payload;
     req.platformUser = sanitizePlatformUser(user);
     req.platformSession = session;
