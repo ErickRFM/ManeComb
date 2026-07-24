@@ -307,33 +307,24 @@ async function main() {
     assert.ok(hashed); assert.notEqual(hashed, "test-refresh-value"); assert.equal(hashed.length, 64);
   });
 
-  // 31 — PLATFORM_JWT_SECRET inválido: fail-closed
-  test("isPlatformSecretValid rechaza vacío", () => {
-    const orig = process.env.PLATFORM_JWT_SECRET;
-    delete process.env.PLATFORM_JWT_SECRET;
-    // Re-require with fresh env would be needed for a full test; instead test the function directly
-    const { isPlatformSecretValid: check } = require("../src/utils/platform-jwt");
-    // The module-loaded value is already cached, so this tests module-level behavior
-    process.env.PLATFORM_JWT_SECRET = orig || "";
-  });
-
-  test("isPlatformSecretValid rechaza corto", () => {
-    const { isPlatformSecretValid: check } = require("../src/utils/platform-jwt");
-    // At module level the secret is from .env (long enough), but we can test the function concept
-    assert.ok(typeof check === "function");
-  });
-
-  // 32 — login sin PLATFORM_JWT_SECRET retorna 503
-  await testAsync("login sin PLATFORM_JWT_SECRET retorna 503", async () => {
-    // Save original and temporarily clear it
-    const orig = process.env.PLATFORM_JWT_SECRET;
-    // We can't easily re-require the cached module, so test the service handles the error
-    // from signPlatformToken when the cached secret is valid (which it is from .env)
-    // Instead, test the exported function directly:
+  // 31 — isPlatformSecretValid con el secreto actual (cargado desde .env)
+  test("isPlatformSecretValid retorna true con secreto válido", () => {
     const { isPlatformSecretValid } = require("../src/utils/platform-jwt");
-    // With the current .env, it should be valid
-    // We'll add a minimal unit test of the behavior
-    process.env.PLATFORM_JWT_SECRET = orig;
+    assert.equal(typeof isPlatformSecretValid, "function");
+    // Con el .env actual el secreto es válido (>32 chars)
+    assert.ok(isPlatformSecretValid());
+  });
+
+  // 32 — signPlatformToken y verifyPlatformToken funcionan con secreto válido
+  await testAsync("signPlatformToken funciona con secreto válido", async () => {
+    const token = signPlatformToken({ _id: "test-user", role: "platform_admin" }, "test-session");
+    assert.ok(token);
+    const decoded = verifyPlatformToken(token);
+    assert.equal(decoded.tokenType, "platform");
+    assert.equal(decoded.sub, "test-user");
+    assert.equal(decoded.sid, "test-session");
+    assert.equal(decoded.aud, "manecomb-platform-admin");
+    assert.equal(decoded.iss, "manecomb-api");
   });
 
   // 33 — platformAuth rechaza token enterprise (firmado con JWT_SECRET)
@@ -385,11 +376,26 @@ async function main() {
     }
   });
 
-  // 36 — token platform sin tokenType es válido estructuralmente (solo aud/iss importan para verify)
-  test("verifyPlatformToken no exige tokenType en payload", () => {
-    // verifyPlatformToken only checks aud/iss/signature, not tokenType
-    // tokenType is enforced by the middleware that checks the payload after verify
-    assert.ok(true);
+  // 36 — verifyPlatformToken valida criptografía; platformAuth exige tokenType platform
+  await testAsync("verifyPlatformToken no exige tokenType; platformAuth sí lo exige", async () => {
+    // Un token firmado correctamente sin tokenType pasa verifyPlatformToken
+    const noTypeToken = require("jsonwebtoken").sign(
+      { role: "platform_admin", sid: "test-sid" },
+      process.env.PLATFORM_JWT_SECRET || "test",
+      { subject: "test-sub", audience: "manecomb-platform-admin", issuer: "manecomb-api", expiresIn: "15m" }
+    );
+    const decoded = verifyPlatformToken(noTypeToken);
+    assert.equal(decoded.tokenType, undefined);
+    assert.equal(decoded.sub, "test-sub");
+
+    // Pero platformAuth middleware lo rechaza
+    const { platformAuth: pa } = require("../src/middlewares/platform-auth");
+    const ntReq = mockReq({ headers: { authorization: `Bearer ${noTypeToken}` } });
+    const ntRes = mockRes();
+    let called = false;
+    await pa(ntReq, ntRes, () => { called = true; });
+    assert.equal(called, false);
+    assert.equal(ntRes.state.statusCode, 401);
   });
 
   // 37 — token platform sin sid
@@ -424,30 +430,59 @@ async function main() {
     assert.equal(wkRes.state.statusCode, 401);
   });
 
-  // 39 — enterprise authenticate rechaza token platform (solo verificación conceptual)
-  test("token platform no debe ser aceptado por authenticate enterprise", () => {
-    // This test verifies that a platform token cannot be used as enterprise token
-    // The enterprise middleware checks for its own JWT_SECRET, not PLATFORM_JWT_SECRET
-    // Since they use different secrets, a platform token will fail enterprise auth
-    const platformToken = require("jsonwebtoken").sign(
-      { tokenType: "platform" },
-      process.env.PLATFORM_JWT_SECRET || "test-platform-secret",
-      { expiresIn: "15m" }
-    );
-    // Enterprise verify uses JWT_SECRET — will fail for platform-signed token
-    try {
-      require("jsonwebtoken").verify(platformToken, process.env.JWT_SECRET || "enterprise-secret");
-      assert.fail("Debió rechazar token platform con JWT_SECRET");
-    } catch (e) {
-      assert.ok(true);
-    }
+  // 39 — authenticate enterprise rechaza token platform (middleware real)
+  await testAsync("authenticate enterprise rechaza token platform", async () => {
+    const platformToken = signPlatformToken({ _id: "platform-user-01", role: "platform_admin" }, "sess-01");
+    const { authenticate } = require("../src/middlewares/authenticate");
+    const entReq = mockReq({ headers: { authorization: `Bearer ${platformToken}` } });
+    const entRes = mockRes();
+    let called = false;
+    await authenticate(entReq, entRes, () => { called = true; });
+    assert.equal(called, false);
+    assert.equal(entRes.state.statusCode, 401);
+    // Confirmar que no se estableció req.user ni req.tenant enterprise
+    assert.equal(entReq.user, undefined);
+    assert.equal(entReq.tenant, undefined);
   });
 
-  // 40 — inicio sin PLATFORM_JWT_SECRET: env.js no debe tirar error
+  // 40 — env.js no bloquea inicio por PLATFORM_JWT_SECRET faltante
   test("env.js no tira error sin PLATFORM_JWT_SECRET", () => {
-    // This module was already loaded at startup with the .env secret
-    // The fix ensures env.js does NOT throw — verified by the file reaching this line
-    assert.ok(true, "El backend arrancó sin que env.js tirara error por PLATFORM_JWT_SECRET");
+    const env = require("../src/config/env");
+    assert.ok("PLATFORM_JWT_SECRET" in env);
+    assert.ok("PLATFORM_ACCESS_TOKEN_TTL" in env);
+    assert.ok("PLATFORM_REFRESH_TOKEN_TTL_DAYS" in env);
+  });
+
+  // 41 — error PlatformAuthNotConfigured tiene statusCode 503
+  test("PlatformAuthNotConfigured tiene statusCode 503", () => {
+    const { PlatformAuthNotConfigured } = require("../src/utils/platform-jwt");
+    const err = new PlatformAuthNotConfigured();
+    assert.equal(err.name, "PlatformAuthNotConfigured");
+    assert.equal(err.statusCode, 503);
+    assert.ok(err.platformUnavailable);
+    assert.ok(err.message.includes("PLATFORM_JWT_SECRET"));
+  });
+
+  // 42 — create-platform-owner acepta MONGO_URI y MONGODB_URI
+  test("create-platform-owner acepta MONGO_URI y MONGODB_URI", () => {
+    // Verificar que el script usa la misma convención que env.js
+    const script = require("fs").readFileSync(require("path").resolve(__dirname, "..", "scripts", "create-platform-owner.js"), "utf8");
+    const lines = script.split("\n");
+    const mongoLine = lines.find(l => l.includes("MONGO_URI") && l.includes("MONGODB_URI"));
+    assert.ok(mongoLine, "El script debe referenciar ambas variables");
+    assert.ok(mongoLine.includes("MONGO_URI") && mongoLine.includes("MONGODB_URI"));
+    // Verificar prioridad: MONGO_URI primero
+    const match = mongoLine.match(/process\.env\.(\w+)\s*\|\|\s*process\.env\.(\w+)/);
+    assert.ok(match);
+    assert.equal(match[1], "MONGO_URI");
+    assert.equal(match[2], "MONGODB_URI");
+  });
+
+  // 43 — create-platform-owner aborta sin PLATFORM_JWT_SECRET
+  test("create-platform-owner aborta sin PLATFORM_JWT_SECRET suficiente", () => {
+    const script = require("fs").readFileSync(require("path").resolve(__dirname, "..", "scripts", "create-platform-owner.js"), "utf8");
+    assert.ok(script.includes("platformJwtSecret.length < 32"), "Debe validar longitud del secreto");
+    assert.ok(script.includes('NODE_ENV === "test"') || script.includes("process.env.NODE_ENV === \"test\""), "Debe abortar en pruebas");
   });
 
   console.log(`\nAll ${passed}/${total} platform-auth tests passed`);

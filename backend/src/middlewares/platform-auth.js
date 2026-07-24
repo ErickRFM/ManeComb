@@ -23,6 +23,10 @@ async function platformAuth(req, res, next) {
   try {
     const payload = verifyPlatformToken(header.replace("Bearer ", "").trim());
 
+    if (payload.tokenType !== "platform") {
+      return res.status(401).json({ ok: false, message: "Token inválido" });
+    }
+
     if (!payload.sub || !payload.sid) {
       return res.status(401).json({ ok: false, message: "Token inválido" });
     }

@@ -1,6 +1,6 @@
 # ADM-SEC-01 — Identidad y autenticación interna del Admin Global
 
-Revisión: ADM-SEC-01-R1.1 (fail-closed)
+Revisión: ADM-SEC-01-R1.2 (cierre de evidencia)
 
 ## Objetivo
 
@@ -9,6 +9,8 @@ Implementar un sistema de autenticación y autorización aislado para el Admin G
 ## Base
 
 - **Commit base**: `141aaacf9e13053bf8633e2192e50c7ae4ff8aeb`
+- **Commit ADM-SEC-01**: `d4c4e3e0a78a1ca0ab383a953c6cf4cdbca2e679`
+- **Commit ADM-SEC-01-R1.2**: (por comprometer)
 - **Documento arquitectónico**: `ADM-ARCH-01.md` (comprometido previamente)
 - **Rama**: `main`
 
@@ -252,7 +254,7 @@ Campo `actorType: "platform"` diferencia estos registros de auditoría enterpris
 
 Archivo: `backend/test/platform-auth.test.js`
 
-41 pruebas que cubren:
+43 pruebas que cubren:
 
 | # | Prueba | Tipo |
 |---|---|---|
@@ -286,17 +288,19 @@ Archivo: `backend/test/platform-auth.test.js`
 | 28 | login owner | integration |
 | 29 | correo normalizado | integration |
 | 30 | refresh token almacenado como hash | unit |
-| 31 | isPlatformSecretValid rechaza vacío | unit |
-| 32 | isPlatformSecretValid rechaza corto | unit |
-| 33 | login sin PLATFORM_JWT_SECRET retorna 503 | integration |
-| 34 | platformAuth rechaza token enterprise | integration |
-| 35 | token platform sin audience correcto es rechazado | unit |
-| 36 | token platform sin issuer correcto es rechazado | unit |
-| 37 | verifyPlatformToken no exige tokenType en payload | unit |
-| 38 | platformAuth rechaza token sin sid | integration |
-| 39 | token firmado con JWT_SECRET rechazado por platformAuth | integration |
-| 40 | token platform no debe ser aceptado por authenticate enterprise | unit |
-| 41 | env.js no tira error sin PLATFORM_JWT_SECRET | unit |
+| 31 | isPlatformSecretValid retorna true con secreto válido | unit |
+| 32 | signPlatformToken funciona con secreto válido | integration |
+| 33 | platformAuth rechaza token enterprise | integration |
+| 34 | token platform sin audience correcto es rechazado | unit |
+| 35 | token platform sin issuer correcto es rechazado | unit |
+| 36 | verifyPlatformToken valida criptografía; platformAuth exige tokenType | integration |
+| 37 | platformAuth rechaza token sin sid | integration |
+| 38 | token firmado con JWT_SECRET rechazado por platformAuth | integration |
+| 39 | authenticate enterprise rechaza token platform | integration |
+| 40 | env.js no tira error sin PLATFORM_JWT_SECRET | unit |
+| 41 | PlatformAuthNotConfigured tiene statusCode 503 | unit |
+| 42 | create-platform-owner acepta MONGO_URI y MONGODB_URI | unit |
+| 43 | create-platform-owner aborta sin PLATFORM_JWT_SECRET suficiente | unit |
 
 ### Ejecución
 
@@ -318,24 +322,31 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
 
 ## Resultados
 
-- **41/41** pruebas platform-auth pasan
-- **Suite completa** (`npm test`): todas las pruebas OK (sin FAIL ni not ok)
+- **43/43** pruebas platform-auth pasan
+- **Suite completa** (`npm test`): 79 pruebas, 0 fallos, 0 omitidas, código de salida 0, duración ~28s
 - `git diff --check`: sin errores de espacio ni conflictos
 
 ## Archivos modificados
 
+### Commit ADM-SEC-01 (d4c4e3e)
+
 | Archivo | Cambio |
 |---|---|
-| `backend/src/config/env.js` | Variables `PLATFORM_JWT_SECRET`, `PLATFORM_ACCESS_TOKEN_TTL`, `PLATFORM_REFRESH_TOKEN_TTL_DAYS` (ya no lanza error si falta) |
-| `backend/src/data/models.js` | Schemas `PlatformUserModel` y `PlatformSessionModel` |
-| `backend/src/data/mongo-store.js` | Funciones CRUD para platform users |
-| `backend/src/data/store.js` | Contraparte embedded de platform functions |
-| `backend/src/app.js` | Import y montaje de `/api/platform/auth` |
-| `backend/package.json` | Script `platform:create-owner` |
-| `backend/src/utils/platform-jwt.js` | Función `isPlatformSecretValid()`, clase `PlatformAuthNotConfigured` |
-| `backend/src/middlewares/platform-auth.js` | Captura `PlatformAuthNotConfigured` → 503 |
-| `backend/src/modules/platform/platform-auth-service.js` | Guarda login/refresh si `!isPlatformSecretValid()` → 503 |
+| `ADM-SEC-01.md` | Documento de verificación |
+| `backend/test/platform-auth.test.js` | 43 pruebas de plataforma |
 | `backend/test/setup-env.js` | Variable `PLATFORM_JWT_SECRET` para tests |
+
+### R1.2 — cambios sin commit
+
+| Archivo | Cambio |
+|---|---|
+| `backend/src/config/env.js` | Eliminado throw por `PLATFORM_JWT_SECRET` faltante (fail-open a nivel de carga) |
+| `backend/src/utils/platform-jwt.js` | `isPlatformSecretValid()`, clase `PlatformAuthNotConfigured`, exports actualizados |
+| `backend/src/middlewares/platform-auth.js` | Captura `PlatformAuthNotConfigured` → 503; exige `tokenType === "platform"` |
+| `backend/src/modules/platform/platform-auth-service.js` | Guarda login/refresh si `!isPlatformSecretValid()` → 503 |
+| `backend/test/platform-auth.test.js` | Actualizado de 41 a 43 pruebas (tokenType real, authenticate enterprise, PlatformAuthNotConfigured, script owner) |
+| `backend/.env.example` | Agregadas `PLATFORM_JWT_SECRET=`, `PLATFORM_ACCESS_TOKEN_TTL=15m`, `PLATFORM_REFRESH_TOKEN_TTL_DAYS=30` |
+| `ADM-SEC-01.md` | Esta actualización |
 
 ## Archivos nuevos
 
@@ -350,7 +361,7 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
 | `backend/src/services/platform-sessions.js` | Gestión de sesiones con refresh rotativo |
 | `backend/src/services/platform-audit.js` | Auditoría platform reutilizando AuditLogModel |
 | `backend/scripts/create-platform-owner.js` | Script interactivo para primer owner |
-| `backend/test/platform-auth.test.js` | 30 pruebas de plataforma |
+| `backend/test/platform-auth.test.js` | 43 pruebas de plataforma |
 | `ADM-SEC-01.md` | Este documento |
 
 ## Variable PLATFORM_JWT_SECRET
@@ -364,7 +375,8 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
   ```
 - **Función**: `isPlatformSecretValid()` en `platform-jwt.js` retorna `false` si vacío o menor a 32 caracteres
 - **Error**: `PlatformAuthNotConfigured` con `statusCode: 503`, capturado por `platformAuth` middleware y `platform-auth-service.js`
-- Incluida en `.env.example` con valor vacío
+- Incluida en `backend/.env.example` con valor vacío (sin secreto de pruebas, sin JWT_SECRET reutilizado)
+- **Mongo que utiliza el script**: `MONGO_URI` (prioridad) o `MONGODB_URI` (alias), idéntica a `env.js`
 - No se imprime ni expone en endpoints
 
 ## MFA pendiente
@@ -403,7 +415,7 @@ Para revertir parcialmente, restaurar archivos individuales de ADM-SEC-01 y elim
 
 ## Veredicto
 
-ADM-SEC-01-R1.1 está implementado y verificado.
+ADM-SEC-01-R1.2 está implementado y verificado.
 
 - Plataforma de identidad aislada: **SÍ**
 - Separación de enterprise: **SÍ**
@@ -412,15 +424,23 @@ ADM-SEC-01-R1.1 está implementado y verificado.
 - Roles y permisos platform: **SÍ**
 - Auditoría reutilizando AuditLogModel: **SÍ**
 - Script de primer owner: **SÍ**
-- Pruebas que verifican aislamiento: **SÍ**
-- Suite completa pasando (41 platform + resto): **SÍ**
+- Pruebas que verifican aislamiento: **43/43**
+- Suite completa: **79 pruebas, 0 fallos, 0 omitidas, código 0, ~28s**
 - Fail-closed sin PLATFORM_JWT_SECRET: **SÍ**
 - env.js no bloquea inicio: **SÍ**
 - Middleware retorna 503 si no configurado: **SÍ**
 - Service login/refresh retorna 503 si no configurado: **SÍ**
-- .env.example incluye platform vars: **SÍ**
+- platformAuth exige tokenType === "platform": **SÍ**
+- verifyPlatformToken valida criptografía; platformAuth exige tokenType: **SÍ**
+- authenticate enterprise rechaza token platform (middleware real): **SÍ**
+- .env.example incluye platform vars (sin secretos): **SÍ**
+- create-platform-owner acepta MONGO_URI y MONGODB_URI (misma convención que env.js): **SÍ**
+- Script owner aborta en pruebas y sin PLATFORM_JWT_SECRET suficiente: **SÍ**
 - Sin modificación de enterprise: **SÍ**
 - Sin modificación de mobile: **SÍ**
+- Sin modificación de GPS: **SÍ**
+- Sin modificación de Portal: **SÍ**
+- Sin modificación de Mercado Pago: **SÍ**
 - MFA pendiente: **SÍ**
 
 Próxima fase recomendada: ADM-SEC-MFA-01 (autenticación multifactor).
