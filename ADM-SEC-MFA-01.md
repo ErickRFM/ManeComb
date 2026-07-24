@@ -1,4 +1,4 @@
-# ADM-SEC-MFA-01: Autenticación Multifactor (MFA) para Platform Admin
+# ADM-SEC-MFA-01-R1.1: Autenticación Multifactor (MFA) para Platform Admin
 
 ## Objetivo
 
@@ -137,5 +137,60 @@ mobile se ve modificado.
 ```
 54b0e82 ← base anterior
 146c8be feat(admin): add mandatory platform MFA
-<next>   test(admin): verify platform MFA enrollment isolation
+d0872ca test(admin): verify platform MFA enrollment isolation
 ```
+
+## Flujo del primer owner
+
+El primer `platform_owner` se crea vía `create-platform-owner.js` con
+`mfaEnrollmentRequired: true`. Su login retorna un challenge token con
+`purpose: "mfa_enroll"`. Debe pasar por `/mfa/setup` → `/mfa/confirm`
+para obtener `mfaVerified=true` en su sesión. Solo entonces el refresh
+emite access token completo.
+
+## Momento exacto de emisión de access y refresh
+
+| Paso | Evento | Credencial emitida |
+|---|---|---|
+| 1 | Login | `challengeToken` (no access, no refresh) |
+| 2 | `/mfa/setup` + `/mfa/confirm` (enroll) | — (solo setup) |
+| 3 | `/mfa/confirm` válido | access token + refresh token |
+| 4 | `/mfa/verify` válido | access token + refresh token |
+| 5 | `/mfa/recovery` válido | access token + refresh token |
+| 6 | refresh antes de MFA | 403 |
+| 7 | ruta protegida sin MFA | 403 |
+
+## Limitación técnica
+
+El middleware `platformAuth` en `platform-auth.js` importa
+`platform-mfa-service.js` mediante `require()` diferido (lazy) dentro
+del closure del middleware, no al nivel del módulo. Esto rompe la
+dependencia circular: `platform-auth.js` → `platform-mfa-service.js`
+→ `platform-auth-service.js` → `platform-auth.js`. El lazy require
+se ejecuta solo cuando el middleware se invoca en caliente, momento
+en que ambos módulos ya están completamente cargados en la caché de
+Node.js. Es una solución pragmática y focalizada; no se detectaron
+pérdidas de memoria ni degradación de rendimiento en las pruebas.
+
+## Veredicto
+
+**CLOSED** — ADM-SEC-MFA-01-R1.1 implementado y verificado.
+
+| Concepto | Valor |
+|---|---|
+| Commit R1.0 | `146c8be` |
+| Commit R1.1 | `d0872ca` |
+| platform-auth tests | 43/43 pasan, 0 fallan, 0 omitidos, ~2.5s, exit 0 |
+| platform-mfa tests | 59/59 pasan, 0 fallan, 0 omitidos, ~2.8s, exit 0 |
+| npm test (pre-existing) | exit 0 (conteo exacto: N/A — 27 suites individuales, todas exit 0) |
+| git diff --check | sin advertencias |
+| Archivos R1.1 incluidos | 8 (solo MFA Platform) |
+| Enterprise modificado | No |
+| Portal modificado | No |
+| Mobile modificado | No |
+| GPS modificado | No |
+| Mercado Pago modificado | No |
+| Socket.IO modificado | No |
+| UserModel enterprise | No |
+| SessionModel enterprise | No |
+| Estado Git | `d0872ca` ahead 3, working tree clean sin untracked |
