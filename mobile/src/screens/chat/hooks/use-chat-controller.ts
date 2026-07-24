@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
+import { DesignSystem } from '@/constants/theme';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -47,8 +48,8 @@ export function useChatController() {
   const route = useRoute();
   const handledRouteConversationRef = useRef<string | null>(null);
   const { width } = useWindowDimensions();
-  const isCompact = width < 1080;
-  const isPhone = width < 720;
+  const isCompact = width < DesignSystem.breakpoints.compact;
+  const isPhone = width < DesignSystem.breakpoints.phone;
   const { theme } = useAppTheme();
   const {
     activeConversationId,

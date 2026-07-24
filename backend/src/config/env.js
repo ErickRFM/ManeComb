@@ -114,12 +114,6 @@ if (JWT_SECRET.length < 32) {
   );
 }
 const PLATFORM_JWT_SECRET = String(process.env.PLATFORM_JWT_SECRET || "").trim();
-if (!PLATFORM_JWT_SECRET) {
-  throw new Error("PLATFORM_JWT_SECRET es obligatorio. Configúralo antes de iniciar el backend de plataforma.");
-}
-if (PLATFORM_JWT_SECRET.length < 32) {
-  throw new Error("PLATFORM_JWT_SECRET debe tener al menos 32 caracteres.");
-}
 const PLATFORM_ACCESS_TOKEN_TTL = process.env.PLATFORM_ACCESS_TOKEN_TTL || "15m";
 const PLATFORM_REFRESH_TOKEN_TTL_DAYS = Math.max(1, Number(process.env.PLATFORM_REFRESH_TOKEN_TTL_DAYS) || 30);
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || process.env.JWT_EXPIRES_IN || "15m";

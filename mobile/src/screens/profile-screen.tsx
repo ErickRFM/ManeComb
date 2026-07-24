@@ -3,7 +3,7 @@ import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme } from '@/constants/theme';
+import { AppTheme, DesignSystem } from '@/constants/theme';
 import {
   getApiErrorMessage,
   getDocumentsRequest,
@@ -71,8 +71,8 @@ async function pickDriverDocument(): Promise<DocumentUploadFile | null> {
 
 export function ProfileScreen() {
   const { width } = useWindowDimensions();
-  const isCompact = width < 1040;
-  const isPhone = width < 640;
+  const isCompact = width < DesignSystem.breakpoints.compact;
+  const isPhone = width < DesignSystem.breakpoints.phone;
   const { isDark, setThemeMode, theme } = useAppTheme();
   const { documents, mapData, observability, presenceByUser, signOut, user, users } = useAppStore(
     useShallow((state) => ({

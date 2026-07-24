@@ -295,6 +295,7 @@ export function createStyles(
       fontFamily: Typography.display,
       fontSize: 20,
       lineHeight: 26,
+      fontWeight: '900',
     },
     channelCard: {
       borderRadius: AppTheme.radius.sm2,

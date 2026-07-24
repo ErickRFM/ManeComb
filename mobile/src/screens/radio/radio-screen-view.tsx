@@ -86,8 +86,8 @@ const RADIO_MOTION = {
 export function RadioScreen() {
   const params = useLocalSearchParams<{ channelId?: string; mode?: string }>();
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 1080;
-  const isPhone = width < 720;
+  const isDesktop = width >= DesignSystem.breakpoints.compact;
+  const isPhone = width < DesignSystem.breakpoints.phone;
   const { theme } = useAppTheme();
   const {
     activeConversationId,

@@ -32,9 +32,9 @@ export function createStyles(
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 26 : 36,
+      fontSize: isPhone ? 26 : 30,
       fontWeight: '900',
-      lineHeight: isPhone ? 32 : 42,
+      lineHeight: isPhone ? 32 : 36,
     },
     filterFrame: {
       borderRadius: AppTheme.radius.lg,

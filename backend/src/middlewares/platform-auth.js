@@ -1,4 +1,4 @@
-const { verifyPlatformToken } = require("../utils/platform-jwt");
+const { verifyPlatformToken, PlatformAuthNotConfigured } = require("../utils/platform-jwt");
 const { getPlatformSessionById } = require("../services/platform-sessions");
 
 function sanitizePlatformUser(platformUser) {
@@ -59,6 +59,9 @@ async function platformAuth(req, res, next) {
 
     return next();
   } catch (error) {
+    if (error instanceof PlatformAuthNotConfigured) {
+      return res.status(503).json({ ok: false, message: "Autenticación de plataforma no disponible" });
+    }
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ ok: false, message: "Token expirado" });
     }

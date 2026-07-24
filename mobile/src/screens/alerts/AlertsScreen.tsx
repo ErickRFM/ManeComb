@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { DesignSystem } from '@/constants/theme';
 import * as Haptics from '@/src/native/haptics';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useMemo, useRef, useState } from 'react';
@@ -41,8 +42,8 @@ import { createStyles } from './alerts.styles';
 export function AlertsScreen() {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
-  const isCompact = width < 1040;
-  const isPhone = width < 600;
+  const isCompact = width < DesignSystem.breakpoints.compact;
+  const isPhone = width < DesignSystem.breakpoints.phone;
 
   const {
     createIncident,

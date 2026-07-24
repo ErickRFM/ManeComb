@@ -100,7 +100,7 @@ export function createStyles(theme: any, isCompact: boolean, isPhone: boolean) {
       gap: 4,
     },
     panelTitle: {
-      fontSize: 18,
+      fontSize: 20,
       fontWeight: '900',
       color: theme.colors.text,
       fontFamily: Typography.display,

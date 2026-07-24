@@ -21,6 +21,7 @@ import {
   type PanGestureHandlerStateChangeEvent,
 } from 'react-native-gesture-handler';
 import { useShallow } from 'zustand/react/shallow';
+import { DesignSystem } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
@@ -75,8 +76,8 @@ type RouteUiState = 'empty' | 'editing' | 'ready' | 'navigation' | 'paused';
 export function ChecklistScreen() {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
-  const isCompact = width < 1120;
-  const isPhone = width < 640;
+  const isCompact = width < DesignSystem.breakpoints.compact;
+  const isPhone = width < DesignSystem.breakpoints.phone;
   const { activeRouteSession: syncedActiveSession, coordinates, mapData, operationalUnits, refreshAll, sessionHistory, user } = useAppStore(
     useShallow((state) => ({
       mapData: state.mapData,

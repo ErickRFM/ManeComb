@@ -1,5 +1,5 @@
 const bcrypt = require("bcryptjs");
-const { signPlatformToken } = require("../../utils/platform-jwt");
+const { signPlatformToken, isPlatformSecretValid } = require("../../utils/platform-jwt");
 const { createPlatformSession, rotatePlatformRefreshToken } = require("../../services/platform-sessions");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { sanitizePlatformUser } = require("../../middlewares/platform-auth");
@@ -12,6 +12,9 @@ function getStore(req) {
 }
 
 async function login(email, password, req) {
+  if (!isPlatformSecretValid()) {
+    return { error: "Autenticación de plataforma no disponible", status: 503 };
+  }
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await getStore(req).getPlatformUserByEmail(normalizedEmail);
 
@@ -81,6 +84,9 @@ async function login(email, password, req) {
 }
 
 async function refresh(refreshTokenValue, req) {
+  if (!isPlatformSecretValid()) {
+    return { error: "Autenticación de plataforma no disponible", status: 503 };
+  }
   try {
     const result = await rotatePlatformRefreshToken(refreshTokenValue, req);
     if (!result) {

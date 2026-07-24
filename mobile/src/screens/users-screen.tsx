@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, Typography, type DesignTone as Tone } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography, type DesignTone as Tone } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
@@ -43,7 +43,7 @@ function getVehicleRoute(vehicle?: Vehicle) {
 
 export function UsersScreen() {
   const { width } = useWindowDimensions();
-  const isPhone = width < 640;
+  const isPhone = width < DesignSystem.breakpoints.phone;
   const { theme } = useAppTheme();
   const { loadUsers, mapData, presenceByUser, refreshAll, user, users } = useAppStore(
     useShallow((state) => ({
@@ -202,7 +202,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
     sectionTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 19 : 22,
+      fontSize: 20,
       fontWeight: '900',
     },
     sectionSubtitle: {

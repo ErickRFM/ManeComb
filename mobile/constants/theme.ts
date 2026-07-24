@@ -57,6 +57,10 @@ export const DesignSystem = {
     lg: 52,
     touch: 44,
   },
+  breakpoints: {
+    phone: 640,
+    compact: 1080,
+  },
   motion: {
     fast: 140,
     normal: 220,

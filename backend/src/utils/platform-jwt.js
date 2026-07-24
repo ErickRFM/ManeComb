@@ -4,7 +4,21 @@ const { PLATFORM_JWT_SECRET, PLATFORM_ACCESS_TOKEN_TTL } = require("../config/en
 const PLATFORM_AUDIENCE = "manecomb-platform-admin";
 const PLATFORM_ISSUER = "manecomb-api";
 
+function isPlatformSecretValid() {
+  return PLATFORM_JWT_SECRET && PLATFORM_JWT_SECRET.length >= 32;
+}
+
+class PlatformAuthNotConfigured extends Error {
+  constructor() {
+    super("PLATFORM_JWT_SECRET no está configurado o es inválido");
+    this.name = "PlatformAuthNotConfigured";
+    this.statusCode = 503;
+    this.platformUnavailable = true;
+  }
+}
+
 function signPlatformToken(user, sessionId) {
+  if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
   return jwt.sign(
     {
       tokenType: "platform",
@@ -22,6 +36,7 @@ function signPlatformToken(user, sessionId) {
 }
 
 function verifyPlatformToken(token) {
+  if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
   return jwt.verify(token, PLATFORM_JWT_SECRET, {
     audience: PLATFORM_AUDIENCE,
     issuer: PLATFORM_ISSUER
@@ -40,5 +55,7 @@ module.exports = {
   PLATFORM_ISSUER,
   signPlatformToken,
   verifyPlatformToken,
-  getPlatformTokenExpiration
+  getPlatformTokenExpiration,
+  isPlatformSecretValid,
+  PlatformAuthNotConfigured
 };

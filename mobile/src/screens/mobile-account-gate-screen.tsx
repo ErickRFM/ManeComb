@@ -269,8 +269,8 @@ function createStyles() {
     },
     title: {
       fontFamily: Typography.display,
-      fontSize: 28,
-      fontWeight: '800',
+      fontSize: 30,
+      fontWeight: '900',
       letterSpacing: 0,
       marginBottom: AppTheme.spacing.sm,
       marginTop: AppTheme.spacing.lg,

@@ -32,8 +32,9 @@ export function createStyles(
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 26 : 32,
-      lineHeight: isPhone ? 31 : 38,
+      fontSize: isPhone ? 26 : 30,
+      lineHeight: isPhone ? 31 : 36,
+      fontWeight: '900',
     },
     headerActionButton: {
       width: 44,
@@ -273,8 +274,9 @@ export function createStyles(
     sectionTitle: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 16,
+      fontSize: 20,
       lineHeight: 22,
+      fontWeight: '900',
     },
     sectionHint: {
       flexShrink: 1,

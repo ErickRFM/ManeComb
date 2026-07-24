@@ -11,7 +11,7 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: isPhone ? 26 : 32,
+      fontSize: isPhone ? 26 : 30,
       fontWeight: '900',
     },
     mainGrid: {

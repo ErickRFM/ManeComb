@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { DesignSystem } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import * as ImagePicker from '@/src/native/image-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, type ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, type ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
@@ -98,7 +99,9 @@ export function ProfileEditScreen() {
     () => getPasswordStrength(profileForm.password),
     [profileForm.password]
   );
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { width } = useWindowDimensions();
+  const isPhone = width < DesignSystem.breakpoints.phone;
+  const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
 
   useEffect(() => {
     if (!user) {

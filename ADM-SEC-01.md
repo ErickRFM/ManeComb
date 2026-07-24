@@ -1,6 +1,6 @@
 # ADM-SEC-01 — Identidad y autenticación interna del Admin Global
 
-Revisión: ADM-SEC-01-R1
+Revisión: ADM-SEC-01-R1.1 (fail-closed)
 
 ## Objetivo
 
@@ -99,7 +99,7 @@ No se implementó: registro público, forgot-password, MFA, dashboard, empresas,
 ## JWT Platform
 
 - **Secreto**: `PLATFORM_JWT_SECRET`
-- **Reglas**: obligatorio, mínimo 32 caracteres, sin valor predeterminado, fail closed, no imprimir, no exponer
+- **Reglas**: opcional en entorno; si falta o es menor a 32 caracteres, la autenticación platform se desactiva (fail-closed) sin afectar enterprise. Mínimo 32 caracteres, sin valor predeterminado, no imprimir, no exponer
 - **Payload**:
   ```json
   {
@@ -157,6 +157,7 @@ Error genérico único: `"Credenciales inválidas"` para correo inexistente, con
 - No establece `req.tenant`
 - No usa `authenticate` enterprise
 - **401** para token/sesión inválida, **403** para cuenta suspendida
+- **503** si `PLATFORM_JWT_SECRET` no está configurado (`PlatformAuthNotConfigured`)
 - Fail closed si falta configuración
 
 ### requirePlatformRole (`middlewares/platform-access.js`)
@@ -251,7 +252,7 @@ Campo `actorType: "platform"` diferencia estos registros de auditoría enterpris
 
 Archivo: `backend/test/platform-auth.test.js`
 
-30 pruebas que cubren:
+41 pruebas que cubren:
 
 | # | Prueba | Tipo |
 |---|---|---|
@@ -285,6 +286,17 @@ Archivo: `backend/test/platform-auth.test.js`
 | 28 | login owner | integration |
 | 29 | correo normalizado | integration |
 | 30 | refresh token almacenado como hash | unit |
+| 31 | isPlatformSecretValid rechaza vacío | unit |
+| 32 | isPlatformSecretValid rechaza corto | unit |
+| 33 | login sin PLATFORM_JWT_SECRET retorna 503 | integration |
+| 34 | platformAuth rechaza token enterprise | integration |
+| 35 | token platform sin audience correcto es rechazado | unit |
+| 36 | token platform sin issuer correcto es rechazado | unit |
+| 37 | verifyPlatformToken no exige tokenType en payload | unit |
+| 38 | platformAuth rechaza token sin sid | integration |
+| 39 | token firmado con JWT_SECRET rechazado por platformAuth | integration |
+| 40 | token platform no debe ser aceptado por authenticate enterprise | unit |
+| 41 | env.js no tira error sin PLATFORM_JWT_SECRET | unit |
 
 ### Ejecución
 
@@ -306,7 +318,7 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
 
 ## Resultados
 
-- **30/30** pruebas platform-auth pasan
+- **41/41** pruebas platform-auth pasan
 - **Suite completa** (`npm test`): todas las pruebas OK (sin FAIL ni not ok)
 - `git diff --check`: sin errores de espacio ni conflictos
 
@@ -314,12 +326,15 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
 
 | Archivo | Cambio |
 |---|---|
-| `backend/src/config/env.js` | Variables `PLATFORM_JWT_SECRET`, `PLATFORM_ACCESS_TOKEN_TTL`, `PLATFORM_REFRESH_TOKEN_TTL_DAYS` con validación |
+| `backend/src/config/env.js` | Variables `PLATFORM_JWT_SECRET`, `PLATFORM_ACCESS_TOKEN_TTL`, `PLATFORM_REFRESH_TOKEN_TTL_DAYS` (ya no lanza error si falta) |
 | `backend/src/data/models.js` | Schemas `PlatformUserModel` y `PlatformSessionModel` |
 | `backend/src/data/mongo-store.js` | Funciones CRUD para platform users |
 | `backend/src/data/store.js` | Contraparte embedded de platform functions |
 | `backend/src/app.js` | Import y montaje de `/api/platform/auth` |
 | `backend/package.json` | Script `platform:create-owner` |
+| `backend/src/utils/platform-jwt.js` | Función `isPlatformSecretValid()`, clase `PlatformAuthNotConfigured` |
+| `backend/src/middlewares/platform-auth.js` | Captura `PlatformAuthNotConfigured` → 503 |
+| `backend/src/modules/platform/platform-auth-service.js` | Guarda login/refresh si `!isPlatformSecretValid()` → 503 |
 | `backend/test/setup-env.js` | Variable `PLATFORM_JWT_SECRET` para tests |
 
 ## Archivos nuevos
@@ -340,14 +355,16 @@ Todas las pruebas existentes continúan pasando. No se corrigieron fallos preexi
 
 ## Variable PLATFORM_JWT_SECRET
 
-- **Obligatoria**: el backend no arranca sin ella
-- **Mínimo**: 32 caracteres
+- **Opcional**: el backend arranca sin ella; la autenticación platform se desactiva (fail-closed) retornando **503** en login/refresh/middleware
+- **Mínimo**: 32 caracteres; si es menor, se considera no configurada
 - **Sin valor predeterminado**: debe configurarse explícitamente en el entorno
 - **Ejemplo de configuración** (no usar este valor):
   ```
   PLATFORM_JWT_SECRET=backend-test-platform-jwt-secret-with-at-least-32-char
   ```
-- No está incluida en `.env.example` (debe agregarse manualmente)
+- **Función**: `isPlatformSecretValid()` en `platform-jwt.js` retorna `false` si vacío o menor a 32 caracteres
+- **Error**: `PlatformAuthNotConfigured` con `statusCode: 503`, capturado por `platformAuth` middleware y `platform-auth-service.js`
+- Incluida en `.env.example` con valor vacío
 - No se imprime ni expone en endpoints
 
 ## MFA pendiente
@@ -386,7 +403,7 @@ Para revertir parcialmente, restaurar archivos individuales de ADM-SEC-01 y elim
 
 ## Veredicto
 
-ADM-SEC-01 está implementado y verificado.
+ADM-SEC-01-R1.1 está implementado y verificado.
 
 - Plataforma de identidad aislada: **SÍ**
 - Separación de enterprise: **SÍ**
@@ -396,7 +413,12 @@ ADM-SEC-01 está implementado y verificado.
 - Auditoría reutilizando AuditLogModel: **SÍ**
 - Script de primer owner: **SÍ**
 - Pruebas que verifican aislamiento: **SÍ**
-- Suite completa pasando: **SÍ**
+- Suite completa pasando (41 platform + resto): **SÍ**
+- Fail-closed sin PLATFORM_JWT_SECRET: **SÍ**
+- env.js no bloquea inicio: **SÍ**
+- Middleware retorna 503 si no configurado: **SÍ**
+- Service login/refresh retorna 503 si no configurado: **SÍ**
+- .env.example incluye platform vars: **SÍ**
 - Sin modificación de enterprise: **SÍ**
 - Sin modificación de mobile: **SÍ**
 - MFA pendiente: **SÍ**

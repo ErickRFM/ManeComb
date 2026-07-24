@@ -2,7 +2,7 @@ import { StyleSheet } from 'react-native';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import type { useAppTheme } from '@/src/hooks/use-app-theme';
 
-export function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = false) {
   return StyleSheet.create({
     header: {
       gap: AppTheme.spacing.md,
@@ -27,7 +27,8 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
     title: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 34,
+      fontSize: isPhone ? 26 : 30,
+      fontWeight: '900',
     },
     subtitle: {
       color: theme.colors.muted,
@@ -119,8 +120,8 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
     sectionHeading: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 22,
-      fontWeight: '800',
+      fontSize: 20,
+      fontWeight: '900',
       marginTop: 4,
     },
     field: {
