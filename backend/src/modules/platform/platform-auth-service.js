@@ -1,8 +1,9 @@
 const bcrypt = require("bcryptjs");
-const { signPlatformToken, isPlatformSecretValid } = require("../../utils/platform-jwt");
+const { signPlatformToken, signPlatformChallengeToken, isPlatformSecretValid } = require("../../utils/platform-jwt");
 const { createPlatformSession, rotatePlatformRefreshToken } = require("../../services/platform-sessions");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { sanitizePlatformUser } = require("../../middlewares/platform-auth");
+const { isMfaRequired, isMfaOperational } = require("./platform-mfa-service");
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MS = 30 * 60 * 1000;
@@ -63,6 +64,33 @@ async function login(email, password, req) {
   });
 
   const { refreshToken, session } = await createPlatformSession(user._id, req);
+
+  const mfaRequired = isMfaRequired(user.role) && isMfaOperational();
+
+  if (mfaRequired) {
+    const challengeToken = signPlatformChallengeToken(user, session.id);
+    const needsSetup = !user.mfaEnabled;
+
+    await recordPlatformAction(req, {
+      action: "platform.auth.login",
+      actorId: user._id,
+      platformRole: user.role,
+      metadata: { result: "mfa_required", sessionId: session.id, mfaSetupRequired: needsSetup }
+    });
+
+    return {
+      mfaRequired: true,
+      mfaNeedsSetup: needsSetup,
+      challengeToken,
+      refreshToken,
+      session: {
+        id: session.id,
+        expiresAt: session.expiresAt
+      },
+      user: sanitizePlatformUser(user)
+    };
+  }
+
   const token = signPlatformToken(user, session.id);
 
   await recordPlatformAction(req, {

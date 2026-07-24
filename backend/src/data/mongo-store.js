@@ -3671,7 +3671,14 @@ async function createMongoStore() {
       lockedUntil: null,
       createdBy: payload.createdBy || null,
       suspendedAt: null,
-      suspendedReason: ""
+      suspendedReason: "",
+      mfaEnabled: false,
+      mfaEnrollmentRequired: payload.mfaEnrollmentRequired !== undefined ? payload.mfaEnrollmentRequired : false,
+      mfaSecretEncrypted: null,
+      mfaBackupCodes: [],
+      mfaSetupCompletedAt: null,
+      mfaFailedAttempts: 0,
+      mfaLockedUntil: null
     });
   }
 
@@ -3687,6 +3694,13 @@ async function createMongoStore() {
     if (updates.passwordChangedAt !== undefined) setFields.passwordChangedAt = updates.passwordChangedAt;
     if (updates.suspendedAt !== undefined) setFields.suspendedAt = updates.suspendedAt;
     if (updates.suspendedReason !== undefined) setFields.suspendedReason = updates.suspendedReason;
+    if (updates.mfaEnabled !== undefined) setFields.mfaEnabled = updates.mfaEnabled;
+    if (updates.mfaEnrollmentRequired !== undefined) setFields.mfaEnrollmentRequired = updates.mfaEnrollmentRequired;
+    if (updates.mfaSecretEncrypted !== undefined) setFields.mfaSecretEncrypted = updates.mfaSecretEncrypted;
+    if (updates.mfaBackupCodes !== undefined) setFields.mfaBackupCodes = updates.mfaBackupCodes;
+    if (updates.mfaSetupCompletedAt !== undefined) setFields.mfaSetupCompletedAt = updates.mfaSetupCompletedAt;
+    if (updates.mfaFailedAttempts !== undefined) setFields.mfaFailedAttempts = updates.mfaFailedAttempts;
+    if (updates.mfaLockedUntil !== undefined) setFields.mfaLockedUntil = updates.mfaLockedUntil;
     setFields.updatedAt = new Date();
 
     return PlatformUserModel.findByIdAndUpdate(

@@ -194,6 +194,21 @@ async function touchPlatformSession(sessionId) {
   );
 }
 
+async function markPlatformSessionMfaVerified(sessionId) {
+  if (!isMongoReady()) {
+    const session = memoryPlatformSessions.get(sessionId);
+    if (session) {
+      session.mfaVerified = true;
+      memoryPlatformSessions.set(sessionId, session);
+    }
+    return;
+  }
+  await PlatformSessionModel.updateOne(
+    { _id: sessionId },
+    { $set: { mfaVerified: true, lastSeenAt: new Date() } }
+  );
+}
+
 module.exports = {
   createPlatformSession,
   serializePlatformSession,
@@ -202,6 +217,7 @@ module.exports = {
   revokePlatformSession,
   revokeAllPlatformSessions,
   touchPlatformSession,
+  markPlatformSessionMfaVerified,
   hashRefreshToken,
   createRefreshToken
 };

@@ -1,5 +1,6 @@
-const { verifyPlatformToken, PlatformAuthNotConfigured } = require("../utils/platform-jwt");
+const { verifyPlatformChallengeToken, PlatformAuthNotConfigured } = require("../utils/platform-jwt");
 const { getPlatformSessionById } = require("../services/platform-sessions");
+const { isMfaOperational } = require("../modules/platform/platform-mfa-service");
 
 function sanitizePlatformUser(platformUser) {
   if (!platformUser) return null;
@@ -10,22 +11,24 @@ function sanitizePlatformUser(platformUser) {
     role: platformUser.role,
     status: platformUser.status,
     createdAt: platformUser.createdAt,
-    lastLoginAt: platformUser.lastLoginAt,
-    mfaEnabled: Boolean(platformUser.mfaEnabled),
-    mfaEnrollmentRequired: Boolean(platformUser.mfaEnrollmentRequired)
+    lastLoginAt: platformUser.lastLoginAt
   };
 }
 
-async function platformAuth(req, res, next) {
+async function platformMfaChallenge(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     return res.status(401).json({ ok: false, message: "Token requerido" });
   }
 
-  try {
-    const payload = verifyPlatformToken(header.replace("Bearer ", "").trim());
+  if (!isMfaOperational()) {
+    return res.status(503).json({ ok: false, message: "MFA no disponible" });
+  }
 
-    if (payload.tokenType !== "platform") {
+  try {
+    const payload = verifyPlatformChallengeToken(header.replace("Bearer ", "").trim());
+
+    if (payload.tokenType !== "platform_mfa_challenge") {
       return res.status(401).json({ ok: false, message: "Token inválido" });
     }
 
@@ -75,17 +78,4 @@ async function platformAuth(req, res, next) {
   }
 }
 
-async function requireMfa(req, res, next) {
-  const session = req.platformSession;
-  if (!session) {
-    return res.status(401).json({ ok: false, message: "Sesión requerida" });
-  }
-
-  if (!session.mfaVerified) {
-    return res.status(403).json({ ok: false, message: "MFA requerido para esta acción" });
-  }
-
-  return next();
-}
-
-module.exports = { platformAuth, requireMfa, sanitizePlatformUser };
+module.exports = { platformMfaChallenge, sanitizePlatformUser };

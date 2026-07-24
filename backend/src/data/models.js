@@ -230,7 +230,14 @@ const platformUserSchema = new mongoose.Schema(
     lockedUntil: { type: Date, default: null },
     createdBy: { type: String, default: null },
     suspendedAt: { type: Date, default: null },
-    suspendedReason: { type: String, default: "" }
+    suspendedReason: { type: String, default: "" },
+    mfaEnabled: { type: Boolean, default: false },
+    mfaEnrollmentRequired: { type: Boolean, default: false },
+    mfaSecretEncrypted: { type: String, default: null },
+    mfaBackupCodes: { type: [String], default: [] },
+    mfaSetupCompletedAt: { type: Date, default: null },
+    mfaFailedAttempts: { type: Number, default: 0 },
+    mfaLockedUntil: { type: Date, default: null }
   },
   {
     collection: "platform_users",

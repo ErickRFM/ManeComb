@@ -152,7 +152,14 @@ async function main() {
     lockedUntil: null,
     createdBy: "system",
     suspendedAt: null,
-    suspendedReason: ""
+    suspendedReason: "",
+    mfaEnabled: false,
+    mfaEnrollmentRequired: true,
+    mfaSecretEncrypted: null,
+    mfaBackupCodes: [],
+    mfaSetupCompletedAt: null,
+    mfaFailedAttempts: 0,
+    mfaLockedUntil: null
   });
 
   // Record audit event

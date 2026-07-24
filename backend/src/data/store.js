@@ -3173,7 +3173,14 @@ function createEmbeddedStore() {
       lockedUntil: null,
       createdBy: payload.createdBy || null,
       suspendedAt: null,
-      suspendedReason: ""
+      suspendedReason: "",
+      mfaEnabled: false,
+      mfaEnrollmentRequired: payload.mfaEnrollmentRequired !== undefined ? payload.mfaEnrollmentRequired : false,
+      mfaSecretEncrypted: null,
+      mfaBackupCodes: [],
+      mfaSetupCompletedAt: null,
+      mfaFailedAttempts: 0,
+      mfaLockedUntil: null
     };
     state.platformUsers.push(user);
     return clone(user);
