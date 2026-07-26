@@ -3632,6 +3632,14 @@ async function createMongoStore() {
     return PlatformUserModel.countDocuments({ role: "platform_owner" });
   }
 
+  async function countVehiclesByStatus() {
+    const total = await VehicleModel.countDocuments();
+    const on_route = await VehicleModel.countDocuments({ status: { $in: ["on-route", "on_route"] } });
+    const maintenance = await VehicleModel.countDocuments({ status: "maintenance" });
+    const idle = total - on_route - maintenance;
+    return { total, on_route, maintenance, idle };
+  }
+
   async function getPlatformUserById(userId) {
     if (!userId) return null;
     return PlatformUserModel.findById(userId).lean();
@@ -3715,6 +3723,7 @@ async function createMongoStore() {
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
     countPlatformOwners,
+    countVehiclesByStatus,
     createPlatformUser,
     getPlatformUserById,
     getPlatformUserByEmail,

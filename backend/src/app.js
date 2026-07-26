@@ -28,6 +28,7 @@ const locationRoutes = require("./modules/locations/routes");
 const navigationRoutes = require("./modules/navigation/routes");
 const notificationRoutes = require("./modules/notifications/routes");
 const platformAuthRoutes = require("./modules/platform/auth-routes");
+const platformBaseRoutes = require("./modules/platform");
 const opsRoutes = require("./modules/ops/routes");
 const operationalUnitRoutes = require("./modules/operational-units/routes");
 const portalRoutes = require("./modules/portal/routes");
@@ -241,6 +242,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/driver/activation", driverActivationRoutes);
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/platform/auth", platformAuthRoutes);
+  app.use("/api/platform", platformBaseRoutes);
   app.use("/api/ops", opsRoutes);
   app.use("/api/operational-units", operationalUnitRoutes);
   app.use("/api/portal", portalRoutes);

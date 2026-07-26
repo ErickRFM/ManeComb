@@ -3137,6 +3137,13 @@ function createEmbeddedStore() {
     return state.platformUsers.filter((u) => u.role === "platform_owner").length;
   }
 
+  function countVehiclesByStatus() {
+    const on_route = state.vehicles.filter((v) => v.status === "on-route" || v.status === "on_route").length;
+    const maintenance = state.vehicles.filter((v) => v.status === "maintenance").length;
+    const idle = state.vehicles.length - on_route - maintenance;
+    return { total: state.vehicles.length, on_route, maintenance, idle };
+  }
+
   function getPlatformUserById(userId) {
     return state.platformUsers.find((u) => u.id === userId) || null;
   }
@@ -3202,6 +3209,7 @@ function createEmbeddedStore() {
     assignRouteToVehicle,
     clearAssignedRouteFromVehicle,
     countPlatformOwners,
+    countVehiclesByStatus,
     createPlatformUser,
     getPlatformUserById,
     getPlatformUserByEmail,
