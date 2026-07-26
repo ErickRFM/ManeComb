@@ -2,7 +2,7 @@ import type { StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPortalStatus, getPortalStatusTone } from '../cards';
 import { isVehicleGpsFresh } from '../utils/tracking';
-import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { stateLabel, type OperationalState, type OperationalUnitSnapshot } from '@shared/operational-contract';
 import type { RouteEvent, RouteSession, RouteSessionPosition, User, Vehicle } from '@/src/types/app';
 import type { RouteInfo, JourneyState, SessionMetricsView } from './dashboard.types';
 import { maxRenderedReplayPoints, opaqueIdPattern } from './dashboard.constants';
@@ -31,12 +31,23 @@ export function formatPercent(value?: number | null) {
   return Number.isFinite(numeric) ? `${numeric.toFixed(0)}%` : 'Sin dato';
 }
 
-export function getVehicleStatus(vehicle: Vehicle, activeSession?: RouteSession | null): { label: string; tone: StatusBadgeTone } {
-  if (activeSession?.status === 'RUNNING') return { label: 'En jornada', tone: 'positive' };
-  if (activeSession?.status === 'PAUSED') return { label: 'Pausada', tone: 'warning' };
-  if (vehicle.status === 'maintenance') return { label: 'Mantenimiento', tone: 'warning' };
-  if (vehicle.driverId) return { label: 'Asignada', tone: 'info' };
-  return { label: 'Disponible', tone: 'neutral' };
+function operationalStateTone(state: OperationalState): StatusBadgeTone {
+  switch (state) {
+    case 'on_route': return 'positive';
+    case 'stopped': return 'warning';
+    case 'maintenance': return 'warning';
+    case 'no_route': return 'neutral';
+    case 'unknown': return 'neutral';
+  }
+}
+
+// Estado operativo canonico del snapshot (via applyOperationalSnapshot). Ya no
+// se deriva del blend session/driverId/speed: se lee el operationalState que el
+// backend resolvio y se traduce a etiqueta con stateLabel del contrato.
+export function getVehicleStatus(vehicle: Vehicle): { label: string; tone: StatusBadgeTone } {
+  const state = vehicle.operationalState;
+  if (!state) return { label: 'Sin estado', tone: 'neutral' };
+  return { label: stateLabel(state), tone: operationalStateTone(state) };
 }
 
 export function getEventLabel(eventType: RouteEvent['eventType']) {
@@ -87,9 +98,13 @@ export function getAssignedDrivers(users: User[], vehicle: Vehicle, activeSessio
     .filter(Boolean) as User[];
 }
 
-export function getActiveDriver(users: User[], vehicle: Vehicle, activeSession?: RouteSession | null) {
-  const activeDriverId = activeSession?.driverId || vehicle.driverId || vehicle.driver?.id || null;
-  return users.find((user) => user.id === activeDriverId) || vehicle.driver || null;
+// §5.2: el conductor sale del snapshot proyectado (vehicle.driverId/driverName
+// vienen de unit.driver via applyOperationalSnapshot). Sin snapshot -> vacio.
+// NO se cae al legacy (activeSession.driverId / vehicle.driver) para no
+// reintroducir el drift de fuentes multiples.
+export function getActiveDriver(users: User[], vehicle: Vehicle) {
+  const driverId = vehicle.driverId || null;
+  return users.find((user) => user.id === driverId) || null;
 }
 
 export function isOpaqueId(value?: string | null) {
@@ -173,6 +188,7 @@ export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUni
   if (!unit) return vehicle;
   return {
     ...vehicle,
+    operationalState: unit.operationalState,
     location: unit.gps.lat === null || unit.gps.lng === null
       ? null
       : { latitude: unit.gps.lat, longitude: unit.gps.lng },

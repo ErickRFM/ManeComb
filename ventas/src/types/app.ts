@@ -1,3 +1,5 @@
+import type { OperationalState } from '@shared/operational-contract';
+
 export type Role =
   | 'owner'
   | 'admin'
@@ -157,6 +159,7 @@ export type Vehicle = {
   code: string;
   plate: string;
   status: VehicleStatus | string;
+  operationalState?: OperationalState | null;
   occupancy?: number;
   capacity?: number;
   delayMinutes?: number;

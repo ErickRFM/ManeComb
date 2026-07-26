@@ -191,17 +191,14 @@ export function PortalDashboardScreen() {
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
   const operationsCounts = useMemo(() => {
     const running = operationalVehicleData.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
-    const stopped = operationalVehicleData.filter((vehicle) => {
-      const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
-      return session?.status === 'PAUSED' || (Boolean(session) && Number(vehicle.speed) <= 0.8);
-    }).length;
+    const stopped = operationalVehicleData.filter((vehicle) => vehicle.operationalState === 'stopped').length;
     const offRoute = operationalVehicleData.filter((vehicle) => Boolean(vehicle.activeRouteProgress?.isOffRoute)).length;
     return { ALL: operationalVehicleData.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
   }, [operationalVehicleData, sessionsByVehicle]);
   const operationalVehicles = useMemo(() => operationalVehicleData.filter((vehicle) => {
     const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
     if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
-    if (operationsFilter === 'STOPPED') return session?.status === 'PAUSED' || (Boolean(session) && Number(vehicle.speed) <= 0.8);
+    if (operationsFilter === 'STOPPED') return vehicle.operationalState === 'stopped';
     if (operationsFilter === 'OFF_ROUTE') return Boolean(vehicle.activeRouteProgress?.isOffRoute);
     return true;
   }), [operationalVehicleData, operationsFilter, sessionsByVehicle]);
@@ -278,7 +275,7 @@ export function PortalDashboardScreen() {
   };
 
   const changeDriver = async (vehicle: Vehicle, driver: User) => {
-    const currentDriver = getActiveDriver(users, vehicle, sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null);
+    const currentDriver = getActiveDriver(users, vehicle);
     if (currentDriver?.id === driver.id) {
       setDriverChangeMessage(`${driver.name} ya es el chofer activo.`);
       return;

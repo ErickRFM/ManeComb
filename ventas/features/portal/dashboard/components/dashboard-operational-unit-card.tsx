@@ -18,7 +18,7 @@ export function OperationalUnitCard({
   vehicle: Vehicle;
 }) {
   const session = activeSession || latestSession;
-  const status = getVehicleStatus(vehicle, activeSession);
+  const status = getVehicleStatus(vehicle);
   const routeInfo = getRouteInfo(vehicle, session);
   const hasKnownPosition = Boolean(vehicle.location);
   const gpsMessage = !hasKnownPosition

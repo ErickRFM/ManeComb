@@ -64,7 +64,7 @@ export function VehicleSidePanel({
   vehicle: Vehicle;
 }) {
   const session = activeSession || latestSession;
-  const activeDriver = getActiveDriver(users, vehicle, activeSession);
+  const activeDriver = getActiveDriver(users, vehicle);
   const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
   const routeInfo = getRouteInfo(vehicle, session);
   const journeyState = getJourneyState(vehicle, session);

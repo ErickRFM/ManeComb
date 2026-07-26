@@ -23,6 +23,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { DesignSystem } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
+import { EmptyStateBox } from '@/src/components/empty-state-box';
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
@@ -1160,10 +1161,7 @@ export function ChecklistScreen() {
               );
             })
           ) : (
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons name="clipboard-check-outline" size={28} color={theme.colors.muted} />
-              <Text style={styles.emptyTitle}>Sin registros</Text>
-            </View>
+            <EmptyStateBox icon="clipboard-check-outline" title="Sin registros" />
           )}
         </View>
       </AppCard>

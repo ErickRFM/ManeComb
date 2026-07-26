@@ -234,7 +234,7 @@ export function AlertsScreen() {
           ) : null}
 
           {isRefreshing && !incidents.length ? (
-            <AlertState hasIncidents={false} loading styles={screenStyles} theme={theme} />
+            <AlertState hasIncidents={false} loading theme={theme} />
           ) : visibleIncidents.length ? (
             <>
               <ScrollView
@@ -286,7 +286,6 @@ export function AlertsScreen() {
             <AlertState
               hasIncidents={Boolean(incidents.length)}
               loading={false}
-              styles={screenStyles}
               theme={theme}
             />
           )}

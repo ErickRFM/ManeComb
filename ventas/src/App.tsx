@@ -5,6 +5,12 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
 import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
 import { ScreenErrorBoundary } from '@/src/components/screen-error-boundary';
+import { AdminProtectedRoute } from '@/features/admin/components/admin-route-guard';
+
+const AdminLoginScreen = lazy(() => import('@/features/admin/screens/admin-login-screen').then((module) => ({ default: module.AdminLoginScreen })));
+const AdminMfaSetupScreen = lazy(() => import('@/features/admin/screens/admin-mfa-setup-screen').then((module) => ({ default: module.AdminMfaSetupScreen })));
+const AdminMfaVerifyScreen = lazy(() => import('@/features/admin/screens/admin-mfa-verify-screen').then((module) => ({ default: module.AdminMfaVerifyScreen })));
+const AdminPlaceholderScreen = lazy(() => import('@/features/admin/screens/admin-placeholder-screen').then((module) => ({ default: module.AdminPlaceholderScreen })));
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
 const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
@@ -131,6 +137,14 @@ function Routes() {
       return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
       return <StaticPage title="Privacidad" body="Información de privacidad y canales de contacto para cuentas ManeComb." />;
+    case '/admin/login':
+      return <ScreenErrorBoundary name="Admin Login"><AdminLoginScreen /></ScreenErrorBoundary>;
+    case '/admin/mfa/setup':
+      return <ScreenErrorBoundary name="Admin MFA Setup"><AdminMfaSetupScreen /></ScreenErrorBoundary>;
+    case '/admin/mfa':
+      return <ScreenErrorBoundary name="Admin MFA Verify"><AdminMfaVerifyScreen /></ScreenErrorBoundary>;
+    case '/admin':
+      return <AdminProtectedRoute><ScreenErrorBoundary name="Admin Placeholder"><AdminPlaceholderScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
     default:
       return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
   }

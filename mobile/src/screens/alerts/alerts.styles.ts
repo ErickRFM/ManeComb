@@ -408,31 +408,6 @@ export function createStyles(theme: any, isCompact: boolean, isPhone: boolean) {
       fontSize: 12,
       fontWeight: '800',
     },
-    stateBox: {
-      minHeight: 160,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderStyle: 'dashed',
-      borderColor: theme.colors.line,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      padding: 18,
-    },
-    stateTitle: {
-      color: theme.colors.text,
-      fontSize: 16,
-      fontWeight: '900',
-      fontFamily: Typography.display,
-      textAlign: 'center',
-    },
-    stateBody: {
-      color: theme.colors.muted,
-      fontSize: 12,
-      lineHeight: 18,
-      textAlign: 'center',
-      maxWidth: 420,
-    },
   });
 }
 

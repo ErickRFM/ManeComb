@@ -28,7 +28,6 @@ export type OperationalRecord = {
   lastRouteStatus: Extract<OperationalStatus, 'completed' | 'cancelled'> | null;
   vehicle: Vehicle;
 };
-const ACTIVE_VEHICLE_STATUSES = new Set(['online', 'patrolling', 'on-route', 'active']);
 export const MANECOMB_ROUTE_COLOR = '#E31E24';
 
 export function formatDuration(totalSeconds: number) {
@@ -95,10 +94,6 @@ function getVehicleOperationalStatus(vehicle: Vehicle, sessionLog: FleetControlL
   }
 
   if (sessionLog?.status === 'active') {
-    return vehicle.delayMinutes > 0 ? 'delayed' : 'active';
-  }
-
-  if (ACTIVE_VEHICLE_STATUSES.has(String(vehicle.status || '').toLowerCase())) {
     return vehicle.delayMinutes > 0 ? 'delayed' : 'active';
   }
 
