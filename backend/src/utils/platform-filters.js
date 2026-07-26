@@ -28,6 +28,8 @@ function rejectMongoOperators(obj) {
   for (const key of Object.keys(obj)) {
     if (key.startsWith("$")) {
       delete obj[key];
+    } else if (typeof obj[key] === "object" && obj[key] !== null) {
+      rejectMongoOperators(obj[key]);
     }
   }
   return obj;
