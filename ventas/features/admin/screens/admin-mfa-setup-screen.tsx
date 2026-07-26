@@ -8,7 +8,7 @@ import { AdminMfaEnrollGuard } from '../components/admin-route-guard';
 import { Typography, palette } from '@/constants/theme';
 
 export function AdminMfaSetupScreen() {
-  const { mode, setupMfa, confirmMfa } = useAdminStore();
+  const { setupMfa, confirmMfa, mode } = useAdminStore();
   const [secret, setSecret] = useState('');
   const [uri, setUri] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
@@ -16,6 +16,8 @@ export function AdminMfaSetupScreen() {
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [codesConfirmed, setCodesConfirmed] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const hasFetched = useRef(false);
 
   useEffect(() => {
@@ -44,6 +46,10 @@ export function AdminMfaSetupScreen() {
     try {
       const codes = await confirmMfa(token.trim());
       setBackupCodes(codes);
+      setSecret('');
+      setUri('');
+      setQrDataUrl('');
+      setToken('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al confirmar MFA');
     } finally {
@@ -51,23 +57,69 @@ export function AdminMfaSetupScreen() {
     }
   };
 
+  const handleCopyAll = () => {
+    if (!backupCodes) return;
+    const text = backupCodes.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyFeedback('Códigos copiados');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    }).catch(() => {});
+  };
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopyFeedback(`Copiado: ${code}`);
+      setTimeout(() => setCopyFeedback(null), 2000);
+    }).catch(() => {});
+  };
+
   const handleDone = () => {
-    router.push('/admin/login?mfa_setup=ok');
+    router.push('/admin/login');
   };
 
   if (backupCodes) {
     return (
       <AdminAuthLayout
         title="MFA Configurado"
-        subtitle="Guarda estos códigos de respaldo en un lugar seguro. Cada código solo puede usarse una vez."
+        subtitle="Guarda estos códigos de respaldo en un lugar seguro. Cada código solo puede usarse una vez. Confirma haberlos guardado para continuar."
       >
         <View style={styles.codesBox}>
           {backupCodes.map((code) => (
-            <Text key={code} style={styles.codeText}>{code}</Text>
+            <Pressable key={code} onPress={() => handleCopyCode(code)} style={styles.codeRow}>
+              <Text style={styles.codeText}>{code}</Text>
+              <Text style={styles.copyHint}>Copiar</Text>
+            </Pressable>
           ))}
         </View>
-        <Pressable onPress={handleDone} style={styles.submitButton}>
-          <Text style={styles.submitText}>Listo, iniciar sesión</Text>
+
+        <Pressable onPress={handleCopyAll} style={styles.copyAllButton}>
+          <Text style={styles.copyAllText}>Copiar todos</Text>
+        </Pressable>
+
+        {copyFeedback ? (
+          <Text style={styles.copyFeedback}>{copyFeedback}</Text>
+        ) : null}
+
+        <Pressable
+          onPress={() => setCodesConfirmed((c) => !c)}
+          style={styles.confirmRow}
+        >
+          <View style={[styles.checkbox, codesConfirmed ? styles.checkboxActive : undefined]}>
+            {codesConfirmed ? <Text style={styles.checkMark}>✓</Text> : null}
+          </View>
+          <Text style={styles.confirmText}>He guardado mis códigos de respaldo</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleDone}
+          disabled={!codesConfirmed}
+          style={({ pressed }) => [
+            styles.submitButton,
+            pressed && codesConfirmed ? styles.submitPressed : undefined,
+            !codesConfirmed ? styles.submitDisabled : undefined,
+          ]}
+        >
+          <Text style={styles.submitText}>Ir a iniciar sesión</Text>
         </Pressable>
       </AdminAuthLayout>
     );
@@ -264,8 +316,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: palette.line,
-    padding: 16,
-    gap: 8,
+    overflow: 'hidden',
+  },
+  codeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.line,
   },
   codeText: {
     color: palette.text,
@@ -273,6 +333,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 3,
+  },
+  copyHint: {
+    color: palette.accent,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  copyAllButton: {
+    alignItems: 'center',
+    minHeight: 40,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.line,
+    borderRadius: 10,
+  },
+  copyAllText: {
+    color: palette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  copyFeedback: {
+    color: palette.success,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '700',
     textAlign: 'center',
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: palette.lineStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxActive: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  checkMark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  confirmText: {
+    color: palette.text,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
   },
 });

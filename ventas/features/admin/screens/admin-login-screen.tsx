@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Redirect, router } from '@/src/navigation/router';
+import { Redirect } from '@/src/navigation/router';
 import { useAdminStore } from '../store';
 import { AdminAuthLayout } from '../components/admin-auth-layout';
 import { AdminLoginGuard } from '../components/admin-route-guard';

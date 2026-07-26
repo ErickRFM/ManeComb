@@ -57,6 +57,7 @@ export type AdminAuthMode =
 export type AdminChallengeData = {
   token: string;
   purpose: 'mfa_enroll' | 'mfa_verify';
+  refreshToken: string;
   session: { id: string; expiresAt: string };
   user: AdminUser;
 };

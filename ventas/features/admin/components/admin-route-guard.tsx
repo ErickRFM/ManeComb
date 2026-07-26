@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { Redirect } from '@/src/navigation/router';
 import { useAdminStore } from '../store';
+import { platformSessionRequest } from '../api';
 
 function useBootstrapOnce() {
   const bootstrap = useAdminStore((s) => s.bootstrap);
@@ -19,7 +20,26 @@ function useBootstrapOnce() {
 
 export function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   const mode = useAdminStore((s) => s.mode);
+  const session = useAdminStore((s) => s.session);
+  const sessionInfo = useAdminStore((s) => s.sessionInfo);
   const isBootstrapping = useBootstrapOnce();
+  const [sessionValid, setSessionValid] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (mode !== 'authenticated' || !session) return;
+    platformSessionRequest(session.token)
+      .then(({ session: info }) => {
+        if (!info.mfaVerified) {
+          setSessionValid(false);
+        } else {
+          useAdminStore.setState({ sessionInfo: info });
+          setSessionValid(true);
+        }
+      })
+      .catch(() => {
+        setSessionValid(false);
+      });
+  }, [mode, session]);
 
   if (isBootstrapping) {
     return (
@@ -31,6 +51,18 @@ export function AdminProtectedRoute({ children }: { children: React.ReactNode })
 
   if (mode !== 'authenticated') {
     return <Redirect href="/admin/login" />;
+  }
+
+  if (sessionValid === false) {
+    return <Redirect href="/admin/login" />;
+  }
+
+  if (sessionValid === null) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#050816', minHeight: '100vh' as any }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '800' }}>Verificando sesión...</Text>
+      </View>
+    );
   }
 
   return <>{children}</>;
