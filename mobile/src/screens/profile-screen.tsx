@@ -90,15 +90,16 @@ export function ProfileScreen() {
   const [documentExpiresAt, setDocumentExpiresAt] = useState('');
   const [documentMessage, setDocumentMessage] = useState<string | null>(null);
   const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
+  const userId = user?.id;
 
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     getDocumentsRequest()
       .then((nextDocuments) => useAppStore.setState({ documents: nextDocuments }))
       .catch(() => undefined);
-  }, [user?.id]);
+  }, [userId]);
 
   if (!user) return null;
 
