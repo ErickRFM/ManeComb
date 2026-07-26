@@ -1,8 +1,7 @@
 import { type ReactNode } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
-import { Typography, palette } from '@/constants/theme';
+import { Typography, palette } from '@/styles/theme';
+import { KeyboardSafeScrollView } from '@/components/keyboard-safe-scroll';
 
 type Props = {
   title: string;
@@ -12,7 +11,7 @@ type Props = {
 
 export function AdminAuthLayout({ title, subtitle, children }: Props) {
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <View pointerEvents="none" style={styles.backgroundLayer}>
         <View style={styles.backgroundBase} />
         <View style={styles.glowTop} />
@@ -31,7 +30,7 @@ export function AdminAuthLayout({ title, subtitle, children }: Props) {
           {children}
         </View>
       </KeyboardSafeScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
-import { Redirect } from '@/src/navigation/router';
+import { Redirect } from '@/components/router';
 import { useAdminStore } from '../store';
 import { platformSessionRequest } from '../api';
 
@@ -14,7 +14,6 @@ function useBootstrapOnce() {
     didBoot.current = true;
     bootstrap();
   }, [bootstrap]);
-
   return isBootstrapping;
 }
 
@@ -29,16 +28,10 @@ export function AdminProtectedRoute({ children }: { children: React.ReactNode })
     if (mode !== 'authenticated' || !session) return;
     platformSessionRequest(session.token)
       .then(({ session: info }) => {
-        if (!info.mfaVerified) {
-          setSessionValid(false);
-        } else {
-          useAdminStore.setState({ sessionInfo: info });
-          setSessionValid(true);
-        }
+        if (!info.mfaVerified) setSessionValid(false);
+        else { useAdminStore.setState({ sessionInfo: info }); setSessionValid(true); }
       })
-      .catch(() => {
-        setSessionValid(false);
-      });
+      .catch(() => setSessionValid(false));
   }, [mode, session]);
 
   if (isBootstrapping) {
@@ -49,14 +42,8 @@ export function AdminProtectedRoute({ children }: { children: React.ReactNode })
     );
   }
 
-  if (mode !== 'authenticated') {
-    return <Redirect href="/admin/login" />;
-  }
-
-  if (sessionValid === false) {
-    return <Redirect href="/admin/login" />;
-  }
-
+  if (mode !== 'authenticated') return <Redirect href="/admin/login" />;
+  if (sessionValid === false) return <Redirect href="/admin/login" />;
   if (sessionValid === null) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#050816', minHeight: '100vh' as any }}>
@@ -64,7 +51,6 @@ export function AdminProtectedRoute({ children }: { children: React.ReactNode })
       </View>
     );
   }
-
   return <>{children}</>;
 }
 
@@ -79,30 +65,18 @@ export function AdminLoginGuard({ children }: { children?: React.ReactNode }) {
       </View>
     );
   }
-
-  if (mode === 'authenticated') {
-    return <Redirect href="/admin" />;
-  }
-
+  if (mode === 'authenticated') return <Redirect href="/admin" />;
   return <>{children}</>;
 }
 
 export function AdminMfaEnrollGuard({ children }: { children: React.ReactNode }) {
   const mode = useAdminStore((s) => s.mode);
-
-  if (mode !== 'mfa_enrollment') {
-    return <Redirect href="/admin/login" />;
-  }
-
+  if (mode !== 'mfa_enrollment') return <Redirect href="/admin/login" />;
   return <>{children}</>;
 }
 
 export function AdminMfaChallengeGuard({ children }: { children: React.ReactNode }) {
   const mode = useAdminStore((s) => s.mode);
-
-  if (mode !== 'mfa_challenge') {
-    return <Redirect href="/admin/login" />;
-  }
-
+  if (mode !== 'mfa_challenge') return <Redirect href="/admin/login" />;
   return <>{children}</>;
 }

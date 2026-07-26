@@ -4,6 +4,12 @@
 
 ADM-UI-AUTH-01-R1.1
 
+> **Nota de reubicación (ADM-UI-RELOCATE-01):** El código documentado en este archivo
+> fue migrado de `ventas/features/admin/` a `admin-global/features/auth/` como aplicación
+> independiente. Ver `ADM-UI-RELOCATE-01.md` para detalles. La ubicación actual es
+> `admin-global/features/auth/`; el contenido de este documento sigue siendo válido
+> para el módulo reubicado.
+
 ## Objetivo
 
 Verificar y cerrar el flujo real de autenticación frontend Platform:

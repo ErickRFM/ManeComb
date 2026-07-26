@@ -20,41 +20,19 @@ const ACCESS_TOKEN_KEY = 'manecomb-platform-token';
 const REFRESH_TOKEN_KEY = 'manecomb-platform-refresh-token';
 const CHALLENGE_STORAGE_KEY = 'manecomb-platform-challenge';
 
-const OLD_ACCESS_TOKEN_KEY = 'admin-platform-token';
-const OLD_REFRESH_TOKEN_KEY = 'admin-platform-refresh-token';
-
 function getStorageItem(key: string) {
   if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+  try { return window.localStorage.getItem(key); } catch { return null; }
 }
 
 function setStorageItem(key: string, value: string) {
   if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {}
+  try { window.localStorage.setItem(key, value); } catch {}
 }
 
 function removeStorageItem(key: string) {
   if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {}
-}
-
-function migrateFromOldKeys() {
-  const oldToken = getStorageItem(OLD_ACCESS_TOKEN_KEY);
-  const oldRefresh = getStorageItem(OLD_REFRESH_TOKEN_KEY);
-  if (oldToken || oldRefresh) {
-    if (oldToken) setStorageItem(ACCESS_TOKEN_KEY, oldToken);
-    if (oldRefresh) setStorageItem(REFRESH_TOKEN_KEY, oldRefresh);
-    removeStorageItem(OLD_ACCESS_TOKEN_KEY);
-    removeStorageItem(OLD_REFRESH_TOKEN_KEY);
-  }
+  try { window.localStorage.removeItem(key); } catch {}
 }
 
 function getSessionChallenge() {
@@ -62,19 +40,14 @@ function getSessionChallenge() {
   try {
     const raw = window.sessionStorage.getItem(CHALLENGE_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as AdminChallengeData) : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function setSessionChallenge(data: AdminChallengeData | null) {
   if (typeof window === 'undefined') return;
   try {
-    if (data) {
-      window.sessionStorage.setItem(CHALLENGE_STORAGE_KEY, JSON.stringify(data));
-    } else {
-      window.sessionStorage.removeItem(CHALLENGE_STORAGE_KEY);
-    }
+    if (data) window.sessionStorage.setItem(CHALLENGE_STORAGE_KEY, JSON.stringify(data));
+    else window.sessionStorage.removeItem(CHALLENGE_STORAGE_KEY);
   } catch {}
 }
 
@@ -95,7 +68,6 @@ type AdminStore = {
   session: AdminSessionData | null;
   sessionInfo: AdminSessionInfo | null;
   isBootstrapping: boolean;
-
   bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   setupMfa: () => Promise<{ secret: string; uri: string }>;
@@ -116,16 +88,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   isBootstrapping: true,
 
   bootstrap: async () => {
-    migrateFromOldKeys();
-
     const token = getStorageItem(ACCESS_TOKEN_KEY);
     const refreshToken = getStorageItem(REFRESH_TOKEN_KEY);
-
     if (!token || !refreshToken) {
       set({ isBootstrapping: false });
       return;
     }
-
     try {
       const { user, session: info } = await platformSessionRequest(token);
       set({
@@ -142,10 +110,8 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
 
   login: async (email: string, password: string) => {
     set({ mode: 'loading', error: null });
-
     try {
       const result = await platformLoginRequest(email, password);
-
       if (result.mfaRequired && result.challengeToken) {
         const challengeData: AdminChallengeData = {
           token: result.challengeToken,
@@ -155,42 +121,23 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
           user: result.user!,
         };
         setSessionChallenge(challengeData);
-        set({
-          mode: result.mfaNeedsSetup ? 'mfa_enrollment' : 'mfa_challenge',
-          challengeData,
-          error: null,
-        });
+        set({ mode: result.mfaNeedsSetup ? 'mfa_enrollment' : 'mfa_challenge', challengeData, error: null });
         return;
       }
-
       if (result.token && result.user) {
         persistSession(result.token, result.refreshToken);
-        set({
-          mode: 'authenticated',
-          session: {
-            token: result.token,
-            refreshToken: result.refreshToken,
-            user: result.user,
-          },
-          error: null,
-        });
+        set({ mode: 'authenticated', session: { token: result.token, refreshToken: result.refreshToken, user: result.user }, error: null });
         return;
       }
-
       set({ mode: 'error', error: 'Respuesta del servidor inválida' });
     } catch (error) {
-      set({
-        mode: 'error',
-        error: error instanceof Error ? error.message : 'Error al iniciar sesión',
-      });
+      set({ mode: 'error', error: error instanceof Error ? error.message : 'Error al iniciar sesión' });
     }
   },
 
   setupMfa: async () => {
     const challenge = get().challengeData || getSessionChallenge();
-    if (!challenge || challenge.purpose !== 'mfa_enroll')
-      throw new Error('No hay challenge de enrolamiento activo');
-
+    if (!challenge || challenge.purpose !== 'mfa_enroll') throw new Error('No hay challenge de enrolamiento activo');
     const result = await platformMfaSetupRequest(challenge.token);
     return { secret: result.secret, uri: result.uri };
   },
@@ -198,7 +145,6 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   confirmMfa: async (totpToken: string) => {
     const challenge = get().challengeData || getSessionChallenge();
     if (!challenge) throw new Error('No hay challenge activo');
-
     const result = await platformMfaConfirmRequest(challenge.token, totpToken);
     set({ mode: 'login', error: null, challengeData: null });
     setSessionChallenge(null);
@@ -208,52 +154,26 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   verifyMfa: async (totpToken: string) => {
     const challenge = get().challengeData || getSessionChallenge();
     if (!challenge) throw new Error('No hay challenge activo');
-
     const result = await platformMfaVerifyRequest(challenge.token, totpToken);
     setSessionChallenge(null);
-
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
     persistSession(result.token, refreshResult.refreshToken);
-    set({
-      mode: 'authenticated',
-      session: {
-        token: result.token,
-        refreshToken: refreshResult.refreshToken,
-        user: result.user,
-      },
-      challengeData: null,
-      error: null,
-    });
+    set({ mode: 'authenticated', session: { token: result.token, refreshToken: refreshResult.refreshToken, user: result.user }, challengeData: null, error: null });
   },
 
   recoverMfa: async (recoveryCode: string) => {
     const challenge = get().challengeData || getSessionChallenge();
     if (!challenge) throw new Error('No hay challenge activo');
-
-    const result = await platformMfaRecoveryRequest(
-      challenge.token,
-      recoveryCode
-    );
+    const result = await platformMfaRecoveryRequest(challenge.token, recoveryCode);
     setSessionChallenge(null);
-
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
     persistSession(result.token, refreshResult.refreshToken);
-    set({
-      mode: 'authenticated',
-      session: {
-        token: result.token,
-        refreshToken: refreshResult.refreshToken,
-        user: result.user,
-      },
-      challengeData: null,
-      error: null,
-    });
+    set({ mode: 'authenticated', session: { token: result.token, refreshToken: refreshResult.refreshToken, user: result.user }, challengeData: null, error: null });
   },
 
   refreshSession: async () => {
     const s = get().session;
     if (!s) return;
-
     try {
       const { user, session: info } = await platformSessionRequest(s.token);
       set({ sessionInfo: info });
@@ -262,18 +182,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
 
   logout: async () => {
     const s = get().session;
-    if (s) {
-      await platformLogoutRequest(s.token).catch(() => {});
-    }
+    if (s) await platformLogoutRequest(s.token).catch(() => {});
     clearPersistedSession();
     setSessionChallenge(null);
-    set({
-      mode: 'idle',
-      session: null,
-      sessionInfo: null,
-      challengeData: null,
-      error: null,
-    });
+    set({ mode: 'idle', session: null, sessionInfo: null, challengeData: null, error: null });
   },
 
   clearError: () => set({ error: null, mode: 'login' }),

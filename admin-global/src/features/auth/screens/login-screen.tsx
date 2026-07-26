@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Redirect } from '@/src/navigation/router';
+import { Redirect } from '@/components/router';
 import { useAdminStore } from '../store';
-import { AdminAuthLayout } from '../components/admin-auth-layout';
-import { AdminLoginGuard } from '../components/admin-route-guard';
-import { Typography, palette } from '@/constants/theme';
+import { AdminAuthLayout } from '../components/auth-layout';
+import { AdminLoginGuard } from '../components/route-guard';
+import { Typography, palette } from '@/styles/theme';
 
 export function AdminLoginScreen() {
   const { mode, error, login, clearError } = useAdminStore();
@@ -12,13 +12,8 @@ export function AdminLoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  if (mode === 'mfa_enrollment') {
-    return <Redirect href="/admin/mfa/setup" />;
-  }
-
-  if (mode === 'mfa_challenge') {
-    return <Redirect href="/admin/mfa" />;
-  }
+  if (mode === 'mfa_enrollment') return <Redirect href="/admin/mfa/setup" />;
+  if (mode === 'mfa_challenge') return <Redirect href="/admin/mfa" />;
 
   const isSubmitting = mode === 'loading';
 
@@ -114,9 +109,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  field: {
-    gap: 8,
-  },
+  field: { gap: 8 },
   fieldLabel: {
     color: 'rgba(248, 250, 252, 0.82)',
     fontFamily: Typography.body,
@@ -166,10 +159,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...(Platform.OS === 'web'
-      ? ({
-          backgroundImage: 'linear-gradient(135deg, #E31E24, #F0445F 66%, #8B5CF6)',
-          boxShadow: '0 10px 22px rgba(240, 68, 95, 0.2)',
-        } as any)
+      ? ({ backgroundImage: 'linear-gradient(135deg, #E31E24, #F0445F 66%, #8B5CF6)', boxShadow: '0 10px 22px rgba(240, 68, 95, 0.2)' } as any)
       : {}),
   },
   submitText: {
@@ -179,10 +169,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
   },
-  submitPressed: {
-    opacity: 0.9,
-  },
-  submitDisabled: {
-    opacity: 0.7,
-  },
+  submitPressed: { opacity: 0.9 },
+  submitDisabled: { opacity: 0.7 },
 });

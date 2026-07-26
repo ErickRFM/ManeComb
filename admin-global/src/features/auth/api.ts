@@ -3,7 +3,6 @@ import axios, { type AxiosInstance, type AxiosError } from 'axios';
 const API_BASE = (() => {
   if (typeof window === 'undefined') return 'http://localhost:4000';
   const origin = window.location.origin;
-  const port = origin.includes('localhost') || origin.includes('127.0.0.1') ? ':4000' : '';
   return origin.includes('localhost') || origin.includes('127.0.0.1')
     ? `http://localhost:4000`
     : origin;
