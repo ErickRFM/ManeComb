@@ -268,7 +268,11 @@ export function createStyles(
       justifyContent: 'center',
     },
     modalScroll: {
+      // flexGrow:0 mantiene el "abrazar contenido" cuando es corto; flexShrink:1 (el default
+      // de RN es 0) deja que el ScrollView ceda ante el maxHeight:'96%' del modalCard y
+      // scrollee cuando el contenido excede, en vez de recortarse por el borde del panel.
       flexGrow: 0,
+      flexShrink: 1,
     },
     modalScrollContent: {
       gap: 16,
