@@ -265,6 +265,15 @@ export const mapStyles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 5,
   },
+  // Mapbox PointAnnotation rasteriza el View hijo a un bitmap del tamaño MEDIDO y recorta lo
+  // que se pinte fuera de esa caja. Este host transparente le da holgura para que quepan la
+  // sombra/elevation del pin y el desplazamiento anti-solapamiento (SELECTOR_STOP_MARKER_OFFSETS,
+  // transform ±8) SIN aplanar el diseño. padding 16 ≥ 8 (transform) + ~5 (sombra).
+  selectorStopMarkerHost: {
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   stopMarkerText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', fontFamily: Typography.body },
   recoveryRoot: {
     flex: 1,

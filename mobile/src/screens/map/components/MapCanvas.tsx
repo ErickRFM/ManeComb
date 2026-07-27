@@ -285,13 +285,15 @@ function SelectorMarkers({
       ) : null}
       {stops.map((stop, index) => (
         <AppMapMarker key={stop.id} id={`stop-${stop.id}`} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
-          <View
-            style={[
-              styles.selectorStopMarker,
-              SELECTOR_STOP_MARKER_OFFSETS[index % SELECTOR_STOP_MARKER_OFFSETS.length],
-              { backgroundColor: theme.colors.warning },
-            ]}>
-            <Text style={styles.stopMarkerText}>{index + 1}</Text>
+          <View style={styles.selectorStopMarkerHost}>
+            <View
+              style={[
+                styles.selectorStopMarker,
+                SELECTOR_STOP_MARKER_OFFSETS[index % SELECTOR_STOP_MARKER_OFFSETS.length],
+                { backgroundColor: theme.colors.warning },
+              ]}>
+              <Text style={styles.stopMarkerText}>{index + 1}</Text>
+            </View>
           </View>
         </AppMapMarker>
       ))}
