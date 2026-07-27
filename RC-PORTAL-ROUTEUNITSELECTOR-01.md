@@ -125,3 +125,83 @@ Etiquetas actuales en línea 42 vs canónico (`stateLabel`):
 **PROHIBIDO en esta fase (respetado):** cero cambios de código; no decidí la implementación; no toqué dashboard, mobile, `shared/`, backend ni el `App.tsx` admin ajeno. Diff vacío.
 
 **Espero tu OK** (y la decisión de wording §5 + si quieres prep-RC de extracción §6) antes de Fase 2.
+
+---
+
+# Fase 2 — Ejecutado (mediano, auto-contenido)
+
+> **Estado:** Cerrado. `routes-screen` trae el snapshot vía el patrón de dashboard; la línea 42 lee `operationalState` con **mapeo propio de selector**; driver §5.2 **intacto**; rama `'Mantenimiento'` limpiada con evidencia.
+>
+> **Validación:** typecheck **exit 0**, **`vite build` de producción exit 0** (`✓ built in 7.80s`), diff **limitado a 2 archivos** (route-unit-selector + routes-screen); dashboard/routes.utils/mobile/shared/backend con **diff vacío**.
+
+## Decisiones aplicadas (según tu OK)
+- **Wording:** `no_route → "Disponible"` (conservado), **no** "Sin ruta". Mapeo documentado como **propio del selector**, distinto del canónico de dashboard.
+- **Arquitectura:** auto-contenido con **cross-import** de `applyOperationalSnapshot` desde `../dashboard/dashboard.utils`. **No** se extrajo a hogar neutral; **no** se tocó el import de dashboard.
+- **Scope del merge (ripple §4):** elegí **lista mergeada exclusiva del selector** (`operationalRouteVehicles`), dejando `routeVehicles` **crudo**. Razón: espeja el patrón de dashboard (lista separada `operationalVehicleData`, no reescribe la fuente) **y** es el blast-radius mínimo — editor (:60/:241), `selectedVehicle` (:61) y el mapa (:80/:511-516) siguen leyendo el `routeVehicles` crudo. (Aunque el ripple probó que mergear era seguro porque `applyOperationalSnapshot` preserva `.id`/`assignedRoute`, la lista aislada elimina toda duda sin costo.)
+
+## Cambios (archivo+línea, antes/después)
+
+### A. [`route-unit-selector.tsx`](ventas/features/portal/routes/components/route-unit-selector.tsx) — mapeo propio + lectura de `operationalState`
+
+**Antes** (línea 42, el drift):
+```tsx
+● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}
+```
+**Después** (línea ~57):
+```tsx
+● {getSelectorStatusLabel(vehicle)}
+```
+Con el mapeo **propio del selector** (nuevo, cabecera del archivo), documentado como distinto del canónico:
+```tsx
+const SELECTOR_STATUS_LABEL: Partial<Record<OperationalState, string>> = {
+  on_route: 'En ruta',
+  stopped: 'Detenida',
+  no_route: 'Disponible',   // ← propio del selector (asignación), NO "Sin ruta" canónico
+  unknown: 'Sin datos',
+};
+function getSelectorStatusLabel(vehicle: Vehicle) {
+  return (vehicle.operationalState && SELECTOR_STATUS_LABEL[vehicle.operationalState]) || 'Sin datos';
+}
+```
+
+### B. [`portal-routes-screen.tsx`](ventas/features/portal/screens/portal-routes-screen.tsx) — trae el snapshot (patrón dashboard)
+
+1. **Selector** (:33-47): `+ operationalUnits` en el destructuring **y** en el `useShallow` (`operationalUnits: state.operationalUnits`). El store ya lo expone ([use-app-store.ts:63](ventas/src/store/use-app-store.ts)); 0 cambios de store.
+2. **Import** (:19): `+ import { applyOperationalSnapshot } from '../dashboard/dashboard.utils';` (cross-import, dashboard sin tocar).
+3. **Memos** (tras `routeVehicles`, :56-): `snapshotByVehicle` (espeja dashboard-screen:85-87) + `operationalRouteVehicles = routeVehicles.map(v => applyOperationalSnapshot(v, snapshotByVehicle.get(v.id)))` (espeja :90-91).
+4. **Render** (:~456): `vehicles={routeVehicles}` → `vehicles={operationalRouteVehicles}`.
+
+## Mapeo de etiquetas del selector (el PROPIO, distinto de dashboard)
+
+| `operationalState` | Etiqueta **selector** (este RC) | Etiqueta **canónica** dashboard (`stateLabel`) | ¿Difiere? |
+|---|---|---|---|
+| `on_route` | En ruta | En ruta | = |
+| `stopped` | Detenida | Detenida | = |
+| `no_route` | **Disponible** | Sin ruta | **Sí (decisión §5)** |
+| `unknown` | Sin datos | Sin datos | = |
+| `maintenance` | — (no aplica: filtrado) | Mantenimiento | n/a |
+| `null` (sin snapshot) | Sin datos (fallback) | — | selector-only |
+
+## Limpieza asociada — rama `'Mantenimiento'` (inalcanzable, con grep)
+
+**Grep de inalcanzabilidad:** el único `vehicles={...}` que alimenta `RouteUnitSelector` es `portal-routes-screen.tsx:446` con `vehicles={routeVehicles}` (ahora `operationalRouteVehicles`, derivado de `routeVehicles`). `routeVehicles` ([:52-53](ventas/features/portal/screens/portal-routes-screen.tsx)) filtra `vehicle.status !== 'maintenance'` **antes**. No hay otro call-site de `RouteUnitSelector` en el árbol (`grep RouteUnitSelector`). → ninguna unidad en mantenimiento llega al componente ⇒ la rama `status === 'maintenance' ? 'Mantenimiento'` era **muerto real, consecuencia del filtro**. Eliminada como limpieza asociada (reportada aparte aquí, no escondida).
+
+## Ripple verificado (§4)
+`routeVehicles` **crudo** intacto → editor default (:60/:241), `selectedVehicle` (:61-63) y el mapa (`getRouteGeometry`/`.stops`/`getRouteLabel`, :80/:511-516) leen `.id`/`assignedRoute` sin cambios. La lista mergeada vive solo en el prop del selector.
+
+## Driver §5.2 — NO tocado
+`getDriverName` y `vehicle.driver?.name` legacy **intactos** (`routes.utils.ts` diff vacío). Este RC **no** arregla el conductor y no finge hacerlo.
+
+## Validación
+| Verificación | Resultado |
+|---|---|
+| `tsc --noEmit` | **exit 0** |
+| **`vite build` producción** | **exit 0** (`✓ built in 7.80s`; `portal-routes-screen` recompiló 37.53 kB) |
+| Tests | ventas **sin suite** → verificación = build + análisis estático |
+| Diff | **2 archivos** (route-unit-selector +18/−1, routes-screen +16/−1). Dashboard, routes.utils, mobile, shared, backend, App.tsx admin: **diff vacío** |
+| **Pendiente de uso real** | proyección de etiquetas por unidad viva (on_route/stopped/no_route/unknown/null→fallback) — no verificable sin datos vivos; el mapeo lógico es lo verificable en estático |
+
+## Rollback
+```
+cd ventas && git checkout -- features/portal/routes/components/route-unit-selector.tsx features/portal/screens/portal-routes-screen.tsx
+```

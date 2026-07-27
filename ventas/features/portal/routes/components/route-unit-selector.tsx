@@ -3,8 +3,26 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';
 import type { Vehicle } from '@/src/types/app';
+import type { OperationalState } from '@shared/operational-contract';
 import { getDriverName } from '../routes.utils';
 import { styles } from '../routes.styles';
+
+// Mapeo de etiqueta PROPIO de este selector — NO es el `stateLabel` canónico del dashboard.
+// Este es un selector para ASIGNAR ruta, no un monitor de estado: por eso `no_route` se
+// rotula "Disponible" (la unidad está libre para asignar) en vez del canónico "Sin ruta".
+// `maintenance` no aparece aquí: routeVehicles (portal-routes-screen:53) filtra las unidades
+// en mantenimiento antes de que lleguen a este componente. `unknown` y las unidades sin
+// snapshot (operationalState nulo) caen al fallback "Sin datos".
+const SELECTOR_STATUS_LABEL: Partial<Record<OperationalState, string>> = {
+  on_route: 'En ruta',
+  stopped: 'Detenida',
+  no_route: 'Disponible',
+  unknown: 'Sin datos',
+};
+
+function getSelectorStatusLabel(vehicle: Vehicle) {
+  return (vehicle.operationalState && SELECTOR_STATUS_LABEL[vehicle.operationalState]) || 'Sin datos';
+}
 
 export function RouteUnitSelector({
   vehicles,
@@ -39,7 +57,7 @@ export function RouteUnitSelector({
                   <Text style={styles.unitCode}>{vehicle.code}</Text>
                   <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
                   <Text style={styles.unitStatus}>
-                    ● {vehicle.status === 'maintenance' ? 'Mantenimiento' : vehicle.assignedRoute ? 'En jornada' : 'Disponible'}
+                    ● {getSelectorStatusLabel(vehicle)}
                   </Text>
                 </>
               }

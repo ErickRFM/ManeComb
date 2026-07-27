@@ -16,6 +16,7 @@ import { PortalButton } from '../components/portal-button';
 import { portalPalette } from '../portal-theme';
 import { RouteEditor, createBlankEditor } from '../routes/routes.types';
 import { parseCoordinate, getRouteGeometry, getDriverName, getRouteLabel } from '../routes/routes.utils';
+import { applyOperationalSnapshot } from '../dashboard/dashboard.utils';
 import { styles } from '../routes/routes.styles';
 import { RouteUnitSelector } from '../routes/components/route-unit-selector';
 import { RouteCatalogPanel } from '../routes/components/route-catalog-panel';
@@ -32,6 +33,7 @@ export function PortalRoutesScreen() {
     clearRouteAssignment,
     isSubmitting,
     loadVehicles,
+    operationalUnits,
     user,
     vehicles,
   } = useAppStore(
@@ -40,6 +42,7 @@ export function PortalRoutesScreen() {
       clearRouteAssignment: state.clearRouteAssignment,
       isSubmitting: state.isSubmitting,
       loadVehicles: state.loadVehicles,
+      operationalUnits: state.operationalUnits,
       user: state.user,
       vehicles: state.vehicles,
     }))
@@ -52,6 +55,18 @@ export function PortalRoutesScreen() {
   const routeVehicles = useMemo(
     () => sortedVehicles.filter((vehicle) => vehicle.status !== 'maintenance'),
     [sortedVehicles]
+  );
+  // Espeja el patrón de portal-dashboard-screen (:85-91): indexa el snapshot canónico por
+  // unidad y proyecta una lista mergeada EXCLUSIVA del selector. `routeVehicles` se deja
+  // crudo para los demás consumidores (editor :60/:241, selectedVehicle → mapa), que leen
+  // `.id`/`assignedRoute` (que el merge preserva) y no el estado operativo.
+  const snapshotByVehicle = useMemo(
+    () => new Map(operationalUnits.map((unit) => [unit.unitId, unit])),
+    [operationalUnits]
+  );
+  const operationalRouteVehicles = useMemo(
+    () => routeVehicles.map((vehicle) => applyOperationalSnapshot(vehicle, snapshotByVehicle.get(vehicle.id))),
+    [routeVehicles, snapshotByVehicle]
   );
   const vehiclesWithRoutes = useMemo(
     () => sortedVehicles.filter((vehicle) => vehicle.assignedRoute),
@@ -443,7 +458,7 @@ export function PortalRoutesScreen() {
         ) : canManageRoutes ? (
           <>
             <RouteUnitSelector
-              vehicles={routeVehicles}
+              vehicles={operationalRouteVehicles}
               selectedVehicleId={editor.vehicleId}
               onSelectVehicle={(vehicleId) => setField('vehicleId', vehicleId)}
             />
