@@ -4,6 +4,7 @@ module.exports = {
   configure: comm.configure,
   isConfigured: comm.isConfigured,
   getReadiness: comm.getReadiness,
+  initializePersistence: comm.initializePersistence,
   sendEmail: comm.sendEmail,
   getProvider: comm.getProvider,
   getProviderName: comm.getProviderName,
@@ -12,6 +13,7 @@ module.exports = {
   hasTemplate: comm.hasTemplate,
   getTemplateNames: comm.getTemplateNames,
   renderTemplate: comm.renderTemplate,
+  renderEmail: comm.renderEmail,
   extractSubject: comm.extractSubject,
   types: comm.types,
   validators: comm.validators,
@@ -19,5 +21,7 @@ module.exports = {
   metrics: comm.metrics,
   events: comm.events,
   retry: comm.retry,
-  logger: comm.logger
+  logger: comm.logger,
+  security: comm.security,
+  deliveryEngine: comm.deliveryEngine
 };

@@ -12,6 +12,8 @@ const CHANNEL = comm.types.CHANNEL;
 const STATUS = comm.types.STATUS;
 const {
   getEmailDeliveryState,
+  getCommercialEventContext,
+  notifyCommercialOrder,
   selectCommercialEmailTemplate
 } = require("../src/services/commercial-notifier");
 
@@ -56,6 +58,18 @@ function testCommercialEmailRouting() {
   assert.deepEqual(getEmailDeliveryState({ success: true }), { error: null, status: "sent" });
   assert.equal(getEmailDeliveryState({ success: false, error: "timeout" }).status, "failed");
   assert.equal(getEmailDeliveryState({ success: false, error: "429", errorCategory: "rate_limit" }).status, "retry");
+  const order = {
+    id: "order-1",
+    organizationId: "org-1",
+    paymentProvider: "mercado_pago",
+    providerPaymentId: "payment-1",
+    paymentStatus: "paid",
+    currentPeriodStart: "2026-07-01T00:00:00.000Z"
+  };
+  const manual = getCommercialEventContext(order, "payment_status", "payment-approved");
+  const webhook = getCommercialEventContext({ ...order }, "payment_status", "payment-approved");
+  assert.equal(manual.idempotencyKey, webhook.idempotencyKey);
+  assert.equal(manual.tenantScope, "organization:org-1");
   console.log("ok - estados comerciales usan template y resultado reales");
 }
 
@@ -297,8 +311,11 @@ function testValidators() {
   assert.ok(!validators.isValidTemplate("invalid-template"));
 
   const valid = validators.validateSendEmailInput({
-    to: "user@manecomb.com",
+    recipient: { email: "user@manecomb.com" },
     template: "welcome",
+    eventType: "WELCOME",
+    idempotencyKey: "welcome:user-1",
+    tenantScope: "user:user-1",
     data: { name: "Test" }
   });
   assert.ok(valid.valid);
@@ -427,7 +444,7 @@ async function testHistoryMemoryStore() {
 
   const entries = await history.query({ template: "welcome" });
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].to[0], "test@manecomb.com");
+  assert.equal(entries[0].recipientMasked, "t***@m***.com");
 
   const emptyQuery = await history.query({ template: "nonexistent" });
   assert.equal(emptyQuery.length, 0);
@@ -459,10 +476,73 @@ async function testHistoryUpdateStatus() {
   const entries = await history.query({ template: "password-reset" });
   assert.equal(entries.length, 1);
   assert.equal(entries[0].status, "sent");
-  assert.equal(entries[0].messageId, "msg-456");
+  assert.equal(entries[0].messageId || entries[0].providerMessageId, "msg-456");
 
   history.resetMemoryStore();
   console.log("ok - historial actualiza estado correctamente");
+}
+
+async function testCommercialNotificationIdempotency() {
+  comm.history.resetMemoryStore();
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "mock-key", fromEmail: "mock@manecomb.test" },
+    defaultFrom: "ManeComb <mock@manecomb.test>",
+    email: { enabled: true, dryRun: false, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  let providerCalls = 0;
+  comm.deliveryEngine.setSendFunction(async () => {
+    providerCalls += 1;
+    return { success: true, id: `message-${providerCalls}` };
+  });
+  const order = {
+    id: "order-email-integration",
+    organizationId: "org-email-integration",
+    userId: "user-email-integration",
+    email: "buyer@example.com",
+    contactName: "Comprador",
+    referenceCode: "ORDER-EMAIL-1",
+    planName: "Plan Flota",
+    totalPrice: 999,
+    paymentMethod: "card",
+    paymentProvider: "mercado_pago",
+    providerPaymentId: "payment-email-1",
+    paymentStatus: "paid",
+    currentPeriodStart: "2026-07-01T00:00:00.000Z",
+    cancelledAt: "2026-07-15T00:00:00.000Z"
+  };
+  await Promise.all([
+    notifyCommercialOrder(order, "Pago confirmado"),
+    notifyCommercialOrder({ ...order }, "Pago confirmado")
+  ]);
+  await Promise.all([
+    notifyCommercialOrder(order, "Suscripcion activa", "subscription_activated"),
+    notifyCommercialOrder({ ...order }, "Suscripcion activa", "subscription_activated")
+  ]);
+  await Promise.all([
+    notifyCommercialOrder(order, "Suscripcion cancelada", "subscription_cancelled"),
+    notifyCommercialOrder({ ...order }, "Suscripcion cancelada", "subscription_cancelled")
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(providerCalls, 3, "repeticiones comerciales deben producir un envio por evento");
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "mock-key", fromEmail: "mock@manecomb.test" },
+    email: { enabled: true, dryRun: true, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  const beforeDryRun = providerCalls;
+  const dryResult = await notifyCommercialOrder(
+    { ...order, id: "order-email-dry", referenceCode: "ORDER-EMAIL-DRY" },
+    "Orden creada",
+    "order_created"
+  );
+  assert.equal(dryResult.lastNotificationStatus, "dry_run");
+  assert.equal(providerCalls, beforeDryRun);
+  assert.equal(comm.getReadiness().status, "dry_run");
+  console.log("ok - idempotencia comercial, convergencia y dry-run usan el servicio central");
 }
 
 (async function run() {
@@ -483,6 +563,7 @@ async function testHistoryUpdateStatus() {
   testMetrics();
   await testHistoryMemoryStore();
   await testHistoryUpdateStatus();
+  await testCommercialNotificationIdempotency();
 })().catch((err) => {
   console.error(err);
   process.exit(1);

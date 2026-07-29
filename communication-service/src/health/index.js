@@ -2,13 +2,44 @@ const config = require("../config");
 const queue = require("../queue");
 const metrics = require("../metrics");
 const connectionManager = require("../connection");
+const history = require("../history");
+
+let providerReady = false;
+let lastOperationalError = null;
+
+function setProviderReady(value) {
+  providerReady = Boolean(value);
+}
+
+function setLastOperationalError(error) {
+  lastOperationalError = error
+    ? {
+        category: error.category || "unknown",
+        code: error.code || null,
+        message: String(error.message || "email_operation_failed").slice(0, 160),
+        at: new Date().toISOString()
+      }
+    : null;
+}
 
 function getReadiness() {
+  const cfg = config.getConfig();
+  const queueState = queue.getReadiness();
+  const historyState = history.getReadiness();
+  let status = "ready";
+  if (!cfg.email.enabled) status = "disabled";
+  else if (cfg.email.dryRun) status = "dry_run";
+  else if (!providerReady) status = "error";
+  else if (!historyState.durable || !queueState.durable) status = "degraded";
   return {
     configured: config.isConfigured(),
-    provider: config.getConfig().provider,
-    ready: config.isConfigured() && config.getConfig().provider !== null,
-    queue: queue.getReadiness(),
+    provider: cfg.provider,
+    status,
+    ready: status === "ready",
+    durable: historyState.durable && queueState.durable,
+    queue: queueState,
+    history: historyState,
+    lastError: lastOperationalError,
     connections: connectionManager.getHealth(),
     metrics: metrics.getSnapshot(),
     timestamp: new Date().toISOString()
@@ -25,5 +56,7 @@ function getLiveness() {
 
 module.exports = {
   getReadiness,
-  getLiveness
+  getLiveness,
+  setProviderReady,
+  setLastOperationalError
 };

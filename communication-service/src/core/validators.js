@@ -30,15 +30,16 @@ function normalizePriority(value) {
   return PRIORITY.NORMAL;
 }
 
-function validateSendEmailInput({ to, template, data }) {
+function validateSendEmailInput({ to, recipient, template, eventType, idempotencyKey, tenantScope, tenantId, organizationId, data }) {
   const errors = [];
+  const target = recipient?.email || to;
 
-  if (!to) {
+  if (!target) {
     errors.push("El destinatario es obligatorio");
-  } else if (typeof to === "string" && !isValidEmail(to)) {
+  } else if (typeof target === "string" && !isValidEmail(target)) {
     errors.push("El correo del destinatario no es válido");
-  } else if (Array.isArray(to)) {
-    const invalid = to.filter((addr) => !isValidEmail(addr));
+  } else if (Array.isArray(target)) {
+    const invalid = target.filter((addr) => !isValidEmail(addr));
     if (invalid.length) {
       errors.push(`Correos inválidos: ${invalid.join(", ")}`);
     }
@@ -50,8 +51,48 @@ function validateSendEmailInput({ to, template, data }) {
     errors.push(`Plantilla no válida: ${template}`);
   }
 
+  if (typeof eventType !== "string" || !eventType.trim()) {
+    errors.push("El tipo de evento es obligatorio");
+  } else if (!/^[A-Z][A-Z0-9_]*$/.test(eventType)) {
+    errors.push("El tipo de evento no es valido");
+  }
+  if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) {
+    errors.push("La clave idempotente es obligatoria");
+  }
+  if (typeof tenantScope !== "string" || !tenantScope.trim()) {
+    errors.push("El scope del tenant es obligatorio");
+  }
+
+  const multiTenantEvents = new Set([
+    "ORDER_CREATED",
+    "PAYMENT_CONFIRMED",
+    "PAYMENT_FAILED",
+    "PAYMENT_PENDING",
+    "SUBSCRIPTION_ACTIVATED",
+    "SUBSCRIPTION_CANCELLED"
+  ]);
+  if (multiTenantEvents.has(eventType) && !organizationId && !tenantId) {
+    errors.push("La organizacion es obligatoria para eventos comerciales");
+  }
+
   if (data && typeof data !== "object") {
     errors.push("Los datos deben ser un objeto");
+  }
+
+  const requiredData = {
+    welcome: ["name"],
+    "password-reset": ["name", "resetUrl"],
+    "order-created": ["name", "referenceCode"],
+    "payment-approved": ["name", "referenceCode"],
+    "payment-rejected": ["name", "referenceCode"],
+    "payment-pending": ["name", "referenceCode"],
+    "subscription-activated": ["name", "planName"],
+    "subscription-cancelled": ["name", "planName"]
+  };
+  for (const field of requiredData[template] || []) {
+    if (data?.[field] === undefined || data?.[field] === null || data?.[field] === "") {
+      errors.push(`El dato ${field} es obligatorio para ${template}`);
+    }
   }
 
   if (data && template) {

@@ -240,6 +240,13 @@ const MERCADO_PAGO_WEBHOOK_URL =
 const MERCADO_PAGO_WEBHOOK_URL_SOURCE = mercadoPagoWebhookUrl.name || (PUBLIC_WEBHOOK_BASE_URL ? "PUBLIC_WEBHOOK_BASE_URL" : "");
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
+const RESEND_REPLY_TO = process.env.EMAIL_REPLY_TO || process.env.RESEND_REPLY_TO || "";
+const EMAIL_ENABLED = parseBoolean(process.env.EMAIL_ENABLED, true);
+const EMAIL_DRY_RUN = parseBoolean(process.env.EMAIL_DRY_RUN, false);
+const EMAIL_FROM = process.env.EMAIL_FROM || RESEND_FROM_EMAIL;
+const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "ManeComb";
+const PORTAL_PUBLIC_URL = process.env.PORTAL_PUBLIC_URL || process.env.APP_PUBLIC_URL || APP_URL;
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || APP_URL;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || "";
@@ -339,6 +346,13 @@ module.exports = {
   MERCADO_PAGO_WEBHOOK_URL_ENV_NAMES,
   RESEND_API_KEY,
   RESEND_FROM_EMAIL,
+  RESEND_REPLY_TO,
+  EMAIL_ENABLED,
+  EMAIL_DRY_RUN,
+  EMAIL_FROM,
+  EMAIL_FROM_NAME,
+  PORTAL_PUBLIC_URL,
+  APP_PUBLIC_URL,
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   TWILIO_WHATSAPP_FROM,

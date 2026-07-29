@@ -3,9 +3,14 @@ require("dotenv").config({
   path: path.resolve(__dirname, "../.env")
 });
 const http = require("http");
+const mongoose = require("mongoose");
 const createApp = require("./app");
 const { connectDB, getDbState } = require("./config/db");
-const { HOST, PORT, REQUIRE_MONGO } = require("./config/env");
+const {
+  HOST, PORT, REQUIRE_MONGO, RESEND_API_KEY, RESEND_REPLY_TO,
+  EMAIL_ENABLED, EMAIL_DRY_RUN, EMAIL_FROM, EMAIL_FROM_NAME,
+  PORTAL_PUBLIC_URL
+} = require("./config/env");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
@@ -20,20 +25,28 @@ async function startServer() {
   communication.configure({
     provider: "resend",
     providerConfig: {
-      apiKey: process.env.RESEND_API_KEY || "",
-      fromEmail: process.env.RESEND_FROM_EMAIL || "",
-      replyTo: process.env.RESEND_REPLY_TO || ""
+      apiKey: RESEND_API_KEY,
+      fromEmail: EMAIL_FROM,
+      replyTo: RESEND_REPLY_TO
     },
     queue: {
       enabled: /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_QUEUES || "")) && Boolean(process.env.REDIS_URL),
       redisUrl: process.env.REDIS_URL || ""
     },
-    defaultFrom: process.env.RESEND_FROM_EMAIL || "",
+    defaultFrom: EMAIL_FROM ? `${EMAIL_FROM_NAME} <${EMAIL_FROM}>` : "",
     supportEmail: process.env.COMMERCIAL_SUPPORT_EMAIL || "",
-    docsUrl: "",
-    brandName: process.env.COMMERCIAL_BRAND_NAME || "ManeComb",
-    legalName: process.env.COMMERCIAL_LEGAL_NAME || "ManeComb"
+    docsUrl: PORTAL_PUBLIC_URL,
+    brandName: EMAIL_FROM_NAME,
+    legalName: process.env.COMMERCIAL_LEGAL_NAME || "ManeComb",
+    email: {
+      enabled: EMAIL_ENABLED,
+      dryRun: EMAIL_DRY_RUN,
+      requireDurableQueue: /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_QUEUES || "")),
+      requireDurableHistory: true
+    },
+    persistence: { mongoose }
   });
+  await communication.initializePersistence();
 
   const db = getDbState();
   const store = db.connected ? await createMongoStore() : createEmbeddedStore();

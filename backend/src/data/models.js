@@ -847,6 +847,9 @@ const commercialLeadSchema = new mongoose.Schema(
     lastEmailError: { type: String, default: null },
     lastEmailProvider: { type: String, default: null },
     lastEmailTemplate: { type: String, default: null },
+    lastNotificationDeliveryId: { type: String, default: null },
+    lastNotificationStatus: { type: String, default: null },
+    lastNotificationAt: { type: Date, default: null },
     lastWhatsappStatus: { type: String, default: "pending" },
     lastContactedAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now }

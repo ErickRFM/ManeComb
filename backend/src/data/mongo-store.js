@@ -1390,6 +1390,9 @@ async function createMongoStore() {
       lastEmailError: null,
       lastEmailProvider: null,
       lastEmailTemplate: null,
+      lastNotificationDeliveryId: null,
+      lastNotificationStatus: null,
+      lastNotificationAt: null,
       lastWhatsappStatus: "pending",
       lastContactedAt: null,
       createdAt: new Date()
@@ -1793,6 +1796,7 @@ async function createMongoStore() {
     }
 
     const token = randomBytes(32).toString("hex");
+    const requestId = randomBytes(16).toString("hex");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
@@ -1806,6 +1810,7 @@ async function createMongoStore() {
 
     return {
       token,
+      requestId,
       email: user.email,
       name: user.name,
       userId: String(user._id),

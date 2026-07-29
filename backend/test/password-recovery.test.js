@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const http = require("node:http");
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
@@ -13,6 +15,10 @@ async function requestJson(baseUrl, path, body) {
 }
 
 async function run() {
+  const authSource = fs.readFileSync(path.resolve(__dirname, "../src/modules/auth/routes.js"), "utf8");
+  assert.ok(!authSource.includes("api.resend.com"));
+  assert.ok(!authSource.includes("Authorization: `Bearer ${RESEND_API_KEY}`"));
+  assert.ok(authSource.includes('template: "password-reset"'));
   const store = createEmbeddedStore();
   const server = http.createServer(createApp({
     store,
@@ -31,6 +37,16 @@ async function run() {
     });
     assert.equal(login.status, 200);
     assert.ok(login.payload.refreshToken);
+
+    const forgotExisting = await requestJson(baseUrl, "/auth/forgot-password", {
+      email: "admin@combis.app"
+    });
+    const forgotMissing = await requestJson(baseUrl, "/auth/forgot-password", {
+      email: "missing-user@combis.app"
+    });
+    assert.equal(forgotExisting.status, 200);
+    assert.equal(forgotMissing.status, 200);
+    assert.equal(forgotExisting.payload.message, forgotMissing.payload.message);
 
     const recovery = await store.generatePasswordResetToken("admin@combis.app");
     assert.ok(recovery?.token);

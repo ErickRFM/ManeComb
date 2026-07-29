@@ -416,7 +416,7 @@ function criticalIncident(data) {
         ["Prioridad", "Crítica"]
       ]
     }),
-    data.description ? C.textBlock(data.description) : "",
+    data.description ? C.textBlock(C.escapeHtml(data.description)) : "",
     C.button({ text: "Ver incidencia", url: data.incidentUrl }),
     C.helpBlock({ email: data.supportEmail })
   ]);

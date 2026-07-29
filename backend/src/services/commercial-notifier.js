@@ -10,10 +10,16 @@ function canSendWhatsapp() {
 }
 
 function getNotifierReadiness() {
+  const emailReadiness = communication.getReadiness();
   return {
     email: {
-      ready: communication.isConfigured(),
-      missing: communication.isConfigured() ? [] : ["RESEND_API_KEY", "RESEND_FROM_EMAIL"]
+      ready: emailReadiness.ready,
+      status: emailReadiness.status,
+      durable: emailReadiness.durable,
+      provider: emailReadiness.provider,
+      missing: ["disabled", "dry_run"].includes(emailReadiness.status)
+        ? []
+        : communication.isConfigured() ? [] : ["EMAIL_FROM", "RESEND_API_KEY"]
     },
     whatsapp: {
       ready: canSendWhatsapp(),
@@ -21,6 +27,30 @@ function getNotifierReadiness() {
         ? []
         : ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM"]
     }
+  };
+}
+
+function getCommercialEventContext(order, event, template) {
+  const provider = String(order.paymentProvider || "manual");
+  const paymentId = String(order.providerPaymentId || order.paymentProviderReference || order.paymentExternalReference || order.id);
+  const statusVersion = String(order.paymentStatus || order.status || "unknown");
+  const subscriptionId = String(order.subscriptionId || order.organizationId || order.id);
+  const periodStart = String(order.currentPeriodStart || order.trialStartedAt || order.activatedAt || order.createdAt || "initial");
+  const cancellationVersion = String(order.cancelledAt || order.cancelAt || statusVersion);
+  const contexts = {
+    "order-created": ["ORDER_CREATED", `order-created:${order.id || order.referenceCode}`],
+    "payment-approved": ["PAYMENT_CONFIRMED", `payment-approved:${provider}:${paymentId}`],
+    "payment-rejected": ["PAYMENT_FAILED", `payment-rejected:${provider}:${paymentId}:${statusVersion}`],
+    "payment-pending": ["PAYMENT_PENDING", `payment-pending:${provider}:${paymentId}:${statusVersion}`],
+    "subscription-activated": ["SUBSCRIPTION_ACTIVATED", `subscription-activated:${subscriptionId}:${periodStart}`],
+    "subscription-cancelled": ["SUBSCRIPTION_CANCELLED", `subscription-cancelled:${subscriptionId}:${cancellationVersion}`]
+  };
+  const [eventType, idempotencyKey] = contexts[template];
+  return {
+    eventType,
+    idempotencyKey,
+    organizationId: String(order.organizationId || ""),
+    tenantScope: order.organizationId ? `organization:${order.organizationId}` : `order:${order.id || order.referenceCode}`
   };
 }
 
@@ -64,20 +94,13 @@ function getEmailDeliveryState(result) {
 }
 
 async function sendEmailNotification(order, event) {
-  if (!communication.isConfigured()) {
-    return {
-      lastEmailError: "RESEND_API_KEY o RESEND_FROM_EMAIL no configurados",
-      lastEmailProvider: "resend",
-      lastEmailStatus: "skipped_not_configured",
-      lastEmailTemplate: selectCommercialEmailTemplate(order, event)
-    };
-  }
-
   const template = selectCommercialEmailTemplate(order, event);
+  const context = getCommercialEventContext(order, event, template);
   try {
     const result = await communication.sendEmail({
-      to: order.email,
+      recipient: { email: order.email, name: order.contactName },
       template,
+      ...context,
       data: {
         name: order.contactName,
         referenceCode: order.referenceCode,
@@ -94,17 +117,15 @@ async function sendEmailNotification(order, event) {
     });
     const delivery = getEmailDeliveryState(result);
     return {
-      lastEmailError: delivery.error,
-      lastEmailProvider: result?.provider || "resend",
-      lastEmailStatus: delivery.status,
-      lastEmailTemplate: template
+      lastNotificationDeliveryId: result?.deliveryId || null,
+      lastNotificationStatus: result?.status || delivery.status,
+      lastNotificationAt: new Date().toISOString()
     };
   } catch (error) {
     return {
-      lastEmailError: error?.message || String(error),
-      lastEmailProvider: "resend",
-      lastEmailStatus: "failed",
-      lastEmailTemplate: template
+      lastNotificationDeliveryId: null,
+      lastNotificationStatus: "failed",
+      lastNotificationAt: new Date().toISOString()
     };
   }
 }
@@ -163,10 +184,9 @@ async function notifyCommercialOrder(order, nextStep, event = "payment_status") 
   const message = buildOrderMessage(order, nextStep);
   const [emailStatus, lastWhatsappStatus] = await Promise.all([
     sendEmailNotification(order, event).catch((error) => ({
-      lastEmailError: error?.message || String(error),
-      lastEmailProvider: "resend",
-      lastEmailStatus: "failed",
-      lastEmailTemplate: selectCommercialEmailTemplate(order, event)
+      lastNotificationDeliveryId: null,
+      lastNotificationStatus: "failed",
+      lastNotificationAt: new Date().toISOString()
     })),
     sendWhatsappNotification(order, message).catch(() => "failed")
   ]);
@@ -181,6 +201,7 @@ async function notifyCommercialOrder(order, nextStep, event = "payment_status") 
 module.exports = {
   getNotifierReadiness,
   getEmailDeliveryState,
+  getCommercialEventContext,
   notifyCommercialOrder,
   selectCommercialEmailTemplate
 };

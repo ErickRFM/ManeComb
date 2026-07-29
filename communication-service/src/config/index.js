@@ -9,6 +9,12 @@ let configuration = {
   docsUrl: "",
   brandName: "ManeComb",
   legalName: "ManeComb",
+  email: {
+    enabled: true,
+    dryRun: false,
+    requireDurableQueue: false,
+    requireDurableHistory: true
+  },
   delivery: {
     sendTimeoutMs: 30000,
     rateLimitTokens: 10,
@@ -35,6 +41,12 @@ function configure(cfg) {
     docsUrl: cfg.docsUrl || "",
     brandName: cfg.brandName || "ManeComb",
     legalName: cfg.legalName || "ManeComb",
+    email: {
+      enabled: cfg.email?.enabled !== false,
+      dryRun: Boolean(cfg.email?.dryRun),
+      requireDurableQueue: Boolean(cfg.email?.requireDurableQueue),
+      requireDurableHistory: cfg.email?.requireDurableHistory !== false
+    },
     delivery: {
       sendTimeoutMs: cfg.delivery?.sendTimeoutMs || configuration.delivery.sendTimeoutMs,
       rateLimitTokens: cfg.delivery?.rateLimitTokens || configuration.delivery.rateLimitTokens,

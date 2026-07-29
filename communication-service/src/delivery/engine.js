@@ -1,163 +1,193 @@
-const { DeliveryPipeline, ValidateStage, ResolveTemplateStage, RateLimitStage, SendStage, MetricsStage, HistoryStage, EventsStage, ErrorClassificationStage } = require("./pipeline");
+const crypto = require("crypto");
 const config = require("../config");
 const validators = require("../core/validators");
 const retry = require("../core/retry");
-const { PRIORITY } = require("../core/types");
 const queue = require("../queue");
 const history = require("../history");
 const metrics = require("../metrics");
 const logger = require("../logger");
+const { renderEmail } = require("../renderer");
+const { getTemplateBuilder } = require("../templates");
+const { sanitizeProviderError, classifyEmailError, safeDeliveryLog } = require("../security");
+const health = require("../health");
 
 class DeliveryEngine {
   constructor() {
-    this.pipeline = null;
-    this.sendFn = null;
+    this.providerSendFn = null;
   }
 
-  configure(cfg) {
-    this.pipeline = new DeliveryPipeline();
-    this.pipeline
-      .use(new ValidateStage())
-      .use(new ResolveTemplateStage())
-      .use(new RateLimitStage())
-      .use(new SendStage())
-      .use(new ErrorClassificationStage())
-      .use(new MetricsStage())
-      .use(new HistoryStage())
-      .use(new EventsStage());
-  }
+  configure() {}
 
   setSendFunction(fn) {
-    this.sendFn = fn;
+    this.providerSendFn = fn;
   }
 
-  async sendDirect({ to, template, data, priority, from, subject, provider, attempts }) {
-    if (!this.sendFn) {
-      throw new Error("sendFn not configured in DeliveryEngine");
+  buildJobId(input) {
+    const digest = crypto.createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 24);
+    const scope = input.tenantScope.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
+    const event = input.eventType.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
+    return `email-${scope}-${event}-${digest}`;
+  }
+
+  async claim(input) {
+    const validation = validators.validateSendEmailInput(input);
+    if (!validation.valid) throw new Error(validation.errors.join(", "));
+    const target = input.recipient?.email || input.to;
+    const claimed = await history.claim({
+      ...input,
+      requireDurable: config.getConfig().email.enabled &&
+        !config.getConfig().email.dryRun &&
+        config.getConfig().email.requireDurableHistory,
+      recipient: { email: target },
+      status: "created",
+      provider: input.provider || config.getConfig().provider
+    });
+    if (claimed.created) metrics.increment("deliveries_created", 1, { template: input.template });
+    else metrics.increment("duplicates_prevented", 1, { template: input.template });
+    return claimed;
+  }
+
+  async processDelivery(input, deliveryId, attempts = 1) {
+    const cfg = config.getConfig();
+    const templateFn = getTemplateBuilder(input.template);
+    if (!templateFn) throw new Error(`Template not found: ${input.template}`);
+    const rendered = renderEmail(templateFn, input.data);
+
+    if (!cfg.email.enabled) {
+      await history.updateDelivery(deliveryId, { status: "skipped" });
+      metrics.increment("deliveries_skipped", 1, { template: input.template });
+      return { success: false, status: "skipped", deliveryId };
     }
+    if (cfg.email.dryRun) {
+      await history.updateDelivery(deliveryId, { status: "dry_run" });
+      metrics.increment("deliveries_dry_run", 1, { template: input.template });
+      return { success: false, status: "dry_run", deliveryId };
+    }
+    if (!this.providerSendFn) throw new Error("Provider send function not configured");
 
-    const deliveryId = `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const ctx = {
-      to,
-      template,
-      data: {
-        ...data,
-        _template: template,
-        supportEmail: data?.supportEmail || config.getConfig().supportEmail,
-        docsUrl: data?.docsUrl || config.getConfig().docsUrl,
-        brandName: config.getConfig().brandName
-      },
-      priority: priority != null ? validators.normalizePriority(priority) : 1,
-      from,
-      subject,
-      provider: provider || config.getConfig().provider,
-      sendFn: this.sendFn,
-      attempts: attempts || 1,
-      maxAttempts: retry.getMaxRetries(priority != null ? validators.normalizePriority(priority) : 1) + 1,
-      deliveryId,
-      rateLimitTokens: 10,
-      rateLimitRefillRate: 1,
-      rateLimitInterval: 1000
-    };
+    await history.updateDelivery(deliveryId, { status: "processing", attempts });
+    metrics.increment("provider_attempts", 1, { template: input.template, provider: input.provider });
+    const startedAt = Date.now();
+    let result;
+    try {
+      result = await this.providerSendFn({
+        ...input,
+        to: input.recipient?.email || input.to,
+        subject: input.subject || rendered.subject,
+        html: rendered.html,
+        text: rendered.text
+      });
+      if (!result.success) throw new Error(result.error || "Provider send failed");
+    } catch (error) {
+      const classified = classifyEmailError(error, input.provider);
+      health.setLastOperationalError({
+        category: classified.category,
+        code: classified.statusCode ? String(classified.statusCode) : classified.category,
+        message: sanitizeProviderError(error)
+      });
+      await history.updateDelivery(deliveryId, {
+        status: "failed",
+        attempts,
+        errorCategory: classified.category,
+        errorCode: classified.statusCode ? String(classified.statusCode) : classified.category,
+        errorMessage: sanitizeProviderError(error)
+      });
+      logger.logError("EmailSendFailed", new Error(sanitizeProviderError(error)), safeDeliveryLog({
+        ...input, deliveryId, status: "failed", error
+      }));
+      const normalized = new Error(sanitizeProviderError(error));
+      normalized.retryable = classified.retryable;
+      normalized.category = classified.category;
+      throw normalized;
+    }
+    const durationMs = Date.now() - startedAt;
+    await history.updateDelivery(deliveryId, {
+      status: "sent",
+      provider: result.provider || input.provider,
+      providerMessageId: result.messageId || result.id || null,
+      durationMs,
+      attempts
+    }).catch((error) => {
+      logger.logError("EmailHistoryUpdateFailed", new Error(sanitizeProviderError(error)), {
+        ...safeDeliveryLog({ ...input, deliveryId, status: "sent" }),
+        error
+      });
+    });
+    metrics.increment("deliveries_sent", 1, { template: input.template, provider: input.provider });
+    health.setLastOperationalError(null);
+    metrics.observeDuration("email_send_duration_ms", durationMs, { template: input.template });
+    logger.logEvent("EmailSent", safeDeliveryLog({ ...input, deliveryId, status: "sent" }));
+    return { success: true, status: "sent", deliveryId, messageId: result.messageId || result.id || null };
+  }
 
-    const result = await this.pipeline.execute(ctx);
-
-    if (!result.success && result.success !== undefined && result.status === "failed") {
-      const classifiedError = result.classifiedError || result.error;
-      if (classifiedError.retryable && (result.attempts || 1) < (result.maxAttempts || 3)) {
-        logger.logWarn("DeliveryRetry", `Retrying ${template} (attempt ${result.attempts + 1}/${result.maxAttempts})`, {
-          template,
-          error: classifiedError.message
-        });
+  async sendDirect(input) {
+    const claimed = await this.claim(input);
+    if (!claimed.created) {
+      return { success: claimed.delivery.status === "sent", duplicate: true, status: claimed.delivery.status, deliveryId: claimed.delivery.deliveryId };
+    }
+    const maxAttempts = retry.getMaxRetries(validators.normalizePriority(input.priority)) + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.processDelivery(input, claimed.delivery.deliveryId, attempt);
+      } catch (error) {
+        if (!error.retryable || attempt === maxAttempts) {
+          metrics.increment("deliveries_failed", 1, { template: input.template, provider: input.provider });
+          return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId, error: sanitizeProviderError(error), errorCategory: error.category };
+        }
+        metrics.increment("provider_retries", 1, { template: input.template, category: error.category });
       }
     }
-
-    return {
-      success: result.status !== "failed",
-      messageId: result.messageId || null,
-      provider: result.provider || config.getConfig().provider,
-      durationMs: result.durationMs || 0,
-      error: result.classifiedError?.message || result.error?.message || null,
-      errorCategory: result.classifiedError?.category || null,
-      historyId: result.historyId || null,
-      status: result.status
-    };
+    return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId };
   }
 
-  async sendViaQueue({ to, template, data, priority, from, subject, provider }) {
-    const resolvedPriority = priority != null ? validators.normalizePriority(priority) : 1;
-    const deliveryId = `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-    const enrichedData = {
-      ...data,
-      _template: template,
-      supportEmail: data?.supportEmail || config.getConfig().supportEmail,
-      docsUrl: data?.docsUrl || config.getConfig().docsUrl,
-      brandName: config.getConfig().brandName
-    };
-
-    const q = queue.getQueue("emails");
-    const jobOptions = retry.getJobOptions(resolvedPriority);
-
-    let job;
+  async sendViaQueue(input) {
+    const claimed = await this.claim(input);
+    if (!claimed.created) {
+      return { success: claimed.delivery.status === "sent", duplicate: true, status: claimed.delivery.status, deliveryId: claimed.delivery.deliveryId };
+    }
+    const cfg = config.getConfig();
+    if (!cfg.email.enabled || cfg.email.dryRun) {
+      return this.processDelivery(input, claimed.delivery.deliveryId, 0);
+    }
+    const resolvedPriority = validators.normalizePriority(input.priority);
+    const jobId = this.buildJobId(input);
     try {
-      job = await q.add(
-        "send-email",
-        {
-          to,
-          template,
-          data: enrichedData,
-          priority: resolvedPriority,
-          provider: provider || config.getConfig().provider,
-          from,
-          deliveryId
-        },
-        { ...jobOptions, priority: resolvedPriority }
-      );
+      const job = await queue.getQueue("emails").add("send-email", {
+        ...input,
+        deliveryId: claimed.delivery.deliveryId
+      }, { ...retry.getJobOptions(resolvedPriority), priority: resolvedPriority, jobId });
+      await history.updateDelivery(claimed.delivery.deliveryId, { status: "queued" });
+      metrics.increment("deliveries_queued", 1, { template: input.template });
+      return { success: true, queued: true, status: "queued", deliveryId: claimed.delivery.deliveryId, jobId: job.id };
     } catch (error) {
-      logger.logWarn("QueueAddFailed", `Queue unavailable, sending direct: ${template}`, {
-        template,
-        error: error.message
-      });
-      return this.sendDirect({ to, template, data: enrichedData, from, subject, provider });
+      if (cfg.email.requireDurableQueue) {
+        await history.updateDelivery(claimed.delivery.deliveryId, {
+          status: "failed", errorCategory: "queue", errorCode: "QUEUE_UNAVAILABLE", errorMessage: error
+        });
+        return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId, error: "Queue unavailable" };
+      }
+      return this.processDelivery(input, claimed.delivery.deliveryId, 1);
     }
-
-    await history.log({
-      to: Array.isArray(to) ? to : [to],
-      template,
-      provider: provider || config.getConfig().provider,
-      status: "queued",
-      priority: resolvedPriority,
-      subject: subject || "",
-      metadata: { deliveryId, userId: data?.userId, organizationId: data?.organizationId }
-    });
-
-    metrics.increment("emails_enqueued", 1, {
-      template,
-      provider: provider || config.getConfig().provider
-    });
-
-    return {
-      queued: true,
-      deliveryId,
-      jobId: job.id,
-      template,
-      provider: provider || config.getConfig().provider,
-      priority: resolvedPriority
-    };
   }
 
-  async queueOrDirect({ to, template, data, priority, from, subject, provider }) {
-    const resolvedPriority = priority != null ? validators.normalizePriority(priority) : 1;
-
-    if (resolvedPriority >= PRIORITY.CRITICAL) {
-      return this.sendDirect({ to, template, data, priority: resolvedPriority, from, subject, provider });
+  async processQueued(job) {
+    const attempts = (job.attemptsMade || 0) + 1;
+    try {
+      return await this.processDelivery(job.data, job.data.deliveryId, attempts);
+    } catch (error) {
+      const maxAttempts = Number(job.opts?.attempts || 1);
+      if (job.local || error.retryable === false || attempts >= maxAttempts) {
+        metrics.increment("deliveries_failed", 1, { template: job.data.template, provider: job.data.provider });
+      }
+      throw error;
     }
+  }
 
-    return this.sendViaQueue({ to, template, data, priority: resolvedPriority, from, subject, provider });
+  async queueOrDirect(input) {
+    return validators.normalizePriority(input.priority) >= 10
+      ? this.sendDirect(input)
+      : this.sendViaQueue(input);
   }
 }
 
-const deliveryEngine = new DeliveryEngine();
-
-module.exports = deliveryEngine;
+module.exports = new DeliveryEngine();

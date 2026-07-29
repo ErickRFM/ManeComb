@@ -1,4 +1,5 @@
 let externalLogger = null;
+const { safeDeliveryLog, sanitizeProviderError } = require("../security");
 
 function setLogger(logger) {
   externalLogger = logger;
@@ -11,14 +12,7 @@ function logEvent(action, data) {
       module: "Communication",
       message: data.message || "",
       status: data.status || "unknown",
-      metadata: {
-        template: data.template,
-        provider: data.provider,
-        to: data.to,
-        priority: data.priority,
-        durationMs: data.durationMs,
-        error: data.error
-      }
+      metadata: safeDeliveryLog(data)
     });
     return;
   }
@@ -30,14 +24,7 @@ function logEvent(action, data) {
     action,
     message: data.message || "",
     status: data.status || "unknown",
-    metadata: {
-      template: data.template,
-      provider: data.provider,
-      to: data.to,
-      priority: data.priority,
-      durationMs: data.durationMs,
-      error: data.error
-    }
+    metadata: safeDeliveryLog(data)
   };
   console.log(JSON.stringify(payload));
 }
@@ -47,9 +34,8 @@ function logError(action, error, metadata) {
     externalLogger.error({
       action,
       module: "Communication",
-      message: error?.message || String(error),
-      error,
-      metadata
+      message: sanitizeProviderError(error),
+      metadata: safeDeliveryLog({ ...metadata, error })
     });
     return;
   }
@@ -59,8 +45,8 @@ function logError(action, error, metadata) {
     level: "error",
     module: "Communication",
     action,
-    message: error?.message || String(error),
-    metadata
+    message: sanitizeProviderError(error),
+    metadata: safeDeliveryLog({ ...metadata, error })
   };
   console.error(JSON.stringify(payload));
 }

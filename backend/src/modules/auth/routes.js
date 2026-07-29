@@ -10,7 +10,7 @@ const {
   rotateRefreshToken
 } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
-const { RESEND_API_KEY, RESEND_FROM_EMAIL, APP_URL } = require("../../config/env");
+const { APP_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
 
@@ -59,6 +59,12 @@ function getAppUpdateInfo(store, currentVersion) {
 const router = Router();
 const authLimiter = enterpriseRateLimit({ scope: "auth", max: 20, windowMs: 60 * 1000 });
 const refreshLimiter = enterpriseRateLimit({ scope: "auth-refresh", max: 30, windowMs: 60 * 1000 });
+const passwordResetLimiter = enterpriseRateLimit({
+  scope: "auth-password-reset",
+  max: 5,
+  windowMs: 15 * 60 * 1000,
+  message: "Demasiadas solicitudes de recuperacion. Intenta de nuevo mas tarde."
+});
 
 function shouldLogAuthAccessDecision() {
   return process.env.AUTH_ACCESS_DEBUG === "true" || process.env.NODE_ENV === "development";
@@ -190,17 +196,21 @@ router.post("/register", authLimiter, async (req, res, next) => {
       accountType
     });
 
-    if (communication.isConfigured()) {
+    {
       const delivery = await communication.sendEmail({
-        to: user.email,
+        recipient: { email: user.email, name: user.name },
         template: "welcome",
+        eventType: "WELCOME",
+        tenantScope: user.organizationId ? `organization:${user.organizationId}` : `user:${user.id}`,
+        organizationId: user.organizationId || undefined,
+        idempotencyKey: `welcome:${user.id}`,
         data: {
           name: user.name,
           dashboardUrl: APP_URL,
           userId: user.id,
           organizationId: user.organizationId
         }
-      }).catch((error) => ({ success: false, error: error?.message || String(error), provider: "resend" }));
+      }).catch((error) => ({ success: false, error: communication.security.sanitizeProviderError(error) }));
 
       if (delivery?.success === false) {
         logger.error({
@@ -208,9 +218,9 @@ router.post("/register", authLimiter, async (req, res, next) => {
           module: "Auth",
           message: "No fue posible confirmar el correo de bienvenida",
           metadata: {
-            email: user.email,
+            recipient: communication.security.maskEmail(user.email),
             error: delivery.error,
-            provider: delivery.provider || "resend",
+            provider: communication.getProviderName(),
             template: "welcome"
           }
         });
@@ -288,7 +298,7 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
   });
 });
 
-router.post("/forgot-password", authLimiter, async (req, res) => {
+router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
@@ -310,11 +320,15 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
     const resetUrl = `${APP_URL.replace(/\/$/, "")}/reset-password?token=${result.token}`;
 
-    if (communication.isConfigured()) {
+    {
       try {
         const delivery = await communication.sendEmail({
-          to: result.email,
+          recipient: { email: result.email, name: result.name },
           template: "password-reset",
+          eventType: "PASSWORD_RESET",
+          tenantScope: result.organizationId ? `organization:${result.organizationId}` : `user:${result.userId}`,
+          organizationId: result.organizationId || undefined,
+          idempotencyKey: `password-reset:${result.requestId}`,
           data: {
             name: result.name,
             resetUrl,
@@ -329,9 +343,9 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
             module: "Auth",
             message: "El proveedor no confirmó el correo de recuperación",
             metadata: {
-              email: result.email,
+              recipient: communication.security.maskEmail(result.email),
               error: delivery?.error || "Resultado sin confirmación",
-              provider: delivery?.provider || "resend",
+              provider: communication.getProviderName(),
               status: delivery?.queued ? "pending" : "failed",
               template: "password-reset"
             }
@@ -346,7 +360,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
             message: "Correo de recuperación no confirmado por el proveedor",
             metadata: {
               error: delivery?.error || null,
-              provider: delivery?.provider || "resend",
+              provider: communication.getProviderName(),
               template: "password-reset"
             }
           });
@@ -356,8 +370,10 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
           action: "ForgotPasswordEmail",
           module: "Auth",
           message: "Error enviando correo de recuperación",
-          error,
-          metadata: { email: result.email }
+          metadata: {
+            recipient: communication.security.maskEmail(result.email),
+            error: communication.security.sanitizeProviderError(error)
+          }
         });
         await req.app.locals.store.recordAppEvent?.({
           type: "email_delivery_failed",
@@ -368,38 +384,11 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
           organizationId: result.organizationId,
           message: "Falló el correo de recuperación",
           metadata: {
-            error: error?.message || String(error),
-            provider: "resend",
+            error: communication.security.sanitizeProviderError(error),
+            provider: communication.getProviderName(),
             template: "password-reset"
           }
         });
-      }
-    } else if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
-      const emailResponse = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: RESEND_FROM_EMAIL,
-          to: [result.email],
-          subject: "Recuperacion de contrasena - ManeComb",
-          html: [
-            `<p>Hola ${result.name},</p>`,
-            `<p>Recibimos una solicitud para restablecer tu contrasena de ManeComb.</p>`,
-            `<p>Haz clic en el siguiente enlace para crear una nueva contrasena:</p>`,
-            `<p><a href="${resetUrl}">${resetUrl}</a></p>`,
-            `<p>Este enlace expira en 1 hora.</p>`,
-            `<p><strong>Importante:</strong> si usas un dispositivo nuevo, el cambio de contrasena puede impedir recuperar mensajes cifrados anteriores. Conserva acceso a un dispositivo donde ya hayas iniciado sesion para volver a respaldar tu clave privada.</p>`,
-            `<p>Si no solicitaste este cambio, ignora este mensaje.</p>`
-          ].join("\n")
-        })
-      });
-
-      if (!emailResponse.ok) {
-        const providerMessage = await emailResponse.text().catch(() => "");
-        throw new Error(`Resend error ${emailResponse.status}: ${providerMessage.slice(0, 300)}`);
       }
     }
 
@@ -407,7 +396,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       action: "auth.forgot_password",
       severity: "info",
       targetType: "user",
-      metadata: { email }
+      metadata: { email: communication.security.maskEmail(email) }
     });
 
     return res.json({
@@ -415,10 +404,10 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
     });
   } catch (error) {
-    logger.error({ action: "forgotPassword", error: error.message });
-    return res.status(500).json({
-      ok: false,
-      message: "No fue posible procesar la solicitud"
+    logger.error({ action: "forgotPassword", message: communication.security.sanitizeProviderError(error) });
+    return res.json({
+      ok: true,
+      message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
     });
   }
 });

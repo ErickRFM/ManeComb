@@ -39,6 +39,9 @@ class ValidateStage {
     const validation = validators.validateSendEmailInput({
       to: ctx.to,
       template: ctx.template,
+      eventType: ctx.eventType,
+      idempotencyKey: ctx.idempotencyKey,
+      tenantScope: ctx.tenantScope,
       data: ctx.data
     });
     if (!validation.valid) {

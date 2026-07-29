@@ -23,7 +23,7 @@ No se modifican ni revierten; la reubicación solo toca frontend.
 
 ## Ubicación del módulo
 
-`admin-global/features/auth/`
+`admin-global/src/features/auth/`
 
 ```
 admin-global/

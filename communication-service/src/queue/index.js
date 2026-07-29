@@ -1,4 +1,4 @@
-const { Queue: BullQueue, Worker } = require("bullmq");
+const { Queue: BullQueue, Worker, UnrecoverableError } = require("bullmq");
 const { QUEUE_NAMES } = require("../core/types");
 
 let bullmqAvailable = false;
@@ -33,19 +33,21 @@ function createLocalQueue(name) {
     name,
     async add(jobName, payload, options = {}) {
       const job = {
-        id: `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: options.jobId || `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: jobName,
         payload,
         options,
         status: "queued",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        attemptsMade: 0
       };
       jobs.push(job);
 
       setImmediate(async () => {
         for (const consumer of consumers) {
           try {
-            await consumer({ id: job.id, name: jobName, data: payload, opts: options });
+            const result = await consumer({ id: job.id, name: jobName, data: payload, opts: options, attemptsMade: job.attemptsMade, local: true });
+            if (result?.fatal) throw new Error(result.error || "Permanent email delivery failure");
             job.status = "completed";
           } catch (err) {
             job.status = "failed";
@@ -81,7 +83,9 @@ function createWorker(queueName, processor) {
     const worker = new Worker(
       queueName,
       async (job) => {
-        return await processor({ id: job.id, name: job.name, data: job.data });
+        const result = await processor({ id: job.id, name: job.name, data: job.data, attemptsMade: job.attemptsMade, opts: job.opts, local: false });
+        if (result?.fatal) throw new UnrecoverableError(result.error || "Permanent email delivery failure");
+        return result;
       },
       {
         connection: { url: redisUrl },
@@ -103,7 +107,7 @@ function createWorker(queueName, processor) {
 
   const queue = getQueue(queueName);
   queue.process((job) => {
-    return processor({ id: job.id, name: job.name, data: job.payload || job.data });
+    return processor({ id: job.id, name: job.name, data: job.payload || job.data, attemptsMade: job.attemptsMade || 0, opts: job.options || job.opts, local: true });
   });
   return null;
 }
@@ -118,7 +122,9 @@ function getReadiness() {
     enabled: Boolean(bullmqAvailable),
     mode: bullmqAvailable ? "bullmq" : "memory",
     queues: Object.keys(localQueues),
-    ready: true
+    ready: true,
+    durable: bullmqAvailable,
+    degraded: !bullmqAvailable
   };
 }
 

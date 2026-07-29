@@ -28,38 +28,19 @@ class ResendProvider extends BaseProvider {
           ...(this.replyTo ? { reply_to: this.replyTo } : {})
         })
       });
-
       if (!response.ok) {
-        const errorBody = await response.text().catch(() => "");
-        return { success: false, error: `Resend error ${response.status}: ${errorBody}`, status: response.status };
+        return { success: false, error: `Resend request failed (${response.status})`, status: response.status };
       }
-
       const data = await response.json();
       return { success: true, id: data?.id || null };
-    } catch (error) {
-      return { success: false, error: error.message || String(error), status: 0 };
+    } catch {
+      return { success: false, error: "Resend request failed (network)", status: 0 };
     }
   }
 
+  // Configuration-only check. Readiness must never send an email.
   async verifyConnection() {
-    try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: this.fromEmail,
-          to: this.fromEmail,
-          subject: "Prueba de conexión",
-          html: "<p>Prueba</p>"
-        })
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
+    return Boolean(this.apiKey && this.fromEmail);
   }
 }
 

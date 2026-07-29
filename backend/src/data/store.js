@@ -67,10 +67,12 @@ function createEmbeddedStore() {
     if (!user) return null;
 
     const token = randomBytes(32).toString("hex");
+    const requestId = randomBytes(16).toString("hex");
     user.resetTokenHash = createHash("sha256").update(token).digest("hex");
     user.resetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     return {
       token,
+      requestId,
       email: user.email,
       name: user.name,
       userId: user.id,
@@ -1953,6 +1955,9 @@ function createEmbeddedStore() {
       lastEmailError: null,
       lastEmailProvider: null,
       lastEmailTemplate: null,
+      lastNotificationDeliveryId: null,
+      lastNotificationStatus: null,
+      lastNotificationAt: null,
       lastWhatsappStatus: "pending",
       lastContactedAt: null,
       createdAt: new Date().toISOString()

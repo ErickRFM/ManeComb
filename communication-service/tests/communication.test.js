@@ -274,15 +274,21 @@ function testValidators() {
   assert.ok(!validators.isValidTemplate("invalid-template"));
 
   const valid = validators.validateSendEmailInput({
-    to: "user@manecomb.com",
+    recipient: { email: "user@manecomb.com" },
     template: "welcome",
+    eventType: "WELCOME",
+    idempotencyKey: "welcome:user-1",
+    tenantScope: "user:user-1",
     data: { name: "Test" }
   });
   assert.ok(valid.valid);
 
   const invalid = validators.validateSendEmailInput({
     to: "bad-email",
-    template: "nonexistent"
+    template: "nonexistent",
+    eventType: "",
+    idempotencyKey: "",
+    tenantScope: ""
   });
   assert.ok(!invalid.valid);
   assert.ok(invalid.errors.length >= 2);
@@ -489,7 +495,7 @@ async function testHistoryMemoryStore() {
 
   const entries = await history.query({ template: "welcome" });
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].to[0], "test@manecomb.com");
+  assert.equal(entries[0].recipientMasked, "t***@m***.com");
 
   const emptyQuery = await history.query({ template: "nonexistent" });
   assert.equal(emptyQuery.length, 0);
@@ -521,7 +527,7 @@ async function testHistoryUpdateStatus() {
   const entries = await history.query({ template: "password-reset" });
   assert.equal(entries.length, 1);
   assert.equal(entries[0].status, "sent");
-  assert.equal(entries[0].messageId, "msg-456");
+  assert.equal(entries[0].messageId || entries[0].providerMessageId, "msg-456");
 
   history.resetMemoryStore();
   console.log("ok - history updates status correctly");
@@ -543,6 +549,9 @@ async function testDeliveryPipelineStages() {
   const ctx = {
     to: "test@manecomb.com",
     template: "welcome",
+    eventType: "WELCOME",
+    idempotencyKey: "pipeline:test",
+    tenantScope: "user:test",
     data: { name: "Test", _template: "welcome", brandName: "ManeComb", supportEmail: "test@manecomb.com", docsUrl: "" },
     priority: 1,
     provider: "resend",
@@ -567,8 +576,244 @@ async function testDeliveryPipelineStages() {
   assert.equal(failed.classifiedError.category, "rate_limit");
   assert.ok(failed.historyId, "failed deliveries must be auditable");
   const failedEntries = await comm.history.query({ status: "failed", template: "welcome" });
-  assert.ok(failedEntries.some((entry) => entry.error));
+  assert.ok(failedEntries.some((entry) => entry.errorMessage));
   console.log("ok - delivery pipeline stages work correctly");
+}
+
+async function testStructuralEmailClosure() {
+  const history = comm.history;
+  const engine = comm.deliveryEngine;
+  comm.metrics.reset();
+  const input = {
+    recipient: { email: "recipient@example.com", name: "Recipient" },
+    template: "password-reset",
+    eventType: "PASSWORD_RESET",
+    tenantScope: "user:user-structural",
+    idempotencyKey: "password-reset:request-1",
+    data: {
+      _template: "password-reset",
+      name: "Recipient",
+      resetUrl: "https://example.test/reset?token=secret-token",
+      userId: "user-structural"
+    },
+    priority: PRIORITY.CRITICAL,
+    provider: "resend"
+  };
+
+  let providerCalls = 0;
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "test", fromEmail: "test@example.com" },
+    defaultFrom: "ManeComb <test@example.com>",
+    email: { enabled: true, dryRun: false, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  engine.setSendFunction(async ({ html, text }) => {
+    providerCalls += 1;
+    assert.ok(html.includes("ManeComb"));
+    assert.ok(text.includes("https://example.test/reset?token=secret-token"));
+    return { success: true, id: "provider-message-1", provider: "resend" };
+  });
+
+  history.resetMemoryStore();
+  const concurrent = await Promise.all([engine.sendDirect(input), engine.sendDirect(input)]);
+  assert.equal(providerCalls, 1, "concurrent duplicate must call provider once");
+  assert.equal(concurrent.filter((result) => result.duplicate).length, 1);
+  const deliveries = await history.query({ eventType: "PASSWORD_RESET" });
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].status, "sent");
+  assert.equal(deliveries[0].recipientMasked, "r***@e***.com");
+  assert.ok(!JSON.stringify(deliveries[0]).includes("secret-token"));
+
+  const stableA = engine.buildJobId(input);
+  const stableB = engine.buildJobId(input);
+  assert.equal(stableA, stableB);
+  assert.ok(!stableA.includes("request-1"));
+
+  let temporaryAttempts = 0;
+  engine.setSendFunction(async () => {
+    temporaryAttempts += 1;
+    if (temporaryAttempts < 3) return { success: false, error: "provider timeout" };
+    return { success: true, id: "provider-retry-success" };
+  });
+  const retried = await engine.sendDirect({ ...input, idempotencyKey: "password-reset:request-retry" });
+  assert.equal(retried.status, "sent");
+  assert.equal(temporaryAttempts, 3);
+  assert.equal(
+    comm.metrics.getSnapshot().counters
+      .filter((counter) => counter.name === "deliveries_failed")
+      .reduce((sum, counter) => sum + counter.value, 0),
+    0
+  );
+
+  let permanentAttempts = 0;
+  engine.setSendFunction(async () => {
+    permanentAttempts += 1;
+    return { success: false, error: "invalid email address" };
+  });
+  const permanent = await engine.sendDirect({ ...input, idempotencyKey: "password-reset:request-permanent" });
+  assert.equal(permanent.status, "failed");
+  assert.equal(permanentAttempts, 1);
+  assert.equal(
+    comm.metrics.getSnapshot().counters
+      .filter((counter) => counter.name === "deliveries_failed")
+      .reduce((sum, counter) => sum + counter.value, 0),
+    1
+  );
+
+  let queuedProviderCalls = 0;
+  engine.setSendFunction(async () => {
+    queuedProviderCalls += 1;
+    return { success: true, id: "queued-message" };
+  });
+  const queuedInput = {
+    ...input,
+    priority: PRIORITY.NORMAL,
+    idempotencyKey: "password-reset:request-queued"
+  };
+  const queued = await Promise.all([engine.sendViaQueue(queuedInput), engine.sendViaQueue(queuedInput)]);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const queuedEntries = await history.query({ eventType: "PASSWORD_RESET" });
+  assert.equal(queuedProviderCalls, 1);
+  assert.equal(queued.filter((result) => result.duplicate).length, 1);
+  assert.equal(queuedEntries.filter((entry) => entry.idempotencyKey === queuedInput.idempotencyKey).length, 1);
+  assert.equal(queuedEntries.find((entry) => entry.idempotencyKey === queuedInput.idempotencyKey).status, "sent");
+
+  let queuedFailureCalls = 0;
+  engine.setSendFunction(async () => {
+    queuedFailureCalls += 1;
+    return { success: false, error: "invalid email address" };
+  });
+  const failedQueuedInput = {
+    ...input,
+    priority: PRIORITY.NORMAL,
+    idempotencyKey: "password-reset:request-queued-failed"
+  };
+  await engine.sendViaQueue(failedQueuedInput);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const failedQueuedEntries = await history.query({ eventType: "PASSWORD_RESET" });
+  const failedQueuedDelivery = failedQueuedEntries.find((entry) => entry.idempotencyKey === failedQueuedInput.idempotencyKey);
+  assert.equal(queuedFailureCalls, 1);
+  assert.equal(failedQueuedDelivery.status, "failed");
+  assert.ok(!JSON.stringify(failedQueuedDelivery).includes("recipient@example.com"));
+  assert.equal(history.getReadiness().durable, false);
+  assert.equal(
+    comm.metrics.getSnapshot().counters
+      .filter((counter) => counter.name === "deliveries_failed")
+      .reduce((sum, counter) => sum + counter.value, 0),
+    2
+  );
+
+  let tenantCalls = 0;
+  engine.setSendFunction(async () => {
+    tenantCalls += 1;
+    return { success: true, id: `tenant-message-${tenantCalls}` };
+  });
+  await engine.sendDirect({ ...input, tenantScope: "organization:a", idempotencyKey: "payment-approved:same" });
+  await engine.sendDirect({ ...input, tenantScope: "organization:b", idempotencyKey: "payment-approved:same" });
+  assert.equal(tenantCalls, 2, "tenant scopes must not share idempotency claims");
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "test", fromEmail: "test@example.com" },
+    email: { enabled: true, dryRun: false, requireDurableHistory: true },
+    queue: { enabled: false }
+  });
+  const beforeDurabilityFailure = tenantCalls;
+  await assert.rejects(
+    () => engine.sendDirect({ ...input, idempotencyKey: "password-reset:requires-durable-history" }),
+    /Durable email history is unavailable/
+  );
+  assert.equal(tenantCalls, beforeDurabilityFailure);
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "test", fromEmail: "test@example.com" },
+    email: { enabled: true, dryRun: true, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  const dryInput = { ...input, idempotencyKey: "password-reset:request-dry" };
+  const beforeDryRun = providerCalls;
+  const dryRun = await engine.sendDirect(dryInput);
+  assert.equal(dryRun.status, "dry_run");
+  assert.equal(providerCalls, beforeDryRun);
+  assert.equal(comm.getReadiness().status, "dry_run");
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "test", fromEmail: "test@example.com" },
+    email: { enabled: false, dryRun: false, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  const disabled = await engine.sendDirect({ ...input, idempotencyKey: "password-reset:request-disabled" });
+  assert.equal(disabled.status, "skipped");
+  assert.equal(providerCalls, beforeDryRun);
+  assert.equal(comm.getReadiness().status, "disabled");
+  assert.equal(comm.getReadiness().queue.degraded, true);
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "test", fromEmail: "test@example.com" },
+    email: { enabled: true, dryRun: false, requireDurableHistory: false },
+    queue: { enabled: false }
+  });
+  assert.equal(comm.getReadiness().status, "degraded");
+  const originalHistoryReadiness = history.getReadiness;
+  const queueModule = require("../src/queue");
+  const originalQueueReadiness = queueModule.getReadiness;
+  history.getReadiness = () => ({ durable: true, mode: "mongodb", index: "ready" });
+  queueModule.getReadiness = () => ({ enabled: true, mode: "bullmq", ready: true, durable: true, degraded: false });
+  assert.equal(comm.getReadiness().status, "ready");
+  history.getReadiness = originalHistoryReadiness;
+  queueModule.getReadiness = originalQueueReadiness;
+
+  comm.configure({
+    provider: "resend",
+    providerConfig: { apiKey: "", fromEmail: "" },
+    email: { enabled: true, dryRun: false, requireDurableHistory: true },
+    queue: { enabled: false }
+  });
+  assert.equal(comm.getReadiness().status, "error");
+
+  const rendered = comm.renderEmail(comm.getTemplateBuilder("critical-incident"), {
+    _template: "critical-incident",
+    title: "Incidente",
+    description: "<script>alert(1)</script><b>texto</b>",
+    name: "Operador"
+  });
+  assert.ok(rendered.html.includes("&lt;script&gt;"));
+  assert.ok(!rendered.html.includes("<script>alert"));
+  assert.ok(rendered.text.length > 0);
+
+  assert.equal(comm.security.maskEmail("ricardo@example.com"), "r***@e***.com");
+  assert.equal(comm.security.classifyEmailError(new Error("provider timeout"), "resend").category, "timeout");
+  assert.ok(!comm.security.sanitizeProviderError("failed ricardo@example.com Bearer abcdefghijklmnop").includes("ricardo@example.com"));
+  const capturedLogs = [];
+  comm.logger.setLogger({
+    info: (entry) => capturedLogs.push(entry),
+    error: (entry) => capturedLogs.push(entry),
+    warn: (entry) => capturedLogs.push(entry)
+  });
+  comm.logger.logError("SafeLog", new Error("failed ricardo@example.com Bearer abcdefghijklmnop"), {
+    to: "ricardo@example.com",
+    error: "https://example.test/reset?token=secret-token"
+  });
+  comm.logger.setLogger(null);
+  const serializedLogs = JSON.stringify(capturedLogs);
+  assert.ok(!serializedLogs.includes("ricardo@example.com"));
+  assert.ok(!serializedLogs.includes("secret-token"));
+
+  const originalFetch = global.fetch;
+  let healthFetchCalls = 0;
+  global.fetch = async () => {
+    healthFetchCalls += 1;
+    throw new Error("health must not call fetch");
+  };
+  const resend = comm.createProvider("resend", { apiKey: "test", fromEmail: "test@example.com" });
+  assert.equal(await resend.verifyConnection(), true);
+  assert.equal(healthFetchCalls, 0);
+  global.fetch = originalFetch;
+  console.log("ok - structural closure: contract, concurrency, lifecycle, dry-run, disabled, masking and text");
 }
 
 (async function run() {
@@ -594,6 +839,7 @@ async function testDeliveryPipelineStages() {
   await testHistoryMemoryStore();
   await testHistoryUpdateStatus();
   await testDeliveryPipelineStages();
+  await testStructuralEmailClosure();
 })().catch((err) => {
   console.error(err);
   process.exit(1);
