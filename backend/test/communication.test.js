@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 
 process.env.RESEND_API_KEY = "test_re_key";
@@ -11,6 +12,7 @@ const PROVIDER = comm.types.PROVIDER;
 const CHANNEL = comm.types.CHANNEL;
 const STATUS = comm.types.STATUS;
 const {
+  getCommercialEmailRecipient,
   getEmailDeliveryState,
   getCommercialEventContext,
   notifyCommercialOrder,
@@ -138,6 +140,55 @@ function testCommercialEmailRouting() {
   const webhook = getCommercialEventContext({ ...order }, "payment_status", "payment-approved");
   assert.equal(manual.idempotencyKey, webhook.idempotencyKey);
   assert.equal(manual.tenantScope, "organization:org-1");
+
+  const eventCases = [
+    ["order-created", "ORDER_CREATED", "order-created:order-1"],
+    ["payment-approved", "PAYMENT_CONFIRMED", "payment-approved:mercado_pago:payment-1"],
+    ["payment-rejected", "PAYMENT_FAILED", "payment-rejected:mercado_pago:payment-1:paid"],
+    ["payment-pending", "PAYMENT_PENDING", "payment-pending:mercado_pago:payment-1:paid"],
+    ["subscription-activated", "SUBSCRIPTION_ACTIVATED", "subscription-activated:org-1:2026-07-01T00:00:00.000Z"]
+  ];
+  for (const [template, eventType, idempotencyKey] of eventCases) {
+    const context = getCommercialEventContext(order, "payment_status", template);
+    assert.equal(context.eventType, eventType);
+    assert.equal(context.idempotencyKey, idempotencyKey);
+    assert.equal(context.organizationId, "org-1");
+    assert.equal(context.tenantScope, "organization:org-1");
+  }
+  const cancelled = getCommercialEventContext(
+    { ...order, cancelledAt: "2026-07-20T00:00:00.000Z" },
+    "subscription_cancelled",
+    "subscription-cancelled"
+  );
+  assert.equal(cancelled.eventType, "SUBSCRIPTION_CANCELLED");
+  assert.equal(cancelled.idempotencyKey, "subscription-cancelled:org-1:2026-07-20T00:00:00.000Z");
+
+  assert.deepEqual(
+    getCommercialEmailRecipient({
+      ownerAccountEmail: " OWNER@EXAMPLE.COM ",
+      email: "request-controlled@example.net",
+      contactName: "Comprador"
+    }),
+    { email: "owner@example.com", name: "Comprador" }
+  );
+  assert.deepEqual(
+    getCommercialEmailRecipient({ email: "fallback@example.com", contactName: "Contacto" }),
+    { email: "fallback@example.com", name: "Contacto" }
+  );
+
+  const commercialRoutesSource = fs.readFileSync(
+    path.resolve(__dirname, "../src/modules/commercial/routes.js"),
+    "utf8"
+  );
+  const paymentEffectsBlock = commercialRoutesSource.slice(
+    commercialRoutesSource.indexOf("if (effectClaim.claimed)"),
+    commercialRoutesSource.indexOf("} else if (transition.applied")
+  );
+  assert.ok(
+    paymentEffectsBlock.indexOf("updateCommercialOrder(order.id, activationUpdate)") <
+      paymentEffectsBlock.indexOf("notifyCommercialOrder(enrichCommercialOrder(activated)"),
+    "la activacion debe persistirse antes de producir sus correos"
+  );
   console.log("ok - estados comerciales usan template y resultado reales");
 }
 
@@ -580,20 +631,29 @@ async function testCommercialNotificationIdempotency() {
     currentPeriodStart: "2026-07-01T00:00:00.000Z",
     cancelledAt: "2026-07-15T00:00:00.000Z"
   };
-  await Promise.all([
-    notifyCommercialOrder(order, "Pago confirmado"),
-    notifyCommercialOrder({ ...order }, "Pago confirmado")
-  ]);
-  await Promise.all([
-    notifyCommercialOrder(order, "Suscripcion activa", "subscription_activated"),
-    notifyCommercialOrder({ ...order }, "Suscripcion activa", "subscription_activated")
-  ]);
-  await Promise.all([
-    notifyCommercialOrder(order, "Suscripcion cancelada", "subscription_cancelled"),
-    notifyCommercialOrder({ ...order }, "Suscripcion cancelada", "subscription_cancelled")
-  ]);
+  const eventCases = [
+    [{ ...order }, "Orden creada", "order_created"],
+    [{ ...order, paymentStatus: "paid" }, "Pago confirmado", "payment_status"],
+    [{ ...order, paymentStatus: "rejected" }, "Pago rechazado", "payment_status"],
+    [{ ...order, paymentStatus: "pending" }, "Pago pendiente", "payment_status"],
+    [{ ...order }, "Suscripcion activa", "subscription_activated"],
+    [{ ...order }, "Suscripcion cancelada", "subscription_cancelled"]
+  ];
+  for (const [eventOrder, message, event] of eventCases) {
+    await Promise.all([
+      notifyCommercialOrder(eventOrder, message, event),
+      notifyCommercialOrder({ ...eventOrder }, message, event)
+    ]);
+  }
   await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(providerCalls, 3, "repeticiones comerciales deben producir un envio por evento");
+  assert.equal(providerCalls, 6, "los seis eventos comerciales deben producir un envio por evento");
+
+  await notifyCommercialOrder(
+    { ...order, organizationId: "org-email-integration-2" },
+    "Pago confirmado"
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(providerCalls, 7, "la misma identidad de evento en otro tenant debe ser independiente");
 
   comm.configure({
     provider: "resend",

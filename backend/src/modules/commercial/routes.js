@@ -198,10 +198,8 @@ async function applyReconciledPayment(req, order, confirmation) {
       leaseUntil: new Date(now.getTime() + 60_000)
     });
     if (effectClaim.claimed) {
-      const activated = {
-        ...effectClaim.order,
-        ...buildCommercialActivationUpdate(effectClaim.order, "active")
-      };
+      const activationUpdate = buildCommercialActivationUpdate(effectClaim.order, "active");
+      const activated = await req.app.locals.store.updateCommercialOrder(order.id, activationUpdate);
       const paymentDelivery = await notifyCommercialOrder(enrichCommercialOrder(activated), confirmation.nextStep);
       const activationDelivery = await notifyCommercialOrder(
         enrichCommercialOrder({ ...activated, ...paymentDelivery }),
@@ -211,7 +209,7 @@ async function applyReconciledPayment(req, order, confirmation) {
       currentOrder = await req.app.locals.store.completePaymentEffects({
         orderId: order.id,
         transitionKey,
-        updates: { ...buildCommercialActivationUpdate(activated, "active"), ...paymentDelivery, ...activationDelivery }
+        updates: { ...paymentDelivery, ...activationDelivery }
       });
     }
   } else if (transition.applied && transition.shouldNotify) {

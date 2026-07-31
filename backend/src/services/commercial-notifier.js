@@ -68,6 +68,13 @@ function normalizePhone(phone) {
   return digits.startsWith("+") ? digits : `+${digits}`;
 }
 
+function getCommercialEmailRecipient(order) {
+  return {
+    email: String(order.ownerAccountEmail || order.email || "").trim().toLowerCase(),
+    name: String(order.contactName || "").trim()
+  };
+}
+
 const REJECTED_PAYMENT_STATUSES = new Set(["cancelled", "failed", "rejected"]);
 const PENDING_PAYMENT_STATUSES = new Set([
   "pending",
@@ -112,9 +119,10 @@ function getEmailDeliveryState(result) {
 async function sendEmailNotification(order, event) {
   const template = selectCommercialEmailTemplate(order, event);
   const context = getCommercialEventContext(order, event, template);
+  const recipient = getCommercialEmailRecipient(order);
   try {
     const result = await communication.sendEmail({
-      recipient: { email: order.email, name: order.contactName },
+      recipient,
       template,
       ...context,
       data: {
@@ -216,6 +224,7 @@ async function notifyCommercialOrder(order, nextStep, event = "payment_status") 
 
 module.exports = {
   getNotifierReadiness,
+  getCommercialEmailRecipient,
   getEmailDeliveryState,
   getCommercialEventContext,
   notifyCommercialOrder,
