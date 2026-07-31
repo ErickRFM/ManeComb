@@ -273,6 +273,20 @@ No forman parte de MP-EMAIL-02 y no deben incluirse en su commit:
 5. `EMAIL_DRY_RUN` debe permanecer en `true`.
 6. Nodemailer requiere una actualización mayor independiente.
 
+## Incidente detectado durante el despliegue
+
+El primer readiness del commit desplegado informó
+`history.index="missing"` aunque el índice había sido aplicado previamente. La
+causa fue una diferencia de selección de base:
+
+- el servidor conecta con `dbName=MONGO_DB_NAME`;
+- el script `migrate-email-deliveries.js` utilizaba solo el URI y podía operar
+  sobre la base predeterminada del cluster.
+
+El script fue corregido para utilizar `MONGO_DB_NAME` con fallback
+`combisapp`. La corrección se versiona por separado y su hash se conserva como
+evidencia externa.
+
 ## Criterio de cierre
 
 Antes del despliegue el veredicto permanece:

@@ -5,8 +5,9 @@ const mongoose = require("mongoose");
 async function run() {
   const apply = process.argv.includes("--apply");
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+  const dbName = process.env.MONGO_DB_NAME || "combisapp";
   if (!mongoUri) throw new Error("MONGO_URI or MONGODB_URI is required");
-  await mongoose.connect(mongoUri);
+  await mongoose.connect(mongoUri, { dbName });
   const collection = mongoose.connection.collection("communication_history");
   const duplicates = await collection.aggregate([
     {
@@ -25,7 +26,11 @@ async function run() {
     },
     { $match: { count: { $gt: 1 } } }
   ]).toArray();
-  console.log(JSON.stringify({ mode: apply ? "apply" : "dry-run", duplicates }, null, 2));
+  console.log(JSON.stringify({
+    mode: apply ? "apply" : "dry-run",
+    database: dbName,
+    duplicates
+  }, null, 2));
   if (duplicates.length) throw new Error("Historical duplicates must be reconciled before creating the unique index");
   if (apply) {
     await collection.createIndex(
