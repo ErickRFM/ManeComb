@@ -76,7 +76,7 @@ type MapPointRole = PointRole | 'stop';
 type RouteUiState = 'empty' | 'editing' | 'ready' | 'navigation' | 'paused';
 export function ChecklistScreen() {
   const { theme } = useAppTheme();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isCompact = width < DesignSystem.breakpoints.compact;
   const isPhone = width < DesignSystem.breakpoints.phone;
   const { activeRouteSession: syncedActiveSession, coordinates, mapData, operationalUnits, refreshAll, sessionHistory, user } = useAppStore(
@@ -1195,7 +1195,7 @@ export function ChecklistScreen() {
               </Animated.View>
             </PanGestureHandler>
 
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView style={[styles.modalScroll, { maxHeight: Math.round(height * 0.78) }]} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' || routeLibraryOpen ? (
                 <View style={styles.configCard}>
                     {savedRoutes.length ? (
