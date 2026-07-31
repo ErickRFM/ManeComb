@@ -16,6 +16,13 @@ const {
   notifyCommercialOrder,
   selectCommercialEmailTemplate
 } = require("../src/services/commercial-notifier");
+const {
+  VALIDATION_IDENTITY,
+  VALIDATION_SUBJECT,
+  buildValidationInput,
+  fingerprintProviderMessageId,
+  validateExecutionGuards
+} = require("../scripts/verify-email-real");
 
 function testTypesConstants() {
   assert.equal(typeof TEMPLATE, "object");
@@ -44,6 +51,59 @@ function testTypesConstants() {
   assert.equal(STATUS.SENT, "sent");
   assert.equal(STATUS.FAILED, "failed");
   console.log("ok - types/constantes definidas correctamente");
+}
+
+function testRealEmailValidationRunnerGuards() {
+  const validEnvironment = {
+    EMAIL_DRY_RUN: "false",
+    EMAIL_ENABLED: "true",
+    EMAIL_REAL_VALIDATION: "true",
+    EMAIL_REAL_VALIDATION_RECIPIENT: "owner@example.com",
+    ENABLE_QUEUES: "true",
+    NODE_ENV: "production"
+  };
+  const args = [
+    "--execute",
+    "--confirm-one-real-delivery",
+    "--expect=new"
+  ];
+  const valid = validateExecutionGuards(validEnvironment, args);
+  assert.equal(valid.valid, true);
+  assert.equal(valid.expectation, "new");
+
+  const blocked = validateExecutionGuards({
+    ...validEnvironment,
+    EMAIL_DRY_RUN: "true"
+  }, args);
+  assert.equal(blocked.valid, false);
+  assert.ok(blocked.errors.includes("DRY_RUN_MUST_BE_DISABLED"));
+
+  const duplicate = validateExecutionGuards(validEnvironment, [
+    "--execute",
+    "--confirm-one-real-delivery",
+    "--expect=duplicate"
+  ]);
+  assert.equal(duplicate.valid, true);
+  assert.equal(duplicate.expectation, "duplicate");
+
+  const input = buildValidationInput({
+    recipient: "owner@example.com",
+    portalUrl: "https://manecomb.com",
+    supportEmail: "soporte@manecomb.com"
+  });
+  assert.deepEqual(
+    {
+      eventType: input.eventType,
+      idempotencyKey: input.idempotencyKey,
+      tenantScope: input.tenantScope
+    },
+    VALIDATION_IDENTITY
+  );
+  assert.equal(input.template, "welcome");
+  assert.equal(input.data.subject, VALIDATION_SUBJECT);
+  assert.ok(!input.idempotencyKey.includes(input.recipient.email));
+  assert.match(fingerprintProviderMessageId("provider-message-id"), /^[a-f0-9]{12}$/);
+  console.log("ok - runner de correo real exige guardas e identidad fija");
 }
 
 function testCommercialEmailRouting() {
@@ -555,6 +615,7 @@ async function testCommercialNotificationIdempotency() {
 
 (async function run() {
   testTypesConstants();
+  testRealEmailValidationRunnerGuards();
   testCommercialEmailRouting();
   testTemplateRegistry();
   testTemplateBuilderOutput();
