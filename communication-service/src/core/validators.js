@@ -69,7 +69,14 @@ function validateSendEmailInput({ to, recipient, template, eventType, idempotenc
     "PAYMENT_FAILED",
     "PAYMENT_PENDING",
     "SUBSCRIPTION_ACTIVATED",
-    "SUBSCRIPTION_CANCELLED"
+    "SUBSCRIPTION_CANCELLED",
+    "REFUND_CONFIRMED",
+    "CHARGEBACK_UPDATED",
+    "DOCUMENT_UPLOADED",
+    "DOCUMENT_APPROVED",
+    "DOCUMENT_REJECTED",
+    "ACCOUNT_SUSPENDED",
+    "ACCOUNT_REACTIVATED"
   ]);
   if (multiTenantEvents.has(eventType) && !organizationId && !tenantId) {
     errors.push("La organizacion es obligatoria para eventos comerciales");
@@ -87,7 +94,16 @@ function validateSendEmailInput({ to, recipient, template, eventType, idempotenc
     "payment-rejected": ["name", "referenceCode"],
     "payment-pending": ["name", "referenceCode"],
     "subscription-activated": ["name", "planName"],
-    "subscription-cancelled": ["name", "planName"]
+    "subscription-cancelled": ["name", "planName"],
+    "password-changed": ["name"],
+    "email-changed": ["name", "newEmail"],
+    "account-suspended": ["name", "suspensionDate"],
+    "account-reactivated": ["name", "dashboardUrl"],
+    "refund-confirmed": ["name", "referenceCode", "amount", "currency", "refundStatus", "supportUrl"],
+    "chargeback-updated": ["name", "referenceCode", "amount", "currency", "chargebackStatus", "supportUrl"],
+    "document-uploaded": ["documentType", "vehicleOrDriverLabel", "reviewStatus", "reviewDate", "portalUrl"],
+    "document-approved": ["documentType", "vehicleOrDriverLabel", "reviewStatus", "reviewDate", "portalUrl"],
+    "document-rejected": ["documentType", "vehicleOrDriverLabel", "reviewStatus", "reviewDate", "portalUrl"]
   };
   for (const field of requiredData[template] || []) {
     if (data?.[field] === undefined || data?.[field] === null || data?.[field] === "") {

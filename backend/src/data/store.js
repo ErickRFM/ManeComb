@@ -95,6 +95,8 @@ function createEmbeddedStore() {
     if (!user) throw new Error("El enlace de recuperacion ha expirado o es invalido");
 
     user.passwordHash = bcrypt.hashSync(newPassword, 10);
+    user.credentialVersion = Number(user.credentialVersion || 0) + 1;
+    user.passwordChangedAt = new Date().toISOString();
     delete user.resetTokenHash;
     delete user.resetTokenExpiresAt;
     return sanitizeUser(user);
@@ -955,6 +957,11 @@ function createEmbeddedStore() {
       lastAccessAt: null,
       invitedAt: payload.invitedAt || new Date().toISOString(),
       suspendedAt: userStatus === "suspended" ? new Date().toISOString() : null,
+      reactivatedAt: null,
+      accountStatusVersion: 0,
+      credentialVersion: 0,
+      passwordChangedAt: null,
+      emailChangedAt: null,
       phone: String(payload.phone || "").trim() || "Pendiente",
       shift: normalizeShift(payload.shift, role),
       status: normalizeStatus(payload.status, role),
@@ -997,7 +1004,12 @@ function createEmbeddedStore() {
     }
 
     if (payload.email) {
-      user.email = ensureUniqueEmail(payload.email, user.id);
+      const nextEmail = ensureUniqueEmail(payload.email, user.id);
+      if (nextEmail !== user.email) {
+        user.email = nextEmail;
+        user.credentialVersion = Number(user.credentialVersion || 0) + 1;
+        user.emailChangedAt = new Date().toISOString();
+      }
     }
 
     if (payload.name) {
@@ -1026,11 +1038,21 @@ function createEmbeddedStore() {
     }
 
     if (typeof payload.userStatus === "string") {
-      user.userStatus = normalizeUserStatus(payload.userStatus);
-      user.suspendedAt =
-        user.userStatus === "suspended"
-          ? user.suspendedAt || new Date().toISOString()
-          : null;
+      const previousStatus = normalizeUserStatus(user.userStatus);
+      const nextStatus = normalizeUserStatus(payload.userStatus);
+      if (previousStatus !== nextStatus) {
+        user.accountStatusVersion = Number(user.accountStatusVersion || 0) + 1;
+        user.userStatus = nextStatus;
+        if (nextStatus === "suspended") {
+          user.suspendedAt = new Date().toISOString();
+          user.reactivatedAt = null;
+        } else {
+          user.reactivatedAt = previousStatus === "suspended" && nextStatus === "active"
+            ? new Date().toISOString()
+            : user.reactivatedAt || null;
+          user.suspendedAt = null;
+        }
+      }
     }
 
     if (
@@ -1113,6 +1135,8 @@ function createEmbeddedStore() {
       }
 
       user.passwordHash = bcrypt.hashSync(nextPassword, 10);
+      user.credentialVersion = Number(user.credentialVersion || 0) + 1;
+      user.passwordChangedAt = new Date().toISOString();
     }
 
     syncDriverVehicleAssignment(user.id, nextVehicleId);
@@ -1341,7 +1365,8 @@ function createEmbeddedStore() {
       reviewStatus: normalizeReviewStatus(payload.reviewStatus),
       reviewedAt: payload.reviewedAt || null,
       reviewedBy: payload.reviewedBy || null,
-      reviewNotes: String(payload.reviewNotes || "").trim()
+      reviewNotes: String(payload.reviewNotes || "").trim(),
+      reviewVersion: 0
     };
 
     state.documents.unshift(document);
@@ -1356,12 +1381,18 @@ function createEmbeddedStore() {
       return null;
     }
 
-    document.reviewStatus = normalizeReviewStatus(String(payload.reviewStatus || "").trim());
-    document.reviewNotes = String(payload.reviewNotes || "").trim();
+    const nextReviewStatus = normalizeReviewStatus(String(payload.reviewStatus || "").trim());
+    const nextReviewNotes = String(payload.reviewNotes || "").trim();
+    if (document.reviewStatus === nextReviewStatus && document.reviewNotes === nextReviewNotes) {
+      return { ...enrichDocument(document), reviewChanged: false };
+    }
+    document.reviewStatus = nextReviewStatus;
+    document.reviewNotes = nextReviewNotes;
     document.reviewedBy = String(payload.reviewedBy || "").trim() || null;
     document.reviewedAt = new Date().toISOString();
+    document.reviewVersion = Number(document.reviewVersion || 0) + 1;
 
-    return enrichDocument(document);
+    return { ...enrichDocument(document), reviewChanged: true };
   }
 
   function getNotificationsForUser(user) {

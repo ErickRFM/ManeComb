@@ -11,6 +11,7 @@ const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { createMercadoPagoRefund, toMinorUnits } = require("../../services/commercial-payment");
 const { buildRefundFingerprint, deriveEntitlementAfterFinancialReversal, derivePaymentFinancialState, hashRefundKey } = require("../../services/financial-reversal");
 const { listSessionsForUser, revokeSession } = require("../../services/sessions");
+const { sendRefundConfirmedEmail } = require("../../services/domain-email-events");
 const {
   buildInvoices,
   buildSubscription,
@@ -227,13 +228,16 @@ router.post("/orders/:orderId/refunds", authenticate, requirePortalAccess, requi
       throw Object.assign(new Error("Refund provider response mismatch"), { code: "refund_reconciliation_failed", statusCode: 409, providerResultKnown: true });
     }
     const safeResponse = { id: String(providerRefund.id), orderId: order.id, amount: amountMinor / 100, currency: order.currency || "MXN", status: "confirmed", type: completesRefund ? "full_refund" : "partial_refund" };
-    await req.app.locals.store.completeRefundOperation({ operationId: claim.operation.id, workerId, providerRefundId: safeResponse.id, safeResponse });
+    const completedRefund = await req.app.locals.store.completeRefundOperation({ operationId: claim.operation.id, workerId, providerRefundId: safeResponse.id, safeResponse });
     const refundRecords = await req.app.locals.store.listRefundOperations(order.id);
     const chargebackRecords = await req.app.locals.store.listChargebacks(order.id);
     const financialState = derivePaymentFinancialState({ paidAmountMinor, refundRecords, chargebackRecords });
     const entitlement = deriveEntitlementAfterFinancialReversal({ order, financialState });
     await req.app.locals.store.updateCommercialOrder(order.id, { financialStatus: financialState.status, refundedAmountMinor: financialState.refundedAmountMinor, refundableAmountMinor: financialState.refundableAmountMinor, ...(entitlement.action === "none" ? {} : { activationStatus: entitlement.activationStatus, serviceSuspendedReason: entitlement.serviceSuspendedReason }) });
     await recordAudit(req, { type: "payment_refunded", level: "warning", status: financialState.status, entityId: order.id, message: "Reembolso conciliado", metadata: { amountMinor, currency: order.currency || "MXN", refundId: safeResponse.id.slice(-8) } });
+    if (completedRefund) {
+      await sendRefundConfirmedEmail(order, completedRefund);
+    }
     return res.status(201).json({ ok: true, data: safeResponse });
   } catch (error) {
     if (claim?.operation) await req.app.locals.store.failRefundOperation({ operationId: claim.operation.id, workerId, status: error.providerResultUnknown ? "provider_result_unknown" : "failed_retryable", errorCode: error.code || "refund_failed" }).catch(() => null);

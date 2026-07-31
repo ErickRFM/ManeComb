@@ -31,8 +31,10 @@ async function run() {
   const capturedErrors = [];
   let deliveryStatus = "dry_run";
   let sendEmailCalls = 0;
-  communication.sendEmail = async () => {
+  const sentInputs = [];
+  communication.sendEmail = async (input) => {
     sendEmailCalls += 1;
+    sentInputs.push(input);
     return communication.deliveryResults.createDeliveryResult({
       status: deliveryStatus,
       deliveryId: `delivery-${sendEmailCalls}`,
@@ -100,6 +102,12 @@ async function run() {
     });
     assert.equal(reset.status, 200);
     assert.match(reset.payload.message, /mensajes cifrados/i);
+    assert.equal(sendEmailCalls, 5, "el cambio de contraseÃ±a debe producir un evento adicional");
+    const passwordChanged = sentInputs.at(-1);
+    assert.equal(passwordChanged.eventType, "PASSWORD_CHANGED");
+    assert.equal(passwordChanged.template, "password-changed");
+    assert.match(passwordChanged.idempotencyKey, /^password-changed:user-admin-01:\d+$/);
+    assert.ok(!passwordChanged.idempotencyKey.includes(recovery.token));
 
     assert.equal(store.authenticate("admin@combis.app", "Ruta123!"), null);
     assert.ok(store.authenticate("admin@combis.app", "NuevaRuta123!"));

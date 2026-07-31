@@ -11,7 +11,7 @@ function testTypesConstants() {
   assert.equal(typeof TEMPLATE, "object");
   assert.equal(TEMPLATE.PASSWORD_RESET, "password-reset");
   assert.equal(TEMPLATE.WELCOME, "welcome");
-  assert.equal(Object.keys(TEMPLATE).length, 26, "Deben existir 26 plantillas");
+  assert.equal(Object.keys(TEMPLATE).length, 31, "Deben existir 31 plantillas");
 
   assert.equal(PRIORITY.CRITICAL, 10);
   assert.equal(PRIORITY.HIGH, 5);
@@ -38,7 +38,7 @@ function testTypesConstants() {
 
 function testTemplateRegistry() {
   const names = comm.getTemplateNames();
-  assert.equal(names.length, 26, "Deben registrarse 26 plantillas");
+  assert.equal(names.length, 31, "Deben registrarse 31 plantillas");
   assert.ok(names.includes("welcome"));
   assert.ok(names.includes("password-reset"));
   assert.ok(names.includes("payment-approved"));
@@ -235,6 +235,14 @@ function testAllTemplatesRender() {
     timestamp: "Ahora",
     incidentUrl: "https://manecomb.com/incident",
     description: "Descripción de la incidencia",
+    refundStatus: "confirmed",
+    chargebackStatus: "in_review",
+    supportUrl: "https://manecomb.com/soporte",
+    documentType: "Licencia de conducir",
+    vehicleOrDriverLabel: "Conductor de prueba",
+    reviewStatus: "approved",
+    reviewDate: "15/07/2026",
+    portalUrl: "https://manecomb.com/portal",
     deviceName: "iPhone 15",
     os: "iOS 18",
     browser: "Safari",

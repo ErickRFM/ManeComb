@@ -10,6 +10,10 @@ const {
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const {
+  resolveDocumentRecipient,
+  sendDocumentEmail
+} = require("../../services/domain-email-events");
+const {
   getDocumentDownloadAsset,
   uploadDocumentAsset
 } = require("../../services/storage");
@@ -217,6 +221,10 @@ router.post("/", authenticate, requireOrganization, requireOperationalAccess, up
     const documents = await req.app.locals.store.getDocumentsForUser(req.user);
     const hydratedDocument =
       documents.find((document) => document.id === createdDocument.id) || createdDocument;
+    const recipientContext = await resolveDocumentRecipient(req.app.locals.store, hydratedDocument);
+    if (recipientContext) {
+      await sendDocumentEmail(hydratedDocument, recipientContext, "DOCUMENT_UPLOADED");
+    }
 
     return res.status(201).json({
       ok: true,
@@ -262,9 +270,21 @@ router.patch("/:documentId/review", authenticate, requireOrganization, requireOp
       });
     }
 
+    const { reviewChanged, ...responseDocument } = reviewedDocument;
+    if (reviewChanged && ["approved", "rejected"].includes(responseDocument.reviewStatus)) {
+      const recipientContext = await resolveDocumentRecipient(req.app.locals.store, responseDocument);
+      if (recipientContext) {
+        await sendDocumentEmail(
+          responseDocument,
+          recipientContext,
+          responseDocument.reviewStatus === "approved" ? "DOCUMENT_APPROVED" : "DOCUMENT_REJECTED"
+        );
+      }
+    }
+
     return res.json({
       ok: true,
-      data: reviewedDocument
+      data: responseDocument
     });
   } catch (error) {
     error.statusCode = 400;

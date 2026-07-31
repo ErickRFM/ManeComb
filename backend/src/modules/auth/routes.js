@@ -13,6 +13,7 @@ const { buildAuthSession } = require("../../utils/jwt");
 const { APP_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
+const { sendSecurityChangeEmail } = require("../../services/domain-email-events");
 const {
   createDeliveryResult,
   isDeliveryFailed
@@ -439,6 +440,7 @@ router.post("/reset-password", authLimiter, async (req, res, next) => {
       targetType: "user",
       targetId: user.id
     });
+    await sendSecurityChangeEmail(user, "PASSWORD_CHANGED");
 
     return res.json({
       ok: true,

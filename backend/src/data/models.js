@@ -187,6 +187,11 @@ const userSchema = new mongoose.Schema(
     lastAccessAt: { type: Date, default: null },
     invitedAt: { type: Date, default: null },
     suspendedAt: { type: Date, default: null },
+    reactivatedAt: { type: Date, default: null },
+    accountStatusVersion: { type: Number, default: 0 },
+    credentialVersion: { type: Number, default: 0 },
+    passwordChangedAt: { type: Date, default: null },
+    emailChangedAt: { type: Date, default: null },
     phone: { type: String, default: "Pendiente" },
     shift: { type: String, default: "Pendiente asignacion" },
     status: { type: String, default: "offline" },
@@ -616,7 +621,8 @@ const documentSchema = new mongoose.Schema(
     reviewStatus: { type: String, default: "pending_review" },
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: String, default: null },
-    reviewNotes: { type: String, default: "" }
+    reviewNotes: { type: String, default: "" },
+    reviewVersion: { type: Number, default: 0 }
   },
   {
     collection: "documents",

@@ -22,6 +22,7 @@ const {
 } = require("../../services/commercial-activation");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { enrichCommercialOrder } = require("../../services/commercial-profile");
+const { sendChargebackUpdatedEmail } = require("../../services/domain-email-events");
 const { buildSubscription } = require("../../services/portal-account");
 const {
   buildCommercialDownloadResponse,
@@ -641,10 +642,11 @@ router.post("/webhooks/mercadopago/chargebacks", async (req, res) => {
     const transition = evaluateChargebackTransition(existing?.status, reconciliation.normalized.status);
     if (transition.apply) {
       const now = new Date().toISOString();
-      await req.app.locals.store.upsertChargeback({ provider: "mercado_pago", orderId: order.id, organizationId: order.organizationId, ...reconciliation.normalized, updatedAt: now, resolvedAt: ["won", "lost", "covered", "closed_won", "closed_lost"].includes(reconciliation.normalized.status) ? now : null, resolution: ["won", "covered", "closed_won"].includes(reconciliation.normalized.status) ? "won" : ["lost", "closed_lost"].includes(reconciliation.normalized.status) ? "lost" : null });
+      const chargeback = await req.app.locals.store.upsertChargeback({ provider: "mercado_pago", orderId: order.id, organizationId: order.organizationId, ...reconciliation.normalized, updatedAt: now, resolvedAt: ["won", "lost", "covered", "closed_won", "closed_lost"].includes(reconciliation.normalized.status) ? now : null, resolution: ["won", "covered", "closed_won"].includes(reconciliation.normalized.status) ? "won" : ["lost", "closed_lost"].includes(reconciliation.normalized.status) ? "lost" : null });
       const financialState = derivePaymentFinancialState({ paidAmountMinor: toMinorUnits(order.totalPrice, order.currency || "MXN"), refundRecords: await req.app.locals.store.listRefundOperations(order.id), chargebackRecords: await req.app.locals.store.listChargebacks(order.id) });
       const entitlement = deriveEntitlementAfterFinancialReversal({ order, financialState });
       await req.app.locals.store.updateCommercialOrder(order.id, { financialStatus: financialState.status, chargebackStatus: financialState.chargebackStatus, ...(entitlement.action === "none" ? {} : { activationStatus: entitlement.activationStatus, serviceSuspendedReason: entitlement.serviceSuspendedReason }) });
+      await sendChargebackUpdatedEmail(order, chargeback);
     }
     await completeWebhookDelivery(claimedEvent?._id || claimedEvent?.id, { orderId: order.id, observedStatus: reconciliation.normalized.status });
     return res.status(202).json({ ok: true, applied: transition.apply });

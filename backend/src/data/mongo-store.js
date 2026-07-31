@@ -1299,27 +1299,39 @@ async function createMongoStore() {
       reviewStatus: normalizeReviewStatus(payload.reviewStatus),
       reviewedAt: payload.reviewedAt || null,
       reviewedBy: payload.reviewedBy || null,
-      reviewNotes: String(payload.reviewNotes || "").trim()
+      reviewNotes: String(payload.reviewNotes || "").trim(),
+      reviewVersion: 0
     });
 
     return serializeDocument(document);
   }
 
   async function reviewDocument(documentId, payload) {
-    const document = await DocumentModel.findByIdAndUpdate(
-      documentId,
+    const nextReviewStatus = normalizeReviewStatus(String(payload.reviewStatus || "").trim());
+    const nextReviewNotes = String(payload.reviewNotes || "").trim();
+    const document = await DocumentModel.findOneAndUpdate(
+      {
+        _id: documentId,
+        $or: [
+          { reviewStatus: { $ne: nextReviewStatus } },
+          { reviewNotes: { $ne: nextReviewNotes } }
+        ]
+      },
       {
         $set: {
-          reviewStatus: normalizeReviewStatus(String(payload.reviewStatus || "").trim()),
-          reviewNotes: String(payload.reviewNotes || "").trim(),
+          reviewStatus: nextReviewStatus,
+          reviewNotes: nextReviewNotes,
           reviewedBy: String(payload.reviewedBy || "").trim() || null,
           reviewedAt: new Date()
-        }
+        },
+        $inc: { reviewVersion: 1 }
       },
       { returnDocument: "after" }
     ).lean();
 
-    return serializeDocument(document);
+    if (document) return { ...serializeDocument(document), reviewChanged: true };
+    const currentDocument = await DocumentModel.findById(documentId).lean();
+    return currentDocument ? { ...serializeDocument(currentDocument), reviewChanged: false } : null;
   }
 
   async function createCommercialOrder(payload) {
@@ -1658,7 +1670,12 @@ async function createMongoStore() {
     }
 
     if (payload.email) {
-      user.email = await ensureUniqueEmail(payload.email, user._id);
+      const nextEmail = await ensureUniqueEmail(payload.email, user._id);
+      if (nextEmail !== user.email) {
+        user.email = nextEmail;
+        user.credentialVersion = Number(user.credentialVersion || 0) + 1;
+        user.emailChangedAt = new Date();
+      }
     }
 
     if (payload.name) {
@@ -1687,11 +1704,21 @@ async function createMongoStore() {
     }
 
     if (typeof payload.userStatus === "string") {
-      user.userStatus = normalizeUserStatus(payload.userStatus);
-      user.suspendedAt =
-        user.userStatus === "suspended"
-          ? user.suspendedAt || new Date()
-          : null;
+      const previousStatus = normalizeUserStatus(user.userStatus);
+      const nextStatus = normalizeUserStatus(payload.userStatus);
+      if (previousStatus !== nextStatus) {
+        user.accountStatusVersion = Number(user.accountStatusVersion || 0) + 1;
+        user.userStatus = nextStatus;
+        if (nextStatus === "suspended") {
+          user.suspendedAt = new Date();
+          user.reactivatedAt = null;
+        } else {
+          user.reactivatedAt = previousStatus === "suspended" && nextStatus === "active"
+            ? new Date()
+            : user.reactivatedAt || null;
+          user.suspendedAt = null;
+        }
+      }
     }
 
     if (
@@ -1779,6 +1806,8 @@ async function createMongoStore() {
       }
 
       user.passwordHash = bcrypt.hashSync(nextPassword, 10);
+      user.credentialVersion = Number(user.credentialVersion || 0) + 1;
+      user.passwordChangedAt = new Date();
     }
 
     await user.save();
@@ -1838,15 +1867,20 @@ async function createMongoStore() {
       throw new Error("El enlace de recuperacion ha expirado o es invalido");
     }
 
-    await UserModel.updateOne(
+    const updatedUser = await UserModel.findOneAndUpdate(
       { _id: user._id },
       {
-        $set: { passwordHash: bcrypt.hashSync(newPassword, 10) },
+        $set: {
+          passwordHash: bcrypt.hashSync(newPassword, 10),
+          passwordChangedAt: new Date()
+        },
+        $inc: { credentialVersion: 1 },
         $unset: { resetTokenHash: "", resetToken: "", resetTokenExpiresAt: "" }
-      }
-    );
+      },
+      { returnDocument: "after" }
+    ).lean();
 
-    return sanitizeUser({ ...user });
+    return sanitizeUser(updatedUser);
   }
 
   async function deleteUser(userId) {

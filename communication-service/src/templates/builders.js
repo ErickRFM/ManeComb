@@ -506,6 +506,78 @@ function identityVerification(data) {
   ]);
 }
 
+function refundConfirmed(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Reembolso confirmado" }),
+    C.greeting(data.name),
+    C.alert({ variant: "success", message: "El reembolso fue confirmado correctamente." }),
+    C.card({
+      title: "Resumen",
+      items: [
+        ["Orden", data.referenceCode],
+        ["Importe", `${data.amount} ${data.currency}`],
+        ["Estado", data.refundStatus]
+      ]
+    }),
+    C.button({ text: "Consultar soporte", url: data.supportUrl }),
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function chargebackUpdated(data) {
+  return buildContent([
+    C.logo(),
+    C.header({ title: "Actualización de contracargo" }),
+    C.greeting(data.name),
+    C.alert({
+      variant: "warning",
+      message: `El contracargo de la orden ${data.referenceCode} cambió de estado.`
+    }),
+    C.card({
+      title: "Resumen",
+      items: [
+        ["Orden", data.referenceCode],
+        ["Importe", `${data.amount} ${data.currency}`],
+        ["Estado", data.chargebackStatus]
+      ]
+    }),
+    C.button({ text: "Revisar cuenta", url: data.supportUrl }),
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function documentEvent(data, title, message, variant) {
+  return buildContent([
+    C.logo(),
+    C.header({ title }),
+    C.alert({ variant, message }),
+    C.card({
+      title: "Documento",
+      items: [
+        ["Tipo", data.documentType],
+        ["Propietario o unidad", data.vehicleOrDriverLabel],
+        ["Estado", data.reviewStatus],
+        ["Fecha", data.reviewDate]
+      ]
+    }),
+    C.button({ text: "Abrir documentos", url: data.portalUrl }),
+    C.helpBlock({ email: data.supportEmail })
+  ]);
+}
+
+function documentUploaded(data) {
+  return documentEvent(data, "Documento recibido", "El documento fue cargado y está pendiente de revisión.", "info");
+}
+
+function documentApproved(data) {
+  return documentEvent(data, "Documento aprobado", "La revisión del documento fue aprobada.", "success");
+}
+
+function documentRejected(data) {
+  return documentEvent(data, "Documento rechazado", "La revisión del documento requiere corrección.", "error");
+}
+
 const TEMPLATE_BUILDERS = {
   "welcome": welcome,
   "account-activation": accountActivation,
@@ -532,7 +604,12 @@ const TEMPLATE_BUILDERS = {
   "critical-incident": criticalIncident,
   "new-device-connected": newDeviceConnected,
   "suspicious-login": suspiciousLogin,
-  "identity-verification": identityVerification
+  "identity-verification": identityVerification,
+  "refund-confirmed": refundConfirmed,
+  "chargeback-updated": chargebackUpdated,
+  "document-uploaded": documentUploaded,
+  "document-approved": documentApproved,
+  "document-rejected": documentRejected
 };
 
 function getTemplateBuilder(name) {

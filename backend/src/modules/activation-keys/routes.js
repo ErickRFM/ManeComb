@@ -21,6 +21,7 @@ const { buildAuthContext } = require("../../services/auth-context");
 const { createSessionForRequest } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
+const { sendWelcomeEmail } = require("../../services/domain-email-events");
 
 const adminActivationKeyRoutes = Router();
 const driverActivationRoutes = Router();
@@ -307,6 +308,8 @@ driverActivationRoutes.post("/register", driverActivationLimiter, async (req, re
         createdAt: new Date().toISOString()
       });
     });
+
+    await sendWelcomeEmail(activation.user);
 
     return buildDriverLoginResponse(req, res, activation.user, activation);
   } catch (error) {

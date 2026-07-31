@@ -8,6 +8,12 @@ const {
   requireOrganization,
   requirePermission
 } = require("../../middlewares/access-control");
+const { revokeAllSessions } = require("../../services/sessions");
+const {
+  sendAccountLifecycleEmail,
+  sendSecurityChangeEmail,
+  sendWelcomeEmail
+} = require("../../services/domain-email-events");
 
 const router = Router();
 const ACCOUNT_ADMIN_ROLES = new Set(["owner", "admin", "billing_manager", "support", "viewer"]);
@@ -88,10 +94,25 @@ router.get("/me", authenticate, async (req, res) => {
 
 router.patch("/me", authenticate, async (req, res, next) => {
   try {
+    const previousProfile = await req.app.locals.store.getUserProfile(req.user.id);
+    const previousUser = previousProfile?.user || previousProfile;
+    const payload = pickFields(req.body, PROFILE_FIELDS);
     const user = await req.app.locals.store.updateUser(
       req.user.id,
-      pickFields(req.body, PROFILE_FIELDS)
+      payload
     );
+    const emailChanged = Boolean(
+      payload.email &&
+      String(previousUser?.email || "").trim().toLowerCase() !== String(user?.email || "").trim().toLowerCase()
+    );
+    const passwordChanged = Boolean(payload.password && String(payload.password).trim());
+    if (passwordChanged) {
+      await revokeAllSessions(user.id, null, "password_changed");
+      await sendSecurityChangeEmail(user, "PASSWORD_CHANGED");
+    }
+    if (emailChanged) {
+      await sendSecurityChangeEmail(user, "EMAIL_CHANGED");
+    }
 
     return res.json({
       ok: true,
@@ -158,6 +179,7 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       organizationId: getOrganizationId(user),
       createdAt: new Date().toISOString()
     });
+    await sendWelcomeEmail(user);
 
     return res.status(201).json({
       ok: true,
@@ -257,6 +279,27 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       organizationId: getOrganizationId(user),
       updatedAt: new Date().toISOString()
     });
+
+    const previousStatus = String(targetUser.userStatus || "active").trim();
+    const currentStatus = String(user.userStatus || "active").trim();
+    if (previousStatus === "active" && currentStatus === "suspended") {
+      await sendAccountLifecycleEmail(user, "ACCOUNT_SUSPENDED");
+    } else if (previousStatus === "suspended" && currentStatus === "active") {
+      await sendAccountLifecycleEmail(user, "ACCOUNT_REACTIVATED");
+    }
+
+    const emailChanged = Boolean(
+      payload.email &&
+      String(targetUser.email || "").trim().toLowerCase() !== String(user.email || "").trim().toLowerCase()
+    );
+    const passwordChanged = Boolean(payload.password && String(payload.password).trim());
+    if (passwordChanged) {
+      await revokeAllSessions(user.id, null, "password_changed_by_admin");
+      await sendSecurityChangeEmail(user, "PASSWORD_CHANGED");
+    }
+    if (emailChanged) {
+      await sendSecurityChangeEmail(user, "EMAIL_CHANGED");
+    }
 
     if (Object.prototype.hasOwnProperty.call(payload, "vehicleId") && payload.vehicleId !== targetUser.vehicleId) {
       const affectedVehicleIds = [...new Set([targetUser.vehicleId, payload.vehicleId].filter(Boolean))];

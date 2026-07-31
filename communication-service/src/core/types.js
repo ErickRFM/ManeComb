@@ -76,7 +76,12 @@ const TEMPLATE = {
   CRITICAL_INCIDENT: "critical-incident",
   NEW_DEVICE_CONNECTED: "new-device-connected",
   SUSPICIOUS_LOGIN: "suspicious-login",
-  IDENTITY_VERIFICATION: "identity-verification"
+  IDENTITY_VERIFICATION: "identity-verification",
+  REFUND_CONFIRMED: "refund-confirmed",
+  CHARGEBACK_UPDATED: "chargeback-updated",
+  DOCUMENT_UPLOADED: "document-uploaded",
+  DOCUMENT_APPROVED: "document-approved",
+  DOCUMENT_REJECTED: "document-rejected"
 };
 
 const TEMPLATE_PRIORITY = {};
@@ -106,6 +111,11 @@ TEMPLATE_PRIORITY[TEMPLATE.CRITICAL_INCIDENT] = PRIORITY.NORMAL;
 TEMPLATE_PRIORITY[TEMPLATE.PLAN_EXPIRING] = PRIORITY.LOW;
 TEMPLATE_PRIORITY[TEMPLATE.TRIAL_EXPIRING] = PRIORITY.LOW;
 TEMPLATE_PRIORITY[TEMPLATE.ACCOUNT_SUSPENDED] = PRIORITY.LOW;
+TEMPLATE_PRIORITY[TEMPLATE.REFUND_CONFIRMED] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.CHARGEBACK_UPDATED] = PRIORITY.HIGH;
+TEMPLATE_PRIORITY[TEMPLATE.DOCUMENT_UPLOADED] = PRIORITY.NORMAL;
+TEMPLATE_PRIORITY[TEMPLATE.DOCUMENT_APPROVED] = PRIORITY.NORMAL;
+TEMPLATE_PRIORITY[TEMPLATE.DOCUMENT_REJECTED] = PRIORITY.NORMAL;
 
 const TEMPLATE_META = {};
 TEMPLATE_META[TEMPLATE.WELCOME] = { category: "onboarding", subject: "Bienvenido a ManeComb" };
@@ -134,6 +144,12 @@ TEMPLATE_META[TEMPLATE.CRITICAL_INCIDENT] = { category: "alert", subject: "Incid
 TEMPLATE_META[TEMPLATE.NEW_DEVICE_CONNECTED] = { category: "security", subject: "Nuevo dispositivo conectado - ManeComb" };
 TEMPLATE_META[TEMPLATE.SUSPICIOUS_LOGIN] = { category: "security", subject: "Inicio de sesión sospechoso - ManeComb" };
 TEMPLATE_META[TEMPLATE.IDENTITY_VERIFICATION] = { category: "security", subject: "Verificación de identidad - ManeComb" };
+
+TEMPLATE_META[TEMPLATE.REFUND_CONFIRMED] = { category: "billing", subject: "Reembolso confirmado - ManeComb" };
+TEMPLATE_META[TEMPLATE.CHARGEBACK_UPDATED] = { category: "billing", subject: "Actualización de contracargo - ManeComb" };
+TEMPLATE_META[TEMPLATE.DOCUMENT_UPLOADED] = { category: "documents", subject: "Documento recibido - ManeComb" };
+TEMPLATE_META[TEMPLATE.DOCUMENT_APPROVED] = { category: "documents", subject: "Documento aprobado - ManeComb" };
+TEMPLATE_META[TEMPLATE.DOCUMENT_REJECTED] = { category: "documents", subject: "Documento rechazado - ManeComb" };
 
 const MAX_RETRIES = {
   CRITICAL: 5,
