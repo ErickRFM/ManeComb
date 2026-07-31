@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapPadding, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -9,14 +10,6 @@ import type { SelectorPointRole } from '../types';
 import { mapStyles as styles } from '../map-styles';
 
 type SelectorPoints = Record<SelectorPointRole, NavigationPlaceResult | null>;
-
-const SELECTOR_STOP_MARKER_OFFSETS = [
-  { transform: [{ translateX: 0 }, { translateY: 0 }] },
-  { transform: [{ translateX: 8 }, { translateY: -8 }] },
-  { transform: [{ translateX: -8 }, { translateY: -8 }] },
-  { transform: [{ translateX: 8 }, { translateY: 8 }] },
-  { transform: [{ translateX: -8 }, { translateY: 8 }] },
-];
 
 type MapCanvasProps = {
   coordinates: GeoPoint | null;
@@ -283,19 +276,20 @@ function SelectorMarkers({
           </View>
         </AppMapMarker>
       ) : null}
+      {/* MarkerView (view annotation nativa) en vez de PointAnnotation: no rasteriza a bitmap,
+          así que la sombra ya no se recorta (PointAnnotation medía con MeasureSpec.EXACTLY y
+          cortaba lo pintado fuera de bounds). `allowOverlap` reemplaza el transform anti-solape
+          para que los pines cercanos no colapsen. Los numerados no tienen drag/onPress, así que
+          MarkerView (que no soporta drag) no pierde nada; SAL/FIN se quedan en AppMapMarker. */}
       {stops.map((stop, index) => (
-        <AppMapMarker key={stop.id} id={`stop-${stop.id}`} coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}>
-          <View style={styles.selectorStopMarkerHost}>
-            <View
-              style={[
-                styles.selectorStopMarker,
-                SELECTOR_STOP_MARKER_OFFSETS[index % SELECTOR_STOP_MARKER_OFFSETS.length],
-                { backgroundColor: theme.colors.warning },
-              ]}>
-              <Text style={styles.stopMarkerText}>{index + 1}</Text>
-            </View>
+        <Mapbox.MarkerView
+          key={stop.id}
+          coordinate={[stop.longitude, stop.latitude]}
+          allowOverlap>
+          <View style={[styles.selectorStopMarker, { backgroundColor: theme.colors.warning }]}>
+            <Text style={styles.stopMarkerText}>{index + 1}</Text>
           </View>
-        </AppMapMarker>
+        </Mapbox.MarkerView>
       ))}
     </>
   );
