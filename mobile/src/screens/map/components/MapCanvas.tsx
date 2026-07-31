@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapPadding, type AppMapRef } from '@/src/components/app-map';
@@ -172,13 +172,18 @@ function UnitMarkers({
           transform: [{ scale: isSelected ? 1.18 : 1 }],
         };
 
+        // MarkerView (view annotation nativa) en vez de PointAnnotation: no rasteriza a bitmap,
+        // así que la sombra/elevation del dot y el transform scale(1.18) de la unidad
+        // seleccionada ya no se recortan (PointAnnotation medía con MeasureSpec.EXACTLY y
+        // cortaba lo pintado fuera de bounds, #3769). MarkerView no tiene onPress propio → el
+        // tap para seleccionar va en un Pressable que envuelve el contenido; `allowOverlap`
+        // evita que unidades cercanas colapsen.
         return (
-          <AppMapMarker
+          <Mapbox.MarkerView
             key={unit.unitId}
-            id={`unit-${unit.unitId}`}
-            coordinate={{ latitude: unit.gps.lat, longitude: unit.gps.lng }}
-            onPress={() => onUnitPress(unit)}>
-            <View style={styles.vehicleMarkerWrap}>
+            coordinate={[unit.gps.lng, unit.gps.lat]}
+            allowOverlap>
+            <Pressable style={styles.vehicleMarkerWrap} onPress={() => onUnitPress(unit)}>
               <View
                 style={[
                   styles.vehicleMarker,
@@ -202,8 +207,8 @@ function UnitMarkers({
                   </Text>
                 ) : null}
               </View>
-            </View>
-          </AppMapMarker>
+            </Pressable>
+          </Mapbox.MarkerView>
         );
       })}
     </>
