@@ -1,14 +1,16 @@
 # MP-EMAIL-03B — Conexión de eventos reales pendientes
 
-**Estado:** Cerrado técnicamente
+**Estado:** Desplegado y validado en dry-run
 
-**Rama:** `codex/mp-email-03b`
+**Rama integrada:** `main`
 
 **Commit base:** `99b8c95`
 
+**Commit de implementación:** `d34767a6f1ab39b902ecf35309ddeea252f1e1d7`
+
 **Modo de correo:** `EMAIL_DRY_RUN=true` / envíos reales `0`
 
-**Veredicto:** `MP_EMAIL_03B_CONSUMERS_READY`
+**Veredicto:** `MP_EMAIL_03_EVENT_WIRING_DEPLOYED`
 
 ## 1. Alcance
 
@@ -268,5 +270,80 @@ realDeliveries=0
 failedTests=0
 productionQueueDurability=false
 reason=Valkey Free Persistence Mode Off
-MP_EMAIL_03B_CONSUMERS_READY
+MP_EMAIL_03_EVENT_WIRING_DEPLOYED
+```
+
+## 15. MP-EMAIL-03C — Integración y validación desplegada
+
+### Integración y despliegue
+
+| Evidencia | Resultado |
+| --- | --- |
+| Commit de implementación | `d34767a6f1ab39b902ecf35309ddeea252f1e1d7` |
+| Commit integrado a `main` | `d34767a6f1ab39b902ecf35309ddeea252f1e1d7` |
+| Método de integración | fast-forward desde `codex/mp-email-03b` |
+| Conflictos | 0 |
+| `main == origin/main` al desplegar | Sí |
+| Commit desplegado y validado | `d34767a6f1ab39b902ecf35309ddeea252f1e1d7` |
+| Despliegue Render | `dep-d9mdm9gae00c73eg879g` |
+| Fecha de despliegue | 31 de julio de 2026, 11:29 a. m. (`America/Mexico_City`) |
+| Build | Successful |
+| Servicio | Live |
+
+El commit de implementación fue desplegado antes de registrar esta evidencia. El cierre documental se versiona en un commit posterior para no reescribir la historia ni intentar incluir el hash de un commit dentro de sí mismo.
+
+### Readiness desplegado
+
+Las consultas a `GET /api/health` y `GET /api/health/ready` devolvieron HTTP 200. El estado global permanece `degraded` por la falta de persistencia de Valkey Free, no por una falla funcional del correo.
+
+| Campo | Valor desplegado |
+| --- | --- |
+| `communication.functional` | `true` |
+| `providerConfigured` | `true` |
+| `provider` | `resend` |
+| `communication.status` | `dry_run` |
+| `history.mode` | `mongo` |
+| `history.idempotencyIndex` | `true` |
+| `queue.mode` | `bullmq` |
+| `queue.connected` | `true` |
+| `queue.functional` | `true` |
+| `queue.workerStarted` | `true` |
+| `queue.maxmemoryPolicy` | `noeviction` |
+| `queue.persistence` | `false` |
+| `productionDurability` | `false` |
+| `lastError` | `null` |
+
+### Smoke tests internos en dry-run
+
+Se ejecutó un fixture interno efímero sobre el mismo código del commit desplegado. No se creó un endpoint de prueba, no se usaron clientes reales, no se llamó a Mercado Pago y el fixture fue retirado al terminar. Esto permitió validar el evento financiero sin provocar un reembolso real.
+
+| Grupo | Evento | Estado | Entregas nuevas | Repetición | Tenant |
+| --- | --- | --- | ---: | --- | --- |
+| Usuarios | `WELCOME` | `dry_run` | 1 | `duplicate=true` | correcto |
+| Seguridad | `PASSWORD_CHANGED` | `dry_run` | 1 | `duplicate=true` | correcto |
+| Cuenta | `ACCOUNT_SUSPENDED` | `dry_run` | 1 | `duplicate=true` | correcto |
+| Comercial | `ORDER_CREATED` | `dry_run` | 1 | bloqueada; 0 entregas adicionales | correcto |
+| Financiero | `REFUND_CONFIRMED` | `dry_run` | 1 | `duplicate=true` | correcto |
+| Documentos | `DOCUMENT_APPROVED` | `dry_run` | 1 | `duplicate=true` | correcto |
+
+En las seis entregas se comprobó `accepted=true`, `simulated=true`, `failed=false`, `recipientMasked` presente, `recipientHash` presente e `idempotencyKey` estable. Resultado agregado:
+
+```text
+fixtures=6
+deliveries=6
+duplicates_prevented=6
+provider_attempts=0
+email_delivery_failed=0
+realDeliveries=0
+EMAIL_DRY_RUN=true
+```
+
+### Estado final
+
+Los 17 event types permanecen conectados; los tres productores de `WELCOME` siguen agrupados bajo un solo event type. `CRITICAL_INCIDENT=PENDING_POLICY` y `DRIVER_INVITATION=PENDING_RECIPIENT` continúan deliberadamente pendientes. No se modificaron Redis, Valkey, Resend, MongoDB ni la configuración externa.
+
+```text
+productionQueueDurability=false
+reason=Valkey Free Persistence Mode Off
+MP_EMAIL_03_EVENT_WIRING_DEPLOYED
 ```
