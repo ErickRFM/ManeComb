@@ -335,6 +335,45 @@ export async function deleteSavedRouteRequest(routeId: string) {
   return await unwrapData<any>(apiClient.delete(`/navigation/routes/${encodeURIComponent(routeId)}`));
 }
 
+export type LearnedRouteCandidate = {
+  id: string;
+  organizationId: string;
+  vehicleId: string;
+  evidenceVehicleIds: string[];
+  vehicleCount: number;
+  representativeSessionId: string;
+  geometryVersion: string;
+  algorithmVersion: string;
+  status: 'COLLECTING' | 'READY_FOR_REVIEW' | 'APPROVED' | 'REJECTED';
+  direction: string;
+  origin: { latitude: number; longitude: number };
+  destination: { latitude: number; longitude: number };
+  polyline: Array<{ latitude: number; longitude: number }>;
+  distanceMeters: number;
+  durationSeconds: number;
+  confidence: number;
+  evidenceCount: number;
+  evidenceSessionIds: string[];
+  approvedRouteId: string | null;
+  updatedAt: string;
+};
+
+export async function getLearnedRouteCandidatesRequest(status = 'READY_FOR_REVIEW') {
+  return await unwrapData<LearnedRouteCandidate[]>(apiClient.get('/navigation/learned-routes', { params: { status } }));
+}
+
+export async function approveLearnedRouteCandidateRequest(candidateId: string, name?: string) {
+  return await unwrapData<LearnedRouteCandidate>(
+    apiClient.post(`/navigation/learned-routes/${encodeURIComponent(candidateId)}/approve`, { name })
+  );
+}
+
+export async function rejectLearnedRouteCandidateRequest(candidateId: string, reason?: string) {
+  return await unwrapData<LearnedRouteCandidate>(
+    apiClient.post(`/navigation/learned-routes/${encodeURIComponent(candidateId)}/reject`, { reason })
+  );
+}
+
 export async function clearRouteAssignmentRequest(vehicleId: string) {
   return await unwrapData<any>(apiClient.delete(`/navigation/assign/${encodeURIComponent(vehicleId)}`));
 }

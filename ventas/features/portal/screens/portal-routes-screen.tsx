@@ -10,7 +10,18 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppStore } from '@/src/store/use-app-store';
 import { PortalSectionCard } from '../cards';
 import type { GeoPoint, NavigationStop, SavedRoute, Vehicle } from '@/src/types/app';
-import { createSavedRouteRequest, deleteSavedRouteRequest, getApiErrorMessage, getSavedRoutesRequest, planSavedRouteRequest, updateSavedRouteRequest } from '@/src/lib/api';
+import {
+  approveLearnedRouteCandidateRequest,
+  createSavedRouteRequest,
+  deleteSavedRouteRequest,
+  getApiErrorMessage,
+  getLearnedRouteCandidatesRequest,
+  getSavedRoutesRequest,
+  planSavedRouteRequest,
+  rejectLearnedRouteCandidateRequest,
+  updateSavedRouteRequest,
+  type LearnedRouteCandidate,
+} from '@/src/lib/api';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { portalPalette } from '../portal-theme';
@@ -117,6 +128,9 @@ export function PortalRoutesScreen() {
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<'recent' | 'name' | 'distance'>('recent');
   const [filterMode, setFilterMode] = useState<'all' | 'assigned' | 'unused'>('all');
+  const [learnedCandidates, setLearnedCandidates] = useState<LearnedRouteCandidate[]>([]);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const [candidateBusy, setCandidateBusy] = useState(false);
 
   useEffect(() => {
     void loadVehicles();
@@ -125,6 +139,40 @@ export function PortalRoutesScreen() {
       setSelectedRouteId((current) => current || routes[0]?.id || null);
     }).catch((error) => setMessage(getApiErrorMessage(error, 'No fue posible cargar el catálogo de rutas.')));
   }, [loadVehicles]);
+
+  useEffect(() => {
+    if (!canManageRoutes) return;
+    void getLearnedRouteCandidatesRequest().then((candidates) => {
+      setLearnedCandidates(candidates);
+      setSelectedCandidateId((current) => current || candidates[0]?.id || null);
+    }).catch((error) => setMessage(getApiErrorMessage(error, 'No fue posible cargar las rutas sugeridas.')));
+  }, [canManageRoutes]);
+
+  const selectedCandidate = useMemo(
+    () => learnedCandidates.find((candidate) => candidate.id === selectedCandidateId) || learnedCandidates[0] || null,
+    [learnedCandidates, selectedCandidateId]
+  );
+
+  const reviewLearnedCandidate = async (decision: 'approve' | 'reject') => {
+    if (!selectedCandidate || candidateBusy) return;
+    setCandidateBusy(true);
+    try {
+      if (decision === 'approve') {
+        await approveLearnedRouteCandidateRequest(selectedCandidate.id);
+        setSavedRoutes(await getSavedRoutesRequest());
+        setMessage('Ruta sugerida aprobada y agregada al catálogo sin asignarla a ninguna unidad.');
+      } else {
+        await rejectLearnedRouteCandidateRequest(selectedCandidate.id);
+        setMessage('Ruta sugerida rechazada.');
+      }
+      setLearnedCandidates((current) => current.filter((candidate) => candidate.id !== selectedCandidate.id));
+      setSelectedCandidateId(null);
+    } catch (error) {
+      setMessage(getApiErrorMessage(error, 'No fue posible revisar la ruta sugerida.'));
+    } finally {
+      setCandidateBusy(false);
+    }
+  };
 
   const selectedSavedRoute = useMemo(
     () => savedRoutes.find((route) => route.id === selectedRouteId) || null,
@@ -445,6 +493,50 @@ export function PortalRoutesScreen() {
       ) : null}
 
       {message && !showRouteEditor ? <View style={styles.inlineFeedback}><MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.info} /><Text style={styles.inlineFeedbackText}>{message}</Text></View> : null}
+
+      {!showRouteEditor && canManageRoutes && learnedCandidates.length > 0 ? (
+        <PortalSectionCard
+          title="Rutas aprendidas pendientes"
+          subtitle="Las sugerencias requieren evidencia repetida y nunca se asignan automáticamente.">
+          <View style={styles.assignmentWorkspace}>
+            <View style={styles.assignedPanel}>
+              {learnedCandidates.map((candidate) => (
+                <Pressable
+                  key={candidate.id}
+                  onPress={() => setSelectedCandidateId(candidate.id)}
+                  style={styles.assignedCard}>
+                  <View style={styles.assignedHeader}>
+                    <Text style={styles.assignedName}>
+                      {candidate.vehicleCount === 1
+                        ? `1 unidad de evidencia`
+                        : `${candidate.vehicleCount || candidate.evidenceVehicleIds?.length || 1} unidades de evidencia`}
+                    </Text>
+                    <StatusBadge label={`${candidate.evidenceCount} recorridos`} tone="info" />
+                  </View>
+                  <Text style={styles.assignedDate}>
+                    {(candidate.distanceMeters / 1000).toFixed(1)} km · {Math.round(candidate.durationSeconds / 60)} min · confianza {Math.round(candidate.confidence * 100)}%
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {selectedCandidate ? (
+              <View style={styles.previewColumn}>
+                <Suspense fallback={<View style={styles.mapFallback}><Text style={styles.mapFallbackText}>Cargando sugerencia...</Text></View>}>
+                  <RouteMap height={260} routeCoordinates={selectedCandidate.polyline} vehicles={[]} />
+                </Suspense>
+                <View style={styles.assignedActions}>
+                  <PortalButton disabled={candidateBusy} onPress={() => void reviewLearnedCandidate('reject')} size="sm" variant="secondary">
+                    Rechazar
+                  </PortalButton>
+                  <PortalButton loading={candidateBusy} onPress={() => void reviewLearnedCandidate('approve')} size="sm">
+                    Aprobar al catálogo
+                  </PortalButton>
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </PortalSectionCard>
+      ) : null}
 
       <View style={showRouteEditor ? styles.fullEditorShell : styles.assignmentWorkspace}>
         {showRouteEditor ? (

@@ -2,7 +2,7 @@ import mapboxgl, { type Map as MapboxMap, type Marker as MapboxMarker } from 'ma
 import 'mapbox-gl/dist/mapbox-gl.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
 import { portalPalette } from '../portal-theme';
@@ -325,6 +325,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   const styleSyncPendingRef = useRef(false);
   const initializationGuardLoggedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'center' | 'follow' | 'user'>('center');
   const mapStyle = mapMode === 'satellite'
     ? 'mapbox://styles/mapbox/satellite-streets-v12'
     : mapMode === 'traffic' || showTraffic
@@ -409,6 +410,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
+    map.on('dragstart', () => setCameraMode('user'));
     map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -628,7 +630,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   useEffect(() => {
     const map = mapRef.current;
     const points = boundsPointsRef.current;
-    if (!map || !autoFit || !points.length || fitTriggerKey === fittedKeyRef.current) return;
+    if (!map || !autoFit || cameraMode !== 'center' || !points.length || fitTriggerKey === fittedKeyRef.current) return;
 
     let cancelled = false;
     let attempts = 0;
@@ -650,7 +652,15 @@ export const OperationsMap = React.memo(function OperationsMap({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [autoFit, fitTriggerKey]);
+  }, [autoFit, cameraMode, fitTriggerKey]);
+
+  useEffect(() => {
+    if (cameraMode !== 'follow' || !selectedVehicleId || !mapRef.current) return;
+    const vehicle = vehicles.find((entry) => entry.id === selectedVehicleId);
+    const point = vehicle ? getVehiclePoint(vehicle) : null;
+    if (!point) return;
+    mapRef.current.easeTo({ center: toLngLat(point), duration: 450, easing: cameraEasing });
+  }, [cameraMode, selectedVehicleId, vehicles]);
 
   // Encuadre por geolocalizacion: SOLO cuando no hay ninguna unidad posicionable.
   // No toca la logica de fitBounds; solo mueve el centro por defecto. Se pide una
@@ -751,7 +761,33 @@ export const OperationsMap = React.memo(function OperationsMap({
     );
   }
 
-  return <View ref={hostRef as never} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]} />;
+  return (
+    <View style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]}>
+      <View ref={hostRef as never} style={styles.mapCanvas} />
+      {mapMode === 'operational' ? (
+        <View style={styles.cameraControls}>
+          <Pressable
+            accessibilityLabel="Centrar flota"
+            onPress={() => {
+              setCameraMode('center');
+              fittedKeyRef.current = '';
+              if (mapRef.current) applyCamera(mapRef.current, boundsPointsRef.current);
+            }}
+            style={[styles.cameraButton, cameraMode === 'center' ? styles.cameraButtonActive : undefined]}>
+            <MaterialCommunityIcons name="crosshairs-gps" size={17} color={portalPalette.text} />
+          </Pressable>
+          {selectedVehicleId ? (
+            <Pressable
+              accessibilityLabel="Seguir unidad seleccionada"
+              onPress={() => setCameraMode('follow')}
+              style={[styles.cameraButton, cameraMode === 'follow' ? styles.cameraButtonActive : undefined]}>
+              <MaterialCommunityIcons name="target" size={17} color={portalPalette.text} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
 });
 
 const styles = StyleSheet.create({
@@ -846,5 +882,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
+  },
+  mapCanvas: {
+    height: '100%',
+    width: '100%',
+  },
+  cameraControls: {
+    bottom: AppTheme.spacing.sm,
+    flexDirection: 'row',
+    gap: AppTheme.spacing.xs,
+    left: AppTheme.spacing.sm,
+    position: 'absolute',
+  },
+  cameraButton: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
+    height: DesignSystem.control.sm,
+    justifyContent: 'center',
+    width: DesignSystem.control.sm,
+  },
+  cameraButtonActive: {
+    backgroundColor: portalPalette.infoSoft,
+    borderColor: portalPalette.info,
   },
 });

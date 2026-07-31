@@ -2,6 +2,7 @@ import { isAxiosError } from 'axios';
 import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { reconcileOperationalSnapshot, upsertOperationalUnit } from './operational-reconciliation';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { hasPortalPermission } from '@/features/portal/utils/access';
 import type {
@@ -220,8 +221,11 @@ function connectSocket(get: () => AppState) {
   });
 
   socket.io.on('reconnect', () => {
-    useAppStore.setState({ socketStatus: 'connected' });
-    void usePortalStore.getState().loadAll();
+    useAppStore.setState({ socketStatus: 'reconnecting' });
+    void Promise.all([
+      usePortalStore.getState().loadAll(),
+      useAppStore.getState().loadVehicles(),
+    ]).finally(() => useAppStore.setState({ socketStatus: 'connected' }));
   });
 
   socket.on('disconnect', () => {
@@ -259,9 +263,7 @@ function connectSocket(get: () => AppState) {
           : null;
         if (unit?.unitId) {
           useAppStore.setState((state) => ({
-            operationalUnits: state.operationalUnits.some((entry) => entry.unitId === unit.unitId)
-              ? state.operationalUnits.map((entry) => entry.unitId === unit.unitId ? unit : entry)
-              : [...state.operationalUnits, unit],
+            operationalUnits: upsertOperationalUnit(state.operationalUnits, unit),
           }));
         }
       }
@@ -518,7 +520,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         getVehiclesRequest(),
         getOperationalUnitsRequest(),
       ]);
-      set({ vehicles, operationalUnits, error: null });
+      set((state) => ({
+        vehicles,
+        operationalUnits: reconcileOperationalSnapshot(state.operationalUnits, operationalUnits),
+        error: null,
+      }));
     } catch (error) {
       set({ error: getReadableError(error, 'No fue posible cargar unidades.') });
     }

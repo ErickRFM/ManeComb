@@ -11,6 +11,7 @@ const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const {
   ActivationKeyModel,
   AppEventModel,
+  AutoRouteProcessingModel,
   ChatAttachmentModel,
   ChatMessageModel,
   CheckpointVisitModel,
@@ -20,6 +21,7 @@ const {
   ConversationModel,
   DocumentModel,
   IncidentModel,
+  LearnedRouteCandidateModel,
   NotificationModel,
   RtcSessionModel,
   RouteEventModel,
@@ -3268,7 +3270,7 @@ async function createMongoStore() {
       : null;
   }
 
-  async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null }) {
+  async function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null, packetId = null }) {
     const currentVehicle = await VehicleModel.findById(vehicleId).lean();
 
     if (!currentVehicle) {
@@ -3304,6 +3306,7 @@ async function createMongoStore() {
       update.locationTimestampSource = temporal.timestampSource;
       update.locationClockSkewMs = temporal.clockSkewMs;
     }
+    update.locationPacketId = packetId || null;
 
     const routeProgress = calculateVehicleRouteProgress({
       coordinates: update.location,
@@ -3318,27 +3321,37 @@ async function createMongoStore() {
       update.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
-    const incomingTimestamp = update.locationReceivedAt || update.locationTimestamp || update.updatedAt;
-    const vehicle = await VehicleModel.findOneAndUpdate(
+    const incomingTimestamp = update.locationTimestamp || update.locationReceivedAt || update.updatedAt;
+    const updatedVehicle = await VehicleModel.findOneAndUpdate(
       {
         _id: vehicleId,
+        ...(packetId ? { locationPacketId: { $ne: packetId } } : {}),
         $or: [
-          { locationReceivedAt: null },
-          { locationReceivedAt: { $exists: false } },
-          { locationReceivedAt: { $lte: incomingTimestamp } }
+          { locationTimestamp: null },
+          { locationTimestamp: { $exists: false } },
+          { locationTimestamp: { $lte: incomingTimestamp } }
         ]
       },
       {
         $set: update
       },
       { returnDocument: "after" }
-    ).lean() || currentVehicle;
+    ).lean();
+    const vehicle = updatedVehicle || currentVehicle;
 
     if (!vehicle) {
       return null;
     }
 
-    return enrichVehicle(vehicle);
+    return {
+      ...enrichVehicle(vehicle),
+      locationUpdateApplied: Boolean(updatedVehicle),
+      locationUpdateReason: updatedVehicle
+        ? "accepted"
+        : packetId && currentVehicle.locationPacketId === packetId
+          ? "duplicate"
+          : "out_of_order"
+    };
   }
 
   async function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
@@ -3525,6 +3538,127 @@ async function createMongoStore() {
     if (!includeTotal) return items;
     const total = await RouteSessionPositionModel.countDocuments(query);
     return { items, limit: safeLimit, offset: safeOffset, total };
+  }
+
+  async function claimAutoRouteProcessing({ sessionId, organizationId, algorithmVersion }) {
+    const id = `${sessionId}:${algorithmVersion}`;
+    try {
+      const doc = await AutoRouteProcessingModel.create({
+        _id: id,
+        sessionId,
+        organizationId,
+        algorithmVersion,
+        status: "PROCESSING"
+      });
+      const plain = doc.toObject();
+      return { ...plain, id: String(plain._id), _id: undefined, claimed: true };
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const existing = await AutoRouteProcessingModel.findById(id).lean();
+      return existing ? { ...existing, id: String(existing._id), _id: undefined, claimed: false } : null;
+    }
+  }
+
+  async function completeAutoRouteProcessing(id, payload) {
+    const doc = await AutoRouteProcessingModel.findByIdAndUpdate(
+      id,
+      { $set: { ...payload, updatedAt: new Date() } },
+      { returnDocument: "after" }
+    ).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
+  }
+
+  async function upsertLearnedRouteCandidate(payload) {
+    const filter = {
+      organizationId: payload.organizationId,
+      groupKey: payload.groupKey,
+      evidenceSessionIds: { $ne: payload.sessionId }
+    };
+    const update = {
+      $setOnInsert: {
+        _id: randomUUID(),
+        organizationId: payload.organizationId,
+        groupKey: payload.groupKey,
+        corridorCluster: payload.corridorCluster,
+        vehicleId: payload.vehicleId,
+        direction: payload.direction,
+        algorithmVersion: payload.algorithmVersion,
+        geometryVersion: payload.geometryVersion,
+        representativeSessionId: payload.representativeSessionId,
+        origin: payload.origin,
+        destination: payload.destination,
+        polyline: payload.polyline,
+        createdAt: new Date()
+      },
+      $set: {
+        updatedAt: new Date()
+      },
+      $addToSet: {
+        evidenceSessionIds: payload.sessionId,
+        evidenceVehicleIds: payload.vehicleId
+      },
+      $inc: { evidenceCount: 1 }
+    };
+    let doc;
+    let evidenceApplied = true;
+    try {
+      doc = await LearnedRouteCandidateModel.findOneAndUpdate(filter, update, {
+        upsert: true,
+        returnDocument: "after"
+      }).lean();
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      doc = await LearnedRouteCandidateModel.findOneAndUpdate(filter, update, { returnDocument: "after" }).lean();
+    }
+    if (!doc) {
+      evidenceApplied = false;
+      doc = await LearnedRouteCandidateModel.findOne({
+        organizationId: payload.organizationId,
+        groupKey: payload.groupKey
+      }).lean();
+    }
+    if (!doc) return null;
+    if (!evidenceApplied) return { ...doc, id: String(doc._id), _id: undefined };
+    const evidenceCount = Number(doc.evidenceCount) || doc.evidenceSessionIds?.length || 0;
+    const vehicleCount = doc.evidenceVehicleIds?.length || 0;
+    const finalized = await LearnedRouteCandidateModel.findByIdAndUpdate(
+      doc._id,
+      {
+        $set: {
+          distanceMeters: Math.round(((Number(doc.distanceMeters) || 0) * Math.max(0, evidenceCount - 1) + payload.distanceMeters) / Math.max(1, evidenceCount)),
+          durationSeconds: Math.round(((Number(doc.durationSeconds) || 0) * Math.max(0, evidenceCount - 1) + payload.durationSeconds) / Math.max(1, evidenceCount)),
+          confidence: Math.min(1, evidenceCount / payload.minimumEvidenceCount),
+          vehicleCount,
+          ...(evidenceCount >= payload.minimumEvidenceCount && doc.status === "COLLECTING"
+            ? { status: "READY_FOR_REVIEW" }
+            : {})
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+    return { ...finalized, id: String(finalized._id), _id: undefined };
+  }
+
+  async function listLearnedRouteCandidates({ organizationId, status } = {}) {
+    const docs = await LearnedRouteCandidateModel.find({
+      ...(organizationId ? { organizationId } : {}),
+      ...(status ? { status } : {})
+    }).sort({ updatedAt: -1 }).lean();
+    return docs.map((doc) => ({ ...doc, id: String(doc._id), _id: undefined }));
+  }
+
+  async function getLearnedRouteCandidateById(id) {
+    const doc = await LearnedRouteCandidateModel.findById(id).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
+  }
+
+  async function updateLearnedRouteCandidate(id, payload) {
+    const doc = await LearnedRouteCandidateModel.findByIdAndUpdate(
+      id,
+      { $set: { ...payload, updatedAt: new Date() } },
+      { returnDocument: "after" }
+    ).lean();
+    return doc ? { ...doc, id: String(doc._id), _id: undefined } : null;
   }
 
   async function getLastRouteEvent(sessionId, eventType = null) {
@@ -3831,6 +3965,12 @@ async function createMongoStore() {
     resetPasswordWithToken,
     createRouteSession,
     createRouteSessionPosition,
+    claimAutoRouteProcessing,
+    completeAutoRouteProcessing,
+    upsertLearnedRouteCandidate,
+    listLearnedRouteCandidates,
+    getLearnedRouteCandidateById,
+    updateLearnedRouteCandidate,
     createRouteEvent,
     createCheckpointVisit,
     getActiveRouteSession,

@@ -196,6 +196,7 @@ class ManeCombLocationService : Service(), LocationListener {
 
     synchronized(queueLock) {
       pendingLocations.addLast(body)
+      prefs().edit().putLong(KEY_LAST_CAPTURED_AT, System.currentTimeMillis()).apply()
       savePendingLocationsLocked()
     }
 
@@ -271,7 +272,11 @@ class ManeCombLocationService : Service(), LocationListener {
       val responseCode = connection.responseCode
       closeConnectionBody(connection)
       when {
-        responseCode in 200..299 -> true
+        responseCode in 200..299 -> {
+          val confirmedAt = System.currentTimeMillis()
+          prefs().edit().putLong(KEY_LAST_SENT_AT, confirmedAt).putLong(KEY_LAST_CONFIRMED_AT, confirmedAt).apply()
+          true
+        }
         responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
           responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
           if (authRetry && refreshAccessToken()) ensureRouteSessionStarted(false) else stopForAuthFailure(responseCode)
@@ -599,7 +604,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private fun savePendingLocationsLocked() {
     val entries = JSONArray()
     pendingLocations.forEach { entries.put(it) }
-    prefs().edit().putString(KEY_PENDING_LOCATIONS, entries.toString()).apply()
+    prefs().edit().putString(KEY_PENDING_LOCATIONS, entries.toString()).putInt(KEY_PENDING_COUNT, pendingLocations.size).apply()
   }
 
   private fun ensureNotificationChannel() {
@@ -663,6 +668,10 @@ class ManeCombLocationService : Service(), LocationListener {
     const val KEY_STATUS_REASON = "statusReason"
     const val KEY_VEHICLE_ID = "vehicleId"
     const val KEY_SESSION_ID = "sessionId"
+    const val KEY_PENDING_COUNT = "pendingCount"
+    const val KEY_LAST_CAPTURED_AT = "lastCapturedAt"
+    const val KEY_LAST_SENT_AT = "lastSentAt"
+    const val KEY_LAST_CONFIRMED_AT = "lastConfirmedAt"
     private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
     private const val KEY_SCHEDULE_START = "scheduleStart"
     private const val KEY_SCHEDULE_END = "scheduleEnd"

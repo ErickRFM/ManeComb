@@ -29,7 +29,9 @@ export function formatEta(route: OperationalUnitSnapshot['route'], locale = 'es-
 }
 
 export function formatFreshness(gps: OperationalUnitSnapshot['gps']): string {
-  if (gps.freshness === 'fresh') return 'GPS en vivo';
+  if (gps.connectionState === 'live') return 'GPS en vivo';
+  if (gps.connectionState === 'delayed') return 'GPS retrasado';
+  if (gps.connectionState === 'lost' && gps.ageSeconds === null) return 'Sin GPS';
   if (gps.ageSeconds === null) return 'Sin GPS';
 
   const minutes = Math.floor(gps.ageSeconds / 60);

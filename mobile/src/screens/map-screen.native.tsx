@@ -15,8 +15,6 @@ import {
   startBackgroundLocationServiceAsync,
   stopBackgroundLocationServiceAsync,
 } from '@/src/native/background-location';
-import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
-import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
 import { requestBackgroundPermission } from './map/services/location-service';
 import * as Location from '@/src/native/location';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
@@ -203,8 +201,6 @@ export function MapScreen() {
     apiUrl,
     token,
     refreshToken,
-    connectionMode,
-    sendVehicleLocation,
     user,
   } = useAppStore(
     useShallow((state) => ({
@@ -224,8 +220,6 @@ export function MapScreen() {
       apiUrl: state.apiUrl,
       token: state.token,
       refreshToken: state.refreshToken,
-      connectionMode: state.connectionMode,
-      sendVehicleLocation: state.sendVehicleLocation,
       user: state.user,
     }))
   );
@@ -281,18 +275,6 @@ export function MapScreen() {
   }, [refreshAll]);
 
   const selectorMode = isSelectorMode(params.point);
-  const scheduleState = useScheduleTick(user?.operationalSchedule);
-
-  useLocationSync({
-    connectionMode,
-    coordinates,
-    enabled: Boolean(user?.role === 'driver' && activeRouteSession && activeRouteSession.status === 'RUNNING'),
-    isWithinSchedule: scheduleState.isWithinSchedule,
-    lastUpdatedAt: deviceLocation.lastUpdatedAt,
-    sendVehicleLocation,
-    vehicleId: user?.vehicleId,
-  });
-
   // While picking route points the map is a fresh (reset) module root, so the
   // hardware back button would otherwise fall through to the OS and exit the app.
   // Consume it and return to the route panel's saved-routes list instead. The

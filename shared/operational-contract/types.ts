@@ -9,6 +9,7 @@
  */
 
 export type GpsFreshness = 'fresh' | 'stale' | 'missing';
+export type GpsConnectionState = 'live' | 'delayed' | 'stale' | 'lost';
 
 export type OperationalUnitStatus = 'active' | 'idle' | 'maintenance' | 'offline';
 
@@ -35,7 +36,10 @@ export type OperationalGps = {
   speedKmh: number | null;
   heading: number | null;
   recordedAt: string | null;
+  /** Instante de recepcion del servidor; autoridad para reconciliar REST y Socket. */
+  receivedAt: string | null;
   freshness: GpsFreshness;
+  connectionState: GpsConnectionState;
   ageSeconds: number | null;
 };
 
@@ -71,6 +75,7 @@ export type OperationalIncidents = {
 };
 
 export type OperationalUnitSnapshot = {
+  snapshotVersion: 1;
   unitId: string;
   plates: string | null;
   /** Nombre visible de la unidad. Nunca vacio. */

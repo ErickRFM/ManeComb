@@ -1119,13 +1119,22 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
   socket.io.on('reconnect', () => {
     missedHeartbeatAcks = 0;
-    setSocketTransition(set, 'connected', 'socket_reconnected', {
+    setSocketTransition(set, 'reconnecting', 'socket_reconciling', {
       missedHeartbeatAcks: 0,
       reconnectAttempts: socketReconnectAttempts,
     });
-    set({ networkStatus: 'online' });
+    set({ networkStatus: 'recovering' });
     joinCurrentConversationRooms(get);
-    get().flushPendingSync();
+    void Promise.all([
+      get().refreshAll(),
+      get().flushPendingSync(),
+    ]).finally(() => {
+      set({ networkStatus: 'online' });
+      setSocketTransition(set, 'connected', 'socket_reconciled', {
+        missedHeartbeatAcks: 0,
+        reconnectAttempts: socketReconnectAttempts,
+      });
+    });
   });
 
   socket.on('disconnect', (reason) => {

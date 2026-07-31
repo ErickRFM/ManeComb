@@ -14,6 +14,7 @@
 
 const GPS_FRESH_MAX_AGE_SECONDS = 120;
 const GPS_STALE_MAX_AGE_SECONDS = 900;
+const GPS_LIVE_MAX_AGE_SECONDS = 30;
 
 /** Estados de vehiculo que retiran la unidad del inventario visible. */
 const HIDDEN_VEHICLE_STATUSES = new Set(["archived", "deleted", "retired"]);
@@ -89,6 +90,7 @@ function toSpeedKmh(rawSpeed) {
  */
 function buildGps(vehicle, progress, nowMs) {
   const recordedAt = toDate(vehicle?.locationTimestamp);
+  const receivedAt = toDate(vehicle?.locationReceivedAt);
   const latitude = finiteOrNull(vehicle?.location?.latitude);
   const longitude = finiteOrNull(vehicle?.location?.longitude);
   const hasPosition = latitude !== null && longitude !== null;
@@ -100,7 +102,9 @@ function buildGps(vehicle, progress, nowMs) {
       speedKmh: null,
       heading: null,
       recordedAt: null,
+      receivedAt: null,
       freshness: "missing",
+      connectionState: "lost",
       ageSeconds: null
     };
   }
@@ -117,6 +121,17 @@ function buildGps(vehicle, progress, nowMs) {
         : ageSeconds <= GPS_STALE_MAX_AGE_SECONDS
           ? "stale"
           : "missing";
+  const authorityTime = receivedAt || recordedAt;
+  const connectionAgeSeconds = authorityTime
+    ? Math.max(0, Math.round((nowMs - authorityTime.getTime()) / 1000))
+    : null;
+  const connectionState = connectionAgeSeconds === null || connectionAgeSeconds > GPS_STALE_MAX_AGE_SECONDS
+    ? "lost"
+    : connectionAgeSeconds <= GPS_LIVE_MAX_AGE_SECONDS
+      ? "live"
+      : connectionAgeSeconds <= GPS_FRESH_MAX_AGE_SECONDS
+        ? "delayed"
+        : "stale";
 
   return {
     lat: latitude,
@@ -124,7 +139,9 @@ function buildGps(vehicle, progress, nowMs) {
     speedKmh: toSpeedKmh(progress?.speedMetersPerSecond ?? vehicle?.speed),
     heading: finiteOrNull(vehicle?.heading ?? progress?.heading),
     recordedAt: recordedAt === null ? null : recordedAt.toISOString(),
+    receivedAt: receivedAt === null ? null : receivedAt.toISOString(),
     freshness,
+    connectionState,
     ageSeconds
   };
 }
@@ -166,7 +183,7 @@ function buildRoute({ vehicle, route, activeSession, progress }) {
     nonEmptyString(route?.id) ||
     nonEmptyString(activeSession?.routeId);
 
-  if (!routeId) {
+  if (!routeId || routeId.startsWith("recording:")) {
     return null;
   }
 
@@ -336,9 +353,11 @@ function buildOperationalUnitSnapshot(input) {
       lastEvent?.timestamp,
       vehicle.updatedAt,
       vehicle.locationTimestamp,
+      vehicle.locationReceivedAt,
       progress?.timestamp,
       activeSession?.updatedAt
     ]),
+    snapshotVersion: 1,
     // Depende solo del alta de la unidad. Jamas de la frescura del GPS.
     visibility: HIDDEN_VEHICLE_STATUSES.has(rawStatus) ? "hidden" : "visible"
   };
@@ -346,6 +365,7 @@ function buildOperationalUnitSnapshot(input) {
 
 module.exports = {
   GPS_FRESH_MAX_AGE_SECONDS,
+  GPS_LIVE_MAX_AGE_SECONDS,
   GPS_STALE_MAX_AGE_SECONDS,
   STOPPED_SPEED_KMH,
   HIDDEN_VEHICLE_STATUSES,

@@ -62,10 +62,18 @@ class ManeCombLocationModule(
       putString("refreshToken", prefs.getString(ManeCombLocationService.KEY_REFRESH_TOKEN, null))
       putString("vehicleId", prefs.getString(ManeCombLocationService.KEY_VEHICLE_ID, null))
       putString("sessionId", prefs.getString(ManeCombLocationService.KEY_SESSION_ID, null))
+      putInt("pendingPackets", prefs.getInt(ManeCombLocationService.KEY_PENDING_COUNT, 0))
+      putNullableTimestamp(this, "lastCapturedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L))
+      putNullableTimestamp(this, "lastSentAt", prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L))
+      putNullableTimestamp(this, "lastConfirmedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L))
     })
     if (reason != null) {
       prefs.edit().remove(ManeCombLocationService.KEY_STATUS_REASON).apply()
     }
+  }
+
+  private fun putNullableTimestamp(map: com.facebook.react.bridge.WritableMap, key: String, value: Long) {
+    if (value > 0L) map.putDouble(key, value.toDouble()) else map.putNull(key)
   }
 
   @ReactMethod

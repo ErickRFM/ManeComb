@@ -37,6 +37,8 @@ function createEmbeddedStore() {
   state.routeSessionPositions = Array.isArray(state.routeSessionPositions) ? state.routeSessionPositions : [];
   state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
+  state.learnedRouteCandidates = Array.isArray(state.learnedRouteCandidates) ? state.learnedRouteCandidates : [];
+  state.autoRouteProcessing = Array.isArray(state.autoRouteProcessing) ? state.autoRouteProcessing : [];
   state.checkoutIdempotency = Array.isArray(state.checkoutIdempotency) ? state.checkoutIdempotency : [];
   state.trialEntitlements = Array.isArray(state.trialEntitlements) ? state.trialEntitlements : [];
   state.refundOperations = Array.isArray(state.refundOperations) ? state.refundOperations : [];
@@ -2874,21 +2876,24 @@ function createEmbeddedStore() {
     return clone(buildConversationSummary(conversation, userId));
   }
 
-  function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null }) {
+  function updateVehicleLocation({ vehicleId, coordinates, heading, speed, timestamp, temporal = null, packetId = null }) {
     const vehicle = getVehicleById(vehicleId);
 
     if (!vehicle) {
       return null;
     }
 
-    const incomingTime = new Date(temporal?.receivedAt || timestamp || vehicle.updatedAt).getTime();
-    const currentTime = vehicle.locationReceivedAt
-      ? new Date(vehicle.locationReceivedAt).getTime()
-      : vehicle.locationTimestamp
-        ? new Date(vehicle.locationTimestamp).getTime()
+    const incomingTime = new Date(timestamp || temporal?.receivedAt || vehicle.updatedAt).getTime();
+    const currentTime = vehicle.locationTimestamp
+      ? new Date(vehicle.locationTimestamp).getTime()
+      : vehicle.locationReceivedAt
+        ? new Date(vehicle.locationReceivedAt).getTime()
         : -Infinity;
+    if (packetId && vehicle.locationPacketId === packetId) {
+      return { ...enrichVehicle(vehicle), locationUpdateApplied: false, locationUpdateReason: "duplicate" };
+    }
     if (Number.isFinite(currentTime) && Number.isFinite(incomingTime) && incomingTime < currentTime) {
-      return enrichVehicle(vehicle);
+      return { ...enrichVehicle(vehicle), locationUpdateApplied: false, locationUpdateReason: "out_of_order" };
     }
     vehicle.location = {
       latitude: Number(coordinates.latitude),
@@ -2917,6 +2922,7 @@ function createEmbeddedStore() {
       vehicle.locationTimestampSource = temporal.timestampSource;
       vehicle.locationClockSkewMs = temporal.clockSkewMs;
     }
+    vehicle.locationPacketId = packetId || null;
 
     const routeProgress = calculateVehicleRouteProgress({
       coordinates: vehicle.location,
@@ -2931,7 +2937,7 @@ function createEmbeddedStore() {
       vehicle.etaMinutes = Math.max(0, Math.round(routeProgress.timeRemainingSeconds / 60));
     }
 
-    return enrichVehicle(vehicle);
+    return { ...enrichVehicle(vehicle), locationUpdateApplied: true, locationUpdateReason: "accepted" };
   }
 
   function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
@@ -3078,6 +3084,71 @@ function createEmbeddedStore() {
     const safeOffset = Math.max(0, Number(offset) || 0);
     const items = clone(filtered.slice(safeOffset, safeOffset + safeLimit));
     return includeTotal ? { items, limit: safeLimit, offset: safeOffset, total: filtered.length } : items;
+  }
+
+  function claimAutoRouteProcessing({ sessionId, organizationId, algorithmVersion }) {
+    const id = `${sessionId}:${algorithmVersion}`;
+    const existing = state.autoRouteProcessing.find((entry) => entry.id === id);
+    if (existing) return { ...clone(existing), claimed: false };
+    const now = new Date().toISOString();
+    const record = { id, sessionId, organizationId, algorithmVersion, status: "PROCESSING", reason: null,
+      candidateId: null, createdAt: now, updatedAt: now };
+    state.autoRouteProcessing.push(record);
+    return { ...clone(record), claimed: true };
+  }
+
+  function completeAutoRouteProcessing(id, payload) {
+    const record = state.autoRouteProcessing.find((entry) => entry.id === id);
+    if (!record) return null;
+    Object.assign(record, clone(payload), { updatedAt: new Date().toISOString() });
+    return clone(record);
+  }
+
+  function upsertLearnedRouteCandidate(payload) {
+    let candidate = state.learnedRouteCandidates.find(
+      (entry) => entry.organizationId === payload.organizationId && entry.groupKey === payload.groupKey
+    );
+    const now = new Date().toISOString();
+    if (!candidate) {
+      candidate = { id: randomUUID(), ...clone(payload), evidenceSessionIds: [], evidenceVehicleIds: [],
+        evidenceCount: 0, vehicleCount: 0,
+        confidence: 0, status: "COLLECTING", approvedRouteId: null, reviewedBy: null,
+        reviewedAt: null, rejectionReason: null, createdAt: now, updatedAt: now };
+      state.learnedRouteCandidates.push(candidate);
+    }
+    if (!candidate.evidenceSessionIds.includes(payload.sessionId)) {
+      candidate.evidenceSessionIds.push(payload.sessionId);
+      if (!candidate.evidenceVehicleIds.includes(payload.vehicleId)) {
+        candidate.evidenceVehicleIds.push(payload.vehicleId);
+      }
+      candidate.evidenceCount = candidate.evidenceSessionIds.length;
+      candidate.vehicleCount = candidate.evidenceVehicleIds.length;
+      candidate.distanceMeters = Math.round(((candidate.distanceMeters || 0) * (candidate.evidenceCount - 1) + payload.distanceMeters) / candidate.evidenceCount);
+      candidate.durationSeconds = Math.round(((candidate.durationSeconds || 0) * (candidate.evidenceCount - 1) + payload.durationSeconds) / candidate.evidenceCount);
+      candidate.confidence = Math.min(1, candidate.evidenceCount / payload.minimumEvidenceCount);
+      if (candidate.evidenceCount >= payload.minimumEvidenceCount && candidate.status === "COLLECTING") {
+        candidate.status = "READY_FOR_REVIEW";
+      }
+      candidate.updatedAt = now;
+    }
+    return clone(candidate);
+  }
+
+  function listLearnedRouteCandidates({ organizationId, status } = {}) {
+    return clone(state.learnedRouteCandidates.filter((entry) =>
+      (!organizationId || entry.organizationId === organizationId) && (!status || entry.status === status)
+    ));
+  }
+
+  function getLearnedRouteCandidateById(id) {
+    return clone(state.learnedRouteCandidates.find((entry) => entry.id === id) || null);
+  }
+
+  function updateLearnedRouteCandidate(id, payload) {
+    const candidate = state.learnedRouteCandidates.find((entry) => entry.id === id);
+    if (!candidate) return null;
+    Object.assign(candidate, clone(payload), { updatedAt: new Date().toISOString() });
+    return clone(candidate);
   }
 
   function getLastRouteEvent(sessionId, eventType = null) {
@@ -3339,6 +3410,12 @@ function createEmbeddedStore() {
     createTripLog,
     createRouteSession,
     createRouteSessionPosition,
+    claimAutoRouteProcessing,
+    completeAutoRouteProcessing,
+    upsertLearnedRouteCandidate,
+    listLearnedRouteCandidates,
+    getLearnedRouteCandidateById,
+    updateLearnedRouteCandidate,
     createRouteEvent,
     createCheckpointVisit,
     getActiveRouteSession,

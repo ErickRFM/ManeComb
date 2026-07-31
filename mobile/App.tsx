@@ -102,7 +102,7 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: Boolean(user?.vehicleId),
+    enabled: Boolean(user?.vehicleId && activeRouteSession?.status === 'RUNNING'),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,

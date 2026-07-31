@@ -1,13 +1,13 @@
 const { Server } = require("socket.io");
 const { CORS_ORIGIN, CLIENT_ORIGINS } = require("../config/env");
-const { canAccessTenantResource, getOrganizationId, getRolesWithPermission } = require("../middlewares/access-control");
+const { getOrganizationId } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const logger = require("../services/logger");
 const { hasAnotherPresenceSocket, isPresenceHeartbeatFresh } = require("../services/presence");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
-const { emitOperationalUnitUpdate } = require("../services/operational-units-service");
+const { ingestVehicleLocation } = require("../services/vehicle-location-ingestion");
 const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
 const {
   appendFrame,
@@ -1030,77 +1030,41 @@ function registerSocketServer(server, store) {
       }
     });
 
-    socket.on("location:update", async ({ vehicleId, coordinates, heading, speed, timestamp, packetId } = {}, ack) => {
+    socket.on("location:update", async (payload = {}, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
-      const vehicle = vehicleId ? await store.getVehicleById(vehicleId) : null;
-      const latitude = Number(coordinates?.latitude);
-      const longitude = Number(coordinates?.longitude);
-
-      if (
-        !authenticatedUser ||
-        !(await canUseOperations(socket)) ||
-        !vehicle ||
-        !Number.isFinite(latitude) ||
-        !Number.isFinite(longitude) ||
-        latitude < -90 ||
-        latitude > 90 ||
-        longitude < -180 ||
-        longitude > 180 ||
-        !canAccessTenantResource(authenticatedUser, vehicle) ||
-        (authenticatedUser.role !== "admin" && authenticatedUser.vehicleId !== vehicleId)
-      ) {
-        acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload", packetId: String(packetId || "") });
-        observeSocketEvent(socket, "location:update", startedAt, "invalid", { vehicleId });
+      if (!authenticatedUser || !(await canUseOperations(socket))) {
+        acknowledge(ack, { ok: false, error: "forbidden", packetId: String(payload.packetId || "") });
+        observeSocketEvent(socket, "location:update", startedAt, "invalid", { vehicleId: payload.vehicleId });
         return;
       }
-
-      const { buildGpsFreshness, normalizeTrackingTime } = require("../services/tracking-time");
-      const temporal = normalizeTrackingTime(timestamp);
-      logger.info({ module: "Tracking", action: "location.temporal_decision",
-        userId: authenticatedUser.id, organizationId: getOrganizationId(authenticatedUser),
-        status: temporal.discardReason ? "normalized" : "accepted",
-        metadata: { vehicleId, packetId: String(packetId || ""), origin: "socket", ...temporal } });
-      const update = await store.updateVehicleLocation({
-        vehicleId,
-        coordinates: { latitude, longitude },
-        heading: Number.isFinite(Number(heading)) ? Number(heading) : undefined,
-        timestamp: temporal.processedTimestamp,
-        temporal,
-        speed: Number.isFinite(Number(speed)) ? Number(speed) : 0
-      });
-
-      if (update) {
-        const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
+      try {
+        const result = await ingestVehicleLocation({
+          actor: authenticatedUser,
+          io,
+          payload,
+          store,
+          transport: "socket"
+        });
         acknowledge(ack, {
           ok: true,
-          packetId: String(packetId || ""),
+          accepted: result.accepted,
+          decision: result.decision,
+          packetId: result.packetId || "",
           serverTime: new Date().toISOString(),
-          trackingDecision: temporal,
-          vehicleId
+          trackingDecision: result.temporal,
+          vehicleId: result.vehicleId
         });
-        incrementMetric("gps_updates_total", 1, { transport: "socket" });
-        observeSocketEvent(socket, "location:update", startedAt, "success", { vehicleId });
-        const organizationId = String(vehicle.organizationId || "").trim();
-
-        if (organizationId) {
-          getRolesWithPermission("canViewAnalytics").forEach((role) => {
-            io.to(`org:${organizationId}:role:${role}`).emit("location:updated", publicUpdate);
-          });
-          if (vehicle.driverId) io.to(`user:${vehicle.driverId}`).emit("location:updated", publicUpdate);
-          io.to("platform:admin").emit("location:updated", publicUpdate);
-          await emitOperationalUnitUpdate({
-            io,
-            store,
-            vehicle: update,
-            organizationId,
-            getRolesWithPermission
-          });
-          return;
-        }
-
-        io.to("platform:admin").emit("location:updated", publicUpdate);
-        await emitOperationalUnitUpdate({ io, store, vehicle: update, organizationId, getRolesWithPermission });
+        observeSocketEvent(socket, "location:update", startedAt, result.accepted ? "success" : result.decision, {
+          vehicleId: result.vehicleId
+        });
+      } catch (error) {
+        acknowledge(ack, {
+          ok: false,
+          error: error?.code || "location_ingestion_failed",
+          packetId: String(payload.packetId || "")
+        });
+        observeSocketEvent(socket, "location:update", startedAt, "error", { vehicleId: payload.vehicleId });
       }
     });
 

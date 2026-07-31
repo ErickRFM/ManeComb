@@ -8,6 +8,7 @@ import {
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
   return {
+    snapshotVersion: 1,
     unitId: 'veh-1',
     plates: 'FBZ-404',
     label: 'C-1',
@@ -19,7 +20,9 @@ function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnit
       speedKmh: null,
       heading: null,
       recordedAt: null,
+      receivedAt: null,
       freshness: 'missing',
+      connectionState: 'lost',
       ageSeconds: null,
     },
     driver: null,
@@ -44,7 +47,9 @@ describe('selectores del mapa de seguimiento', () => {
         speedKmh: null,
         heading: null,
         recordedAt: null,
+        receivedAt: null,
         freshness: 'missing',
+        connectionState: 'lost',
         ageSeconds: null,
       },
       operationalState: 'unknown',
@@ -61,7 +66,9 @@ describe('selectores del mapa de seguimiento', () => {
         speedKmh: null,
         heading: null,
         recordedAt: '2026-07-18T09:00:00.000Z',
+        receivedAt: '2026-07-18T09:00:01.000Z',
         freshness: 'stale',
+        connectionState: 'lost',
         ageSeconds: 4200,
       },
     });
@@ -84,7 +91,9 @@ describe('selectores del mapa de seguimiento', () => {
         speedKmh: 40,
         heading: 90,
         recordedAt: '2026-07-18T10:08:00.000Z',
+        receivedAt: '2026-07-18T10:08:01.000Z',
         freshness: 'fresh',
+        connectionState: 'live',
         ageSeconds: 5,
       },
     });

@@ -13,9 +13,21 @@ const { requireOperationalAccess } = require("../../middlewares/operational-acce
 const { planRoute, reverseGeocode, searchPlaces } = require("../../services/navigation-service");
 const { recordSessionEvent } = require("../../services/route-event-engine");
 const { calculateAndPersistRouteMetrics } = require("../../services/route-metrics-engine");
+const { processCompletedRouteSession } = require("../../services/auto-route-learning");
+const autoRouteConfig = require("../../config/auto-route");
 const { isServiceDate, toServiceDate } = require("../../utils/service-date");
 
 const router = Router();
+
+function requireAutoRouteReview(res) {
+  if (autoRouteConfig.reviewEnabled) return true;
+  res.status(503).json({
+    ok: false,
+    code: "auto_route_review_disabled",
+    message: "La revisión de rutas sugeridas no está habilitada"
+  });
+  return false;
+}
 
 function emitToRouteAudience(req, organizationId, eventName, payload, driverId = null) {
   getRolesWithPermission("canViewAnalytics").forEach((role) => {
@@ -307,6 +319,103 @@ router.post("/routes", authenticate, requireOrganization, requireOperationalAcce
     }
     return next(error);
   }
+});
+
+router.get("/learned-routes", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!requireAutoRouteReview(res)) return;
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para revisar rutas sugeridas" });
+    }
+    const status = String(req.query.status || "").trim().toUpperCase() || undefined;
+    const candidates = await req.app.locals.store.listLearnedRouteCandidates({
+      organizationId: canAccessAllTenants(req.user) ? undefined : getOrganizationId(req.user),
+      status
+    });
+    return res.json({ ok: true, data: candidates });
+  } catch (error) { return next(error); }
+});
+
+router.get("/learned-routes/:candidateId", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!requireAutoRouteReview(res)) return;
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para revisar rutas sugeridas" });
+    }
+    const candidate = await req.app.locals.store.getLearnedRouteCandidateById(req.params.candidateId);
+    if (!candidate || (!canAccessAllTenants(req.user) && candidate.organizationId !== getOrganizationId(req.user))) {
+      return res.status(404).json({ ok: false, message: "Sugerencia no encontrada" });
+    }
+    return res.json({ ok: true, data: candidate });
+  } catch (error) { return next(error); }
+});
+
+router.post("/learned-routes/:candidateId/approve", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!requireAutoRouteReview(res)) return;
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para aprobar rutas sugeridas" });
+    }
+    const candidate = await req.app.locals.store.getLearnedRouteCandidateById(req.params.candidateId);
+    if (!candidate || (!canAccessAllTenants(req.user) && candidate.organizationId !== getOrganizationId(req.user))) {
+      return res.status(404).json({ ok: false, message: "Sugerencia no encontrada" });
+    }
+    if (candidate.status === "APPROVED" && candidate.approvedRouteId) {
+      return res.json({ ok: true, data: candidate, route: await req.app.locals.store.getRouteById(candidate.approvedRouteId) });
+    }
+    if (candidate.status !== "READY_FOR_REVIEW") {
+      return res.status(409).json({ ok: false, message: "La sugerencia aun no esta lista para aprobacion" });
+    }
+    const name = String(req.body.name || `Ruta sugerida ${candidate.id.slice(0, 8)}`).trim();
+    const route = await req.app.locals.store.createRoute({
+      id: randomUUID(),
+      name,
+      code: buildRouteCode(name),
+      color: "#1473E6",
+      origin: candidate.origin,
+      destination: candidate.destination,
+      originLabel: String(req.body.originLabel || "Origen aprendido").trim(),
+      destinationLabel: String(req.body.destinationLabel || "Destino aprendido").trim(),
+      stops: [],
+      distanceMeters: candidate.distanceMeters,
+      durationSeconds: candidate.durationSeconds,
+      durationInTrafficSeconds: candidate.durationSeconds,
+      polyline: candidate.polyline,
+      organizationId: candidate.organizationId,
+      createdBy: req.user.id
+    });
+    const reviewed = await req.app.locals.store.updateLearnedRouteCandidate(candidate.id, {
+      status: "APPROVED",
+      approvedRouteId: route.id,
+      reviewedBy: req.user.id,
+      reviewedAt: new Date().toISOString(),
+      rejectionReason: null
+    });
+    return res.status(201).json({ ok: true, data: reviewed, route });
+  } catch (error) { return next(error); }
+});
+
+router.post("/learned-routes/:candidateId/reject", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!requireAutoRouteReview(res)) return;
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para rechazar rutas sugeridas" });
+    }
+    const candidate = await req.app.locals.store.getLearnedRouteCandidateById(req.params.candidateId);
+    if (!candidate || (!canAccessAllTenants(req.user) && candidate.organizationId !== getOrganizationId(req.user))) {
+      return res.status(404).json({ ok: false, message: "Sugerencia no encontrada" });
+    }
+    if (["APPROVED", "REJECTED"].includes(candidate.status)) {
+      return res.status(409).json({ ok: false, message: "La sugerencia ya fue revisada" });
+    }
+    const reviewed = await req.app.locals.store.updateLearnedRouteCandidate(candidate.id, {
+      status: "REJECTED",
+      reviewedBy: req.user.id,
+      reviewedAt: new Date().toISOString(),
+      rejectionReason: String(req.body.reason || "No aprobada por operaciones").trim()
+    });
+    return res.json({ ok: true, data: reviewed });
+  } catch (error) { return next(error); }
 });
 
 router.get("/routes", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
@@ -637,14 +746,15 @@ router.post("/sessions/start", authenticate, requireOperationalAccess, async (re
     const vehicleId = String(req.body.vehicleId || req.user.vehicleId || "").trim();
     const vehicle = await getAccessibleVehicle(req, res, vehicleId);
     if (!vehicle) return;
-    if (!vehicle.assignedRoute) return res.status(409).json({ ok: false, message: "La unidad no tiene una ruta asignada" });
     if (!vehicle.driverId) return res.status(409).json({ ok: false, message: "La unidad no tiene chofer asignado" });
     if (req.user.role === "driver" && vehicle.driverId !== req.user.id) {
       return res.status(403).json({ ok: false, message: "Solo el chofer asignado puede iniciar la jornada" });
     }
     const session = await req.app.locals.store.createRouteSession({
       organizationId: String(vehicle.organizationId || getOrganizationId(req.user)).trim(),
-      routeId: vehicle.routeId || `assigned:${vehicle.id}:${vehicle.assignedRoute.assignedAt || "current"}`,
+      routeId: vehicle.routeId || (vehicle.assignedRoute
+        ? `assigned:${vehicle.id}:${vehicle.assignedRoute.assignedAt || "current"}`
+        : `recording:${vehicle.id}`),
       vehicleId,
       driverId: vehicle.driverId,
       startedAt: new Date().toISOString(),
@@ -721,6 +831,7 @@ router.patch("/sessions/:sessionId/status", authenticate, requireOperationalAcce
         } catch {
           publicSession = await req.app.locals.store.getRouteSessionById(publicSession.id);
         }
+        void processCompletedRouteSession(req.app.locals.store, publicSession.id).catch(() => undefined);
       }
       emitToRouteAudience(req, session.organizationId, "route-session:updated", publicSession, session.driverId);
     }

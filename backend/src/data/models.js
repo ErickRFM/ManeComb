@@ -302,6 +302,7 @@ const vehicleSchema = new mongoose.Schema(
     locationReceivedAt: { type: Date, default: null },
     locationTimestampSource: { type: String, default: "server" },
     locationClockSkewMs: { type: Number, default: null },
+    locationPacketId: { type: String, default: null },
     activeRouteProgress: { type: mongoose.Schema.Types.Mixed, default: null },
     assignedRoute: { type: assignedRouteSchema, default: null }
   },
@@ -406,6 +407,61 @@ routeSessionPositionSchema.index(
   { sessionId: 1, packetId: 1 },
   { unique: true, partialFilterExpression: { packetId: { $type: "string" } } }
 );
+
+const learnedRouteCandidateSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, required: true, index: true },
+    groupKey: { type: String, required: true },
+    corridorCluster: { type: String, required: true },
+    vehicleId: { type: String, required: true, index: true },
+    status: {
+      type: String,
+      enum: ["COLLECTING", "READY_FOR_REVIEW", "APPROVED", "REJECTED"],
+      default: "COLLECTING",
+      index: true
+    },
+    direction: { type: String, required: true },
+    origin: { type: pointSchema, required: true },
+    destination: { type: pointSchema, required: true },
+    polyline: { type: [pointSchema], default: [] },
+    distanceMeters: { type: Number, default: 0 },
+    durationSeconds: { type: Number, default: 0 },
+    confidence: { type: Number, default: 0 },
+    evidenceSessionIds: { type: [String], default: [] },
+    evidenceVehicleIds: { type: [String], default: [] },
+    evidenceCount: { type: Number, default: 0 },
+    vehicleCount: { type: Number, default: 0 },
+    representativeSessionId: { type: String, required: true },
+    geometryVersion: { type: String, required: true },
+    algorithmVersion: { type: String, required: true },
+    approvedRouteId: { type: String, default: null },
+    reviewedBy: { type: String, default: null },
+    reviewedAt: { type: Date, default: null },
+    rejectionReason: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "learned_route_candidates", versionKey: false }
+);
+learnedRouteCandidateSchema.index({ organizationId: 1, groupKey: 1 }, { unique: true });
+learnedRouteCandidateSchema.index({ organizationId: 1, status: 1, updatedAt: -1 });
+
+const autoRouteProcessingSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, required: true, index: true },
+    sessionId: { type: String, required: true, index: true },
+    algorithmVersion: { type: String, required: true },
+    status: { type: String, enum: ["PROCESSING", "COMPLETED", "REJECTED", "FAILED"], required: true },
+    reason: { type: String, default: null },
+    candidateId: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "auto_route_processing", versionKey: false }
+);
+autoRouteProcessingSchema.index({ sessionId: 1, algorithmVersion: 1 }, { unique: true });
 
 const routeEventSchema = new mongoose.Schema(
   {
@@ -1069,6 +1125,7 @@ module.exports = {
   ActivationKeyModel: getModel("ActivationKey", activationKeySchema),
   AppEventModel: getModel("AppEvent", appEventSchema),
   AuditLogModel: getModel("AuditLog", auditLogSchema),
+  AutoRouteProcessingModel: getModel("AutoRouteProcessing", autoRouteProcessingSchema),
   ChatAttachmentModel: getModel("ChatAttachment", chatAttachmentSchema),
   ChatMessageModel: getModel("ChatMessage", chatMessageSchema),
   CheckpointVisitModel: getModel("CheckpointVisit", checkpointVisitSchema),
@@ -1077,6 +1134,7 @@ module.exports = {
   ConversationModel: getModel("Conversation", conversationSchema),
   DocumentModel: getModel("Document", documentSchema),
   IncidentModel: getModel("Incident", incidentSchema),
+  LearnedRouteCandidateModel: getModel("LearnedRouteCandidate", learnedRouteCandidateSchema),
   NotificationModel: getModel("Notification", notificationSchema),
   RtcSessionModel: getModel("RtcSession", rtcSessionSchema),
   RouteModel: getModel("Route", routeSchema),

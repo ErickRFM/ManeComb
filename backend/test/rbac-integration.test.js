@@ -61,7 +61,12 @@ async function main() {
   assert.match(socketSource, /resolveAuthenticatedUser\(store, token\)/);
   assert.match(socketSource, /socket\.on\("chat:typing"[\s\S]*authenticatedUser\.id[\s\S]*canUserAccessConversation/);
   assert.doesNotMatch(socketSource, /socket\.on\("chat:typing",[^]*\{ conversationId, userId, userName \}/);
-  assert.match(socketSource, /getRolesWithPermission\("canViewAnalytics"\)/);
+  assert.match(socketSource, /ingestVehicleLocation/);
+  const locationIngestionSource = fs.readFileSync(
+    path.join(__dirname, "../src/services/vehicle-location-ingestion.js"),
+    "utf8"
+  );
+  assert.match(locationIngestionSource, /getRolesWithPermission\("canViewAnalytics"\)/);
 
   const context = await createContext();
   try {

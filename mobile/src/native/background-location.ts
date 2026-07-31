@@ -24,6 +24,10 @@ export type BackgroundLocationServiceStatus = {
   refreshToken: string | null;
   vehicleId: string | null;
   sessionId: string | null;
+  pendingPackets: number;
+  lastCapturedAt: number | null;
+  lastSentAt: number | null;
+  lastConfirmedAt: number | null;
 };
 
 export type LocationCaptureOwner =
@@ -96,7 +100,8 @@ export async function startBackgroundLocationServiceAsync({
 
 export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
   if (!NativeLocation) {
-    return { active: false, reason: null, token: null, refreshToken: null, vehicleId: null, sessionId: null };
+    return { active: false, reason: null, token: null, refreshToken: null, vehicleId: null, sessionId: null,
+      pendingPackets: 0, lastCapturedAt: null, lastSentAt: null, lastConfirmedAt: null };
   }
 
   return NativeLocation.getServiceStatus();
