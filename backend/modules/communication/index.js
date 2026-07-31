@@ -4,6 +4,7 @@ module.exports = {
   configure: comm.configure,
   isConfigured: comm.isConfigured,
   getReadiness: comm.getReadiness,
+  getRuntimeDiagnostics: comm.getRuntimeDiagnostics,
   initializePersistence: comm.initializePersistence,
   sendEmail: comm.sendEmail,
   getProvider: comm.getProvider,
@@ -23,5 +24,6 @@ module.exports = {
   retry: comm.retry,
   logger: comm.logger,
   security: comm.security,
+  deliveryResults: comm.deliveryResults,
   deliveryEngine: comm.deliveryEngine
 };

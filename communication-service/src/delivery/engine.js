@@ -10,6 +10,7 @@ const { renderEmail } = require("../renderer");
 const { getTemplateBuilder } = require("../templates");
 const { sanitizeProviderError, classifyEmailError, safeDeliveryLog } = require("../security");
 const health = require("../health");
+const { createDeliveryResult } = require("./result");
 
 class DeliveryEngine {
   constructor() {
@@ -56,12 +57,12 @@ class DeliveryEngine {
     if (!cfg.email.enabled) {
       await history.updateDelivery(deliveryId, { status: "skipped" });
       metrics.increment("deliveries_skipped", 1, { template: input.template });
-      return { success: false, status: "skipped", deliveryId };
+      return createDeliveryResult({ status: "skipped", deliveryId });
     }
     if (cfg.email.dryRun) {
       await history.updateDelivery(deliveryId, { status: "dry_run" });
       metrics.increment("deliveries_dry_run", 1, { template: input.template });
-      return { success: false, status: "dry_run", deliveryId };
+      return createDeliveryResult({ status: "dry_run", deliveryId });
     }
     if (!this.providerSendFn) throw new Error("Provider send function not configured");
 
@@ -117,13 +118,21 @@ class DeliveryEngine {
     health.setLastOperationalError(null);
     metrics.observeDuration("email_send_duration_ms", durationMs, { template: input.template });
     logger.logEvent("EmailSent", safeDeliveryLog({ ...input, deliveryId, status: "sent" }));
-    return { success: true, status: "sent", deliveryId, messageId: result.messageId || result.id || null };
+    return createDeliveryResult({
+      status: "sent",
+      deliveryId,
+      messageId: result.messageId || result.id || null
+    });
   }
 
   async sendDirect(input) {
     const claimed = await this.claim(input);
     if (!claimed.created) {
-      return { success: claimed.delivery.status === "sent", duplicate: true, status: claimed.delivery.status, deliveryId: claimed.delivery.deliveryId };
+      return createDeliveryResult({
+        duplicate: true,
+        status: claimed.delivery.status,
+        deliveryId: claimed.delivery.deliveryId
+      });
     }
     const maxAttempts = retry.getMaxRetries(validators.normalizePriority(input.priority)) + 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -132,18 +141,30 @@ class DeliveryEngine {
       } catch (error) {
         if (!error.retryable || attempt === maxAttempts) {
           metrics.increment("deliveries_failed", 1, { template: input.template, provider: input.provider });
-          return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId, error: sanitizeProviderError(error), errorCategory: error.category };
+          return createDeliveryResult({
+            status: "failed",
+            deliveryId: claimed.delivery.deliveryId,
+            error: sanitizeProviderError(error),
+            errorCategory: error.category
+          });
         }
         metrics.increment("provider_retries", 1, { template: input.template, category: error.category });
       }
     }
-    return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId };
+    return createDeliveryResult({
+      status: "failed",
+      deliveryId: claimed.delivery.deliveryId
+    });
   }
 
   async sendViaQueue(input) {
     const claimed = await this.claim(input);
     if (!claimed.created) {
-      return { success: claimed.delivery.status === "sent", duplicate: true, status: claimed.delivery.status, deliveryId: claimed.delivery.deliveryId };
+      return createDeliveryResult({
+        duplicate: true,
+        status: claimed.delivery.status,
+        deliveryId: claimed.delivery.deliveryId
+      });
     }
     const cfg = config.getConfig();
     if (!cfg.email.enabled || cfg.email.dryRun) {
@@ -158,13 +179,22 @@ class DeliveryEngine {
       }, { ...retry.getJobOptions(resolvedPriority), priority: resolvedPriority, jobId });
       await history.updateDelivery(claimed.delivery.deliveryId, { status: "queued" });
       metrics.increment("deliveries_queued", 1, { template: input.template });
-      return { success: true, queued: true, status: "queued", deliveryId: claimed.delivery.deliveryId, jobId: job.id };
+      return createDeliveryResult({
+        status: "queued",
+        deliveryId: claimed.delivery.deliveryId,
+        jobId: job.id
+      });
     } catch (error) {
       if (cfg.email.requireDurableQueue) {
         await history.updateDelivery(claimed.delivery.deliveryId, {
           status: "failed", errorCategory: "queue", errorCode: "QUEUE_UNAVAILABLE", errorMessage: error
         });
-        return { success: false, status: "failed", deliveryId: claimed.delivery.deliveryId, error: "Queue unavailable" };
+        return createDeliveryResult({
+          status: "failed",
+          deliveryId: claimed.delivery.deliveryId,
+          error: "Queue unavailable",
+          errorCategory: "queue"
+        });
       }
       return this.processDelivery(input, claimed.delivery.deliveryId, 1);
     }

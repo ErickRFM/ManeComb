@@ -13,6 +13,10 @@ const { buildAuthSession } = require("../../utils/jwt");
 const { APP_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
+const {
+  createDeliveryResult,
+  isDeliveryFailed
+} = communication.deliveryResults;
 
 function compareVersions(a, b) {
   const pa = String(a || "0.0.0").split(".").map(Number);
@@ -210,9 +214,12 @@ router.post("/register", authLimiter, async (req, res, next) => {
           userId: user.id,
           organizationId: user.organizationId
         }
-      }).catch((error) => ({ success: false, error: communication.security.sanitizeProviderError(error) }));
+      }).catch((error) => createDeliveryResult({
+        status: "failed",
+        error: communication.security.sanitizeProviderError(error)
+      }));
 
-      if (delivery?.success === false) {
+      if (isDeliveryFailed(delivery)) {
         logger.error({
           action: "WelcomeEmail",
           module: "Auth",
@@ -337,16 +344,16 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
           }
         });
 
-        if (delivery?.success !== true) {
+        if (isDeliveryFailed(delivery)) {
           logger.error({
             action: "ForgotPasswordEmail",
             module: "Auth",
-            message: "El proveedor no confirmó el correo de recuperación",
+            message: "Falló la entrega del correo de recuperación",
             metadata: {
               recipient: communication.security.maskEmail(result.email),
-              error: delivery?.error || "Resultado sin confirmación",
+              error: delivery?.error || "email_delivery_failed",
               provider: communication.getProviderName(),
-              status: delivery?.queued ? "pending" : "failed",
+              status: "failed",
               template: "password-reset"
             }
           });
@@ -354,10 +361,10 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
             type: "email_delivery_failed",
             scope: "communication",
             level: "warning",
-            status: delivery?.queued ? "pending" : "failed",
+            status: "failed",
             userId: result.userId,
             organizationId: result.organizationId,
-            message: "Correo de recuperación no confirmado por el proveedor",
+            message: "Falló la entrega del correo de recuperación",
             metadata: {
               error: delivery?.error || null,
               provider: communication.getProviderName(),

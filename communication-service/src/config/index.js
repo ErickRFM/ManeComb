@@ -2,7 +2,12 @@ let configuration = {
   provider: null,
   providerConfig: {},
   providerName: null,
-  queue: { enabled: false, redisUrl: "" },
+  queue: {
+    enabled: false,
+    redisUrl: "",
+    persistence: false,
+    maxmemoryPolicy: "unknown"
+  },
   socketIO: null,
   defaultFrom: "",
   supportEmail: "",
@@ -33,7 +38,9 @@ function configure(cfg) {
     providerConfig: cfg.providerConfig || {},
     queue: {
       enabled: cfg.queue?.enabled || false,
-      redisUrl: cfg.queue?.redisUrl || ""
+      redisUrl: cfg.queue?.redisUrl || "",
+      persistence: Boolean(cfg.queue?.persistence),
+      maxmemoryPolicy: String(cfg.queue?.maxmemoryPolicy || "unknown").trim().toLowerCase()
     },
     socketIO: cfg.socketIO || null,
     defaultFrom: cfg.defaultFrom || "",

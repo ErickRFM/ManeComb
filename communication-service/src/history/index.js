@@ -246,8 +246,9 @@ function getReadiness() {
   const mongodb = Boolean(getModel());
   return {
     durable: mongodb && indexState === "ready",
-    mode: mongodb ? "mongodb" : "memory",
-    index: indexState
+    mode: mongodb ? "mongo" : "memory",
+    index: indexState,
+    idempotencyIndex: indexState === "ready"
   };
 }
 

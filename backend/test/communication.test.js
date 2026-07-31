@@ -56,6 +56,14 @@ function testCommercialEmailRouting() {
 
   assert.deepEqual(getEmailDeliveryState({ queued: true }), { error: null, status: "pending" });
   assert.deepEqual(getEmailDeliveryState({ success: true }), { error: null, status: "sent" });
+  assert.deepEqual(
+    getEmailDeliveryState(comm.deliveryResults.createDeliveryResult({ status: "dry_run" })),
+    { error: null, status: "dry_run" }
+  );
+  assert.deepEqual(
+    getEmailDeliveryState(comm.deliveryResults.createDeliveryResult({ status: "skipped" })),
+    { error: null, status: "skipped" }
+  );
   assert.equal(getEmailDeliveryState({ success: false, error: "timeout" }).status, "failed");
   assert.equal(getEmailDeliveryState({ success: false, error: "429", errorCategory: "rate_limit" }).status, "retry");
   const order = {

@@ -26,17 +26,29 @@ function getReadiness() {
   const cfg = config.getConfig();
   const queueState = queue.getReadiness();
   const historyState = history.getReadiness();
+  const queueFunctional = !queueState.enabled || queueState.functional;
+  const functional = cfg.email.enabled && (
+    cfg.email.dryRun
+      ? historyState.durable
+      : providerReady && historyState.durable && queueFunctional
+  );
+  const productionDurability = historyState.durable && (
+    !queueState.enabled || queueState.durableAcrossRestart
+  );
   let status = "ready";
   if (!cfg.email.enabled) status = "disabled";
   else if (cfg.email.dryRun) status = "dry_run";
   else if (!providerReady) status = "error";
-  else if (!historyState.durable || !queueState.durable) status = "degraded";
+  else if (!functional || !productionDurability) status = "degraded";
   return {
-    configured: config.isConfigured(),
+    configured: config.isConfigured() && providerReady,
+    providerConfigured: providerReady,
     provider: cfg.provider,
     status,
     ready: status === "ready",
-    durable: historyState.durable && queueState.durable,
+    functional,
+    productionDurability,
+    durable: productionDurability,
     queue: queueState,
     history: historyState,
     lastError: lastOperationalError,

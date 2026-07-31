@@ -4,6 +4,10 @@ const { QUEUE_NAMES } = require("../core/types");
 let bullmqAvailable = false;
 let enabled = false;
 let redisUrl = "";
+let queueConnected = false;
+let workerStarted = false;
+let durableAcrossRestart = false;
+let maxmemoryPolicy = "unknown";
 const localQueues = {};
 const localWorkers = {};
 
@@ -11,10 +15,13 @@ function configure(config) {
   enabled = Boolean(config.enabled && config.redisUrl);
   redisUrl = config.redisUrl || "";
   bullmqAvailable = enabled;
+  durableAcrossRestart = Boolean(enabled && config.persistence);
+  maxmemoryPolicy = String(config.maxmemoryPolicy || "unknown").trim().toLowerCase();
+  if (!enabled) queueConnected = false;
 }
 
 function createBullQueue(name) {
-  return new BullQueue(name, {
+  const queue = new BullQueue(name, {
     connection: { url: redisUrl },
     defaultJobOptions: {
       attempts: 3,
@@ -23,6 +30,15 @@ function createBullQueue(name) {
       removeOnFail: 500
     }
   });
+  queue.on("error", () => {
+    queueConnected = false;
+  });
+  queue.waitUntilReady().then(() => {
+    queueConnected = true;
+  }).catch(() => {
+    queueConnected = false;
+  });
+  return queue;
 }
 
 function createLocalQueue(name) {
@@ -79,6 +95,7 @@ function getQueue(name) {
 }
 
 function createWorker(queueName, processor) {
+  workerStarted = true;
   if (bullmqAvailable) {
     const worker = new Worker(
       queueName,
@@ -102,6 +119,13 @@ function createWorker(queueName, processor) {
         });
       } catch {}
     });
+    worker.on("ready", () => {
+      queueConnected = true;
+    });
+    worker.on("error", () => {
+      queueConnected = false;
+    });
+    localWorkers[queueName] = worker;
     return worker;
   }
 
@@ -117,14 +141,48 @@ async function enqueue(name, jobName, payload, options = {}) {
   return await queue.add(jobName, payload, options);
 }
 
+async function initialize(timeoutMs = 5000) {
+  if (!bullmqAvailable) return getReadiness();
+  const resources = [
+    ...Object.values(localQueues),
+    ...Object.values(localWorkers)
+  ].filter((resource) => typeof resource?.waitUntilReady === "function");
+  if (!resources.length) return getReadiness();
+
+  let timeoutId;
+  try {
+    await Promise.race([
+      Promise.all(resources.map((resource) => resource.waitUntilReady())),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Email queue readiness timeout")), timeoutMs);
+      })
+    ]);
+    queueConnected = true;
+  } catch {
+    queueConnected = false;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  return getReadiness();
+}
+
 function getReadiness() {
+  const functional = bullmqAvailable
+    ? queueConnected && workerStarted
+    : workerStarted;
   return {
     enabled: Boolean(bullmqAvailable),
     mode: bullmqAvailable ? "bullmq" : "memory",
     queues: Object.keys(localQueues),
-    ready: true,
-    durable: bullmqAvailable,
-    degraded: !bullmqAvailable
+    connected: Boolean(bullmqAvailable && queueConnected),
+    functional,
+    workerStarted,
+    maxmemoryPolicy,
+    persistence: durableAcrossRestart,
+    durableAcrossRestart,
+    ready: functional,
+    durable: durableAcrossRestart,
+    degraded: !durableAcrossRestart
   };
 }
 
@@ -137,6 +195,7 @@ module.exports = {
   getQueue,
   createWorker,
   enqueue,
+  initialize,
   getReadiness,
   getQueueReadiness,
   QUEUE_NAMES

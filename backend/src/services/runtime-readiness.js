@@ -13,7 +13,8 @@ function getRuntimeReadiness(dbState) {
   const notifications = getNotifierReadiness();
   const rtc = getRtcReadiness();
   const redis = getRedisReadiness();
-  const queues = communication.getReadiness().queue;
+  const communicationReadiness = communication.getReadiness();
+  const queues = communicationReadiness.queue;
   const databaseReady = Boolean(dbState?.connected);
 
   const degraded =
@@ -35,6 +36,7 @@ function getRuntimeReadiness(dbState) {
     payments,
     redis,
     queues,
+    communication: communicationReadiness,
     notifications,
     rtc,
     transcription,

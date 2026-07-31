@@ -4,6 +4,10 @@ const {
   TWILIO_WHATSAPP_FROM
 } = require("../config/env");
 const communication = require("../../modules/communication");
+const {
+  getDeliveryStatus,
+  isDeliveryFailed
+} = communication.deliveryResults;
 
 function canSendWhatsapp() {
   return Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_WHATSAPP_FROM);
@@ -85,11 +89,23 @@ function selectCommercialEmailTemplate(order, event = "payment_status") {
 }
 
 function getEmailDeliveryState(result) {
-  if (result?.queued) return { error: null, status: "pending" };
-  if (result?.success === true) return { error: null, status: "sent" };
+  const status = getDeliveryStatus(result);
+  if (isDeliveryFailed(result)) {
+    return {
+      error: String(result?.error || "Falló la entrega del correo"),
+      status: result?.errorCategory === "rate_limit" ? "retry" : "failed"
+    };
+  }
+  if (status === "sent") return { error: null, status: "sent" };
+  if (["created", "processing", "queued"].includes(status)) {
+    return { error: null, status: "pending" };
+  }
+  if (status === "dry_run" || status === "skipped") {
+    return { error: null, status };
+  }
   return {
-    error: String(result?.error || "El proveedor no confirmó el envío"),
-    status: result?.errorCategory === "rate_limit" ? "retry" : "failed"
+    error: String(result?.error || "Resultado de entrega desconocido"),
+    status: "failed"
   };
 }
 

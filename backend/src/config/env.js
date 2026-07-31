@@ -273,6 +273,8 @@ const AUDIO_TRANSCRIPTION_LANGUAGE = process.env.AUDIO_TRANSCRIPTION_LANGUAGE ||
 const REDIS_URL = process.env.REDIS_URL || "";
 const ENABLE_REDIS = parseBoolean(process.env.ENABLE_REDIS, false);
 const ENABLE_QUEUES = parseBoolean(process.env.ENABLE_QUEUES, false);
+const REDIS_PERSISTENCE_ENABLED = parseBoolean(process.env.REDIS_PERSISTENCE_ENABLED, false);
+const REDIS_MAXMEMORY_POLICY = String(process.env.REDIS_MAXMEMORY_POLICY || "unknown").trim().toLowerCase();
 const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, IS_RENDER_RUNTIME);
 const RUNTIME_COMMIT =
   process.env.RENDER_GIT_COMMIT ||
@@ -373,6 +375,8 @@ module.exports = {
   REDIS_URL,
   ENABLE_REDIS,
   ENABLE_QUEUES,
+  REDIS_PERSISTENCE_ENABLED,
+  REDIS_MAXMEMORY_POLICY,
   IS_RENDER_RUNTIME,
   RUNTIME_COMMIT,
   TRUST_PROXY,

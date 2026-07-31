@@ -4,6 +4,7 @@ const path = require("node:path");
 const http = require("node:http");
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const communication = require("../modules/communication");
 
 async function requestJson(baseUrl, path, body) {
   const response = await fetch(`${baseUrl}/api${path}`, {
@@ -20,6 +21,25 @@ async function run() {
   assert.ok(!authSource.includes("Authorization: `Bearer ${RESEND_API_KEY}`"));
   assert.ok(authSource.includes('template: "password-reset"'));
   const store = createEmbeddedStore();
+  const appEvents = [];
+  store.recordAppEvent = async (event) => {
+    appEvents.push(event);
+    return event;
+  };
+  const originalSendEmail = communication.sendEmail;
+  const originalConsoleError = console.error;
+  const capturedErrors = [];
+  let deliveryStatus = "dry_run";
+  let sendEmailCalls = 0;
+  communication.sendEmail = async () => {
+    sendEmailCalls += 1;
+    return communication.deliveryResults.createDeliveryResult({
+      status: deliveryStatus,
+      deliveryId: `delivery-${sendEmailCalls}`,
+      error: deliveryStatus === "failed" ? "provider_unavailable" : undefined
+    });
+  };
+  console.error = (...args) => capturedErrors.push(args.map(String).join(" "));
   const server = http.createServer(createApp({
     store,
     getDbState: () => ({ connected: false, mode: "embedded", message: "test" })
@@ -38,15 +58,39 @@ async function run() {
     assert.equal(login.status, 200);
     assert.ok(login.payload.refreshToken);
 
-    const forgotExisting = await requestJson(baseUrl, "/auth/forgot-password", {
+    const forgotDryRun = await requestJson(baseUrl, "/auth/forgot-password", {
+      email: "admin@combis.app"
+    });
+    deliveryStatus = "queued";
+    const forgotQueued = await requestJson(baseUrl, "/auth/forgot-password", {
+      email: "admin@combis.app"
+    });
+    deliveryStatus = "skipped";
+    const forgotSkipped = await requestJson(baseUrl, "/auth/forgot-password", {
+      email: "admin@combis.app"
+    });
+    deliveryStatus = "failed";
+    const forgotFailed = await requestJson(baseUrl, "/auth/forgot-password", {
       email: "admin@combis.app"
     });
     const forgotMissing = await requestJson(baseUrl, "/auth/forgot-password", {
       email: "missing-user@combis.app"
     });
-    assert.equal(forgotExisting.status, 200);
+    assert.equal(forgotDryRun.status, 200);
+    assert.equal(forgotQueued.status, 200);
+    assert.equal(forgotSkipped.status, 200);
+    assert.equal(forgotFailed.status, 200);
     assert.equal(forgotMissing.status, 200);
-    assert.equal(forgotExisting.payload.message, forgotMissing.payload.message);
+    for (const response of [forgotQueued, forgotSkipped, forgotFailed, forgotMissing]) {
+      assert.equal(forgotDryRun.payload.message, response.payload.message);
+    }
+    assert.equal(sendEmailCalls, 4, "el usuario inexistente no debe disparar correo");
+    const failedEvents = appEvents.filter((event) => event.type === "email_delivery_failed");
+    assert.equal(failedEvents.length, 1, "solo status=failed debe registrar fallo");
+    assert.equal(failedEvents[0].status, "failed");
+    const serializedErrors = capturedErrors.join("\n");
+    assert.ok(!serializedErrors.includes("admin@combis.app"));
+    assert.ok(!serializedErrors.includes("token="));
 
     const recovery = await store.generatePasswordResetToken("admin@combis.app");
     assert.ok(recovery?.token);
@@ -69,6 +113,8 @@ async function run() {
     });
     assert.equal(refresh.status, 401, "el reset debe revocar refresh tokens existentes");
   } finally {
+    communication.sendEmail = originalSendEmail;
+    console.error = originalConsoleError;
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 }

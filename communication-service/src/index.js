@@ -17,6 +17,7 @@ const rateLimiter = require("./rate-limit");
 const timeout = require("./timeout");
 const errors = require("./errors");
 const deliveryEngine = require("./delivery/engine");
+const deliveryResults = require("./delivery/result");
 const security = require("./security");
 const { PRIORITY, TEMPLATE_PRIORITY, QUEUE_NAMES } = require("./core/types");
 
@@ -63,7 +64,9 @@ function configure(cfg) {
 
   queue.configure({
     enabled: conf.queue.enabled,
-    redisUrl: conf.queue.redisUrl
+    redisUrl: conf.queue.redisUrl,
+    persistence: conf.queue.persistence,
+    maxmemoryPolicy: conf.queue.maxmemoryPolicy
   });
 
   connectionManager.configure({
@@ -95,7 +98,30 @@ function getReadiness() {
 }
 
 async function initializePersistence() {
-  return history.refreshReadiness();
+  await history.refreshReadiness();
+  await queue.initialize();
+  return getReadiness();
+}
+
+function getRuntimeDiagnostics() {
+  const cfg = config.getConfig();
+  const readiness = getReadiness();
+  return {
+    emailEnabled: cfg.email.enabled,
+    emailDryRun: cfg.email.dryRun,
+    providerConfigured: readiness.providerConfigured,
+    queuesEnabled: readiness.queue.enabled,
+    redisConfigured: Boolean(cfg.queue.redisUrl),
+    queueMode: readiness.queue.mode,
+    queueConnected: readiness.queue.connected,
+    queueFunctional: readiness.queue.functional,
+    queueDurableAcrossRestart: readiness.queue.durableAcrossRestart,
+    workerStarted: readiness.queue.workerStarted,
+    maxmemoryPolicy: readiness.queue.maxmemoryPolicy,
+    historyMode: readiness.history.mode,
+    idempotencyIndexVerified: readiness.history.idempotencyIndex,
+    productionDurability: readiness.productionDurability
+  };
 }
 
 async function sendEmail({ to, recipient, template, eventType, tenantId, organizationId, tenantScope, idempotencyKey, data, priority, from, subject }) {
@@ -198,6 +224,7 @@ module.exports = {
   configure,
   isConfigured,
   getReadiness,
+  getRuntimeDiagnostics,
   initializePersistence,
   sendEmail,
   getProvider,
@@ -222,5 +249,6 @@ module.exports = {
   rateLimiter,
   timeout,
   security,
+  deliveryResults,
   deliveryEngine
 };

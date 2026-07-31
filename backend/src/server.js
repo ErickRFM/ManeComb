@@ -9,7 +9,7 @@ const { connectDB, getDbState } = require("./config/db");
 const {
   HOST, PORT, REQUIRE_MONGO, RESEND_API_KEY, RESEND_REPLY_TO,
   EMAIL_ENABLED, EMAIL_DRY_RUN, EMAIL_FROM, EMAIL_FROM_NAME,
-  PORTAL_PUBLIC_URL
+  PORTAL_PUBLIC_URL, REDIS_PERSISTENCE_ENABLED, REDIS_MAXMEMORY_POLICY
 } = require("./config/env");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
@@ -31,7 +31,9 @@ async function startServer() {
     },
     queue: {
       enabled: /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_QUEUES || "")) && Boolean(process.env.REDIS_URL),
-      redisUrl: process.env.REDIS_URL || ""
+      redisUrl: process.env.REDIS_URL || "",
+      persistence: REDIS_PERSISTENCE_ENABLED,
+      maxmemoryPolicy: REDIS_MAXMEMORY_POLICY
     },
     defaultFrom: EMAIL_FROM ? `${EMAIL_FROM_NAME} <${EMAIL_FROM}>` : "",
     supportEmail: process.env.COMMERCIAL_SUPPORT_EMAIL || "",
@@ -47,6 +49,12 @@ async function startServer() {
     persistence: { mongoose }
   });
   await communication.initializePersistence();
+  logger.info({
+    action: "RuntimeDiagnostics",
+    metadata: communication.getRuntimeDiagnostics(),
+    module: "Communication",
+    status: communication.getReadiness().status
+  });
 
   const db = getDbState();
   const store = db.connected ? await createMongoStore() : createEmbeddedStore();

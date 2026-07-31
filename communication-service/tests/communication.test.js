@@ -472,6 +472,53 @@ function testDeliveryEngineExports() {
   console.log("ok - delivery engine exported correctly");
 }
 
+function testDeliveryResultContract() {
+  const {
+    createDeliveryResult,
+    isDeliveryAccepted,
+    isDeliveryFailed,
+    isDeliveryFinal
+  } = comm.deliveryResults;
+  const expected = {
+    sent: { accepted: true, delivered: true, failed: false, final: true },
+    queued: { accepted: true, delivered: false, failed: false, final: false },
+    dry_run: { accepted: true, delivered: false, failed: false, final: true },
+    skipped: { accepted: true, delivered: false, failed: false, final: true },
+    failed: { accepted: false, delivered: false, failed: true, final: true }
+  };
+
+  for (const [status, contract] of Object.entries(expected)) {
+    const result = createDeliveryResult({ status });
+    assert.equal(result.success, contract.accepted, `${status} debe conservar success compatible`);
+    assert.equal(result.accepted, contract.accepted, `${status} accepted`);
+    assert.equal(result.delivered, contract.delivered, `${status} delivered`);
+    assert.equal(result.failed, contract.failed, `${status} failed`);
+    assert.equal(result.final, contract.final, `${status} final`);
+    assert.equal(isDeliveryAccepted(result), contract.accepted);
+    assert.equal(isDeliveryFailed(result), contract.failed);
+    assert.equal(isDeliveryFinal(result), contract.final);
+  }
+
+  const simulated = createDeliveryResult({ status: "dry_run" });
+  assert.equal(simulated.simulated, true);
+  assert.equal(simulated.queued, false);
+
+  const skipped = createDeliveryResult({ status: "skipped" });
+  assert.equal(skipped.skipped, true);
+
+  for (const status of ["sent", "queued", "dry_run"]) {
+    const duplicate = createDeliveryResult({ status, duplicate: true });
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.accepted, true);
+    assert.equal(duplicate.delivered, status === "sent");
+  }
+
+  assert.equal(isDeliveryAccepted({ queued: true }), true);
+  assert.equal(isDeliveryFailed({ status: "dry_run", success: false }), false);
+  assert.equal(isDeliveryFailed({ success: false }), true);
+  console.log("ok - contrato de resultados distingue aceptación, entrega y fallo");
+}
+
 async function testHistoryMemoryStore() {
   const history = comm.history;
 
@@ -619,6 +666,8 @@ async function testStructuralEmailClosure() {
   const concurrent = await Promise.all([engine.sendDirect(input), engine.sendDirect(input)]);
   assert.equal(providerCalls, 1, "concurrent duplicate must call provider once");
   assert.equal(concurrent.filter((result) => result.duplicate).length, 1);
+  assert.ok(concurrent.every((result) => result.accepted));
+  assert.ok(concurrent.every((result) => !result.failed));
   const deliveries = await history.query({ eventType: "PASSWORD_RESET" });
   assert.equal(deliveries.length, 1);
   assert.equal(deliveries[0].status, "sent");
@@ -653,6 +702,8 @@ async function testStructuralEmailClosure() {
   });
   const permanent = await engine.sendDirect({ ...input, idempotencyKey: "password-reset:request-permanent" });
   assert.equal(permanent.status, "failed");
+  assert.equal(permanent.accepted, false);
+  assert.equal(permanent.failed, true);
   assert.equal(permanentAttempts, 1);
   assert.equal(
     comm.metrics.getSnapshot().counters
@@ -676,6 +727,8 @@ async function testStructuralEmailClosure() {
   const queuedEntries = await history.query({ eventType: "PASSWORD_RESET" });
   assert.equal(queuedProviderCalls, 1);
   assert.equal(queued.filter((result) => result.duplicate).length, 1);
+  assert.ok(queued.every((result) => result.accepted));
+  assert.ok(queued.every((result) => !result.failed));
   assert.equal(queuedEntries.filter((entry) => entry.idempotencyKey === queuedInput.idempotencyKey).length, 1);
   assert.equal(queuedEntries.find((entry) => entry.idempotencyKey === queuedInput.idempotencyKey).status, "sent");
 
@@ -736,6 +789,14 @@ async function testStructuralEmailClosure() {
   const beforeDryRun = providerCalls;
   const dryRun = await engine.sendDirect(dryInput);
   assert.equal(dryRun.status, "dry_run");
+  assert.equal(dryRun.accepted, true);
+  assert.equal(dryRun.delivered, false);
+  assert.equal(dryRun.simulated, true);
+  assert.equal(dryRun.failed, false);
+  const duplicateDryRun = await engine.sendDirect(dryInput);
+  assert.equal(duplicateDryRun.duplicate, true);
+  assert.equal(duplicateDryRun.status, "dry_run");
+  assert.equal(duplicateDryRun.accepted, true);
   assert.equal(providerCalls, beforeDryRun);
   assert.equal(comm.getReadiness().status, "dry_run");
 
@@ -747,6 +808,9 @@ async function testStructuralEmailClosure() {
   });
   const disabled = await engine.sendDirect({ ...input, idempotencyKey: "password-reset:request-disabled" });
   assert.equal(disabled.status, "skipped");
+  assert.equal(disabled.accepted, true);
+  assert.equal(disabled.skipped, true);
+  assert.equal(disabled.failed, false);
   assert.equal(providerCalls, beforeDryRun);
   assert.equal(comm.getReadiness().status, "disabled");
   assert.equal(comm.getReadiness().queue.degraded, true);
@@ -761,9 +825,51 @@ async function testStructuralEmailClosure() {
   const originalHistoryReadiness = history.getReadiness;
   const queueModule = require("../src/queue");
   const originalQueueReadiness = queueModule.getReadiness;
-  history.getReadiness = () => ({ durable: true, mode: "mongodb", index: "ready" });
-  queueModule.getReadiness = () => ({ enabled: true, mode: "bullmq", ready: true, durable: true, degraded: false });
+  history.getReadiness = () => ({
+    durable: true,
+    mode: "mongo",
+    index: "ready",
+    idempotencyIndex: true
+  });
+  queueModule.getReadiness = () => ({
+    enabled: true,
+    mode: "bullmq",
+    ready: true,
+    connected: true,
+    functional: true,
+    workerStarted: true,
+    maxmemoryPolicy: "noeviction",
+    persistence: false,
+    durableAcrossRestart: false,
+    durable: false,
+    degraded: true
+  });
+  assert.equal(comm.getReadiness().status, "degraded");
+  assert.equal(comm.getReadiness().functional, true);
+  assert.equal(comm.getReadiness().productionDurability, false);
+  queueModule.getReadiness = () => ({
+    enabled: true,
+    mode: "bullmq",
+    ready: true,
+    connected: true,
+    functional: true,
+    workerStarted: true,
+    maxmemoryPolicy: "noeviction",
+    persistence: true,
+    durableAcrossRestart: true,
+    durable: true,
+    degraded: false
+  });
   assert.equal(comm.getReadiness().status, "ready");
+  assert.equal(comm.getReadiness().productionDurability, true);
+  const diagnostics = comm.getRuntimeDiagnostics();
+  assert.equal(diagnostics.queueConnected, true);
+  assert.equal(diagnostics.queueFunctional, true);
+  assert.equal(diagnostics.queueDurableAcrossRestart, true);
+  assert.equal(diagnostics.idempotencyIndexVerified, true);
+  assert.equal(diagnostics.historyMode, "mongo");
+  assert.equal("redisUrl" in diagnostics, false);
+  assert.equal("apiKey" in diagnostics, false);
   history.getReadiness = originalHistoryReadiness;
   queueModule.getReadiness = originalQueueReadiness;
 
@@ -835,6 +941,7 @@ async function testStructuralEmailClosure() {
   testRateLimiter();
   testConnectionManager();
   testDeliveryEngineExports();
+  testDeliveryResultContract();
   testMetrics();
   await testHistoryMemoryStore();
   await testHistoryUpdateStatus();

@@ -54,13 +54,27 @@ async function main() {
     assert.equal(typeof health.uptimeSeconds, "number");
     assert.equal(typeof health.timestamp, "string");
     assert.equal("readiness" in health, false);
+    assert.equal("communication" in health, false);
     assert.equal("auth" in health, false);
 
     const liveResponse = await fetch(`${baseUrl}/api/health/live`);
     const live = await liveResponse.json();
     assert.equal(live.ok, true);
 
-    await fetch(`${baseUrl}/api/health/ready`);
+    const readyResponse = await fetch(`${baseUrl}/api/health/ready`);
+    const ready = await readyResponse.json();
+    assert.equal(typeof ready.communication, "object");
+    assert.equal(typeof ready.communication.functional, "boolean");
+    assert.equal(typeof ready.communication.productionDurability, "boolean");
+    assert.equal(typeof ready.communication.providerConfigured, "boolean");
+    assert.equal(typeof ready.communication.history.idempotencyIndex, "boolean");
+    assert.equal(typeof ready.communication.queue.connected, "boolean");
+    assert.equal(typeof ready.communication.queue.functional, "boolean");
+    assert.equal(typeof ready.communication.queue.durableAcrossRestart, "boolean");
+    const serializedReady = JSON.stringify(ready);
+    for (const secretName of ["REDIS_URL", "MONGO_URI", "RESEND_API_KEY", "redisUrl", "apiKey"]) {
+      assert.equal(serializedReady.includes(secretName), false);
+    }
     const metricsResponse = await fetch(`${baseUrl}/api/metrics`);
     const metrics = await metricsResponse.json();
 

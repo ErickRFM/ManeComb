@@ -200,26 +200,30 @@ function createApp({ store, getDbState }) {
     });
   });
 
-  function handleHealth(req, res) {
+  function handleHealth(req, res, detailed = false) {
     const db = getDbState();
     const readiness = getRuntimeReadiness(db);
     const socketServer = app.locals.io;
     const socketCount = socketServer?.engine?.clientsCount || 0;
     setGauge("socket_clients", socketCount);
 
-    return res.json({
+    const payload = {
       ok: true,
       status: readiness.status,
       version: packageJson.version,
       uptimeSeconds: Math.round(process.uptime()),
       timestamp: new Date().toISOString()
-    });
+    };
+    if (detailed) {
+      payload.communication = readiness.communication;
+    }
+    return res.json(payload);
   }
 
-  app.get("/health", handleHealth);
-  app.get("/api/health", handleHealth);
+  app.get("/health", (req, res) => handleHealth(req, res));
+  app.get("/api/health", (req, res) => handleHealth(req, res));
   app.get("/api/health/live", (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
-  app.get("/api/health/ready", handleHealth);
+  app.get("/api/health/ready", (req, res) => handleHealth(req, res, true));
   app.get("/api/metrics", (req, res) => {
     setGauge("socket_clients", app.locals.io?.engine?.clientsCount || 0);
     res.json({
