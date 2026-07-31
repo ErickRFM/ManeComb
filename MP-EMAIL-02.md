@@ -4,8 +4,11 @@
 **Rama:** `main`
 **Commit base local:** `60d44cd8a25ccb1e4c33ef19849f8b123972d9ed`
 **Commit desplegado al iniciar:** `a21942c8769673eea509ab586aea1b7b9277eb3b`
-**Estado:** Cerrado técnicamente — pendiente de confirmación externa de Render
-**Veredicto previo al despliegue:** `MP_EMAIL_02_NOT_READY`
+**Estado:** Cerrado en dry-run
+**Commit de implementación:** `259e80fe5fb0abc8628f9542c6a73515c2f1e9bb`
+**Corrección de migración:** `f7110dcc9e8eeb0a102fa270d169d50d89dafa32`
+**Commit funcional desplegado:** `f7110dcc9e8eeb0a102fa270d169d50d89dafa32`
+**Veredicto:** `MP_EMAIL_02_DRY_RUN_READY`
 
 El hash del commit de esta fase y su resultado en Render se registran como
 evidencia externa después del commit. No se intenta introducir el hash del
@@ -262,16 +265,108 @@ No forman parte de MP-EMAIL-02 y no deben incluirse en su commit:
 - `.postman/`;
 - `postman/`.
 
+## Evidencia posterior al despliegue
+
+### Commit y despliegue
+
+| Evidencia | Resultado |
+| --- | --- |
+| Commit de implementación | `259e80fe5fb0abc8628f9542c6a73515c2f1e9bb` |
+| Corrección final | `f7110dcc9e8eeb0a102fa270d169d50d89dafa32` |
+| Commit funcional desplegado | `f7110dcc9e8eeb0a102fa270d169d50d89dafa32` |
+| Fecha y hora del arranque | 31 de julio de 2026, 05:42:26 UTC |
+| Build y arranque | Exitosos; Render ejecutó `npm start` |
+| Estado del servicio | `live` |
+
+La corrección final hizo que el script de migración utilizara explícitamente
+`MONGO_DB_NAME`, igual que el servidor. Esto evitó verificar o crear el índice
+en la base predeterminada de MongoDB cuando la aplicación opera sobre
+`combisapp`.
+
+### RuntimeDiagnostics
+
+El arranque desplegado registró `module=Communication` y
+`action=RuntimeDiagnostics` con metadata sanitizada:
+
+```text
+emailEnabled=true
+emailDryRun=true
+providerConfigured=true
+queuesEnabled=true
+redisConfigured=true
+queueMode=bullmq
+workerStarted=true
+queueConnected=true
+queueFunctional=true
+queueDurableAcrossRestart=false
+historyMode=mongo
+idempotencyIndexVerified=true
+productionDurability=false
+```
+
+No se expusieron cadenas de conexión, credenciales, destinatarios, tokens ni
+errores crudos.
+
+### Readiness desplegado
+
+La verificación posterior al despliegue confirmó:
+
+| Componente | Resultado |
+| --- | --- |
+| `/api/health` | HTTP `200`; estado global `degraded` |
+| `/api/health/ready` | HTTP `200`; estructura sanitizada |
+| Communication | `functional=true`, `providerConfigured=true` |
+| Historial | `mode=mongo`, índice idempotente verificado |
+| Cola | BullMQ conectada, funcional y con worker iniciado |
+| Política de memoria | `noeviction` |
+| Persistencia | `false` |
+| Durabilidad tras reinicio | `false` |
+| Durabilidad productiva | `false` |
+
+El estado degradado es intencional y correcto: el servicio funciona, pero
+Valkey Free no conserva la cola tras un reinicio.
+
+### Prueba dry-run desplegada
+
+Se ejecutó una recuperación controlada con una cuenta real de desarrollo sin
+mostrar el destinatario:
+
+| Evidencia | Resultado |
+| --- | --- |
+| HTTP | `200` |
+| Respuesta pública | Genérica |
+| Entregas `PASSWORD_RESET` creadas | 1 |
+| Estado | `dry_run` |
+| `accepted` | `true` |
+| `delivered` | `false` |
+| `simulated` | `true` |
+| `failed` | `false` |
+| `recipientMasked` | Presente |
+| `recipientHash` | Presente |
+| Token, `resetUrl`, HTML o error crudo | Ausentes |
+| Incremento de `provider_attempts` | 0 |
+| Eventos `email_delivery_failed` | 0 |
+
+Las métricas, el historial y los logs confirmaron que Resend no fue contactado,
+`deliveries_sent` no aumentó y `deliveries_failed` no aumentó. No se recibió
+correo real y `EMAIL_DRY_RUN` permaneció en `true`.
+
+### Validación repetida de cierre
+
+| Suite | Resultado |
+| --- | --- |
+| `communication-service: npm test` | 24 casos principales aprobados, 0 fallidos; 26 plantillas renderizadas |
+| `backend: npm test` | 28 archivos encadenados aprobados, 0 fallidos |
+| `backend: npm run test:password-recovery` | 1 caso aprobado, 0 fallidos |
+| Prueba focalizada de observabilidad | 1 caso aprobado, 0 fallidos |
+| `git diff --check` | Sin errores |
+
 ## Riesgos y acciones pendientes
 
 1. Valkey Free no conserva la cola tras reinicios.
-2. El commit nuevo debe desplegarse y verificarse en Render.
-3. Render debe declarar los hechos ya verificados mediante
-   `REDIS_PERSISTENCE_ENABLED=false` y
-   `REDIS_MAXMEMORY_POLICY=noeviction`.
-4. Debe repetirse una recuperación controlada sobre el código desplegado.
-5. `EMAIL_DRY_RUN` debe permanecer en `true`.
-6. Nodemailer requiere una actualización mayor independiente.
+2. `EMAIL_DRY_RUN` debe permanecer en `true` hasta MP-EMAIL-02B.
+3. Nodemailer requiere una actualización mayor independiente.
+4. La entrega real controlada queda fuera de esta fase.
 
 ## Incidente detectado durante el despliegue
 
@@ -289,17 +384,11 @@ evidencia externa.
 
 ## Criterio de cierre
 
-Antes del despliegue el veredicto permanece:
-
-```text
-MP_EMAIL_02_NOT_READY
-```
-
-Después del despliegue solo puede cambiar externamente a:
-
 ```text
 MP_EMAIL_02_DRY_RUN_READY
 ```
 
-si el hash nuevo está activo, el diagnóstico es correcto y la recuperación
-desplegada produce una entrega `dry_run` sin contacto con Resend.
+El commit funcional corregido está activo, el diagnóstico y el readiness son
+consistentes, y la recuperación desplegada produjo una entrega `dry_run` sin
+contacto con Resend. La fase no declara disponibilidad funcional o productiva
+para envíos reales.
