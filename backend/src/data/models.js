@@ -432,8 +432,9 @@ const vehicleRouteAssignmentSchema = new mongoose.Schema(
 );
 
 vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, routeId: 1, status: 1 });
-// Consultas F3-F5: lista por unidad ordenada por prioridad; catalogo por ruta; ventana horaria.
-vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, status: 1, priority: -1 });
+// Consultas F3-F5: lista por unidad ordenada por prioridad (ASC: menor priority = mayor
+// prioridad); catalogo por ruta; ventana horaria.
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, status: 1, priority: 1 });
 vehicleRouteAssignmentSchema.index({ organizationId: 1, routeId: 1, status: 1 });
 vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, scheduledFrom: 1, scheduledUntil: 1 });
 // Garantia dura a nivel indice: una sola asignacion ACTIVE por unidad.

@@ -52,13 +52,30 @@ function isScheduleWindowOpen(assignment, now = new Date()) {
   return true;
 }
 
+// Expiracion EFECTIVA sin depender de un cron: una SCHEDULED cuyo scheduledUntil ya paso se
+// comporta como EXPIRED aunque el valor persistido siga siendo SCHEDULED. La seguridad de la
+// activacion NO depende de un proceso posterior — canActivate usa este estado efectivo.
+function getEffectiveStatus(assignment, now = new Date()) {
+  if (!assignment) return null;
+  if (assignment.status === STATUS.SCHEDULED) {
+    const until = toMillis(assignment.scheduledUntil);
+    const t = toMillis(now);
+    if (until != null && t != null && until < t) return STATUS.EXPIRED;
+  }
+  return assignment.status;
+}
+
 // Precondiciones de activacion. NO depende solo de selectableByDriver: ese booleano solo gatea
 // la activacion por el CONDUCTOR (actor 'driver'); un admin puede activar aunque este bloqueada
 // (selectableByDriver=false === ADMIN_LOCKED para el conductor). El resto de condiciones aplican
 // a ambos actores. Devuelve { ok, reason } para trazabilidad y pruebas.
 function canActivate(assignment, context = {}) {
   if (!assignment) return { ok: false, reason: "not_found" };
-  if (assignment.status !== STATUS.AVAILABLE && assignment.status !== STATUS.SCHEDULED) {
+  const effectiveStatus = getEffectiveStatus(assignment, context.now);
+  if (effectiveStatus === STATUS.EXPIRED) {
+    return { ok: false, reason: "expired" };
+  }
+  if (effectiveStatus !== STATUS.AVAILABLE && effectiveStatus !== STATUS.SCHEDULED) {
     return { ok: false, reason: "invalid_status" };
   }
   if (context.organizationId && assignment.organizationId !== context.organizationId) {
@@ -70,7 +87,8 @@ function canActivate(assignment, context = {}) {
   if (!assignment.routeId) {
     return { ok: false, reason: "no_route" };
   }
-  if (assignment.status === STATUS.SCHEDULED && !isScheduleWindowOpen(assignment, context.now)) {
+  // SCHEDULED aun no abierta (antes de scheduledFrom); la ya vencida cae en 'expired' arriba.
+  if (effectiveStatus === STATUS.SCHEDULED && !isScheduleWindowOpen(assignment, context.now)) {
     return { ok: false, reason: "out_of_window" };
   }
   if (context.hasOtherActive) {
@@ -123,15 +141,119 @@ function serializeVehicleRouteAssignment(doc) {
   };
 }
 
+// Orden estable de prioridad. Menor priority = MAYOR prioridad (ASC). Desempate determinista:
+// priority ASC -> scheduledFrom ASC -> createdAt ASC -> id ASC.
+function compareAssignments(a, b) {
+  const pa = a && a.priority != null ? Number(a.priority) : 0;
+  const pb = b && b.priority != null ? Number(b.priority) : 0;
+  if (pa !== pb) return pa - pb;
+  const sfa = toMillis(a && a.scheduledFrom);
+  const sfb = toMillis(b && b.scheduledFrom);
+  if ((sfa || 0) !== (sfb || 0)) return (sfa || 0) - (sfb || 0);
+  const ca = toMillis(a && a.createdAt);
+  const cb = toMillis(b && b.createdAt);
+  if ((ca || 0) !== (cb || 0)) return (ca || 0) - (cb || 0);
+  const ida = String((a && (a._id || a.id)) || "");
+  const idb = String((b && (b._id || b.id)) || "");
+  return ida < idb ? -1 : ida > idb ? 1 : 0;
+}
+
+// Concurrencia optimista: expectedActivationVersion debe coincidir con el valor persistido.
+// null/undefined = sin CAS (se acepta). Mismatch => conflicto (F3 responde 409, no toca nada).
+function checkActivationVersion(expected, actual) {
+  if (expected == null) return { ok: true, conflict: false };
+  const match = Number(expected) === Number(actual);
+  return { ok: match, conflict: !match };
+}
+
+// La revision de la ruta oficial no debe haber cambiado entre lectura y activacion. Mismatch =>
+// conflicto (F3 responde 409, NO deja ninguna asignacion ACTIVE).
+function checkRouteRevision(expected, actual) {
+  if (expected == null) return { ok: true, conflict: false };
+  const match = Number(expected) === Number(actual);
+  return { ok: match, conflict: !match };
+}
+
+// Invariantes por estado. El DOMINIO es la autoridad; F3 corre esto ANTES de persistir (no se
+// confia solo en los validadores de Mongoose).
+function validateStateInvariants(assignment) {
+  const errors = [];
+  if (!assignment) return { ok: false, errors: ["not_found"] };
+  const has = (field) => assignment[field] != null;
+  switch (assignment.status) {
+    case STATUS.AVAILABLE:
+      if (has("activatedAt")) errors.push("available_has_activatedAt");
+      if (has("completedAt")) errors.push("available_has_completedAt");
+      if (has("cancelledAt")) errors.push("available_has_cancelledAt");
+      break;
+    case STATUS.SCHEDULED:
+      if (!has("scheduledFrom")) errors.push("scheduled_missing_scheduledFrom");
+      if (has("scheduledUntil") && toMillis(assignment.scheduledUntil) <= toMillis(assignment.scheduledFrom)) {
+        errors.push("schedule_window_invalid");
+      }
+      break;
+    case STATUS.ACTIVE:
+      if (!has("activatedAt")) errors.push("active_missing_activatedAt");
+      if (has("completedAt")) errors.push("active_has_completedAt");
+      if (has("cancelledAt")) errors.push("active_has_cancelledAt");
+      break;
+    case STATUS.COMPLETED:
+      if (!has("activatedAt")) errors.push("completed_missing_activatedAt");
+      if (!has("completedAt")) errors.push("completed_missing_completedAt");
+      break;
+    case STATUS.CANCELLED:
+      if (!has("cancelledAt")) errors.push("cancelled_missing_cancelledAt");
+      break;
+    case STATUS.EXPIRED:
+      break;
+    default:
+      errors.push("unknown_status");
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+// Actor y motivo de una transicion (para el contrato de F3 y la auditoria).
+const SOURCES = Object.freeze(["driver", "admin", "system", "schedule"]);
+const REASONS = Object.freeze([
+  "driver_selected",
+  "admin_activated",
+  "route_switched",
+  "trip_completed",
+  "admin_cancelled",
+  "schedule_expired"
+]);
+
+// Auditoria SANITIZADA: whitelist de campos seguros. NUNCA coordenadas, tokens, snapshots
+// completos ni geometria en logs.
+function sanitizeAuditContext(context = {}) {
+  return {
+    actorId: context.actorId == null ? null : String(context.actorId),
+    actorRole: context.actorRole == null ? null : String(context.actorRole),
+    source: SOURCES.includes(context.source) ? context.source : null,
+    reason: REASONS.includes(context.reason) ? context.reason : null,
+    assignmentId: context.assignmentId == null ? null : String(context.assignmentId),
+    vehicleId: context.vehicleId == null ? null : String(context.vehicleId),
+    routeId: context.routeId == null ? null : String(context.routeId)
+  };
+}
+
 module.exports = {
   STATUS,
   ALL_STATUSES,
   TERMINAL_STATUSES,
   TRANSITIONS,
+  SOURCES,
+  REASONS,
   isTerminal,
   isValidAssignmentTransition,
   isScheduleWindowOpen,
+  getEffectiveStatus,
   canActivate,
+  compareAssignments,
+  checkActivationVersion,
+  checkRouteRevision,
+  validateStateInvariants,
   validateAssignmentInput,
+  sanitizeAuditContext,
   serializeVehicleRouteAssignment
 };
