@@ -49,10 +49,19 @@ export function parseAuthorizedRecoveryUrl(rawUrl: string) {
     const isHttps = url.protocol === 'https:' && url.hostname === 'manecomb.com' && url.pathname === '/reset-password';
     const isCustomScheme = url.protocol === 'manecomb:' && url.hostname === 'reset-password' && (!url.pathname || url.pathname === '/');
     const tokens = url.searchParams.getAll('token').map((value) => value.trim()).filter(Boolean);
-    return isHttps || isCustomScheme
-      ? { authorized: true, token: tokens.length === 1 ? tokens[0] : '' }
-      : { authorized: false, token: '' };
+    const authorized = (isHttps || isCustomScheme) && tokens.length === 1;
+    return authorized ? { authorized: true, token: tokens[0] } : { authorized: false, token: '' };
   } catch {
     return { authorized: false, token: '' };
+  }
+}
+
+export function isRecoveryUrlCandidate(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
+    return normalizedPath === '/reset-password' || url.hostname === 'reset-password';
+  } catch {
+    return true;
   }
 }

@@ -1,5 +1,11 @@
 import { getStateFromPath } from '@react-navigation/native';
-import { linking } from './linking';
+import { Linking } from 'react-native';
+import {
+  getInitialNavigationUrl,
+  linking,
+  shouldHandleIncomingUrl,
+  subscribeToNavigationUrls,
+} from './linking';
 import { MODULE_ROUTE_NAMES } from './route-registry';
 import {
   PASSWORD_RECOVERY_RESEND_SECONDS,
@@ -13,6 +19,9 @@ import {
 const linkingConfig = linking.config as Parameters<typeof getStateFromPath>[1];
 
 describe('isolated deep linking', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
   it.each([
     ['chat', MODULE_ROUTE_NAMES.chat, '/chat'],
     ['radio', MODULE_ROUTE_NAMES.radio, '/radio'],
@@ -57,7 +66,44 @@ describe('isolated deep linking', () => {
     expect(parseAuthorizedRecoveryUrl('https://manecomb.com/reset-password?token=abc')).toEqual({ authorized: true, token: 'abc' });
     expect(parseAuthorizedRecoveryUrl('manecomb://reset-password?token=abc')).toEqual({ authorized: true, token: 'abc' });
     expect(parseAuthorizedRecoveryUrl('https://evil.test/reset-password?token=abc')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('https://sub.manecomb.com/reset-password?token=abc')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('http://manecomb.com/reset-password?token=abc')).toEqual({ authorized: false, token: '' });
     expect(parseAuthorizedRecoveryUrl('https://manecomb.com/otra?token=abc')).toEqual({ authorized: false, token: '' });
-    expect(parseAuthorizedRecoveryUrl('https://manecomb.com/reset-password?token=a&token=b')).toEqual({ authorized: true, token: '' });
+    expect(parseAuthorizedRecoveryUrl('https://manecomb.com/reset-password')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('https://manecomb.com/reset-password?token=a&token=b')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('mobile://reset-password?token=abc')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('arbitrario://reset-password?token=abc')).toEqual({ authorized: false, token: '' });
+    expect(parseAuthorizedRecoveryUrl('no-es-url')).toEqual({ authorized: false, token: '' });
+  });
+
+  it('filtra la URL inicial cuando la app estaba cerrada', async () => {
+    const getInitialUrl = jest.spyOn(Linking, 'getInitialURL');
+    getInitialUrl.mockResolvedValueOnce('mobile://reset-password?token=abc');
+    await expect(getInitialNavigationUrl()).resolves.toBeNull();
+
+    const validUrl = 'https://manecomb.com/reset-password?token=abc';
+    getInitialUrl.mockResolvedValueOnce(validUrl);
+    await expect(getInitialNavigationUrl()).resolves.toBe(validUrl);
+  });
+
+  it('filtra eventos con la app activa o en background', () => {
+    let emitUrl: ((event: { url: string }) => void) | undefined;
+    const remove = jest.fn();
+    jest.spyOn(Linking, 'addEventListener').mockImplementation((_, listener) => {
+      emitUrl = listener as (event: { url: string }) => void;
+      return { remove } as never;
+    });
+    const listener = jest.fn();
+    const unsubscribe = subscribeToNavigationUrls(listener);
+
+    emitUrl?.({ url: 'https://evil.test/reset-password?token=abc' });
+    emitUrl?.({ url: 'https://manecomb.com/reset-password?token=a&token=b' });
+    emitUrl?.({ url: 'manecomb://reset-password?token=valid' });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('manecomb://reset-password?token=valid');
+    expect(shouldHandleIncomingUrl('mobile://chat')).toBe(true);
+
+    unsubscribe();
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 });

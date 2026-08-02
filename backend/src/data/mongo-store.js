@@ -47,6 +47,31 @@ const {
   serializeVehicle
 } = require("./serializers");
 
+async function updateMongoPasswordWithResetToken({
+  userModel,
+  tokenHash,
+  passwordHash,
+  passwordChangedAt = new Date()
+}) {
+  const query = userModel.findOneAndUpdate(
+    {
+      resetTokenHash: tokenHash,
+      resetTokenExpiresAt: { $gt: passwordChangedAt }
+    },
+    {
+      $set: {
+        passwordHash,
+        passwordChangedAt
+      },
+      $inc: { credentialVersion: 1 },
+      $unset: { resetTokenHash: "", resetToken: "", resetTokenExpiresAt: "" }
+    },
+    { returnDocument: "after" }
+  );
+
+  return typeof query?.lean === "function" ? query.lean() : query;
+}
+
 function buildAvatar(name) {
   return String(name)
     .trim()
@@ -1860,21 +1885,11 @@ async function createMongoStore() {
     }
 
     const tokenHash = createHash("sha256").update(String(token)).digest("hex");
-    const updatedUser = await UserModel.findOneAndUpdate(
-      {
-        resetTokenHash: tokenHash,
-        resetTokenExpiresAt: { $gt: new Date() }
-      },
-      {
-        $set: {
-          passwordHash: bcrypt.hashSync(newPassword, 10),
-          passwordChangedAt: new Date()
-        },
-        $inc: { credentialVersion: 1 },
-        $unset: { resetTokenHash: "", resetToken: "", resetTokenExpiresAt: "" }
-      },
-      { returnDocument: "after" }
-    ).lean();
+    const updatedUser = await updateMongoPasswordWithResetToken({
+      userModel: UserModel,
+      tokenHash,
+      passwordHash: bcrypt.hashSync(newPassword, 10)
+    });
 
     if (!updatedUser) {
       throw new Error("El enlace de recuperacion ha expirado o es invalido");
@@ -3997,5 +4012,6 @@ async function createMongoStore() {
 }
 
 module.exports = {
-  createMongoStore
+  createMongoStore,
+  updateMongoPasswordWithResetToken
 };

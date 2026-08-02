@@ -233,6 +233,55 @@ function testPasswordResetPublicUrl() {
     ["PASSWORD_RESET_PUBLIC_URL"]
   );
   assert.equal(fallback.status, 0, fallback.stderr || fallback.stdout);
+
+  const normalized = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.PASSWORD_RESET_PUBLIC_URL!=='https://manecomb.com/reset-password?source=email') process.exit(2);"
+    ].join(""),
+    {
+      PASSWORD_RESET_PUBLIC_URL: "https://manecomb.com/reset-password/?source=email",
+      NODE_ENV: "production",
+      RENDER: ""
+    }
+  );
+  assert.equal(normalized.status, 0, normalized.stderr || normalized.stdout);
+
+  const developmentHttp = runEnvScript(
+    "require('./src/config/env')",
+    {
+      PASSWORD_RESET_PUBLIC_URL: "http://localhost:5173/reset-password",
+      NODE_ENV: "development",
+      RENDER: "",
+      RENDER_SERVICE_ID: "",
+      RENDER_EXTERNAL_URL: ""
+    }
+  );
+  assert.equal(developmentHttp.status, 0, developmentHttp.stderr || developmentHttp.stdout);
+
+  for (const unsafeUrl of [
+    "not-a-url",
+    "javascript:alert(1)",
+    "data:text/html,reset",
+    "https://user:secret@manecomb.com/reset-password"
+  ]) {
+    const rejected = runEnvScript("require('./src/config/env')", {
+      PASSWORD_RESET_PUBLIC_URL: unsafeUrl,
+      NODE_ENV: "development",
+      RENDER: "",
+      RENDER_SERVICE_ID: "",
+      RENDER_EXTERNAL_URL: ""
+    });
+    assert.notEqual(rejected.status, 0, `${unsafeUrl} no debe aceptarse`);
+  }
+
+  const productionHttp = runEnvScript("require('./src/config/env')", {
+    PASSWORD_RESET_PUBLIC_URL: "http://manecomb.com/reset-password",
+    NODE_ENV: "production",
+    RENDER: ""
+  });
+  assert.notEqual(productionHttp.status, 0);
+  assert.match(`${productionHttp.stdout}\n${productionHttp.stderr}`, /HTTPS/);
   console.log("ok - PASSWORD_RESET_PUBLIC_URL explicita y fallback controlado");
 }
 

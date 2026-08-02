@@ -33,6 +33,36 @@ function getFirstPublicOrigin(value) {
   return parseOrigins(value).find((origin) => /^https?:\/\//.test(origin) && !origin.includes("*")) || "";
 }
 
+function normalizePasswordResetPublicUrl(value, requireHttps) {
+  const rawValue = String(value || "").trim();
+  let parsed;
+
+  try {
+    parsed = new URL(rawValue);
+  } catch {
+    throw new Error("PASSWORD_RESET_PUBLIC_URL debe ser una URL absoluta valida.");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("PASSWORD_RESET_PUBLIC_URL solo admite los protocolos http o https.");
+  }
+
+  if (requireHttps && parsed.protocol !== "https:") {
+    throw new Error("PASSWORD_RESET_PUBLIC_URL debe usar HTTPS en produccion.");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("PASSWORD_RESET_PUBLIC_URL no debe incluir credenciales.");
+  }
+
+  parsed.hash = "";
+  if (parsed.pathname.length > 1) {
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  }
+
+  return parsed.toString();
+}
+
 function readFirstEnv(candidates) {
   for (const name of candidates) {
     const value = String(process.env[name] || "").trim();
@@ -147,9 +177,10 @@ const APP_URL =
   process.env.CLIENT_URL ||
   getFirstPublicOrigin(process.env.CLIENT_ORIGIN) ||
   (IS_PRODUCTION_RUNTIME ? DEFAULT_CLIENT_ORIGINS[0] : "http://localhost:8081");
-const PASSWORD_RESET_PUBLIC_URL =
-  process.env.PASSWORD_RESET_PUBLIC_URL ||
-  `${APP_URL.replace(/\/$/, "")}/reset-password`;
+const PASSWORD_RESET_PUBLIC_URL = normalizePasswordResetPublicUrl(
+  process.env.PASSWORD_RESET_PUBLIC_URL || `${APP_URL.replace(/\/$/, "")}/reset-password`,
+  IS_PRODUCTION_RUNTIME
+);
 const PUBLIC_WEBHOOK_BASE_URL =
   process.env.PUBLIC_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
 const MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES = [

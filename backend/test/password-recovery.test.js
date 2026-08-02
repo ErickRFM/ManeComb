@@ -2,12 +2,15 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
+const bcrypt = require("bcryptjs");
+const { createHash } = require("node:crypto");
 
 process.env.PASSWORD_RESET_PUBLIC_URL = "https://manecomb.com/reset-password?source=email";
 process.env.TRUST_PROXY = "true";
 
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const { updateMongoPasswordWithResetToken } = require("../src/data/mongo-store");
 const communication = require("../modules/communication");
 
 async function requestJson(baseUrl, route, body, clientIp = "203.0.113.10") {
@@ -20,6 +23,39 @@ async function requestJson(baseUrl, route, body, clientIp = "203.0.113.10") {
     body: JSON.stringify(body)
   });
   return { status: response.status, payload: await response.json() };
+}
+
+function createFakeAtomicUserModel(initialState) {
+  const state = { ...initialState };
+  let failNextUpdate = false;
+
+  return {
+    state,
+    failNextUpdate() {
+      failNextUpdate = true;
+    },
+    findOneAndUpdate(filter, update) {
+      return {
+        lean: async () => {
+          if (failNextUpdate) {
+            failNextUpdate = false;
+            throw new Error("simulated mongo write failure");
+          }
+
+          const matches = state.resetTokenHash === filter.resetTokenHash
+            && new Date(state.resetTokenExpiresAt).getTime() > filter.resetTokenExpiresAt.$gt.getTime();
+          if (!matches) return null;
+
+          Object.assign(state, update.$set);
+          Object.entries(update.$inc || {}).forEach(([key, value]) => {
+            state[key] = Number(state[key] || 0) + Number(value);
+          });
+          Object.keys(update.$unset || {}).forEach((key) => delete state[key]);
+          return { ...state };
+        }
+      };
+    }
+  };
 }
 
 async function run() {
@@ -190,6 +226,91 @@ async function run() {
       refreshToken: login.payload.refreshToken
     }, "203.0.113.23");
     assert.equal(refresh.status, 401, "el reset debe revocar refresh tokens existentes");
+
+    const concurrentRecovery = await store.generatePasswordResetToken("admin@combis.app");
+    const concurrentResults = await Promise.allSettled([
+      Promise.resolve().then(() => store.resetPasswordWithToken(concurrentRecovery.token, "ConcurrenteA1!")),
+      Promise.resolve().then(() => store.resetPasswordWithToken(concurrentRecovery.token, "ConcurrenteB2!"))
+    ]);
+    assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(concurrentResults.filter((result) => result.status === "rejected").length, 1);
+    const authenticatesWithA = Boolean(store.authenticate("admin@combis.app", "ConcurrenteA1!"));
+    const authenticatesWithB = Boolean(store.authenticate("admin@combis.app", "ConcurrenteB2!"));
+    assert.notEqual(authenticatesWithA, authenticatesWithB, "solo una contrasena concurrente debe quedar activa");
+    assert.throws(
+      () => store.resetPasswordWithToken(concurrentRecovery.token, "ConcurrenteC3!"),
+      /expirado|invalido/
+    );
+
+    const retryableRecovery = await store.generatePasswordResetToken("admin@combis.app");
+    const originalHashSync = bcrypt.hashSync;
+    try {
+      bcrypt.hashSync = () => {
+        throw new Error("simulated password hash failure");
+      };
+      assert.throws(
+        () => store.resetPasswordWithToken(retryableRecovery.token, "TrasFallo123!"),
+        /simulated password hash failure/
+      );
+    } finally {
+      bcrypt.hashSync = originalHashSync;
+    }
+    assert.ok(
+      store.resetPasswordWithToken(retryableRecovery.token, "TrasFallo123!"),
+      "el token embedded debe seguir utilizable tras un fallo previo a la mutacion"
+    );
+    assert.ok(store.authenticate("admin@combis.app", "TrasFallo123!"));
+
+    const mongoTokenHash = createHash("sha256").update("mongo-concurrent-token").digest("hex");
+    const fakeMongoModel = createFakeAtomicUserModel({
+      _id: "mongo-user",
+      credentialVersion: 2,
+      passwordHash: "previous-hash",
+      resetTokenHash: mongoTokenHash,
+      resetTokenExpiresAt: new Date(Date.now() + 60_000)
+    });
+    const mongoResults = await Promise.all([
+      updateMongoPasswordWithResetToken({
+        userModel: fakeMongoModel,
+        tokenHash: mongoTokenHash,
+        passwordHash: "mongo-hash-a"
+      }),
+      updateMongoPasswordWithResetToken({
+        userModel: fakeMongoModel,
+        tokenHash: mongoTokenHash,
+        passwordHash: "mongo-hash-b"
+      })
+    ]);
+    assert.equal(mongoResults.filter(Boolean).length, 1, "el contrato Mongo debe reclamar el token una sola vez");
+    assert.ok(["mongo-hash-a", "mongo-hash-b"].includes(fakeMongoModel.state.passwordHash));
+    assert.equal(fakeMongoModel.state.resetTokenHash, undefined);
+
+    const failedMongoTokenHash = createHash("sha256").update("mongo-retry-token").digest("hex");
+    const retryableMongoModel = createFakeAtomicUserModel({
+      _id: "mongo-retry-user",
+      credentialVersion: 1,
+      passwordHash: "unchanged-hash",
+      resetTokenHash: failedMongoTokenHash,
+      resetTokenExpiresAt: new Date(Date.now() + 60_000)
+    });
+    retryableMongoModel.failNextUpdate();
+    await assert.rejects(
+      updateMongoPasswordWithResetToken({
+        userModel: retryableMongoModel,
+        tokenHash: failedMongoTokenHash,
+        passwordHash: "failed-write-hash"
+      }),
+      /simulated mongo write failure/
+    );
+    assert.equal(retryableMongoModel.state.passwordHash, "unchanged-hash");
+    assert.equal(retryableMongoModel.state.resetTokenHash, failedMongoTokenHash);
+    const retriedMongoReset = await updateMongoPasswordWithResetToken({
+      userModel: retryableMongoModel,
+      tokenHash: failedMongoTokenHash,
+      passwordHash: "recovered-write-hash"
+    });
+    assert.ok(retriedMongoReset, "el token Mongo debe seguir utilizable tras fallo de escritura");
+    assert.equal(retryableMongoModel.state.passwordHash, "recovered-write-hash");
   } finally {
     communication.sendEmail = originalSendEmail;
     console.error = originalConsoleError;

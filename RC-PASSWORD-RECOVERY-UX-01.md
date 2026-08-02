@@ -1,8 +1,8 @@
 # RC-PASSWORD-RECOVERY-UX-01 — Recuperación profesional de credenciales
 
-**Estado:** Código validado — correo real y dispositivo físico pendientes
+**Estado:** Revisión independiente aprobada — correo real y dispositivo físico pendientes
 
-**Veredicto:** `RC_PASSWORD_RECOVERY_CODE_READY_EMAIL_PENDING`
+**Veredicto:** `RC_PASSWORD_RECOVERY_REVIEW_APPROVED_EMAIL_PENDING`
 
 **Base:** `3b58016` (`origin/main`)
 
@@ -262,7 +262,7 @@ El entorno local no pudo completar un POST contra Render por conectividad/CORS, 
 
 ### Mobile/Android
 
-No había dispositivo ADB conectado. Typecheck y pruebas de navegación pasaron. `assembleDebug` se intentó con daemon y con `--no-daemon`; ambos intentos agotaron el timeout mientras Gradle permanecía ocupado, sin devolver error de compilación ni producir APK. No se declara el build Android como aprobado.
+No había dispositivo ADB conectado. Typecheck y pruebas de navegación pasaron. En la validación inicial `assembleDebug` quedó inconcluso por timeout; la revisión independiente posterior completó `assembleDebug --no-daemon --console=plain` con código 0 y produjo el APK debug. El build queda aprobado, mientras la ejecución en dispositivo físico continúa pendiente.
 
 ## 15. Variables operativas
 
@@ -280,7 +280,7 @@ No se modificaron automáticamente `EMAIL_ENABLED` ni `EMAIL_DRY_RUN`. Una prueb
 2. Validar apertura del HTTPS App Link con la app cerrada, en background y activa sobre un dispositivo real.
 3. Validar correo real, CTA, enlace visible, token válido, vencido y reutilizado contra el despliegue.
 4. Confirmar recepción de `PASSWORD_CHANGED` en la ventana controlada.
-5. Resolver el bloqueo del entorno Gradle y obtener un `assembleDebug` exitoso.
+5. El bloqueo previo de Gradle quedó resuelto en la revisión independiente: `assembleDebug` terminó correctamente y produjo el APK debug. La ejecución en dispositivo físico continúa pendiente.
 6. No hay proyecto iOS nativo en este repositorio; una asociación AASA queda fuera del alcance actual.
 
 ## 17. Estado Git y cierre
@@ -293,8 +293,136 @@ Antes del commit:
 - `git diff --check`: limpio;
 - diff limitado a Auth Backend, plantilla activa, Mobile, Ventas y este reporte.
 
-La RC no usa el veredicto `READY` porque faltan el correo real y el dispositivo físico. El resultado correcto es:
+La revisión no usa el veredicto absoluto `READY` porque faltan el correo real, la asociación Android publicada y el dispositivo físico. El resultado vigente es:
 
 ```text
-RC_PASSWORD_RECOVERY_CODE_READY_EMAIL_PENDING
+RC_PASSWORD_RECOVERY_REVIEW_APPROVED_EMAIL_PENDING
+```
+
+## Revisión independiente Claude
+
+### Identidad de la revisión
+
+| Campo | Valor |
+| --- | --- |
+| Rama de revisión | `claude/review-password-recovery` |
+| Commit base de la RC | `3b58016` |
+| Commit de implementación revisado | `c66d595` |
+| Commit de esta revisión | Se registra externamente después del commit; no se introduce el hash dentro de sí mismo |
+| Alcance | Auth Backend, contrato de recuperación, navegación Mobile, pruebas y este reporte |
+
+La revisión se realizó en el worktree aislado `C:\proyectos\combis-app-password-recovery-review`. No se modificó el repositorio principal, no se hizo merge, no se ejecutó push y no se alteraron módulos ajenos a recuperación de credenciales.
+
+### Hallazgos clasificados
+
+| Severidad | Hallazgo | Evidencia | Resolución |
+| --- | --- | --- | --- |
+| BLOCKER | No se identificaron hallazgos de esta severidad | Tokens aleatorios de 32 bytes, hash SHA-256, expiración, respuesta neutral y consumo único ya estaban presentes | Sin cambio |
+| HIGH | `PASSWORD_RESET_PUBLIC_URL` aceptaba esquemas inseguros o valores inválidos en producción | `backend/src/config/env.js` | Corregido: URL absoluta, solo HTTP/HTTPS, HTTPS obligatorio en producción, sin credenciales, hash eliminado y normalización estable |
+| HIGH | El validador del enlace existía, pero React Navigation no filtraba realmente la URL inicial ni los eventos posteriores | `mobile/src/navigation/linking.ts` | Corregido: filtro integrado para app cerrada, background y activa; enlaces de recuperación no autorizados ya no llegan al router |
+| HIGH | Faltaban pruebas reales de concurrencia y de fallos intermedios pese a la garantía documentada | `backend/test/password-recovery.test.js` | Corregido con concurrencia Embedded/Mongo y fallos de hash/escritura, verificando un solo consumo y reintento seguro |
+| MEDIUM | La asociación HTTPS depende de `assetlinks.json`, la firma distribuida y una prueba en dispositivo | Infraestructura externa y firma Android | Pendiente externo; no se inventó huella |
+| MEDIUM | El correo temporal puede permanecer si se abandona el flujo desde el control superior de regreso | Estado de presentación Mobile | Conservado: no compromete token ni contraseña y corregirlo ampliaría el alcance visual |
+| MEDIUM | La revocación de sesión depende de operaciones posteriores a la actualización de contraseña | Backend Auth y stores de sesión | Conservado: endurecer atomicidad entre colecciones requiere una RC específica |
+| LOW | Auth confía en el error ya sanitizado que devuelve Communication Service | Logging de entrega | Conservado: el servicio central ya normaliza y sanitiza el resultado |
+
+Solo se corrigieron hallazgos HIGH. No se modificaron los hallazgos MEDIUM/LOW por las reglas de esta revisión.
+
+### Correcciones realizadas
+
+1. **Configuración segura del enlace público.** `normalizePasswordResetPublicUrl()` valida el contrato operativo sin cambiar la prioridad existente: `PASSWORD_RESET_PUBLIC_URL` explícita y `APP_URL/reset-password` como fallback compatible.
+2. **Frontera real de deep links.** `getInitialNavigationUrl()` y `subscribeToNavigationUrls()` aplican la autorización antes de entregar una URL a React Navigation. La URL de recuperación exige host, path y esquema autorizados, además de exactamente un token no vacío. Enlaces heredados no relacionados, como `mobile://chat`, conservan su comportamiento.
+3. **Contrato atómico Mongo verificable.** `updateMongoPasswordWithResetToken()` expone la operación mínima para pruebas sin cambiar su semántica productiva: un solo `findOneAndUpdate`, filtro por hash y expiración, actualización de credenciales e invalidación del token en la misma escritura.
+4. **Pruebas de seguridad.** Se agregaron carreras con `Promise.allSettled`, fallo forzado de hashing, escritura Mongo fallida y reintento posterior. En todos los casos se comprueba que no exista doble consumo ni mutación parcial silenciosa.
+
+### Pruebas de concurrencia y fallo
+
+| Escenario | Resultado esperado y observado |
+| --- | --- |
+| Dos resets Embedded simultáneos | Uno se completa, uno se rechaza, solo una contraseña final autentica y el token queda inutilizable |
+| Fallo de `bcrypt.hashSync` | No cambia la contraseña ni se consume el token; al restaurar el hash, el mismo request puede reintentarse |
+| Dos escrituras Mongo simultáneas | Una devuelve el usuario actualizado y otra `null`; existe una sola contraseña final y los campos de reset quedan eliminados |
+| Fallo simulado de escritura Mongo | Contraseña y token permanecen intactos; el reintento posterior completa la operación |
+
+Estas pruebas no sustituyen una transacción distribuida entre la colección de usuarios y la revocación de sesiones. Sí demuestran la garantía que pertenece a esta RC: la mutación de contraseña y el consumo del token son una sola operación atómica en Mongo.
+
+### Validación final
+
+| Área | Comando | Resultado de la revisión |
+| --- | --- | --- |
+| Backend | `npm test` | Aprobado, suite completa sin fallos |
+| Backend recuperación | `npm run test:password-recovery` | Aprobado, incluye concurrencia y fallos intermedios |
+| Backend configuración | `node --test test/env.test.js` | Aprobado, incluye esquemas, credenciales y HTTPS de producción |
+| Communication Service | `npm test` | Aprobado |
+| Mobile TypeScript | `npm run typecheck` | Aprobado, 0 errores |
+| Mobile pruebas | `npm test` | 26 suites y 139 pruebas aprobadas |
+| Mobile Android | `gradlew.bat assembleDebug --no-daemon --console=plain` | `BUILD SUCCESSFUL`; código 0 en 881.8 s; APK debug de 151,766,220 bytes |
+| Ventas TypeScript | `npm run typecheck` | Aprobado, 0 errores |
+| Ventas build | `VITE_API_URL=https://manecomb.onrender.com/api npm run build` | Aprobado, 640 módulos transformados |
+| Git | `git diff --check` | Limpio |
+
+El build Android exitoso de esta revisión sustituye el resultado inconcluso documentado en la validación inicial de la RC. No había dispositivo ADB conectado, por lo que no se afirma apertura real del App Link ni ejecución manual del APK.
+
+### Archivos modificados por la revisión
+
+- `backend/src/config/env.js`
+- `backend/src/data/mongo-store.js`
+- `backend/test/env.test.js`
+- `backend/test/password-recovery.test.js`
+- `mobile/src/navigation/deep-linking.test.ts`
+- `mobile/src/navigation/linking.ts`
+- `mobile/src/screens/password-recovery/password-recovery.utils.ts`
+- `RC-PASSWORD-RECOVERY-UX-01.md`
+
+No se modificaron Ventas, Communication Service, pagos, Mercado Pago, suscripciones, documentos, chat, radio, GPS, WebRTC, Socket.IO, tenant, roles, Portal ni Admin Global durante esta revisión.
+
+### Asociación Android pendiente
+
+El archivo público debe servirse en `https://manecomb.com/.well-known/assetlinks.json` con contenido equivalente a:
+
+```json
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.anonymous.combiscontrol",
+      "sha256_cert_fingerprints": [
+        "<SHA-256_DE_LA_FIRMA_DISTRIBUIDA>"
+      ]
+    }
+  }
+]
+```
+
+La huella debe obtenerse de la firma que realmente distribuye cada APK/AAB. No debe copiarse la huella debug a producción.
+
+Debug local:
+
+```bat
+keytool -list -v -alias androiddebugkey -keystore %USERPROFILE%\.android\debug.keystore -storepass android -keypass android
+```
+
+Release administrado directamente:
+
+```bat
+keytool -list -v -keystore RUTA_KEYSTORE -alias ALIAS
+```
+
+Si Google Play App Signing está activo, producción debe usar la huella del certificado de **firma de aplicación** mostrado por Play Console, no la del certificado de carga. Deben probarse por separado debug, release local y la versión distribuida por Play.
+
+### Pendientes operativos y veredicto
+
+Permanecen pendientes externos:
+
+1. publicar y verificar `assetlinks.json` con la huella real de producción;
+2. probar el App Link con la app cerrada, en background y activa sobre un dispositivo físico;
+3. validar un correo real, CTA, token válido, vencido y reutilizado contra Render;
+4. confirmar la entrega real del aviso `PASSWORD_CHANGED`;
+5. revisar en una RC posterior la coordinación entre cambio de contraseña y revocación de sesiones si se requiere atomicidad entre stores.
+
+No quedan hallazgos BLOCKER ni HIGH abiertos dentro del alcance. El código, las pruebas y el build Android están aprobados, pero correo real y asociación/dispositivo continúan pendientes. El veredicto independiente es:
+
+```text
+RC_PASSWORD_RECOVERY_REVIEW_APPROVED_EMAIL_PENDING
 ```

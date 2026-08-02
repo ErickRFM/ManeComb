@@ -1,8 +1,29 @@
 import type { LinkingOptions } from '@react-navigation/native';
+import { Linking } from 'react-native';
+import { isRecoveryUrlCandidate, parseAuthorizedRecoveryUrl } from '../screens/password-recovery/password-recovery.utils';
 import { MODULE_ROUTE_NAMES } from './route-registry';
+
+export function shouldHandleIncomingUrl(url: string) {
+  if (parseAuthorizedRecoveryUrl(url).authorized) return true;
+  return !isRecoveryUrlCandidate(url);
+}
+
+export async function getInitialNavigationUrl() {
+  const url = await Linking.getInitialURL();
+  return url && shouldHandleIncomingUrl(url) ? url : null;
+}
+
+export function subscribeToNavigationUrls(listener: (url: string) => void) {
+  const subscription = Linking.addEventListener('url', ({ url }) => {
+    if (shouldHandleIncomingUrl(url)) listener(url);
+  });
+  return () => subscription.remove();
+}
 
 export const linking: LinkingOptions<any> = {
   prefixes: ['https://manecomb.com', 'manecomb://', 'mobile://'],
+  getInitialURL: getInitialNavigationUrl,
+  subscribe: subscribeToNavigationUrls,
   config: {
     screens: {
       '/': '', '/login': 'login', '/registro': 'registro', '/aplicacion': 'aplicacion',
