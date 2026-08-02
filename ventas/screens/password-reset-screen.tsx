@@ -1,101 +1,90 @@
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { useMemo, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { resetPasswordRequest } from '@/src/api/client';
-import { getApiErrorMessage } from '@/src/lib/api';
-import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
+import { readCheckoutContext } from '@/src/utils/checkout-context';
+import { AuthFeedback } from '@/screens/auth/components/auth-feedback';
+import { AuthField } from '@/screens/auth/components/auth-field';
+import { AuthSubmitButton } from '@/screens/auth/components/auth-submit-button';
+import { authStyles as s } from '@/screens/auth/auth.styles';
+import { clearRecoverySession } from '@/screens/password-recovery/password-recovery.session';
+import { PasswordRecoveryLayout, useSlowRequest } from '@/screens/password-recovery/password-recovery-layout';
+import { buildRecoveryRoute, getPasswordChecks, getRecoveryError, isPasswordAllowed, normalizeRecoveryToken, resolveRecoveryCheckoutContext } from '@/screens/password-recovery/password-recovery.utils';
+
+const REQUIREMENTS = [
+  { key: 'minLength', label: 'Al menos 8 caracteres' },
+  { key: 'hasLetter', label: 'Una letra' },
+  { key: 'hasNumber', label: 'Un número' },
+  { key: 'hasSpecial', label: 'Un carácter especial' },
+] as const;
 
 export function PasswordResetScreen() {
-  const { token = '' } = useLocalSearchParams<{ token?: string }>();
+  const params = useLocalSearchParams<{ token?: string | string[]; planId?: string | string[]; trial?: string | string[] }>();
+  const token = normalizeRecoveryToken(params.token);
+  const context = resolveRecoveryCheckoutContext(params.planId, params.trial, readCheckoutContext());
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(token ? null : 'El enlace no contiene un token válido. Solicita uno nuevo.');
   const [submitting, setSubmitting] = useState(false);
-  const [completed, setCompleted] = useState(false);
-  const submitInFlight = useRef(false);
+  const inFlight = useRef(false);
+  const slow = useSlowRequest(submitting);
+  const checks = useMemo(() => getPasswordChecks(password), [password]);
 
   const submit = async () => {
-    if (submitting || submitInFlight.current) return;
+    if (inFlight.current) return;
     if (!token) {
-      setMessage('El enlace de recuperacion no es valido.');
+      setMessage('El enlace no contiene un token válido. Solicita uno nuevo.');
       return;
     }
-    if (password.length < 8) {
-      setMessage('La contrasena debe tener al menos 8 caracteres.');
+    if (!isPasswordAllowed(password)) {
+      setMessage('La contraseña no cumple todos los requisitos.');
       return;
     }
     if (password !== confirmation) {
-      setMessage('Las contrasenas no coinciden.');
+      setMessage('Las contraseñas no coinciden.');
       return;
     }
-
-    submitInFlight.current = true;
+    inFlight.current = true;
     setSubmitting(true);
     setMessage(null);
     try {
-      const response = await resetPasswordRequest(token, password);
-      setCompleted(true);
-      setMessage(response.message || 'Contrasena actualizada correctamente.');
+      await resetPasswordRequest(token, password);
+      setPassword('');
+      setConfirmation('');
+      clearRecoverySession();
+      router.replace(buildRecoveryRoute('/ventas/contrasena-actualizada', context));
     } catch (error) {
-      setMessage(getApiErrorMessage(error, 'No fue posible restablecer la contrasena.'));
+      setMessage(getRecoveryError(error, 'reset'));
     } finally {
-      submitInFlight.current = false;
+      inFlight.current = false;
       setSubmitting(false);
     }
   };
 
   return (
-    <KeyboardSafeScrollView contentContainerStyle={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Restablecer contrasena</Text>
-        <Text style={styles.subtitle}>Define una nueva contrasena para tu cuenta ManeComb.</Text>
-        {!completed ? (
-          <>
-            <TextInput
-              accessibilityLabel="Nueva contrasena"
-              autoCapitalize="none"
-              onChangeText={setPassword}
-              placeholder="Nueva contrasena"
-              placeholderTextColor="#718096"
-              secureTextEntry
-              style={styles.input}
-              value={password}
-            />
-            <TextInput
-              accessibilityLabel="Confirmar contrasena"
-              autoCapitalize="none"
-              onChangeText={setConfirmation}
-              placeholder="Confirmar contrasena"
-              placeholderTextColor="#718096"
-              secureTextEntry
-              style={styles.input}
-              value={confirmation}
-            />
-          </>
-        ) : null}
-        {message ? <Text style={styles.message}>{message}</Text> : null}
-        <Pressable
-          accessibilityRole="button"
-          disabled={submitting}
-          onPress={completed ? () => router.replace('/ventas/login') : () => void submit()}
-          style={[styles.button, submitting ? styles.disabled : undefined]}>
-          {submitting ? <ActivityIndicator color="#FFFFFF" /> : (
-            <Text style={styles.buttonText}>{completed ? 'Iniciar sesion' : 'Actualizar contrasena'}</Text>
-          )}
+    <PasswordRecoveryLayout title="Crea una nueva contraseña" subtitle="Usa una contraseña segura que no hayas utilizado antes.">
+      <View style={s.fields}>
+        <AuthField icon="lock-outline" label="Nueva contraseña" placeholder="Nueva contraseña" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="new-password" autoCorrect={false} textContentType="newPassword" />
+        <AuthField icon="lock-check-outline" label="Confirmar nueva contraseña" placeholder="Repite la nueva contraseña" value={confirmation} onChangeText={setConfirmation} secureTextEntry autoCapitalize="none" autoComplete="new-password" autoCorrect={false} returnKeyType="done" textContentType="newPassword" onSubmitEditing={() => void submit()} />
+      </View>
+      <View style={s.recoveryRequirements}>
+        {REQUIREMENTS.map((requirement) => (
+          <Text key={requirement.key} style={[s.recoveryRequirement, checks[requirement.key] ? s.recoveryRequirementMet : undefined]}>
+            {checks[requirement.key] ? '✓' : '○'} {requirement.label}
+          </Text>
+        ))}
+      </View>
+      {slow ? <AuthFeedback tone="info" message="Conectando con ManeComb…" /> : null}
+      <AuthFeedback message={message} />
+      <AuthSubmitButton label="Guardar nueva contraseña" submitting={submitting} disabled={submitting || !token} onSubmit={() => void submit()} />
+      <View style={s.recoveryActions}>
+        <Pressable accessibilityRole="button" onPress={() => router.replace(buildRecoveryRoute('/ventas/recuperar-contrasena', context))}>
+          <Text style={s.legalLink}>Solicitar enlace nuevo</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => router.replace(buildRecoveryRoute('/ventas/login', context))}>
+          <Text style={s.smallActionText}>Volver a iniciar sesión</Text>
         </Pressable>
       </View>
-    </KeyboardSafeScrollView>
+    </PasswordRecoveryLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { alignItems: 'center', backgroundColor: '#050816', flexGrow: 1, justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#11182A', borderColor: '#2D3748', borderRadius: 20, borderWidth: 1, gap: 14, maxWidth: 420, padding: 24, width: '100%' },
-  title: { color: '#F8FAFC', fontSize: 25, fontWeight: '900', textAlign: 'center' },
-  subtitle: { color: '#A0AEC0', fontSize: 14, lineHeight: 20, textAlign: 'center' },
-  input: { backgroundColor: '#090E1D', borderColor: '#334155', borderRadius: 12, borderWidth: 1, color: '#F8FAFC', minHeight: 48, paddingHorizontal: 14 },
-  message: { color: '#FFB4C8', fontSize: 13, lineHeight: 19, textAlign: 'center' },
-  button: { alignItems: 'center', backgroundColor: '#EA1F23', borderRadius: 12, justifyContent: 'center', minHeight: 48, paddingHorizontal: 16 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
-  disabled: { opacity: 0.65 },
-});

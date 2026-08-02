@@ -3,6 +3,10 @@
 /ventas/* /index.html 200
 /login /index.html 200
 /registro /index.html 200
+/reset-password /index.html 200
+/ventas/recuperar-contrasena /index.html 200
+/ventas/recuperacion-enviada /index.html 200
+/ventas/contrasena-actualizada /index.html 200
 /portal /index.html 200
 /portal/ /index.html 200
 /portal/* /index.html 200

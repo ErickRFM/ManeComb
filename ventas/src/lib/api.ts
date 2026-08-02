@@ -21,6 +21,7 @@ import type {
 
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const REQUEST_TIMEOUT_MS = 20000;
+const PASSWORD_RECOVERY_TIMEOUT_MS = 80000;
 
 function normalizeUrl(value: string | undefined, fallback: string) {
   const rawValue = String(value || fallback || '').trim();
@@ -243,13 +244,13 @@ export async function logoutRequest(refreshToken?: string | null) {
 
 export async function forgotPasswordRequest(email: string) {
   return await unwrapData<{ ok: boolean; message: string }>(
-    apiClient.post('/auth/forgot-password', { email })
+    apiClient.post('/auth/forgot-password', { email }, { timeout: PASSWORD_RECOVERY_TIMEOUT_MS, _skipAuthRefresh: true } as AuthRetryConfig)
   );
 }
 
 export async function resetPasswordRequest(token: string, password: string) {
   return await unwrapData<{ ok: boolean; message: string }>(
-    apiClient.post('/auth/reset-password', { token, password })
+    apiClient.post('/auth/reset-password', { token, password }, { timeout: PASSWORD_RECOVERY_TIMEOUT_MS, _skipAuthRefresh: true } as AuthRetryConfig)
   );
 }
 

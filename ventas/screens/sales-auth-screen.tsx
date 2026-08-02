@@ -20,6 +20,8 @@ import { AuthLegalLinks } from './auth/components/auth-legal-links';
 
 import { getFirstParam, normalizeIdentity, buildPaymentRoute } from './auth/auth.utils';
 import { authStyles as styles } from './auth/auth.styles';
+import { setRecoveryEmail } from './password-recovery/password-recovery.session';
+import { buildRecoveryRoute } from './password-recovery/password-recovery.utils';
 
 type Props = {
   mode: 'login' | 'register';
@@ -28,9 +30,8 @@ type Props = {
 export function SalesAuthScreen({ mode }: Props) {
   const { width, height } = useWindowDimensions();
   const params = useLocalSearchParams<{ planId?: string | string[]; trial?: string | string[] }>();
-  const { forgotPassword, isSubmitting, register, signIn, user } = useAppStore(
+  const { isSubmitting, register, signIn, user } = useAppStore(
     useShallow((state) => ({
-      forgotPassword: state.forgotPassword,
       isSubmitting: state.isSubmitting,
       register: state.register,
       signIn: state.signIn,
@@ -150,19 +151,6 @@ export function SalesAuthScreen({ mode }: Props) {
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!loginIdentity.trim()) {
-      setHelperMessage('Ingresa tu correo para recuperar el acceso.');
-      return;
-    }
-
-    const identity = normalizeIdentity(loginIdentity);
-    const result = await forgotPassword(identity.email);
-    setHelperMessage(result.message || (result.ok
-      ? 'Si el correo existe, recibiras instrucciones para recuperar tu contrasena.'
-      : 'No fue posible recuperar el acceso.'));
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -245,7 +233,15 @@ export function SalesAuthScreen({ mode }: Props) {
                   rememberSession={rememberSession}
                   disabled={isSubmitting}
                   onToggleRemember={() => setRememberSession((current) => !current)}
-                  onForgotPassword={() => void handleForgotPassword()}
+                  onForgotPassword={() => {
+                    if (loginIdentity.includes('@')) {
+                      setRecoveryEmail(loginIdentity);
+                    }
+                    router.push(buildRecoveryRoute('/ventas/recuperar-contrasena', {
+                      planId: selectedPlanId,
+                      requestTrial: routeRequestsTrial,
+                    }));
+                  }}
                 />
               ) : null}
 

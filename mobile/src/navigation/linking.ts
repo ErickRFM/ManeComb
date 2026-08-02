@@ -2,10 +2,14 @@ import type { LinkingOptions } from '@react-navigation/native';
 import { MODULE_ROUTE_NAMES } from './route-registry';
 
 export const linking: LinkingOptions<any> = {
-  prefixes: ['manecomb://', 'mobile://'],
+  prefixes: ['https://manecomb.com', 'manecomb://', 'mobile://'],
   config: {
     screens: {
       '/': '', '/login': 'login', '/registro': 'registro', '/aplicacion': 'aplicacion',
+      '/recuperar-contrasena': 'recuperar-contrasena',
+      '/recuperacion-enviada': 'recuperacion-enviada',
+      '/nueva-contrasena': 'reset-password',
+      '/contrasena-actualizada': 'contrasena-actualizada',
       '/comercial': 'comercial', '/ventas': 'ventas', '/ventas/login': 'ventas/login',
       '/ventas/registro': 'ventas/registro', '/plan-blocked': 'plan-blocked',
       '/operational-onboarding': 'operational-onboarding', '/sync-error': 'sync-error',

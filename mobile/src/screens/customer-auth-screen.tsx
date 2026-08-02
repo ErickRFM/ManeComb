@@ -23,6 +23,7 @@ import { BrandLogo } from '@/src/components/brand-logo';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getAuthenticatedHome } from '@/src/utils/account-routing';
+import { setRecoveryEmail } from '@/src/screens/password-recovery/password-recovery.session';
 import type { DriverActivationUnit } from '@/src/types/app';
 import { AuthField } from './auth/components/auth-field';
 import { SegmentButton } from './auth/components/segment-button';
@@ -66,13 +67,11 @@ function normalizeIdentity(rawValue: string): AuthIdentity {
 
 export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
   const { height, width } = useWindowDimensions();
-  const { activateDriverWithKey, authContext, forgotPassword, isSubmitting, resetPassword, signIn, user } = useAppStore(
+  const { activateDriverWithKey, authContext, isSubmitting, signIn, user } = useAppStore(
     useShallow((state) => ({
       activateDriverWithKey: state.activateDriverWithKey,
       authContext: state.authContext,
-      forgotPassword: state.forgotPassword,
       isSubmitting: state.isSubmitting,
-      resetPassword: state.resetPassword,
       signIn: state.signIn,
       user: state.user,
     }))
@@ -80,12 +79,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
   const [loginIdentity, setLoginIdentity] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [showRecovery, setShowRecovery] = useState(false);
-  const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [recoveryStage, setRecoveryStage] = useState<'request' | 'reset'>('request');
-  const [recoveryToken, setRecoveryToken] = useState('');
-  const [recoveryPassword, setRecoveryPassword] = useState('');
-  const [recoveryPasswordConfirmation, setRecoveryPasswordConfirmation] = useState('');
   const [driverActivationKey, setDriverActivationKey] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverUnits, setDriverUnits] = useState<DriverActivationUnit[] | null>(null);
@@ -97,7 +90,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
   const [rememberSession, setRememberSession] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
-  const [helperTone, setHelperTone] = useState<'error' | 'success'>('error');
   const [isValidatingDriverKey, setIsValidatingDriverKey] = useState(false);
   const driverNameInputRef = useRef<TextInput>(null);
   const identityInputRef = useRef<TextInput>(null);
@@ -129,7 +121,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     }
 
     setHelperMessage(null);
-    setHelperTone('error');
     router.replace((nextMode === 'login' ? '/login' : '/registro') as never);
   };
 
@@ -202,7 +193,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
   const handleSubmit = async () => {
     setHelperMessage(null);
-    setHelperTone('error');
 
     if (mode === 'login') {
       if (!loginIdentity.trim() || !loginPassword.trim()) {
@@ -278,42 +268,6 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     }
   };
 
-  const handleRecovery = async () => {
-    setHelperMessage(null);
-    setHelperTone('error');
-    if (recoveryStage === 'reset') {
-      if (!recoveryToken.trim() || !recoveryPassword) {
-        setHelperMessage('Ingresa el token recibido y tu nueva contrasena.');
-        return;
-      }
-      if (recoveryPassword !== recoveryPasswordConfirmation) {
-        setHelperMessage('La confirmacion de contrasena no coincide.');
-        return;
-      }
-
-      const result = await resetPassword(recoveryToken.trim(), recoveryPassword);
-      setHelperTone(result.ok ? 'success' : 'error');
-      setHelperMessage(result.message || (result.ok ? 'Contrasena actualizada.' : 'No fue posible restablecer la contrasena.'));
-      if (result.ok) setRecoveryStage('request');
-      return;
-    }
-
-    const email = recoveryEmail.trim().toLowerCase();
-
-    if (!email || !email.includes('@')) {
-      setHelperMessage('Ingresa el correo asociado a tu cuenta.');
-      return;
-    }
-
-    const result = await forgotPassword(email);
-    setHelperTone(result.ok ? 'success' : 'error');
-    setHelperMessage(
-      result.ok
-        ? `${result.message} Si cambias la contrasena en un dispositivo nuevo, conserva acceso a un dispositivo anterior para volver a respaldar la clave de tus mensajes cifrados.`
-        : result.message || 'No fue posible procesar la solicitud.'
-    );
-  };
-
   const scrollContentDynamicStyle = {
     paddingHorizontal: sizing.contentPadding,
     paddingTop: Math.max(18, sizing.contentPadding),
@@ -360,61 +314,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               </View>
 
               <View style={styles.fields}>
-                {showRecovery && !isRegister ? (
-                  <>
-                    {recoveryStage === 'request' ? (
-                      <AuthField
-                        label="Correo de recuperacion"
-                        placeholder="usuario@correo.com"
-                        value={recoveryEmail}
-                        onChangeText={setRecoveryEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoComplete="email"
-                        returnKeyType="done"
-                        textContentType="emailAddress"
-                        onSubmitEditing={() => { handleRecovery(); }}
-                      />
-                    ) : null}
-                    {recoveryStage === 'reset' ? (
-                      <>
-                        <AuthField
-                          label="Token de recuperacion"
-                          placeholder="Pega el token recibido"
-                          value={recoveryToken}
-                          onChangeText={setRecoveryToken}
-                          autoCapitalize="none"
-                          returnKeyType="next"
-                        />
-                        <AuthField
-                          label="Nueva contrasena"
-                          placeholder="Nueva contrasena"
-                          value={recoveryPassword}
-                          onChangeText={setRecoveryPassword}
-                          secureTextEntry
-                          autoCapitalize="none"
-                          autoComplete="new-password"
-                          returnKeyType="next"
-                          textContentType="newPassword"
-                        />
-                        <AuthField
-                          label="Confirmar nueva contrasena"
-                          placeholder="Repite la nueva contrasena"
-                          value={recoveryPasswordConfirmation}
-                          onChangeText={setRecoveryPasswordConfirmation}
-                          secureTextEntry
-                          autoCapitalize="none"
-                          autoComplete="new-password"
-                          returnKeyType="done"
-                          textContentType="newPassword"
-                          onSubmitEditing={() => { handleRecovery(); }}
-                        />
-                      </>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    {isRegister ? (
+                {isRegister ? (
                   <>
                     <AuthField
                       label="Key de activación"
@@ -492,12 +392,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                     selectedUnitId={selectedUnitId}
                     onSelect={setSelectedUnitId}
                   />
-                    ) : null}
-                  </>
-                )}
+                ) : null}
               </View>
 
-              {!isRegister && !showRecovery ? (
+              {!isRegister ? (
                 <View style={styles.sessionRow}>
                   <Pressable
                     onPress={() => setRememberSession((current) => !current)}
@@ -509,29 +407,27 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   </Pressable>
                   <Pressable
                     onPress={() => {
-                      setShowRecovery(true);
-                      setRecoveryEmail(loginIdentity.includes('@') ? loginIdentity : '');
+                      if (loginIdentity.includes('@')) {
+                        setRecoveryEmail(loginIdentity);
+                      }
                       setHelperMessage(null);
+                      router.push('/recuperar-contrasena');
                     }}>
-                    <Text style={styles.recoveryActionText}>Recuperar acceso</Text>
+                    <Text style={styles.recoveryActionText}>¿Olvidaste tu contraseña?</Text>
                   </Pressable>
                 </View>
               ) : null}
 
               {helperMessage ? (
-                <View style={[styles.messageBox, helperTone === 'success' ? styles.successBox : undefined]}>
-                  <Text
-                    style={[
-                      styles.messageText,
-                      helperTone === 'success' ? styles.successText : undefined,
-                    ]}>
+                <View style={styles.messageBox}>
+                  <Text style={styles.messageText}>
                     {helperMessage}
                   </Text>
                 </View>
               ) : null}
 
               <Pressable
-                onPress={() => { showRecovery && !isRegister ? handleRecovery() : handleSubmit(); }}
+                onPress={() => { handleSubmit(); }}
                 disabled={isSubmitting || isValidatingDriverKey}
                 style={({ pressed }) => [
                   styles.primaryButton,
@@ -542,25 +438,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.primaryButtonText}>
-                    {showRecovery && !isRegister
-                      ? recoveryStage === 'reset' ? 'Cambiar contrasena' : 'Enviar instrucciones'
-                      : isRegister ? 'Activar cuenta' : 'Iniciar sesión'}
+                    {isRegister ? 'Activar cuenta' : 'Iniciar sesión'}
                   </Text>
                 )}
               </Pressable>
-
-              {showRecovery && !isRegister ? (
-                <View style={styles.recoveryNavigation}>
-                  <Pressable onPress={() => { setRecoveryStage((current) => current === 'request' ? 'reset' : 'request'); setHelperMessage(null); }}>
-                    <Text style={styles.recoveryActionText}>
-                      {recoveryStage === 'request' ? 'Ya tengo un token' : 'Solicitar otro enlace'}
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => { setShowRecovery(false); setHelperMessage(null); }}>
-                    <Text style={styles.smallActionText}>Volver a iniciar sesion</Text>
-                  </Pressable>
-                </View>
-              ) : null}
 
               <View style={styles.legalBlock}>
                 <Text style={styles.legalText}>

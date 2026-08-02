@@ -18,6 +18,12 @@ import { UpdateBanner } from '@/src/components/update-banner';
 import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 import { ProfileEditScreen } from '@/src/screens/profile-edit-screen';
 import { ProfileScreen } from '@/src/screens/profile-screen';
+import {
+  NewPasswordScreen,
+  PasswordRecoveryRequestScreen,
+  PasswordRecoverySentScreen,
+  PasswordUpdatedScreen,
+} from '@/src/screens/password-recovery/password-recovery-screens';
 import { RadioScreen } from '@/src/screens/radio-screen';
 import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
@@ -412,6 +418,22 @@ function RegisterRoute() {
   return <CustomerAuthScreen mode="register" />;
 }
 
+function PasswordRecoveryRequestRoute() {
+  return <PasswordRecoveryRequestScreen />;
+}
+
+function PasswordRecoverySentRoute() {
+  return <PasswordRecoverySentScreen />;
+}
+
+function NewPasswordRoute() {
+  return <NewPasswordScreen />;
+}
+
+function PasswordUpdatedRoute() {
+  return <PasswordUpdatedScreen />;
+}
+
 function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
@@ -530,6 +552,10 @@ function AppStack() {
       <Stack.Screen name="/" component={InitialRoute} />
       <Stack.Screen name="/login" component={LoginRoute} />
       <Stack.Screen name="/registro" component={RegisterRoute} />
+      <Stack.Screen name="/recuperar-contrasena" component={PasswordRecoveryRequestRoute} />
+      <Stack.Screen name="/recuperacion-enviada" component={PasswordRecoverySentRoute} />
+      <Stack.Screen name="/nueva-contrasena" component={NewPasswordRoute} />
+      <Stack.Screen name="/contrasena-actualizada" component={PasswordUpdatedRoute} />
       <Stack.Screen name="/aplicacion" component={ApplicationRoute} />
       <Stack.Screen name="/comercial" component={CommercialRoute} />
       <Stack.Screen name="/ventas" component={NativeSalesRoute} />

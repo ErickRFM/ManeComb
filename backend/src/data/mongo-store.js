@@ -1860,17 +1860,11 @@ async function createMongoStore() {
     }
 
     const tokenHash = createHash("sha256").update(String(token)).digest("hex");
-    const user = await UserModel.findOne({
-      resetTokenHash: tokenHash,
-      resetTokenExpiresAt: { $gt: new Date() }
-    }).lean();
-
-    if (!user) {
-      throw new Error("El enlace de recuperacion ha expirado o es invalido");
-    }
-
     const updatedUser = await UserModel.findOneAndUpdate(
-      { _id: user._id },
+      {
+        resetTokenHash: tokenHash,
+        resetTokenExpiresAt: { $gt: new Date() }
+      },
       {
         $set: {
           passwordHash: bcrypt.hashSync(newPassword, 10),
@@ -1881,6 +1875,10 @@ async function createMongoStore() {
       },
       { returnDocument: "after" }
     ).lean();
+
+    if (!updatedUser) {
+      throw new Error("El enlace de recuperacion ha expirado o es invalido");
+    }
 
     return sanitizeUser(updatedUser);
   }

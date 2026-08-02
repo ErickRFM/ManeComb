@@ -42,17 +42,18 @@ function accountActivation(data) {
 function passwordReset(data) {
   return buildContent([
     C.logo(),
-    C.header({ title: "Recuperación de contraseña" }),
+    C.header({ title: "Crea una nueva contraseña para ManeComb" }),
     C.greeting(data.name),
-    C.textBlock("Recibimos una solicitud para restablecer la contraseña de tu cuenta de ManeComb."),
-    C.textBlock("Para crear una nueva contraseña, haz clic en el siguiente botón:"),
-    C.button({ text: "Restablecer contraseña", url: data.resetUrl }),
+    C.textBlock("Recibimos una solicitud para cambiar la contraseña de tu cuenta."),
+    C.button({ text: "Crear nueva contraseña", url: data.resetUrl }),
     C.alert({
       variant: "warning",
-      message: "Este enlace expira en 1 hora. Si no solicitaste este cambio, ignora este mensaje y tu contraseña permanecerá igual."
+      message: `Este enlace vence en ${data.validity || "1 hora"}.`
     }),
     C.spacer({ height: 8 }),
-    C.textBlock("¿No solicitaste esto? Recomendamos revisar la actividad reciente de tu cuenta."),
+    C.textBlock("Si no solicitaste este cambio, puedes ignorar este correo. Tu contraseña actual seguirá funcionando mientras no uses el enlace."),
+    C.textBlock("¿El botón no funciona?<br/>Copia y pega este enlace en tu navegador:"),
+    C.textBlock(C.escapeHtml(data.resetUrl)),
     C.helpBlock({ email: data.supportEmail })
   ]);
 }

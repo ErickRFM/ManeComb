@@ -1,0 +1,30 @@
+import { StyleSheet } from 'react-native';
+import { DesignSystem, Typography } from '@/constants/theme';
+
+export const recoveryStyles = StyleSheet.create({
+  safeArea: { backgroundColor: '#FFFFFF', flex: 1 },
+  scroll: { flex: 1 },
+  content: { alignItems: 'center', flexGrow: 1, justifyContent: 'center', padding: 20 },
+  panel: { gap: 20, maxWidth: 420, width: '100%' },
+  topRow: { alignItems: 'flex-start' },
+  backText: { color: '#E31E24', fontFamily: Typography.body, fontSize: 13, fontWeight: '700' },
+  heading: { gap: 8 },
+  title: { color: '#25282F', fontFamily: Typography.display, fontSize: 28, fontWeight: '900', lineHeight: 34 },
+  subtitle: { color: '#71788A', fontFamily: Typography.body, fontSize: 14, lineHeight: 21 },
+  fields: { gap: 16 },
+  primaryButton: { alignItems: 'center', backgroundColor: '#E31E24', borderRadius: DesignSystem.radius.input, justifyContent: 'center', minHeight: DesignSystem.control.md, paddingHorizontal: 16 },
+  primaryButtonText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 15, fontWeight: '800' },
+  disabled: { opacity: 0.65 },
+  actions: { alignItems: 'center', gap: 14 },
+  linkText: { color: '#E31E24', fontFamily: Typography.body, fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  secondaryText: { color: '#333333', fontFamily: Typography.body, fontSize: 13, textAlign: 'center' },
+  feedback: { backgroundColor: '#FDE7E8', borderColor: '#E31E24', borderRadius: 12, borderWidth: 1, padding: 12 },
+  feedbackInfo: { backgroundColor: '#F4F6FA', borderColor: '#B9C1CF' },
+  feedbackText: { color: '#C4171C', fontFamily: Typography.body, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  feedbackInfoText: { color: '#4E5666' },
+  requirementList: { backgroundColor: '#F8F6F2', borderRadius: 12, gap: 7, padding: 12 },
+  requirementText: { color: '#8B3A3D', fontFamily: Typography.body, fontSize: 12 },
+  requirementMet: { color: '#237A35' },
+  successIcon: { alignItems: 'center', backgroundColor: '#EAF7EE', borderRadius: 36, height: 72, justifyContent: 'center', width: 72 },
+  successIconText: { color: '#237A35', fontSize: 34, fontWeight: '900' },
+});

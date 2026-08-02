@@ -9,6 +9,9 @@ import { ScreenErrorBoundary } from '@/src/components/screen-error-boundary';
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
 const SalesAuthScreen = lazy(() => import('@/screens/sales-auth-screen').then((module) => ({ default: module.SalesAuthScreen })));
 const PasswordResetScreen = lazy(() => import('@/screens/password-reset-screen').then((module) => ({ default: module.PasswordResetScreen })));
+const PasswordRecoveryRequestScreen = lazy(() => import('@/screens/password-recovery/password-recovery-request-screen').then((module) => ({ default: module.PasswordRecoveryRequestScreen })));
+const PasswordRecoverySentScreen = lazy(() => import('@/screens/password-recovery/password-recovery-sent-screen').then((module) => ({ default: module.PasswordRecoverySentScreen })));
+const PasswordUpdatedScreen = lazy(() => import('@/screens/password-recovery/password-updated-screen').then((module) => ({ default: module.PasswordUpdatedScreen })));
 const PlanCheckoutScreen = lazy(() => import('@/screens/plan-checkout-screen').then((module) => ({ default: module.PlanCheckoutScreen })));
 const PortalBillingScreen = lazy(() => import('@/features/portal/screens/portal-billing-screen').then((module) => ({ default: module.PortalBillingScreen })));
 const PortalDashboardScreen = lazy(() => import('@/features/portal/screens/portal-dashboard-screen').then((module) => ({ default: module.PortalDashboardScreen })));
@@ -97,6 +100,12 @@ function Routes() {
       return <SalesAuthScreen mode="register" />;
     case '/reset-password':
       return <PasswordResetScreen />;
+    case '/ventas/recuperar-contrasena':
+      return <PasswordRecoveryRequestScreen />;
+    case '/ventas/recuperacion-enviada':
+      return <PasswordRecoverySentScreen />;
+    case '/ventas/contrasena-actualizada':
+      return <PasswordUpdatedScreen />;
     case '/ventas/pago':
       return <PlanCheckoutScreen />;
     case '/portal':

@@ -5,50 +5,39 @@ import { authStyles as s } from '../auth.styles';
 
 type Props = {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoComplete?: string;
+  autoCorrect?: boolean;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   label: string;
   onChangeText: (value: string) => void;
+  onSubmitEditing?: () => void;
   placeholder: string;
+  returnKeyType?: string;
   secureTextEntry?: boolean;
+  textContentType?: string;
   value: string;
 };
 
-export function AuthField({
-  autoCapitalize = 'sentences',
-  icon,
-  keyboardType = 'default',
-  label,
-  onChangeText,
-  placeholder,
-  secureTextEntry = false,
-  value,
-}: Props) {
+export function AuthField({ autoCapitalize = 'sentences', autoComplete, autoCorrect = true, icon, keyboardType = 'default', label, onChangeText, onSubmitEditing, placeholder, returnKeyType, secureTextEntry = false, textContentType, value }: Props) {
   const [isFocused, setFocused] = useState(false);
   const [isPasswordVisible, setPasswordVisible] = useState(false);
-  const webInputStyle =
-    Platform.OS === 'web'
-      ? ({
-          outlineStyle: 'none',
-          outlineWidth: 0,
-          boxShadow: 'none',
-        } as any)
-      : null;
-
+  const webInputStyle = Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none' } as any) : null;
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
       <View style={[s.inputShell, isFocused ? s.inputShellFocused : undefined]}>
-        <MaterialCommunityIcons
-          name={icon}
-          size={19}
-          color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'}
-        />
+        <MaterialCommunityIcons name={icon} size={19} color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'} />
         <TextInput
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoComplete={autoComplete}
+          autoCorrect={autoCorrect}
+          onSubmitEditing={onSubmitEditing}
+          returnKeyType={returnKeyType}
+          textContentType={textContentType}
           secureTextEntry={secureTextEntry && !isPasswordVisible}
           placeholder={placeholder}
           placeholderTextColor="rgba(216, 226, 245, 0.38)"
@@ -58,17 +47,8 @@ export function AuthField({
           style={[s.input, webInputStyle]}
         />
         {secureTextEntry ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={isPasswordVisible ? 'Ocultar contrasena' : 'Mostrar contrasena'}
-            hitSlop={8}
-            onPress={() => setPasswordVisible((current) => !current)}
-            style={s.passwordToggle}>
-            <MaterialCommunityIcons
-              name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
-              size={19}
-              color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'}
-            />
+          <Pressable accessibilityRole="button" accessibilityLabel={isPasswordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña'} hitSlop={8} onPress={() => setPasswordVisible((current) => !current)} style={s.passwordToggle}>
+            <MaterialCommunityIcons name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} size={19} color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'} />
           </Pressable>
         ) : null}
       </View>

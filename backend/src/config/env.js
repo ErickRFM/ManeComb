@@ -147,6 +147,9 @@ const APP_URL =
   process.env.CLIENT_URL ||
   getFirstPublicOrigin(process.env.CLIENT_ORIGIN) ||
   (IS_PRODUCTION_RUNTIME ? DEFAULT_CLIENT_ORIGINS[0] : "http://localhost:8081");
+const PASSWORD_RESET_PUBLIC_URL =
+  process.env.PASSWORD_RESET_PUBLIC_URL ||
+  `${APP_URL.replace(/\/$/, "")}/reset-password`;
 const PUBLIC_WEBHOOK_BASE_URL =
   process.env.PUBLIC_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || "";
 const MERCADO_PAGO_ACCESS_TOKEN_ENV_NAMES = [
@@ -284,6 +287,7 @@ const RUNTIME_COMMIT =
 
 module.exports = {
   APP_URL,
+  PASSWORD_RESET_PUBLIC_URL,
   HOST,
   PORT,
   NODE_ENV,

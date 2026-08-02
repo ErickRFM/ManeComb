@@ -15,6 +15,7 @@ import { styles } from '../customer-auth-screen.styles';
 export function AuthField({
   autoComplete,
   autoCapitalize = 'sentences',
+  autoCorrect = true,
   inputRef,
   keyboardType = 'default',
   label,
@@ -29,6 +30,7 @@ export function AuthField({
 }: {
   autoComplete?: TextInputProps['autoComplete'];
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
   inputRef?: Ref<TextInput>;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   label: string;
@@ -76,6 +78,7 @@ export function AuthField({
           onSubmitEditing={onSubmitEditing}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
           secureTextEntry={secureTextEntry && !passwordVisible}
           placeholder={placeholder}
           style={[styles.input, showPasswordToggle ? styles.inputWithToggle : undefined, webInputStyle]}

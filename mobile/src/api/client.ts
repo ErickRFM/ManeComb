@@ -43,6 +43,7 @@ import type {
 } from '@/src/types/app';
 
 const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
+const PASSWORD_RECOVERY_TIMEOUT_MS = 80000;
 const MAX_NETWORK_RETRIES = 2;
 const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options']);
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -499,6 +500,8 @@ export async function refreshSessionRequest(refreshToken: string, appVersion?: s
 export async function forgotPasswordRequest(email: string) {
   const response = await apiClient.post<{ ok: boolean; message: string }>('/auth/forgot-password', { email }, {
     _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
+    timeout: PASSWORD_RECOVERY_TIMEOUT_MS,
   } as RetryableRequestConfig);
   return response.data;
 }
@@ -506,6 +509,8 @@ export async function forgotPasswordRequest(email: string) {
 export async function resetPasswordRequest(token: string, password: string) {
   const response = await apiClient.post<{ ok: boolean; message: string }>('/auth/reset-password', { token, password }, {
     _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
+    timeout: PASSWORD_RECOVERY_TIMEOUT_MS,
   } as RetryableRequestConfig);
   return response.data;
 }

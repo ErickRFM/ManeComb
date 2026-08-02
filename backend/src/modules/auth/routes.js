@@ -10,7 +10,7 @@ const {
   rotateRefreshToken
 } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
-const { APP_URL } = require("../../config/env");
+const { APP_URL, PASSWORD_RESET_PUBLIC_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
 const { sendSecurityChangeEmail } = require("../../services/domain-email-events");
@@ -308,6 +308,7 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
 
 router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
   const { email } = req.body;
+  const startedAt = Date.now();
 
   if (!email) {
     return res.status(400).json({
@@ -319,6 +320,17 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
   try {
     const result = await req.app.locals.store.generatePasswordResetToken(email);
 
+    await req.app.locals.store.recordAppEvent?.({
+      type: "password_reset_requested",
+      scope: "auth",
+      level: "info",
+      status: "accepted",
+      userId: result?.userId,
+      organizationId: result?.organizationId,
+      message: "Solicitud neutral de recuperacion aceptada",
+      metadata: { durationMs: Date.now() - startedAt }
+    });
+
     if (!result) {
       return res.json({
         ok: true,
@@ -326,7 +338,8 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
       });
     }
 
-    const resetUrl = `${APP_URL.replace(/\/$/, "")}/reset-password?token=${result.token}`;
+    const resetUrl = new URL(PASSWORD_RESET_PUBLIC_URL);
+    resetUrl.searchParams.set("token", result.token);
 
     {
       try {
@@ -339,9 +352,26 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
           idempotencyKey: `password-reset:${result.requestId}`,
           data: {
             name: result.name,
-            resetUrl,
+            resetUrl: resetUrl.toString(),
+            validity: "1 hora",
             userId: result.userId,
             organizationId: result.organizationId
+          }
+        });
+
+        await req.app.locals.store.recordAppEvent?.({
+          type: "password_reset_delivery_requested",
+          scope: "communication",
+          level: "info",
+          status: delivery?.status || "unknown",
+          userId: result.userId,
+          organizationId: result.organizationId,
+          message: "Entrega de recuperacion solicitada",
+          metadata: {
+            provider: communication.getProviderName(),
+            requestId: result.requestId,
+            status: delivery?.status || "unknown",
+            template: "password-reset"
           }
         });
 
@@ -359,7 +389,7 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
             }
           });
           await req.app.locals.store.recordAppEvent?.({
-            type: "email_delivery_failed",
+            type: "password_reset_delivery_failed",
             scope: "communication",
             level: "warning",
             status: "failed",
@@ -384,7 +414,7 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
           }
         });
         await req.app.locals.store.recordAppEvent?.({
-          type: "email_delivery_failed",
+          type: "password_reset_delivery_failed",
           scope: "communication",
           level: "warning",
           status: "failed",
@@ -422,6 +452,7 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
 
 router.post("/reset-password", authLimiter, async (req, res, next) => {
   const { token, password } = req.body;
+  const startedAt = Date.now();
 
   if (!token || !password) {
     return res.status(400).json({
@@ -442,14 +473,39 @@ router.post("/reset-password", authLimiter, async (req, res, next) => {
     });
     await sendSecurityChangeEmail(user, "PASSWORD_CHANGED");
 
+    await req.app.locals.store.recordAppEvent?.({
+      type: "password_reset_completed",
+      scope: "auth",
+      level: "info",
+      status: "completed",
+      userId: user.id,
+      organizationId: user.organizationId,
+      message: "Contrasena restablecida",
+      metadata: { durationMs: Date.now() - startedAt }
+    });
+
     return res.json({
       ok: true,
       message: "Contrasena actualizada correctamente. En un dispositivo nuevo, tus mensajes cifrados anteriores pueden requerir que vuelvas a respaldar la clave desde un dispositivo donde ya tenias sesion."
     });
   } catch (error) {
-    const status = error.message.includes("expirado") || error.message.includes("invalido") ? 400 : 500;
+    const isRejectedInput = /expirado|invalido|contrase(?:n|ñ)a/i.test(error.message);
+    const status = isRejectedInput ? 400 : 500;
+    await req.app.locals.store.recordAppEvent?.({
+      type: "password_reset_rejected",
+      scope: "auth",
+      level: "warning",
+      status: "rejected",
+      message: "Restablecimiento rechazado",
+      metadata: {
+        error: communication.security.sanitizeProviderError(error),
+        durationMs: Date.now() - startedAt
+      }
+    });
     error.statusCode = status;
-    error.publicMessage = "No fue posible restablecer la contrasena";
+    error.publicMessage = status === 400
+      ? error.message
+      : "No fue posible restablecer la contrasena";
     return next(error);
   }
 });

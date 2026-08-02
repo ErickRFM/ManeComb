@@ -81,8 +81,9 @@ function testPasswordResetTemplate() {
 
   assert.ok(html.includes("María García"));
   assert.ok(html.includes("reset?token=abc123"));
-  assert.ok(html.includes("Recuperación"));
+  assert.ok(html.includes("Crea una nueva contraseña para ManeComb"));
   assert.ok(html.includes("1 hora"));
+  assert.ok(html.includes("Copia y pega este enlace"));
   console.log("ok - plantilla password-reset genera HTML con enlace de recuperación");
 }
 

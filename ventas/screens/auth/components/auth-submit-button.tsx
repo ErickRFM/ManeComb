@@ -2,29 +2,29 @@ import { ActivityIndicator, Pressable, Text } from 'react-native';
 import { authStyles as s } from '../auth.styles';
 
 type Props = {
-  isRegister: boolean;
+  accessibilityLabel?: string;
+  isRegister?: boolean;
+  label?: string;
   submitting: boolean;
   disabled: boolean;
   onSubmit: () => void;
 };
 
-export function AuthSubmitButton({ isRegister, submitting, disabled, onSubmit }: Props) {
+export function AuthSubmitButton({ accessibilityLabel, isRegister = false, label, submitting, disabled, onSubmit }: Props) {
+  const resolvedLabel = label || (isRegister ? 'Crear cuenta' : 'Entrar');
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={isRegister ? 'Crear cuenta' : 'Entrar'}
+      accessibilityLabel={accessibilityLabel || resolvedLabel}
+      accessibilityState={{ busy: submitting, disabled }}
       onPress={onSubmit}
-      disabled={submitting}
+      disabled={disabled}
       style={({ pressed }) => [
         s.primaryButton,
-        pressed && !submitting ? s.pressed : undefined,
-        submitting ? s.disabled : undefined,
+        pressed && !disabled ? s.pressed : undefined,
+        disabled ? s.disabled : undefined,
       ]}>
-      {submitting ? (
-        <ActivityIndicator color="#FFFFFF" />
-      ) : (
-        <Text style={s.primaryButtonText}>{isRegister ? 'Crear cuenta' : 'Entrar'}</Text>
-      )}
+      {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryButtonText}>{resolvedLabel}</Text>}
     </Pressable>
   );
 }

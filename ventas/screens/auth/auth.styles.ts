@@ -252,6 +252,40 @@ export const authStyles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+  messageBoxInfo: {
+    backgroundColor: 'rgba(66, 153, 225, 0.13)',
+    borderColor: 'rgba(99, 179, 237, 0.5)',
+  },
+  messageTextInfo: {
+    color: '#BEE3F8',
+  },
+  messageBoxSuccess: {
+    backgroundColor: 'rgba(72, 187, 120, 0.13)',
+    borderColor: 'rgba(104, 211, 145, 0.5)',
+  },
+  messageTextSuccess: {
+    color: '#C6F6D5',
+  },
+  recoveryActions: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  recoveryRequirements: {
+    backgroundColor: c.inputBg,
+    borderColor: c.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  recoveryRequirement: {
+    color: c.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+  },
+  recoveryRequirementMet: {
+    color: '#9AE6B4',
+  },
   primaryButton: {
     minHeight: 48,
     borderRadius: 14,

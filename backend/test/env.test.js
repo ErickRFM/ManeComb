@@ -211,6 +211,31 @@ function testClientOriginFallbackForAppUrl() {
   console.log("ok - APP_URL usa CLIENT_ORIGIN publico antes de localhost");
 }
 
+function testPasswordResetPublicUrl() {
+  const explicit = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.PASSWORD_RESET_PUBLIC_URL!=='https://manecomb.com/reset-password') process.exit(2);"
+    ].join(""),
+    {
+      APP_URL: "https://legacy.example.test",
+      PASSWORD_RESET_PUBLIC_URL: "https://manecomb.com/reset-password"
+    }
+  );
+  assert.equal(explicit.status, 0, explicit.stderr || explicit.stdout);
+
+  const fallback = runEnvScript(
+    [
+      "const env=require('./src/config/env');",
+      "if(env.PASSWORD_RESET_PUBLIC_URL!=='https://legacy.example.test/reset-password') process.exit(2);"
+    ].join(""),
+    { APP_URL: "https://legacy.example.test/" },
+    ["PASSWORD_RESET_PUBLIC_URL"]
+  );
+  assert.equal(fallback.status, 0, fallback.stderr || fallback.stdout);
+  console.log("ok - PASSWORD_RESET_PUBLIC_URL explicita y fallback controlado");
+}
+
 function testRenderWebhookBaseUrlFallback() {
   const result = runEnvScript(
     [
@@ -330,6 +355,7 @@ testRejectsShortJwtSecret();
 testRenderRejectsMongoDerivedJwtSecret();
 testDeploymentEnvAliases();
 testClientOriginFallbackForAppUrl();
+testPasswordResetPublicUrl();
 testRenderWebhookBaseUrlFallback();
 testMercadoPagoProviderSelection();
 testProductionRejectsTestPaymentProvider();
