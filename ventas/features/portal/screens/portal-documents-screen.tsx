@@ -1,3 +1,6 @@
+export { DocumentsAdminScreen as PortalDocumentsScreen } from '../documents/portal-documents-admin';
+
+/* Implementación anterior conservada temporalmente como referencia de migración; no forma parte del módulo compilado.
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, Text, TextInput, View } from 'react-native';
@@ -16,6 +19,7 @@ import { usePortalStore } from '../store/use-portal-store';
 import { styles } from '../documents/documents.styles';
 import { getStatusMeta } from '../documents/documents.utils';
 import type { DocumentItem as ApiDocumentItem } from '@/src/types/app';
+import { DocumentsAdminScreen } from '../documents/portal-documents-admin';
 
 type DocumentItem = ApiDocumentItem & {
   ownerName?: string;
@@ -25,7 +29,9 @@ type DocumentItem = ApiDocumentItem & {
 
 const REVIEW_STATUS_OPTIONS = ['pending_review', 'approved', 'rejected'] as const;
 
-export function PortalDocumentsScreen() {
+export const PortalDocumentsScreen = DocumentsAdminScreen;
+
+function LegacyPortalDocumentsScreen() {
   const { user, vehicles } = useAppStore(
     useShallow((state) => ({
       user: state.user,
@@ -186,3 +192,4 @@ export function PortalDocumentsScreen() {
     </PortalLayout>
   );
 }
+*/

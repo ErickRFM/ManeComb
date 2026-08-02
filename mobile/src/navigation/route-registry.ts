@@ -31,6 +31,7 @@ const moduleRoutes: Record<string, RouteDefinition> = {
   '/checklist': { module: 'checklist', root: '/checklist', allowedRoles: CONTROL_ALLOWED_ROLES },
   '/perfil': { module: 'profile', root: '/perfil' },
   '/perfil-editar': { module: 'profile', root: '/perfil' },
+  '/mis-documentos': { module: 'profile', root: '/perfil' },
 };
 
 export function getRouteDefinition(routeName: string | undefined | null) {

@@ -602,6 +602,12 @@ export type DocumentItem = {
   reviewedAt?: string | null;
   reviewedBy?: string | null;
   reviewNotes?: string;
+  replacesDocumentId?: string | null;
+  supersededByDocumentId?: string | null;
+  version?: number;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  deleteReason?: string | null;
   owner?: { id: string; name?: string; code?: string } | null;
 };
 

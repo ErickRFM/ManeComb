@@ -480,14 +480,43 @@ export async function revokeAccountSessionRequest(sessionId: string) {
   await apiClient.delete(`/account/sessions/${encodeURIComponent(sessionId)}`);
 }
 
-export async function getDocumentsRequest() {
-  return await unwrapData<DocumentItem[]>(apiClient.get('/documents/admin'));
+export async function getDocumentsRequest(includeDeleted = false) {
+  return await unwrapData<DocumentItem[]>(apiClient.get('/documents/admin', {
+    params: includeDeleted ? { includeDeleted: 'true' } : undefined,
+  }));
 }
 
 export async function reviewDocumentRequest(documentId: string, payload: { reviewStatus: string; reviewNotes?: string }) {
   return await unwrapData<DocumentItem>(
     apiClient.patch(`/documents/${encodeURIComponent(documentId)}/review`, payload)
   );
+}
+
+export async function updateDocumentRequest(documentId: string, payload: { name?: string; category?: string; expiresAt?: string }) {
+  return await unwrapData<DocumentItem>(apiClient.patch(`/documents/${encodeURIComponent(documentId)}`, payload));
+}
+
+export async function deleteDocumentRequest(documentId: string, reason: string) {
+  return await unwrapData<DocumentItem>(
+    apiClient.delete(`/documents/${encodeURIComponent(documentId)}`, { data: { deleteReason: reason } })
+  );
+}
+
+export async function getDocumentHistoryRequest(documentId: string) {
+  return await unwrapData<DocumentItem[]>(apiClient.get(`/documents/${encodeURIComponent(documentId)}/history`));
+}
+
+export async function downloadDocumentRequest(storageKey: string, suggestedName: string) {
+  const response = await apiClient.get<Blob>(`/documents/files/${encodeURIComponent(storageKey)}`, { responseType: 'blob' });
+  const objectUrl = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = suggestedName;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export function resolveDocumentUrl(storageKey: string) {

@@ -201,6 +201,64 @@ async function uploadDocumentAsset(file) {
   return await uploadToLocal(file);
 }
 
+async function deleteDocumentAsset(document, dependencies = {}) {
+  const storageKey = String(document?.storageKey || "").trim();
+  const storageType = String(document?.storageType || "").trim();
+
+  if (!storageKey || storageType === "seed") {
+    return { deleted: false, alreadyMissing: true };
+  }
+
+  if (storageType === "mongo_gridfs") {
+    try {
+      await (dependencies.gridFsBucket || ensureGridFsBucket()).delete(getMongoObjectId(storageKey));
+      return { deleted: true, alreadyMissing: false };
+    } catch (error) {
+      if (error?.code === 26 || /FileNotFound/i.test(String(error?.name || error?.message || ""))) {
+        return { deleted: false, alreadyMissing: true };
+      }
+      throw error;
+    }
+  }
+
+  if (storageType === "cloudinary") {
+    const cloudinaryClient = dependencies.cloudinaryClient || cloudinary;
+    if (!dependencies.cloudinaryClient) ensureCloudinary();
+    const resourceType = String(document?.mimeType || "").toLowerCase() === "application/pdf"
+      ? "raw"
+      : "image";
+    const result = await cloudinaryClient.uploader.destroy(storageKey, {
+      invalidate: true,
+      resource_type: resourceType,
+      type: "authenticated"
+    });
+
+    if (["ok", "not found"].includes(String(result?.result || "").toLowerCase())) {
+      return {
+        deleted: String(result?.result || "").toLowerCase() === "ok",
+        alreadyMissing: String(result?.result || "").toLowerCase() === "not found"
+      };
+    }
+
+    throw new Error("No fue posible eliminar el archivo del proveedor");
+  }
+
+  if (storageType === "local") {
+    const absolutePath = getLocalDocumentAbsolutePath(storageKey);
+    try {
+      await (dependencies.unlink || fs.promises.unlink)(absolutePath);
+      return { deleted: true, alreadyMissing: false };
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        return { deleted: false, alreadyMissing: true };
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Tipo de almacenamiento documental no compatible");
+}
+
 function getLocalDocumentAbsolutePath(storageKey) {
   const absolutePath = path.resolve(uploadDirectory, String(storageKey || "").trim());
   const safeRoot = `${uploadDirectory}${path.sep}`;
@@ -337,6 +395,7 @@ async function migrateLegacyLocalDocumentsToMongo() {
 }
 
 module.exports = {
+  deleteDocumentAsset,
   getDocumentDownloadAsset,
   getStorageMode,
   getStorageReadiness,
