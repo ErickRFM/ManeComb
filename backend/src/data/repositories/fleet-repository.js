@@ -2,9 +2,13 @@ const { StoreDomainRepository } = require("./store-domain-repository");
 
 const FLEET_METHODS = [
   "createVehicle",
+  "deleteUnusedVehicle",
   "getDashboardOverview",
+  "getVehicleLifecycleDependencies",
   "getOperationalInsights",
-  "getVehicleById"
+  "getVehicleById",
+  "listVehiclesForOrganization",
+  "retireVehicle"
 ];
 
 class FleetRepository extends StoreDomainRepository {

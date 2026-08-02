@@ -28,6 +28,7 @@ const {
   RouteModel,
   RouteSessionModel,
   RouteSessionPositionModel,
+  SessionModel,
   RefundOperationModel,
   TripLogModel,
   TrialEntitlementModel,
@@ -1475,6 +1476,7 @@ async function createMongoStore() {
       orderId: String(payload.orderId || "").trim() || null,
       status: payload.status || "available",
       usedByDriverId: payload.usedByDriverId || null,
+      usedByDriverState: payload.usedByDriverState || null,
       expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(),
       usedAt: payload.usedAt ? new Date(payload.usedAt) : null,
       sharedAt: payload.sharedAt ? new Date(payload.sharedAt) : null,
@@ -1484,6 +1486,84 @@ async function createMongoStore() {
     });
 
     return toPlain(activationKey);
+  }
+
+  async function runFleetLifecycleTransaction(work) {
+    const session = await CommercialLeadModel.db.startSession();
+    let result;
+
+    try {
+      await session.withTransaction(async () => {
+        result = await work(session);
+      });
+      return result;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async function lockFleetCapacity(orderId, organizationId, session) {
+    if (!orderId) return null;
+
+    return CommercialLeadModel.findOneAndUpdate(
+      {
+        _id: orderId,
+        organizationId: String(organizationId || "").trim()
+      },
+      { $inc: { fleetLifecycleVersion: 1 } },
+      { returnDocument: "after", session }
+    ).lean();
+  }
+
+  async function countReservedDriverSlots(organizationId, session) {
+    const now = new Date();
+    const [activeDrivers, availableKeys] = await Promise.all([
+      UserModel.countDocuments({
+        organizationId,
+        role: "driver",
+        userStatus: { $ne: "suspended" },
+        deletedAt: null
+      }).session(session),
+      ActivationKeyModel.countDocuments({
+        companyId: organizationId,
+        status: "available",
+        expiresAt: { $gt: now }
+      }).session(session)
+    ]);
+
+    return activeDrivers + availableKeys;
+  }
+
+  async function createActivationKeyWithinCapacity(payload, { maxDrivers } = {}) {
+    return runFleetLifecycleTransaction(async (session) => {
+      const companyId = String(payload.companyId || "").trim();
+      const order = await lockFleetCapacity(payload.orderId, companyId, session);
+
+      if (!order) return { capacityExceeded: true, activationKey: null };
+
+      const reservedSlots = await countReservedDriverSlots(companyId, session);
+      if (reservedSlots >= Math.max(0, Number(maxDrivers) || 0)) {
+        return { capacityExceeded: true, activationKey: null };
+      }
+
+      const [activationKey] = await ActivationKeyModel.create([
+        {
+          _id: String(payload.id || "").trim() || randomUUID(),
+          key: String(payload.key || "").trim().toUpperCase(),
+          companyId,
+          adminId: String(payload.adminId || "").trim(),
+          planId: String(payload.planId || "").trim(),
+          orderId: String(payload.orderId || "").trim() || null,
+          status: payload.status || "available",
+          usedByDriverId: payload.usedByDriverId || null,
+          usedByDriverState: payload.usedByDriverState || null,
+          expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(),
+          createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date()
+        }
+      ], { session });
+
+      return { capacityExceeded: false, activationKey: toPlain(activationKey) };
+    });
   }
 
   async function deleteActivationKey(activationKeyId) {
@@ -1529,6 +1609,7 @@ async function createMongoStore() {
         $set: {
           status: "used",
           usedByDriverId: String(driverId || "").trim() || null,
+          usedByDriverState: "active",
           usedAt: new Date()
         }
       },
@@ -1597,7 +1678,10 @@ async function createMongoStore() {
       driver: 2
     };
     const organizationId = getUserOrganizationId(currentUser);
-    const filter = canAccessAllOrganizations(currentUser) || !organizationId ? {} : { organizationId };
+    const filter = {
+      ...(canAccessAllOrganizations(currentUser) || !organizationId ? {} : { organizationId }),
+      deletedAt: null
+    };
 
     const users = await UserModel.find(filter).lean();
 
@@ -2383,6 +2467,7 @@ async function createMongoStore() {
     const [vehicles, routes, users] = await Promise.all([
       VehicleModel.find({
         ...getOrganizationQuery(user),
+        retiredAt: null,
         ...(user?.role === "driver" ? { _id: user.vehicleId } : {})
       }).lean(),
       RouteModel.find().lean(),
@@ -2772,6 +2857,334 @@ async function createMongoStore() {
     return toPlain(vehicle);
   }
 
+  async function listVehiclesForOrganization(organizationId, { includeRetired = false } = {}) {
+    const scope = String(organizationId || "").trim();
+    const vehicles = await VehicleModel.find({
+      organizationId: scope,
+      ...(includeRetired ? {} : { retiredAt: null })
+    }).sort({ updatedAt: -1 }).lean();
+    return Promise.all(vehicles.map((vehicle) => enrichVehicle(vehicle)));
+  }
+
+  async function getDriverLifecycleDependencies(userId, organizationId) {
+    const scope = String(organizationId || "").trim();
+    const user = await UserModel.findOne({ _id: userId, organizationId: scope }).lean();
+    if (!user) return null;
+
+    const vehicle = user.vehicleId
+      ? await VehicleModel.findOne({ _id: user.vehicleId, organizationId: scope }).lean()
+      : null;
+    const [activeSession, documentCount, historicalSessionCount, activeSessionCount] = await Promise.all([
+      vehicle
+        ? RouteSessionModel.findOne({ vehicleId: vehicle._id, organizationId: scope, status: { $in: ["RUNNING", "PAUSED"] } }).lean()
+        : null,
+      DocumentModel.countDocuments({ organizationId: scope, ownerType: "driver", ownerId: userId }),
+      RouteSessionModel.countDocuments({ organizationId: scope, driverId: userId }),
+      SessionModel.countDocuments({ userId, organizationId: scope, isActive: true, revokedAt: null })
+    ]);
+
+    return {
+      user: sanitizeUser(user),
+      vehicle: vehicle ? await enrichVehicle(vehicle) : null,
+      activeSession: toPlain(activeSession),
+      activeSessionCount,
+      documentCount,
+      historicalSessionCount
+    };
+  }
+
+  async function getVehicleLifecycleDependencies(vehicleId, organizationId) {
+    const scope = String(organizationId || "").trim();
+    const vehicle = await VehicleModel.findOne({ _id: vehicleId, organizationId: scope }).lean();
+    if (!vehicle) return null;
+
+    const [driver, activeSession, routeSessionCount, positionCount, documentCount, incidentCount, tripLogCount] = await Promise.all([
+      vehicle.driverId ? UserModel.findOne({ _id: vehicle.driverId, organizationId: scope }).lean() : null,
+      RouteSessionModel.findOne({ vehicleId, organizationId: scope, status: { $in: ["RUNNING", "PAUSED"] } }).lean(),
+      RouteSessionModel.countDocuments({ vehicleId, organizationId: scope }),
+      RouteSessionPositionModel.countDocuments({ vehicleId }),
+      DocumentModel.countDocuments({ organizationId: scope, ownerType: "vehicle", ownerId: vehicleId }),
+      IncidentModel.countDocuments({ organizationId: scope, vehicleId }),
+      TripLogModel.countDocuments({ organizationId: scope, vehicleId })
+    ]);
+
+    return {
+      vehicle: await enrichVehicle(vehicle),
+      driver: sanitizeUser(driver),
+      activeSession: toPlain(activeSession),
+      routeSessionCount,
+      positionCount,
+      documentCount,
+      incidentCount,
+      tripLogCount
+    };
+  }
+
+  async function changeDriverVehicle({ organizationId, userId, vehicleId = null }) {
+    const scope = String(organizationId || "").trim();
+
+    return runFleetLifecycleTransaction(async (session) => {
+      const user = await UserModel.findOneAndUpdate(
+        {
+          _id: userId,
+          organizationId: scope,
+          role: "driver",
+          userStatus: { $ne: "suspended" },
+          deletedAt: null
+        },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!user) return { ok: false, code: "not_found" };
+
+      const previousVehicleId = user.vehicleId || null;
+      const previousVehicle = previousVehicleId
+        ? await VehicleModel.findOne({ _id: previousVehicleId, organizationId: scope }).session(session).lean()
+        : null;
+      if (previousVehicleId) {
+        const activeSession = await RouteSessionModel.findOne({
+          vehicleId: previousVehicleId,
+          organizationId: scope,
+          status: { $in: ["RUNNING", "PAUSED"] }
+        }).session(session).lean();
+        if (activeSession) return { ok: false, code: "active_session" };
+      }
+
+      if (vehicleId === previousVehicleId) {
+        return {
+          ok: true,
+          changed: false,
+          user: sanitizeUser(user),
+          previousVehicle: toPlain(previousVehicle),
+          vehicle: toPlain(previousVehicle)
+        };
+      }
+
+      let nextVehicle = null;
+      if (vehicleId) {
+        nextVehicle = await VehicleModel.findOneAndUpdate(
+          {
+            _id: vehicleId,
+            organizationId: scope,
+            retiredAt: null,
+            status: "available",
+            $or: [{ driverId: null }, { driverId: { $exists: false } }]
+          },
+          {
+            $set: { driverId: userId, status: "assigned", updatedAt: new Date() },
+            $inc: { fleetLifecycleVersion: 1 }
+          },
+          { returnDocument: "after", session }
+        ).lean();
+        if (!nextVehicle) return { ok: false, code: "vehicle_taken" };
+      }
+
+      if (previousVehicleId && previousVehicleId !== vehicleId) {
+        await VehicleModel.updateOne(
+          { _id: previousVehicleId, organizationId: scope, driverId: userId },
+          {
+            $set: { driverId: null, status: "available", updatedAt: new Date() },
+            $inc: { fleetLifecycleVersion: 1 }
+          },
+          { session }
+        );
+      }
+      await UserModel.updateOne(
+        { _id: userId, organizationId: scope },
+        { $set: { vehicleId: vehicleId || null } },
+        { session }
+      );
+
+      return {
+        ok: true,
+        changed: true,
+        user: sanitizeUser({ ...user, vehicleId: vehicleId || null }),
+        previousVehicle: toPlain(previousVehicle),
+        vehicle: toPlain(nextVehicle)
+      };
+    });
+  }
+
+  async function offboardDriverState({ actorId, organizationId, orderId, reason, userId }) {
+    const scope = String(organizationId || "").trim();
+
+    return runFleetLifecycleTransaction(async (session) => {
+      if (orderId && !(await lockFleetCapacity(orderId, scope, session))) {
+        return { ok: false, code: "plan_inactive" };
+      }
+      const user = await UserModel.findOneAndUpdate(
+        { _id: userId, organizationId: scope, role: "driver", deletedAt: null },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!user) return { ok: false, code: "not_found" };
+
+      const vehicle = user.vehicleId
+        ? await VehicleModel.findOne({ _id: user.vehicleId, organizationId: scope }).session(session).lean()
+        : null;
+      if (vehicle) {
+        const activeSession = await RouteSessionModel.findOne({
+          vehicleId: vehicle._id,
+          organizationId: scope,
+          status: { $in: ["RUNNING", "PAUSED"] }
+        }).session(session).lean();
+        if (activeSession) return { ok: false, code: "active_session" };
+      }
+
+      const alreadyOffboarded = user.userStatus === "suspended" && !user.vehicleId;
+      if (vehicle?.driverId === userId) {
+        await VehicleModel.updateOne(
+          { _id: vehicle._id, organizationId: scope, driverId: userId },
+          {
+            $set: { driverId: null, status: "available", updatedAt: new Date() },
+            $inc: { fleetLifecycleVersion: 1 }
+          },
+          { session }
+        );
+      }
+
+      const now = new Date();
+      const updates = {
+        vehicleId: null,
+        userStatus: "suspended",
+        status: "offline",
+        suspendedAt: user.suspendedAt || now,
+        offboardedAt: user.offboardedAt || now,
+        offboardedBy: user.offboardedBy || actorId || null,
+        offboardReason: user.offboardReason || String(reason || "").trim()
+      };
+      if (!alreadyOffboarded) updates.accountStatusVersion = Number(user.accountStatusVersion || 0) + 1;
+      await UserModel.updateOne({ _id: userId, organizationId: scope }, { $set: updates }, { session });
+
+      return {
+        ok: true,
+        changed: !alreadyOffboarded,
+        user: sanitizeUser({ ...user, ...updates }),
+        releasedVehicle: vehicle ? { ...toPlain(vehicle), driverId: null, status: "available" } : null
+      };
+    });
+  }
+
+  async function reactivateDriverWithinCapacity({ organizationId, orderId, userId, maxDrivers }) {
+    const scope = String(organizationId || "").trim();
+
+    return runFleetLifecycleTransaction(async (session) => {
+      if (!(await lockFleetCapacity(orderId, scope, session))) return { ok: false, code: "plan_inactive" };
+      const user = await UserModel.findOneAndUpdate(
+        { _id: userId, organizationId: scope, role: "driver", deletedAt: null },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!user) return { ok: false, code: "not_found" };
+      if (user.userStatus !== "suspended") return { ok: true, changed: false, user: sanitizeUser(user) };
+
+      const reservedSlots = await countReservedDriverSlots(scope, session);
+      if (reservedSlots >= Math.max(0, Number(maxDrivers) || 0)) return { ok: false, code: "capacity" };
+
+      const updates = {
+        userStatus: "active",
+        status: "offline",
+        vehicleId: null,
+        suspendedAt: null,
+        reactivatedAt: new Date(),
+        accountStatusVersion: Number(user.accountStatusVersion || 0) + 1
+      };
+      await UserModel.updateOne({ _id: userId, organizationId: scope }, { $set: updates }, { session });
+      return { ok: true, changed: true, user: sanitizeUser({ ...user, ...updates }) };
+    });
+  }
+
+  async function deleteDriverSafely({ actorId, organizationId, reason, userId }) {
+    const scope = String(organizationId || "").trim();
+    return runFleetLifecycleTransaction(async (session) => {
+      const user = await UserModel.findOneAndUpdate(
+        { _id: userId, organizationId: scope, role: "driver", deletedAt: null },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!user) return { ok: false, code: "not_found" };
+      if (user.userStatus !== "suspended") return { ok: false, code: "not_suspended" };
+      if (user.vehicleId) return { ok: false, code: "vehicle_assigned" };
+
+      const activeSession = await RouteSessionModel.findOne({
+        driverId: userId,
+        organizationId: scope,
+        status: { $in: ["RUNNING", "PAUSED"] }
+      }).session(session).lean();
+      if (activeSession) return { ok: false, code: "active_session" };
+
+      const updates = {
+        deletedAt: new Date(),
+        deletedBy: actorId || null,
+        deleteReason: String(reason || "").trim(),
+        status: "offline"
+      };
+      await UserModel.updateOne({ _id: userId, organizationId: scope }, { $set: updates }, { session });
+      return { ok: true, user: sanitizeUser({ ...user, ...updates }) };
+    });
+  }
+
+  async function retireVehicle({ actorId, organizationId, reason, vehicleId }) {
+    const scope = String(organizationId || "").trim();
+    return runFleetLifecycleTransaction(async (session) => {
+      const vehicle = await VehicleModel.findOneAndUpdate(
+        { _id: vehicleId, organizationId: scope },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!vehicle) return { ok: false, code: "not_found" };
+      if (vehicle.retiredAt) return { ok: true, changed: false, vehicle: toPlain(vehicle) };
+      if (vehicle.driverId) return { ok: false, code: "driver_assigned" };
+      if (vehicle.routeId || vehicle.assignedRoute) return { ok: false, code: "route_assigned" };
+      const activeSession = await RouteSessionModel.findOne({
+        vehicleId,
+        organizationId: scope,
+        status: { $in: ["RUNNING", "PAUSED"] }
+      }).session(session).lean();
+      if (activeSession) return { ok: false, code: "active_session" };
+
+      const updates = {
+        status: "retired",
+        retiredAt: new Date(),
+        retiredBy: actorId || null,
+        retirementReason: String(reason || "").trim(),
+        updatedAt: new Date()
+      };
+      await VehicleModel.updateOne({ _id: vehicleId, organizationId: scope }, { $set: updates }, { session });
+      return { ok: true, changed: true, vehicle: { ...toPlain(vehicle), ...updates } };
+    });
+  }
+
+  async function deleteUnusedVehicle({ organizationId, vehicleId }) {
+    const scope = String(organizationId || "").trim();
+    return runFleetLifecycleTransaction(async (session) => {
+      const vehicle = await VehicleModel.findOneAndUpdate(
+        { _id: vehicleId, organizationId: scope },
+        { $inc: { fleetLifecycleVersion: 1 } },
+        { returnDocument: "after", session }
+      ).lean();
+      if (!vehicle) return { ok: false, code: "not_found" };
+
+      const [activeSession, routeSessionCount, positionCount, documentCount, incidentCount, tripLogCount] = await Promise.all([
+        RouteSessionModel.findOne({ vehicleId, organizationId: scope, status: { $in: ["RUNNING", "PAUSED"] } }).session(session).lean(),
+        RouteSessionModel.countDocuments({ vehicleId, organizationId: scope }).session(session),
+        RouteSessionPositionModel.countDocuments({ vehicleId }).session(session),
+        DocumentModel.countDocuments({ organizationId: scope, ownerType: "vehicle", ownerId: vehicleId }).session(session),
+        IncidentModel.countDocuments({ organizationId: scope, vehicleId }).session(session),
+        TripLogModel.countDocuments({ organizationId: scope, vehicleId }).session(session)
+      ]);
+      if (
+        vehicle.driverId || vehicle.routeId || vehicle.assignedRoute || activeSession ||
+        routeSessionCount + positionCount + documentCount + incidentCount + tripLogCount > 0
+      ) {
+        return { ok: false, code: "has_dependencies" };
+      }
+
+      await VehicleModel.deleteOne({ _id: vehicleId, organizationId: scope }, { session });
+      return { ok: true, vehicle: toPlain(vehicle) };
+    });
+  }
+
   async function updateVehicle(vehicleId, payload) {
     const updates = {};
 
@@ -2804,9 +3217,8 @@ async function createMongoStore() {
     if (updates.status === "maintenance") {
       const currentVehicle = await VehicleModel.findById(vehicleId).lean();
       if (currentVehicle?.driverId) {
-        await UserModel.updateOne({ _id: currentVehicle.driverId }, { $set: { vehicleId: null } });
+        throw new Error("Libera al conductor antes de poner la unidad en mantenimiento");
       }
-      updates.driverId = null;
     }
 
     let vehicle;
@@ -3922,12 +4334,15 @@ async function createMongoStore() {
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,
+    createActivationKeyWithinCapacity,
     deleteActivationKey,
     createNotification,
     createCommercialOrder,
     createIncident,
     createVehicle,
     createUser,
+    deleteDriverSafely,
+    deleteUnusedVehicle,
     deleteUser,
     ensureDirectConversation,
     ensureGeneralConversation,
@@ -3949,6 +4364,8 @@ async function createMongoStore() {
     getUserE2eeBackup,
     getUserProfile,
     getVehicleById,
+    getDriverLifecycleDependencies,
+    getVehicleLifecycleDependencies,
     listActivationKeysForCompany,
     listChatContactsForUser,
     listDocuments,
@@ -3956,10 +4373,15 @@ async function createMongoStore() {
     listPushSubscriptionsForRoles,
     listPushSubscriptionsForUsers,
     listTripLogs,
+    listVehiclesForOrganization,
     listUsers,
     markActivationKeyUsed,
     claimVehicleForDriver,
+    changeDriverVehicle,
+    offboardDriverState,
+    reactivateDriverWithinCapacity,
     releaseVehicleFromDriver,
+    retireVehicle,
     markNotificationAsRead,
     markConversationMessageDelivered,
     markConversationMessageRead,

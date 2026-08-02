@@ -1,16 +1,21 @@
 import { router } from '@/src/navigation/router';
 import { useEffect, useMemo, useState } from 'react';
+import { Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
+import { palette } from '@/constants/theme';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
+import { getVehicleLifecycleImpactRequest } from '@/src/api/client';
 import { useAppStore } from '@/src/store/use-app-store';
-import type { Vehicle, VehicleMutationPayload, VehicleStatus } from '@/src/types/app';
+import type { Vehicle, VehicleLifecycleImpact, VehicleMutationPayload, VehicleStatus } from '@/src/types/app';
 import { PortalLayout } from '../components/portal-layout';
-import { portalButtonGradient } from '../portal-theme';
+import { PortalButton } from '../components/portal-button';
+import { PortalSectionCard } from '../cards';
 import { PortalUnitForm } from '../units/components/portal-unit-form';
 import { PortalUnitsContinuityBanner } from '../units/components/portal-units-continuity-banner';
 import { PortalUnitsList } from '../units/components/portal-units-list';
 import type { UnitEditor } from '../units/units.types';
 import { createBlankEditor } from '../units/units.utils';
+import { styles } from '../units/units.styles';
 
 export function PortalUnitsScreen() {
   const {
@@ -19,6 +24,7 @@ export function PortalUnitsScreen() {
     isSubmitting,
     loadVehicles,
     updateVehicle,
+    retireVehicle,
     user,
     vehicles,
   } = useAppStore(
@@ -28,6 +34,7 @@ export function PortalUnitsScreen() {
       isSubmitting: state.isSubmitting,
       loadVehicles: state.loadVehicles,
       updateVehicle: state.updateVehicle,
+      retireVehicle: state.retireVehicle,
       user: state.user,
       vehicles: state.vehicles,
     }))
@@ -39,15 +46,31 @@ export function PortalUnitsScreen() {
   const [showCreationBanner, setShowCreationBanner] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Vehicle | null>(null);
+  const [lifecycleImpact, setLifecycleImpact] = useState<VehicleLifecycleImpact | null>(null);
+  const [retirementReason, setRetirementReason] = useState('Renovacion de flota');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'assigned' | 'maintenance'>('all');
+  const [showRetired, setShowRetired] = useState(false);
 
   useEffect(() => {
     void loadVehicles();
   }, [loadVehicles]);
 
-  const sortedVehicles = useMemo(
-    () => [...vehicles].sort((left, right) => String(left.code || '').localeCompare(String(right.code || ''))),
-    [vehicles]
-  );
+  const sortedVehicles = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return [...vehicles]
+      .filter((vehicle) => showRetired || !vehicle.retiredAt)
+      .filter((vehicle) => !term || `${vehicle.code} ${vehicle.plate}`.toLowerCase().includes(term))
+      .filter((vehicle) => statusFilter === 'all' || (statusFilter === 'assigned' ? Boolean(vehicle.driverId) : vehicle.status === statusFilter))
+      .sort((left, right) => String(left.code || '').localeCompare(String(right.code || '')));
+  }, [search, showRetired, statusFilter, vehicles]);
+  const unitSummary = useMemo(() => ({
+    total: vehicles.length,
+    available: vehicles.filter((item) => !item.retiredAt && !item.driverId && item.status === 'available').length,
+    assigned: vehicles.filter((item) => !item.retiredAt && Boolean(item.driverId)).length,
+    maintenance: vehicles.filter((item) => !item.retiredAt && item.status === 'maintenance').length,
+    retired: vehicles.filter((item) => Boolean(item.retiredAt)).length,
+  }), [vehicles]);
   const setField = <T extends keyof UnitEditor>(field: T, value: UnitEditor[T]) => {
     setEditor((current) => ({ ...current, [field]: value }));
   };
@@ -135,6 +158,17 @@ export function PortalUnitsScreen() {
     if (!editingId) setShowCreationBanner(true);
   };
 
+  const prepareVehicleLifecycle = async (vehicle: Vehicle) => {
+    setDeleteTarget(vehicle);
+    setLifecycleImpact(null);
+    setRetirementReason('Renovacion de flota');
+    try {
+      setLifecycleImpact(await getVehicleLifecycleImpactRequest(vehicle.id));
+    } catch {
+      setMessage('No fue posible cargar las dependencias de la unidad.');
+    }
+  };
+
   return (
     <PortalLayout title="Unidades" subtitle="Alta y estado administrativo de las unidades reales de la empresa.">
       {canManageUnits ? (
@@ -157,10 +191,53 @@ export function PortalUnitsScreen() {
         <PortalUnitsContinuityBanner onAssignRoute={() => router.push('/portal/rutas' as never)} />
       ) : null}
 
+      <PortalSectionCard compact title="Resumen de flota" subtitle="Estado administrativo y operativo de las unidades.">
+        <View style={styles.summaryGrid}>
+          {[
+            ['Total', unitSummary.total],
+            ['Disponibles', unitSummary.available],
+            ['Asignadas', unitSummary.assigned],
+            ['Mantenimiento', unitSummary.maintenance],
+            ['Retiradas', unitSummary.retired],
+          ].map(([label, value]) => (
+            <View key={String(label)} style={[styles.summaryItem, { borderColor: palette.line, backgroundColor: palette.surfaceAlt }]}>
+              <Text style={[styles.unitMeta, { color: palette.muted }]}>{label}</Text>
+              <Text style={[styles.summaryValue, { color: palette.text }]}>{value}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.filterBar}>
+          <TextInput
+            accessibilityLabel="Buscar unidad"
+            placeholder="Buscar por codigo o placas"
+            placeholderTextColor={palette.muted}
+            value={search}
+            onChangeText={setSearch}
+            style={[styles.input, { borderColor: palette.line, color: palette.text, backgroundColor: palette.surface }]}
+          />
+          {(['all', 'available', 'assigned', 'maintenance'] as const).map((filter) => (
+            <PortalButton key={filter} onPress={() => setStatusFilter(filter)} size="sm" variant={statusFilter === filter ? 'primary' : 'secondary'}>
+              {filter === 'all' ? 'Todas' : filter === 'available' ? 'Disponibles' : filter === 'assigned' ? 'Asignadas' : 'Mantenimiento'}
+            </PortalButton>
+          ))}
+          <PortalButton
+            onPress={() => {
+              const next = !showRetired;
+              setShowRetired(next);
+              if (next) void loadVehicles({ includeRetired: true });
+              else setStatusFilter('all');
+            }}
+            size="sm"
+            variant={showRetired ? 'primary' : 'secondary'}>
+            Mostrar retiradas
+          </PortalButton>
+        </View>
+      </PortalSectionCard>
+
       <PortalUnitsList
         canManageUnits={canManageUnits}
         onContinueToRoutes={() => router.push('/portal/rutas' as never)}
-        onDelete={setDeleteTarget}
+        onDelete={(vehicle) => void prepareVehicleLifecycle(vehicle)}
         onEdit={startEdit}
         vehicles={sortedVehicles}
       />
@@ -168,29 +245,60 @@ export function PortalUnitsScreen() {
       <ConfirmModal
         visible={Boolean(deleteTarget)}
         destructive
-        title={`Eliminar unidad "${deleteTarget?.code || ''}"`}
-        description={
-          deleteTarget
-            ? (deleteTarget.driverId
-                ? `No es posible eliminar esta unidad porque tiene un conductor asignado. Desasigne el conductor antes de continuar.`
-                : deleteTarget.routeId || deleteTarget.assignedRoute
-                  ? `No es posible eliminar esta unidad porque tiene una ruta asignada. Desasigne la ruta antes de continuar.`
-                  : `Esta acción eliminará la unidad "${deleteTarget.code}" (${deleteTarget.plate}) del catálogo.`)
-            : ''
-        }
-        confirmLabel="Eliminar"
+        title={`Preparar unidad ${deleteTarget?.code || ''} para retiro`}
+        description={lifecycleImpact?.mustRetire
+          ? 'Esta unidad conserva historial y se retirara sin borrar su evidencia.'
+          : 'Revisa las dependencias antes de eliminar o retirar la unidad.'}
+        confirmLabel={lifecycleImpact?.canDeletePermanently ? 'Eliminar sin historial' : 'Retirar unidad'}
         processing={isSubmitting}
         onCancel={() => {
           setDeleteTarget(null);
+          setLifecycleImpact(null);
           setMessage(null);
         }}
         onConfirm={async () => {
           if (!deleteTarget) return;
-          const result = await deleteVehicle(deleteTarget.id);
-          setMessage(result.ok ? 'Unidad eliminada.' : result.message || 'No fue posible eliminar la unidad.');
+          if (!lifecycleImpact?.canDeletePermanently && !lifecycleImpact?.canRetire) {
+            setMessage('Resuelve primero la jornada, el conductor y la ruta indicados.');
+            return;
+          }
+          const result = lifecycleImpact.canDeletePermanently
+            ? await deleteVehicle(deleteTarget.id)
+            : await retireVehicle(deleteTarget.id, retirementReason);
+          setMessage(result.ok
+            ? lifecycleImpact.canDeletePermanently ? 'Unidad eliminada sin historial.' : 'Unidad retirada; su historial permanece disponible.'
+            : result.message || 'No fue posible completar el retiro.');
           if (result.ok) setDeleteTarget(null);
-        }}
-      />
+        }}>
+        {lifecycleImpact ? <View style={styles.checklist}>
+          <Text style={[styles.unitMeta, { color: lifecycleImpact.activeRouteSession ? palette.danger : palette.success }]}>
+            {lifecycleImpact.activeRouteSession ? '!' : '✓'} Jornada finalizada
+          </Text>
+          <Text style={[styles.unitMeta, { color: lifecycleImpact.driver ? palette.danger : palette.success }]}>
+            {lifecycleImpact.driver ? '!' : '✓'} Conductor liberado
+          </Text>
+          <Text style={[styles.unitMeta, { color: lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? palette.danger : palette.success }]}>
+            {lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? '!' : '✓'} Ruta desasignada
+          </Text>
+          <Text style={[styles.unitMeta, { color: palette.muted }]}>✓ Documentos identificados: {lifecycleImpact.documents.count}</Text>
+          <Text style={[styles.unitMeta, { color: palette.muted }]}>✓ Registros historicos: {lifecycleImpact.history.total}</Text>
+          {lifecycleImpact.actionsRequired.length ? <View style={styles.filterBar}>
+            {lifecycleImpact.driver ? <PortalButton onPress={() => router.push('/portal/usuarios' as never)} size="sm" variant="secondary">Liberar conductor</PortalButton> : null}
+            {lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? <PortalButton onPress={() => router.push('/portal/rutas' as never)} size="sm" variant="secondary">Desasignar ruta</PortalButton> : null}
+            {lifecycleImpact.activeRouteSession ? <PortalButton onPress={() => router.push('/portal' as never)} size="sm" variant="secondary">Abrir jornada</PortalButton> : null}
+          </View> : null}
+          {!lifecycleImpact.canDeletePermanently ? (
+            <TextInput
+              accessibilityLabel="Motivo de retiro"
+              placeholder="Motivo de retiro"
+              placeholderTextColor={palette.muted}
+              value={retirementReason}
+              onChangeText={setRetirementReason}
+              style={[styles.input, { borderColor: palette.line, color: palette.text, backgroundColor: palette.surface }]}
+            />
+          ) : null}
+        </View> : <Text style={[styles.unitMeta, { color: palette.muted }]}>Cargando impacto...</Text>}
+      </ConfirmModal>
     </PortalLayout>
   );
 }

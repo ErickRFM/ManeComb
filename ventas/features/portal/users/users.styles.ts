@@ -192,4 +192,24 @@ export const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
   },
+  lifecycleActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: AppTheme.spacing.sm,
+  },
+  lifecycleInfo: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    gap: AppTheme.spacing.xs,
+    padding: AppTheme.spacing.sm,
+  },
+  lifecycleInput: {
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    fontFamily: Typography.body,
+    fontSize: 13,
+    minHeight: 42,
+    paddingHorizontal: AppTheme.spacing.sm,
+    paddingVertical: AppTheme.spacing.sm,
+  },
 });

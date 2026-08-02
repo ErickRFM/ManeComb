@@ -10,6 +10,15 @@ const {
 } = require("../../middlewares/access-control");
 const { revokeAllSessions } = require("../../services/sessions");
 const {
+  DriverLifecycleError,
+  changeDriverVehicle,
+  deleteDriverSafely,
+  offboardDriver,
+  previewDriverLifecycleImpact,
+  reactivateDriver,
+  releaseDriverVehicle
+} = require("../../services/driver-lifecycle");
+const {
   sendAccountLifecycleEmail,
   sendSecurityChangeEmail,
   sendWelcomeEmail
@@ -71,6 +80,36 @@ function emitOrganizationEvent(req, eventName, payload) {
   }
 }
 
+function handleLifecycleError(res, next, error) {
+  if (error instanceof DriverLifecycleError) {
+    return res.status(error.statusCode).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { data: error.details } : {})
+    });
+  }
+  return next(error);
+}
+
+function emitDriverLifecycle(req, eventName, result) {
+  const organizationId = getOrganizationId(req.user);
+  const payload = {
+    user: result.user,
+    vehicle: result.vehicle || result.releasedVehicle || null,
+    previousVehicle: result.previousVehicle || null,
+    capacity: result.capacity?.summary || null,
+    organizationId,
+    updatedAt: new Date().toISOString()
+  };
+  emitOrganizationEvent(req, eventName, payload);
+  if (payload.vehicle) emitOrganizationEvent(req, "vehicle:updated", payload);
+  if (payload.previousVehicle && payload.previousVehicle.id !== payload.vehicle?.id) {
+    emitOrganizationEvent(req, "vehicle:updated", { ...payload, vehicle: payload.previousVehicle });
+  }
+  if (result.capacity) emitOrganizationEvent(req, "activation:summary-updated", payload);
+}
+
 async function recordAudit(req, payload) {
   await req.app.locals.store.recordAppEvent?.({
     ...payload,
@@ -119,6 +158,9 @@ router.patch("/me", authenticate, async (req, res, next) => {
       data: user
     });
   } catch (error) {
+    if (error instanceof DriverLifecycleError) {
+      return handleLifecycleError(res, next, error);
+    }
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
     error.statusCode = isConflict ? 409 : 400;
@@ -186,11 +228,79 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       data: user
     });
   } catch (error) {
+    if (error instanceof DriverLifecycleError) {
+      return handleLifecycleError(res, next, error);
+    }
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
     error.statusCode = isConflict ? 409 : 400;
     error.publicMessage = "No fue posible crear el usuario";
     return next(error);
+  }
+});
+
+router.get("/:userId/lifecycle-impact", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
+  try {
+    const data = await previewDriverLifecycleImpact(req.app.locals.store, {
+      organizationId: getOrganizationId(req.user),
+      userId: req.params.userId
+    });
+    return res.json({ ok: true, data });
+  } catch (error) {
+    return handleLifecycleError(res, next, error);
+  }
+});
+
+router.post("/:userId/offboard", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
+  try {
+    const data = await offboardDriver(req.app.locals.store, {
+      actor: req.user,
+      actorId: req.user.id,
+      organizationId: getOrganizationId(req.user),
+      reason: req.body?.reason,
+      releaseVehicle: req.body?.releaseVehicle === true,
+      userId: req.params.userId
+    });
+
+    await recordAudit(req, {
+      type: "driver_offboarded",
+      entityId: data.user.id,
+      message: "Conductor dado de baja",
+      metadata: {
+        targetUserId: data.user.id,
+        vehicleId: data.releasedVehicle?.id || null,
+        reason: String(req.body?.reason || "").trim()
+      }
+    });
+    emitDriverLifecycle(req, "driver:offboarded", data);
+    if (data.changed) await sendAccountLifecycleEmail(data.user, "ACCOUNT_SUSPENDED");
+
+    return res.json({ ok: true, data });
+  } catch (error) {
+    return handleLifecycleError(res, next, error);
+  }
+});
+
+router.post("/:userId/reactivate", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
+  try {
+    const data = await reactivateDriver(req.app.locals.store, {
+      actor: req.user,
+      organizationId: getOrganizationId(req.user),
+      userId: req.params.userId
+    });
+
+    await recordAudit(req, {
+      type: "driver_reactivated",
+      entityId: data.user.id,
+      message: "Conductor reactivado",
+      metadata: { targetUserId: data.user.id }
+    });
+    emitDriverLifecycle(req, "driver:reactivated", data);
+    if (data.changed) await sendAccountLifecycleEmail(data.user, "ACCOUNT_REACTIVATED");
+
+    return res.json({ ok: true, data });
+  } catch (error) {
+    return handleLifecycleError(res, next, error);
   }
 });
 
@@ -207,17 +317,22 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
 
     const targetUser = scopedUsers.find((entry) => entry.id === req.params.userId);
     const payload = pickFields(req.body, MANAGED_USER_FIELDS);
+    const hasVehicleTransition = Object.prototype.hasOwnProperty.call(payload, "vehicleId");
+    const requestedVehicleId = hasVehicleTransition ? payload.vehicleId || null : targetUser.vehicleId;
+    delete payload.vehicleId;
 
-    if (Object.prototype.hasOwnProperty.call(payload, "vehicleId") && payload.vehicleId !== targetUser.vehicleId) {
-      const affectedVehicleIds = [...new Set([targetUser.vehicleId, payload.vehicleId].filter(Boolean))];
-      for (const vehicleId of affectedVehicleIds) {
-        if (await req.app.locals.store.getActiveRouteSession(vehicleId)) {
-          return res.status(409).json({
-            ok: false,
-            message: "Finaliza la jornada activa antes de cambiar el chofer"
-          });
-        }
-      }
+    if (
+      targetUser.role === "driver" &&
+      typeof payload.userStatus === "string" &&
+      payload.userStatus !== targetUser.userStatus
+    ) {
+      return res.status(409).json({
+        ok: false,
+        code: "EXPLICIT_LIFECYCLE_ACTION_REQUIRED",
+        message: payload.userStatus === "suspended"
+          ? "Usa la acción Dar de baja para suspender al conductor de forma segura."
+          : "Usa la acción Reactivar para validar el cupo del plan."
+      });
     }
 
     if (payload.role === "driver" && targetUser.role !== "driver") {
@@ -231,32 +346,24 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       delete payload.accountType;
     }
 
-    if (payload.vehicleId) {
-      const vehicle = await req.app.locals.store.getVehicleById(payload.vehicleId);
+    let user = Object.keys(payload).length
+      ? await req.app.locals.store.updateUser(req.params.userId, payload)
+      : targetUser;
 
-      if (!vehicle || !canAccessTenantResource(req.user, vehicle)) {
-        return res.status(404).json({
-          ok: false,
-          message: "Unidad no encontrada"
-        });
-      }
-
-      if (vehicle.status === "maintenance") {
-        return res.status(409).json({
-          ok: false,
-          message: "La unidad esta en mantenimiento"
-        });
-      }
-
-      if (vehicle.driverId && vehicle.driverId !== targetUser.id) {
-        return res.status(409).json({
-          ok: false,
-          message: "La unidad ya esta asignada"
-        });
-      }
+    let vehicleTransition = null;
+    if (hasVehicleTransition && requestedVehicleId !== targetUser.vehicleId) {
+      vehicleTransition = requestedVehicleId
+        ? await changeDriverVehicle(req.app.locals.store, {
+            organizationId: getOrganizationId(req.user),
+            userId: targetUser.id,
+            vehicleId: requestedVehicleId
+          })
+        : await releaseDriverVehicle(req.app.locals.store, {
+            organizationId: getOrganizationId(req.user),
+            userId: targetUser.id
+          });
+      user = vehicleTransition.user;
     }
-
-    const user = await req.app.locals.store.updateUser(req.params.userId, payload);
 
     if (!user) {
       return res.status(404).json({
@@ -301,23 +408,17 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       await sendSecurityChangeEmail(user, "EMAIL_CHANGED");
     }
 
-    if (Object.prototype.hasOwnProperty.call(payload, "vehicleId") && payload.vehicleId !== targetUser.vehicleId) {
-      const affectedVehicleIds = [...new Set([targetUser.vehicleId, payload.vehicleId].filter(Boolean))];
-      for (const vehicleId of affectedVehicleIds) {
-        const affectedVehicle = await req.app.locals.store.getVehicleById(vehicleId);
-        if (affectedVehicle) {
-          const orgId = String(affectedVehicle.organizationId || getOrganizationId(req.user)).trim();
-          if (orgId) {
-            getRolesWithPermission("canViewAnalytics").forEach((role) => {
-              req.app.locals.io?.to(`org:${orgId}:role:${role}`).emit("location:updated", affectedVehicle);
-            });
-            if (affectedVehicle.driverId) {
-              req.app.locals.io?.to(`user:${affectedVehicle.driverId}`).emit("location:updated", affectedVehicle);
-            }
-            req.app.locals.io?.to("platform:admin").emit("location:updated", affectedVehicle);
-          }
+    if (vehicleTransition) {
+      await recordAudit(req, {
+        type: requestedVehicleId ? "driver_vehicle_changed" : "driver_vehicle_released",
+        entityId: user.id,
+        message: requestedVehicleId ? "Unidad del conductor actualizada" : "Unidad del conductor liberada",
+        metadata: {
+          previousVehicleId: vehicleTransition.previousVehicle?.id || targetUser.vehicleId || null,
+          vehicleId: vehicleTransition.vehicle?.id || null
         }
-      }
+      });
+      emitDriverLifecycle(req, requestedVehicleId ? "user:updated" : "vehicle:released", vehicleTransition);
     }
 
     return res.json({
@@ -325,6 +426,9 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
       data: user
     });
   } catch (error) {
+    if (error instanceof DriverLifecycleError) {
+      return handleLifecycleError(res, next, error);
+    }
     const conflictMessages = ["El correo ya existe", "El RFC ya esta registrado"];
     const isConflict = conflictMessages.some((msg) => error.message === msg);
     error.statusCode = isConflict ? 409 : 400;
@@ -333,7 +437,7 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
   }
 });
 
-router.delete("/:userId", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res) => {
+router.delete("/:userId", authenticate, requireOrganization, requirePermission("canManageUsers"), async (req, res, next) => {
   if (req.user.id === req.params.userId) {
     return res.status(400).json({
       ok: false,
@@ -356,6 +460,35 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
       ok: false,
       message: "No se puede eliminar al propietario de la organización."
     });
+  }
+
+  if (targetUser.role === "driver") {
+    try {
+      const data = await deleteDriverSafely(req.app.locals.store, {
+        actorId: req.user.id,
+        confirmation: req.body?.confirmation,
+        organizationId: getOrganizationId(req.user),
+        reason: req.body?.reason,
+        userId: targetUser.id
+      });
+      await recordAudit(req, {
+        type: "driver_deleted",
+        entityId: targetUser.id,
+        message: "Conductor eliminado lógicamente",
+        metadata: {
+          reason: String(req.body?.reason || "").trim(),
+          preservedActivationKeyId: targetUser.activationKeyId || null
+        }
+      });
+      emitOrganizationEvent(req, "user:deleted", {
+        userId: targetUser.id,
+        organizationId: getOrganizationId(req.user),
+        deletedAt: data.user.deletedAt
+      });
+      return res.json({ ok: true, data });
+    } catch (error) {
+      return handleLifecycleError(res, next, error);
+    }
   }
 
   const admins = scopedUsers.filter((entry) => entry.role === "admin");

@@ -80,4 +80,12 @@ export const styles = StyleSheet.create({
   },
   continuityButtonText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   disabledButton: { opacity: 0.55 },
+  filterBar: { flexDirection: 'row', flexWrap: 'wrap', gap: AppTheme.spacing.sm, minWidth: 0 },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: AppTheme.spacing.sm },
+  summaryItem: {
+    borderRadius: AppTheme.radius.sm, borderWidth: 1, flex: 1, flexBasis: 110,
+    gap: AppTheme.spacing.xs, minWidth: 0, padding: AppTheme.spacing.sm,
+  },
+  summaryValue: { fontFamily: Typography.display, fontSize: 22, fontWeight: '900' },
+  checklist: { gap: AppTheme.spacing.xs },
 });
