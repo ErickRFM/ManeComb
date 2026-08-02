@@ -399,26 +399,43 @@ const vehicleRouteAssignmentSchema = new mongoose.Schema(
       default: "AVAILABLE",
       index: true
     },
-    priority: { type: Number, default: 0 },
+    priority: { type: Number, default: 0, min: 0 },
     selectableByDriver: { type: Boolean, default: true },
     scheduledFrom: { type: Date, default: null },
-    scheduledUntil: { type: Date, default: null },
+    scheduledUntil: {
+      type: Date,
+      default: null,
+      validate: {
+        validator: function validateScheduleWindow(value) {
+          return !value || !this.scheduledFrom || value > this.scheduledFrom;
+        },
+        message: "scheduledUntil debe ser posterior a scheduledFrom"
+      }
+    },
     assignedBy: { type: String, default: null },
     assignedAt: { type: Date, default: Date.now },
     activatedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },
-    // Versionado para detectar drift con la ruta oficial (no se copia la geometria).
-    activationVersion: { type: Number, default: 0 },
-    routeVersion: { type: Number, default: 0 },
+    // Contador monotono interno para idempotencia de activaciones (NO es una version de Route).
+    activationVersion: { type: Number, default: 0, min: 0 },
+    // routeRevision = revision de la RUTA OFICIAL en el momento de activar. Fuente canonica:
+    // `Route.revision` (numerico incremental) — que hoy NO existe en el modelo Route. Contrato
+    // en RC-MULTI-ROUTE-DRIVER-01-F2.1.md: F3 (o un prep) agrega Route.revision y lo copia aqui;
+    // hasta entonces 0 = "sin versionar" y NO debe usarse para decidir drift. No se inventa un
+    // numero sin fuente real.
+    routeRevision: { type: Number, default: 0, min: 0 },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
   },
   { collection: "vehicle_route_assignments", versionKey: false }
 );
 
-vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1 });
 vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, routeId: 1, status: 1 });
+// Consultas F3-F5: lista por unidad ordenada por prioridad; catalogo por ruta; ventana horaria.
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, status: 1, priority: -1 });
+vehicleRouteAssignmentSchema.index({ organizationId: 1, routeId: 1, status: 1 });
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, scheduledFrom: 1, scheduledUntil: 1 });
 // Garantia dura a nivel indice: una sola asignacion ACTIVE por unidad.
 vehicleRouteAssignmentSchema.index(
   { organizationId: 1, vehicleId: 1 },
