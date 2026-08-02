@@ -54,6 +54,7 @@ type SessionRecoveryConfig = {
   getRefreshToken: () => Promise<string | null> | string | null;
   onTokenRefresh: (result: LoginResult) => Promise<void> | void;
   onSessionExpired: () => Promise<void> | void;
+  onAccountSuspended: () => Promise<void> | void;
   onNetworkSignal?: (signal: 'online' | 'offline' | 'recovering') => void;
 };
 
@@ -277,6 +278,7 @@ function isAuthRefreshCandidate(error: AxiosError) {
 
   return (
     error.response?.status === 401 &&
+    (error.response?.data as { code?: string } | undefined)?.code !== 'ACCOUNT_SUSPENDED' &&
     Boolean(config) &&
     !config?._authRetry &&
     !config?._skipAuthRefresh &&
@@ -371,6 +373,14 @@ apiClient.interceptors.response.use(
 
     const config = error.config as RetryableRequestConfig | undefined;
     logHttpError(error);
+
+    if (
+      error.response?.status === 401 &&
+      (error.response?.data as { code?: string } | undefined)?.code === 'ACCOUNT_SUSPENDED'
+    ) {
+      await sessionRecoveryConfig?.onAccountSuspended();
+      return Promise.reject(error);
+    }
 
     if (isAuthRefreshCandidate(error)) {
       try {

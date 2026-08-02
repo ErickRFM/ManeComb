@@ -29,6 +29,7 @@ export const linking: LinkingOptions<any> = {
       '/': '', '/login': 'login', '/registro': 'registro', '/aplicacion': 'aplicacion',
       '/recuperar-contrasena': 'recuperar-contrasena',
       '/recuperacion-enviada': 'recuperacion-enviada',
+      '/acceso-suspendido': 'acceso-suspendido',
       '/nueva-contrasena': 'reset-password',
       '/contrasena-actualizada': 'contrasena-actualizada',
       '/comercial': 'comercial', '/ventas': 'ventas', '/ventas/login': 'ventas/login',

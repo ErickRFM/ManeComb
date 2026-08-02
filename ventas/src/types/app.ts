@@ -81,6 +81,9 @@ export type User = {
   avatar?: string;
   avatarUrl?: string | null;
   vehicleId?: string | null;
+  activationKeyId?: string | null;
+  offboardedAt?: string | null;
+  offboardReason?: string | null;
   companyProfile?: CompanyProfile;
   paymentProfile?: PaymentProfile;
 };
@@ -185,6 +188,36 @@ export type Vehicle = {
   routeCode?: string;
   routeColor?: string | null;
   updatedAt?: string | null;
+  retiredAt?: string | null;
+  retiredBy?: string | null;
+  retirementReason?: string | null;
+};
+
+export type DriverLifecycleImpact = {
+  conductor: User;
+  status: UserAccountStatus;
+  assignedVehicle: Vehicle | null;
+  activeRouteSession: { id: string; startedAt?: string | null; status: string } | null;
+  relatedDocuments: { count: number };
+  sessionsToRevoke: number;
+  releasesPlanSlot: boolean;
+  canOffboard: boolean;
+  canDelete: boolean;
+  blockers: string[];
+  warnings: string[];
+};
+
+export type VehicleLifecycleImpact = {
+  vehicle: Vehicle;
+  driver: User | null;
+  activeRouteSession: { id: string; startedAt?: string | null; status: string } | null;
+  history: { routeSessions: number; positions: number; incidents: number; tripLogs: number; total: number };
+  documents: { count: number };
+  canDeletePermanently: boolean;
+  mustRetire: boolean;
+  canRetire: boolean;
+  blockers: string[];
+  actionsRequired: string[];
 };
 
 export type VehicleMutationPayload = {
@@ -443,6 +476,8 @@ export type PortalActivationKey = {
   orderId?: string | null;
   status: string;
   usedByDriverId?: string | null;
+  usedByDriverState?: 'active' | 'offboarded' | 'deleted' | null;
+  keyMasked?: string;
   driver?: PortalActivationKeyDriver | null;
   expiresAt: string | null;
   usedAt: string | null;

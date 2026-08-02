@@ -158,6 +158,14 @@ async function getAccessibleVehicle(req, res, vehicleId) {
     return null;
   }
 
+  if (vehicle.retiredAt) {
+    res.status(409).json({
+      ok: false,
+      message: "La unidad fue retirada y ya no puede operar"
+    });
+    return null;
+  }
+
   if (req.user.role === "driver" && req.user.vehicleId !== vehicleId) {
     res.status(403).json({
       ok: false,
@@ -616,6 +624,13 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
 
     if (!vehicle) {
       return;
+    }
+
+    if (vehicle.retiredAt) {
+      return res.status(409).json({
+        ok: false,
+        message: "Una unidad retirada no puede recibir una ruta"
+      });
     }
 
     if (await req.app.locals.store.getActiveRouteSession(vehicleId)) {

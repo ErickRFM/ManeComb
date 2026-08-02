@@ -12,6 +12,8 @@ import type {
   PortalOverview,
   PortalSession,
   PortalSubscription,
+  DriverLifecycleImpact,
+  VehicleLifecycleImpact,
   RouteEvent,
   RouteSession,
   RouteSessionHistoryFilters,
@@ -292,8 +294,8 @@ export async function updateProfileRequest(payload: any) {
   return await unwrapData<any>(apiClient.patch('/users/me', payload));
 }
 
-export async function getVehiclesRequest() {
-  return await unwrapData<any[]>(apiClient.get('/vehicles'));
+export async function getVehiclesRequest(options: { includeRetired?: boolean } = {}) {
+  return await unwrapData<any[]>(apiClient.get('/vehicles', { params: options.includeRetired ? { includeRetired: true } : undefined }));
 }
 
 export async function getOperationalUnitsRequest() {
@@ -310,6 +312,30 @@ export async function updateVehicleRequest(vehicleId: string, payload: any) {
 
 export async function deleteVehicleRequest(vehicleId: string) {
   return await unwrapData<any>(apiClient.delete(`/vehicles/${encodeURIComponent(vehicleId)}`));
+}
+
+export async function getVehicleLifecycleImpactRequest(vehicleId: string) {
+  return await unwrapData<VehicleLifecycleImpact>(apiClient.get(`/vehicles/${encodeURIComponent(vehicleId)}/deletion-impact`));
+}
+
+export async function retireVehicleRequest(vehicleId: string, reason: string) {
+  return await unwrapData<any>(apiClient.post(`/vehicles/${encodeURIComponent(vehicleId)}/retire`, { reason }));
+}
+
+export async function getDriverLifecycleImpactRequest(userId: string) {
+  return await unwrapData<DriverLifecycleImpact>(apiClient.get(`/users/${encodeURIComponent(userId)}/lifecycle-impact`));
+}
+
+export async function offboardDriverRequest(userId: string, reason: string) {
+  return await unwrapData<any>(apiClient.post(`/users/${encodeURIComponent(userId)}/offboard`, { reason, releaseVehicle: true }));
+}
+
+export async function reactivateDriverRequest(userId: string) {
+  return await unwrapData<any>(apiClient.post(`/users/${encodeURIComponent(userId)}/reactivate`));
+}
+
+export async function deleteDriverRequest(userId: string, reason: string, confirmation: string) {
+  return await unwrapData<any>(apiClient.delete(`/users/${encodeURIComponent(userId)}`, { data: { reason, confirmation } }));
 }
 
 export async function assignRouteRequest(payload: any) {

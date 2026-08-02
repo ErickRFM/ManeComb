@@ -200,6 +200,13 @@ const userSchema = new mongoose.Schema(
     vehicleId: { type: String, default: null },
     activationKeyId: { type: String, default: null, index: true },
     activatedAt: { type: Date, default: null },
+    offboardedAt: { type: Date, default: null },
+    offboardedBy: { type: String, default: null },
+    offboardReason: { type: String, default: "" },
+    deletedAt: { type: Date, default: null, index: true },
+    deletedBy: { type: String, default: null },
+    deleteReason: { type: String, default: "" },
+    fleetLifecycleVersion: { type: Number, default: 0 },
     e2eePublicKey: { type: String, default: "" },
     e2eeKeyRotatedAt: { type: Date, default: Date.now },
     e2eeBackups: { type: [e2eeBackupSchema], default: [] },
@@ -304,7 +311,11 @@ const vehicleSchema = new mongoose.Schema(
     locationClockSkewMs: { type: Number, default: null },
     locationPacketId: { type: String, default: null },
     activeRouteProgress: { type: mongoose.Schema.Types.Mixed, default: null },
-    assignedRoute: { type: assignedRouteSchema, default: null }
+    assignedRoute: { type: assignedRouteSchema, default: null },
+    retiredAt: { type: Date, default: null, index: true },
+    retiredBy: { type: String, default: null },
+    retirementReason: { type: String, default: "" },
+    fleetLifecycleVersion: { type: Number, default: 0 }
   },
   {
     collection: "vehicles",
@@ -913,6 +924,7 @@ const commercialLeadSchema = new mongoose.Schema(
     onboardingStatus: { type: String, default: "pending" },
     onboardingChecklist: { type: [commercialChecklistItemSchema], default: [] },
     fleetSetupStatus: { type: String, default: "pending" },
+    fleetLifecycleVersion: { type: Number, default: 0 },
     starterFleet: { type: [commercialStarterFleetSchema], default: [] },
     launchSummary: { type: String, default: "" },
     lastEmailStatus: { type: String, default: "pending" },
@@ -1022,6 +1034,7 @@ const activationKeySchema = new mongoose.Schema(
       index: true
     },
     usedByDriverId: { type: String, default: null, index: true },
+    usedByDriverState: { type: String, default: null },
     expiresAt: { type: Date, required: true, index: true },
     usedAt: { type: Date, default: null },
     sharedAt: { type: Date, default: null },

@@ -198,6 +198,7 @@ export type AppState = {
    * la sesion se esta cerrando.
    */
   isSigningOut: boolean;
+  accountSuspended: boolean;
   authContext: AuthRoutingContext | null;
   user: User | null;
   mapData: LiveLocationsData | null;
@@ -1516,6 +1517,10 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       onSessionExpired: async () => {
         await clearSessionState(set, 'Sesion expirada. Inicia sesion nuevamente.');
       },
+      onAccountSuspended: async () => {
+        await clearSessionState(set);
+        set({ accountSuspended: true });
+      },
       onNetworkSignal: (signal) => setNetworkSignal(set, signal),
     });
     recoveryConfigured = true;
@@ -1705,7 +1710,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, updateInfo: null,
+  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
@@ -1852,7 +1857,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   signIn: async (e, p, r = true) => {
-    set({ isSubmitting: true, error: null });
+    set({ isSubmitting: true, error: null, accountSuspended: false });
     try {
       const res = await loginRequest(e, p, APP_VERSION, BUILD_NUMBER);
       if (res.updateAvailable !== undefined) {

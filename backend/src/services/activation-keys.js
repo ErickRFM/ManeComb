@@ -53,6 +53,12 @@ function getEffectiveKeyStatus(activationKey) {
   return status;
 }
 
+function maskActivationKey(value) {
+  const normalized = normalizeActivationKey(value);
+  const suffix = normalized.slice(-4);
+  return suffix ? `MNCB-••••••-••••••-${suffix}` : "MNCB-••••••-••••••-••••";
+}
+
 function presentDriver(driver) {
   if (!driver) {
     return null;
@@ -78,15 +84,24 @@ function presentActivationKey(activationKey, users = []) {
     ? users.find((entry) => entry.id === usedByDriverId) || null
     : null;
 
+  const status = getEffectiveKeyStatus(activationKey);
+  const driverState = driver?.deletedAt
+    ? "deleted"
+    : String(driver?.userStatus || "").trim() === "suspended"
+      ? "offboarded"
+      : activationKey.usedByDriverState || (driver ? "active" : null);
+
   return {
     id: activationKey.id,
-    key: activationKey.key,
+    key: status === "available" ? activationKey.key : maskActivationKey(activationKey.key),
+    keyMasked: maskActivationKey(activationKey.key),
     companyId: activationKey.companyId,
     adminId: activationKey.adminId,
     planId: activationKey.planId,
     orderId: activationKey.orderId || null,
-    status: getEffectiveKeyStatus(activationKey),
+    status,
     usedByDriverId,
+    usedByDriverState: driverState,
     driver: presentDriver(driver),
     expiresAt: toIso(activationKey.expiresAt),
     usedAt: toIso(activationKey.usedAt),
@@ -249,7 +264,7 @@ async function generateActivationKeyForAdmin(store, user, options = {}) {
 
   for (let attempt = 0; attempt < 8 && !activationKey; attempt += 1) {
     try {
-      activationKey = await store.createActivationKey({
+      const payload = {
         key: generateSecureKeyValue(),
         companyId: context.companyId,
         adminId: user.id,
@@ -258,7 +273,15 @@ async function generateActivationKeyForAdmin(store, user, options = {}) {
         status: "available",
         expiresAt: getExpiration(options.expiresInDays),
         createdAt: new Date().toISOString()
-      });
+      };
+      const claimed = typeof store.createActivationKeyWithinCapacity === "function"
+        ? await store.createActivationKeyWithinCapacity(payload, { maxDrivers: summary.maxDrivers })
+        : { capacityExceeded: false, activationKey: await store.createActivationKey(payload) };
+
+      if (claimed.capacityExceeded) {
+        throw new ActivationKeyError(ACTIVATION_ERRORS.limitReached, 409);
+      }
+      activationKey = claimed.activationKey;
     } catch (error) {
       if (!/existe|duplicate|E11000/i.test(error.message || "")) {
         throw error;
@@ -680,6 +703,7 @@ module.exports = {
   listAdminActivationKeys,
   normalizeActivationKey,
   presentActivationKey,
+  maskActivationKey,
   registerDriverWithActivationKey,
   deleteActivationKeyForAdmin,
   revokeActivationKeyForAdmin,

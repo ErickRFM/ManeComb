@@ -8,6 +8,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { CustomerAuthScreen } from '@/src/screens/customer-auth-screen';
+import { AccountSuspendedScreen } from '@/src/screens/account-suspended-screen';
 import { ChecklistScreen } from '@/src/screens/checklist-screen';
 import { ChatScreen } from '@/src/screens/chat-screen';
 import { IncidentsScreen } from '@/src/screens/incidents-screen';
@@ -319,8 +320,9 @@ class MobileErrorBoundary extends React.Component<
 }
 
 function InitialRoute() {
-  const { authContext, isHydrated, user } = useAppStore(
+  const { accountSuspended, authContext, isHydrated, user } = useAppStore(
     useShallow((state) => ({
+      accountSuspended: state.accountSuspended,
       authContext: state.authContext,
       isHydrated: state.isHydrated,
       user: state.user,
@@ -329,6 +331,10 @@ function InitialRoute() {
 
   if (!isHydrated) {
     return null;
+  }
+
+  if (accountSuspended) {
+    return <Redirect href="/acceso-suspendido" />;
   }
 
   if (!user) {
@@ -345,12 +351,17 @@ function InitialRoute() {
 }
 
 function OperationalRoute({ children }: { children: React.ReactNode }) {
-  const { authContext, user } = useAppStore(
+  const { accountSuspended, authContext, user } = useAppStore(
     useShallow((state) => ({
+      accountSuspended: state.accountSuspended,
       authContext: state.authContext,
       user: state.user,
     }))
   );
+
+  if (accountSuspended) {
+    return <Redirect href="/acceso-suspendido" />;
+  }
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -412,6 +423,10 @@ function PrivacyRoute() {
 }
 
 function LoginRoute() {
+  const accountSuspended = useAppStore((state) => state.accountSuspended);
+  if (accountSuspended) {
+    return <Redirect href="/acceso-suspendido" />;
+  }
   return <CustomerAuthScreen mode="login" />;
 }
 
@@ -556,6 +571,7 @@ function AppStack() {
       <Stack.Screen name="/" component={InitialRoute} />
       <Stack.Screen name="/login" component={LoginRoute} />
       <Stack.Screen name="/registro" component={RegisterRoute} />
+      <Stack.Screen name="/acceso-suspendido" component={AccountSuspendedScreen} />
       <Stack.Screen name="/recuperar-contrasena" component={PasswordRecoveryRequestRoute} />
       <Stack.Screen name="/recuperacion-enviada" component={PasswordRecoverySentRoute} />
       <Stack.Screen name="/nueva-contrasena" component={NewPasswordRoute} />
