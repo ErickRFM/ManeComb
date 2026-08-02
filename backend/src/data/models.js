@@ -678,7 +678,16 @@ const documentSchema = new mongoose.Schema(
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: String, default: null },
     reviewNotes: { type: String, default: "" },
-    reviewVersion: { type: Number, default: 0 }
+    reviewVersion: { type: Number, default: 0 },
+    replacesDocumentId: { type: String, default: null, index: true },
+    supersededByDocumentId: { type: String, default: null, index: true },
+    version: { type: Number, default: 1 },
+    deletedAt: { type: Date, default: null, index: true },
+    deletedBy: { type: String, default: null },
+    deleteReason: { type: String, default: "" },
+    assetDeletedAt: { type: Date, default: null },
+    assetDeletionError: { type: String, default: "" },
+    assetDeletionAttempts: { type: Number, default: 0 }
   },
   {
     collection: "documents",
@@ -688,6 +697,7 @@ const documentSchema = new mongoose.Schema(
 
 documentSchema.index({ organizationId: 1, ownerType: 1, ownerId: 1 });
 documentSchema.index({ organizationId: 1, reviewStatus: 1, expiresAt: 1 });
+documentSchema.index({ organizationId: 1, deletedAt: 1, supersededByDocumentId: 1 });
 
 const notificationSchema = new mongoose.Schema(
   {

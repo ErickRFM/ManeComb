@@ -36,7 +36,7 @@ async function run() {
   assertPersistedBeforeEmail("../src/modules/activation-keys/routes.js", "registerDriverWithActivationKey", "sendWelcomeEmail(activation.user)");
   assertPersistedBeforeEmail("../src/modules/auth/routes.js", "resetPasswordWithToken", "sendSecurityChangeEmail(user");
   assertPersistedBeforeEmail("../src/modules/commercial/routes.js", "upsertChargeback", "sendChargebackUpdatedEmail");
-  assertPersistedBeforeEmail("../src/modules/documents/routes.js", "createDocument", "sendDocumentEmail(hydratedDocument");
+  assertPersistedBeforeEmail("../src/modules/documents/routes.js", "createDocument", "sendDocumentEventSafely(req.app.locals.store, hydratedDocument");
   assertPersistedBeforeEmail("../src/modules/users/routes.js", "store.createUser", "sendWelcomeEmail(user)");
   const producerSource = fs.readFileSync(
     path.resolve(__dirname, "../src/services/domain-email-events.js"),

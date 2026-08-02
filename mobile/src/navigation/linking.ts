@@ -46,7 +46,7 @@ export const linking: LinkingOptions<any> = {
       [MODULE_ROUTE_NAMES.radio]: { screens: { '/radio': 'radio' } },
       [MODULE_ROUTE_NAMES.checklist]: { screens: { '/checklist': 'checklist' } },
       [MODULE_ROUTE_NAMES.profile]: {
-        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar' },
+        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar', '/mis-documentos': 'mis-documentos' },
       },
     },
   },

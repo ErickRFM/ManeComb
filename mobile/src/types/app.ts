@@ -914,11 +914,17 @@ export type DocumentItem = {
   reviewedAt?: string | null;
   reviewedBy?: string | null;
   reviewNotes?: string;
+  replacesDocumentId?: string | null;
+  supersededByDocumentId?: string | null;
+  version?: number;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  deleteReason?: string | null;
   owner?: User | Vehicle | null;
 };
 
 export type DocumentReviewPayload = {
-  reviewStatus: 'approved' | 'rejected' | 'pending_review';
+  reviewStatus: 'approved' | 'rejected';
   reviewNotes?: string;
 };
 

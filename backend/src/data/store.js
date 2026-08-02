@@ -325,14 +325,25 @@ function createEmbeddedStore() {
     return state.tripLogs.find((tripLog) => tripLog.id === tripLogId) || null;
   }
 
-  function getDocumentById(documentId) {
+  function findDocumentById(documentId) {
     return state.documents.find((document) => document.id === documentId) || null;
   }
 
-  function getDocumentByStorageKey(storageKey) {
+  function getDocumentById(documentId, filters = {}) {
+    const document = findDocumentById(documentId);
+    if (!document) return null;
+    if (filters.organizationId && document.organizationId !== filters.organizationId) return null;
+    if (!filters.includeDeleted && document.deletedAt) return null;
+    return enrichDocument(document);
+  }
+
+  function getDocumentByStorageKey(storageKey, filters = {}) {
     return clone(
       state.documents.find(
-        (document) => document.storageKey === String(storageKey || "").trim()
+        (document) =>
+          document.storageKey === String(storageKey || "").trim() &&
+          (!filters.organizationId || document.organizationId === filters.organizationId) &&
+          (filters.includeDeleted || !document.deletedAt)
       ) || null
     );
   }
@@ -1281,6 +1292,10 @@ function createEmbeddedStore() {
         return false;
       }
 
+      if (document.deletedAt || document.supersededByDocumentId) {
+        return false;
+      }
+
       if (user.role !== "driver") {
         return true;
       }
@@ -1303,6 +1318,14 @@ function createEmbeddedStore() {
     return clone(
       state.documents
         .filter((document) => {
+          if (!filters.includeDeleted && document.deletedAt) {
+            return false;
+          }
+
+          if (!filters.includeSuperseded && document.supersededByDocumentId) {
+            return false;
+          }
+
           if (filters.ownerType && document.ownerType !== filters.ownerType) {
             return false;
           }
@@ -1368,18 +1391,31 @@ function createEmbeddedStore() {
       reviewedAt: payload.reviewedAt || null,
       reviewedBy: payload.reviewedBy || null,
       reviewNotes: String(payload.reviewNotes || "").trim(),
-      reviewVersion: 0
+      reviewVersion: 0,
+      replacesDocumentId: payload.replacesDocumentId || null,
+      supersededByDocumentId: null,
+      version: Math.max(1, Number(payload.version) || 1),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: "",
+      assetDeletedAt: null,
+      assetDeletionError: "",
+      assetDeletionAttempts: 0
     };
 
     state.documents.unshift(document);
 
-    return enrichDocument(getDocumentById(document.id));
+    return enrichDocument(findDocumentById(document.id));
   }
 
   function reviewDocument(documentId, payload) {
-    const document = getDocumentById(documentId);
+    const document = findDocumentById(documentId);
 
-    if (!document) {
+    if (
+      !document ||
+      document.deletedAt ||
+      (payload.organizationId && document.organizationId !== payload.organizationId)
+    ) {
       return null;
     }
 
@@ -1395,6 +1431,163 @@ function createEmbeddedStore() {
     document.reviewVersion = Number(document.reviewVersion || 0) + 1;
 
     return { ...enrichDocument(document), reviewChanged: true };
+  }
+
+  function updateDocument(documentId, payload = {}) {
+    const document = findDocumentById(documentId);
+    if (
+      !document ||
+      document.deletedAt ||
+      (payload.organizationId && document.organizationId !== payload.organizationId)
+    ) {
+      return null;
+    }
+
+    const expiresAt = payload.expiresAt === undefined
+      ? new Date(document.expiresAt)
+      : new Date(payload.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    const nextName = payload.name === undefined ? document.name : String(payload.name || "").trim();
+    const nextCategory = payload.category === undefined
+      ? document.category
+      : String(payload.category || "").trim().toLowerCase();
+    if (!nextName || !nextCategory) {
+      throw new Error("name, category y expiresAt son obligatorios");
+    }
+
+    const changed = nextName !== document.name ||
+      nextCategory !== document.category ||
+      expiresAt.toISOString() !== new Date(document.expiresAt).toISOString();
+    if (!changed) return { ...enrichDocument(document), metadataChanged: false };
+
+    document.name = nextName;
+    document.category = nextCategory;
+    document.expiresAt = expiresAt.toISOString();
+    document.status = getDocumentStatus(expiresAt);
+    document.reviewStatus = "pending_review";
+    document.reviewNotes = "";
+    document.reviewedBy = null;
+    document.reviewedAt = null;
+    document.reviewVersion = Number(document.reviewVersion || 0) + 1;
+    return { ...enrichDocument(document), metadataChanged: true };
+  }
+
+  function replaceDocument(documentId, payload = {}) {
+    const previous = findDocumentById(documentId);
+    if (
+      !previous ||
+      previous.deletedAt ||
+      previous.supersededByDocumentId ||
+      (payload.organizationId && previous.organizationId !== payload.organizationId)
+    ) {
+      return null;
+    }
+
+    const expiresAt = new Date(payload.expiresAt || previous.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    const replacementId = randomUUID();
+    const replacement = {
+      id: replacementId,
+      organizationId: previous.organizationId,
+      ownerType: previous.ownerType,
+      ownerId: previous.ownerId,
+      name: String(payload.name || previous.name).trim(),
+      category: previous.category,
+      status: getDocumentStatus(expiresAt),
+      expiresAt: expiresAt.toISOString(),
+      fileUrl: payload.fileUrl || null,
+      storageType: String(payload.storageType || "local").trim() || "local",
+      mimeType: String(payload.mimeType || "").trim(),
+      fileSize: Math.max(0, Number(payload.fileSize) || 0),
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: String(payload.uploadedBy || "").trim(),
+      originalFileName: String(payload.originalFileName || payload.name || previous.name).trim(),
+      storageKey: String(payload.storageKey || "").trim(),
+      reviewStatus: "pending_review",
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewNotes: "",
+      reviewVersion: 0,
+      replacesDocumentId: previous.id,
+      supersededByDocumentId: null,
+      version: Math.max(1, Number(previous.version) || 1) + 1,
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: "",
+      assetDeletedAt: null,
+      assetDeletionError: "",
+      assetDeletionAttempts: 0
+    };
+
+    previous.supersededByDocumentId = replacementId;
+    state.documents.unshift(replacement);
+    return enrichDocument(replacement);
+  }
+
+  function listDocumentVersions(documentId, filters = {}) {
+    const start = findDocumentById(documentId);
+    if (!start || (filters.organizationId && start.organizationId !== filters.organizationId)) {
+      return [];
+    }
+
+    const scoped = state.documents.filter((document) =>
+      document.organizationId === start.organizationId
+    );
+    const included = new Set([start.id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      scoped.forEach((document) => {
+        if (
+          included.has(document.replacesDocumentId) ||
+          included.has(document.supersededByDocumentId)
+        ) {
+          if (!included.has(document.id)) {
+            included.add(document.id);
+            changed = true;
+          }
+        }
+      });
+    }
+
+    return clone(
+      scoped
+        .filter((document) => included.has(document.id))
+        .map((document) => enrichDocument(document))
+        .sort((left, right) => Number(left.version || 1) - Number(right.version || 1))
+    );
+  }
+
+  function softDeleteDocument(documentId, payload = {}) {
+    const document = findDocumentById(documentId);
+    if (!document || (payload.organizationId && document.organizationId !== payload.organizationId)) {
+      return null;
+    }
+
+    if (!document.deletedAt) {
+      document.deletedAt = new Date().toISOString();
+      document.deletedBy = String(payload.deletedBy || "").trim() || null;
+      document.deleteReason = String(payload.deleteReason || "").trim();
+    }
+
+    if (payload.assetDeletedAt) {
+      document.assetDeletedAt = new Date(payload.assetDeletedAt).toISOString();
+      document.assetDeletionError = "";
+    }
+    if (payload.assetDeletionError !== undefined) {
+      document.assetDeletionError = String(payload.assetDeletionError || "").trim();
+    }
+    if (payload.recordAssetAttempt) {
+      document.assetDeletionAttempts = Number(document.assetDeletionAttempts || 0) + 1;
+    }
+
+    return enrichDocument(document);
   }
 
   function getNotificationsForUser(user) {
@@ -3361,6 +3554,7 @@ function createEmbeddedStore() {
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,
+    getDocumentById,
     getDocumentByStorageKey,
     getDocumentsForUser,
     getLiveLocations,
@@ -3379,6 +3573,7 @@ function createEmbeddedStore() {
     listCommercialOrders,
     listCommercialOrdersForUser,
     listDocuments,
+    listDocumentVersions,
     listPushSubscriptionsForRoles,
     listPushSubscriptionsForUsers,
     listUsers,
@@ -3400,10 +3595,13 @@ function createEmbeddedStore() {
     registerUser,
     resetPasswordWithToken,
     createDocument,
+    replaceDocument,
     reviewDocument,
+    softDeleteDocument,
     upsertUserE2eeBackup,
     unregisterPushSubscription,
     updateUser,
+    updateDocument,
     updateIncidentStatus,
     updateVehicleLocation,
     updateVehicle,

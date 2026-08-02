@@ -18,6 +18,7 @@ import { UpdateBanner } from '@/src/components/update-banner';
 import { MobileAccountGateScreen } from '@/src/screens/mobile-account-gate-screen';
 import { ProfileEditScreen } from '@/src/screens/profile-edit-screen';
 import { ProfileScreen } from '@/src/screens/profile-screen';
+import { DriverDocumentsScreen } from '@/src/screens/documents/documents-screen';
 import {
   NewPasswordScreen,
   PasswordRecoveryRequestScreen,
@@ -534,6 +535,9 @@ function ProfileModule() {
       <ProfileStack.Screen name="/perfil">{() => withOperationalScreen(<ProfileScreen />)}</ProfileStack.Screen>
       <ProfileStack.Screen name="/perfil-editar">
         {() => withOperationalScreen(<ProfileEditScreen />)}
+      </ProfileStack.Screen>
+      <ProfileStack.Screen name="/mis-documentos">
+        {() => withOperationalScreen(<DriverDocumentsScreen />)}
       </ProfileStack.Screen>
     </ProfileStack.Navigator>
   );

@@ -1276,6 +1276,16 @@ async function createMongoStore() {
     return serializeTripLog(tripLog);
   }
 
+  async function getDocumentById(documentId, filters = {}) {
+    const query = {
+      _id: documentId,
+      ...(filters.organizationId ? { organizationId: filters.organizationId } : {}),
+      ...(filters.includeDeleted ? {} : { deletedAt: null })
+    };
+    const document = await DocumentModel.findOne(query).lean();
+    return document ? serializeDocument(document) : null;
+  }
+
   async function createDocument(payload) {
     const ownerType = payload.ownerType === "vehicle" ? "vehicle" : "driver";
     const ownerId = String(payload.ownerId || "").trim();
@@ -1327,7 +1337,16 @@ async function createMongoStore() {
       reviewedAt: payload.reviewedAt || null,
       reviewedBy: payload.reviewedBy || null,
       reviewNotes: String(payload.reviewNotes || "").trim(),
-      reviewVersion: 0
+      reviewVersion: 0,
+      replacesDocumentId: payload.replacesDocumentId || null,
+      supersededByDocumentId: null,
+      version: Math.max(1, Number(payload.version) || 1),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: "",
+      assetDeletedAt: null,
+      assetDeletionError: "",
+      assetDeletionAttempts: 0
     });
 
     return serializeDocument(document);
@@ -1339,6 +1358,8 @@ async function createMongoStore() {
     const document = await DocumentModel.findOneAndUpdate(
       {
         _id: documentId,
+        ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
+        deletedAt: null,
         $or: [
           { reviewStatus: { $ne: nextReviewStatus } },
           { reviewNotes: { $ne: nextReviewNotes } }
@@ -1357,8 +1378,183 @@ async function createMongoStore() {
     ).lean();
 
     if (document) return { ...serializeDocument(document), reviewChanged: true };
-    const currentDocument = await DocumentModel.findById(documentId).lean();
+    const currentDocument = await DocumentModel.findOne({
+      _id: documentId,
+      ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
+      deletedAt: null
+    }).lean();
     return currentDocument ? { ...serializeDocument(currentDocument), reviewChanged: false } : null;
+  }
+
+  async function updateDocument(documentId, payload = {}) {
+    const current = await DocumentModel.findOne({
+      _id: documentId,
+      ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
+      deletedAt: null
+    }).lean();
+    if (!current) return null;
+
+    const expiresAt = payload.expiresAt === undefined ? new Date(current.expiresAt) : new Date(payload.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) throw new Error("La fecha de vencimiento no es valida");
+    const name = payload.name === undefined ? current.name : String(payload.name || "").trim();
+    const category = payload.category === undefined
+      ? current.category
+      : String(payload.category || "").trim().toLowerCase();
+    if (!name || !category) throw new Error("name, category y expiresAt son obligatorios");
+
+    const changed = name !== current.name ||
+      category !== current.category ||
+      expiresAt.toISOString() !== new Date(current.expiresAt).toISOString();
+    if (!changed) return { ...serializeDocument(current), metadataChanged: false };
+
+    const updated = await DocumentModel.findOneAndUpdate(
+      {
+        _id: documentId,
+        ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
+        deletedAt: null
+      },
+      {
+        $set: {
+          name,
+          category,
+          expiresAt,
+          status: getDocumentStatus(expiresAt),
+          reviewStatus: "pending_review",
+          reviewNotes: "",
+          reviewedBy: null,
+          reviewedAt: null
+        },
+        $inc: { reviewVersion: 1 }
+      },
+      { returnDocument: "after" }
+    ).lean();
+    return updated ? { ...serializeDocument(updated), metadataChanged: true } : null;
+  }
+
+  async function replaceDocument(documentId, payload = {}) {
+    const replacementId = randomUUID();
+    const previous = await DocumentModel.findOneAndUpdate(
+      {
+        _id: documentId,
+        ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
+        deletedAt: null,
+        supersededByDocumentId: null
+      },
+      { $set: { supersededByDocumentId: replacementId } },
+      { returnDocument: "before" }
+    ).lean();
+    if (!previous) return null;
+
+    const expiresAt = new Date(payload.expiresAt || previous.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      await DocumentModel.updateOne(
+        { _id: previous._id, supersededByDocumentId: replacementId },
+        { $set: { supersededByDocumentId: null } }
+      );
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    try {
+      const replacement = await DocumentModel.create({
+        _id: replacementId,
+        organizationId: previous.organizationId,
+        ownerType: previous.ownerType,
+        ownerId: previous.ownerId,
+        name: String(payload.name || previous.name).trim(),
+        category: previous.category,
+        status: getDocumentStatus(expiresAt),
+        expiresAt,
+        fileUrl: payload.fileUrl || null,
+        storageType: String(payload.storageType || "local").trim() || "local",
+        mimeType: String(payload.mimeType || "").trim(),
+        fileSize: Math.max(0, Number(payload.fileSize) || 0),
+        uploadedAt: new Date(),
+        uploadedBy: String(payload.uploadedBy || "").trim(),
+        originalFileName: String(payload.originalFileName || payload.name || previous.name).trim(),
+        storageKey: String(payload.storageKey || "").trim(),
+        reviewStatus: "pending_review",
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNotes: "",
+        reviewVersion: 0,
+        replacesDocumentId: previous._id,
+        supersededByDocumentId: null,
+        version: Math.max(1, Number(previous.version) || 1) + 1
+      });
+      return serializeDocument(replacement);
+    } catch (error) {
+      await DocumentModel.updateOne(
+        { _id: previous._id, supersededByDocumentId: replacementId },
+        { $set: { supersededByDocumentId: null } }
+      );
+      throw error;
+    }
+  }
+
+  async function listDocumentVersions(documentId, filters = {}) {
+    const start = await DocumentModel.findOne({
+      _id: documentId,
+      ...(filters.organizationId ? { organizationId: filters.organizationId } : {})
+    }).lean();
+    if (!start) return [];
+
+    const documents = await DocumentModel.find({ organizationId: start.organizationId }).lean();
+    const included = new Set([String(start._id)]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      documents.forEach((document) => {
+        if (
+          included.has(String(document.replacesDocumentId || "")) ||
+          included.has(String(document.supersededByDocumentId || ""))
+        ) {
+          const id = String(document._id);
+          if (!included.has(id)) {
+            included.add(id);
+            changed = true;
+          }
+        }
+      });
+    }
+
+    return documents
+      .filter((document) => included.has(String(document._id)))
+      .map(serializeDocument)
+      .sort((left, right) => Number(left.version || 1) - Number(right.version || 1));
+  }
+
+  async function softDeleteDocument(documentId, payload = {}) {
+    const now = new Date();
+    const setPayload = {};
+    if (payload.assetDeletedAt) {
+      setPayload.assetDeletedAt = new Date(payload.assetDeletedAt);
+      setPayload.assetDeletionError = "";
+    }
+    if (payload.assetDeletionError !== undefined) {
+      setPayload.assetDeletionError = String(payload.assetDeletionError || "").trim();
+    }
+
+    const update = {
+      $set: setPayload,
+      ...(payload.recordAssetAttempt ? { $inc: { assetDeletionAttempts: 1 } } : {})
+    };
+    if (!payload.assetDeletedAt && payload.assetDeletionError === undefined) {
+      Object.assign(update.$set, {
+        deletedAt: now,
+        deletedBy: String(payload.deletedBy || "").trim() || null,
+        deleteReason: String(payload.deleteReason || "").trim()
+      });
+    }
+
+    const document = await DocumentModel.findOneAndUpdate(
+      {
+        _id: documentId,
+        ...(payload.organizationId ? { organizationId: payload.organizationId } : {})
+      },
+      update,
+      { returnDocument: "after" }
+    ).lean();
+    return document ? serializeDocument(document) : null;
   }
 
   async function createCommercialOrder(payload) {
@@ -1961,7 +2157,11 @@ async function createMongoStore() {
   }
 
   async function getDocumentsForUser(user) {
-    const tenantFilter = [getOrganizationQuery(user)];
+    const tenantFilter = [
+      getOrganizationQuery(user),
+      { deletedAt: null },
+      { supersededByDocumentId: null }
+    ];
     const filter =
       user.role === "driver"
         ? {
@@ -2004,7 +2204,10 @@ async function createMongoStore() {
   }
 
   async function listDocuments(filters = {}) {
-    const query = {};
+    const query = {
+      ...(filters.includeDeleted ? {} : { deletedAt: null }),
+      ...(filters.includeSuperseded ? {} : { supersededByDocumentId: null })
+    };
 
     if (filters.ownerType) {
       query.ownerType = filters.ownerType;
@@ -3939,6 +4142,7 @@ async function createMongoStore() {
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,
+    getDocumentById,
     getDocumentsForUser,
     getLiveLocations,
     getMessages,
@@ -3952,6 +4156,7 @@ async function createMongoStore() {
     listActivationKeysForCompany,
     listChatContactsForUser,
     listDocuments,
+    listDocumentVersions,
     listIncidents,
     listPushSubscriptionsForRoles,
     listPushSubscriptionsForUsers,
@@ -3966,9 +4171,12 @@ async function createMongoStore() {
     registerPushSubscription,
     registerUser,
     reviewDocument,
+    replaceDocument,
+    softDeleteDocument,
     upsertUserE2eeBackup,
     unregisterPushSubscription,
     updateIncidentStatus,
+    updateDocument,
     updateActivationKey,
     updateUser,
     updateVehicleLocation,

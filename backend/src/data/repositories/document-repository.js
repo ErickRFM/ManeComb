@@ -3,10 +3,15 @@ const { toPlain } = require("../serializers");
 
 const DOCUMENT_METHODS = [
   "createDocument",
+  "getDocumentById",
   "getDocumentByStorageKey",
   "getDocumentsForUser",
   "listDocuments",
-  "reviewDocument"
+  "listDocumentVersions",
+  "replaceDocument",
+  "reviewDocument",
+  "softDeleteDocument",
+  "updateDocument"
 ];
 
 class DocumentRepository extends StoreDomainRepository {
@@ -15,14 +20,17 @@ class DocumentRepository extends StoreDomainRepository {
     this.DocumentModel = DocumentModel || null;
   }
 
-  async getDocumentByStorageKey(storageKey) {
+  async getDocumentByStorageKey(storageKey, filters = {}) {
     if (!this.DocumentModel) {
-      return this.store.getDocumentByStorageKey(storageKey);
+      return this.store.getDocumentByStorageKey(storageKey, filters);
     }
 
-    const document = await this.DocumentModel.findOne({
-      storageKey: String(storageKey || "").trim()
-    }).lean();
+    const query = {
+      storageKey: String(storageKey || "").trim(),
+      ...(filters.organizationId ? { organizationId: filters.organizationId } : {}),
+      ...(filters.includeDeleted ? {} : { deletedAt: null })
+    };
+    const document = await this.DocumentModel.findOne(query).lean();
 
     return document ? toPlain(document) : null;
   }
