@@ -383,6 +383,48 @@ routeSessionSchema.index(
   { unique: true, partialFilterExpression: { activeKey: { $type: "string" } } }
 );
 
+// RC-MULTI-ROUTE-DRIVER-01 F2 — Entidad de asignaciones multiples por unidad. NO duplica
+// geometria: solo referencia a la ruta (routeId) + versionado para detectar que la ruta
+// oficial cambio. Vehicle.assignedRoute se conserva como PROYECCION de la ACTIVE (no se
+// vuelve array); F3 (activateVehicleRouteAssignment) es el unico dueno de esa proyeccion.
+const vehicleRouteAssignmentSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    vehicleId: { type: String, required: true, index: true },
+    routeId: { type: String, required: true, index: true },
+    status: {
+      type: String,
+      enum: ["AVAILABLE", "SCHEDULED", "ACTIVE", "COMPLETED", "CANCELLED", "EXPIRED"],
+      default: "AVAILABLE",
+      index: true
+    },
+    priority: { type: Number, default: 0 },
+    selectableByDriver: { type: Boolean, default: true },
+    scheduledFrom: { type: Date, default: null },
+    scheduledUntil: { type: Date, default: null },
+    assignedBy: { type: String, default: null },
+    assignedAt: { type: Date, default: Date.now },
+    activatedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    cancelledAt: { type: Date, default: null },
+    // Versionado para detectar drift con la ruta oficial (no se copia la geometria).
+    activationVersion: { type: Number, default: 0 },
+    routeVersion: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "vehicle_route_assignments", versionKey: false }
+);
+
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1 });
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, routeId: 1, status: 1 });
+// Garantia dura a nivel indice: una sola asignacion ACTIVE por unidad.
+vehicleRouteAssignmentSchema.index(
+  { organizationId: 1, vehicleId: 1 },
+  { unique: true, partialFilterExpression: { status: "ACTIVE" } }
+);
+
 const routeSessionPositionSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
@@ -1150,5 +1192,6 @@ module.exports = {
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),
   VehicleModel: getModel("Vehicle", vehicleSchema),
+  VehicleRouteAssignmentModel: getModel("VehicleRouteAssignment", vehicleRouteAssignmentSchema),
   WebhookEventModel: getModel("WebhookEvent", webhookEventSchema)
 };
