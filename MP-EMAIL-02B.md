@@ -188,4 +188,3 @@ reason=Valkey Free Persistence Mode Off
 ```
 
 No se utiliza `MP_EMAIL_02_PRODUCTION_READY`.
-
