@@ -13,6 +13,11 @@ const { normalizeOperationalSchedule } = require("../utils/operational-schedule"
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
 const {
+  STATUS: ASSIGNMENT_STATUS,
+  validateAssignmentInput,
+  serializeVehicleRouteAssignment
+} = require("../domain/vehicle-route-assignment");
+const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
   normalizeRouteId,
@@ -35,6 +40,7 @@ function createEmbeddedStore() {
   state.activationKeys = Array.isArray(state.activationKeys) ? state.activationKeys : [];
   state.chatMessages = Array.isArray(state.chatMessages) ? state.chatMessages : [];
   state.routeSessions = Array.isArray(state.routeSessions) ? state.routeSessions : [];
+  state.vehicleRouteAssignments = Array.isArray(state.vehicleRouteAssignments) ? state.vehicleRouteAssignments : [];
   state.routeSessionPositions = Array.isArray(state.routeSessionPositions) ? state.routeSessionPositions : [];
   state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
@@ -3553,6 +3559,61 @@ function createEmbeddedStore() {
     return { ...clone(session), transitionApplied: true };
   }
 
+  // --- RC-MULTI-ROUTE-DRIVER-01 F3 (etapa 3): CRUD interno minimo de asignaciones ruta-vehiculo.
+  // Solo persistencia (create/getById/list por org+vehicle). La ACTIVACION atomica (etapa 4/5) es
+  // otro escritor; este CRUD NO decide estados ni toca Vehicle.assignedRoute.
+  function normalizeAssignmentRecord(payload) {
+    const now = new Date().toISOString();
+    const toIso = (value) => (value ? new Date(value).toISOString() : null);
+    return {
+      id: payload.id || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim() || null,
+      vehicleId: payload.vehicleId == null ? null : String(payload.vehicleId),
+      routeId: payload.routeId == null ? null : String(payload.routeId),
+      status: payload.status || ASSIGNMENT_STATUS.AVAILABLE,
+      priority: payload.priority == null ? 0 : Math.max(0, Number(payload.priority) || 0),
+      selectableByDriver: payload.selectableByDriver !== false,
+      scheduledFrom: toIso(payload.scheduledFrom),
+      scheduledUntil: toIso(payload.scheduledUntil),
+      assignedBy: payload.assignedBy == null ? null : String(payload.assignedBy),
+      assignedAt: toIso(payload.assignedAt) || now,
+      activatedAt: toIso(payload.activatedAt),
+      completedAt: toIso(payload.completedAt),
+      cancelledAt: toIso(payload.cancelledAt),
+      activationVersion: payload.activationVersion == null ? 0 : Math.max(0, Number(payload.activationVersion) || 0),
+      routeRevision: payload.routeRevision == null ? 0 : Math.max(0, Number(payload.routeRevision) || 0),
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  function createVehicleRouteAssignment(payload = {}) {
+    const validation = validateAssignmentInput(payload);
+    if (!validation.ok) {
+      throw new Error(`invalid_assignment_input:${validation.errors.join(",")}`);
+    }
+    const record = normalizeAssignmentRecord(payload);
+    state.vehicleRouteAssignments.push(record);
+    return serializeVehicleRouteAssignment(record);
+  }
+
+  function getVehicleRouteAssignmentById(assignmentId) {
+    const record = state.vehicleRouteAssignments.find((entry) => entry.id === assignmentId);
+    return record ? serializeVehicleRouteAssignment(record) : null;
+  }
+
+  function listVehicleRouteAssignments({ organizationId, vehicleId, status, statuses } = {}) {
+    const statusFilter = Array.isArray(statuses) && statuses.length ? statuses : status ? [status] : null;
+    return state.vehicleRouteAssignments
+      .filter((entry) => (!organizationId || entry.organizationId === organizationId)
+        && (!vehicleId || entry.vehicleId === String(vehicleId))
+        && (!statusFilter || statusFilter.includes(entry.status)))
+      .sort((a, b) => (a.priority - b.priority)
+        || (new Date(a.scheduledFrom || 0) - new Date(b.scheduledFrom || 0))
+        || (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)))
+      .map(serializeVehicleRouteAssignment);
+  }
+
   function createRouteSessionPosition(payload) {
     if (payload.packetId) {
       const existing = state.routeSessionPositions.find(
@@ -3912,6 +3973,9 @@ function createEmbeddedStore() {
     updateVehicleLocation,
     updateVehicle,
     createTripLog,
+    createVehicleRouteAssignment,
+    getVehicleRouteAssignmentById,
+    listVehicleRouteAssignments,
     createRouteSession,
     createRouteSessionPosition,
     claimAutoRouteProcessing,

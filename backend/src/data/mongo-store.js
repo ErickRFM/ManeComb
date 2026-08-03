@@ -33,7 +33,8 @@ const {
   TripLogModel,
   TrialEntitlementModel,
   UserModel,
-  VehicleModel
+  VehicleModel,
+  VehicleRouteAssignmentModel
 } = require("./models");
 const { AttachmentRepository } = require("./repositories/attachment-repository");
 const { ChatMessageRepository } = require("./repositories/chat-message-repository");
@@ -42,6 +43,11 @@ const { buildBackendStore } = require("./backend-store");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
+const {
+  STATUS: ASSIGNMENT_STATUS,
+  validateAssignmentInput,
+  serializeVehicleRouteAssignment
+} = require("../domain/vehicle-route-assignment");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -4145,6 +4151,52 @@ async function createMongoStore() {
     return existing ? { ...existing, transitionApplied: false } : null;
   }
 
+  // --- RC-MULTI-ROUTE-DRIVER-01 F3 (etapa 3): CRUD interno minimo de asignaciones ruta-vehiculo.
+  // Solo persistencia (create/getById/list por org+vehicle). La ACTIVACION atomica (etapa 4/5) es
+  // otro escritor; este CRUD NO decide estados ni toca Vehicle.assignedRoute.
+  async function createVehicleRouteAssignment(payload = {}) {
+    const validation = validateAssignmentInput(payload);
+    if (!validation.ok) {
+      throw new Error(`invalid_assignment_input:${validation.errors.join(",")}`);
+    }
+    const now = new Date();
+    const doc = await VehicleRouteAssignmentModel.create({
+      _id: payload.id || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim() || null,
+      vehicleId: payload.vehicleId == null ? null : String(payload.vehicleId),
+      routeId: payload.routeId == null ? null : String(payload.routeId),
+      status: payload.status || ASSIGNMENT_STATUS.AVAILABLE,
+      priority: payload.priority == null ? 0 : Math.max(0, Number(payload.priority) || 0),
+      selectableByDriver: payload.selectableByDriver !== false,
+      scheduledFrom: payload.scheduledFrom ? new Date(payload.scheduledFrom) : null,
+      scheduledUntil: payload.scheduledUntil ? new Date(payload.scheduledUntil) : null,
+      assignedBy: payload.assignedBy == null ? null : String(payload.assignedBy),
+      assignedAt: payload.assignedAt ? new Date(payload.assignedAt) : now,
+      activationVersion: payload.activationVersion == null ? 0 : Math.max(0, Number(payload.activationVersion) || 0),
+      routeRevision: payload.routeRevision == null ? 0 : Math.max(0, Number(payload.routeRevision) || 0),
+      createdAt: now,
+      updatedAt: now
+    });
+    return serializeVehicleRouteAssignment(doc);
+  }
+
+  async function getVehicleRouteAssignmentById(assignmentId) {
+    const doc = await VehicleRouteAssignmentModel.findById(assignmentId).lean();
+    return doc ? serializeVehicleRouteAssignment(doc) : null;
+  }
+
+  async function listVehicleRouteAssignments({ organizationId, vehicleId, status, statuses } = {}) {
+    const query = {};
+    if (organizationId) query.organizationId = organizationId;
+    if (vehicleId) query.vehicleId = String(vehicleId);
+    const statusFilter = Array.isArray(statuses) && statuses.length ? statuses : status ? [status] : null;
+    if (statusFilter) query.status = { $in: statusFilter };
+    const docs = await VehicleRouteAssignmentModel.find(query)
+      .sort({ priority: 1, scheduledFrom: 1, createdAt: 1 })
+      .lean();
+    return docs.map(serializeVehicleRouteAssignment);
+  }
+
   async function createRouteSessionPosition(payload) {
     if (payload.packetId) {
       const existing = await RouteSessionPositionModel.findOne({ sessionId: payload.sessionId, packetId: payload.packetId }).lean();
@@ -4616,6 +4668,9 @@ async function createMongoStore() {
     createDocument,
     generatePasswordResetToken,
     resetPasswordWithToken,
+    createVehicleRouteAssignment,
+    getVehicleRouteAssignmentById,
+    listVehicleRouteAssignments,
     createRouteSession,
     createRouteSessionPosition,
     claimAutoRouteProcessing,
