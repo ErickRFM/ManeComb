@@ -54,6 +54,7 @@ type SessionRecoveryConfig = {
   getRefreshToken: () => Promise<string | null> | string | null;
   onTokenRefresh: (result: LoginResult) => Promise<void> | void;
   onSessionExpired: () => Promise<void> | void;
+  onAccountSuspended: () => Promise<void> | void;
   onNetworkSignal?: (signal: 'online' | 'offline' | 'recovering') => void;
 };
 
@@ -277,6 +278,7 @@ function isAuthRefreshCandidate(error: AxiosError) {
 
   return (
     error.response?.status === 401 &&
+    (error.response?.data as { code?: string } | undefined)?.code !== 'ACCOUNT_SUSPENDED' &&
     Boolean(config) &&
     !config?._authRetry &&
     !config?._skipAuthRefresh &&
@@ -371,6 +373,14 @@ apiClient.interceptors.response.use(
 
     const config = error.config as RetryableRequestConfig | undefined;
     logHttpError(error);
+
+    if (
+      error.response?.status === 401 &&
+      (error.response?.data as { code?: string } | undefined)?.code === 'ACCOUNT_SUSPENDED'
+    ) {
+      await sessionRecoveryConfig?.onAccountSuspended();
+      return Promise.reject(error);
+    }
 
     if (isAuthRefreshCandidate(error)) {
       try {
@@ -657,6 +667,54 @@ export async function sendVoiceMessageRequest(conversationId: string, formData: 
   return response.data.data;
 }
 
+export async function updateDriverDocumentRequest(documentId: string, payload: {
+  category?: string;
+  expiresAt?: string;
+  name?: string;
+}) {
+  const response = await apiClient.patch<{ ok: boolean; data: DocumentItem }>(
+    `/documents/${encodeURIComponent(documentId)}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function replaceDriverDocumentRequest(documentId: string, payload: {
+  expiresAt: string;
+  file: DocumentUploadFile;
+  name?: string;
+}) {
+  const formData = new FormData();
+  formData.append('expiresAt', payload.expiresAt);
+  if (payload.name) formData.append('name', payload.name);
+  formData.append('file', payload.file as Blob);
+  const response = await apiClient.post<{ ok: boolean; data: DocumentItem }>(
+    `/documents/${encodeURIComponent(documentId)}/replace`,
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 45000,
+      _allowRetry: false,
+    } as RetryableRequestConfig
+  );
+  return response.data.data;
+}
+
+export async function deleteDriverDocumentRequest(documentId: string, reason?: string) {
+  const response = await apiClient.delete<{ ok: boolean; data: DocumentItem }>(
+    `/documents/${encodeURIComponent(documentId)}`,
+    { data: { deleteReason: reason } }
+  );
+  return response.data.data;
+}
+
+export async function getDocumentHistoryRequest(documentId: string) {
+  const response = await apiClient.get<{ ok: boolean; data: DocumentItem[] }>(
+    `/documents/${encodeURIComponent(documentId)}/history`
+  );
+  return response.data.data;
+}
+
 export async function sendMediaMessageRequest(conversationId: string, formData: FormData) {
   const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
     `/chat/conversations/${conversationId}/media`,
@@ -706,7 +764,7 @@ export async function uploadDriverDocumentRequest(payload: {
         'Content-Type': 'multipart/form-data',
       },
       timeout: 45000,
-      _allowRetry: true,
+      _allowRetry: false,
     } as RetryableRequestConfig
   );
 

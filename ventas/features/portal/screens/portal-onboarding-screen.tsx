@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, Share, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
+import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { ActivationTimeline, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
@@ -48,6 +49,7 @@ export function PortalOnboardingScreen() {
     }))
   );
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [keyConfirmation, setKeyConfirmation] = useState<{ type: 'revoke' | 'delete'; key: PortalActivationKey } | null>(null);
 
   const steps = onboarding?.steps || [];
   const completedSteps = steps.filter((step) => step.status === 'completed').length;
@@ -141,15 +143,23 @@ export function PortalOnboardingScreen() {
   };
 
   const handleRevokeKey = async (activationKey: PortalActivationKey) => {
-    setFeedback(null);
-    const result = await revokeActivationKey(activationKey.id);
-    setFeedback(result.ok ? 'Key revocada.' : result.message || null);
+    setKeyConfirmation({ type: 'revoke', key: activationKey });
   };
 
   const handleDeleteKey = async (activationKey: PortalActivationKey) => {
+    setKeyConfirmation({ type: 'delete', key: activationKey });
+  };
+
+  const confirmKeyAction = async () => {
+    if (!keyConfirmation) return;
     setFeedback(null);
-    const result = await deleteActivationKey(activationKey.id);
-    setFeedback(result.ok ? 'Key eliminada.' : result.message || null);
+    const result = keyConfirmation.type === 'revoke'
+      ? await revokeActivationKey(keyConfirmation.key.id)
+      : await deleteActivationKey(keyConfirmation.key.id);
+    setFeedback(result.ok
+      ? keyConfirmation.type === 'revoke' ? 'Key revocada.' : 'Key eliminada.'
+      : result.message || null);
+    if (result.ok) setKeyConfirmation(null);
   };
 
   return (
@@ -275,6 +285,16 @@ export function PortalOnboardingScreen() {
           <ActivationTimeline events={overview.activationTimeline} />
         </PortalSectionCard>
       ) : null}
+      <ConfirmModal
+        visible={Boolean(keyConfirmation)}
+        destructive
+        title={keyConfirmation?.type === 'revoke' ? 'Revocar key disponible' : 'Eliminar key disponible'}
+        description="Solo las keys disponibles pueden modificarse. Las keys usadas permanecen como evidencia y nunca vuelven a estar disponibles."
+        confirmLabel={keyConfirmation?.type === 'revoke' ? 'Revocar key' : 'Eliminar key'}
+        processing={isSubmitting}
+        onCancel={() => setKeyConfirmation(null)}
+        onConfirm={() => void confirmKeyAction()}
+      />
     </PortalLayout>
   );
 }

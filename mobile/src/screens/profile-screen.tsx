@@ -1,16 +1,9 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, DesignSystem } from '@/constants/theme';
-import {
-  getApiErrorMessage,
-  getDocumentsRequest,
-  resolveAssetUrl,
-  uploadDriverDocumentRequest,
-  type DocumentUploadFile,
-} from '@/src/api/client';
+import { DesignSystem } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
@@ -18,7 +11,6 @@ import { PresenceBadge } from '@/src/components/presence-indicator';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import * as ImagePicker from '@/src/native/image-picker';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRole } from '@/src/utils/format';
 import { getPresenceStatus } from '@/src/utils/presence';
@@ -28,78 +20,25 @@ import {
 } from '@/src/utils/operational-schedule';
 import { InfoTile } from './profile/components/info-tile';
 import { createStyles } from './profile/profile-screen.styles';
-import {
-  canReplaceDriverDocument,
-  DEFAULT_DRIVER_DOCUMENT,
-  getDocumentPresentation,
-  getDocumentSectionTitle,
-  getDriverDocumentEmptyMessage,
-  getDriverDocumentPresentation,
-  getDriverPresentation,
-} from './profile/profile.utils';
-import type { DocumentItem } from '@/src/types/app';
-
-async function pickDriverDocument(): Promise<DocumentUploadFile | null> {
-  if (Platform.OS === 'web') {
-    const documentApi = globalThis.document;
-    if (!documentApi?.createElement) return null;
-
-    return await new Promise((resolve) => {
-      const input = documentApi.createElement('input');
-      input.type = 'file';
-      input.accept = 'application/pdf,image/jpeg,image/png,image/webp';
-      input.onchange = () => resolve(input.files?.[0] || null);
-      input.oncancel = () => resolve(null);
-      input.click();
-    });
-  }
-
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    quality: 0.9,
-  });
-  const asset = result.assets[0];
-
-  if (result.canceled || !asset?.uri) return null;
-
-  return {
-    uri: asset.uri,
-    name: asset.fileName || `documento-${Date.now()}.jpg`,
-    type: asset.mimeType || 'image/jpeg',
-  };
-}
+import { getProfileDocumentSummary } from './documents/documents.utils';
 
 export function ProfileScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < DesignSystem.breakpoints.compact;
   const isPhone = width < DesignSystem.breakpoints.phone;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { documents, mapData, observability, presenceByUser, signOut, user, users } = useAppStore(
+  const { documents, observability, presenceByUser, signOut, user } = useAppStore(
     useShallow((state) => ({
       documents: state.documents,
-      mapData: state.mapData,
       observability: state.observability,
       presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
-      users: state.users,
     }))
   );
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
-  const [documentExpiresAt, setDocumentExpiresAt] = useState('');
-  const [documentMessage, setDocumentMessage] = useState<string | null>(null);
-  const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
-  const userId = user?.id;
 
   const styles = useMemo(() => createStyles(theme, isCompact, isPhone), [theme, isCompact, isPhone]);
-
-  useEffect(() => {
-    if (!userId) return;
-    getDocumentsRequest()
-      .then((nextDocuments) => useAppStore.setState({ documents: nextDocuments }))
-      .catch(() => undefined);
-  }, [userId]);
 
   if (!user) return null;
 
@@ -107,45 +46,7 @@ export function ProfileScreen() {
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
-  const drivers = users
-    .filter((entry) => entry.role === 'driver')
-    .sort((left, right) => left.name.localeCompare(right.name, 'es'));
-  const vehicles = mapData?.vehicles || [];
-  const getDriverDocuments = (driverId: string, vehicleId: string | null) =>
-    documents.filter((document) =>
-      (document.ownerType === 'driver' && document.ownerId === driverId)
-      || (document.ownerType === 'vehicle' && Boolean(vehicleId) && document.ownerId === vehicleId)
-    );
-  const ownDocuments = getDriverDocuments(user.id, user.vehicleId);
-  const handleDriverDocumentUpload = async (document?: DocumentItem) => {
-    const expiresAt = new Date(documentExpiresAt);
-    if (!documentExpiresAt || Number.isNaN(expiresAt.getTime())) {
-      setDocumentMessage('Ingresa la vigencia con formato AAAA-MM-DD.');
-      return;
-    }
-
-    const file = await pickDriverDocument();
-    if (!file) return;
-
-    setDocumentMessage(null);
-    setUploadingDocumentId(document?.id || 'new');
-    try {
-      await uploadDriverDocumentRequest({
-        category: document?.category || DEFAULT_DRIVER_DOCUMENT.category,
-        expiresAt: expiresAt.toISOString(),
-        file,
-        name: document?.name || DEFAULT_DRIVER_DOCUMENT.name,
-      });
-      const nextDocuments = await getDocumentsRequest();
-      useAppStore.setState({ documents: nextDocuments });
-      setDocumentExpiresAt('');
-      setDocumentMessage('Documento enviado para revisión.');
-    } catch (error) {
-      setDocumentMessage(getApiErrorMessage(error, 'No fue posible subir el documento.'));
-    } finally {
-      setUploadingDocumentId(null);
-    }
-  };
+  const documentSummary = getProfileDocumentSummary(documents);
 
   return (
     <AppShell
@@ -186,6 +87,23 @@ export function ProfileScreen() {
         </AppCard>
 
         <View style={styles.sideColumn}>
+          <AppCard>
+            <View style={styles.pillsRow}>
+              <Text style={styles.cardTitle}>Documentos</Text>
+              {user.role === 'driver' ? <StatusPill label={documentSummary} tone="info" /> : null}
+            </View>
+            {user.role === 'driver' ? (
+              <View style={styles.notificationList}>
+                <Text style={styles.emptyNotifications}>Gestiona archivos, vigencias, reemplazos e historial desde una pantalla dedicada.</Text>
+                <Pressable accessibilityRole="button" onPress={() => router.push('/mis-documentos')} style={styles.documentUploadButton}>
+                  <Text style={styles.documentUploadText}>Administrar mis documentos</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Text style={styles.emptyNotifications}>La revisión administrativa de documentos se realiza en el portal web.</Text>
+            )}
+          </AppCard>
+          {/* Implementación documental anterior retirada de la interfaz durante RC-DOCUMENTS-DRIVER-ADMIN-02.
           <AppCard>
             <View style={styles.pillsRow}>
               <Text style={styles.cardTitle}>{getDocumentSectionTitle(user.role)}</Text>
@@ -315,6 +233,7 @@ export function ProfileScreen() {
               <Text style={styles.emptyNotifications}>No hay conductores registrados en la empresa.</Text>
             )}
           </AppCard>
+          */}
 
           <AppCard>
             <Text style={styles.cardTitle}>Apariencia</Text>

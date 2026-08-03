@@ -22,6 +22,9 @@ export function createBlankEditor(): UnitEditor {
 }
 
 export function getUnitStatus(vehicle: Vehicle): { label: string; tone: StatusBadgeTone } {
+  if (vehicle.retiredAt || vehicle.status === 'retired') {
+    return { label: 'Retirada', tone: 'neutral' };
+  }
   if (vehicle.status === 'maintenance') {
     return { label: 'Mantenimiento', tone: 'warning' };
   }

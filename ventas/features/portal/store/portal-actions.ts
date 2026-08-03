@@ -344,6 +344,10 @@ export function createPortalActions(
           'subscription:updated',
           'onboarding:updated',
           'activation-keys:updated',
+          'driver:offboarded',
+          'driver:reactivated',
+          'vehicle:released',
+          'activation:summary-updated',
         ].includes(eventName)
       ) {
         if (eventName === 'subscription:updated' && payload && typeof payload === 'object') {

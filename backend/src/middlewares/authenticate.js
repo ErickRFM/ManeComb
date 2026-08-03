@@ -2,12 +2,16 @@ const { verifyToken } = require("../utils/jwt");
 const { isSessionActive } = require("../services/sessions");
 const { getOrganizationId } = require("./access-control");
 
-async function resolveAuthenticatedUser(store, token) {
+async function resolveAuthenticatedUser(store, token, { includeSuspended = false } = {}) {
   const payload = verifyToken(token);
   const user = await store.getUserById(payload.sub);
 
-  if (!user || String(user.userStatus || "active").toLowerCase() === "suspended") {
+  if (!user) {
     return null;
+  }
+
+  if (String(user.userStatus || "active").toLowerCase() === "suspended") {
+    return includeSuspended ? { payload, user, suspended: true } : null;
   }
 
   if (payload.sid && !(await isSessionActive(user.id, payload.sid))) {
@@ -30,13 +34,22 @@ async function authenticate(req, res, next) {
   try {
     const resolved = await resolveAuthenticatedUser(
       req.app.locals.store,
-      header.replace("Bearer ", "").trim()
+      header.replace("Bearer ", "").trim(),
+      { includeSuspended: true }
     );
 
     if (!resolved) {
       return res.status(401).json({
         ok: false,
         message: "Sesión inválida"
+      });
+    }
+
+    if (resolved.suspended) {
+      return res.status(401).json({
+        ok: false,
+        code: "ACCOUNT_SUSPENDED",
+        message: "Tu acceso fue suspendido por el administrador de tu empresa"
       });
     }
 

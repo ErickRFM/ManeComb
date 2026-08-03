@@ -47,7 +47,11 @@ export function ActivationKeyRow({
         </View>
         <Text style={styles.keyMeta}>
           {activationKey.status === 'used'
-            ? `Conductor: ${usedBy || 'asociado'}`
+            ? activationKey.usedByDriverState === 'offboarded'
+              ? `Conductor dado de baja: ${usedBy || 'asociado'}`
+              : activationKey.usedByDriverState === 'deleted'
+                ? `Conductor eliminado: ${usedBy || 'evidencia conservada'}`
+                : `Conductor: ${usedBy || 'asociado'}`
             : `Vence: ${activationKey.expiresAt ? new Date(activationKey.expiresAt).toLocaleDateString('es-MX') : 'sin fecha'}`}
         </Text>
       </>} actions={<View style={styles.keyActions}>

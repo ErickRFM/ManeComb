@@ -31,6 +31,7 @@
     "@noble/hashes": "^1.8.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
+    "@react-native-documents/picker": "^11.0.4",
     "@react-navigation/native": "^7.1.8",
     "@react-navigation/native-stack": "^7.3.16",
     "@rnmapbox/maps": "^10.3.2",

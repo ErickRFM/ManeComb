@@ -31,6 +31,7 @@ describe('navigation route registry', () => {
 
   it('keeps profile editing inside the profile stack', () => {
     expect(getRouteDefinition('/perfil-editar')).toEqual({ module: 'profile', root: '/perfil' });
+    expect(getRouteDefinition('/mis-documentos')).toEqual({ module: 'profile', root: '/perfil' });
     expect(isModuleRoot('/perfil-editar')).toBe(false);
     expect(getModuleRouteName('profile')).toBe(MODULE_ROUTE_NAMES.profile);
   });

@@ -17,6 +17,7 @@ import com.anonymous.combiscontrol.audio.ManeCombAudioPackage
 import com.anonymous.combiscontrol.calls.ManeCombCallPackage
 import com.anonymous.combiscontrol.location.ManeCombLocationPackage
 import com.anonymous.combiscontrol.notifications.ManeCombNotificationPackage
+import com.anonymous.combiscontrol.documents.ManeCombDocumentFilePackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -30,6 +31,7 @@ class MainApplication : Application(), ReactApplication {
               add(ManeCombCallPackage())
               add(ManeCombLocationPackage())
               add(ManeCombNotificationPackage())
+              add(ManeCombDocumentFilePackage())
             }
 
           override fun getJSMainModuleName(): String = "index"

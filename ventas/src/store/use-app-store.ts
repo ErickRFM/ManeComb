@@ -23,6 +23,10 @@ import {
   createVehicleRequest,
   deleteUserRequest,
   deleteVehicleRequest,
+  deleteDriverRequest,
+  offboardDriverRequest,
+  reactivateDriverRequest,
+  retireVehicleRequest,
   getApiErrorMessage,
   getSessionRequest,
   forgotPasswordRequest,
@@ -70,12 +74,16 @@ type AppState = {
   signOut: () => Promise<void>;
   refreshAll: () => Promise<void>;
   loadUsers: () => Promise<void>;
-  loadVehicles: () => Promise<void>;
+  loadVehicles: (options?: { includeRetired?: boolean }) => Promise<void>;
   updateUser: (userId: string, payload: UserMutationPayload) => Promise<ActionResult>;
   deleteUser: (userId: string) => Promise<ActionResult>;
+  offboardDriver: (userId: string, reason: string) => Promise<ActionResult>;
+  reactivateDriver: (userId: string) => Promise<ActionResult>;
+  deleteDriver: (userId: string, reason: string, confirmation: string) => Promise<ActionResult>;
   createVehicle: (payload: VehicleMutationPayload) => Promise<ActionResult>;
   updateVehicle: (vehicleId: string, payload: VehicleMutationPayload) => Promise<ActionResult>;
   deleteVehicle: (vehicleId: string) => Promise<ActionResult>;
+  retireVehicle: (vehicleId: string, reason: string) => Promise<ActionResult>;
   assignRoute: (payload: RouteAssignmentPayload) => Promise<ActionResult>;
   clearRouteAssignment: (vehicleId: string) => Promise<ActionResult>;
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
@@ -253,6 +261,11 @@ function connectSocket(get: () => AppState) {
     'route-session:updated',
     'user:updated',
     'user:deleted',
+    'driver:offboarded',
+    'driver:reactivated',
+    'vehicle:released',
+    'vehicle:retired',
+    'activation:summary-updated',
   ].forEach((eventName) => {
     socket?.on(eventName, (payload) => {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
@@ -273,6 +286,12 @@ function connectSocket(get: () => AppState) {
         void useAppStore.getState().loadVehicles();
       }
 
+      if (eventName === 'driver:offboarded' || eventName === 'driver:reactivated' || eventName === 'vehicle:released') {
+        void useAppStore.getState().loadUsers();
+        void useAppStore.getState().loadVehicles();
+        void usePortalStore.getState().loadOverview();
+      }
+
       if (eventName === 'user:deleted') {
         const userId = (payload as { userId?: string }).userId || (payload as { user?: { id: string } }).user?.id;
         if (userId) {
@@ -290,6 +309,12 @@ function connectSocket(get: () => AppState) {
         } else {
           void useAppStore.getState().loadVehicles();
         }
+      }
+
+      if (eventName === 'vehicle:retired') {
+        const vehicle = extractVehicleFromRealtimePayload(payload);
+        if (vehicle) upsertRealtimeVehicle(vehicle);
+        else void useAppStore.getState().loadVehicles();
       }
 
       if (eventName === 'vehicle:deleted') {
@@ -508,7 +533,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: getReadableError(error, 'No fue posible cargar usuarios.') });
     }
   },
-  loadVehicles: async () => {
+  loadVehicles: async (options = {}) => {
     const user = get().user;
 
     if (!hasPortalPermission(user, 'vehicles') && !hasPortalPermission(user, 'routes')) {
@@ -517,7 +542,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const [vehicles, operationalUnits] = await Promise.all([
-        getVehiclesRequest(),
+        getVehiclesRequest(options),
         getOperationalUnitsRequest(),
       ]);
       set((state) => ({
@@ -575,6 +600,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     } finally {
       set({ isSubmitting: false });
     }
+  },
+  offboardDriver: async (userId, reason) => {
+    if (!hasPortalPermission(get().user, 'users')) return { ok: false, message: 'No tienes permiso para administrar conductores.' };
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const result = await offboardDriverRequest(userId, reason);
+      set((state) => ({
+        users: state.users.map((entry) => (entry.id === userId ? result.user : entry)),
+        vehicles: result.releasedVehicle
+          ? state.vehicles.map((entry) => (entry.id === result.releasedVehicle.id ? result.releasedVehicle : entry))
+          : state.vehicles,
+      }));
+      void usePortalStore.getState().loadOverview();
+      return { ok: true, message: result.message };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible dar de baja al conductor.');
+      set({ error: message }); return { ok: false, message };
+    } finally { set({ isSubmitting: false }); }
+  },
+  reactivateDriver: async (userId) => {
+    if (!hasPortalPermission(get().user, 'users')) return { ok: false, message: 'No tienes permiso para administrar conductores.' };
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const result = await reactivateDriverRequest(userId);
+      set((state) => ({ users: state.users.map((entry) => (entry.id === userId ? result.user : entry)) }));
+      void usePortalStore.getState().loadOverview();
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible reactivar al conductor.');
+      set({ error: message }); return { ok: false, message };
+    } finally { set({ isSubmitting: false }); }
+  },
+  deleteDriver: async (userId, reason, confirmation) => {
+    if (!hasPortalPermission(get().user, 'users')) return { ok: false, message: 'No tienes permiso para administrar conductores.' };
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      await deleteDriverRequest(userId, reason, confirmation);
+      set((state) => ({ users: state.users.filter((entry) => entry.id !== userId) }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible eliminar al conductor.');
+      set({ error: message }); return { ok: false, message };
+    } finally { set({ isSubmitting: false }); }
   },
   createVehicle: async (payload) => {
     if (!hasPortalPermission(get().user, 'vehicles')) {
@@ -649,6 +720,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     } finally {
       set({ isSubmitting: false });
     }
+  },
+  retireVehicle: async (vehicleId, reason) => {
+    if (!hasPortalPermission(get().user, 'vehicles')) return { ok: false, message: 'No tienes permiso para administrar unidades.' };
+    if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+    set({ isSubmitting: true, error: null });
+    try {
+      const result = await retireVehicleRequest(vehicleId, reason);
+      set((state) => ({ vehicles: state.vehicles.map((entry) => (entry.id === vehicleId ? result.vehicle : entry)) }));
+      return { ok: true };
+    } catch (error) {
+      const message = getReadableError(error, 'No fue posible retirar la unidad.');
+      set({ error: message }); return { ok: false, message };
+    } finally { set({ isSubmitting: false }); }
   },
   assignRoute: async (payload) => {
     if (!hasPortalPermission(get().user, 'routes')) {

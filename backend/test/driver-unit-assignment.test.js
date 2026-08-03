@@ -133,7 +133,11 @@ async function runConcurrentUnitClaim() {
   assert.equal(losers[0].status, 409);
   assert.match(losers[0].message, /ya no est. disponible/i);
 
-  const loserKey = winners[0].result.activationKey.key === keys[0].key ? keys[1] : keys[0];
+  const storedKeys = await Promise.all(keys.map((entry) => store.findActivationKeyByKey(entry.key)));
+  const winnerKeyIndex = storedKeys.findIndex(
+    (entry) => entry.usedByDriverId === winners[0].result.user.id
+  );
+  const loserKey = keys[winnerKeyIndex === 0 ? 1 : 0];
   const storedLoserKey = await store.findActivationKeyByKey(loserKey.key);
 
   assert.equal(storedLoserKey.status, "available", "la key del perdedor no debe consumirse");

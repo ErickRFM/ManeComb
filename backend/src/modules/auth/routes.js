@@ -270,11 +270,20 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
 
   const user = await req.app.locals.store.getUserById(rotated.session.userId);
 
-  if (!user || String(user.userStatus || "active").toLowerCase() === "suspended") {
+  if (!user) {
     await revokeRefreshToken(rotated.refreshToken, "user_not_found");
     return res.status(401).json({
       ok: false,
       message: "Sesion invalida"
+    });
+  }
+
+  if (String(user.userStatus || "active").toLowerCase() === "suspended") {
+    await revokeRefreshToken(rotated.refreshToken, "account_suspended");
+    return res.status(401).json({
+      ok: false,
+      code: "ACCOUNT_SUSPENDED",
+      message: "Tu acceso fue suspendido por el administrador de tu empresa"
     });
   }
 

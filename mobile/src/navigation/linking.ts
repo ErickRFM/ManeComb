@@ -29,6 +29,7 @@ export const linking: LinkingOptions<any> = {
       '/': '', '/login': 'login', '/registro': 'registro', '/aplicacion': 'aplicacion',
       '/recuperar-contrasena': 'recuperar-contrasena',
       '/recuperacion-enviada': 'recuperacion-enviada',
+      '/acceso-suspendido': 'acceso-suspendido',
       '/nueva-contrasena': 'reset-password',
       '/contrasena-actualizada': 'contrasena-actualizada',
       '/comercial': 'comercial', '/ventas': 'ventas', '/ventas/login': 'ventas/login',
@@ -46,7 +47,7 @@ export const linking: LinkingOptions<any> = {
       [MODULE_ROUTE_NAMES.radio]: { screens: { '/radio': 'radio' } },
       [MODULE_ROUTE_NAMES.checklist]: { screens: { '/checklist': 'checklist' } },
       [MODULE_ROUTE_NAMES.profile]: {
-        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar' },
+        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar', '/mis-documentos': 'mis-documentos' },
       },
     },
   },

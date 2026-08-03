@@ -325,14 +325,25 @@ function createEmbeddedStore() {
     return state.tripLogs.find((tripLog) => tripLog.id === tripLogId) || null;
   }
 
-  function getDocumentById(documentId) {
+  function findDocumentById(documentId) {
     return state.documents.find((document) => document.id === documentId) || null;
   }
 
-  function getDocumentByStorageKey(storageKey) {
+  function getDocumentById(documentId, filters = {}) {
+    const document = findDocumentById(documentId);
+    if (!document) return null;
+    if (filters.organizationId && document.organizationId !== filters.organizationId) return null;
+    if (!filters.includeDeleted && document.deletedAt) return null;
+    return enrichDocument(document);
+  }
+
+  function getDocumentByStorageKey(storageKey, filters = {}) {
     return clone(
       state.documents.find(
-        (document) => document.storageKey === String(storageKey || "").trim()
+        (document) =>
+          document.storageKey === String(storageKey || "").trim() &&
+          (!filters.organizationId || document.organizationId === filters.organizationId) &&
+          (filters.includeDeleted || !document.deletedAt)
       ) || null
     );
   }
@@ -911,6 +922,7 @@ function createEmbeddedStore() {
 
     return clone(
       state.users
+        .filter((user) => !user.deletedAt)
         .filter((user) => canSeeAll || !organizationId || getUserOrganizationId(user) === organizationId)
         .map((user) => sanitizeUser(user))
         .sort((left, right) => {
@@ -1281,6 +1293,10 @@ function createEmbeddedStore() {
         return false;
       }
 
+      if (document.deletedAt || document.supersededByDocumentId) {
+        return false;
+      }
+
       if (user.role !== "driver") {
         return true;
       }
@@ -1303,6 +1319,14 @@ function createEmbeddedStore() {
     return clone(
       state.documents
         .filter((document) => {
+          if (!filters.includeDeleted && document.deletedAt) {
+            return false;
+          }
+
+          if (!filters.includeSuperseded && document.supersededByDocumentId) {
+            return false;
+          }
+
           if (filters.ownerType && document.ownerType !== filters.ownerType) {
             return false;
           }
@@ -1368,18 +1392,31 @@ function createEmbeddedStore() {
       reviewedAt: payload.reviewedAt || null,
       reviewedBy: payload.reviewedBy || null,
       reviewNotes: String(payload.reviewNotes || "").trim(),
-      reviewVersion: 0
+      reviewVersion: 0,
+      replacesDocumentId: payload.replacesDocumentId || null,
+      supersededByDocumentId: null,
+      version: Math.max(1, Number(payload.version) || 1),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: "",
+      assetDeletedAt: null,
+      assetDeletionError: "",
+      assetDeletionAttempts: 0
     };
 
     state.documents.unshift(document);
 
-    return enrichDocument(getDocumentById(document.id));
+    return enrichDocument(findDocumentById(document.id));
   }
 
   function reviewDocument(documentId, payload) {
-    const document = getDocumentById(documentId);
+    const document = findDocumentById(documentId);
 
-    if (!document) {
+    if (
+      !document ||
+      document.deletedAt ||
+      (payload.organizationId && document.organizationId !== payload.organizationId)
+    ) {
       return null;
     }
 
@@ -1395,6 +1432,163 @@ function createEmbeddedStore() {
     document.reviewVersion = Number(document.reviewVersion || 0) + 1;
 
     return { ...enrichDocument(document), reviewChanged: true };
+  }
+
+  function updateDocument(documentId, payload = {}) {
+    const document = findDocumentById(documentId);
+    if (
+      !document ||
+      document.deletedAt ||
+      (payload.organizationId && document.organizationId !== payload.organizationId)
+    ) {
+      return null;
+    }
+
+    const expiresAt = payload.expiresAt === undefined
+      ? new Date(document.expiresAt)
+      : new Date(payload.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    const nextName = payload.name === undefined ? document.name : String(payload.name || "").trim();
+    const nextCategory = payload.category === undefined
+      ? document.category
+      : String(payload.category || "").trim().toLowerCase();
+    if (!nextName || !nextCategory) {
+      throw new Error("name, category y expiresAt son obligatorios");
+    }
+
+    const changed = nextName !== document.name ||
+      nextCategory !== document.category ||
+      expiresAt.toISOString() !== new Date(document.expiresAt).toISOString();
+    if (!changed) return { ...enrichDocument(document), metadataChanged: false };
+
+    document.name = nextName;
+    document.category = nextCategory;
+    document.expiresAt = expiresAt.toISOString();
+    document.status = getDocumentStatus(expiresAt);
+    document.reviewStatus = "pending_review";
+    document.reviewNotes = "";
+    document.reviewedBy = null;
+    document.reviewedAt = null;
+    document.reviewVersion = Number(document.reviewVersion || 0) + 1;
+    return { ...enrichDocument(document), metadataChanged: true };
+  }
+
+  function replaceDocument(documentId, payload = {}) {
+    const previous = findDocumentById(documentId);
+    if (
+      !previous ||
+      previous.deletedAt ||
+      previous.supersededByDocumentId ||
+      (payload.organizationId && previous.organizationId !== payload.organizationId)
+    ) {
+      return null;
+    }
+
+    const expiresAt = new Date(payload.expiresAt || previous.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error("La fecha de vencimiento no es valida");
+    }
+
+    const replacementId = randomUUID();
+    const replacement = {
+      id: replacementId,
+      organizationId: previous.organizationId,
+      ownerType: previous.ownerType,
+      ownerId: previous.ownerId,
+      name: String(payload.name || previous.name).trim(),
+      category: previous.category,
+      status: getDocumentStatus(expiresAt),
+      expiresAt: expiresAt.toISOString(),
+      fileUrl: payload.fileUrl || null,
+      storageType: String(payload.storageType || "local").trim() || "local",
+      mimeType: String(payload.mimeType || "").trim(),
+      fileSize: Math.max(0, Number(payload.fileSize) || 0),
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: String(payload.uploadedBy || "").trim(),
+      originalFileName: String(payload.originalFileName || payload.name || previous.name).trim(),
+      storageKey: String(payload.storageKey || "").trim(),
+      reviewStatus: "pending_review",
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewNotes: "",
+      reviewVersion: 0,
+      replacesDocumentId: previous.id,
+      supersededByDocumentId: null,
+      version: Math.max(1, Number(previous.version) || 1) + 1,
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: "",
+      assetDeletedAt: null,
+      assetDeletionError: "",
+      assetDeletionAttempts: 0
+    };
+
+    previous.supersededByDocumentId = replacementId;
+    state.documents.unshift(replacement);
+    return enrichDocument(replacement);
+  }
+
+  function listDocumentVersions(documentId, filters = {}) {
+    const start = findDocumentById(documentId);
+    if (!start || (filters.organizationId && start.organizationId !== filters.organizationId)) {
+      return [];
+    }
+
+    const scoped = state.documents.filter((document) =>
+      document.organizationId === start.organizationId
+    );
+    const included = new Set([start.id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      scoped.forEach((document) => {
+        if (
+          included.has(document.replacesDocumentId) ||
+          included.has(document.supersededByDocumentId)
+        ) {
+          if (!included.has(document.id)) {
+            included.add(document.id);
+            changed = true;
+          }
+        }
+      });
+    }
+
+    return clone(
+      scoped
+        .filter((document) => included.has(document.id))
+        .map((document) => enrichDocument(document))
+        .sort((left, right) => Number(left.version || 1) - Number(right.version || 1))
+    );
+  }
+
+  function softDeleteDocument(documentId, payload = {}) {
+    const document = findDocumentById(documentId);
+    if (!document || (payload.organizationId && document.organizationId !== payload.organizationId)) {
+      return null;
+    }
+
+    if (!document.deletedAt) {
+      document.deletedAt = new Date().toISOString();
+      document.deletedBy = String(payload.deletedBy || "").trim() || null;
+      document.deleteReason = String(payload.deleteReason || "").trim();
+    }
+
+    if (payload.assetDeletedAt) {
+      document.assetDeletedAt = new Date(payload.assetDeletedAt).toISOString();
+      document.assetDeletionError = "";
+    }
+    if (payload.assetDeletionError !== undefined) {
+      document.assetDeletionError = String(payload.assetDeletionError || "").trim();
+    }
+    if (payload.recordAssetAttempt) {
+      document.assetDeletionAttempts = Number(document.assetDeletionAttempts || 0) + 1;
+    }
+
+    return enrichDocument(document);
   }
 
   function getNotificationsForUser(user) {
@@ -1655,10 +1849,13 @@ function createEmbeddedStore() {
     return state.vehicles
       .filter(
         (vehicle) =>
-          !user ||
+          !vehicle.retiredAt &&
           (
-            canAccessOrganizationResource(user, vehicle) &&
-            (user.role !== "driver" || vehicle.id === user.vehicleId)
+            !user ||
+            (
+              canAccessOrganizationResource(user, vehicle) &&
+              (user.role !== "driver" || vehicle.id === user.vehicleId)
+            )
           )
       )
       .map((vehicle) => {
@@ -2257,6 +2454,7 @@ function createEmbeddedStore() {
       orderId: String(payload.orderId || "").trim() || null,
       status: payload.status || "available",
       usedByDriverId: payload.usedByDriverId || null,
+      usedByDriverState: payload.usedByDriverState || null,
       expiresAt: payload.expiresAt,
       usedAt: payload.usedAt || null,
       sharedAt: payload.sharedAt || null,
@@ -2268,6 +2466,41 @@ function createEmbeddedStore() {
     state.activationKeys.unshift(activationKey);
 
     return clone(activationKey);
+  }
+
+  function listVehiclesForOrganization(organizationId, { includeRetired = false } = {}) {
+    const scope = String(organizationId || "").trim();
+    return state.vehicles
+      .filter((vehicle) => String(vehicle.organizationId || "").trim() === scope)
+      .filter((vehicle) => includeRetired || !vehicle.retiredAt)
+      .map((vehicle) => enrichVehicle(vehicle));
+  }
+
+  function createActivationKeyWithinCapacity(payload, { maxDrivers } = {}) {
+    const companyId = String(payload.companyId || "").trim();
+    const limit = Math.max(0, Number(maxDrivers) || 0);
+    const activeDrivers = state.users.filter(
+      (entry) =>
+        !entry.deletedAt &&
+        entry.role === "driver" &&
+        getUserOrganizationId(entry) === companyId &&
+        normalizeUserStatus(entry.userStatus) !== "suspended"
+    ).length;
+    const availableKeys = state.activationKeys.filter(
+      (entry) =>
+        entry.companyId === companyId &&
+        entry.status === "available" &&
+        new Date(entry.expiresAt || 0).getTime() > Date.now()
+    ).length;
+
+    if (!limit || activeDrivers + availableKeys >= limit) {
+      return { capacityExceeded: true, activationKey: null };
+    }
+
+    return {
+      capacityExceeded: false,
+      activationKey: createActivationKey(payload)
+    };
   }
 
   function deleteActivationKey(activationKeyId) {
@@ -2311,6 +2544,7 @@ function createEmbeddedStore() {
       {
         status: "used",
         usedByDriverId: String(driverId || "").trim() || null,
+        usedByDriverState: "active",
         usedAt: new Date().toISOString()
       },
       {
@@ -2475,7 +2709,10 @@ function createEmbeddedStore() {
       currentKilometers: Math.max(0, Number(payload.currentKilometers) || 0),
       updatedAt: new Date().toISOString(),
       location: payload.location || null,
-      assignedRoute: null
+      assignedRoute: null,
+      retiredAt: null,
+      retiredBy: null,
+      retirementReason: ""
     };
 
     if (!vehicle.code || !vehicle.plate) {
@@ -2535,6 +2772,251 @@ function createEmbeddedStore() {
     return clone(vehicle);
   }
 
+  function getDriverLifecycleDependencies(userId, organizationId) {
+    const user = getUserById(userId);
+
+    if (!user || getUserOrganizationId(user) !== String(organizationId || "").trim()) {
+      return null;
+    }
+
+    const vehicle = user.vehicleId ? getVehicleById(user.vehicleId) : null;
+    const activeSession = vehicle ? getActiveRouteSession(vehicle.id) : null;
+    const documents = state.documents.filter(
+      (entry) =>
+        entry.organizationId === organizationId &&
+        entry.ownerType === "driver" &&
+        entry.ownerId === userId
+    );
+    const historicalSessions = state.routeSessions.filter(
+      (entry) => entry.organizationId === organizationId && entry.driverId === userId
+    );
+
+    return clone({
+      user: sanitizeUser(user),
+      vehicle: vehicle ? enrichVehicle(vehicle) : null,
+      activeSession,
+      documentCount: documents.length,
+      historicalSessionCount: historicalSessions.length
+    });
+  }
+
+  function getVehicleLifecycleDependencies(vehicleId, organizationId) {
+    const vehicle = getVehicleById(vehicleId);
+
+    if (!vehicle || String(vehicle.organizationId || "").trim() !== String(organizationId || "").trim()) {
+      return null;
+    }
+
+    const routeSessions = state.routeSessions.filter(
+      (entry) => entry.organizationId === organizationId && entry.vehicleId === vehicleId
+    );
+    const positionCount = state.routeSessionPositions.filter((entry) => entry.vehicleId === vehicleId).length;
+    const documentCount = state.documents.filter(
+      (entry) => entry.organizationId === organizationId && entry.ownerType === "vehicle" && entry.ownerId === vehicleId
+    ).length;
+    const incidentCount = state.incidents.filter(
+      (entry) => entry.organizationId === organizationId && entry.vehicleId === vehicleId
+    ).length;
+    const tripLogCount = state.tripLogs.filter(
+      (entry) => entry.organizationId === organizationId && entry.vehicleId === vehicleId
+    ).length;
+
+    return clone({
+      vehicle: enrichVehicle(vehicle),
+      driver: vehicle.driverId ? sanitizeUser(getUserById(vehicle.driverId)) : null,
+      activeSession: getActiveRouteSession(vehicleId),
+      routeSessionCount: routeSessions.length,
+      positionCount,
+      documentCount,
+      incidentCount,
+      tripLogCount
+    });
+  }
+
+  function changeDriverVehicle({ organizationId, userId, vehicleId = null }) {
+    const user = getUserById(userId);
+    const scope = String(organizationId || "").trim();
+
+    if (!user || user.deletedAt || getUserOrganizationId(user) !== scope || user.role !== "driver") {
+      return { ok: false, code: "not_found" };
+    }
+
+    if (normalizeUserStatus(user.userStatus) === "suspended") {
+      return { ok: false, code: "suspended" };
+    }
+
+    const previousVehicle = user.vehicleId ? getVehicleById(user.vehicleId) : null;
+    if (previousVehicle && getActiveRouteSession(previousVehicle.id)) {
+      return { ok: false, code: "active_session" };
+    }
+
+    if (vehicleId === user.vehicleId) {
+      return {
+        ok: true,
+        changed: false,
+        user: sanitizeUser(user),
+        previousVehicle: previousVehicle ? enrichVehicle(previousVehicle) : null,
+        vehicle: previousVehicle ? enrichVehicle(previousVehicle) : null
+      };
+    }
+
+    const nextVehicle = vehicleId ? getVehicleById(vehicleId) : null;
+    if (vehicleId && (!nextVehicle || nextVehicle.retiredAt || String(nextVehicle.organizationId || "").trim() !== scope)) {
+      return { ok: false, code: "vehicle_not_found" };
+    }
+    if (
+      nextVehicle &&
+      (nextVehicle.status !== "available" || (nextVehicle.driverId && nextVehicle.driverId !== userId))
+    ) {
+      return { ok: false, code: "vehicle_taken" };
+    }
+
+    if (nextVehicle) {
+      nextVehicle.driverId = userId;
+      nextVehicle.status = "assigned";
+      nextVehicle.updatedAt = new Date().toISOString();
+    }
+    if (previousVehicle && previousVehicle.id !== vehicleId && previousVehicle.driverId === userId) {
+      previousVehicle.driverId = null;
+      previousVehicle.status = previousVehicle.status === "assigned" ? "available" : previousVehicle.status;
+      previousVehicle.updatedAt = new Date().toISOString();
+    }
+    user.vehicleId = vehicleId || null;
+    user.fleetLifecycleVersion = Number(user.fleetLifecycleVersion || 0) + 1;
+
+    return {
+      ok: true,
+      changed: true,
+      user: sanitizeUser(user),
+      previousVehicle: previousVehicle ? enrichVehicle(previousVehicle) : null,
+      vehicle: nextVehicle ? enrichVehicle(nextVehicle) : null
+    };
+  }
+
+  function offboardDriverState({ actorId, organizationId, reason, userId }) {
+    const user = getUserById(userId);
+    const scope = String(organizationId || "").trim();
+
+    if (!user || user.deletedAt || getUserOrganizationId(user) !== scope || user.role !== "driver") {
+      return { ok: false, code: "not_found" };
+    }
+
+    const vehicle = user.vehicleId ? getVehicleById(user.vehicleId) : null;
+    if (vehicle && getActiveRouteSession(vehicle.id)) {
+      return { ok: false, code: "active_session" };
+    }
+
+    const alreadyOffboarded = normalizeUserStatus(user.userStatus) === "suspended" && !user.vehicleId;
+    if (vehicle?.driverId === userId) {
+      vehicle.driverId = null;
+      vehicle.status = vehicle.status === "assigned" ? "available" : vehicle.status;
+      vehicle.updatedAt = new Date().toISOString();
+    }
+
+    const now = new Date().toISOString();
+    user.vehicleId = null;
+    user.userStatus = "suspended";
+    user.status = "offline";
+    user.suspendedAt = user.suspendedAt || now;
+    user.offboardedAt = user.offboardedAt || now;
+    user.offboardedBy = user.offboardedBy || actorId || null;
+    user.offboardReason = user.offboardReason || String(reason || "").trim();
+    user.accountStatusVersion = Number(user.accountStatusVersion || 0) + (alreadyOffboarded ? 0 : 1);
+    user.fleetLifecycleVersion = Number(user.fleetLifecycleVersion || 0) + (alreadyOffboarded ? 0 : 1);
+
+    return {
+      ok: true,
+      changed: !alreadyOffboarded,
+      user: sanitizeUser(user),
+      releasedVehicle: vehicle ? enrichVehicle(vehicle) : null
+    };
+  }
+
+  function reactivateDriverWithinCapacity({ organizationId, userId, maxDrivers }) {
+    const user = getUserById(userId);
+    const scope = String(organizationId || "").trim();
+
+    if (!user || user.deletedAt || getUserOrganizationId(user) !== scope || user.role !== "driver") {
+      return { ok: false, code: "not_found" };
+    }
+    if (normalizeUserStatus(user.userStatus) !== "suspended") {
+      return { ok: true, changed: false, user: sanitizeUser(user) };
+    }
+
+    const activeDrivers = state.users.filter(
+      (entry) =>
+        !entry.deletedAt && entry.role === "driver" && getUserOrganizationId(entry) === scope &&
+        normalizeUserStatus(entry.userStatus) !== "suspended"
+    ).length;
+    const availableKeys = state.activationKeys.filter(
+      (entry) => entry.companyId === scope && entry.status === "available" && new Date(entry.expiresAt || 0).getTime() > Date.now()
+    ).length;
+
+    if (activeDrivers + availableKeys >= Math.max(0, Number(maxDrivers) || 0)) {
+      return { ok: false, code: "capacity" };
+    }
+
+    user.userStatus = "active";
+    user.status = "offline";
+    user.vehicleId = null;
+    user.suspendedAt = null;
+    user.reactivatedAt = new Date().toISOString();
+    user.accountStatusVersion = Number(user.accountStatusVersion || 0) + 1;
+    user.fleetLifecycleVersion = Number(user.fleetLifecycleVersion || 0) + 1;
+
+    return { ok: true, changed: true, user: sanitizeUser(user) };
+  }
+
+  function deleteDriverSafely({ actorId, organizationId, reason, userId }) {
+    const user = getUserById(userId);
+    const scope = String(organizationId || "").trim();
+
+    if (!user || user.deletedAt || getUserOrganizationId(user) !== scope || user.role !== "driver") {
+      return { ok: false, code: "not_found" };
+    }
+    if (normalizeUserStatus(user.userStatus) !== "suspended") return { ok: false, code: "not_suspended" };
+    if (user.vehicleId) return { ok: false, code: "vehicle_assigned" };
+    if (state.routeSessions.some((entry) => entry.driverId === userId && ["RUNNING", "PAUSED"].includes(entry.status))) {
+      return { ok: false, code: "active_session" };
+    }
+
+    const now = new Date().toISOString();
+    user.deletedAt = now;
+    user.deletedBy = actorId || null;
+    user.deleteReason = String(reason || "").trim();
+    user.status = "offline";
+    user.fleetLifecycleVersion = Number(user.fleetLifecycleVersion || 0) + 1;
+
+    return { ok: true, user: sanitizeUser(user) };
+  }
+
+  function retireVehicle({ actorId, organizationId, reason, vehicleId }) {
+    const impact = getVehicleLifecycleDependencies(vehicleId, organizationId);
+    if (!impact) return { ok: false, code: "not_found" };
+    if (impact.vehicle.driverId) return { ok: false, code: "driver_assigned" };
+    if (impact.vehicle.routeId || impact.vehicle.assignedRoute) return { ok: false, code: "route_assigned" };
+    if (impact.activeSession) return { ok: false, code: "active_session" };
+
+    const vehicle = getVehicleById(vehicleId);
+    if (vehicle.retiredAt) return { ok: true, changed: false, vehicle: enrichVehicle(vehicle) };
+    vehicle.status = "retired";
+    vehicle.retiredAt = new Date().toISOString();
+    vehicle.retiredBy = actorId || null;
+    vehicle.retirementReason = String(reason || "").trim();
+    vehicle.updatedAt = vehicle.retiredAt;
+    return { ok: true, changed: true, vehicle: enrichVehicle(vehicle) };
+  }
+
+  function deleteUnusedVehicle({ organizationId, vehicleId }) {
+    const impact = getVehicleLifecycleDependencies(vehicleId, organizationId);
+    if (!impact) return { ok: false, code: "not_found" };
+    const historicalCount = impact.routeSessionCount + impact.positionCount + impact.documentCount + impact.incidentCount + impact.tripLogCount;
+    if (impact.vehicle.driverId || impact.vehicle.routeId || impact.vehicle.assignedRoute || impact.activeSession || historicalCount > 0) {
+      return { ok: false, code: "has_dependencies" };
+    }
+    return { ok: true, vehicle: deleteVehicle(vehicleId) };
+  }
+
   function updateVehicle(vehicleId, payload) {
     const vehicle = getVehicleById(vehicleId);
 
@@ -2572,11 +3054,7 @@ function createEmbeddedStore() {
     }
 
     if (vehicle.status === "maintenance" && vehicle.driverId) {
-      const driver = getUserById(vehicle.driverId);
-      if (driver) {
-        driver.vehicleId = null;
-      }
-      vehicle.driverId = null;
+      throw new Error("Libera al conductor antes de poner la unidad en mantenimiento");
     }
 
     vehicle.updatedAt = new Date().toISOString();
@@ -3329,6 +3807,7 @@ function createEmbeddedStore() {
     canUserAccessConversation,
     canUserAccessChatMedia,
     createActivationKey,
+    createActivationKeyWithinCapacity,
     deleteActivationKey,
     createCommercialOrder,
     applyPaymentTransitionAtomically,
@@ -3352,6 +3831,8 @@ function createEmbeddedStore() {
     createVehicle,
     createUser,
     deleteUser,
+    deleteDriverSafely,
+    deleteUnusedVehicle,
     ensureDirectConversation,
     ensureGeneralConversation,
     findCommercialOrderByExternalReference,
@@ -3361,6 +3842,7 @@ function createEmbeddedStore() {
     getConversationById,
     getConversationsForUser,
     getDashboardOverview,
+    getDocumentById,
     getDocumentByStorageKey,
     getDocumentsForUser,
     getLiveLocations,
@@ -3373,24 +3855,32 @@ function createEmbeddedStore() {
     getUserById,
     getUserProfile,
     getVehicleById,
+    getDriverLifecycleDependencies,
+    getVehicleLifecycleDependencies,
     getCommercialOrderById: (orderId) => clone(getCommercialOrderById(orderId)),
     listChatContactsForUser,
     listActivationKeysForCompany,
     listCommercialOrders,
     listCommercialOrdersForUser,
     listDocuments,
+    listDocumentVersions,
     listPushSubscriptionsForRoles,
     listPushSubscriptionsForUsers,
     listUsers,
     listIncidents,
     listRtcSessions,
     listTripLogs,
+    listVehiclesForOrganization,
     markNotificationAsRead,
     markConversationMessageDelivered,
     markConversationMessageRead,
     markActivationKeyUsed,
     claimVehicleForDriver,
+    changeDriverVehicle,
+    offboardDriverState,
+    reactivateDriverWithinCapacity,
     releaseVehicleFromDriver,
+    retireVehicle,
     recordAppEvent,
     getAppConfig,
     updateAppConfig,
@@ -3400,10 +3890,13 @@ function createEmbeddedStore() {
     registerUser,
     resetPasswordWithToken,
     createDocument,
+    replaceDocument,
     reviewDocument,
+    softDeleteDocument,
     upsertUserE2eeBackup,
     unregisterPushSubscription,
     updateUser,
+    updateDocument,
     updateIncidentStatus,
     updateVehicleLocation,
     updateVehicle,
