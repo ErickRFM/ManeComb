@@ -17,6 +17,7 @@ const {
   validateAssignmentInput,
   serializeVehicleRouteAssignment
 } = require("../domain/vehicle-route-assignment");
+const { planActivation, OUTCOME: ACTIVATION_OUTCOME } = require("../domain/vehicle-route-assignment-activation");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -3614,6 +3615,97 @@ function createEmbeddedStore() {
       .map(serializeVehicleRouteAssignment);
   }
 
+  // Mutex por (org|vehiculo): serializa activaciones concurrentes de la MISMA unidad. En el
+  // embedded (un solo hilo) evita entrelazado entre awaits; en mongo la atomicidad real la da la
+  // transaccion, pero mantenemos la misma firma/serializacion para paridad de contrato.
+  const vehicleActivationLocks = new Map();
+  function withVehicleActivationLock(organizationId, vehicleId, task) {
+    const key = `${organizationId || ""}|${vehicleId || ""}`;
+    const previous = vehicleActivationLocks.get(key) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => task());
+    vehicleActivationLocks.set(key, run.catch(() => undefined));
+    return run;
+  }
+
+  // ESCRITOR UNICO (F3) del estado ACTIVE de una asignacion + Vehicle.routeId + Vehicle.assignedRoute.
+  // Reune lecturas -> planifica (dominio puro) -> aplica de forma recuperable bajo el mutex.
+  async function activateVehicleRouteAssignment(params = {}) {
+    const {
+      organizationId,
+      vehicleId,
+      assignmentId,
+      actor = "system",
+      actorId = null,
+      source = null,
+      reason = null,
+      expectedActiveAssignmentId,
+      expectedActivationVersion,
+      withinOperationalSchedule,
+      now
+    } = params;
+    const nowIso = now ? new Date(now).toISOString() : new Date().toISOString();
+
+    return withVehicleActivationLock(organizationId, vehicleId, () => {
+      const target = state.vehicleRouteAssignments.find((entry) => entry.id === assignmentId) || null;
+      const activeRecord = state.vehicleRouteAssignments.find(
+        (entry) => entry.organizationId === organizationId
+          && entry.vehicleId === String(vehicleId)
+          && entry.status === ASSIGNMENT_STATUS.ACTIVE
+      ) || null;
+      const vehicle = getVehicleById(vehicleId);
+      const route = target ? getRouteById(target.routeId) : null;
+      const routeRevision = route && Number.isFinite(Number(route.revision)) ? Number(route.revision) : 0;
+      const session = getActiveRouteSession(vehicleId);
+      const vehicleProjectsTarget = Boolean(
+        target && vehicle && hasActiveAssignedRoute(vehicle.assignedRoute)
+        && normalizeRouteId(vehicle.assignedRoute.routeId) === target.routeId
+      );
+      const hasActiveSessionOnOtherRoute = Boolean(
+        target && session && session.routeId && String(session.routeId) !== String(target.routeId)
+      );
+
+      const plan = planActivation({
+        target: target ? serializeVehicleRouteAssignment(target) : null,
+        currentActive: activeRecord ? serializeVehicleRouteAssignment(activeRecord) : null,
+        vehicleProjectsTarget,
+        routeRevision,
+        hasActiveSessionOnOtherRoute,
+        context: { organizationId, vehicleId: String(vehicleId), actor, actorId, source, reason, now: nowIso, withinOperationalSchedule },
+        expectedActiveAssignmentId,
+        expectedActivationVersion
+      });
+
+      const targetView = () => (target ? serializeVehicleRouteAssignment(target) : null);
+      const vehicleView = () => (vehicle ? enrichVehicle(vehicle) : null);
+
+      if (plan.outcome === ACTIVATION_OUTCOME.CONFLICT) {
+        return { outcome: plan.outcome, reason: plan.reason, applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+      if (plan.outcome === ACTIVATION_OUTCOME.IDEMPOTENT) {
+        return { outcome: plan.outcome, reason: null, applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+
+      // ACTIVATED / RECONCILED: construir la proyeccion ANTES de mutar (rollback recuperable).
+      let projection = null;
+      if (plan.projectVehicle) {
+        if (!route) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "no_route", applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+        if (!vehicle) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "vehicle_not_found", applied: false, assignment: targetView(), vehicle: null, event: null };
+        projection = assignedRouteFromSavedRoute(route, vehicle.assignedRoute, target.assignedBy);
+        if (!projection) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "route_projection_failed", applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+
+      // Commit (single-thread, atomico de facto): registro de asignacion + proyeccion del vehiculo.
+      Object.assign(target, plan.assignmentPatch);
+      if (plan.projectVehicle && projection) {
+        vehicle.routeId = route.id;
+        vehicle.assignedRoute = projection;
+        vehicle.updatedAt = nowIso;
+      }
+
+      return { outcome: plan.outcome, reason: null, applied: true, assignment: serializeVehicleRouteAssignment(target), vehicle: enrichVehicle(vehicle), event: plan.event };
+    });
+  }
+
   function createRouteSessionPosition(payload) {
     if (payload.packetId) {
       const existing = state.routeSessionPositions.find(
@@ -3976,6 +4068,7 @@ function createEmbeddedStore() {
     createVehicleRouteAssignment,
     getVehicleRouteAssignmentById,
     listVehicleRouteAssignments,
+    activateVehicleRouteAssignment,
     createRouteSession,
     createRouteSessionPosition,
     claimAutoRouteProcessing,
