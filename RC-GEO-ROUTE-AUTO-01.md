@@ -1,11 +1,11 @@
 # RC-GEO-ROUTE-AUTO-01 — Cierre profesional de geolocalización y rutas aprendidas
 
-**Estado:** Endurecimiento validado localmente — pendiente de despliegue protegido y prueba física
-**Veredicto previo al despliegue:** `RC_GEO_ROUTE_AUTO_NOT_READY`
+**Estado:** Desplegado con activación protegida — pendiente únicamente de prueba física
+**Veredicto:** `RC_GEO_ROUTE_AUTO_DEPLOYED_PHYSICAL_PENDING`
 **Base auditada:** `main` en `c14a777`
 **Rama de trabajo aislada:** `codex/rc-geo-route-auto-01`
 **Fecha:** 2026-07-31
-**Commit / despliegue:** el hash del commit y la evidencia desplegada se registran externamente después del commit
+**Commit funcional, integrado y desplegado:** `8cd27a74935e328fc2f1c27c244e8075ace68313`
 
 ## 1. Objetivo y alcance
 
@@ -310,19 +310,19 @@ Para elevar el veredicto a `READY` deben verificarse dos dispositivos reales y u
 
 ## 15. Riesgos pendientes
 
-- Falta ejecutar el verificador contra el MongoDB efectivo después del despliegue y confirmar ambos índices únicos; la prueba local de concurrencia usa el store embebido y el adapter Mongo emplea operaciones atómicas más recuperación `E11000`.
 - Falta prueba física de batería, proceso asesinado, reinicio del teléfono y dos observadores simultáneos.
 - El modo de persistencia del dispositivo y las restricciones OEM pueden variar; deben incluirse en QA físico.
 - Los umbrales de aprendizaje son configurables y requieren calibración con recorridos reales antes de habilitar decisiones operativas.
+- Valkey Free conserva `Persistence Mode: Off`; esta condición mantiene readiness en estado degradado y no se presenta como durabilidad completa.
 
 ## 16. Resultado
 
 El código elimina la doble captura foreground, unifica HTTP y Socket, protege el live state contra duplicados y retrocesos, conserva evidencia tardía, reconcilia REST/realtime, hace explícitos los estados de señal y añade un flujo de aprendizaje revisable, idempotente y aislado por organización.
 
-No se declara desplegada ni `READY` dentro de este commit: primero deben subirse los cambios con ambos flags apagados, verificarse el servicio y los índices efectivos, ejecutar los fixtures controlados y, finalmente, completar la prueba física simultánea con dos dispositivos.
+El commit funcional está integrado en `origin/main`, desplegado en Render y verificado con los flags globales apagados. MongoDB conserva los índices únicos requeridos, los fixtures controlados distinguieron corredores y la aprobación autenticada creó una ruta oficial sin asignarla a ninguna unidad. No se declara `READY` porque falta la prueba física simultánea con dos dispositivos.
 
 ```text
-RC_GEO_ROUTE_AUTO_NOT_READY
+RC_GEO_ROUTE_AUTO_DEPLOYED_PHYSICAL_PENDING
 ```
 
 ## 17. Endurecimiento RC-GEO-ROUTE-AUTO-01B
@@ -368,3 +368,74 @@ Solo después de confirmar build, health HTTP 200, MongoDB y ambos índices úni
 ### Matriz física preparada
 
 La validación restante usa dos usuarios, dos unidades y dos jornadas en foreground, background y pantalla apagada; incluye pérdida de red, cola offline, reconexión, flush, paquete fuera de orden, logout/login y Portal simultáneo. Se registrarán únicamente `pendingPackets`, `lastCapturedAt`, `lastSentAt`, `lastConfirmedAt`, `gps.connectionState`, `locationReceivedAt`, `sessionId` y `vehicleId`, sin coordenadas completas.
+
+## 18. Cierre operativo RC-GEO-ROUTE-AUTO-01C
+
+### Identidad Git y despliegue
+
+| Evidencia | Resultado |
+| --- | --- |
+| Rama funcional | `codex/rc-geo-route-auto-01` |
+| Commit base | `c14a7779e05403f1c270dfa40a2fef31245df870` |
+| Commit funcional | `8cd27a74935e328fc2f1c27c244e8075ace68313` |
+| Commit integrado en `main` | `8cd27a74935e328fc2f1c27c244e8075ace68313` |
+| Commit desplegado por Render | `8cd27a74935e328fc2f1c27c244e8075ace68313` |
+| Divergencia rama funcional / `origin/main` | `0/0` al cierre funcional |
+| Archivos ajenos incluidos | Ninguno |
+
+Render informó el servicio `live`; MongoDB conectó a la base efectiva y los endpoints `/api/health`, `/api/health/live` y `/api/health/ready` respondieron HTTP 200. El handshake de Socket.IO respondió correctamente y `POST /api/locations/update` sin autenticación conservó el rechazo HTTP 401. El estado `degraded` de readiness corresponde únicamente a Valkey Free sin persistencia, no a una caída de Mongo, Socket o tracking.
+
+### Índices efectivos de MongoDB
+
+El verificador se ejecutó en modo `--dry-run` contra la base efectiva sin imprimir la URI y sin modificar documentos:
+
+| Colección | Clave única confirmada | Duplicados |
+| --- | --- | --- |
+| `auto_route_processing` | `(sessionId, algorithmVersion)` mediante `sessionId_1_algorithmVersion_1` | 0 |
+| `learned_route_candidates` | `(organizationId, groupKey)` mediante `organizationId_1_groupKey_1` | 0 |
+
+No fue necesario ejecutar `--apply`. No se eliminaron documentos ni se reemplazaron índices.
+
+### Fixtures geográficos y revisión
+
+La validación controlada utilizó un scope sintético aislado y eliminó sus documentos al finalizar:
+
+| Caso | Resultado |
+| --- | --- |
+| A + B + C, mismo corredor con ruido | Un candidato `READY_FOR_REVIEW`, `evidenceCount=3` |
+| D, mismos extremos por corredor alternativo | Candidato distinto |
+| E, sentido contrario | Candidato distinto |
+| Total | 3 candidatos, los 3 listos para revisión |
+| Evidencia multiunidad | `vehicleCount=3` en el fixture Mongo; sin mezcla de tenant |
+| Reprocesamiento y concurrencia | Sin candidatos ni evidencias duplicadas |
+| Identidad geométrica | `geometryVersion=corridor-v1`, `representativeSessionId`, `evidenceSessionIds` y `evidenceVehicleIds` persistidos |
+
+La aprobación se validó también desde el Portal autenticado: la pantalla mostró tres recorridos aportados por dos unidades, la geometría, confianza y acciones de revisión. Al aprobar, persistió `approvedRouteId`, apareció una ruta oficial en el catálogo y `assignedVehicles=0`. La ruta candidata y la ruta aprobada no se exponen como asignadas hasta una acción administrativa independiente.
+
+El rechazo irreversible está cubierto por el escenario automatizado de aprendizaje: un candidato `REJECTED` no regresa a `READY_FOR_REVIEW` al reprocesar las mismas evidencias. En esta repetición de 01C no se atribuye falsamente una segunda interacción manual: el entorno temporal del Portal no pudo reiniciar el backend antes de pulsar Rechazar, mientras que la aprobación autenticada sí fue observada de extremo a extremo.
+
+### Revalidación del commit desplegado
+
+| Validación | Resultado |
+| --- | --- |
+| Backend `npm test` | OK, exit 0 |
+| Mobile | 26 suites, 134 pruebas, 0 fallos |
+| Mobile TypeScript | OK |
+| Ventas TypeScript | OK |
+| Ventas build | OK, 634 módulos |
+| Android `assembleDebug` | `BUILD SUCCESSFUL`, 623 tareas |
+| `git diff --check` funcional | limpio |
+
+### Flags finales
+
+```env
+AUTO_ROUTE_LEARNING_ENABLED=false
+AUTO_ROUTE_REVIEW_ENABLED=false
+AUTO_ROUTE_ALGORITHM_VERSION=v2
+```
+
+No se dejó una activación global permanente. La siguiente actividad autorizada es exclusivamente la matriz física preparada con dos teléfonos.
+
+```text
+RC_GEO_ROUTE_AUTO_DEPLOYED_PHYSICAL_PENDING
+```
