@@ -394,6 +394,66 @@ routeSessionSchema.index(
   { unique: true, partialFilterExpression: { activeKey: { $type: "string" } } }
 );
 
+// RC-MULTI-ROUTE-DRIVER-01 F2 — Entidad de asignaciones multiples por unidad. NO duplica
+// geometria: solo referencia a la ruta (routeId) + versionado para detectar que la ruta
+// oficial cambio. Vehicle.assignedRoute se conserva como PROYECCION de la ACTIVE (no se
+// vuelve array); F3 (activateVehicleRouteAssignment) es el unico dueno de esa proyeccion.
+const vehicleRouteAssignmentSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    organizationId: { type: String, default: "", index: true },
+    vehicleId: { type: String, required: true, index: true },
+    routeId: { type: String, required: true, index: true },
+    status: {
+      type: String,
+      enum: ["AVAILABLE", "SCHEDULED", "ACTIVE", "COMPLETED", "CANCELLED", "EXPIRED"],
+      default: "AVAILABLE",
+      index: true
+    },
+    priority: { type: Number, default: 0, min: 0 },
+    selectableByDriver: { type: Boolean, default: true },
+    scheduledFrom: { type: Date, default: null },
+    scheduledUntil: {
+      type: Date,
+      default: null,
+      validate: {
+        validator: function validateScheduleWindow(value) {
+          return !value || !this.scheduledFrom || value > this.scheduledFrom;
+        },
+        message: "scheduledUntil debe ser posterior a scheduledFrom"
+      }
+    },
+    assignedBy: { type: String, default: null },
+    assignedAt: { type: Date, default: Date.now },
+    activatedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    cancelledAt: { type: Date, default: null },
+    // Contador monotono interno para idempotencia de activaciones (NO es una version de Route).
+    activationVersion: { type: Number, default: 0, min: 0 },
+    // routeRevision = revision de la RUTA OFICIAL en el momento de activar. Fuente canonica:
+    // `Route.revision` (numerico incremental) — que hoy NO existe en el modelo Route. Contrato
+    // en RC-MULTI-ROUTE-DRIVER-01-F2.1.md: F3 (o un prep) agrega Route.revision y lo copia aqui;
+    // hasta entonces 0 = "sin versionar" y NO debe usarse para decidir drift. No se inventa un
+    // numero sin fuente real.
+    routeRevision: { type: Number, default: 0, min: 0 },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  },
+  { collection: "vehicle_route_assignments", versionKey: false }
+);
+
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, routeId: 1, status: 1 });
+// Consultas F3-F5: lista por unidad ordenada por prioridad (ASC: menor priority = mayor
+// prioridad); catalogo por ruta; ventana horaria.
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, status: 1, priority: 1 });
+vehicleRouteAssignmentSchema.index({ organizationId: 1, routeId: 1, status: 1 });
+vehicleRouteAssignmentSchema.index({ organizationId: 1, vehicleId: 1, scheduledFrom: 1, scheduledUntil: 1 });
+// Garantia dura a nivel indice: una sola asignacion ACTIVE por unidad.
+vehicleRouteAssignmentSchema.index(
+  { organizationId: 1, vehicleId: 1 },
+  { unique: true, partialFilterExpression: { status: "ACTIVE" } }
+);
+
 const routeSessionPositionSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
@@ -1173,5 +1233,6 @@ module.exports = {
   UserModel: getModel("User", userSchema),
   SessionModel: getModel("Session", sessionSchema),
   VehicleModel: getModel("Vehicle", vehicleSchema),
+  VehicleRouteAssignmentModel: getModel("VehicleRouteAssignment", vehicleRouteAssignmentSchema),
   WebhookEventModel: getModel("WebhookEvent", webhookEventSchema)
 };
