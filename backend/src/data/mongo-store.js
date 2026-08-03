@@ -3405,6 +3405,9 @@ async function createMongoStore() {
     });
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3 (§17): allow-list ESTRICTA. NO agregar routeId / assignedRoute /
+  // activeRouteProgress aqui: la proyeccion de ruta la escribe SOLO activateVehicleRouteAssignment
+  // (motor F3) y, de forma legada hasta F6, assignRouteToVehicle. Un update generico jamas la toca.
   async function updateVehicle(vehicleId, payload) {
     const updates = {};
 
@@ -3999,6 +4002,10 @@ async function createMongoStore() {
     };
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3: escritor LEGADO de routeId/assignedRoute (endpoint /navigation/assign).
+  // Se conserva su comportamiento (incl. cambio de ruta y modo manual sin Route). El cutover al motor
+  // activateVehicleRouteAssignment se hace en F6 (switch sin jornada), donde vive la semantica de
+  // reemplazo de la ACTIVE previa. En F3 el motor es escritor unico del flujo NUEVO (APIs F4/F5).
   async function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
     let nextAssignment;
     let actualRouteId = null;
