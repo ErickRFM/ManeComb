@@ -4,11 +4,11 @@
 **Rama:** `main`
 **Commit base local:** `60d44cd8a25ccb1e4c33ef19849f8b123972d9ed`
 **Commit desplegado al iniciar:** `a21942c8769673eea509ab586aea1b7b9277eb3b`
-**Estado:** Cerrado en dry-run
+**Estado:** Validación real ejecutada — pendiente de confirmación visual del destinatario
 **Commit de implementación:** `259e80fe5fb0abc8628f9542c6a73515c2f1e9bb`
 **Corrección de migración:** `f7110dcc9e8eeb0a102fa270d169d50d89dafa32`
 **Commit funcional desplegado:** `f7110dcc9e8eeb0a102fa270d169d50d89dafa32`
-**Veredicto:** `MP_EMAIL_02_DRY_RUN_READY`
+**Veredicto:** `MP_EMAIL_02_NOT_READY`
 
 El hash del commit de esta fase y su resultado en Render se registran como
 evidencia externa después del commit. No se intenta introducir el hash del
@@ -185,6 +185,75 @@ La cobertura relevante incluye:
 - cola funcional separada de persistencia.
 
 Las pruebas usan dobles y credenciales ficticias. No enviaron correos reales.
+
+## Validación real controlada
+
+**Fecha:** 31 de julio de 2026
+
+La validación utilizó el runner interno protegido
+`backend/scripts/verify-email-real.js`, desplegado en el commit `c40423b`. No se
+creó ningún endpoint público. Debido a que Render Free no habilita Shell ni
+one-off jobs, el runner se ejecutó temporalmente como parte del comando interno
+de build y el comando normal `npm install` se restauró al finalizar.
+
+La identidad funcional fue fija y no sensible:
+
+```text
+tenantScope=system:email-validation
+eventType=WELCOME
+idempotencyKey=operational-validation:mp-email-02b:v1
+```
+
+La dirección del destinatario se proporcionó mediante una variable temporal de
+Render. No se escribió en el repositorio, no se imprimió y fue eliminada junto
+con `EMAIL_REAL_VALIDATION` al terminar.
+
+| Evidencia | Resultado |
+| --- | --- |
+| Entrega creada | 1 |
+| Ciclo observado | `created -> queued -> processing -> sent` |
+| Proveedor | Resend |
+| Provider message ID | Presente; huella sanitizada `559f05ae6f72` |
+| Intentos del proveedor | 1 |
+| Entregas enviadas | 1 |
+| Entregas fallidas | 0 |
+| Registros para la identidad | 1 |
+| HTML | Presente y validado |
+| Texto plano | Presente y validado |
+| Preview text | Presente |
+| CTA | HTTPS |
+| Remitente | Dominio `@manecomb.com` validado |
+| Reply-to | Configurado y válido |
+| Campos sensibles en evidencia | Ausentes |
+| Confirmación visual en buzón | Pendiente del propietario |
+
+La segunda ejecución reutilizó exactamente la misma identidad. Devolvió
+`duplicate=true`, no creó un trabajo nuevo, no incrementó intentos del
+proveedor, no incrementó entregas enviadas y aumentó
+`duplicates_prevented` en 1. El registro original permaneció único y en
+`sent`.
+
+Después de la prueba se restauró y verificó:
+
+```text
+EMAIL_ENABLED=true
+EMAIL_DRY_RUN=true
+Build Command=npm install
+EMAIL_REAL_VALIDATION=eliminada
+EMAIL_REAL_VALIDATION_RECIPIENT=eliminada
+```
+
+El despliegue final `dep-d9m4s16417fc73e0i3jg` quedó `live` con diagnóstico
+`status=dry_run`. El readiness público respondió HTTP 200 con comunicación
+funcional, historial Mongo e índice idempotente verificados, BullMQ conectado
+y worker activo.
+
+La cola no se declara durable para producción:
+
+```text
+productionQueueDurability=false
+reason=Valkey Free Persistence Mode Off
+```
 
 ## Prueba controlada previa al despliegue
 
