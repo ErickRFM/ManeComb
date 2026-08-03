@@ -41,6 +41,7 @@ const { ConversationRepository } = require("./repositories/conversation-reposito
 const { buildBackendStore } = require("./backend-store");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -1144,15 +1145,24 @@ async function createMongoStore() {
     }
     if (typeof payload.polyline !== "undefined") update.polyline = payload.polyline || [];
 
+    const current = await RouteModel.findOne({ _id: routeId, ...getOrganizationQuery(user) }).lean();
+    if (!current) {
+      return null;
+    }
+
     if (typeof update.name !== "undefined" && update.name) {
-      const current = await RouteModel.findById(routeId).lean();
-      if (current) {
-        const orgId = String(current.organizationId || (user ? getOrganizationId(user) : "") || "").trim();
-        if (orgId) {
-          const duplicate = await RouteModel.findOne({ organizationId: orgId, name: update.name, _id: { $ne: routeId } }).lean();
-          if (duplicate) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
-        }
+      const orgId = String(current.organizationId || (user ? getOrganizationId(user) : "") || "").trim();
+      if (orgId) {
+        const duplicate = await RouteModel.findOne({ organizationId: orgId, name: update.name, _id: { $ne: routeId } }).lean();
+        if (duplicate) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
       }
+    }
+
+    // RC-MULTI-ROUTE-DRIVER-01 F3: incrementar revision SOLO si cambia la ruta operativa.
+    // Se compara sobre la ruta fusionada (current + update) para no confundir "campo ausente
+    // en el payload" con "campo borrado". Cambios cosmeticos (name/code/color) no la mueven.
+    if (hasRouteOperationalChange(current, { ...current, ...update })) {
+      update.revision = nextRouteRevision(current.revision, true);
     }
 
     update.updatedAt = new Date();

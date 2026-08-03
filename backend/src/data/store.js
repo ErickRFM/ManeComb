@@ -11,6 +11,7 @@ const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -152,6 +153,8 @@ function createEmbeddedStore() {
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
       durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
       polyline: clone(payload.polyline || []),
+      // RC-MULTI-ROUTE-DRIVER-01 F3: rutas nuevas comienzan en revision 1 (0 = legado no migrado).
+      revision: 1,
       organizationId: orgId,
       createdBy: payload.createdBy || null,
       createdAt: now,
@@ -275,6 +278,9 @@ function createEmbeddedStore() {
       return null;
     }
 
+    // RC-MULTI-ROUTE-DRIVER-01 F3: snapshot previo para detectar cambio operativo tras aplicar.
+    const beforeUpdate = clone(route);
+
     if (typeof payload.name !== "undefined") {
       const newName = String(payload.name || "").trim();
       const orgId = String(route.organizationId || "").trim();
@@ -297,6 +303,11 @@ function createEmbeddedStore() {
       route.durationInTrafficSeconds = Math.max(0, Number(payload.durationInTrafficSeconds) || 0);
     }
     if (typeof payload.polyline !== "undefined") route.polyline = clone(payload.polyline || []);
+
+    // Incrementar revision SOLO si cambio la ruta operativa (no cosmeticos name/code/color).
+    if (hasRouteOperationalChange(beforeUpdate, route)) {
+      route.revision = nextRouteRevision(beforeUpdate.revision, true);
+    }
 
     route.updatedAt = new Date().toISOString();
     updateAssignedRouteSnapshots(route);
