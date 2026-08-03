@@ -191,7 +191,39 @@ function makeAssignment(store, overrides = {}) {
   }
   console.log("ok - motor embedded: admin_locked por driver, admin permitido, not_found por tenant");
 
-  console.log("ok - vehicle-route-assignment-activation F3 etapa 4: motor embedded completo");
+  // --- Etapa 7: endurecimiento del contrato de idempotencia / reconciliacion ---
+  {
+    const { store } = setup();
+    const a = makeAssignment(store);
+    const first = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
+    const activatedAt = first.assignment.activatedAt;
+    assert.ok(activatedAt, "activatedAt inicial poblado");
+
+    // Idempotencia: NO cambia activatedAt ni assignedAt, NO emite evento.
+    const idem = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin", now: "2027-01-01T00:00:00.000Z" });
+    assert.equal(idem.outcome, "IDEMPOTENT");
+    assert.equal(idem.assignment.activatedAt, activatedAt, "idempotencia: activatedAt estable (no re-sella)");
+    assert.equal(idem.event, null, "idempotencia: NO emite evento");
+
+    // Reconciliacion (revision drift): preserva la IDENTIDAD de la activacion (activatedAt/activationVersion),
+    // pero SI emite evento (cambio real de proyeccion/revision).
+    store.updateRoute("route-act-1", { distanceMeters: 3000 });
+    const recon = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin", source: "system", reason: "route_switched", now: "2027-02-02T00:00:00.000Z" });
+    assert.equal(recon.outcome, "RECONCILED");
+    assert.equal(recon.assignment.activatedAt, activatedAt, "reconciliacion: activatedAt estable (misma activacion)");
+    assert.equal(recon.assignment.activationVersion, 1, "reconciliacion: activationVersion estable");
+    assert.equal(recon.assignment.routeRevision, 2, "reconciliacion: routeRevision actualizado");
+    assert.ok(recon.event && recon.event.outcome === "RECONCILED", "reconciliacion: SI emite evento");
+    assert.equal(recon.event.reason, "route_switched", "reconciliacion: evento con motivo sanitizado");
+
+    // Conflicto: nunca emite evento.
+    const conflict = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin", expectedActiveAssignmentId: "otra" });
+    assert.equal(conflict.outcome, "CONFLICT");
+    assert.equal(conflict.event, null, "conflicto: NO emite evento");
+  }
+  console.log("ok - motor embedded (etapa 7): idempotencia estable, reconciliacion preserva identidad y emite evento");
+
+  console.log("ok - vehicle-route-assignment-activation F3 etapa 4-7: motor embedded completo");
 })().catch((error) => {
   console.error(error);
   process.exit(1);
