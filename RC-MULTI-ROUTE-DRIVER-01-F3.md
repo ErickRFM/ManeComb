@@ -1,74 +1,72 @@
-# RC-MULTI-ROUTE-DRIVER-01 — F3 (etapa 1: baseline + auditoría) — STOP para confirmar contrato
+# RC-MULTI-ROUTE-DRIVER-01 — F3: Motor de activación atómica de asignaciones ruta-vehículo
 
-> **Estado:** Etapa 1 de F3 (Git gate + baseline + auditoría §4). **Sin código de motor todavía.** STOP para confirmar **un ajuste de contrato** (eventos) descubierto en la auditoría antes de escribir el motor de activación (alto riesgo).
-
-## Git gate (§3) — OK
-- **Rama:** `rc-multi-route-driver-01-f3` (nueva).
-- **SHA base F3:** `5ee7f07222d96f0ce11c3c899e07ec7d482af848`.
-- `main` local == `origin/main` == `5ee7f07`. Un solo worktree (`C:\proyectos\combis-app`). Working tree limpio. No reutilicé `rc-multi-route-driver-01` ni worktrees previos.
-- **Baseline:** suite backend completa **verde** sobre `5ee7f07` (tras `npm install` de deps nuevas de la integración — se agregó `bcryptjs` y otras). Ninguna prueba base falla → no dispara STOP §27.
-
-## §4 Auditoría — escritores actuales (con archivo+línea)
-
-### Escritores de `Vehicle.routeId` / `Vehicle.assignedRoute`
-| # | Escritor | Ubicación | Rol | Decisión F3 |
-|---|---|---|---|---|
-| 1 | **`assignRouteToVehicle`** | mongo-store.js:3985-4041 (`$set routeId, assignedRoute` :4028-4029); store.js (espejo) | Asignación directa (el endpoint `/navigation/assign`) | **→ adaptador** hacia `createVehicleRouteAssignment` + `activateVehicleRouteAssignment` (§17) |
-| 2 | `clearAssignedRouteFromVehicle` | mongo-store.js:4043 | Limpia ruta (null) | Se conserva (transición a sin-ruta); revisar que pase por la autoridad al retirar la ACTIVE |
-| 3 | Propagación por edición de ruta | mongo-store.js:1099-1121 (`assignedRoute: nextAssignment`) | Re-proyecta `assignedRoute` cuando el Route cambia | **Territorio de reconciliación/`routeRevision`** — F3 lo trata como refresco de proyección, no como nueva activación |
-| 4 | Borrado de ruta | mongo-store.js:749-754 | Limpia `routeId`/`assignedRoute` de unidades de una ruta borrada | Se conserva (limpieza); no crea ACTIVE |
-| 5 | `createVehicle` | mongo-store.js:2995-3008 | Init `routeId:null, assignedRoute:null` | Se conserva (init) |
-| 6 | `activeRouteProgress` | mongo-store.js:3946 | Progreso/ETA por ubicación | **Fuera de F3** (lo maneja el motor de ubicación); se restringe su escritura por flujo general (§17) |
-
-### `Vehicle.activeRouteProgress`
-Escrito por el pipeline de ubicación (mongo-store.js:3946). No lo toca F3; se documenta y se restringe que `updateVehicle` genérico lo cambie (§17).
-
-### Autoridad (§17)
-- **`activateVehicleRouteAssignment`** será el **único escritor** de: estado `ACTIVE` de la asignación, transición de la ACTIVE previa, `Vehicle.routeId`, `Vehicle.assignedRoute`.
-- `assignRouteToVehicle` → **adaptador** (crea AVAILABLE + activa); no escribe `routeId`/`assignedRoute` directo.
-- `updateVehicle` (mongo-store.js:3020 / store.js:3020) → se **bloquea** `routeId`/`assignedRoute`/`activeRouteProgress` desde flujos generales; solo la ruta interna del motor F3 los toca. (Pendiente confirmar en el body de updateVehicle qué campos acepta hoy — se hará al implementar §17.)
-
-### Snapshot: **DERIVADO, no persistido** (hallazgo clave)
-No existe `OperationalUnitSnapshotModel` — el `OperationalUnitSnapshot` se **computa on-read** (`domain/operational-unit-snapshot.js` `buildRoute` lee `vehicle.assignedRoute`). → **F3 NO escribe un snapshot persistido**; basta actualizar `Vehicle.assignedRoute` (+ `routeId`) y el snapshot se re-deriva. La "proyección operacional persistida real existente" (§8/§13.8) = **`Vehicle.routeId` + `Vehicle.assignedRoute`**. Esto **simplifica** F3 (una sola proyección persistida).
-
-### Detección de RouteSession activa (§7)
-`getActiveRouteSession(vehicleId)` existe en ambos stores (mongo-store.js:4063, store.js:3487) y ya se usa para bloquear el cambio de ruta en el endpoint de asignación (navigation/routes.js:636/708). → F3 lo usa para el conflicto `active_route_session`.
-
-### Bus de eventos (§20) — **ajuste de contrato necesario**
-**NO existe un bus de eventos a nivel store/dominio.** Los eventos se emiten en la **capa de módulos** vía helpers con `req` (`emitToRouteAudience` en navigation/routes.js:32, `emitAccountEvent`, sockets). El store no puede emitir `route-assignment:updated` (no tiene acceso al `io`/`req`).
-
-**Implicación:** el motor `activateVehicleRouteAssignment` (que vive en el store) **no puede emitir el evento**. La emisión de `route-assignment:updated` debe ocurrir en la **capa de módulo** que llama al motor — que es **F4 (API admin)**, no F3.
-
-**Ajuste de contrato propuesto (mínimo):** F3 implementa el motor y **devuelve el resultado** (`ACTIVATED`/`IDEMPOTENT`/`RECONCILED` + payload sanitizado listo para emitir); **la emisión de `route-assignment:updated` se hace en F4** (capa de módulo con `req`/`io`), después de persistir. F3 documenta el payload sanitizado y la regla (emitir solo en ACTIVATED/RECONCILED, nunca en IDEMPOTENT/conflicto/rollback), pero **la emisión física queda en F4**. Esto respeta §20 ("usa el bus existente solo si ya está disponible") y §20 ("outbox/durabilidad queda para una fase posterior si aún no existe"). **No** meto un bus nuevo en el store (sería inventar infraestructura, prohibido).
-
-## Determinación de STOP conditions (§27)
-| Condición | Resultado |
-|---|---|
-| `main` ≠ `origin/main` | OK (iguales) |
-| cambios ajenos sin confirmar | OK (limpio) |
-| falta contrato F2.1/F2.2 | OK (presentes) |
-| no se identifica el escritor de `assignedRoute` | **OK — identificado** (`assignRouteToVehicle` + propagación de ruta + clear/init) |
-| modelo integrado contradice la máquina de estados | OK (no) |
-| Mongo sin ruta segura para transacciones | OK (`Model.db.startSession`/`withTransaction` disponibles — mongo-store.js:1688) |
-| F3 exige romper Documentos/Fleet/Radio/Email | OK (no; entidad aislada) |
-| proyección actual incompatible | OK (snapshot derivado de `assignedRoute` — compatible) |
-| pruebas base fallan | OK (verdes) |
-
-**Ningún STOP disparado.** Solo el **ajuste de contrato de eventos** (arriba) requiere tu confirmación antes de continuar, porque cambia dónde se emite `route-assignment:updated` (F4, no F3).
-
-## Plan por etapas (§ veredicto) — pendientes tras tu confirmación
-2. `Route.revision` + migración idempotente (script separado).
-3. CRUD interno mínimo (`getById`/`list`/`create`, filtrado por org+vehicle) en ambos stores.
-4. Motor **embedded** (mutex org+vehicle, rollback recuperable) + pruebas.
-5. Motor **Mongo** (`withTransaction`, CAS dentro de la tx, E11000→`already_active`, fail-closed sin tx) + pruebas.
-6. Adaptador del escritor legado (`assignRouteToVehicle`) + restricción de `updateVehicle`.
-7. Idempotencia + reconciliación de drift.
-8. Eventos — **retorno del motor** (emisión en F4).
-9. Suite completa (backend + mobile typecheck/test + ventas typecheck/build).
-10. Reporte final F3 completo.
-11. STOP para revisión.
+> **Estado:** F3 implementada por etapas (1→10). **STOP para revisión (etapa 11).** Rama `rc-multi-route-driver-01-f3` sobre base `5ee7f07`. **Sin push / merge / PR / tags.** Suite backend completa **verde**. Diff **100% dentro de `backend/`** (mobile/ventas/shared intactos).
 
 ---
 
-**STOP — necesito tu confirmación de un punto antes de escribir el motor:**
-**El evento `route-assignment:updated` se emitirá en F4 (capa de módulo con `req`/`io`), no dentro del motor F3** (el store no tiene bus). F3 devolverá el resultado + payload sanitizado listo para emitir. ¿Apruebas este ajuste mínimo de §20? Con eso, arranco la etapa 2 (`Route.revision` + migración) y sigo el plan por etapas.
+## 0. Resumen ejecutivo
+F3 introduce el **escritor ÚNICO** `activateVehicleRouteAssignment`, autoridad exclusiva del estado `ACTIVE` de una asignación y de la proyección persistida del vehículo (`Vehicle.routeId` + `Vehicle.assignedRoute`). La decisión vive en un **planificador puro** compartido por ambos stores (embedded y Mongo), garantizando paridad. Se añadió `Route.revision` (versionado operativo) para detectar drift, su migración idempotente, el CRUD interno mínimo de asignaciones, e idempotencia + reconciliación. El cutover del escritor legado se **difirió a F6** (decisión del usuario) por pertenecer la semántica de switch a F6/F7.
+
+## 1. Git gate (§3) — OK
+- **Rama:** `rc-multi-route-driver-01-f3`. **SHA base:** `5ee7f07`. Un solo worktree, limpio.
+- Baseline backend **verde** sobre `5ee7f07` (tras `npm install` de deps ya integradas).
+
+## 2. Decisiones tomadas (2 gates)
+1. **Contrato de eventos (§20) — aprobado:** el store no tiene bus de eventos (los eventos se emiten en la capa de módulo con `req`/`io`, p.ej. `emitToRouteAudience`). Por eso el motor **devuelve** el payload sanitizado `route-assignment:updated` (solo en `ACTIVATED`/`RECONCILED`) y **la emisión física queda en F4**. No se inventó un bus en el store.
+2. **Escritor legado (§17) — diferido a F6 (decisión del usuario):** adaptar `assignRouteToVehicle` al motor **ahora** regresaría la re-asignación del endpoint vivo `POST /navigation/assign` (el motor bloquea `already_active` porque el **switch** de ruta es F6/F7). Además el modo manual del endpoint no tiene entidad `Route`. Se conserva `assignRouteToVehicle` como escritor legado documentado; el motor es escritor único del **flujo nuevo** (APIs F4/F5).
+
+## 3. Autoría (§17) — escritor único
+`activateVehicleRouteAssignment` es el único escritor de: estado `ACTIVE` de la asignación, `Vehicle.routeId`, `Vehicle.assignedRoute`. **Snapshot operacional = DERIVADO** (no persistido): `OperationalUnitSnapshot` se computa on-read desde `vehicle.assignedRoute` (`domain/operational-unit-snapshot.js`), así que basta re-proyectar el vehículo. `updateVehicle` (ambos stores) usa una **allow-list estricta** (`code/plate/status/currentKilometers`) que por construcción excluye `routeId/assignedRoute/activeRouteProgress` — invariante documentada.
+
+## 4. Etapas implementadas
+
+| # | Etapa | Entregable | Commit |
+|---|---|---|---|
+| 2 | `Route.revision` + migración | `models.js` (revision default 1, min 0); `domain/route-revision.js` (fingerprint operativo estable); increment en `updateRoute` solo por cambio operativo; `scripts/migrate-route-revision.js` (idempotente, dry-run) | `a4271d7` |
+| 3 | CRUD interno mínimo | `create/getById/list` de asignaciones (filtro org+vehículo+status) en ambos stores | `b2103cf` |
+| 4 | Motor embedded | `domain/vehicle-route-assignment-activation.js` (planificador puro) + motor embedded con mutex por (org\|vehículo) y rollback recuperable | `e64cdbd` |
+| 5 | Motor Mongo | `withTransaction`, CAS por `activationVersion` dentro de la tx, E11000→`already_active`, fail-closed (`transaction_unavailable`) | `a7ef07d` |
+| 6 | Legado + invariante | `assignRouteToVehicle` marcado legado (cutover F6); invariante `updateVehicle` documentada | `871c7f1` |
+| 7-8 | Idempotencia/reconciliación + eventos | Contrato blindado con pruebas (identidad de activación estable; evento solo en ACTIVATED/RECONCILED) | `66492f2` |
+
+## 5. Contrato del motor `activateVehicleRouteAssignment(params)`
+**Params:** `{ organizationId, vehicleId, assignmentId, actor, actorId, source, reason, expectedActiveAssignmentId?, expectedActivationVersion?, withinOperationalSchedule?, now? }`.
+**Resultado:** `{ outcome, reason, applied, assignment, vehicle, event }`.
+
+| Outcome | Cuándo | Escribe | Evento |
+|---|---|---|---|
+| `ACTIVATED` | target AVAILABLE/SCHEDULED activable, sin otra ACTIVE | asignación→ACTIVE (`activatedAt`, `++activationVersion`, captura `routeRevision`) + proyección vehículo | sí |
+| `IDEMPOTENT` | target ya ACTIVE, proyectado y revisión vigente | nada | no |
+| `RECONCILED` | target ya ACTIVE pero proyección drifteada o `routeRevision` viejo | re-proyecta + refresca `routeRevision` (identidad estable) | sí |
+| `CONFLICT` | precondición/CAS/sesión/carrera | nada | no |
+
+**Razones de conflicto:** `not_found`, `expired`, `invalid_status`, `no_route`, `out_of_window`, `already_active` (otra ACTIVE — switch es F6/F7), `admin_locked` (driver sobre `selectableByDriver=false`), `outside_schedule`, `active_route_session` (jornada en otra ruta), `active_assignment_conflict` (CAS ACTIVE esperada), `activation_version_conflict` (CAS versión), `route_projection_failed`, `vehicle_not_found`, `transaction_unavailable` (Mongo sin replica set → fail-closed).
+
+**Defensas de "una sola ACTIVE por unidad":** (a) planificador rechaza `already_active`; (b) CAS por `activationVersion`; (c) índice único parcial `{org,vehicle} where status=ACTIVE` como defensa final (E11000→`already_active`).
+
+## 6. `Route.revision` (§9) y migración (§10)
+- Rutas nuevas nacen en `1`. `0` = legado no migrado (no decide drift por sí solo).
+- Incrementa **solo** en cambio operativo: `origin/destination/originLabel/destinationLabel/stops/polyline/distanceMeters/durationSeconds/durationInTrafficSeconds`. `name/code/color` **no**. Comparación por fingerprint estable (redondeo 1e-6, ignora orden de claves y `_id` de subdocs).
+- **Migración** `scripts/migrate-route-revision.js`: dry-run por defecto (`--apply` para escribir), no corre al boot, lleva legado→1, idempotente, verifica que no queden pendientes. Script npm `migrate:route-revision`. **No ejecutada contra producción** (queda a tu criterio).
+
+## 7. Validación (estado REAL)
+- **Backend `npm test`: verde (EXIT=0).** Incluye 3 pruebas nuevas en la cadena: `route-revision`, `vehicle-route-assignment-store`, `vehicle-route-assignment-activation` (planner puro + motor embedded: activación, idempotencia, reconciliación por revisión y por proyección, `already_active`, `active_route_session`, CAS, `admin_locked`/`not_found`/tenant, y contrato de evento).
+- **Ventas `tsc --noEmit`: verde (EXIT=0)** — confirma no-contaminación (ventas no comparte código con backend).
+- **Mobile:** **cero archivos tocados por F3** (diff 100% en `backend/`). Su baseline (incl. suite conocida 26/134 y `tsc`) se mantiene sin cambios por definición; no se reconstruyó `assembleRelease` porque F3 no altera código mobile.
+- **Motor Mongo — límite honesto de validación:** la suite corre sobre el store **embedded** (sin `mongod`), así que la **decisión** del motor Mongo se valida vía el `planActivation` puro (probado) y el motor embedded (probado end-to-end); la parte **específica de Mongo** (transacción real, CAS en `findOneAndUpdate`, E11000→`already_active`, fail-closed) **no se ejercita contra un replica set en CI**. Está construida sobre el patrón `withTransaction` ya usado en el store (`runFleetLifecycleTransaction`). **No se afirma** que esté probada contra Mongo real.
+
+## 8. Alcance y restricciones respetadas
+- Sin push / merge / PR / tags / `--force`. Commits **locales** en `rc-multi-route-driver-01-f3`, solo tras suite verde.
+- No se tocó password-recovery / Cloudflare / Documentos / Fleet / Email / Radio / Webhooks / Gradle / APK.
+- Logs sanitizados: `sanitizeAuditContext` (whitelist actorId/actorRole/source/reason/assignmentId/vehicleId/routeId); **nunca** tokens/passwords/coordenadas/polylines/geometrías/snapshots/secrets/emails.
+
+## 9. Diferido a fases posteriores (fuera de F3)
+- **F4:** API admin + **emisión física** de `route-assignment:updated`.
+- **F5:** API driver (auto-activación con `selectableByDriver`).
+- **F6:** cutover del escritor legado `assignRouteToVehicle` + **switch sin jornada** (semántica de reemplazo de la ACTIVE previa: definir estado terminal de la asignación superada).
+- **F7:** switch durante jornada activa (cierre de sesión con `route_switched`).
+- Migración `Route.revision` contra producción (a tu criterio).
+
+---
+
+**STOP (etapa 11) — para tu revisión.** Motor de activación completo (embedded + Mongo), idempotente y reconciliador, con `Route.revision` + migración, CRUD interno y contrato de eventos listo para F4. Suite backend verde, ventas typecheck verde, mobile intacto. Sin publicar. ¿Apruebas F3 y sigo con F4 (API admin + emisión del evento)?
