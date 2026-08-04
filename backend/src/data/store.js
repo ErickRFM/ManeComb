@@ -3701,8 +3701,9 @@ function createEmbeddedStore() {
         if (!projection) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "route_projection_failed", applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
       }
 
-      // Commit (single-thread, atomico de facto): registro de asignacion + proyeccion del vehiculo.
-      Object.assign(target, plan.assignmentPatch);
+      // Commit (single-thread, atomico de facto): registro de asignacion (solo si hay patch;
+      // RECONCILED => assignmentPatch null => NO se toca la asignacion) + proyeccion del vehiculo.
+      if (plan.assignmentPatch) Object.assign(target, plan.assignmentPatch);
       if (plan.projectVehicle && projection) {
         vehicle.routeId = route.id;
         vehicle.assignedRoute = projection;

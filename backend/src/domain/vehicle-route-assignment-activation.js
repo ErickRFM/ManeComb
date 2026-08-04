@@ -44,14 +44,6 @@ function buildEvent(outcome, target, context) {
   };
 }
 
-// Un target ya-ACTIVE cuya revision capturada quedo vieja frente a la oficial (solo si la oficial
-// esta versionada: routeRevision > 0). 0 = legado no migrado -> no decide drift por si solo, pero
-// si la oficial ya avanzo a >0 y el target sigue en 0, tambien es drift a reconciliar.
-function isRevisionStale(targetRevision, routeRevision) {
-  if (!(routeRevision > 0)) return false;
-  return Number(targetRevision || 0) !== Number(routeRevision);
-}
-
 // input:
 //   target: asignacion serializada objetivo (o null)
 //   currentActive: asignacion ACTIVE serializada de la unidad (o null)
@@ -86,19 +78,18 @@ function planActivation(input = {}) {
     }
   }
 
-  // El target YA esta ACTIVE -> idempotencia o reconciliacion de drift (nunca reactiva).
+  // El target YA esta ACTIVE -> idempotencia o reconciliacion de proyeccion (nunca reactiva).
   if (target.status === STATUS.ACTIVE) {
-    const stale = isRevisionStale(target.routeRevision, routeRevision);
-    if (vehicleProjectsTarget && !stale) {
+    if (vehicleProjectsTarget) {
       return { outcome: OUTCOME.IDEMPOTENT, reason: null, assignmentPatch: null, projectVehicle: false, event: null };
     }
-    // Drift: la proyeccion del vehiculo no refleja el target, o la revision quedo vieja.
-    const patch = { updatedAt: context.now };
-    if (routeRevision > 0) patch.routeRevision = routeRevision;
+    // Drift de PROYECCION: la proyeccion del vehiculo no refleja el target ACTIVE.
+    // RECONCILED re-proyecta UNICAMENTE el Vehicle; la asignacion NO se toca (routeRevision se
+    // captura una sola vez al ACTIVAR y representa la revision activada, no "la ultima vista").
     return {
       outcome: OUTCOME.RECONCILED,
       reason: null,
-      assignmentPatch: patch,
+      assignmentPatch: null,
       projectVehicle: true,
       event: buildEvent(OUTCOME.RECONCILED, target, context)
     };
@@ -149,4 +140,4 @@ function planActivation(input = {}) {
   };
 }
 
-module.exports = { OUTCOME, planActivation, isRevisionStale };
+module.exports = { OUTCOME, planActivation };

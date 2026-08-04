@@ -91,32 +91,37 @@ function makeAssignment(store, overrides = {}) {
   }
   console.log("ok - motor embedded: primera activacion proyecta e idempotencia no reescribe");
 
-  // --- Reconciliacion por drift de revision (ruta editada) ---
+  // --- Editar la ruta (revision drift) NO reconcilia: updateRoute ya re-proyecta el vehiculo,
+  // y routeRevision se captura solo al ACTIVAR (no "la ultima vista"). => IDEMPOTENT, sin cambios. ---
   {
     const { store } = setup();
     const a = makeAssignment(store);
     await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
-    store.updateRoute("route-act-1", { distanceMeters: 2500 }); // revision 1 -> 2
+    store.updateRoute("route-act-1", { distanceMeters: 2500 }); // revision 1 -> 2 (y re-proyecta el vehiculo)
     const res = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
-    assert.equal(res.outcome, "RECONCILED", "motor: drift de revision -> RECONCILED");
-    assert.equal(res.applied, true);
-    assert.equal(res.assignment.routeRevision, 2, "motor: reconcilia routeRevision a 2");
-    assert.equal(res.assignment.activationVersion, 1, "motor: reconciliacion NO bumpea activationVersion");
+    assert.equal(res.outcome, "IDEMPOTENT", "motor: editar ruta con proyeccion intacta -> IDEMPOTENT");
+    assert.equal(res.applied, false);
+    assert.equal(res.assignment.routeRevision, 1, "motor: routeRevision se conserva (capturada al activar)");
   }
-  console.log("ok - motor embedded: reconciliacion por drift de revision");
+  console.log("ok - motor embedded: editar ruta no reconcilia (routeRevision estable, IDEMPOTENT)");
 
-  // --- Reconciliacion por drift de proyeccion (assignedRoute limpiado) ---
+  // --- Reconciliacion por drift de PROYECCION (assignedRoute roto): re-proyecta SOLO el Vehicle ---
   {
     const { store } = setup();
     const a = makeAssignment(store);
-    await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
+    const activated = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
     store.clearAssignedRouteFromVehicle("veh-act-1"); // rompe la proyeccion
     const res = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin" });
     assert.equal(res.outcome, "RECONCILED", "motor: proyeccion rota -> RECONCILED");
-    assert.equal(res.vehicle.routeId, "route-act-1", "motor: re-proyecta routeId");
-    assert.ok(res.vehicle.assignedRoute, "motor: re-proyecta assignedRoute");
+    assert.equal(res.applied, true);
+    assert.equal(res.vehicle.routeId, "route-act-1", "motor: re-proyecta routeId del Vehicle");
+    assert.ok(res.vehicle.assignedRoute, "motor: re-proyecta assignedRoute del Vehicle");
+    // La ASIGNACION no se toca en RECONCILED (solo Vehicle).
+    assert.equal(res.assignment.activatedAt, activated.assignment.activatedAt, "motor: activatedAt intacto");
+    assert.equal(res.assignment.activationVersion, 1, "motor: activationVersion intacto");
+    assert.equal(res.assignment.routeRevision, 1, "motor: routeRevision intacto (asignacion no modificada)");
   }
-  console.log("ok - motor embedded: reconciliacion por drift de proyeccion");
+  console.log("ok - motor embedded: reconciliacion re-proyecta unicamente el Vehicle");
 
   // --- already_active: activar una segunda mientras otra esta ACTIVE ---
   {
@@ -205,14 +210,14 @@ function makeAssignment(store, overrides = {}) {
     assert.equal(idem.assignment.activatedAt, activatedAt, "idempotencia: activatedAt estable (no re-sella)");
     assert.equal(idem.event, null, "idempotencia: NO emite evento");
 
-    // Reconciliacion (revision drift): preserva la IDENTIDAD de la activacion (activatedAt/activationVersion),
-    // pero SI emite evento (cambio real de proyeccion/revision).
-    store.updateRoute("route-act-1", { distanceMeters: 3000 });
+    // Reconciliacion (drift de proyeccion): preserva la IDENTIDAD de la activacion
+    // (activatedAt/activationVersion/routeRevision), modifica SOLO el Vehicle, pero SI emite evento.
+    store.clearAssignedRouteFromVehicle("veh-act-1");
     const recon = await store.activateVehicleRouteAssignment({ organizationId: ORG, vehicleId: "veh-act-1", assignmentId: a.id, actor: "admin", source: "system", reason: "route_switched", now: "2027-02-02T00:00:00.000Z" });
     assert.equal(recon.outcome, "RECONCILED");
     assert.equal(recon.assignment.activatedAt, activatedAt, "reconciliacion: activatedAt estable (misma activacion)");
     assert.equal(recon.assignment.activationVersion, 1, "reconciliacion: activationVersion estable");
-    assert.equal(recon.assignment.routeRevision, 2, "reconciliacion: routeRevision actualizado");
+    assert.equal(recon.assignment.routeRevision, 1, "reconciliacion: routeRevision intacto (asignacion no modificada)");
     assert.ok(recon.event && recon.event.outcome === "RECONCILED", "reconciliacion: SI emite evento");
     assert.equal(recon.event.reason, "route_switched", "reconciliacion: evento con motivo sanitizado");
 
