@@ -729,6 +729,177 @@ router.delete("/assign/:vehicleId", authenticate, requireOperationalAccess, asyn
   }
 });
 
+// ===== RC-MULTI-ROUTE-DRIVER-01 F4: API admin de asignaciones ruta-vehiculo =====
+// Consume el motor F3 (escritor unico del subsistema). NO toca el escritor legado /assign (gate F6).
+
+// Mapeo de razones de conflicto del motor -> [status HTTP, mensaje].
+const ASSIGNMENT_CONFLICT = {
+  not_found: [404, "Asignacion no encontrada"],
+  vehicle_not_found: [404, "Unidad no encontrada"],
+  already_active: [409, "La unidad ya tiene una asignacion activa"],
+  active_route_session: [409, "Finaliza la jornada activa antes de cambiar la ruta"],
+  active_assignment_conflict: [409, "La asignacion activa cambio; reintenta"],
+  activation_version_conflict: [409, "La asignacion cambio; reintenta"],
+  admin_locked: [409, "La asignacion no es seleccionable"],
+  invalid_status: [409, "La asignacion no puede activarse en su estado actual"],
+  expired: [409, "La asignacion expiro"],
+  out_of_window: [409, "Fuera de la ventana horaria de la asignacion"],
+  outside_schedule: [409, "Fuera de la jornada operativa"],
+  no_route: [409, "La asignacion no tiene ruta"],
+  route_projection_failed: [409, "No fue posible proyectar la ruta"],
+  transaction_unavailable: [503, "Servicio temporalmente no disponible, reintenta"]
+};
+
+function respondAssignmentConflict(res, reason) {
+  const [status, message] = ASSIGNMENT_CONFLICT[reason] || [409, "No fue posible activar la asignacion"];
+  return res.status(status).json({ ok: false, code: reason, message });
+}
+
+// Vista MINIMA del vehiculo para el evento (sin geometria/coordenadas crudas).
+function minimalVehicleView(vehicle) {
+  if (!vehicle) return null;
+  return {
+    id: vehicle.id || vehicle._id || null,
+    routeId: vehicle.routeId || null,
+    routeName: vehicle.routeName || (vehicle.assignedRoute && vehicle.assignedRoute.routeName) || null,
+    driverId: vehicle.driverId || null
+  };
+}
+
+router.post("/assignments", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "Solo administracion puede crear asignaciones" });
+    }
+
+    const vehicleId = String(req.body.vehicleId || "").trim();
+    const routeId = String(req.body.routeId || "").trim();
+    if (!vehicleId || !routeId) {
+      return res.status(400).json({ ok: false, message: "vehicleId y routeId son obligatorios" });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, vehicleId);
+    if (!vehicle) return undefined; // getAccessibleVehicle ya respondio
+
+    const route = await req.app.locals.store.getRouteById(routeId);
+    if (!route || !canAccessTenantResource(req.user, route)) {
+      return res.status(404).json({ ok: false, message: "Ruta no encontrada" });
+    }
+
+    const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();
+    const assignment = await req.app.locals.store.createVehicleRouteAssignment({
+      organizationId,
+      vehicleId,
+      routeId,
+      priority: req.body.priority,
+      selectableByDriver: req.body.selectableByDriver,
+      scheduledFrom: req.body.scheduledFrom,
+      scheduledUntil: req.body.scheduledUntil,
+      assignedBy: req.user.id
+    });
+
+    return res.status(201).json({ ok: true, data: assignment });
+  } catch (error) {
+    if (error.message && error.message.startsWith("invalid_assignment_input")) {
+      return res.status(400).json({ ok: false, code: error.message, message: "Datos de asignacion invalidos" });
+    }
+    return next(error);
+  }
+});
+
+router.get("/assignments", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "Solo administracion puede consultar asignaciones" });
+    }
+
+    const vehicleId = String(req.query.vehicleId || "").trim();
+    if (!vehicleId) {
+      return res.status(400).json({ ok: false, message: "vehicleId es obligatorio" });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, vehicleId);
+    if (!vehicle) return undefined;
+
+    const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();
+    const status = String(req.query.status || "").trim() || undefined;
+    const items = await req.app.locals.store.listVehicleRouteAssignments({ organizationId, vehicleId, status });
+
+    return res.json({ ok: true, data: items });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/assignments/:assignmentId", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "Solo administracion puede consultar asignaciones" });
+    }
+
+    const assignment = await req.app.locals.store.getVehicleRouteAssignmentById(String(req.params.assignmentId || "").trim());
+    if (!assignment || !canAccessTenantResource(req.user, { organizationId: assignment.organizationId })) {
+      return res.status(404).json({ ok: false, message: "Asignacion no encontrada" });
+    }
+
+    return res.json({ ok: true, data: assignment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/assignments/:assignmentId/activate", authenticate, requireOrganization, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "Solo administracion puede activar asignaciones" });
+    }
+
+    const assignmentId = String(req.params.assignmentId || "").trim();
+    const existing = await req.app.locals.store.getVehicleRouteAssignmentById(assignmentId);
+    if (!existing || !canAccessTenantResource(req.user, { organizationId: existing.organizationId })) {
+      return res.status(404).json({ ok: false, message: "Asignacion no encontrada" });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, existing.vehicleId);
+    if (!vehicle) return undefined;
+
+    const organizationId = String(existing.organizationId || getOrganizationId(req.user)).trim();
+    const result = await req.app.locals.store.activateVehicleRouteAssignment({
+      organizationId,
+      vehicleId: existing.vehicleId,
+      assignmentId,
+      actor: "admin",
+      actorId: req.user.id,
+      source: "admin",
+      reason: req.body.reason || "admin_activated",
+      expectedActiveAssignmentId: req.body.expectedActiveAssignmentId,
+      expectedActivationVersion: req.body.expectedActivationVersion
+    });
+
+    if (result.outcome === "CONFLICT") {
+      return respondAssignmentConflict(res, result.reason);
+    }
+
+    // Emision fisica del evento (§20) SOLO en ACTIVATED/RECONCILED (result.applied && result.event).
+    if (result.applied && result.event) {
+      const payload = { ...result.event, assignment: result.assignment, vehicle: minimalVehicleView(result.vehicle) };
+      emitToRouteAudience(req, organizationId, "route-assignment:updated", payload, vehicle.driverId);
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        outcome: result.outcome,
+        applied: result.applied,
+        assignment: result.assignment,
+        vehicle: minimalVehicleView(result.vehicle)
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/sessions", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
     const vehicleId = String(req.query.vehicleId || req.user.vehicleId || "").trim();
