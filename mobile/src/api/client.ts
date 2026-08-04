@@ -846,8 +846,14 @@ export async function updateVehicleLocationRequest(payload: {
   packetId?: string | null;
   sessionId?: string | null;
 }) {
-  const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/locations/update', payload);
-  return response.data.data;
+  const response = await apiClient.post<{
+    ok: boolean;
+    accepted: boolean;
+    decision: string;
+    data: Vehicle;
+    packetId: string | null;
+  }>('/locations/update', payload);
+  return { ...response.data, httpStatus: response.status };
 }
 
 export async function searchNavigationPlacesRequest(query: string, origin: GeoPoint) {

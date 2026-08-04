@@ -2074,10 +2074,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     const durablePayload = {
       ...payload,
       packetId: payload.packetId || createRealtimePacketId('gps'),
-      sessionId: payload.sessionId || get().activeRouteSession?.id || null,
+      sessionId: typeof payload.sessionId === 'undefined'
+        ? (get().activeRouteSession?.status === 'RUNNING' ? get().activeRouteSession?.id || null : null)
+        : payload.sessionId,
     };
     try {
-      const vehicle = normalizeVehicle(await updateVehicleLocationRequest(durablePayload));
+      const response = await updateVehicleLocationRequest(durablePayload);
+      const vehicle = normalizeVehicle(response.data);
       set(s => ({
         mapData: s.mapData
           ? {
@@ -2089,7 +2092,16 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
           : s.mapData,
       }));
-      return { ok: true };
+      mobileLog('gps-sync', 'vehicle location confirmed', {
+        accepted: response.accepted,
+        decision: response.decision,
+        httpStatus: response.httpStatus,
+        packetId: response.packetId,
+        sessionIdPresent: Boolean(durablePayload.sessionId),
+        timestamp: durablePayload.timestamp || null,
+        vehicleId: durablePayload.vehicleId,
+      });
+      return { ok: response.accepted, message: response.decision };
     } catch (error) {
       if (isProbablyNetworkError(error)) {
         await enqueuePendingSyncOperation({
@@ -2098,10 +2110,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         await refreshPendingSyncCount(set);
         set({ networkStatus: 'offline' });
+        mobileLog('gps-sync', 'vehicle location queued', {
+          accepted: false,
+          backendCode: null,
+          httpStatus: null,
+          packetId: durablePayload.packetId,
+          sessionIdPresent: Boolean(durablePayload.sessionId),
+          timestamp: durablePayload.timestamp || null,
+          vehicleId: durablePayload.vehicleId,
+        });
         return { ok: true, message: 'Ubicacion guardada para sincronizar.' };
       }
 
       logStoreError('sendVehicleLocation', error);
+      mobileLog('gps-sync', 'vehicle location failed', {
+        accepted: false,
+        backendCode: isAxiosError(error) ? error.response?.data?.code || null : null,
+        httpStatus: isAxiosError(error) ? error.response?.status || null : null,
+        packetId: durablePayload.packetId,
+        sessionIdPresent: Boolean(durablePayload.sessionId),
+        timestamp: durablePayload.timestamp || null,
+        vehicleId: durablePayload.vehicleId,
+      });
       return {
         ok: false,
         message: getReadableErrorMessage(error, 'No fue posible actualizar la ubicacion.'),

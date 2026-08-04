@@ -110,12 +110,13 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: Boolean(user?.vehicleId && activeRouteSession?.status === 'RUNNING'),
+    enabled: Boolean(user?.vehicleId && authContext?.canAccessMobile === true),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,
     lastUpdatedAt: location.lastUpdatedAt,
     sendVehicleLocation,
+    sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : null,
     vehicleId: user?.vehicleId,
   });
 
@@ -142,13 +143,6 @@ function OperationalBackgroundServices() {
         return;
       }
 
-      const isDriver = user?.role === 'driver';
-      const hasActiveSession = activeRouteSession?.status === 'RUNNING';
-      if (isDriver && !hasActiveSession) {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
-        return;
-      }
-
       const [foreground, background] = await Promise.all([
         Location.getForegroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
         Location.requestBackgroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
@@ -169,7 +163,7 @@ function OperationalBackgroundServices() {
         token: token || '',
         refreshToken: refreshToken || '',
         vehicleId: user?.vehicleId || '',
-        sessionId: activeRouteSession?.id || '',
+        sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : '',
       }).catch(() => undefined);
     };
 

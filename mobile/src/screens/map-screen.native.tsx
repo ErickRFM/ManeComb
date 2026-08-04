@@ -32,7 +32,7 @@ import { useTrackingData } from './map/hooks/use-tracking-data';
 import { mapStyles as styles } from './map/map-styles';
 import type { MapSelectorParams } from './map/types';
 import { isSelectorMode } from './map/utils/selector-route';
-import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import { formatFreshness, type OperationalUnitSnapshot } from '@shared/operational-contract';
 
 type MapGateState = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -336,7 +336,16 @@ export function MapScreen() {
         ? theme.colors.danger
         : locationStatus.tone === 'warning'
           ? theme.colors.warning
-          : theme.colors.muted;
+        : theme.colors.muted;
+  const ownOperationalUnit = user?.vehicleId
+    ? operationalUnits.find((unit) => unit.unitId === user.vehicleId) || null
+    : null;
+  const serverSyncLabel = ownOperationalUnit ? formatFreshness(ownOperationalUnit.gps) : 'SIN DATOS';
+  const serverSyncColor = ownOperationalUnit?.gps.freshness === 'fresh'
+    ? theme.colors.success
+    : ownOperationalUnit?.gps.freshness === 'stale'
+      ? theme.colors.warning
+      : theme.colors.muted;
 
   const {
     activeIncident,
@@ -639,6 +648,8 @@ export function MapScreen() {
               incidentCount={visibleIncidents.length}
               locationStatusColor={locationStatusColor}
               locationStatusLabel={locationStatus.hudLabel}
+              serverSyncColor={serverSyncColor}
+              serverSyncLabel={serverSyncLabel}
               onOpenMenu={() => setMenuOpen(true)}
               paddingTop={insets.top + 10}
               trafficEnabled={trafficEnabled}
