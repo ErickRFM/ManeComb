@@ -10,6 +10,7 @@ const {
   requireOrganization
 } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
+const { canActivate } = require("../../domain/vehicle-route-assignment");
 const { planRoute, reverseGeocode, searchPlaces } = require("../../services/navigation-service");
 const { recordSessionEvent } = require("../../services/route-event-engine");
 const { calculateAndPersistRouteMetrics } = require("../../services/route-metrics-engine");
@@ -826,6 +827,99 @@ router.get("/assignments", authenticate, requireOrganization, requireOperational
     const items = await req.app.locals.store.listVehicleRouteAssignments({ organizationId, vehicleId, status });
 
     return res.json({ ok: true, data: items });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// --- F5: API driver (auto-seleccion respetando selectableByDriver). Registrado ANTES de
+// /assignments/:assignmentId para que "mine" no caiga en el parametro :assignmentId. ---
+const DRIVER_NON_TERMINAL = ["AVAILABLE", "SCHEDULED", "ACTIVE"];
+
+router.get("/assignments/mine", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para consultar tus asignaciones" });
+    }
+
+    const vehicleId = String(req.query.vehicleId || req.user.vehicleId || "").trim();
+    if (!vehicleId) {
+      return res.status(400).json({ ok: false, message: "vehicleId es obligatorio" });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, vehicleId);
+    if (!vehicle) return undefined;
+    if (req.user.role === "driver" && vehicle.driverId !== req.user.id) {
+      return res.status(403).json({ ok: false, message: "Solo el chofer asignado puede consultar sus asignaciones" });
+    }
+
+    const organizationId = String(vehicle.organizationId || getOrganizationId(req.user)).trim();
+    const items = await req.app.locals.store.listVehicleRouteAssignments({ organizationId, vehicleId, statuses: DRIVER_NON_TERMINAL });
+    const active = items.find((a) => a.status === "ACTIVE") || null;
+    const now = new Date();
+    const data = items.map((assignment) => {
+      const check = canActivate(assignment, {
+        organizationId, vehicleId, actor: "driver", now,
+        hasOtherActive: Boolean(active && active.id !== assignment.id)
+      });
+      return { ...assignment, selectable: check.ok, selectableReason: check.ok ? null : check.reason };
+    });
+
+    return res.json({ ok: true, data });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/assignments/:assignmentId/select", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para seleccionar una ruta" });
+    }
+
+    const assignmentId = String(req.params.assignmentId || "").trim();
+    const existing = await req.app.locals.store.getVehicleRouteAssignmentById(assignmentId);
+    if (!existing || !canAccessTenantResource(req.user, { organizationId: existing.organizationId })) {
+      return res.status(404).json({ ok: false, message: "Asignacion no encontrada" });
+    }
+
+    const vehicle = await getAccessibleVehicle(req, res, existing.vehicleId);
+    if (!vehicle) return undefined; // driver de otra unidad -> 403 aqui
+    if (req.user.role === "driver" && vehicle.driverId !== req.user.id) {
+      return res.status(403).json({ ok: false, message: "Solo el chofer asignado puede seleccionar la ruta" });
+    }
+
+    const organizationId = String(existing.organizationId || getOrganizationId(req.user)).trim();
+    const result = await req.app.locals.store.activateVehicleRouteAssignment({
+      organizationId,
+      vehicleId: existing.vehicleId,
+      assignmentId,
+      actor: "driver",
+      actorId: req.user.id,
+      source: "driver",
+      reason: "driver_selected",
+      expectedActiveAssignmentId: req.body.expectedActiveAssignmentId,
+      expectedActivationVersion: req.body.expectedActivationVersion
+    });
+
+    if (result.outcome === "CONFLICT") {
+      return respondAssignmentConflict(res, result.reason);
+    }
+
+    if (result.applied && result.event) {
+      const payload = { ...result.event, assignment: result.assignment, vehicle: minimalVehicleView(result.vehicle) };
+      emitToRouteAudience(req, organizationId, "route-assignment:updated", payload, vehicle.driverId);
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        outcome: result.outcome,
+        applied: result.applied,
+        assignment: result.assignment,
+        vehicle: minimalVehicleView(result.vehicle)
+      }
+    });
   } catch (error) {
     return next(error);
   }
