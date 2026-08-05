@@ -2,16 +2,31 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const mockStoreState: {
+  activeRouteSession: { id: string; status: string } | null;
+  apiUrl: string;
   authContext: { canAccessMobile: boolean } | null;
-  user: { role: string; vehicleId: string | null } | null;
+  refreshToken: string | null;
+  token: string | null;
+  user: {
+    operationalSchedule: null;
+    role: string;
+    vehicleId: string | null;
+  } | null;
 } = {
+  activeRouteSession: null,
+  apiUrl: 'https://manecomb.test/api',
   authContext: { canAccessMobile: true },
-  user: { role: 'driver', vehicleId: 'vehicle-1' },
+  refreshToken: 'refresh-token',
+  token: 'access-token',
+  user: { operationalSchedule: null, role: 'driver', vehicleId: 'vehicle-1' },
 };
 
 jest.mock('@/src/store/root-store', () => ({
   useAppStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
 }));
+
+const mockNativeForegroundPermission = jest.fn();
+const mockNativeBackgroundPermission = jest.fn();
 
 jest.mock('@/src/native/location', () => ({
   PermissionStatus: {
@@ -19,6 +34,16 @@ jest.mock('@/src/native/location', () => ({
     GRANTED: 'granted',
     UNDETERMINED: 'undetermined',
   },
+  getForegroundPermissionsAsync: (...args: unknown[]) => mockNativeForegroundPermission(...args),
+  requestBackgroundPermissionsAsync: (...args: unknown[]) => mockNativeBackgroundPermission(...args),
+}));
+
+const mockAcquireBackground = jest.fn();
+const mockReleaseBackground = jest.fn();
+
+jest.mock('@/src/native/background-location', () => ({
+  acquireBackgroundLocationServiceAsync: (...args: unknown[]) => mockAcquireBackground(...args),
+  releaseBackgroundLocationServiceAsync: (...args: unknown[]) => mockReleaseBackground(...args),
 }));
 
 const removeWatcher = jest.fn();
@@ -59,11 +84,23 @@ async function flushPromises() {
 describe('useLocationEngine capture ownership', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStoreState.activeRouteSession = null;
+    mockStoreState.apiUrl = 'https://manecomb.test/api';
     mockStoreState.authContext = { canAccessMobile: true };
-    mockStoreState.user = { role: 'driver', vehicleId: 'vehicle-1' };
+    mockStoreState.refreshToken = 'refresh-token';
+    mockStoreState.token = 'access-token';
+    mockStoreState.user = {
+      operationalSchedule: null,
+      role: 'driver',
+      vehicleId: 'vehicle-1',
+    };
     mockWatchNativeLocation.mockResolvedValue({ remove: removeWatcher });
     mockRequestForegroundPermission.mockResolvedValue({ status: 'granted' });
     mockRequestBackgroundPermission.mockResolvedValue({ status: 'granted' });
+    mockNativeForegroundPermission.mockResolvedValue({ status: 'granted' });
+    mockNativeBackgroundPermission.mockResolvedValue({ status: 'granted' });
+    mockAcquireBackground.mockResolvedValue(true);
+    mockReleaseBackground.mockResolvedValue(true);
     mockGetCurrentLocation.mockResolvedValue({
       coords: { latitude: 19.43, longitude: -99.13, accuracy: 5 },
       timestamp: 1_700_000_000_000,
@@ -91,6 +128,13 @@ describe('useLocationEngine capture ownership', () => {
 
     expect(removeWatcher).toHaveBeenCalledTimes(1);
     expect(result.current?.watcherActive).toBe(false);
+    expect(mockAcquireBackground).toHaveBeenCalledWith(
+      'operational-runtime',
+      expect.objectContaining({
+        token: 'access-token',
+        vehicleId: 'vehicle-1',
+      })
+    );
   });
 
   it('does not create a watcher while background owns capture', async () => {
@@ -99,10 +143,11 @@ describe('useLocationEngine capture ownership', () => {
     });
 
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
+    expect(mockAcquireBackground).toHaveBeenCalledTimes(1);
   });
 
   it('does not continuously capture for a user without an assigned driver vehicle', async () => {
-    mockStoreState.user = { role: 'admin', vehicleId: null };
+    mockStoreState.user = { operationalSchedule: null, role: 'admin', vehicleId: null };
 
     await act(async () => {
       TestRenderer.create(React.createElement(Probe, { enabled: true, onChange: () => undefined }));
@@ -110,6 +155,7 @@ describe('useLocationEngine capture ownership', () => {
 
     expect(mockRequestForegroundPermission).not.toHaveBeenCalled();
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
+    expect(mockReleaseBackground).toHaveBeenCalledWith('operational-runtime');
   });
 
   it('invalidates a permission request that resolves after background takes ownership', async () => {
@@ -143,5 +189,18 @@ describe('useLocationEngine capture ownership', () => {
     expect(mockRequestBackgroundPermission).not.toHaveBeenCalled();
     expect(mockGetCurrentLocation).not.toHaveBeenCalled();
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
+  });
+
+  it('uses the running journey id in the background lease', async () => {
+    mockStoreState.activeRouteSession = { id: 'session-1', status: 'RUNNING' };
+
+    await act(async () => {
+      TestRenderer.create(React.createElement(Probe, { enabled: false, onChange: () => undefined }));
+    });
+
+    expect(mockAcquireBackground).toHaveBeenCalledWith(
+      'operational-runtime',
+      expect.objectContaining({ sessionId: 'session-1' })
+    );
   });
 });
