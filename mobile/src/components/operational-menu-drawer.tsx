@@ -13,6 +13,7 @@ import {
 } from '@/src/desktop/desktop-navigation';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import { useAppStore } from '@/src/store/use-app-store';
 
 type OperationalMenuDrawerProps = {
@@ -23,6 +24,8 @@ type OperationalMenuDrawerProps = {
 };
 
 const DRAWER_WIDTH = 340;
+const DRAWER_OPEN_MS = DesignSystem.motion.normal;
+const DRAWER_CLOSE_MS = 160;
 
 export function OperationalMenuDrawer({
   visible,
@@ -33,7 +36,9 @@ export function OperationalMenuDrawer({
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const slideProgress = useRef(new Animated.Value(1)).current;
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [shouldRender, setShouldRender] = useState(visible);
   const {
     conversations,
@@ -79,17 +84,35 @@ export function OperationalMenuDrawer({
     }
 
     slideProgress.stopAnimation();
+
+    if (reducedMotion) {
+      slideProgress.setValue(visible ? 0 : 1);
+      if (!visible) {
+        setShouldRender(false);
+      }
+      return;
+    }
+
     Animated.timing(slideProgress, {
       toValue: visible ? 0 : 1,
-      duration: visible ? 280 : 250,
-      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      duration: visible ? DRAWER_OPEN_MS : DRAWER_CLOSE_MS,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished && !visible) {
         setShouldRender(false);
       }
     });
-  }, [shouldRender, slideProgress, visible]);
+  }, [reducedMotion, shouldRender, slideProgress, visible]);
+
+  useEffect(() => {
+    return () => {
+      if (navigationTimerRef.current) {
+        clearTimeout(navigationTimerRef.current);
+      }
+      slideProgress.stopAnimation();
+    };
+  }, [slideProgress]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !shouldRender || typeof document === 'undefined') {
@@ -115,9 +138,18 @@ export function OperationalMenuDrawer({
   const handleSectionPress = (href: AppSection['href']) => {
     onClose();
 
-    if (pathname !== href) {
-      router.push(href);
+    if (pathname === href) {
+      return;
     }
+
+    if (navigationTimerRef.current) {
+      clearTimeout(navigationTimerRef.current);
+    }
+
+    navigationTimerRef.current = setTimeout(
+      () => router.push(href),
+      reducedMotion ? 0 : DRAWER_CLOSE_MS
+    );
   };
 
   const getBadgeLabel = (key: AppSectionKey) => {
@@ -148,7 +180,12 @@ export function OperationalMenuDrawer({
             ...(Platform.OS === 'web' ? { willChange: 'opacity' } : {}),
           },
         ]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable
+          accessibilityLabel="Cerrar menú"
+          accessibilityRole="button"
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+        />
       </Animated.View>
 
       <Animated.View
@@ -202,6 +239,9 @@ export function OperationalMenuDrawer({
         </View>
 
         <ScrollView
+          bounces={false}
+          decelerationRate="normal"
+          overScrollMode="never"
           style={styles.drawerScroll}
           contentContainerStyle={styles.drawerList}
           showsVerticalScrollIndicator={false}>
@@ -215,6 +255,7 @@ export function OperationalMenuDrawer({
             return (
               <Pressable
                 key={section.key}
+                accessibilityRole="button"
                 onPress={() => handleSectionPress(section.href)}
                 style={({ pressed }) => [
                   styles.drawerItem,
@@ -267,6 +308,7 @@ export function OperationalMenuDrawer({
         </ScrollView>
 
         <Pressable
+          accessibilityRole="button"
           onPress={() => {
             onClose();
             signOut().finally(() => router.replace('/login'));
@@ -338,7 +380,7 @@ const styles = StyleSheet.create({
   },
   itemPressed: {
     opacity: DesignSystem.opacity.pressed,
-    transform: [{ scale: 0.985 }],
+    transform: [{ scale: 0.99 }],
   },
   drawerItemIcon: {
     width: 40,
