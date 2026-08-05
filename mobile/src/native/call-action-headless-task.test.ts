@@ -1,3 +1,15 @@
+jest.mock('@/src/api/client', () => ({
+  SOCKET_URL: 'https://socket.test',
+}));
+
+jest.mock('@/src/native/secure-store', () => ({
+  getItemAsync: jest.fn(),
+}));
+
+jest.mock('socket.io-client', () => ({
+  io: jest.fn(),
+}));
+
 import { runCallNotificationAction } from './call-action-headless-task';
 
 function fakeSocket(ack: { ok?: boolean; code?: string } = { ok: true }) {
