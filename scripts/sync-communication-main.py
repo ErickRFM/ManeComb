@@ -4,14 +4,38 @@ import re
 
 controller = Path("mobile/src/screens/chat/hooks/use-chat-controller.ts")
 text = controller.read_text()
+clean_prefix = """import { DesignSystem } from '@/constants/theme';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from '@/src/native/audio';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, useWindowDimensions } from 'react-native';
+import { useRoute } from '@react-navigation/native';
+import { useShallow } from 'zustand/react/shallow';
+import { canConversationStartCall } from '@/src/features/calls/call-selectors';
+import { useCallStore } from '@/src/features/calls/call-store';
+import {
+  launchCameraAsync,
+  launchImageLibraryAsync,
+} from '@/src/native/image-picker';
+"""
+text, import_count = re.subn(
+    r"\A.*?(?=import \{ useAppTheme \} from '@/src/hooks/use-app-theme';)",
+    clean_prefix,
+    text,
+    count=1,
+    flags=re.S,
+)
+if import_count != 1:
+    raise SystemExit("Chat controller import prefix could not be normalized")
 text = text.replace(
     "        mode,\n        peerName: activeConversation.title,\n",
     "        mode,\n",
     1,
 )
-# Main previously imported this permission in Chat's old RTC implementation.
-# Chat no longer owns camera permissions; the global call runtime does.
-text = text.replace("  requestCameraPermissionAsync,\n", "")
 old_scroll = """  const handleChatMessagesScroll = useCallback(
     (event: Parameters<typeof handleMessagesScroll>[0]) => {
       handleMessagesScroll(event);
