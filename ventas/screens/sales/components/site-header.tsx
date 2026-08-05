@@ -10,6 +10,7 @@ import type { IconName } from '../types';
 const navItems = [
   { label: 'Inicio', target: 'inicio' },
   { label: 'Funcionalidades', target: 'funcionalidades' },
+  { label: 'App móvil', target: 'descargar' },
   { label: 'Planes', target: 'planes' },
   { label: 'Confianza', target: 'confianza' },
   { label: 'FAQ', target: 'faq' },
@@ -99,4 +100,3 @@ export function SiteHeader({
     </View>
   );
 }
-
