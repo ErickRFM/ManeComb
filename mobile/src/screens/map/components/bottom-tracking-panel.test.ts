@@ -2,6 +2,7 @@ import type { RouteSession } from '@/src/types/app';
 import {
   getSessionDistanceMeters,
   getSessionDurationSeconds,
+  isFiniteMetricNumber,
   selectVehicleActiveSession,
 } from './bottom-tracking-panel-data';
 
@@ -37,6 +38,22 @@ describe('datos de BottomTrackingPanel', () => {
     ).toBe(selectedVehicleSession);
   });
 
+  it('elige la jornada activa mas reciente aunque el historial llegue desordenado', () => {
+    const oldest = buildSession({
+      id: 'session-old',
+      vehicleId: 'vehicle-2',
+      startedAt: '2026-07-15T08:00:00.000Z',
+    });
+    const newest = buildSession({
+      id: 'session-new',
+      vehicleId: 'vehicle-2',
+      startedAt: '2026-07-15T14:00:00.000Z',
+    });
+
+    expect(selectVehicleActiveSession('vehicle-2', null, [oldest, newest])).toBe(newest);
+    expect(selectVehicleActiveSession('vehicle-2', null, [newest, oldest])).toBe(newest);
+  });
+
   it('no usa una jornada finalizada como jornada activa', () => {
     const finished = buildSession({ status: 'FINISHED', finishedAt: '2026-07-15T13:00:00.000Z' });
 
@@ -55,5 +72,24 @@ describe('datos de BottomTrackingPanel', () => {
 
     expect(getSessionDistanceMeters(session)).toBe(12_345);
     expect(getSessionDurationSeconds(session)).toBe(3_600);
+  });
+
+  it('acepta cadenas numericas reales pero no convierte vacios o booleanos en cero', () => {
+    expect(isFiniteMetricNumber(0)).toBe(true);
+    expect(isFiniteMetricNumber('12.5')).toBe(true);
+    expect(isFiniteMetricNumber('')).toBe(false);
+    expect(isFiniteMetricNumber('   ')).toBe(false);
+    expect(isFiniteMetricNumber(false)).toBe(false);
+    expect(isFiniteMetricNumber([])).toBe(false);
+    expect(isFiniteMetricNumber(Number.NaN)).toBe(false);
+  });
+
+  it('no muestra distancia cero cuando el backend envio un valor vacio', () => {
+    const session = buildSession({
+      totalDistance: '' as unknown as number,
+      metrics: { totalDistance: '' as unknown as number },
+    });
+
+    expect(getSessionDistanceMeters(session)).toBeNull();
   });
 });
