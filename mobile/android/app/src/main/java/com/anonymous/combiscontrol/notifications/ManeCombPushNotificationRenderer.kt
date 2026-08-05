@@ -1,6 +1,7 @@
 package com.anonymous.combiscontrol.notifications
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -30,11 +31,15 @@ object ManeCombPushNotificationRenderer {
 
   fun render(context: Context, data: Map<String, String>) {
     when (data["type"]?.trim()?.lowercase()) {
-      "incoming_call" -> showIncomingCall(context, data)
       "call_dismiss", "call_ended", "call_cancelled", "call_timeout" -> {
         dismissCall(context, data["callId"].orEmpty())
       }
-      else -> showMessage(context, data)
+      "incoming_call" -> {
+        if (!isAppInForeground(context)) showIncomingCall(context, data)
+      }
+      else -> {
+        if (!isAppInForeground(context)) showMessage(context, data)
+      }
     }
   }
 
@@ -45,7 +50,8 @@ object ManeCombPushNotificationRenderer {
     val title = data["title"].orEmpty().ifBlank { "ManeComb" }
     val body = data["body"].orEmpty().ifBlank { "Tienes una notificación nueva." }
     val conversationId = data["conversationId"].orEmpty().trim()
-    val encrypted = data["encrypted"].orEmpty().equals("true", ignoreCase = true)
+    // Bandera ausente o desconocida => cifrado. Solo un `false` explicito habilita RemoteInput.
+    val encrypted = !data["encrypted"].orEmpty().equals("false", ignoreCase = true)
     val notificationId = stableId("chat:${conversationId.ifBlank { title }}")
     val contentIntent = activityIntent(
       context,
@@ -233,6 +239,12 @@ object ManeCombPushNotificationRenderer {
       .appendQueryParameter("mode", data["mode"].orEmpty().ifBlank { "audio" })
       .appendQueryParameter("action", action)
     return builder.build()
+  }
+
+  private fun isAppInForeground(context: Context): Boolean {
+    val processInfo = ActivityManager.RunningAppProcessInfo()
+    ActivityManager.getMyMemoryState(processInfo)
+    return processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
   }
 
   private fun canPostNotifications(context: Context): Boolean =
