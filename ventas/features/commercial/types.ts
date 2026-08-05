@@ -175,7 +175,7 @@ export const PAYMENT_SESSION_STATUSES = {
 export type PaymentSessionStatus =
   (typeof PAYMENT_SESSION_STATUSES)[keyof typeof PAYMENT_SESSION_STATUSES];
 
-export type PaymentProviderMode = 'hosted' | 'test' | 'unavailable';
+export type PaymentProviderMode = 'hosted' | 'manual' | 'test' | 'unavailable';
 export type CheckoutPaymentMethod = 'card' | 'spei' | 'trial';
 
 export type PaymentSessionRequest = {
