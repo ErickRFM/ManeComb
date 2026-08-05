@@ -10,6 +10,8 @@ const AdminLoginScreen = lazy(() => import('@/features/auth/screens/login-screen
 const AdminMfaSetupScreen = lazy(() => import('@/features/auth/screens/mfa-setup-screen').then((module) => ({ default: module.AdminMfaSetupScreen })));
 const AdminMfaVerifyScreen = lazy(() => import('@/features/auth/screens/mfa-verify-screen').then((module) => ({ default: module.AdminMfaVerifyScreen })));
 const AdminOverviewScreen = lazy(() => import('@/features/platform/screens/overview-screen').then((module) => ({ default: module.AdminOverviewScreen })));
+const AdminCompaniesScreen = lazy(() => import('@/features/platform/companies/companies-screen').then((module) => ({ default: module.AdminCompaniesScreen })));
+const AdminCompanyDetailScreen = lazy(() => import('@/features/platform/companies/companies-screen').then((module) => ({ default: module.AdminCompanyDetailScreen })));
 const AdminPendingModuleScreen = lazy(() => import('@/features/platform/screens/pending-module-screen').then((module) => ({ default: module.AdminPendingModuleScreen })));
 
 function BootScreen() {
@@ -31,6 +33,25 @@ function Routes() {
 
   if (isBootstrapping) return <BootScreen />;
 
+  if (pathname.startsWith('/admin/companies/')) {
+    const encodedId = pathname.slice('/admin/companies/'.length);
+    let organizationId = '';
+    try {
+      organizationId = decodeURIComponent(encodedId);
+    } catch {
+      organizationId = '';
+    }
+
+    if (!organizationId) return <Redirect href="/admin/companies" />;
+    return (
+      <AdminProtectedRoute>
+        <ScreenErrorBoundary name="Admin Company Detail">
+          <AdminCompanyDetailScreen organizationId={organizationId} />
+        </ScreenErrorBoundary>
+      </AdminProtectedRoute>
+    );
+  }
+
   switch (pathname) {
     case '/':
     case '/admin/login':
@@ -47,9 +68,15 @@ function Routes() {
           <ScreenErrorBoundary name="Admin Overview"><AdminOverviewScreen /></ScreenErrorBoundary>
         </AdminProtectedRoute>
       );
+    case '/admin/companies':
+      return (
+        <AdminProtectedRoute>
+          <ScreenErrorBoundary name="Admin Companies"><AdminCompaniesScreen /></ScreenErrorBoundary>
+        </AdminProtectedRoute>
+      );
     default: {
       const item = findAdminNavigationItem(pathname);
-      if (item && item.phase !== 'P1') {
+      if (item && item.phase !== 'P1' && item.phase !== 'P2') {
         return (
           <AdminProtectedRoute>
             <ScreenErrorBoundary name={`Admin ${item.label}`}>
