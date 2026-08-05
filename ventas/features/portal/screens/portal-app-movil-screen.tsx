@@ -79,14 +79,9 @@ export function PortalAppMovilScreen() {
     }
 
     try {
-      const supported = await Linking.canOpenURL(appInfo.apkUrl);
-      if (!supported) {
-        setDownloadMessage('El enlace de descarga no puede abrirse en este dispositivo.');
-        return;
-      }
       await Linking.openURL(appInfo.apkUrl);
     } catch {
-      setDownloadMessage('No fue posible abrir la descarga. Intenta nuevamente.');
+      setDownloadMessage('No fue posible abrir la descarga. Revisa el enlace publicado e intenta nuevamente.');
     }
   };
 
