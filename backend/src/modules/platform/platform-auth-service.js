@@ -57,6 +57,18 @@ async function login(email, password, req) {
     return { error: "Credenciales inválidas", status: 401 };
   }
 
+  const mfaRequired = isMfaRequired(user.role);
+  if (mfaRequired && !isMfaOperational()) {
+    await recordPlatformAction(req, {
+      action: "platform.auth.unavailable",
+      actorId: user._id,
+      platformRole: user.role,
+      severity: "error",
+      metadata: { result: "denied", reasonCode: "mfa_not_operational" }
+    });
+    return { error: "Autenticación de plataforma no disponible", status: 503 };
+  }
+
   await getStore(req).updatePlatformUser(user._id, {
     lastLoginAt: new Date(),
     failedLoginAttempts: 0,
@@ -64,8 +76,6 @@ async function login(email, password, req) {
   });
 
   const { refreshToken, session } = await createPlatformSession(user._id, req);
-
-  const mfaRequired = isMfaRequired(user.role) && isMfaOperational();
 
   if (mfaRequired) {
     const needsSetup = !user.mfaEnabled;
@@ -116,6 +126,11 @@ async function refresh(refreshTokenValue, req) {
   if (!isPlatformSecretValid()) {
     return { error: "Autenticación de plataforma no disponible", status: 503 };
   }
+  // Se valida antes de rotar el refresh token para conservar la sesión durante
+  // una falla de configuración y negar el acceso de forma cerrada.
+  if (!isMfaOperational()) {
+    return { error: "Autenticación de plataforma no disponible", status: 503 };
+  }
   try {
     const result = await rotatePlatformRefreshToken(refreshTokenValue, req);
     if (!result) {
@@ -127,7 +142,7 @@ async function refresh(refreshTokenValue, req) {
       return { error: "Cuenta no activa", status: 401 };
     }
 
-    const mfaRequired = isMfaRequired(user.role) && isMfaOperational();
+    const mfaRequired = isMfaRequired(user.role);
     if (mfaRequired && !result.session.mfaVerified) {
       return { error: "MFA requerido", status: 403 };
     }

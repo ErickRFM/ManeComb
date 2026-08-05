@@ -1,8 +1,12 @@
 process.env.MONGO_URI = "";
 process.env.MONGODB_URI = "";
+process.env.PLATFORM_MFA_ENCRYPTION_KEY = "MinzFLmGlxqwGor12GdyXqZYsRea/r+QAWuVhEvPMRg=";
 require("dotenv").config({ path: require("path").resolve(__dirname, "..", ".env") });
 const assert = require("node:assert/strict");
 const jwt = require("jsonwebtoken");
+const { encrypt, decrypt } = require("../src/utils/platform-mfa-crypto");
+const { generateBase32Secret, generateTOTP, TOTP_PERIOD } = require("../src/utils/platform-totp");
+const { mfaVerify } = require("../src/modules/platform/platform-mfa-service");
 const { createEmbeddedStore } = require("../src/data/store");
 const { sanitizePlatformUser } = require("../src/middlewares/platform-auth");
 const { requirePlatformRole, requirePlatformPermission } = require("../src/middlewares/platform-access");
@@ -21,7 +25,8 @@ function mockReq(overrides) {
     app: { locals: { store } },
     platformUser: overrides?.platformUser || null,
     platformSession: overrides?.platformSession || null,
-    platformAuth: overrides?.platformAuth || null
+    platformAuth: overrides?.platformAuth || null,
+    body: overrides?.body || {}
   };
 }
 
@@ -60,6 +65,42 @@ async function main() {
   store.updatePlatformUser(lockedUser.id, { failedLoginAttempts: 5, lockedUntil: new Date(Date.now() + 3600000) });
   req = mockReq();
 
+  function enableMfa(email) {
+    const user = store.getPlatformUserByEmail(email);
+    const secret = generateBase32Secret();
+    store.updatePlatformUser(user.id || user._id, {
+      mfaEnabled: true,
+      mfaEnrollmentRequired: false,
+      mfaSecretEncrypted: encrypt(secret),
+      mfaBackupCodes: []
+    });
+  }
+
+  enableMfa("auth-test@manecomb.com");
+  enableMfa("owner@manecomb.com");
+
+  async function loginWithMfa(email, password) {
+    const { login } = require("../src/modules/platform/platform-auth-service");
+    const initial = await login(email, password, req);
+    if (initial.error) return initial;
+    assert.ok(initial.mfaRequired);
+    assert.ok(initial.challengeToken);
+    assert.ok(!initial.token);
+    const user = store.getPlatformUserByEmail(String(email).trim().toLowerCase());
+    const secret = decrypt(user.mfaSecretEncrypted);
+    const counter = Math.floor(Date.now() / 1000 / TOTP_PERIOD);
+    const token = generateTOTP(secret, counter);
+    const verified = await mfaVerify(mockReq({
+      body: { challengeToken: initial.challengeToken, token }
+    }));
+    if (verified.error) return verified;
+    return {
+      ...verified,
+      refreshToken: initial.refreshToken,
+      session: initial.session
+    };
+  }
+
   // 1
   test("modelo platform user", () => {
     const u = store.getPlatformUserByEmail("auth-test@manecomb.com");
@@ -89,8 +130,7 @@ async function main() {
   // 5 — login correcto
   let loginResult, refreshTokenValue, sessionIdValue;
   await testAsync("login correcto", async () => {
-    const { login } = require("../src/modules/platform/platform-auth-service");
-    loginResult = await login("auth-test@manecomb.com", TEST_PASSWORD, req);
+    loginResult = await loginWithMfa("auth-test@manecomb.com", TEST_PASSWORD);
     assert.ok(loginResult.token); assert.ok(loginResult.refreshToken); assert.ok(loginResult.user);
     assert.equal(loginResult.user.email, "auth-test@manecomb.com"); assert.equal(loginResult.user.role, "platform_admin");
     refreshTokenValue = loginResult.refreshToken; sessionIdValue = loginResult.session.id;
@@ -220,8 +260,8 @@ async function main() {
 
   // 21 — logout-all
   await testAsync("logout-all", async () => {
-    const { login, logoutAll } = require("../src/modules/platform/platform-auth-service");
-    const fresh = await login("owner@manecomb.com", TEST_PASSWORD, req);
+    const { logoutAll } = require("../src/modules/platform/platform-auth-service");
+    const fresh = await loginWithMfa("owner@manecomb.com", TEST_PASSWORD);
     const logReq = mockReq({ platformUser: { id: fresh.user.id, role: "platform_owner" }, platformSession: { _id: fresh.session.id } });
     const r = await logoutAll(logReq);
     assert.equal(r.message, "Todas las sesiones cerradas"); assert.ok(typeof r.revokedCount === "number");
@@ -289,15 +329,13 @@ async function main() {
 
   // 28
   await testAsync("login owner", async () => {
-    const { login } = require("../src/modules/platform/platform-auth-service");
-    const r = await login("owner@manecomb.com", TEST_PASSWORD, req);
+    const r = await loginWithMfa("owner@manecomb.com", TEST_PASSWORD);
     assert.ok(r.token); assert.equal(r.user.role, "platform_owner");
   });
 
   // 29
   await testAsync("correo normalizado", async () => {
-    const { login } = require("../src/modules/platform/platform-auth-service");
-    const r = await login("AUTH-TEST@manecomb.com", TEST_PASSWORD, req);
+    const r = await loginWithMfa("AUTH-TEST@manecomb.com", TEST_PASSWORD);
     assert.ok(r.token);
   });
 
@@ -445,8 +483,8 @@ async function main() {
     assert.equal(entReq.tenant, undefined);
   });
 
-  // 40 — env.js no bloquea inicio por PLATFORM_JWT_SECRET faltante
-  test("env.js no tira error sin PLATFORM_JWT_SECRET", () => {
+  // 40 — env.js expone el contrato Platform; la validación productiva vive en platform-security
+  test("env.js expone las variables Platform", () => {
     const env = require("../src/config/env");
     assert.ok("PLATFORM_JWT_SECRET" in env);
     assert.ok("PLATFORM_ACCESS_TOKEN_TTL" in env);

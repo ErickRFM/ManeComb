@@ -84,8 +84,11 @@ function readFirstEnv(candidates) {
 const DEFAULT_CLIENT_ORIGINS = [
   "https://manecomb1.pages.dev",
   "https://*.manecomb1.pages.dev",
+  "https://admin.manecomb.com",
   "http://localhost:5173",
-  "http://127.0.0.1:5173"
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174"
 ];
 
 function mergeOrigins(...originLists) {

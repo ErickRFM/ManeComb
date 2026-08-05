@@ -69,6 +69,56 @@ test("fail-closed: isMfaOperational false sin clave", () => {
   assert.ok(!mfaServiceEmpty.isMfaOperational());
 });
 
+const failClosedStore = createEmbeddedStore();
+const failClosedUser = failClosedStore.createPlatformUser({
+  name: "Fail Closed Admin",
+  email: "fail-closed@manecomb.com",
+  password: "Test@1234!secure",
+  role: "platform_admin"
+});
+const failClosedReq = {
+  headers: { "user-agent": "fail-closed-test" },
+  ip: "127.0.0.1",
+  app: { locals: { store: failClosedStore } },
+  body: {}
+};
+const failClosedAuthService = require("../src/modules/platform/platform-auth-service");
+let failClosedRefreshToken;
+
+await testAsync("fail-closed: login válido responde 503 sin llave MFA", async () => {
+  const result = await failClosedAuthService.login("fail-closed@manecomb.com", "Test@1234!secure", failClosedReq);
+  assert.equal(result.status, 503);
+  assert.equal(result.error, "Autenticación de plataforma no disponible");
+  assert.equal(result.token, undefined);
+  assert.equal(result.challengeToken, undefined);
+  assert.equal(result.refreshToken, undefined);
+  assert.equal(result.session, undefined);
+});
+
+await testAsync("fail-closed: middleware responde 503 aunque la sesión figure verificada", async () => {
+  const created = await createPlatformSession(failClosedUser.id, failClosedReq);
+  failClosedRefreshToken = created.refreshToken;
+  await markPlatformSessionMfaVerified(created.session.id);
+  const token = signPlatformToken(failClosedUser, created.session.id);
+  const { platformAuth: platformAuthWithoutMfa } = require("../src/middlewares/platform-auth");
+  const authReq = {
+    ...failClosedReq,
+    headers: { authorization: `Bearer ${token}`, "user-agent": "fail-closed-test" }
+  };
+  const authRes = mockRes();
+  let nextCalled = false;
+  await platformAuthWithoutMfa(authReq, authRes, () => { nextCalled = true; });
+  assert.equal(nextCalled, false);
+  assert.equal(authRes.state.statusCode, 503);
+});
+
+await testAsync("fail-closed: refresh responde 503 sin rotar el token", async () => {
+  const result = await failClosedAuthService.refresh(failClosedRefreshToken, failClosedReq);
+  assert.equal(result.status, 503);
+  assert.equal(result.error, "Autenticación de plataforma no disponible");
+  assert.equal(result.refreshToken, undefined);
+});
+
 // Now reload with valid key for remaining tests
 process.env.PLATFORM_MFA_ENCRYPTION_KEY = "MinzFLmGlxqwGor12GdyXqZYsRea/r+QAWuVhEvPMRg=";
 delete require.cache[require.resolve("../src/config/env")];
@@ -79,6 +129,13 @@ delete require.cache[require.resolve("../src/modules/platform/platform-auth-serv
 const { isMfaRequired, mfaSetup, mfaConfirm, mfaVerify, mfaRecovery } = require("../src/modules/platform/platform-mfa-service");
 const platformAuthService = require("../src/modules/platform/platform-auth-service");
 const mfaCrypto = require("../src/utils/platform-mfa-crypto");
+
+await testAsync("fail-closed: refresh original sigue válido después de restaurar MFA", async () => {
+  const result = await platformAuthService.refresh(failClosedRefreshToken, failClosedReq);
+  assert.ok(result.token);
+  assert.ok(result.refreshToken);
+  assert.notEqual(result.refreshToken, failClosedRefreshToken);
+});
 const { platformAuth, requireMfa, sanitizePlatformUser } = require("../src/middlewares/platform-auth");
 const { platformMfaChallenge } = require("../src/middlewares/platform-mfa-challenge");
 

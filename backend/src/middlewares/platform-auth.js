@@ -60,7 +60,11 @@ async function platformAuth(req, res, next) {
     }
 
     const { isMfaRequired, isMfaOperational } = require("../modules/platform/platform-mfa-service");
-    if (isMfaRequired(user.role) && isMfaOperational() && !session.mfaVerified) {
+    const mfaRequired = isMfaRequired(user.role);
+    if (mfaRequired && !isMfaOperational()) {
+      return res.status(503).json({ ok: false, message: "Autenticación de plataforma no disponible" });
+    }
+    if (mfaRequired && !session.mfaVerified) {
       return res.status(403).json({ ok: false, message: "MFA requerido para acceder" });
     }
 
@@ -81,6 +85,11 @@ async function platformAuth(req, res, next) {
 }
 
 async function requireMfa(req, res, next) {
+  const { isMfaOperational } = require("../modules/platform/platform-mfa-service");
+  if (!isMfaOperational()) {
+    return res.status(503).json({ ok: false, message: "Autenticación de plataforma no disponible" });
+  }
+
   const session = req.platformSession;
   if (!session) {
     return res.status(401).json({ ok: false, message: "Sesión requerida" });
