@@ -105,15 +105,27 @@ export function CheckoutPaymentSection({
   providerMode,
   onSubmitPayment,
 }: Props) {
+  const isManualPaymentMode = providerMode === 'manual';
+
   return (
     <View style={[s.leftPanel, isTwoColumn ? undefined : s.fullPanel]}>
       <View style={s.panelTitleRow}>
         <View style={s.panelTitleIcon}>
-          <MaterialCommunityIcons name="credit-card-check-outline" size={24} color={palette.violet} />
+          <MaterialCommunityIcons
+            name={isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
+            size={24}
+            color={palette.violet}
+          />
         </View>
         <View style={s.panelTitleCopy}>
-          <Text style={s.panelTitle}>Información de pago</Text>
-          <Text style={s.panelSubtitle}>Elige tu método y completa la transacción.</Text>
+          <Text style={s.panelTitle}>
+            {isManualPaymentMode ? 'Transferencia bancaria' : 'Información de pago'}
+          </Text>
+          <Text style={s.panelSubtitle}>
+            {isManualPaymentMode
+              ? 'Genera tu orden y usa la referencia única para realizar el depósito.'
+              : 'Elige tu método y completa la transacción.'}
+          </Text>
         </View>
       </View>
 
@@ -168,6 +180,16 @@ export function CheckoutPaymentSection({
               placeholder="Opcional"
               value={testCard.postalCode}
             />
+          </View>
+        </View>
+      ) : isManualPaymentMode && !requestTrial ? (
+        <View style={s.speiPanel}>
+          <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
+          <View style={s.speiCopy}>
+            <Text style={s.speiTitle}>Transferencia SPEI directa a ManeComb</Text>
+            <Text style={s.speiText}>
+              Al continuar se creará una orden pendiente y se mostrarán el banco, titular, CLABE, importe y referencia exacta. No se abrirá Mercado Pago ni otro proveedor externo.
+            </Text>
           </View>
         </View>
       ) : (
@@ -236,7 +258,9 @@ export function CheckoutPaymentSection({
         <Text style={s.securityText}>
           {isTestPaymentMode && !requestTrial
             ? 'Pago simulado para desarrollo. No se guardan el CVV ni el número completo de la tarjeta.'
-            : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
+            : isManualPaymentMode && !requestTrial
+              ? 'La orden queda pendiente hasta que ManeComb confirme la transferencia recibida.'
+              : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
         </Text>
       </View>
 
@@ -256,7 +280,13 @@ export function CheckoutPaymentSection({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={requestTrial ? 'Activar prueba' : 'Continuar al pago seguro'}
+        accessibilityLabel={
+          requestTrial
+            ? 'Activar prueba'
+            : isManualPaymentMode
+              ? 'Generar instrucciones de transferencia'
+              : 'Continuar al pago seguro'
+        }
         disabled={!canSubmit}
         onPress={onSubmitPayment}
         style={({ pressed }: { pressed: boolean }) => [
@@ -268,15 +298,21 @@ export function CheckoutPaymentSection({
           <ActivityIndicator color="#FFFFFF" />
         ) : (
           <>
-            <MaterialCommunityIcons name={requestTrial ? 'flask-outline' : 'lock-check-outline'} size={24} color="#FFFFFF" />
+            <MaterialCommunityIcons
+              name={requestTrial ? 'flask-outline' : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
+              size={24}
+              color="#FFFFFF"
+            />
             <Text style={s.payButtonText}>
               {requestTrial
                 ? `Activar prueba ${selectedPlan.trialDays || 7} dias`
                 : isTestPaymentMode
                   ? `Pagar en modo de pruebas ${buttonAmount}`
-                  : selectedMethod === 'card'
-                    ? 'Continuar al pago seguro'
-                    : `Continuar pago SPEI ${buttonAmount}`}
+                  : isManualPaymentMode
+                    ? `Generar transferencia ${buttonAmount}`
+                    : selectedMethod === 'card'
+                      ? 'Continuar al pago seguro'
+                      : `Continuar pago SPEI ${buttonAmount}`}
             </Text>
             <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
           </>
