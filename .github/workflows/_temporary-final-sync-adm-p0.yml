@@ -1,0 +1,57 @@
+name: Temporary final sync Admin Global P0
+
+on:
+  push:
+    branches:
+      - fix/adm-global-p0-security
+    paths:
+      - .github/workflows/_temporary-final-sync-adm-p0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/adm-global-p0-security
+          fetch-depth: 0
+
+      - name: Merge current main
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            admin-global/package-lock.json
+
+      - name: Verify P0 and Admin build
+        shell: bash
+        env:
+          VITE_API_URL: http://127.0.0.1:5000
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix admin-global
+          npm run test:platform --prefix backend
+          node scripts/validate-environment-contract.mjs
+          npm run typecheck --prefix admin-global
+          npm run build --prefix admin-global
+
+      - name: Remove workflow and push
+        shell: bash
+        run: |
+          rm .github/workflows/_temporary-final-sync-adm-p0.yml
+          git add -A
+          git commit -m "chore(branch): final sync Admin Global P0 before P1"
+          git push origin HEAD:fix/adm-global-p0-security
