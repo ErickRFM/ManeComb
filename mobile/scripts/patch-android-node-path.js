@@ -1,8 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 
+const NODE_EXECUTABLE_DECLARATION =
+  /^[ \t]*def\s+nodeExecutable\s*=\s*System\.getenv\('NODE_BINARY'\)/m;
+const NODE_EXECUTABLE_LITERAL_FALLBACK =
+  /(^[ \t]*def\s+nodeExecutable\s*=\s*System\.getenv\('NODE_BINARY'\)\s*\?:\s*)'[^'\r\n]*'/m;
+
 function escapeForGroovy(value) {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function hasNodeExecutableDeclaration(source) {
+  return NODE_EXECUTABLE_DECLARATION.test(source);
+}
+
+function refreshLiteralNodeFallback(source, escapedNodePath) {
+  return source.replace(
+    NODE_EXECUTABLE_LITERAL_FALLBACK,
+    `$1'${escapedNodePath}'`
+  );
 }
 
 function updateFileIfNeeded(filePath, updater) {
@@ -35,7 +51,7 @@ function patchAndroidNodePath(androidDir, nodePath = process.execPath) {
 
     if (
       !next.includes('commandLine("node",') &&
-      !next.includes("def nodeExecutable = System.getenv('NODE_BINARY') ?:")
+      !hasNodeExecutableDeclaration(next)
     ) {
       return next;
     }
@@ -50,12 +66,9 @@ function patchAndroidNodePath(androidDir, nodePath = process.execPath) {
       'pluginManagement {\n  '
     );
 
-    if (next.includes("def nodeExecutable = System.getenv('NODE_BINARY') ?:")) {
-      next = next.replace(
-        /([ \t]*def nodeExecutable = System\.getenv\('NODE_BINARY'\) \?: '.*?'\r?\n)+/g,
-        `  ${nodeExecLine}\n`
-      );
-    } else {
+    next = refreshLiteralNodeFallback(next, escapedNodePath);
+
+    if (!hasNodeExecutableDeclaration(next)) {
       next = next.replace(
         /pluginManagement\s*\{/,
         `pluginManagement {\n  ${nodeExecLine}`
@@ -74,12 +87,9 @@ function patchAndroidNodePath(androidDir, nodePath = process.execPath) {
       '$1\n'
     );
 
-    if (next.includes("def nodeExecutable = System.getenv('NODE_BINARY') ?:")) {
-      next = next.replace(
-        /([ \t]*def nodeExecutable = System\.getenv\('NODE_BINARY'\) \?: '.*?'\r?\n)+/g,
-        `${nodeExecLine}\n`
-      );
-    } else {
+    next = refreshLiteralNodeFallback(next, escapedNodePath);
+
+    if (!hasNodeExecutableDeclaration(next)) {
       next = next.replace(
         'def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()',
         `def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()\n${nodeExecLine}`
@@ -91,5 +101,6 @@ function patchAndroidNodePath(androidDir, nodePath = process.execPath) {
 }
 
 module.exports = {
+  hasNodeExecutableDeclaration,
   patchAndroidNodePath,
 };
