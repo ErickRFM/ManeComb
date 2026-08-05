@@ -43,6 +43,7 @@ import {
   shouldReturnToMapOnAndroidBack,
 } from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
+import { CallOverlay } from '@/src/features/calls/call-overlay';
 import { useLocationEngine } from '@/src/screens/map/hooks/use-location-engine';
 import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
 import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
@@ -110,12 +111,13 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: Boolean(user?.vehicleId && activeRouteSession?.status === 'RUNNING'),
+    enabled: Boolean(user?.vehicleId && authContext?.canAccessMobile === true),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,
     lastUpdatedAt: location.lastUpdatedAt,
     sendVehicleLocation,
+    sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : null,
     vehicleId: user?.vehicleId,
   });
 
@@ -142,13 +144,6 @@ function OperationalBackgroundServices() {
         return;
       }
 
-      const isDriver = user?.role === 'driver';
-      const hasActiveSession = activeRouteSession?.status === 'RUNNING';
-      if (isDriver && !hasActiveSession) {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
-        return;
-      }
-
       const [foreground, background] = await Promise.all([
         Location.getForegroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
         Location.requestBackgroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
@@ -169,7 +164,7 @@ function OperationalBackgroundServices() {
         token: token || '',
         refreshToken: refreshToken || '',
         vehicleId: user?.vehicleId || '',
-        sessionId: activeRouteSession?.id || '',
+        sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : '',
       }).catch(() => undefined);
     };
 
@@ -788,6 +783,7 @@ export default function App() {
               )}
             </MobileErrorBoundary>
             {isReady && user ? <UpdateBanner /> : null}
+            {isReady && user ? <CallOverlay /> : null}
             <StatusBar style={theme.statusBar} backgroundColor={theme.colors.background} />
           </ThemeProvider>
           </NavigationContainer>

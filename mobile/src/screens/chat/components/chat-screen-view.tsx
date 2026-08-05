@@ -12,7 +12,6 @@ import type { DirectoryMode, LocalTextMessage } from '../types';
 import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, isSystemMessage } from '../utils/conversation';
 import { ChatComposer } from './chat-composer';
 import { ChatHeader } from './chat-header';
-import { IncomingCallModal } from './incoming-call-modal';
 import { CallMediaTile, ImageMessageBubble, MessageDeliveryMeta, VideoMessageBubble, VoiceMessageBubble } from './message-media';
 import type { useChatController } from '../hooks/use-chat-controller';
 
@@ -22,7 +21,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
   const {
     activeAudioMessageId,
     activeCallSession,
-    acceptIncomingCall,
     activeContact,
     activeConversation,
     activeMessageItems,
@@ -33,6 +31,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     callParticipants,
     callStatusLabel,
     callTone,
+    canStartCall,
     closeActiveCall,
     startCall,
     conversationFilterCounts,
@@ -47,8 +46,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleOpenGeneral,
     handleRetryTextMessage,
     handleSelectConversation,
-    incomingCall,
-    isAnsweringIncomingCall,
     isCallMuted,
     isCameraEnabled,
     isCompact,
@@ -68,7 +65,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     toggleCallMute,
     toggleCamera,
     presenceByUser,
-    rejectIncomingCall,
     token,
     typingByConversation,
     user,
@@ -76,14 +72,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
   const presenceFor = (userId?: string | null) => getPresenceStatus(presenceByUser, userId);
 
   return (
-    <>
-      <IncomingCallModal
-        call={incomingCall}
-        isAnswering={isAnsweringIncomingCall}
-        onAccept={() => void acceptIncomingCall()}
-        onReject={rejectIncomingCall}
-      />
-      <AppShell
+    <AppShell
       scroll={false}
       keyboardSafe={false}
       contentContainerStyle={[
@@ -354,7 +343,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </View>
                     </View>
 
-                    {!activeCallSession ? (
+                    {!activeCallSession && canStartCall ? (
                       <View style={styles.conversationHeaderActions}>
                         <Pressable
                           onPress={() => startCall('audio')}
@@ -387,6 +376,8 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           )}
                         </Pressable>
                       </View>
+                    ) : !activeCallSession ? (
+                      <Text style={styles.sectionHint}>Las llamadas grupales se realizan en Radio.</Text>
                     ) : null}
                   </View>
                 </View>
@@ -752,7 +743,6 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         </Pressable>
       </Modal>
 
-      </AppShell>
-    </>
+    </AppShell>
   );
 }

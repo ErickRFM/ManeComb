@@ -87,6 +87,10 @@ const routeSchema = new mongoose.Schema(
     durationSeconds: { type: Number, default: 0 },
     durationInTrafficSeconds: { type: Number, default: 0 },
     polyline: { type: [pointSchema], default: [] },
+    // RC-MULTI-ROUTE-DRIVER-01 F3: revision operativa monotona. Rutas nuevas = 1;
+    // 0 = legado no migrado (no usar para decidir drift hasta migrar). Solo cambios
+    // operativos (geometria/paradas/distancia/duraciones) la incrementan — ver domain/route-revision.js.
+    revision: { type: Number, default: 1, min: 0 },
     organizationId: { type: String, default: null },
     createdBy: { type: String, default: null },
     createdAt: { type: Date, default: Date.now },

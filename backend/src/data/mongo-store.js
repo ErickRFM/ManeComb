@@ -33,7 +33,8 @@ const {
   TripLogModel,
   TrialEntitlementModel,
   UserModel,
-  VehicleModel
+  VehicleModel,
+  VehicleRouteAssignmentModel
 } = require("./models");
 const { AttachmentRepository } = require("./repositories/attachment-repository");
 const { ChatMessageRepository } = require("./repositories/chat-message-repository");
@@ -41,6 +42,13 @@ const { ConversationRepository } = require("./repositories/conversation-reposito
 const { buildBackendStore } = require("./backend-store");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
+const {
+  STATUS: ASSIGNMENT_STATUS,
+  validateAssignmentInput,
+  serializeVehicleRouteAssignment
+} = require("../domain/vehicle-route-assignment");
+const { activateVehicleRouteAssignmentMongo } = require("./mongo-activation");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -1144,15 +1152,24 @@ async function createMongoStore() {
     }
     if (typeof payload.polyline !== "undefined") update.polyline = payload.polyline || [];
 
+    const current = await RouteModel.findOne({ _id: routeId, ...getOrganizationQuery(user) }).lean();
+    if (!current) {
+      return null;
+    }
+
     if (typeof update.name !== "undefined" && update.name) {
-      const current = await RouteModel.findById(routeId).lean();
-      if (current) {
-        const orgId = String(current.organizationId || (user ? getOrganizationId(user) : "") || "").trim();
-        if (orgId) {
-          const duplicate = await RouteModel.findOne({ organizationId: orgId, name: update.name, _id: { $ne: routeId } }).lean();
-          if (duplicate) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
-        }
+      const orgId = String(current.organizationId || (user ? getOrganizationId(user) : "") || "").trim();
+      if (orgId) {
+        const duplicate = await RouteModel.findOne({ organizationId: orgId, name: update.name, _id: { $ne: routeId } }).lean();
+        if (duplicate) throw new Error("Ya existe una ruta con ese nombre en esta organizacion");
       }
+    }
+
+    // RC-MULTI-ROUTE-DRIVER-01 F3: incrementar revision SOLO si cambia la ruta operativa.
+    // Se compara sobre la ruta fusionada (current + update) para no confundir "campo ausente
+    // en el payload" con "campo borrado". Cambios cosmeticos (name/code/color) no la mueven.
+    if (hasRouteOperationalChange(current, { ...current, ...update })) {
+      update.revision = nextRouteRevision(current.revision, true);
     }
 
     update.updatedAt = new Date();
@@ -3388,6 +3405,9 @@ async function createMongoStore() {
     });
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3 (§17): allow-list ESTRICTA. NO agregar routeId / assignedRoute /
+  // activeRouteProgress aqui: la proyeccion de ruta la escribe SOLO activateVehicleRouteAssignment
+  // (motor F3) y, de forma legada hasta F6, assignRouteToVehicle. Un update generico jamas la toca.
   async function updateVehicle(vehicleId, payload) {
     const updates = {};
 
@@ -3982,6 +4002,10 @@ async function createMongoStore() {
     };
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3: escritor LEGADO de routeId/assignedRoute (endpoint /navigation/assign).
+  // Se conserva su comportamiento (incl. cambio de ruta y modo manual sin Route). El cutover al motor
+  // activateVehicleRouteAssignment se hace en F6 (switch sin jornada), donde vive la semantica de
+  // reemplazo de la ACTIVE previa. En F3 el motor es escritor unico del flujo NUEVO (APIs F4/F5).
   async function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
     let nextAssignment;
     let actualRouteId = null;
@@ -4133,6 +4157,68 @@ async function createMongoStore() {
     if (doc) return { ...doc, id: String(doc._id), _id: undefined, transitionApplied: true };
     const existing = await getRouteSessionById(sessionId);
     return existing ? { ...existing, transitionApplied: false } : null;
+  }
+
+  // --- RC-MULTI-ROUTE-DRIVER-01 F3 (etapa 3): CRUD interno minimo de asignaciones ruta-vehiculo.
+  // Solo persistencia (create/getById/list por org+vehicle). La ACTIVACION atomica (etapa 4/5) es
+  // otro escritor; este CRUD NO decide estados ni toca Vehicle.assignedRoute.
+  async function createVehicleRouteAssignment(payload = {}) {
+    const validation = validateAssignmentInput(payload);
+    if (!validation.ok) {
+      throw new Error(`invalid_assignment_input:${validation.errors.join(",")}`);
+    }
+    const now = new Date();
+    const doc = await VehicleRouteAssignmentModel.create({
+      _id: payload.id || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim() || null,
+      vehicleId: payload.vehicleId == null ? null : String(payload.vehicleId),
+      routeId: payload.routeId == null ? null : String(payload.routeId),
+      status: payload.status || ASSIGNMENT_STATUS.AVAILABLE,
+      priority: payload.priority == null ? 0 : Math.max(0, Number(payload.priority) || 0),
+      selectableByDriver: payload.selectableByDriver !== false,
+      scheduledFrom: payload.scheduledFrom ? new Date(payload.scheduledFrom) : null,
+      scheduledUntil: payload.scheduledUntil ? new Date(payload.scheduledUntil) : null,
+      assignedBy: payload.assignedBy == null ? null : String(payload.assignedBy),
+      assignedAt: payload.assignedAt ? new Date(payload.assignedAt) : now,
+      activationVersion: payload.activationVersion == null ? 0 : Math.max(0, Number(payload.activationVersion) || 0),
+      routeRevision: payload.routeRevision == null ? 0 : Math.max(0, Number(payload.routeRevision) || 0),
+      createdAt: now,
+      updatedAt: now
+    });
+    return serializeVehicleRouteAssignment(doc);
+  }
+
+  async function getVehicleRouteAssignmentById(assignmentId) {
+    const doc = await VehicleRouteAssignmentModel.findById(assignmentId).lean();
+    return doc ? serializeVehicleRouteAssignment(doc) : null;
+  }
+
+  async function listVehicleRouteAssignments({ organizationId, vehicleId, status, statuses } = {}) {
+    const query = {};
+    if (organizationId) query.organizationId = organizationId;
+    if (vehicleId) query.vehicleId = String(vehicleId);
+    const statusFilter = Array.isArray(statuses) && statuses.length ? statuses : status ? [status] : null;
+    if (statusFilter) query.status = { $in: statusFilter };
+    const docs = await VehicleRouteAssignmentModel.find(query)
+      .sort({ priority: 1, scheduledFrom: 1, createdAt: 1 })
+      .lean();
+    return docs.map(serializeVehicleRouteAssignment);
+  }
+
+  // ESCRITOR UNICO (F3) del estado ACTIVE + Vehicle.routeId + Vehicle.assignedRoute (camino Mongo).
+  // La orquestacion transaccional vive en ./mongo-activation (inyeccion de dependencias) para poder
+  // validar el contrato de integracion con dobles. El store inyecta sus modelos + builder de proyeccion.
+  async function activateVehicleRouteAssignment(params = {}) {
+    return activateVehicleRouteAssignmentMongo(
+      {
+        VehicleRouteAssignmentModel,
+        VehicleModel,
+        RouteModel,
+        RouteSessionModel,
+        assignedRouteFromSavedRoute
+      },
+      params
+    );
   }
 
   async function createRouteSessionPosition(payload) {
@@ -4606,6 +4692,10 @@ async function createMongoStore() {
     createDocument,
     generatePasswordResetToken,
     resetPasswordWithToken,
+    createVehicleRouteAssignment,
+    getVehicleRouteAssignmentById,
+    listVehicleRouteAssignments,
+    activateVehicleRouteAssignment,
     createRouteSession,
     createRouteSessionPosition,
     claimAutoRouteProcessing,

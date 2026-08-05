@@ -10,6 +10,8 @@ type TrackingHudProps = {
   incidentCount: number;
   locationStatusColor: string;
   locationStatusLabel: string;
+  serverSyncColor: string;
+  serverSyncLabel: string;
   onOpenMenu: () => void;
   paddingTop: number;
   trafficEnabled: boolean;
@@ -21,6 +23,8 @@ export function TrackingHud({
   incidentCount,
   locationStatusColor,
   locationStatusLabel,
+  serverSyncColor,
+  serverSyncLabel,
   onOpenMenu,
   paddingTop,
   trafficEnabled,
@@ -50,7 +54,8 @@ export function TrackingHud({
             icon="bus"
             color={theme.colors.info}
           />
-          <HUDItem label="GPS" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
+          <HUDItem label="GPS local" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
+          <HUDItem label="Servidor" value={serverSyncLabel} icon="cloud-check-outline" color={serverSyncColor} />
           <HUDItem
             label="Trafico"
             value={trafficEnabled ? 'ON' : 'OFF'}

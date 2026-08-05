@@ -11,6 +11,13 @@ const { isServiceDate, toServiceDate } = require("../utils/service-date");
 const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
+const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
+const {
+  STATUS: ASSIGNMENT_STATUS,
+  validateAssignmentInput,
+  serializeVehicleRouteAssignment
+} = require("../domain/vehicle-route-assignment");
+const { planActivation, OUTCOME: ACTIVATION_OUTCOME } = require("../domain/vehicle-route-assignment-activation");
 const {
   getClearedVehicleRouteFields,
   hasActiveAssignedRoute,
@@ -34,6 +41,7 @@ function createEmbeddedStore() {
   state.activationKeys = Array.isArray(state.activationKeys) ? state.activationKeys : [];
   state.chatMessages = Array.isArray(state.chatMessages) ? state.chatMessages : [];
   state.routeSessions = Array.isArray(state.routeSessions) ? state.routeSessions : [];
+  state.vehicleRouteAssignments = Array.isArray(state.vehicleRouteAssignments) ? state.vehicleRouteAssignments : [];
   state.routeSessionPositions = Array.isArray(state.routeSessionPositions) ? state.routeSessionPositions : [];
   state.routeEvents = Array.isArray(state.routeEvents) ? state.routeEvents : [];
   state.checkpointVisits = Array.isArray(state.checkpointVisits) ? state.checkpointVisits : [];
@@ -152,6 +160,8 @@ function createEmbeddedStore() {
       durationSeconds: Math.max(0, Number(payload.durationSeconds) || 0),
       durationInTrafficSeconds: Math.max(0, Number(payload.durationInTrafficSeconds) || 0),
       polyline: clone(payload.polyline || []),
+      // RC-MULTI-ROUTE-DRIVER-01 F3: rutas nuevas comienzan en revision 1 (0 = legado no migrado).
+      revision: 1,
       organizationId: orgId,
       createdBy: payload.createdBy || null,
       createdAt: now,
@@ -275,6 +285,9 @@ function createEmbeddedStore() {
       return null;
     }
 
+    // RC-MULTI-ROUTE-DRIVER-01 F3: snapshot previo para detectar cambio operativo tras aplicar.
+    const beforeUpdate = clone(route);
+
     if (typeof payload.name !== "undefined") {
       const newName = String(payload.name || "").trim();
       const orgId = String(route.organizationId || "").trim();
@@ -297,6 +310,11 @@ function createEmbeddedStore() {
       route.durationInTrafficSeconds = Math.max(0, Number(payload.durationInTrafficSeconds) || 0);
     }
     if (typeof payload.polyline !== "undefined") route.polyline = clone(payload.polyline || []);
+
+    // Incrementar revision SOLO si cambio la ruta operativa (no cosmeticos name/code/color).
+    if (hasRouteOperationalChange(beforeUpdate, route)) {
+      route.revision = nextRouteRevision(beforeUpdate.revision, true);
+    }
 
     route.updatedAt = new Date().toISOString();
     updateAssignedRouteSnapshots(route);
@@ -3017,6 +3035,9 @@ function createEmbeddedStore() {
     return { ok: true, vehicle: deleteVehicle(vehicleId) };
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3 (§17): allow-list ESTRICTA. NO agregar routeId / assignedRoute /
+  // activeRouteProgress aqui: la proyeccion de ruta la escribe SOLO activateVehicleRouteAssignment
+  // (motor F3) y, de forma legada hasta F6, assignRouteToVehicle. Un update generico jamas la toca.
   function updateVehicle(vehicleId, payload) {
     const vehicle = getVehicleById(vehicleId);
 
@@ -3418,6 +3439,10 @@ function createEmbeddedStore() {
     return { ...enrichVehicle(vehicle), locationUpdateApplied: true, locationUpdateReason: "accepted" };
   }
 
+  // RC-MULTI-ROUTE-DRIVER-01 F3: escritor LEGADO de routeId/assignedRoute (endpoint /navigation/assign).
+  // Se conserva su comportamiento (incl. cambio de ruta y modo manual sin Route). El cutover al motor
+  // activateVehicleRouteAssignment se hace en F6 (switch sin jornada), donde vive la semantica de
+  // reemplazo de la ACTIVE previa. En F3 el motor es escritor unico del flujo NUEVO (APIs F4/F5).
   function assignRouteToVehicle({ vehicleId, routeId = null, assignment, assignedBy = null }) {
     const vehicle = getVehicleById(vehicleId);
 
@@ -3540,6 +3565,153 @@ function createEmbeddedStore() {
     session.finishedAt = updates.finishedAt || session.finishedAt || null;
     session.updatedAt = new Date().toISOString();
     return { ...clone(session), transitionApplied: true };
+  }
+
+  // --- RC-MULTI-ROUTE-DRIVER-01 F3 (etapa 3): CRUD interno minimo de asignaciones ruta-vehiculo.
+  // Solo persistencia (create/getById/list por org+vehicle). La ACTIVACION atomica (etapa 4/5) es
+  // otro escritor; este CRUD NO decide estados ni toca Vehicle.assignedRoute.
+  function normalizeAssignmentRecord(payload) {
+    const now = new Date().toISOString();
+    const toIso = (value) => (value ? new Date(value).toISOString() : null);
+    return {
+      id: payload.id || randomUUID(),
+      organizationId: String(payload.organizationId || "").trim() || null,
+      vehicleId: payload.vehicleId == null ? null : String(payload.vehicleId),
+      routeId: payload.routeId == null ? null : String(payload.routeId),
+      status: payload.status || ASSIGNMENT_STATUS.AVAILABLE,
+      priority: payload.priority == null ? 0 : Math.max(0, Number(payload.priority) || 0),
+      selectableByDriver: payload.selectableByDriver !== false,
+      scheduledFrom: toIso(payload.scheduledFrom),
+      scheduledUntil: toIso(payload.scheduledUntil),
+      assignedBy: payload.assignedBy == null ? null : String(payload.assignedBy),
+      assignedAt: toIso(payload.assignedAt) || now,
+      activatedAt: toIso(payload.activatedAt),
+      completedAt: toIso(payload.completedAt),
+      cancelledAt: toIso(payload.cancelledAt),
+      activationVersion: payload.activationVersion == null ? 0 : Math.max(0, Number(payload.activationVersion) || 0),
+      routeRevision: payload.routeRevision == null ? 0 : Math.max(0, Number(payload.routeRevision) || 0),
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  function createVehicleRouteAssignment(payload = {}) {
+    const validation = validateAssignmentInput(payload);
+    if (!validation.ok) {
+      throw new Error(`invalid_assignment_input:${validation.errors.join(",")}`);
+    }
+    const record = normalizeAssignmentRecord(payload);
+    state.vehicleRouteAssignments.push(record);
+    return serializeVehicleRouteAssignment(record);
+  }
+
+  function getVehicleRouteAssignmentById(assignmentId) {
+    const record = state.vehicleRouteAssignments.find((entry) => entry.id === assignmentId);
+    return record ? serializeVehicleRouteAssignment(record) : null;
+  }
+
+  function listVehicleRouteAssignments({ organizationId, vehicleId, status, statuses } = {}) {
+    const statusFilter = Array.isArray(statuses) && statuses.length ? statuses : status ? [status] : null;
+    return state.vehicleRouteAssignments
+      .filter((entry) => (!organizationId || entry.organizationId === organizationId)
+        && (!vehicleId || entry.vehicleId === String(vehicleId))
+        && (!statusFilter || statusFilter.includes(entry.status)))
+      .sort((a, b) => (a.priority - b.priority)
+        || (new Date(a.scheduledFrom || 0) - new Date(b.scheduledFrom || 0))
+        || (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)))
+      .map(serializeVehicleRouteAssignment);
+  }
+
+  // Mutex por (org|vehiculo): serializa activaciones concurrentes de la MISMA unidad. En el
+  // embedded (un solo hilo) evita entrelazado entre awaits; en mongo la atomicidad real la da la
+  // transaccion, pero mantenemos la misma firma/serializacion para paridad de contrato.
+  const vehicleActivationLocks = new Map();
+  function withVehicleActivationLock(organizationId, vehicleId, task) {
+    const key = `${organizationId || ""}|${vehicleId || ""}`;
+    const previous = vehicleActivationLocks.get(key) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => task());
+    vehicleActivationLocks.set(key, run.catch(() => undefined));
+    return run;
+  }
+
+  // ESCRITOR UNICO (F3) del estado ACTIVE de una asignacion + Vehicle.routeId + Vehicle.assignedRoute.
+  // Reune lecturas -> planifica (dominio puro) -> aplica de forma recuperable bajo el mutex.
+  async function activateVehicleRouteAssignment(params = {}) {
+    const {
+      organizationId,
+      vehicleId,
+      assignmentId,
+      actor = "system",
+      actorId = null,
+      source = null,
+      reason = null,
+      expectedActiveAssignmentId,
+      expectedActivationVersion,
+      withinOperationalSchedule,
+      now
+    } = params;
+    const nowIso = now ? new Date(now).toISOString() : new Date().toISOString();
+
+    return withVehicleActivationLock(organizationId, vehicleId, () => {
+      const target = state.vehicleRouteAssignments.find((entry) => entry.id === assignmentId) || null;
+      const activeRecord = state.vehicleRouteAssignments.find(
+        (entry) => entry.organizationId === organizationId
+          && entry.vehicleId === String(vehicleId)
+          && entry.status === ASSIGNMENT_STATUS.ACTIVE
+      ) || null;
+      const vehicle = getVehicleById(vehicleId);
+      const route = target ? getRouteById(target.routeId) : null;
+      const routeRevision = route && Number.isFinite(Number(route.revision)) ? Number(route.revision) : 0;
+      const session = getActiveRouteSession(vehicleId);
+      const vehicleProjectsTarget = Boolean(
+        target && vehicle && hasActiveAssignedRoute(vehicle.assignedRoute)
+        && normalizeRouteId(vehicle.assignedRoute.routeId) === target.routeId
+      );
+      const hasActiveSessionOnOtherRoute = Boolean(
+        target && session && session.routeId && String(session.routeId) !== String(target.routeId)
+      );
+
+      const plan = planActivation({
+        target: target ? serializeVehicleRouteAssignment(target) : null,
+        currentActive: activeRecord ? serializeVehicleRouteAssignment(activeRecord) : null,
+        vehicleProjectsTarget,
+        routeRevision,
+        hasActiveSessionOnOtherRoute,
+        context: { organizationId, vehicleId: String(vehicleId), actor, actorId, source, reason, now: nowIso, withinOperationalSchedule },
+        expectedActiveAssignmentId,
+        expectedActivationVersion
+      });
+
+      const targetView = () => (target ? serializeVehicleRouteAssignment(target) : null);
+      const vehicleView = () => (vehicle ? enrichVehicle(vehicle) : null);
+
+      if (plan.outcome === ACTIVATION_OUTCOME.CONFLICT) {
+        return { outcome: plan.outcome, reason: plan.reason, applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+      if (plan.outcome === ACTIVATION_OUTCOME.IDEMPOTENT) {
+        return { outcome: plan.outcome, reason: null, applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+
+      // ACTIVATED / RECONCILED: construir la proyeccion ANTES de mutar (rollback recuperable).
+      let projection = null;
+      if (plan.projectVehicle) {
+        if (!route) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "no_route", applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+        if (!vehicle) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "vehicle_not_found", applied: false, assignment: targetView(), vehicle: null, event: null };
+        projection = assignedRouteFromSavedRoute(route, vehicle.assignedRoute, target.assignedBy);
+        if (!projection) return { outcome: ACTIVATION_OUTCOME.CONFLICT, reason: "route_projection_failed", applied: false, assignment: targetView(), vehicle: vehicleView(), event: null };
+      }
+
+      // Commit (single-thread, atomico de facto): registro de asignacion (solo si hay patch;
+      // RECONCILED => assignmentPatch null => NO se toca la asignacion) + proyeccion del vehiculo.
+      if (plan.assignmentPatch) Object.assign(target, plan.assignmentPatch);
+      if (plan.projectVehicle && projection) {
+        vehicle.routeId = route.id;
+        vehicle.assignedRoute = projection;
+        vehicle.updatedAt = nowIso;
+      }
+
+      return { outcome: plan.outcome, reason: null, applied: true, assignment: serializeVehicleRouteAssignment(target), vehicle: enrichVehicle(vehicle), event: plan.event };
+    });
   }
 
   function createRouteSessionPosition(payload) {
@@ -3901,6 +4073,10 @@ function createEmbeddedStore() {
     updateVehicleLocation,
     updateVehicle,
     createTripLog,
+    createVehicleRouteAssignment,
+    getVehicleRouteAssignmentById,
+    listVehicleRouteAssignments,
+    activateVehicleRouteAssignment,
     createRouteSession,
     createRouteSessionPosition,
     claimAutoRouteProcessing,

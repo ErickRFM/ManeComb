@@ -15,7 +15,14 @@ async function main() {
   const timestamp = new Date().toISOString();
   const base = { vehicleId: "vehicle-101", coordinates: { latitude: 19.44, longitude: -99.13 },
     timestamp, accuracy: 8, packetId: "gps-contract-1" };
+  const positionsBefore = store.listRouteSessions({ vehicleId: "vehicle-101", limit: 50 })
+    .flatMap((session) => store.listRouteSessionPositions({ sessionId: session.id, limit: 100 }));
   assert.equal((await ingestVehicleLocation({ actor, io, payload: base, store, transport: "http" })).accepted, true);
+  assert.ok(io.events.some((event) => event.name === "location:updated"));
+  assert.ok(io.events.some((event) => event.name === "operational-unit:updated"));
+  const positionsAfter = store.listRouteSessions({ vehicleId: "vehicle-101", limit: 50 })
+    .flatMap((session) => store.listRouteSessionPositions({ sessionId: session.id, limit: 100 }));
+  assert.equal(positionsAfter.length, positionsBefore.length);
   const eventCount = io.events.length;
   const duplicate = await ingestVehicleLocation({ actor, io, payload: base, store, transport: "socket" });
   assert.equal(duplicate.accepted, false);
@@ -29,6 +36,12 @@ async function main() {
   assert.equal(older.accepted, false);
   assert.equal(older.decision, "out_of_order");
   assert.deepEqual(store.getVehicleById("vehicle-101").location, { latitude: 19.45, longitude: -99.12 });
+  await assert.rejects(
+    () => ingestVehicleLocation({ actor: store.getUserById("user-driver-02"), io, payload: {
+      ...base, packetId: "gps-contract-forbidden", timestamp: new Date(Date.now() + 2000).toISOString()
+    }, store, transport: "http" }),
+    (error) => error?.code === "forbidden_vehicle"
+  );
   console.log("vehicle location ingestion tests passed");
 }
 
