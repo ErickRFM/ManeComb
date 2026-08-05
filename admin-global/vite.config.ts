@@ -4,7 +4,7 @@ import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const targetPort = env.API_PORT || 4000;
+  const targetPort = env.API_PORT || 5000;
 
   return {
     plugins: [react()],

@@ -7,6 +7,7 @@ on:
       - main
       - "stabilization/**"
       - "codex/**"
+      - "audit/**"
   workflow_dispatch:
 
 permissions:
@@ -51,6 +52,30 @@ jobs:
         run: npm ci
 
       - name: Run tests
+        run: npm test
+
+  communication-service-tests:
+    name: Communication service tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: communication-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: communication-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run standalone tests
         run: npm test
 
   mobile-quality:
@@ -134,8 +159,8 @@ jobs:
       run:
         working-directory: ventas
     env:
-      VITE_API_URL: https://manecomb.onrender.com/api
-      VITE_SOCKET_URL: https://manecomb.onrender.com
+      VITE_API_URL: https://api.example.invalid/api
+      VITE_SOCKET_URL: https://api.example.invalid
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -155,3 +180,52 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  admin-global-build:
+    name: Admin Global build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: admin-global
+    env:
+      VITE_API_URL: https://api.example.invalid
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: admin-global/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  infrastructure-validation:
+    name: Infrastructure validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Create non-secret validation environment
+        run: cp backend/.env.example backend/.env
+
+      - name: Validate development Compose
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate production Compose
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Build backend image with Communication Service
+        run: docker build --file backend/Dockerfile --tag manecomb-backend:ci .
