@@ -93,6 +93,22 @@ elif new_title not in text:
     raise SystemExit("ActiveCallModal title anchor not found")
 modal.write_text(text)
 
+call_store_test = Path("mobile/src/features/calls/call-store.test.ts")
+test_text = call_store_test.read_text()
+old_contract = """    expect(content.includes('io(SOCKET_URL')).toBe(false);
+    expect(content.includes('getSharedRealtimeSocket()')).toBe(true);
+    expect(content.includes('Join RTC room when entering a conversation')).toBe(false);
+    expect(content.includes('abrir una conversacion YA NO ejecuta rtc:join')).toBe(true);"""
+new_contract = """    expect(content.includes('io(SOCKET_URL')).toBe(false);
+    expect(content.includes('getSharedRealtimeSocket()')).toBe(false);
+    expect(content.includes('useCallStore')).toBe(true);
+    expect(content.includes('startCall')).toBe(true);
+    expect(content.includes('rtc:join')).toBe(false);
+    expect(content.includes('RTCPeerConnection')).toBe(false);"""
+if old_contract not in test_text:
+    raise SystemExit("Legacy Chat socket ownership assertion not found")
+call_store_test.write_text(test_text.replace(old_contract, new_contract, 1))
+
 package_file = Path("mobile/package.json")
 package_data = json.loads(package_file.read_text())
 command = package_data["scripts"]["test"]
