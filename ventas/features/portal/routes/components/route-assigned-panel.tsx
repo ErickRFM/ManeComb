@@ -32,7 +32,7 @@ const statusCopy: Record<RouteAssignmentStatus, { label: string; tone: StatusBad
   ACTIVE: { label: 'Activa', tone: 'positive' },
   COMPLETED: { label: 'Completada', tone: 'neutral' },
   CANCELLED: { label: 'Cancelada', tone: 'neutral' },
-  EXPIRED: { label: 'Vencida', tone: 'negative' },
+  EXPIRED: { label: 'Vencida', tone: 'danger' },
 };
 
 function toIso(value: string) {
