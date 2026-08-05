@@ -1,0 +1,31 @@
+name: Temporary sync main
+
+on:
+  push:
+    branches:
+      - audit/environment-integrity-20260805-v2
+    paths:
+      - .github/workflows/_temporary-sync-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  merge-main:
+    name: Merge latest main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v5
+        with:
+          ref: audit/environment-integrity-20260805-v2
+          fetch-depth: 0
+
+      - name: Merge current main without rewriting history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-ff origin/main -m "merge(main): integrate latest tracking RC"
+          git push origin HEAD:audit/environment-integrity-20260805-v2
