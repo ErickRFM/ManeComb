@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useEffect, useMemo, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import type { NavigationRouteOption, Vehicle } from '@/src/types/app';
 import { MANECOMB_ROUTE_COLOR, type buildRouteStops } from '../checklist.utils';
 import { createStyles } from '../checklist-screen.styles';
@@ -19,9 +20,11 @@ export function RoutePreview({
   vehicle: Vehicle | null;
 }) {
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const styles = useMemo(() => createStyles(theme, false, false), [theme]);
   const mapRef = useRef<AppMapRef>(null);
   const routeFade = useRef(new Animated.Value(0)).current;
+  const lastFitSignatureRef = useRef<string | null>(null);
   const sourcePoints = useMemo(
     () =>
       route?.polyline?.length
@@ -37,17 +40,18 @@ export function RoutePreview({
       },
     [points, vehicle?.location]
   );
-  const mapPoints = useMemo(
-    () => {
-      const pointsToFit = sourcePoints.length ? [...sourcePoints] : [fallbackPoint];
-
-      if (vehicle?.location) {
-        pointsToFit.push(vehicle.location);
-      }
-
-      return pointsToFit;
-    },
-    [fallbackPoint, sourcePoints, vehicle?.location]
+  const fitPoints = useMemo(
+    () => (sourcePoints.length ? sourcePoints : [fallbackPoint]),
+    [fallbackPoint, sourcePoints]
+  );
+  const fitSignature = useMemo(
+    () =>
+      sourcePoints.length
+        ? sourcePoints
+            .map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`)
+            .join('|')
+        : 'initial-fallback',
+    [sourcePoints]
   );
   const initialRegion = useMemo(
     () => ({
@@ -59,19 +63,38 @@ export function RoutePreview({
   );
 
   useEffect(() => {
-    if (mapPoints.length) {
+    if (!fitPoints.length || lastFitSignatureRef.current === fitSignature) {
+      return undefined;
+    }
+
+    const isFirstFit = lastFitSignatureRef.current === null;
+    lastFitSignatureRef.current = fitSignature;
+    routeFade.stopAnimation();
+
+    if (reducedMotion) {
+      routeFade.setValue(1);
+    } else {
       routeFade.setValue(0);
       Animated.timing(routeFade, {
-        duration: 240,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
         toValue: 1,
         useNativeDriver: true,
       }).start();
-      mapRef.current?.fitToCoordinates(mapPoints, {
-        animated: true,
+    }
+
+    const frame = requestAnimationFrame(() => {
+      mapRef.current?.fitToCoordinates(fitPoints, {
+        animated: !reducedMotion && !isFirstFit,
         edgePadding: { top: 48, right: 38, bottom: 50, left: 38 },
       });
-    }
-  }, [mapPoints, routeFade]);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      routeFade.stopAnimation();
+    };
+  }, [fitPoints, fitSignature, reducedMotion, routeFade]);
 
   const vehicleHeadingStyle = useMemo(
     () => ({

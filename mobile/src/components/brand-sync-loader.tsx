@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   useAnimatedStyle,
   useSharedValue,
@@ -11,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { AppTheme, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { SYNC_LOADING_MESSAGE, SYNC_SLOW_MESSAGE } from '@/src/utils/sync-copy';
 
@@ -36,6 +38,7 @@ const MAX_HEIGHT = 30;
 
 export function BrandSyncLoader({ stage = 'loading', message }: BrandSyncLoaderProps) {
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const caption = message || (stage === 'slow' ? SYNC_SLOW_MESSAGE : SYNC_LOADING_MESSAGE);
 
   return (
@@ -43,7 +46,12 @@ export function BrandSyncLoader({ stage = 'loading', message }: BrandSyncLoaderP
       <BrandLogo align="center" size="md" tone={theme.mode === 'light' ? 'dark' : 'light'} />
       <View style={styles.wave}>
         {Array.from({ length: BAR_COUNT }).map((_, index) => (
-          <BrandWaveBar color={theme.colors.accent} index={index} key={index} />
+          <BrandWaveBar
+            color={theme.colors.accent}
+            index={index}
+            key={index}
+            reducedMotion={reducedMotion}
+          />
         ))}
       </View>
       <Text style={[styles.caption, { color: theme.colors.muted }]}>{caption}</Text>
@@ -51,27 +59,48 @@ export function BrandSyncLoader({ stage = 'loading', message }: BrandSyncLoaderP
   );
 }
 
-function BrandWaveBar({ color, index }: { color: string; index: number }) {
+function BrandWaveBar({
+  color,
+  index,
+  reducedMotion,
+}: {
+  color: string;
+  index: number;
+  reducedMotion: boolean;
+}) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
+    cancelAnimation(progress);
+
+    if (reducedMotion) {
+      progress.value = 0.42;
+      return () => cancelAnimation(progress);
+    }
+
     progress.value = withDelay(
-      index * 110,
+      index * 75,
       withRepeat(
         withSequence(
-          withTiming(1, { duration: 420, easing: Easing.inOut(Easing.quad) }),
-          withTiming(0, { duration: 420, easing: Easing.inOut(Easing.quad) })
+          withTiming(1, { duration: 360, easing: Easing.inOut(Easing.quad) }),
+          withTiming(0, { duration: 360, easing: Easing.inOut(Easing.quad) })
         ),
         -1,
         false
       )
     );
-  }, [index, progress]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    height: MIN_HEIGHT + progress.value * (MAX_HEIGHT - MIN_HEIGHT),
-    opacity: 0.45 + progress.value * 0.55,
-  }));
+    return () => cancelAnimation(progress);
+  }, [index, progress, reducedMotion]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const height = MIN_HEIGHT + progress.value * (MAX_HEIGHT - MIN_HEIGHT);
+
+    return {
+      opacity: 0.45 + progress.value * 0.55,
+      transform: [{ scaleY: height / MAX_HEIGHT }],
+    };
+  });
 
   return <Animated.View style={[styles.bar, { backgroundColor: color }, animatedStyle]} />;
 }
@@ -79,6 +108,7 @@ function BrandWaveBar({ color, index }: { color: string; index: number }) {
 const styles = StyleSheet.create({
   bar: {
     borderRadius: BAR_WIDTH,
+    height: MAX_HEIGHT,
     width: BAR_WIDTH,
   },
   caption: {

@@ -95,6 +95,7 @@ export function AppShell({
     onRefresh && typeof refreshing === 'boolean' ? (
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.accent} />
     ) : undefined;
+  const allowsPullToRefresh = Boolean(refreshControl);
   const defaultMobileHeader =
     isMobileLayout && mobileTitle ? (
       <View style={styles.defaultMobileHeader}>
@@ -159,6 +160,9 @@ export function AppShell({
   const topChrome = isMobileLayout && !hideMobileToolbar ? (
     <View style={styles.mobileToolbar}>
       <Pressable
+        accessibilityLabel={menuOpen ? 'Cerrar menú de operación' : 'Abrir menú de operación'}
+        accessibilityRole="button"
+        hitSlop={6}
         onPress={() => setMenuOpen((current) => !current)}
         style={({ pressed }) => [
           styles.iconButton,
@@ -186,6 +190,11 @@ export function AppShell({
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       {scroll ? (
         <KeyboardSafeScrollView
+          alwaysBounceVertical={allowsPullToRefresh}
+          bounces={allowsPullToRefresh}
+          decelerationRate="normal"
+          overScrollMode="never"
+          scrollEventThrottle={16}
           style={styles.scroll}
           contentContainerStyle={contentStyles}
           nestedScrollEnabled
@@ -271,7 +280,7 @@ const styles = StyleSheet.create({
   },
   iconButtonPressed: {
     opacity: DesignSystem.opacity.pressed,
-    transform: [{ scale: 0.96 }],
+    transform: [{ scale: 0.98 }],
   },
   mobileHeaderRow: {
     width: '100%',
