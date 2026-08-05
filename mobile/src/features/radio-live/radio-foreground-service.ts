@@ -82,12 +82,10 @@ export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner
 export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner) {
   owners.delete(owner);
 
-  if (owner === 'screen') {
+  if (owner === 'screen' && owners.size > 0) {
     serviceActive = false;
-    if (owners.size > 0) {
-      cancelPendingStop();
-      return restartForRemainingOwner();
-    }
+    cancelPendingStop();
+    return restartForRemainingOwner();
   }
 
   if (owners.size > 0) return Promise.resolve();
