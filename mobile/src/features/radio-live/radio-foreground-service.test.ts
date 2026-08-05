@@ -72,4 +72,20 @@ describe('Radio foreground service coordinator', () => {
 
     await pendingRelease;
   });
+
+  it('starts again after screen ownership ends while global ownership remains', async () => {
+    await acquireRadioForegroundService('global');
+    await acquireRadioForegroundService('screen');
+    await releaseRadioForegroundService('global');
+    await acquireRadioForegroundService('global');
+
+    expect(startService).toHaveBeenCalledTimes(1);
+
+    const screenRelease = releaseRadioForegroundService('screen');
+    jest.advanceTimersByTime(120);
+    await screenRelease;
+
+    expect(startService).toHaveBeenCalledTimes(2);
+    expect(stopService).not.toHaveBeenCalled();
+  });
 });
