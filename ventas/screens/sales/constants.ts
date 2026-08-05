@@ -186,7 +186,7 @@ export const trustMetrics: Array<{
 ];
 
 export const footerColumns = [
-  { title: 'Producto', links: ['Funciones', 'Planes', 'Demo'] },
+  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes', 'Demo'] },
   { title: 'Empresa', links: ['Nosotros', 'Casos de éxito', 'Contacto'] },
   { title: 'Soporte', links: ['Centro de ayuda', 'Documentación', 'Estado del sistema'] },
   { title: 'Legal', links: ['Privacidad', 'Términos', 'Cookies'] },
