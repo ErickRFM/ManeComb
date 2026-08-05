@@ -42,8 +42,11 @@ jobs:
             echo 'Legacy CallMediaTile remains in Chat' >&2
             exit 1
           fi
-          test "$(grep -R -h 'function buildChatMessageId' backend/src | wc -l)" -eq 1
-          grep -q 'emitAcceptWithAck' mobile/src/features/calls/call-signaling.ts
+          helper_count=$(grep -R -h 'function buildChatMessageId' backend/src | wc -l)
+          echo "chat message identity implementations: $helper_count"
+          test "$helper_count" -eq 1
+          grep -q 'export function emitAccept' mobile/src/features/calls/call-signaling.ts
+          grep -q 'Promise<CallAck>' mobile/src/features/calls/call-signaling.ts
           grep -q 'restartIce' mobile/src/features/calls/call-runtime.ts
           git diff --check
       - name: Install backend
