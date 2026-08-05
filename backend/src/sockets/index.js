@@ -9,6 +9,7 @@ const { incrementMetric, observeDuration, setGauge } = require("../services/metr
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { ingestVehicleLocation } = require("../services/vehicle-location-ingestion");
 const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
+const { createRtcCallService } = require("../services/rtc-call-service");
 const {
   appendFrame,
   FRAME_BASE64_LENGTH,
@@ -373,6 +374,15 @@ function registerSocketServer(server, store) {
     });
     broadcastRtcParticipants(roomId);
   }
+
+  // RC-MOBILE-CALLS-PRODUCTION-01 Bloque A: signaling global de llamadas (autoritativo backend).
+  // Reserva/timbre/aceptacion/timeout viven aqui; el media (join/offer/answer/ICE) sigue en rtc:*.
+  // Estado en memoria => asume UNA instancia de backend (documentado en el reporte); con varias
+  // replicas debera centralizarse (Redis).
+  const callService = createRtcCallService({
+    store,
+    emitToUser: (userId, event, payload) => io.to(`user:${userId}`).emit(event, payload)
+  });
 
   io.on("connection", (socket) => {
     incrementMetric("socket_connections_total", 1);
@@ -1192,6 +1202,41 @@ function registerSocketServer(server, store) {
       observeSocketEvent(socket, "rtc:stats", startedAt, "success", { roomId: safeRoomId, usedRelay });
     });
 
+    // --- Signaling de llamadas (Bloque A). El cliente NUNCA decide callId ni destinatarios. ---
+    socket.on("rtc:call", async ({ conversationId, mode } = {}, ack) => {
+      const startedAt = Date.now();
+      const user = socket.data.user;
+      if (!user || !(await canUseOperations(socket))) {
+        acknowledge(ack, { ok: false, reason: "forbidden" });
+        observeSocketEvent(socket, "rtc:call", startedAt, "forbidden", {});
+        return;
+      }
+      const result = await callService.startCall({ caller: user, callerSocketId: socket.id, conversationId, mode });
+      acknowledge(ack, result.ok
+        ? { ok: true, callId: result.callId, roomId: result.roomId, status: result.status }
+        : { ok: false, reason: result.reason });
+      observeSocketEvent(socket, "rtc:call", startedAt, result.ok ? "success" : "rejected", { callId: result.callId || null, reason: result.reason || null });
+    });
+
+    const callActionHandler = (eventName, action) => async ({ callId } = {}, ack) => {
+      const startedAt = Date.now();
+      const user = socket.data.user;
+      if (!user || !(await canUseOperations(socket))) {
+        acknowledge(ack, { ok: false, reason: "forbidden" });
+        observeSocketEvent(socket, eventName, startedAt, "forbidden", {});
+        return;
+      }
+      const result = action({ user, socketId: socket.id, callId: String(callId || "").trim() });
+      acknowledge(ack, result);
+      observeSocketEvent(socket, eventName, startedAt, result.ok ? "success" : "rejected", { callId: String(callId || "") || null, reason: result.reason || null });
+    };
+
+    socket.on("rtc:accept", callActionHandler("rtc:accept", (args) => callService.accept(args)));
+    socket.on("rtc:reject", callActionHandler("rtc:reject", (args) => callService.reject(args)));
+    socket.on("rtc:cancel", callActionHandler("rtc:cancel", (args) => callService.cancel(args)));
+    socket.on("rtc:busy", callActionHandler("rtc:busy", (args) => callService.busy(args)));
+    socket.on("rtc:end", callActionHandler("rtc:end", (args) => callService.end(args)));
+
     socket.on("disconnect", async () => {
       incrementMetric("socket_disconnects_total", 1);
       setGauge("socket_clients", io.engine.clientsCount || 0);
@@ -1223,6 +1268,8 @@ function registerSocketServer(server, store) {
       Array.from(activeRadioTransmissions.entries()).forEach(([channelId, transmission]) => {
         if (transmission.socketId === socket.id) void finishRadioTransmission(channelId, "disconnected");
       });
+      // Bloque A: si el socket era parte de una llamada, limpiarla e informar al otro extremo.
+      callService.handleDisconnect(socket.id);
     });
   });
 
