@@ -181,6 +181,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify Cloudflare SPA fallback
+        run: test -f dist/_redirects && grep -Fxq '/* /index.html 200' dist/_redirects
+
   admin-global-build:
     name: Admin Global build
     runs-on: ubuntu-latest
@@ -209,6 +212,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Verify static SPA fallback
+        run: test -f dist/_redirects && grep -Fxq '/* /index.html 200' dist/_redirects
 
   infrastructure-validation:
     name: Infrastructure validation
