@@ -44,10 +44,21 @@
     <service android:name=".location.ManeCombLocationService" android:exported="false" android:foregroundServiceType="location"/>
     <service android:name=".audio.ManeCombRadioService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>
     <service android:name=".calls.ManeCombCallService" android:exported="false" android:foregroundServiceType="microphone|camera"/>
+    <service android:name=".notifications.ManeCombFirebaseMessagingService" android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+      </intent-filter>
+    </service>
     <service android:name=".notifications.ManeCombReplyService" android:exported="false"/>
+    <service android:name=".notifications.ManeCombCallActionService" android:exported="false"/>
     <receiver android:name=".notifications.ManeCombReplyReceiver" android:enabled="true" android:exported="false">
       <intent-filter>
         <action android:name="com.anonymous.combiscontrol.notifications.ACTION_REPLY"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name=".notifications.ManeCombCallActionReceiver" android:enabled="true" android:exported="false">
+      <intent-filter>
+        <action android:name="com.anonymous.combiscontrol.notifications.ACTION_REJECT_CALL"/>
       </intent-filter>
     </receiver>
     <receiver android:name=".location.ManeCombBootReceiver" android:enabled="true" android:exported="true">
