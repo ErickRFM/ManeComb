@@ -7,6 +7,7 @@ export type RealtimeMachineState =
   | 'TRANSMITTING'
   | 'RECEIVING'
   | 'RECONNECTING'
+  | 'UNAUTHORIZED'
   | 'ERROR';
 
 export type RealtimeMachineTone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
@@ -19,7 +20,15 @@ type RealtimeInputs = {
   networkStatus?: 'unknown' | 'online' | 'offline' | 'recovering' | null;
   pendingSyncCount?: number;
   radioChannelReady?: boolean;
-  socketStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error' | null;
+  socketStatus?:
+    | 'idle'
+    | 'connecting'
+    | 'connected'
+    | 'reconnecting'
+    | 'disconnected'
+    | 'unauthorized'
+    | 'error'
+    | null;
 };
 
 export type RealtimeSnapshot = {
@@ -29,6 +38,17 @@ export type RealtimeSnapshot = {
   state: RealtimeMachineState;
   tone: RealtimeMachineTone;
 };
+
+export function isRealtimeAuthError(error?: string | null) {
+  const value = String(error || '').toLowerCase();
+  return (
+    value.includes('unauthorized') ||
+    value.includes('invalid token') ||
+    value.includes('jwt') ||
+    value.includes('token expired') ||
+    value.includes('authentication failed')
+  );
+}
 
 export function getRealtimeSnapshot({
   heartbeatHealthy = true,
@@ -47,6 +67,16 @@ export function getRealtimeSnapshot({
       label: 'Sin conexion',
       state: 'DISCONNECTED',
       tone: 'warning',
+    };
+  }
+
+  if (socketStatus === 'unauthorized') {
+    return {
+      canTransmit: false,
+      detail: 'Sesión expirada. Vuelve a iniciar sesión.',
+      label: 'Sesión expirada',
+      state: 'UNAUTHORIZED',
+      tone: 'danger',
     };
   }
 

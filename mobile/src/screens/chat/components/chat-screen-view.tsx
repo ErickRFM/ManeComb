@@ -12,6 +12,7 @@ import type { DirectoryMode, LocalTextMessage } from '../types';
 import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, isSystemMessage } from '../utils/conversation';
 import { ChatComposer } from './chat-composer';
 import { ChatHeader } from './chat-header';
+import { IncomingCallModal } from './incoming-call-modal';
 import { CallMediaTile, ImageMessageBubble, MessageDeliveryMeta, VideoMessageBubble, VoiceMessageBubble } from './message-media';
 import type { useChatController } from '../hooks/use-chat-controller';
 
@@ -21,6 +22,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
   const {
     activeAudioMessageId,
     activeCallSession,
+    acceptIncomingCall,
     activeContact,
     activeConversation,
     activeMessageItems,
@@ -45,6 +47,8 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleOpenGeneral,
     handleRetryTextMessage,
     handleSelectConversation,
+    incomingCall,
+    isAnsweringIncomingCall,
     isCallMuted,
     isCameraEnabled,
     isCompact,
@@ -64,6 +68,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     toggleCallMute,
     toggleCamera,
     presenceByUser,
+    rejectIncomingCall,
     token,
     typingByConversation,
     user,
@@ -71,7 +76,14 @@ export function ChatScreenView(props: ChatScreenViewProps) {
   const presenceFor = (userId?: string | null) => getPresenceStatus(presenceByUser, userId);
 
   return (
-    <AppShell
+    <>
+      <IncomingCallModal
+        call={incomingCall}
+        isAnswering={isAnsweringIncomingCall}
+        onAccept={() => void acceptIncomingCall()}
+        onReject={rejectIncomingCall}
+      />
+      <AppShell
       scroll={false}
       keyboardSafe={false}
       contentContainerStyle={[
@@ -740,6 +752,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         </Pressable>
       </Modal>
 
-    </AppShell>
+      </AppShell>
+    </>
   );
 }

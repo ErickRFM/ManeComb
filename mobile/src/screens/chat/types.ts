@@ -26,6 +26,14 @@ export type RtcParticipant = {
   userId: string;
   name: string;
 };
+export type IncomingCall = {
+  callId: string;
+  roomId: string;
+  mode: CallMode;
+  caller: { id: string; name: string };
+  createdAt: number;
+  expiresAt: number;
+};
 export type CallSession = {
   roomId: string;
   mode: CallMode;

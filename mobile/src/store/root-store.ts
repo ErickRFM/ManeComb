@@ -118,6 +118,7 @@ import {
 import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
+import { isRealtimeAuthError } from '@/src/utils/realtime-state';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -144,6 +145,8 @@ let pendingSyncInFlight = false;
 let recoveryConfigured = false;
 let missedHeartbeatAcks = 0;
 let socketReconnectAttempts = 0;
+let socketAuthRetries = 0;
+let realtimeAuthRefreshInFlight: Promise<string | null> | null = null;
 
 export function getSharedRealtimeSocket() {
   return socket;
@@ -155,7 +158,14 @@ type ActionResult = {
 };
 
 type NetworkStatus = 'unknown' | 'online' | 'offline' | 'recovering';
-type SocketStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
+type SocketStatus =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'unauthorized'
+  | 'error';
 
 type SocketHeartbeatAck = {
   ok?: boolean;
@@ -324,6 +334,7 @@ async function clearTenantCache() {
 
 async function clearSessionState(set: StoreSet, error: string | null = null) {
   beginSessionEpoch();
+  socketAuthRetries = 0;
   cleanupSessionRuntime();
   await stopBackgroundLocationServiceAsync().catch(() => undefined);
   setAuthToken(null);
@@ -1100,6 +1111,7 @@ function connectSocket(set: StoreSet, get: () => AppState) {
 
   socket.on('connect', () => {
     missedHeartbeatAcks = 0;
+    socketAuthRetries = 0;
     setSocketTransition(set, 'connected', 'socket_connected', {
       missedHeartbeatAcks: 0,
     });
@@ -1146,6 +1158,24 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('connect_error', (error) => {
+    if (isRealtimeAuthError(error.message)) {
+      if (socketAuthRetries >= 1) {
+        setSocketTransition(set, 'unauthorized', 'socket_auth_retry_exhausted');
+        mobileLog('socket', 'connect_error after refreshed token', error.message);
+        return;
+      }
+
+      setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_requested');
+      mobileLog('socket', 'connect_error requires token refresh', error.message);
+      void refreshRealtimeAuth(set, get).catch((refreshError) => {
+        mobileLog('socket', 'unexpected realtime auth refresh failure', refreshError);
+        if (get().user) {
+          setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_unexpected_failure');
+        }
+      });
+      return;
+    }
+
     // `socket.active` is true while the manager will keep retrying (e.g. the
     // server is asleep during a Render cold start). In that case the banner must
     // read "Reconectando", not the terminal "Servidor no disponible" — the
@@ -1493,26 +1523,82 @@ async function hydrateMessages(ms: ChatMessage[], cs: ConversationSummary[], u: 
   return await Promise.all(ms.map(m => hydrateConversationMessage(m, c, u)));
 }
 
+async function applyRefreshedSession(
+  set: StoreSet,
+  get: () => AppState,
+  result: LoginResult
+) {
+  const nextRefreshToken = result.refreshToken || get().refreshToken;
+  const authContext = getAuthContextFromPayload(result);
+  setAuthToken(result.token);
+  await persistSession(result.token, get().connectionMode, nextRefreshToken);
+  set({
+    authContext,
+    token: result.token,
+    refreshToken: nextRefreshToken || null,
+    user: result.user || get().user,
+  });
+  connectSocket(set, get);
+}
+
+function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string | null> {
+  if (realtimeAuthRefreshInFlight) {
+    return realtimeAuthRefreshInFlight;
+  }
+
+  const epoch = getSessionEpoch();
+  realtimeAuthRefreshInFlight = (async () => {
+    const refreshToken = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
+
+    if (!refreshToken) {
+      setSocketTransition(set, 'unauthorized', 'socket_auth_refresh_token_missing');
+      return null;
+    }
+
+    try {
+      const result = await refreshSessionRequest(refreshToken, APP_VERSION);
+      if (isSessionEpochStale(epoch) || !get().user) {
+        return null;
+      }
+
+      // One successful refresh is allowed per authentication-failure cycle. A
+      // second rejection of the refreshed token is terminal until re-login.
+      socketAuthRetries += 1;
+      await applyRefreshedSession(set, get, result);
+      return result.token;
+    } catch (error) {
+      if (isSessionEpochStale(epoch) || !get().user) {
+        return null;
+      }
+
+      const status = isAxiosError(error) ? error.response?.status : null;
+      const transientFailure =
+        isProbablyNetworkError(error) ||
+        status === 429 ||
+        (typeof status === 'number' && status >= 500);
+
+      setSocketTransition(
+        set,
+        transientFailure ? 'reconnecting' : 'unauthorized',
+        transientFailure
+          ? 'socket_auth_refresh_temporarily_unavailable'
+          : 'socket_auth_refresh_rejected'
+      );
+      return null;
+    } finally {
+      realtimeAuthRefreshInFlight = null;
+    }
+  })();
+
+  return realtimeAuthRefreshInFlight;
+}
+
 function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!recoveryConfigured) {
     configureApiSessionRecovery({
       getRefreshToken: async () => get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
       onTokenRefresh: async (result) => {
-        const nextRefreshToken = result.refreshToken || get().refreshToken;
-        const authContext = getAuthContextFromPayload(result);
-        setAuthToken(result.token);
-        await persistSession(result.token, get().connectionMode, nextRefreshToken);
-        set({
-          authContext,
-          token: result.token,
-          refreshToken: nextRefreshToken || null,
-          user: result.user || get().user,
-        });
-
-        if (socket) {
-          socket.auth = result.token ? { token: result.token } : {};
-          socket.disconnect().connect();
-        }
+        await applyRefreshedSession(set, get, result);
       },
       onSessionExpired: async () => {
         await clearSessionState(set, 'Sesion expirada. Inicia sesion nuevamente.');
