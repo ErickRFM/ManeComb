@@ -4,7 +4,6 @@ import type { ConversationChannelMode } from '@/src/types/app';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ChatScreenView } from './chat/components/chat-screen-view';
 import { useChatController } from './chat/hooks/use-chat-controller';
-import type { MobilePane } from './chat/types';
 import {
   findDirectConversationId,
   shouldRestorePinnedConversation,
@@ -39,27 +38,32 @@ export function ChatScreen() {
         pinnedConversationId: pinnedConversationIdRef.current,
       })
     ) {
-      controller.setActiveConversationId(pinnedConversationIdRef.current!);
+      useAppStore
+        .getState()
+        .setActiveConversationId(pinnedConversationIdRef.current!);
     }
   }, [
     activeConversationId,
     conversations,
     controller.isCompact,
     controller.mobilePane,
-    controller.setActiveConversationId,
   ]);
 
   const setMobilePane = useCallback(
-    (pane: MobilePane) => {
+    (value: Parameters<typeof controller.setMobilePane>[0]) => {
+      const pane = typeof value === 'function'
+        ? value(controller.mobilePane)
+        : value;
+
       if (pane === 'directory') {
         pinnedConversationIdRef.current = null;
       } else if (activeConversationId) {
         pinnedConversationIdRef.current = activeConversationId;
       }
 
-      controller.setMobilePane(pane);
+      controller.setMobilePane(value);
     },
-    [activeConversationId, controller.setMobilePane]
+    [activeConversationId, controller.mobilePane, controller.setMobilePane]
   );
 
   const handleSelectConversation = useCallback(
