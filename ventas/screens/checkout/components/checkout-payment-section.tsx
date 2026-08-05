@@ -7,6 +7,15 @@ import { palette } from '../checkout.constants';
 import { formatCurrency } from '../checkout.utils';
 import { styles as s } from '../checkout.styles';
 
+type SavedCardProfile = {
+  cardholderName?: string;
+  cardBrand?: string;
+  cardLast4?: string;
+  cardExpMonth?: string;
+  cardExpYear?: string;
+  customerReference?: string;
+};
+
 type Props = {
   isTwoColumn: boolean;
   isTestPaymentMode: boolean;
@@ -14,6 +23,7 @@ type Props = {
   selectedMethod: PaymentMethod;
   onSelectMethod: (method: PaymentMethod) => void;
   testCard: TestCardInput;
+  savedCard?: SavedCardProfile | null;
   onTestCardChange: (updates: Partial<TestCardInput>) => void;
   includeRadioAddon: boolean;
   onToggleRadioAddon: () => void;
@@ -87,6 +97,30 @@ function TestPaymentInput({
   );
 }
 
+function SavedCardSummary({ savedCard }: { savedCard: SavedCardProfile }) {
+  const brand = String(savedCard.cardBrand || 'Tarjeta').trim() || 'Tarjeta';
+  const last4 = String(savedCard.cardLast4 || '').trim();
+  const expiry = savedCard.cardExpMonth && savedCard.cardExpYear
+    ? `${savedCard.cardExpMonth}/${savedCard.cardExpYear}`
+    : 'Por confirmar';
+
+  return (
+    <View style={s.speiPanel}>
+      <MaterialCommunityIcons name="credit-card-check-outline" size={32} color={palette.lime} />
+      <View style={s.speiCopy}>
+        <Text style={s.speiTitle}>Método guardado</Text>
+        <Text style={s.speiText}>
+          {brand} •••• {last4} · vence {expiry}
+          {savedCard.cardholderName ? ` · ${savedCard.cardholderName}` : ''}
+        </Text>
+        <Text style={s.speiText}>
+          Referencia tokenizada de demo lista para sustituirse por el token de una API bancaria o adquirente.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function CardDemoForm({
   testCard,
   onTestCardChange,
@@ -100,11 +134,13 @@ function CardDemoForm({
     <View style={s.testPaymentPanel}>
       <View style={s.testModeHeader}>
         <View style={s.testModeBadge}>
-          <MaterialCommunityIcons name="flask-outline" size={18} color={palette.lime} />
-          <Text style={s.testModeBadgeText}>{manualMode ? 'Tarjeta demo' : 'Modo de pruebas'}</Text>
+          <MaterialCommunityIcons name="shield-key-outline" size={18} color={palette.lime} />
+          <Text style={s.testModeBadgeText}>{manualMode ? 'Bóveda demo' : 'Modo de pruebas'}</Text>
         </View>
         <Text style={s.testModeText}>
-          {manualMode ? 'Solo valida la interfaz. No realiza ningún cargo.' : 'Pago simulado sin cargo real.'}
+          {manualMode
+            ? 'Guarda una representación segura del método de pago sin realizar cargos.'
+            : 'Pago simulado sin cargo real.'}
         </Text>
       </View>
 
@@ -161,6 +197,7 @@ export function CheckoutPaymentSection({
   selectedMethod,
   onSelectMethod,
   testCard,
+  savedCard,
   onTestCardChange,
   includeRadioAddon,
   onToggleRadioAddon,
@@ -174,24 +211,25 @@ export function CheckoutPaymentSection({
 }: Props) {
   const isManualPaymentMode = providerMode === 'manual';
   const isManualCardDemo = isManualPaymentMode && !requestTrial && selectedMethod === 'card';
+  const hasSavedCard = Boolean(savedCard?.cardLast4);
 
   return (
     <View style={[s.leftPanel, isTwoColumn ? undefined : s.fullPanel]}>
       <View style={s.panelTitleRow}>
         <View style={s.panelTitleIcon}>
           <MaterialCommunityIcons
-            name={isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
+            name={isManualPaymentMode ? 'wallet-outline' : 'credit-card-check-outline'}
             size={24}
             color={palette.violet}
           />
         </View>
         <View style={s.panelTitleCopy}>
           <Text style={s.panelTitle}>
-            {isManualPaymentMode ? 'Método de pago' : 'Información de pago'}
+            {isManualPaymentMode ? 'Métodos de pago' : 'Información de pago'}
           </Text>
           <Text style={s.panelSubtitle}>
             {isManualPaymentMode
-              ? 'Prueba la tarjeta en modo demo o genera una transferencia SPEI real.'
+              ? 'Guarda una tarjeta demo o genera una transferencia SPEI real.'
               : 'Elige tu método y completa la transacción.'}
           </Text>
         </View>
@@ -205,7 +243,7 @@ export function CheckoutPaymentSection({
             <MethodTab
               active={selectedMethod === 'card'}
               icon="credit-card-outline"
-              label="Tarjeta (demo)"
+              label="Tarjeta guardada"
               onPress={() => onSelectMethod('card')}
             />
             <MethodTab
@@ -217,7 +255,10 @@ export function CheckoutPaymentSection({
           </View>
 
           {selectedMethod === 'card' ? (
-            <CardDemoForm testCard={testCard} onTestCardChange={onTestCardChange} manualMode />
+            <>
+              {hasSavedCard && savedCard ? <SavedCardSummary savedCard={savedCard} /> : null}
+              <CardDemoForm testCard={testCard} onTestCardChange={onTestCardChange} manualMode />
+            </>
           ) : (
             <View style={s.speiPanel}>
               <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
@@ -297,7 +338,7 @@ export function CheckoutPaymentSection({
           {isTestPaymentMode && !requestTrial
             ? 'Pago simulado para desarrollo. No se guardan el CVV ni el número completo de la tarjeta.'
             : isManualCardDemo
-              ? 'Demo local: los datos no se envían al backend, no se guardan y no generan ningún cobro.'
+              ? 'Se guardan titular, marca, últimos 4, vencimiento y una referencia tokenizada. El número completo y el CVV se descartan.'
               : isManualPaymentMode && !requestTrial
                 ? 'La orden queda pendiente hasta que ManeComb confirme la transferencia recibida.'
                 : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
@@ -324,7 +365,7 @@ export function CheckoutPaymentSection({
           requestTrial
             ? 'Activar prueba'
             : isManualCardDemo
-              ? 'Validar tarjeta demo'
+              ? 'Guardar tarjeta demo'
               : isManualPaymentMode
                 ? 'Generar instrucciones de transferencia'
                 : 'Continuar al pago seguro'
@@ -345,7 +386,7 @@ export function CheckoutPaymentSection({
                 requestTrial
                   ? 'flask-outline'
                   : isManualCardDemo
-                    ? 'credit-card-check-outline'
+                    ? 'content-save-lock-outline'
                     : isManualPaymentMode
                       ? 'bank-transfer'
                       : 'lock-check-outline'
@@ -359,7 +400,9 @@ export function CheckoutPaymentSection({
                 : isTestPaymentMode
                   ? `Pagar en modo de pruebas ${buttonAmount}`
                   : isManualCardDemo
-                    ? 'Probar tarjeta demo'
+                    ? hasSavedCard
+                      ? 'Reemplazar tarjeta demo'
+                      : 'Guardar tarjeta demo'
                     : isManualPaymentMode
                       ? `Generar transferencia ${buttonAmount}`
                       : selectedMethod === 'card'
