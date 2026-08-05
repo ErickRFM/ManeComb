@@ -1,3 +1,4 @@
+import './radio-foreground-service.test';
 import type { Socket } from 'socket.io-client';
 import {
   setRadioLiveRuntimeFactory,
