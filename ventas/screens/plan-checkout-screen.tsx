@@ -37,6 +37,37 @@ const EMPTY_TEST_CARD: TestCardInput = {
   postalCode: '',
 };
 
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function detectCardBrand(cardNumber: string) {
+  const digits = onlyDigits(cardNumber);
+  const firstSix = Number(digits.slice(0, 6));
+
+  if (/^4/.test(digits)) return 'Visa';
+  if (/^3[47]/.test(digits)) return 'American Express';
+  if (/^(6011|65|64[4-9])/.test(digits)) return 'Discover';
+  if (/^5[1-5]/.test(digits) || (firstSix >= 222100 && firstSix <= 272099)) return 'Mastercard';
+  return 'Tarjeta';
+}
+
+function parseCardExpiry(value: string) {
+  const match = String(value || '').trim().match(/^(\d{2})\s*\/\s*(\d{2}|\d{4})$/);
+  return {
+    month: match?.[1] || '',
+    year: match?.[2]?.slice(-2) || '',
+  };
+}
+
+function createDemoPaymentReference() {
+  const randomPart = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+
+  return `demo_pm_${randomPart}`;
+}
+
 export function PlanCheckoutScreen() {
   const { width } = useWindowDimensions();
   const isTwoColumn = width >= 980;
@@ -49,7 +80,12 @@ export function PlanCheckoutScreen() {
     typeof routeTrialParam === 'string'
       ? routeTrialParam === '1'
       : Boolean(storedCheckout?.requestTrial && storedCheckout.planId === planId);
-  const user = useAppStore((state) => state.user);
+  const { user, updateProfile } = useAppStore(
+    useShallow((state) => ({
+      user: state.user,
+      updateProfile: state.updateProfile,
+    }))
+  );
   const { loadAll } = usePortalStore(
     useShallow((state) => ({
       loadAll: state.loadAll,
@@ -60,6 +96,7 @@ export function PlanCheckoutScreen() {
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [testCard, setTestCard] = useState<TestCardInput>(EMPTY_TEST_CARD);
   const [cardDemoMessage, setCardDemoMessage] = useState<string | null>(null);
+  const [cardSaving, setCardSaving] = useState(false);
   const paymentInFlight = useRef(false);
 
   const {
@@ -78,7 +115,7 @@ export function PlanCheckoutScreen() {
   const addonPrice = includeRadioAddon ? Number(selectedPlan?.radioAddonPrice || 0) : 0;
   const totalAmount = Number(selectedPlan?.price || 0) + addonPrice;
   const buttonAmount = `${formatCurrency(totalAmount)} MXN`;
-  const canSubmit = Boolean(selectedPlan && user && !processing && providerMode !== 'unavailable');
+  const canSubmit = Boolean(selectedPlan && user && !processing && !cardSaving && providerMode !== 'unavailable');
   const isTestPaymentMode = providerMode === 'test';
   const isManualPaymentMode = providerMode === 'manual';
   const isManualCardDemo = isManualPaymentMode && selectedMethod === 'card' && !requestTrial;
@@ -128,22 +165,53 @@ export function PlanCheckoutScreen() {
     );
   }
 
+  const saveDemoCard = async () => {
+    const validationMessage = validateTestCard(testCard);
+    if (validationMessage) {
+      setCardDemoMessage(validationMessage);
+      return;
+    }
+
+    const digits = onlyDigits(testCard.cardNumber);
+    const brand = detectCardBrand(digits);
+    const last4 = digits.slice(-4);
+    const expiry = parseCardExpiry(testCard.expiry);
+
+    setCardSaving(true);
+    try {
+      const result = await updateProfile({
+        paymentProfile: {
+          preferredMethod: 'card',
+          cardholderName: testCard.cardholderName.trim(),
+          cardBrand: brand,
+          cardLast4: last4,
+          cardExpMonth: expiry.month,
+          cardExpYear: expiry.year,
+          customerReference: createDemoPaymentReference(),
+        },
+      } as never);
+
+      if (!result.ok) {
+        setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta demo.');
+        return;
+      }
+
+      setCardDemoMessage(
+        `${brand} terminada en ${last4} guardada como método demo. El número completo y el CVV fueron descartados.`
+      );
+      setTestCard(EMPTY_TEST_CARD);
+    } finally {
+      setCardSaving(false);
+    }
+  };
+
   const submitPayment = async () => {
     if (!canSubmit || paymentInFlight.current) return;
 
     if (isManualCardDemo) {
       paymentInFlight.current = true;
       try {
-        const validationMessage = validateTestCard(testCard);
-        if (validationMessage) {
-          setCardDemoMessage(validationMessage);
-          return;
-        }
-
-        setCardDemoMessage(
-          'Tarjeta demo validada correctamente. No se realizó ningún cargo, no se creó una orden y los datos fueron limpiados.'
-        );
-        setTestCard(EMPTY_TEST_CARD);
+        await saveDemoCard();
       } finally {
         paymentInFlight.current = false;
       }
@@ -236,6 +304,7 @@ export function PlanCheckoutScreen() {
                   selectedMethod={selectedMethod}
                   onSelectMethod={selectPaymentMethod}
                   testCard={testCard}
+                  savedCard={user.paymentProfile}
                   onTestCardChange={(updates) => {
                     setCardDemoMessage(null);
                     setTestCard((current) => ({ ...current, ...updates }));
@@ -245,7 +314,7 @@ export function PlanCheckoutScreen() {
                   selectedPlan={selectedPlan}
                   buttonAmount={buttonAmount}
                   canSubmit={canSubmit}
-                  processing={processing}
+                  processing={processing || cardSaving}
                   checkoutMessage={checkoutMessage}
                   providerMode={providerMode}
                   onSubmitPayment={() => void submitPayment()}
