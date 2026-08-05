@@ -123,7 +123,9 @@ object ManeCombPushNotificationRenderer {
     }
 
     if (canUseFullScreenIntent(context)) {
-      builder.setFullScreenIntent(acceptIntent, true)
+      // La pantalla completa solo muestra el timbre. Aceptar siempre exige el toque explicito
+      // del usuario sobre la accion Responder, antes de abrir microfono/camara.
+      builder.setFullScreenIntent(contentIntent, true)
     }
 
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
