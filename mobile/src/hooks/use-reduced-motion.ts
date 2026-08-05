@@ -10,7 +10,11 @@ export function useReducedMotion() {
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
+    if (
+      Platform.OS === 'web' ||
+      typeof AccessibilityInfo?.isReduceMotionEnabled !== 'function' ||
+      typeof AccessibilityInfo?.addEventListener !== 'function'
+    ) {
       return undefined;
     }
 
