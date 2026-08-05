@@ -29,6 +29,9 @@ backend/uploads/
 *.jks
 *.keystore
 
+# Temporary RC worktrees and generated staging directories
+.tmp-*/
+
 # Logs
 *.log
 codex-logs/

@@ -1,14 +1,45 @@
 import axios, { type AxiosInstance, type AxiosError } from 'axios';
 
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return 'http://localhost:4000';
-  const origin = window.location.origin;
-  return origin.includes('localhost') || origin.includes('127.0.0.1')
-    ? `http://localhost:4000`
-    : origin;
-})();
-
 const PLATFORM_AUTH_PATH = '/api/platform/auth';
+
+function normalizeApiOrigin(value: string) {
+  const rawValue = value.trim();
+  if (!rawValue) return '';
+
+  let parsed: URL;
+  try {
+    parsed = new URL(rawValue);
+  } catch {
+    throw new Error('VITE_API_URL debe ser una URL absoluta valida.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('VITE_API_URL solo admite http o https.');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('VITE_API_URL no debe incluir credenciales.');
+  }
+
+  parsed.search = '';
+  parsed.hash = '';
+  parsed.pathname = parsed.pathname.replace(/\/api\/?$/i, '').replace(/\/+$/, '');
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+function resolveApiBase() {
+  const configuredOrigin = normalizeApiOrigin(import.meta.env.VITE_API_URL || '');
+  if (configuredOrigin) return configuredOrigin;
+
+  if (import.meta.env.DEV) {
+    // En desarrollo se usa el proxy /api de Vite para evitar CORS y puertos duplicados.
+    return '';
+  }
+
+  throw new Error('VITE_API_URL es obligatorio para construir Admin Global.');
+}
+
+const API_BASE = resolveApiBase();
 
 function createPlatformInstance(): AxiosInstance {
   const instance = axios.create({

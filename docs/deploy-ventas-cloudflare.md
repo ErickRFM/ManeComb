@@ -1,76 +1,104 @@
-# Deploy de Ventas en Cloudflare Pages
+# Ventas/Portal en Cloudflare Pages
 
-Esta guia publica la web de ventas/portal que vive en `ventas/` sin tocar la app movil.
+Ultima revision: 2026-08-05.
 
-## Estructura
+La aplicacion estatica vive en `ventas/`. No usa el build de Mobile ni debe compartir variables entre Preview y Produccion.
 
-Cloudflare Pages debe construir desde la carpeta `ventas`.
+## Configuracion del proyecto
 
-Configuracion:
+```text
+Root directory: ventas
+Framework preset: Vite o None
+Build command: npm ci && npm run build
+Build output directory: dist
+Node.js: 22
+```
 
-- Root directory: `ventas`
-- Framework preset: `Vite` o `None`
-- Build command: `npm install && npm run build`
-- Build output directory: `dist`
+El repositorio fija Node mediante `.nvmrc` y `.node-version`.
 
-`ventas/public/_redirects` se copia al build para que rutas SPA como `/portal` y `/ventas/login` recarguen contra `index.html`.
+## Variables por ambiente
 
-## Variables de entorno
-
-En Cloudflare Pages, configurar:
+### Produccion
 
 ```env
 VITE_API_URL=https://manecomb.onrender.com/api
 VITE_SOCKET_URL=https://manecomb.onrender.com
+VITE_MAPBOX_ACCESS_TOKEN=
 ```
 
-`VITE_API_URL` es obligatorio en builds de produccion. Si falta, `npm run build` debe fallar para evitar que Cloudflare intente llamar a `/api` sin proxy.
-
-Para desarrollo local, copiar `ventas/.env.example` a `ventas/.env` si necesitas cambiar los defaults:
+### Preview/Sandbox
 
 ```env
-VITE_API_URL=http://localhost:5000/api
-VITE_SOCKET_URL=http://localhost:5000
+VITE_API_URL=https://manecomb-backend-sandbox.onrender.com/api
+VITE_SOCKET_URL=https://manecomb-backend-sandbox.onrender.com
+VITE_MAPBOX_ACCESS_TOKEN=
 ```
+
+La API y Socket.IO deben pertenecer al mismo ambiente. Las variables de Preview no deben heredarse ciegamente de Produccion.
+
+`VITE_*` se incrusta en el JavaScript entregado al navegador. No colocar Access Tokens privados, secretos de webhook, Mongo URI, JWT, Resend, Twilio ni credenciales bancarias en variables `VITE_*`.
+
+El build se detiene cuando `VITE_API_URL` falta o cuando una URL configurada es invalida, contiene credenciales o usa un protocolo no admitido.
+
+## Rutas SPA
+
+`ventas/public/_redirects` contiene:
+
+```text
+/* /index.html 200
+```
+
+Vite debe copiarlo a:
+
+```text
+ventas/dist/_redirects
+```
+
+CI comprueba el archivo después de cada build. Deben responder con la aplicacion, incluso después de recargar:
+
+- `/`
+- `/ventas/login`
+- `/ventas/registro`
+- `/portal`
+- `/portal/plan`
+- `/portal/facturacion`
+- `/portal/pagos`
+- `/portal/perfil`
+- `/reset-password?token=test`
 
 ## Backend y CORS
 
-El backend ahora acepta una lista separada por comas en `CLIENT_ORIGIN`.
-
-Ejemplo para produccion:
+En Render, `CLIENT_ORIGIN` debe incluir exactamente los clientes autorizados del ambiente. Ejemplo de Produccion:
 
 ```env
-CLIENT_ORIGIN=http://localhost:5173,https://manecomb1.pages.dev,https://*.manecomb1.pages.dev,https://manecomb.pages.dev,https://app.tudominio.com
+CLIENT_ORIGIN=https://manecomb.com,https://www.manecomb.com,https://manecomb1.pages.dev,https://*.manecomb1.pages.dev
 ```
 
-Usa el dominio custom futuro agregandolo a esa lista. El backend soporta patrones con `*` para previews de Cloudflare Pages y Socket.IO usa la misma configuracion.
+El patrón `https://*.manecomb1.pages.dev` autoriza previews del proyecto, no cualquier dominio de Internet. No usar `CLIENT_ORIGIN=*` en Produccion.
 
 ## Validacion local
 
-Desde la raiz del repo:
-
 ```bash
 cd ventas
-npm install
-npm run dev
+cp .env.example .env
+npm ci
+npm run typecheck
 npm run build
+npm run preview
 ```
 
-El build debe crear:
+Antes de publicar, comprobar:
 
-```text
-ventas/dist/
+```bash
+test -f dist/_redirects
+grep -Fx '/* /index.html 200' dist/_redirects
 ```
 
-## Produccion
+## Validacion posterior al despliegue
 
-1. Publica el backend en `https://api.tudominio.com`.
-2. Configura `CLIENT_ORIGIN` del backend con el dominio de Pages y el dominio custom.
-3. Configura `VITE_API_URL` y `VITE_SOCKET_URL` en Cloudflare Pages.
-4. Despliega Pages con root `ventas` y output `dist`.
-
-## Notas
-
-- La web reutiliza las pantallas existentes de `ventas/screens` y `ventas/features/portal`.
-- La app usa adaptadores web locales para navegacion, store, UI compartida y compatibilidad React Native Web.
-- Las rutas operativas como `/mapa` y `/radio` quedan como placeholders porque pertenecen a la app/panel operativo, no al scope de ventas.
+1. Abrir la raiz del deployment.
+2. Abrir directamente `/reset-password?token=test` y recargar.
+3. Confirmar en Network que `/api/commercial/plans` usa el backend esperado.
+4. Confirmar que la conexion Socket.IO usa el mismo origen base.
+5. Verificar CORS desde el dominio exacto del deployment.
+6. No probar pagos de Produccion desde un Preview Sandbox.

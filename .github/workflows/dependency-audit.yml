@@ -1,0 +1,49 @@
+name: Dependency audit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "audit/**"
+      - "codex/**"
+      - "stabilization/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-dependencies:
+    name: Production dependencies (${{ matrix.directory }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          - backend
+          - communication-service
+          - mobile
+          - ventas
+          - admin-global
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
