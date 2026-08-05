@@ -11,6 +11,14 @@ import {
 
 export function ChatScreen() {
   const controller = useChatController();
+  const {
+    handleOpenDirect: openDirectConversation,
+    handleOpenGeneral: openGeneralConversation,
+    handleSelectConversation: selectConversation,
+    isCompact,
+    mobilePane,
+    setMobilePane: setControllerMobilePane,
+  } = controller;
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const conversations = useAppStore((state) => state.conversations);
   const pinnedConversationIdRef = useRef<string | null>(null);
@@ -33,8 +41,8 @@ export function ChatScreen() {
       shouldRestorePinnedConversation({
         activeConversationId,
         conversations,
-        isCompact: controller.isCompact,
-        mobilePane: controller.mobilePane,
+        isCompact,
+        mobilePane,
         pinnedConversationId: pinnedConversationIdRef.current,
       })
     ) {
@@ -42,17 +50,12 @@ export function ChatScreen() {
         .getState()
         .setActiveConversationId(pinnedConversationIdRef.current!);
     }
-  }, [
-    activeConversationId,
-    conversations,
-    controller.isCompact,
-    controller.mobilePane,
-  ]);
+  }, [activeConversationId, conversations, isCompact, mobilePane]);
 
   const setMobilePane = useCallback(
-    (value: Parameters<typeof controller.setMobilePane>[0]) => {
+    (value: Parameters<typeof setControllerMobilePane>[0]) => {
       const pane = typeof value === 'function'
-        ? value(controller.mobilePane)
+        ? value(mobilePane)
         : value;
 
       if (pane === 'directory') {
@@ -61,26 +64,26 @@ export function ChatScreen() {
         pinnedConversationIdRef.current = activeConversationId;
       }
 
-      controller.setMobilePane(value);
+      setControllerMobilePane(value);
     },
-    [activeConversationId, controller.mobilePane, controller.setMobilePane]
+    [activeConversationId, mobilePane, setControllerMobilePane]
   );
 
   const handleSelectConversation = useCallback(
     (conversationId: string) => {
       pinnedConversationIdRef.current = conversationId;
-      controller.handleSelectConversation(conversationId);
+      selectConversation(conversationId);
     },
-    [controller.handleSelectConversation]
+    [selectConversation]
   );
 
   const handleOpenGeneral = useCallback(
     async (channelMode: ConversationChannelMode) => {
       pinnedConversationIdRef.current = null;
-      await controller.handleOpenGeneral(channelMode);
+      await openGeneralConversation(channelMode);
       pinnedConversationIdRef.current = useAppStore.getState().activeConversationId;
     },
-    [controller.handleOpenGeneral]
+    [openGeneralConversation]
   );
 
   const handleOpenDirect = useCallback(
@@ -88,7 +91,7 @@ export function ChatScreen() {
       contactId: string,
       channelMode: ConversationChannelMode = 'chat'
     ) => {
-      await controller.handleOpenDirect(contactId, channelMode);
+      await openDirectConversation(contactId, channelMode);
 
       const state = useAppStore.getState();
       const directConversationId = findDirectConversationId(
@@ -105,22 +108,18 @@ export function ChatScreen() {
       if (state.activeConversationId !== directConversationId) {
         state.setActiveConversationId(directConversationId);
       }
-      if (controller.isCompact) {
-        controller.setMobilePane('conversation');
+      if (isCompact) {
+        setControllerMobilePane('conversation');
       }
     },
-    [
-      controller.handleOpenDirect,
-      controller.isCompact,
-      controller.setMobilePane,
-    ]
+    [isCompact, openDirectConversation, setControllerMobilePane]
   );
 
   useEffect(() => {
     if (
       Platform.OS !== 'android' ||
-      !controller.isCompact ||
-      controller.mobilePane !== 'conversation'
+      !isCompact ||
+      mobilePane !== 'conversation'
     ) {
       return undefined;
     }
@@ -131,7 +130,7 @@ export function ChatScreen() {
     });
 
     return () => subscription.remove();
-  }, [controller.isCompact, controller.mobilePane, setMobilePane]);
+  }, [isCompact, mobilePane, setMobilePane]);
 
   return (
     <ChatScreenView
