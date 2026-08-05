@@ -1,12 +1,13 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque B — Tipos del lifecycle global de llamadas (mobile).
-// Sin dependencias de React Native: se prueba en node como los demas utils.
+// RC-RTC-FINALIZATION-20260805 — Contrato global y unico del ciclo de llamadas.
+// Sin dependencias de React Native: la maquina y el store se prueban en Node/Jest.
 
 export type CallPhase =
   | 'IDLE'
   | 'OUTGOING_RINGING'
   | 'INCOMING_RINGING'
   | 'CONNECTING'
-  | 'CONNECTED' // definido para el contrato; NO alcanzable en Bloque B (media = Bloque C)
+  | 'CONNECTED'
+  | 'RECONNECTING'
   | 'ENDING'
   | 'FAILED';
 
@@ -32,10 +33,10 @@ export interface CallState {
   peerUserId: string | null;
   direction: CallDirection;
   mode: CallMode | null;
-  roomId: string | null; // rtc:call:{callId} (autoritativo backend); lo usa el join del Bloque C
+  roomId: string | null;
   createdAt: number | null;
   acceptedAt: number | null;
-  connectedAt: number | null; // solo Bloque C
+  connectedAt: number | null;
   endedAt: number | null;
   endResult: CallEndResult;
   failureCode: string | null;
@@ -54,10 +55,11 @@ export interface CallAck {
   roomId?: string;
   status?: string;
   code?: string;
+  reason?: string;
 }
 
-// Contrato minimo del socket compartido que consume el modulo (evita acoplar socket.io-client
-// y permite pruebas con un doble). El socket real de root-store cumple esta forma.
+// Contrato minimo del socket compartido. Evita acoplar el modulo a socket.io-client y permite
+// probar el lifecycle con un doble sin abrir una segunda conexion.
 export interface CallSocket {
   on(event: string, handler: (...args: any[]) => void): unknown;
   off(event: string, handler: (...args: any[]) => void): unknown;
