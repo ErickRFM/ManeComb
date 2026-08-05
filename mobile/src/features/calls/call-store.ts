@@ -62,7 +62,7 @@ interface CallStore extends CallState {
     conversationId: string;
     mode: CallMode;
   }) => Promise<{ ok: boolean; code?: string }>;
-  acceptIncomingCall: () => void;
+  acceptIncomingCall: () => Promise<void>;
   rejectIncomingCall: () => void;
   cancelOutgoingCall: () => void;
   endCall: () => void;
@@ -297,11 +297,26 @@ export const useCallStore = create<CallStore>()((set, get) => {
       }
     },
 
-    acceptIncomingCall: () => {
+    acceptIncomingCall: async () => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
+      const activeCallId = state.callId;
       dispatch({ type: 'LOCAL_ACCEPT', now: now() });
-      if (state._socket) emitAccept(state._socket, state.callId);
+      if (!state._socket) {
+        onRuntimeFailed(activeCallId, 'accept_no_socket');
+        return;
+      }
+
+      const ack = await emitAccept(state._socket, activeCallId);
+      const current = get();
+      if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
+      if (!ack.ok) {
+        onRuntimeFailed(
+          activeCallId,
+          ack.code === 'ack_timeout' ? 'accept_timeout' : 'accept_failed'
+        );
+        return;
+      }
       startRuntime();
     },
 
