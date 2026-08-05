@@ -1,53 +1,64 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque C.8 — Media local (microfono). El acceso nativo se aisla
-// aqui; el mute es una operacion pura sobre track.enabled.
+// Media local de llamadas. Este modulo es la unica frontera que abre y controla
+// microfono/camara para el runtime global.
 
 import { mediaDevices } from '@/src/native/webrtc';
 
 export interface LocalMedia {
-  stream: any; // MediaStream nativo
+  stream: any;
   audioTracks: Array<{ enabled: boolean; stop: () => void; readyState?: string }>;
+  videoTracks: Array<{ enabled: boolean; stop: () => void; readyState?: string }>;
 }
 
-// Obtiene audio (video opcional). Lanza si no hay permiso/dispositivo; el caller decide el fallback
-// (NO aceptar la llamada, emitir rechazo tecnico sanitizado).
 export async function acquireLocalMedia(mode: 'audio' | 'video'): Promise<LocalMedia> {
   if (!mediaDevices || typeof mediaDevices.getUserMedia !== 'function') {
     throw new Error('media_unavailable');
   }
+
   const stream: any = await mediaDevices.getUserMedia({
     audio: true,
     video: mode === 'video',
   });
   const audioTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
-  return { stream, audioTracks };
+  const videoTracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
+
+  if (!audioTracks.length) {
+    stream.getTracks?.().forEach((track: any) => track.stop?.());
+    throw new Error('microphone_unavailable');
+  }
+  if (mode === 'video' && !videoTracks.length) {
+    stream.getTracks?.().forEach((track: any) => track.stop?.());
+    throw new Error('camera_unavailable');
+  }
+
+  return { stream, audioTracks, videoTracks };
 }
 
-// C.8: mute/unmute alterna track.enabled del audio local. Puro/testeable.
 export function setMicEnabled(media: LocalMedia | null, enabled: boolean): void {
-  if (!media) return;
-  media.audioTracks.forEach((track) => {
+  media?.audioTracks.forEach((track) => {
     track.enabled = enabled;
   });
 }
 
-// Detiene todas las pistas locales (no debe quedar microfono abierto tras colgar/logout).
+export function setCameraEnabled(media: LocalMedia | null, enabled: boolean): void {
+  media?.videoTracks.forEach((track) => {
+    track.enabled = enabled;
+  });
+}
+
 export function stopLocalMedia(media: LocalMedia | null): void {
   if (!media) return;
-  media.audioTracks.forEach((track) => {
+  const stopped = new Set<unknown>();
+  const stopTrack = (track: any) => {
+    if (!track || stopped.has(track)) return;
+    stopped.add(track);
     try {
-      track.stop();
+      track.stop?.();
     } catch {
-      // best-effort
+      // cleanup best-effort
     }
-  });
-  const stream = media.stream;
-  if (stream && typeof stream.getTracks === 'function') {
-    stream.getTracks().forEach((track: any) => {
-      try {
-        track.stop();
-      } catch {
-        // best-effort
-      }
-    });
-  }
+  };
+
+  media.audioTracks.forEach(stopTrack);
+  media.videoTracks.forEach(stopTrack);
+  media.stream?.getTracks?.().forEach(stopTrack);
 }
