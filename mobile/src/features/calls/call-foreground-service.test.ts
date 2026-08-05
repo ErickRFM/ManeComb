@@ -49,22 +49,36 @@ describe('Call foreground service coordinator', () => {
     expect(getCallForegroundServiceSnapshot().appliedMode).toBe('video');
   });
 
-  it('serializes start followed by stop', async () => {
-    let resolveStart: (() => void) | null = null;
-    startService.mockImplementationOnce(
-      () => new Promise<void>((resolve) => {
-        resolveStart = resolve;
-      })
-    );
-
+  it('skips a start superseded before its native operation begins', async () => {
     const starting = setCallForegroundServiceMode('audio');
     const stopping = setCallForegroundServiceMode(null);
 
-    expect(stopService).not.toHaveBeenCalled();
-    resolveStart?.();
     await Promise.all([starting, stopping]);
 
+    expect(startService).not.toHaveBeenCalled();
+    expect(stopService).not.toHaveBeenCalled();
+    expect(getCallForegroundServiceSnapshot().appliedMode).toBeNull();
+  });
+
+  it('stops a native start that was already in flight', async () => {
+    let resolveStart: () => void = () => undefined;
+    startService.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStart = resolve;
+        })
+    );
+
+    const starting = setCallForegroundServiceMode('audio');
+    await Promise.resolve();
     expect(startService).toHaveBeenCalledTimes(1);
+
+    const stopping = setCallForegroundServiceMode(null);
+    expect(stopService).not.toHaveBeenCalled();
+
+    resolveStart();
+    await Promise.all([starting, stopping]);
+
     expect(stopService).toHaveBeenCalledTimes(1);
     expect(getCallForegroundServiceSnapshot().appliedMode).toBeNull();
   });
