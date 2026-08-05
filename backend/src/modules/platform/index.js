@@ -4,6 +4,7 @@ const { platformAuth } = require("../../middlewares/platform-auth");
 const { requirePlatformPermission } = require("../../middlewares/platform-access");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { getPlatformPermissions } = require("../../config/platform-roles");
+const companiesRouter = require("./companies-routes");
 
 const readLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
@@ -128,5 +129,7 @@ router.get(
     }
   }
 );
+
+router.use("/companies", companiesRouter);
 
 module.exports = router;
