@@ -95,6 +95,7 @@ export function AppShell({
     onRefresh && typeof refreshing === 'boolean' ? (
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.accent} />
     ) : undefined;
+  const allowsPullToRefresh = Boolean(refreshControl);
   const defaultMobileHeader =
     isMobileLayout && mobileTitle ? (
       <View style={styles.defaultMobileHeader}>
@@ -189,7 +190,8 @@ export function AppShell({
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       {scroll ? (
         <KeyboardSafeScrollView
-          bounces={false}
+          alwaysBounceVertical={allowsPullToRefresh}
+          bounces={allowsPullToRefresh}
           decelerationRate="normal"
           overScrollMode="never"
           scrollEventThrottle={16}
