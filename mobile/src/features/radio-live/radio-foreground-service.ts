@@ -6,9 +6,12 @@ import {
 export type RadioForegroundServiceOwner = 'global' | 'screen';
 
 const owners = new Set<RadioForegroundServiceOwner>();
+const SCREEN_HANDOFF_RESTART_MS = 120;
 const STOP_GRACE_MS = 350;
 
 let serviceActive = false;
+let pendingRestart: ReturnType<typeof setTimeout> | null = null;
+let pendingRestartResolve: (() => void) | null = null;
 let pendingStop: ReturnType<typeof setTimeout> | null = null;
 let pendingStopResolve: (() => void) | null = null;
 let operationQueue: Promise<void> = Promise.resolve();
@@ -17,6 +20,17 @@ function enqueue(operation: () => Promise<void>) {
   const next = operationQueue.then(operation, operation);
   operationQueue = next.catch(() => undefined);
   return next;
+}
+
+function cancelPendingRestart() {
+  if (pendingRestart) {
+    clearTimeout(pendingRestart);
+    pendingRestart = null;
+  }
+
+  const resolve = pendingRestartResolve;
+  pendingRestartResolve = null;
+  resolve?.();
 }
 
 function cancelPendingStop() {
@@ -28,6 +42,23 @@ function cancelPendingStop() {
   const resolve = pendingStopResolve;
   pendingStopResolve = null;
   resolve?.();
+}
+
+function restartForRemainingOwner() {
+  cancelPendingRestart();
+
+  return new Promise<void>((resolve) => {
+    pendingRestartResolve = resolve;
+    pendingRestart = setTimeout(() => {
+      pendingRestart = null;
+      pendingRestartResolve = null;
+      enqueue(async () => {
+        if (owners.size === 0) return;
+        await startRadioForegroundService();
+        serviceActive = true;
+      }).finally(resolve);
+    }, SCREEN_HANDOFF_RESTART_MS);
+  });
 }
 
 export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner) {
@@ -50,8 +81,18 @@ export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner
 
 export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner) {
   owners.delete(owner);
+
+  if (owner === 'screen') {
+    serviceActive = false;
+    if (owners.size > 0) {
+      cancelPendingStop();
+      return restartForRemainingOwner();
+    }
+  }
+
   if (owners.size > 0) return Promise.resolve();
 
+  cancelPendingRestart();
   cancelPendingStop();
 
   return new Promise<void>((resolve) => {
@@ -70,6 +111,7 @@ export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner
 
 export function resetRadioForegroundService() {
   owners.clear();
+  cancelPendingRestart();
   cancelPendingStop();
 
   return enqueue(async () => {
