@@ -1,49 +1,58 @@
-# RC-MOBILE-CALL-RING-01 — Ring foreground (Fase A) para la llamada de radio
+# RC-MOBILE-CALL-RING-01 — Timbrado de llamadas entrantes
 
-> **Estado:** Fase A implementada en rama `rc-mobile-call-ring-01` (commits `1b65a6f` backend, `9cba219` mobile; base incluye SOCKETAUTH `b9ee08b` + #4 `db81394`). **FALTA certificación en dispositivo.** Ataca la causa **#1** del "sin audio" (falta ring → "1 en cabina"). #2 (TURN) sigue siendo infra tuya; background/cerrada = Fase B (push VoIP).
+> **Estado actual (2026-08-05):** restaurado y revalidado en el PR `#1` sobre el `main` vigente. La implementación histórica descrita abajo se perdió durante integraciones posteriores; sus objetos `1b65a6f`, `9cba219`, `b9ee08b` y `db81394` ya no existen en el repositorio. La restauración actual vuelve a incluir backend, mobile, modal de llamada entrante, aceptación/rechazo/cancelación/timeout, protección de concurrencia y pruebas automatizadas. **Pendiente únicamente de certificación en dos dispositivos físicos y de TURN para redes restrictivas.**
 
-## Problema (de RC-MOBILE-CALL-01)
-El callee solo entraba a la sala RTC si tenía esa conversación abierta → "1 en cabina", sin peer, sin media. **La palanca:** el server puede alcanzar al callee por su sala `user:{id}` esté donde esté (dentro de la app).
+## Diagnóstico histórico
 
-## Qué se implementó (Fase A = ring completo, foreground)
-### Backend ([sockets/index.js](backend/src/sockets/index.js), `1b65a6f`)
-- **`rtc:call`**: valida al caller (`canUserAccessConversation`), resuelve los otros participantes (`getConversationById().participants`), y les emite **`rtc:incoming-call`** a su sala `user:{id}`. Registra la llamada pendiente + **timeout de timbre (35s)**. Sala llena (≥2) → `busy`.
-- **`rtc:accept`**: emite `rtc:call-accepted` al caller. **`rtc:reject`**: `rtc:call-rejected`. **`rtc:cancel`** (caller): `rtc:call-cancelled` a los callees. Timeout → `rtc:call-timeout` + `rtc:call-cancelled`.
-- La media sigue el flujo existente (`rtc:join` + offer/answer) **después** del accept.
-- Seguridad: los callees salen de los participantes de la conversación del caller → misma org, sin fuga cruzada.
+La llamada WebRTC ya contaba con sala, offer/answer, ICE, CDR y servicio foreground, pero no existía un timbrado real antes de entrar al RTC room. Ambos clientes podían quedar en “1 en cabina”, y abrir una conversación podía registrar al usuario dentro de la sala aunque todavía no hubiera aceptado una llamada.
 
-### Mobile (`9cba219`)
-- **Caller** ([use-chat-controller.ts](mobile/src/screens/chat/hooks/use-chat-controller.ts) `startCall`): tras `rtc:join` emite `rtc:call` → "Llamando…". Listeners `rtc:call-rejected`/`timeout` cierran con aviso; `rtc:call-accepted` → "contestada, conectando".
-- **Callee**: estado `incomingCall` + listener `rtc:incoming-call` (auto-reject si ya hay llamada = ocupado); `rtc:call-cancelled` quita el timbre. `acceptIncomingCall` (emite `rtc:accept` + media + `rtc:join`) / `rejectIncomingCall` (`rtc:reject`).
-- **UI** ([chat-screen-view.tsx](mobile/src/screens/chat/components/chat-screen-view.tsx)): `Modal` de llamada entrante con nombre del que llama + **Aceptar/Rechazar**.
+## Contrato restaurado
 
-## Validación (build)
-| | |
-|---|---|
-| Backend syntax (`node -c`) | **exit 0** |
-| Backend tests (rtc-session-cdr, app-smoke, backend-architecture) | **verdes** |
-| Mobile `tsc --noEmit` | **exit 0** |
-| Mobile ESLint | **exit 0** (warnings: `no-inline-styles` del Modal + `no-shadow` preexistente de `reportRelayUsage`) |
-| Mobile `npm test` | **26/26, 134/134** |
-| **`gradlew assembleRelease`** | **BUILD SUCCESSFUL** |
+### Backend
 
-## ⚠️ Limitaciones de Fase A (explícitas)
-1. **Alcance del timbre:** la recepción vive en el **socket de la llamada** (chat controller), que solo está montado en la **pantalla de chat**. Hoy el callee timbra cuando está en el chat (cualquier conversación) — una gran mejora sobre "tener ESA conversación abierta", pero **no es global**. Para ring global-foreground (recibir en cualquier pantalla), mover la recepción de `rtc:incoming-call` al **socket compartido** (root-store) + estado/UI global → incremento **Fase A.2**.
-2. **Background/cerrada:** NO cubierto — requiere push VoIP (**Fase B**, infra-gateada: FCM high-priority + APNs VoIP/CallKit).
-3. **#2 TURN:** sin desplegar → media entre redes distintas puede fallar aunque el ring y el signaling funcionen. Infra tuya (coturn).
+- `rtc:call`: valida tenant, acceso a la conversación, ocupación y participantes.
+- `rtc:incoming-call`: se entrega a las salas personales `user:{id}` de los destinatarios.
+- `rtc:accept`: la primera aceptación válida gana y cancela los timbrados restantes.
+- `rtc:reject`: permite rechazo individual; en una conversación grupal no corta a los demás hasta el último rechazo.
+- `rtc:cancel`: el llamante cancela el intento pendiente.
+- `rtc:call-accepted`, `rtc:call-rejected`, `rtc:call-cancelled` y `rtc:call-timeout`: estados explícitos para el cliente.
+- Registro temporal central con expiración de 35 segundos y bloqueo de llamadas superpuestas por usuario.
+- Limpieza de llamadas pendientes al desconectarse llamante o destinatario.
 
-## Certificación en dispositivo (pendiente — el build NO cierra el RC)
-Con dos teléfonos, ambos en la app (pantalla de chat), tras merge + recompilar:
-1. A llama a B (B en el chat, otra conversación) → **B recibe el Modal de llamada entrante** (antes: nada, "1 en cabina").
-2. B **Acepta** → la llamada conecta y **hay audio** (si ambos en misma red o hay TURN).
-3. B **Rechaza** → A ve "Llamada rechazada".
-4. A llama y B no contesta 35s → A ve "Sin respuesta", B deja de timbrar.
-5. A cancela antes de que B conteste → B deja de timbrar.
+### Mobile
 
-Si el audio no fluye tras aceptar **con B aceptando y ambos en cabina ("2 en cabina")**, el bloqueo restante es **#2 TURN** (redes distintas), no el ring.
+- Entrar a una conversación ya no entra automáticamente al RTC room.
+- El llamante obtiene medios, entra a la sala y después solicita el timbrado.
+- El destinatario ve un modal de “Llamada entrante” con nombre, tipo de llamada, aceptar y rechazar.
+- El destinatario solo entra al RTC room después de aceptar.
+- Rechazo, cancelación, timeout, ocupación y desconexión limpian medios, temporizadores y estado.
+- El socket de llamada se registra en la sala personal del usuario para recibir el timbrado mientras la pantalla de chat está montada.
 
-## Rollback
-```
-git checkout main   # los commits viven en rc-mobile-call-ring-01
-```
-o revertir `9cba219` (mobile) / `1b65a6f` (backend).
+## Seguridad
+
+- El backend obtiene los destinatarios desde la conversación persistida; el cliente no puede elegir IDs arbitrarios.
+- Aceptar y rechazar requieren que el usuario pertenezca al conjunto de destinatarios del intento.
+- Cancelar requiere ser el llamante.
+- Solo existe un intento pendiente por usuario; esto evita llamadas cruzadas y estados huérfanos.
+- El RTC room mantiene su límite de dos participantes y sus validaciones de tenant/acceso existentes.
+
+## Validación automatizada
+
+- Suite completa backend: aprobada.
+- Pruebas del registro de llamadas pendientes: creación, aceptación, rechazo grupal, timeout, concurrencia y desconexión.
+- TypeScript mobile: aprobado.
+- ESLint de la superficie modificada: aprobado.
+- Suite completa mobile: aprobada.
+
+## Validación física pendiente
+
+1. Dos teléfonos con la app abierta en Chat: llamar, recibir modal, aceptar y confirmar audio bidireccional.
+2. Rechazar y confirmar que el llamante salga de “Llamando”.
+3. No contestar y confirmar timeout/limpieza.
+4. Colgar antes de aceptar y confirmar cancelación en el destinatario.
+5. Probar audio y video con Wi‑Fi, datos móviles y redes distintas.
+6. Confirmar TURN en redes donde P2P directo no funcione.
+
+## Alcance pendiente
+
+El timbrado actual corresponde a foreground con la pantalla Chat montada. Recibir llamadas con la app cerrada o completamente en segundo plano requiere una fase separada con push de alta prioridad/servicio nativo y no se declara resuelto aquí.
