@@ -92,7 +92,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
@@ -123,7 +123,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
@@ -168,7 +168,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: ventas/package-lock.json
 
@@ -200,7 +200,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: admin-global/package-lock.json
 
@@ -223,6 +223,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Validate environment contract
+        run: node scripts/validate-environment-contract.mjs
 
       - name: Create non-secret validation environment
         run: cp backend/.env.example backend/.env
