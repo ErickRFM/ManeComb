@@ -79,7 +79,7 @@ const ownerPriority: BackgroundLocationServiceOwner[] = [
   'legacy',
 ];
 const ownerConfigs = new Map<BackgroundLocationServiceOwner, BackgroundLocationConfig>();
-let appliedConfigKey: string | null = null;
+let appliedConfig: BackgroundLocationConfig | null = null;
 let serviceActive = false;
 let operationQueue: Promise<boolean> = Promise.resolve(false);
 
@@ -89,18 +89,43 @@ function enqueue(operation: () => Promise<boolean>) {
   return next;
 }
 
-function getConfigKey(config: BackgroundLocationConfig) {
-  return JSON.stringify({
-    activeDays: config.schedule?.activeDays || [],
+function normalizeConfig(config: BackgroundLocationConfig): BackgroundLocationConfig {
+  return {
+    ...config,
     apiUrl: config.apiUrl.trim().replace(/\/+$/, ''),
-    refreshToken: config.refreshToken,
-    scheduleEnabled: config.schedule?.enabled !== false,
-    scheduleEnd: config.schedule?.endTime || '',
-    scheduleStart: config.schedule?.startTime || '',
-    sessionId: config.sessionId,
-    token: config.token,
-    vehicleId: config.vehicleId,
-  });
+    refreshToken: config.refreshToken.trim(),
+    sessionId: config.sessionId.trim(),
+    token: config.token.trim(),
+    vehicleId: config.vehicleId.trim(),
+  };
+}
+
+function schedulesMatch(
+  left: OperationalSchedule | null | undefined,
+  right: OperationalSchedule | null | undefined
+) {
+  return (
+    (left?.enabled !== false) === (right?.enabled !== false) &&
+    (left?.startTime || '') === (right?.startTime || '') &&
+    (left?.endTime || '') === (right?.endTime || '') &&
+    JSON.stringify(left?.activeDays || []) === JSON.stringify(right?.activeDays || [])
+  );
+}
+
+function configsMatch(
+  left: BackgroundLocationConfig | null | undefined,
+  right: BackgroundLocationConfig | null | undefined
+) {
+  if (!left || !right) return left === right;
+
+  return (
+    left.apiUrl === right.apiUrl &&
+    left.token === right.token &&
+    left.refreshToken === right.refreshToken &&
+    left.vehicleId === right.vehicleId &&
+    left.sessionId === right.sessionId &&
+    schedulesMatch(left.schedule, right.schedule)
+  );
 }
 
 function getSelectedConfig() {
@@ -128,7 +153,7 @@ function reconcileBackgroundLocationService() {
     if (!config) {
       const stopped = await NativeLocation.stopService().catch(() => false);
       serviceActive = false;
-      appliedConfigKey = null;
+      appliedConfig = null;
       return stopped;
     }
 
@@ -138,8 +163,7 @@ function reconcileBackgroundLocationService() {
       return true;
     }
 
-    const configKey = getConfigKey(config);
-    if (serviceActive && appliedConfigKey === configKey) {
+    if (serviceActive && configsMatch(appliedConfig, config)) {
       return true;
     }
 
@@ -157,7 +181,7 @@ function reconcileBackgroundLocationService() {
 
     if (started) {
       serviceActive = true;
-      appliedConfigKey = configKey;
+      appliedConfig = { ...config };
     }
 
     return started;
@@ -173,22 +197,14 @@ export function acquireBackgroundLocationServiceAsync(
     return reconcileBackgroundLocationService();
   }
 
-  const normalizedConfig: BackgroundLocationConfig = {
-    ...config,
-    apiUrl: config.apiUrl.trim().replace(/\/+$/, ''),
-    refreshToken: config.refreshToken.trim(),
-    sessionId: config.sessionId.trim(),
-    token: config.token.trim(),
-    vehicleId: config.vehicleId.trim(),
-  };
-
+  const normalizedConfig = normalizeConfig(config);
   ownerConfigs.set(owner, normalizedConfig);
 
   // The operational runtime reflects the canonical store state. Remove a stale
   // journey lease after token, vehicle, schedule or session changes.
   if (owner === 'operational-runtime') {
     const journeyConfig = ownerConfigs.get('journey');
-    if (journeyConfig && getConfigKey(journeyConfig) !== getConfigKey(normalizedConfig)) {
+    if (journeyConfig && !configsMatch(journeyConfig, normalizedConfig)) {
       ownerConfigs.delete('journey');
     }
   }
@@ -246,15 +262,17 @@ export async function getBackgroundLocationServiceStatusAsync(): Promise<Backgro
   const status = await NativeLocation.getServiceStatus();
   serviceActive = status.active;
   if (!status.active) {
-    appliedConfigKey = null;
+    appliedConfig = null;
   }
   return status;
 }
 
 export function getBackgroundLocationOwnershipSnapshot() {
   return {
-    appliedConfigKey,
+    appliedVehicleId: appliedConfig?.vehicleId || null,
+    hasAppliedConfig: Boolean(appliedConfig),
     owners: [...ownerConfigs.keys()],
     serviceActive,
+    sessionIdPresent: Boolean(appliedConfig?.sessionId),
   };
 }
