@@ -2,8 +2,18 @@ import type { RouteSession } from '@/src/types/app';
 
 const ACTIVE_SESSION_STATUSES = new Set<RouteSession['status']>(['RUNNING', 'PAUSED']);
 
-export function isFiniteMetricNumber(value: unknown): value is number {
-  return value !== null && value !== undefined && Number.isFinite(Number(value));
+/**
+ * Acepta numeros reales y cadenas numericas no vacias.
+ *
+ * `Number('')`, `Number(false)` y `Number([])` producen 0, pero ninguno de
+ * esos valores representa una metrica enviada por backend. Rechazarlos evita
+ * mostrar 0 km/0 min cuando el dato realmente falta.
+ */
+export function isFiniteMetricNumber(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return Boolean(trimmed) && Number.isFinite(Number(trimmed));
 }
 
 function getElapsedSessionSeconds(session: RouteSession | null) {
@@ -27,6 +37,11 @@ export function getSessionDistanceMeters(session: RouteSession | null) {
   return null;
 }
 
+function sessionStartTimestamp(session: RouteSession) {
+  const timestamp = new Date(session.startedAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
 export function selectVehicleActiveSession(
   selectedVehicleId: string | null | undefined,
   activeSession: RouteSession | null,
@@ -39,8 +54,14 @@ export function selectVehicleActiveSession(
   ) {
     return activeSession;
   }
-  return sessionHistory.find(
-    (session) =>
-      session.vehicleId === selectedVehicleId && ACTIVE_SESSION_STATUSES.has(session.status)
-  ) || null;
+
+  // El endpoint suele llegar ordenado, pero la UI no debe depender de ese
+  // detalle. Si por reconexion/cache hay mas de una jornada no terminal, se
+  // muestra la mas reciente de la unidad seleccionada.
+  return sessionHistory
+    .filter(
+      (session) =>
+        session.vehicleId === selectedVehicleId && ACTIVE_SESSION_STATUSES.has(session.status)
+    )
+    .sort((left, right) => sessionStartTimestamp(right) - sessionStartTimestamp(left))[0] || null;
 }
