@@ -87,6 +87,73 @@ function TestPaymentInput({
   );
 }
 
+function CardDemoForm({
+  testCard,
+  onTestCardChange,
+  manualMode = false,
+}: {
+  testCard: TestCardInput;
+  onTestCardChange: (updates: Partial<TestCardInput>) => void;
+  manualMode?: boolean;
+}) {
+  return (
+    <View style={s.testPaymentPanel}>
+      <View style={s.testModeHeader}>
+        <View style={s.testModeBadge}>
+          <MaterialCommunityIcons name="flask-outline" size={18} color={palette.lime} />
+          <Text style={s.testModeBadgeText}>{manualMode ? 'Tarjeta demo' : 'Modo de pruebas'}</Text>
+        </View>
+        <Text style={s.testModeText}>
+          {manualMode ? 'Solo valida la interfaz. No realiza ningún cargo.' : 'Pago simulado sin cargo real.'}
+        </Text>
+      </View>
+
+      <View style={s.formGrid}>
+        <TestPaymentInput
+          icon="account-outline"
+          label="Nombre del titular"
+          onChangeText={(value) => onTestCardChange({ cardholderName: value })}
+          placeholder="Nombre como aparece en la tarjeta"
+          value={testCard.cardholderName}
+        />
+        <TestPaymentInput
+          icon="credit-card-outline"
+          keyboardType="number-pad"
+          label="Número de tarjeta"
+          onChangeText={(value) => onTestCardChange({ cardNumber: value })}
+          placeholder="4111 1111 1111 1111"
+          value={testCard.cardNumber}
+        />
+        <View style={s.inlineFields}>
+          <TestPaymentInput
+            icon="calendar-outline"
+            label="Expiración"
+            onChangeText={(value) => onTestCardChange({ expiry: value })}
+            placeholder="MM/AA"
+            value={testCard.expiry}
+          />
+          <TestPaymentInput
+            icon="lock-outline"
+            keyboardType="number-pad"
+            label="CVV"
+            onChangeText={(value) => onTestCardChange({ cvv: value })}
+            placeholder="123"
+            secureTextEntry
+            value={testCard.cvv}
+          />
+        </View>
+        <TestPaymentInput
+          icon="map-marker-outline"
+          label="Código postal"
+          onChangeText={(value) => onTestCardChange({ postalCode: value })}
+          placeholder="Opcional"
+          value={testCard.postalCode}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function CheckoutPaymentSection({
   isTwoColumn,
   isTestPaymentMode,
@@ -106,6 +173,7 @@ export function CheckoutPaymentSection({
   onSubmitPayment,
 }: Props) {
   const isManualPaymentMode = providerMode === 'manual';
+  const isManualCardDemo = isManualPaymentMode && !requestTrial && selectedMethod === 'card';
 
   return (
     <View style={[s.leftPanel, isTwoColumn ? undefined : s.fullPanel]}>
@@ -119,86 +187,56 @@ export function CheckoutPaymentSection({
         </View>
         <View style={s.panelTitleCopy}>
           <Text style={s.panelTitle}>
-            {isManualPaymentMode ? 'Transferencia bancaria' : 'Información de pago'}
+            {isManualPaymentMode ? 'Método de pago' : 'Información de pago'}
           </Text>
           <Text style={s.panelSubtitle}>
             {isManualPaymentMode
-              ? 'Genera tu orden y usa la referencia única para realizar el depósito.'
+              ? 'Prueba la tarjeta en modo demo o genera una transferencia SPEI real.'
               : 'Elige tu método y completa la transacción.'}
           </Text>
         </View>
       </View>
 
       {isTestPaymentMode && !requestTrial ? (
-        <View style={s.testPaymentPanel}>
-          <View style={s.testModeHeader}>
-            <View style={s.testModeBadge}>
-              <MaterialCommunityIcons name="flask-outline" size={18} color={palette.lime} />
-              <Text style={s.testModeBadgeText}>Modo de pruebas</Text>
-            </View>
-            <Text style={s.testModeText}>Pago simulado sin cargo real.</Text>
+        <CardDemoForm testCard={testCard} onTestCardChange={onTestCardChange} />
+      ) : isManualPaymentMode && !requestTrial ? (
+        <>
+          <View style={s.methodTabs}>
+            <MethodTab
+              active={selectedMethod === 'card'}
+              icon="credit-card-outline"
+              label="Tarjeta (demo)"
+              onPress={() => onSelectMethod('card')}
+            />
+            <MethodTab
+              active={selectedMethod === 'spei'}
+              icon="bank-outline"
+              label="Transferencia SPEI"
+              onPress={() => onSelectMethod('spei')}
+            />
           </View>
 
-          <View style={s.formGrid}>
-            <TestPaymentInput
-              icon="account-outline"
-              label="Nombre del titular"
-              onChangeText={(value) => onTestCardChange({ cardholderName: value })}
-              placeholder="Nombre como aparece en la tarjeta"
-              value={testCard.cardholderName}
-            />
-            <TestPaymentInput
-              icon="credit-card-outline"
-              keyboardType="number-pad"
-              label="Numero de tarjeta"
-              onChangeText={(value) => onTestCardChange({ cardNumber: value })}
-              placeholder="4111 1111 1111 1111"
-              value={testCard.cardNumber}
-            />
-            <View style={s.inlineFields}>
-              <TestPaymentInput
-                icon="calendar-outline"
-                label="Expiracion"
-                onChangeText={(value) => onTestCardChange({ expiry: value })}
-                placeholder="MM/AA"
-                value={testCard.expiry}
-              />
-              <TestPaymentInput
-                icon="lock-outline"
-                keyboardType="number-pad"
-                label="CVV"
-                onChangeText={(value) => onTestCardChange({ cvv: value })}
-                placeholder="123"
-                secureTextEntry
-                value={testCard.cvv}
-              />
+          {selectedMethod === 'card' ? (
+            <CardDemoForm testCard={testCard} onTestCardChange={onTestCardChange} manualMode />
+          ) : (
+            <View style={s.speiPanel}>
+              <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
+              <View style={s.speiCopy}>
+                <Text style={s.speiTitle}>Transferencia SPEI directa a ManeComb</Text>
+                <Text style={s.speiText}>
+                  Al continuar se creará una orden pendiente y se mostrarán el banco, titular, CLABE, importe y referencia exacta. No se abrirá Mercado Pago ni otro proveedor externo.
+                </Text>
+              </View>
             </View>
-            <TestPaymentInput
-              icon="map-marker-outline"
-              label="Codigo postal"
-              onChangeText={(value) => onTestCardChange({ postalCode: value })}
-              placeholder="Opcional"
-              value={testCard.postalCode}
-            />
-          </View>
-        </View>
-      ) : isManualPaymentMode && !requestTrial ? (
-        <View style={s.speiPanel}>
-          <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
-          <View style={s.speiCopy}>
-            <Text style={s.speiTitle}>Transferencia SPEI directa a ManeComb</Text>
-            <Text style={s.speiText}>
-              Al continuar se creará una orden pendiente y se mostrarán el banco, titular, CLABE, importe y referencia exacta. No se abrirá Mercado Pago ni otro proveedor externo.
-            </Text>
-          </View>
-        </View>
+          )}
+        </>
       ) : (
         <>
           <View style={s.methodTabs}>
             <MethodTab
               active={selectedMethod === 'card'}
               icon="credit-card-outline"
-              label="Tarjeta credito/debito"
+              label="Tarjeta crédito/débito"
               onPress={() => onSelectMethod('card')}
             />
             <MethodTab
@@ -258,9 +296,11 @@ export function CheckoutPaymentSection({
         <Text style={s.securityText}>
           {isTestPaymentMode && !requestTrial
             ? 'Pago simulado para desarrollo. No se guardan el CVV ni el número completo de la tarjeta.'
-            : isManualPaymentMode && !requestTrial
-              ? 'La orden queda pendiente hasta que ManeComb confirme la transferencia recibida.'
-              : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
+            : isManualCardDemo
+              ? 'Demo local: los datos no se envían al backend, no se guardan y no generan ningún cobro.'
+              : isManualPaymentMode && !requestTrial
+                ? 'La orden queda pendiente hasta que ManeComb confirme la transferencia recibida.'
+                : 'Pago seguro por proveedor externo y estado del plan confirmado por backend.'}
         </Text>
       </View>
 
@@ -283,9 +323,11 @@ export function CheckoutPaymentSection({
         accessibilityLabel={
           requestTrial
             ? 'Activar prueba'
-            : isManualPaymentMode
-              ? 'Generar instrucciones de transferencia'
-              : 'Continuar al pago seguro'
+            : isManualCardDemo
+              ? 'Validar tarjeta demo'
+              : isManualPaymentMode
+                ? 'Generar instrucciones de transferencia'
+                : 'Continuar al pago seguro'
         }
         disabled={!canSubmit}
         onPress={onSubmitPayment}
@@ -299,20 +341,30 @@ export function CheckoutPaymentSection({
         ) : (
           <>
             <MaterialCommunityIcons
-              name={requestTrial ? 'flask-outline' : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
+              name={
+                requestTrial
+                  ? 'flask-outline'
+                  : isManualCardDemo
+                    ? 'credit-card-check-outline'
+                    : isManualPaymentMode
+                      ? 'bank-transfer'
+                      : 'lock-check-outline'
+              }
               size={24}
               color="#FFFFFF"
             />
             <Text style={s.payButtonText}>
               {requestTrial
-                ? `Activar prueba ${selectedPlan.trialDays || 7} dias`
+                ? `Activar prueba ${selectedPlan.trialDays || 7} días`
                 : isTestPaymentMode
                   ? `Pagar en modo de pruebas ${buttonAmount}`
-                  : isManualPaymentMode
-                    ? `Generar transferencia ${buttonAmount}`
-                    : selectedMethod === 'card'
-                      ? 'Continuar al pago seguro'
-                      : `Continuar pago SPEI ${buttonAmount}`}
+                  : isManualCardDemo
+                    ? 'Probar tarjeta demo'
+                    : isManualPaymentMode
+                      ? `Generar transferencia ${buttonAmount}`
+                      : selectedMethod === 'card'
+                        ? 'Continuar al pago seguro'
+                        : `Continuar pago SPEI ${buttonAmount}`}
             </Text>
             <MaterialCommunityIcons name="arrow-right" size={22} color="#FFFFFF" />
           </>
