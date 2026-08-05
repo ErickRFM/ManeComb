@@ -1,0 +1,151 @@
+name: Portal production certification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/portal-certification.yml"
+      - "mobile/e2e/certification/**"
+      - "mobile/playwright.certification.config.ts"
+      - "mobile/package.json"
+      - "mobile/package-lock.json"
+      - "ventas/**"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "URL desplegada a certificar"
+        required: true
+        default: "https://manecomb.com"
+        type: string
+      run_authenticated:
+        description: "Ejecutar matriz autenticada de roles"
+        required: true
+        default: false
+        type: boolean
+      allow_mutations:
+        description: "Permitir cambio/rollback de contraseña y revocación de sesiones"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-responsive:
+    name: Public portal responsive
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      CERT_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || '' }}
+      CI: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run five-viewport public certification
+        run: npx playwright test --config playwright.certification.config.ts e2e/certification/public-responsive.spec.ts
+
+      - name: Upload public evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-public-certification-${{ github.run_id }}
+          path: |
+            mobile/playwright-certification-report
+            mobile/playwright-certification-results.json
+            mobile/test-results/portal-certification
+          if-no-files-found: warn
+          retention-days: 14
+
+  authenticated-matrix:
+    name: Authenticated roles and security
+    if: github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      CERT_BASE_URL: ${{ inputs.base_url }}
+      CERT_ALLOW_MUTATIONS: ${{ inputs.allow_mutations == true && '1' || '0' }}
+      CERT_OWNER_EMAIL: ${{ secrets.CERT_OWNER_EMAIL }}
+      CERT_OWNER_PASSWORD: ${{ secrets.CERT_OWNER_PASSWORD }}
+      CERT_OWNER_NEXT_PASSWORD: ${{ secrets.CERT_OWNER_NEXT_PASSWORD }}
+      CERT_ADMIN_EMAIL: ${{ secrets.CERT_ADMIN_EMAIL }}
+      CERT_ADMIN_PASSWORD: ${{ secrets.CERT_ADMIN_PASSWORD }}
+      CERT_BILLING_EMAIL: ${{ secrets.CERT_BILLING_EMAIL }}
+      CERT_BILLING_PASSWORD: ${{ secrets.CERT_BILLING_PASSWORD }}
+      CERT_SUPERVISOR_EMAIL: ${{ secrets.CERT_SUPERVISOR_EMAIL }}
+      CERT_SUPERVISOR_PASSWORD: ${{ secrets.CERT_SUPERVISOR_PASSWORD }}
+      CI: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify certification secret presence
+        shell: bash
+        run: |
+          missing=0
+          for name in CERT_OWNER_EMAIL CERT_OWNER_PASSWORD CERT_ADMIN_EMAIL CERT_ADMIN_PASSWORD CERT_BILLING_EMAIL CERT_BILLING_PASSWORD CERT_SUPERVISOR_EMAIL CERT_SUPERVISOR_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name no está configurado como GitHub Actions secret"
+              missing=1
+            fi
+          done
+          if [ "${CERT_ALLOW_MUTATIONS}" = "1" ] && [ -z "${CERT_OWNER_NEXT_PASSWORD}" ]; then
+            echo "::error::CERT_OWNER_NEXT_PASSWORD es obligatorio cuando allow_mutations=true"
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Run role access matrix
+        run: npx playwright test --config playwright.certification.config.ts --project desktop-1280 e2e/certification/role-access.spec.ts
+
+      - name: Run account security mutation matrix
+        if: inputs.allow_mutations == true
+        run: npx playwright test --config playwright.certification.config.ts --project desktop-1280 e2e/certification/account-security.spec.ts
+
+      - name: Upload authenticated evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-authenticated-certification-${{ github.run_id }}
+          path: |
+            mobile/playwright-certification-report
+            mobile/playwright-certification-results.json
+            mobile/test-results/portal-certification
+          if-no-files-found: warn
+          retention-days: 14
