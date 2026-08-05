@@ -1,0 +1,71 @@
+name: Close mobile sizing and email wordmark
+
+on:
+  push:
+    branches:
+      - fix/mobile-email-branding
+
+permissions:
+  contents: write
+
+jobs:
+  close-phase:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/mobile-email-branding
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install SVG renderer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin imagemagick
+      - name: Apply responsive and branding patch
+        shell: bash
+        run: |
+          python scripts/apply-mobile-email-branding.py
+          rsvg-convert -w 340 tmp-logo-email.svg -o tmp-logo-wordmark.png
+          convert tmp-logo-wordmark.png -bordercolor '#050816' -border 30x20 ventas/public/logo-email.png
+          rm -f tmp-logo-email.svg tmp-logo-wordmark.png
+          test -s ventas/public/logo-email.png
+      - name: Install communication service
+        working-directory: communication-service
+        run: npm ci
+      - name: Test communication service
+        working-directory: communication-service
+        run: npm test
+      - name: Install backend
+        working-directory: backend
+        run: npm ci
+      - name: Test backend
+        working-directory: backend
+        run: npm test
+      - name: Install Ventas
+        working-directory: ventas
+        run: npm ci
+      - name: Typecheck Ventas
+        working-directory: ventas
+        run: npm run typecheck
+      - name: Build Ventas
+        working-directory: ventas
+        env:
+          VITE_API_URL: https://manecomb.onrender.com/api
+          VITE_SOCKET_URL: https://manecomb.onrender.com
+          VITE_MAPBOX_ACCESS_TOKEN: ''
+        run: |
+          npm run build
+          test -s dist/logo-email.png
+          test -f dist/_redirects
+      - name: Commit closed phase
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/close-mobile-email-branding.yml scripts/apply-mobile-email-branding.py
+          git add ventas communication-service backend/modules/communication/templates/components.js
+          git commit -m "fix(ventas): align mobile cards and email branding"
+          git push origin HEAD:fix/mobile-email-branding
