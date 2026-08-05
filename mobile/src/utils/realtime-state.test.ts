@@ -1,6 +1,25 @@
-import { getRealtimeSnapshot } from './realtime-state';
+import { getRealtimeSnapshot, isRealtimeAuthError } from './realtime-state';
 
 describe('realtime state machine', () => {
+  it('classifies authentication failures separately from transport failures', () => {
+    expect(isRealtimeAuthError('unauthorized')).toBe(true);
+    expect(isRealtimeAuthError('invalid token')).toBe(true);
+    expect(isRealtimeAuthError('jwt expired')).toBe(true);
+    expect(isRealtimeAuthError('timeout')).toBe(false);
+  });
+
+  it('reports an expired session instead of a server outage', () => {
+    const snapshot = getRealtimeSnapshot({
+      hasUser: true,
+      networkStatus: 'online',
+      socketStatus: 'unauthorized',
+    });
+
+    expect(snapshot.state).toBe('UNAUTHORIZED');
+    expect(snapshot.label).toBe('Sesión expirada');
+    expect(snapshot.detail).toBe('Sesión expirada. Vuelve a iniciar sesión.');
+  });
+
   it('does not report reconnecting while receiving on a connected socket', () => {
     const snapshot = getRealtimeSnapshot({
       hasUser: true,

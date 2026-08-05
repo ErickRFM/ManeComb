@@ -8,13 +8,14 @@ import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
 
 export function ConnectionBanner() {
   const { theme } = useAppTheme();
-  const { isRefreshing, networkStatus, pendingSyncCount, realtimeDiagnostics, refreshAll, socketStatus, user } = useAppStore(
+  const { isRefreshing, networkStatus, pendingSyncCount, realtimeDiagnostics, refreshAll, signOut, socketStatus, user } = useAppStore(
     useShallow((state) => ({
       isRefreshing: state.isRefreshing,
       networkStatus: state.networkStatus,
       pendingSyncCount: state.pendingSyncCount,
       realtimeDiagnostics: state.realtimeDiagnostics,
       refreshAll: state.refreshAll,
+      signOut: state.signOut,
       socketStatus: state.socketStatus,
       user: state.user,
     }))
@@ -32,7 +33,14 @@ export function ConnectionBanner() {
     socketStatus,
   });
   const offline = realtime.state === 'DISCONNECTED';
-  const visibleStates = new Set(['CONNECTING', 'AUTHENTICATING', 'RECONNECTING', 'ERROR']);
+  const unauthorized = realtime.state === 'UNAUTHORIZED';
+  const visibleStates = new Set([
+    'CONNECTING',
+    'AUTHENTICATING',
+    'RECONNECTING',
+    'UNAUTHORIZED',
+    'ERROR',
+  ]);
 
   if (!offline && !visibleStates.has(realtime.state) && pendingSyncCount === 0) {
     return null;
@@ -43,33 +51,50 @@ export function ConnectionBanner() {
     : pendingSyncCount > 0
       ? 'Sincronizando pendientes...'
       : realtime.detail;
-  const tint = offline ? theme.colors.warning : theme.colors.info;
+  const tint = unauthorized
+    ? theme.colors.danger
+    : offline
+      ? theme.colors.warning
+      : theme.colors.info;
 
   return (
     <View
       style={[
         styles.banner,
         {
-          backgroundColor: offline ? theme.colors.warningSoft : theme.colors.infoSoft,
+          backgroundColor: unauthorized
+            ? theme.colors.dangerSoft
+            : offline
+              ? theme.colors.warningSoft
+              : theme.colors.infoSoft,
           borderColor: tint,
         },
       ]}>
       <Pressable
         onPress={() => {
-          if (!isRefreshing) {
-            refreshAll();
+          if (isRefreshing) {
+            return;
           }
+          if (unauthorized) {
+            void signOut();
+            return;
+          }
+          void refreshAll();
         }}
         disabled={isRefreshing}
         accessibilityRole="button"
-        accessibilityLabel="Reintentar conexion"
+        accessibilityLabel={unauthorized ? 'Volver a iniciar sesión' : 'Reintentar conexion'}
         accessibilityState={{ busy: isRefreshing, disabled: isRefreshing }}
         hitSlop={10}
         style={styles.retryButton}>
         {isRefreshing ? (
           <ActivityIndicator size="small" color={tint} />
         ) : (
-          <MaterialCommunityIcons name={offline ? 'wifi-off' : 'sync'} size={16} color={tint} />
+          <MaterialCommunityIcons
+            name={unauthorized ? 'account-alert-outline' : offline ? 'wifi-off' : 'sync'}
+            size={16}
+            color={tint}
+          />
         )}
       </Pressable>
       <Text
