@@ -2,6 +2,7 @@ import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   getActiveRouteCount,
   getMappableUnits,
+  getTrackingHudRouteSummary,
   getUnknownStateCount,
   getVisibleUnits,
 } from './tracking';
@@ -110,5 +111,28 @@ describe('selectores del mapa de seguimiento', () => {
 
     expect(getActiveRouteCount(units)).toBe(1);
     expect(getUnknownStateCount(units)).toBe(1);
+  });
+
+  it('presenta 0 activas y 3 sin datos como indicadores separados, nunca 0/3', () => {
+    const summary = getTrackingHudRouteSummary(0, 3);
+
+    expect(summary).toEqual({
+      active: { label: 'En ruta', value: '0' },
+      unknown: { label: 'Sin datos', value: '3' },
+    });
+    expect(`${summary.active.value}/${summary.unknown.value}`).toBe('0/3');
+    expect(summary.active.value).not.toContain('/');
+    expect(summary.unknown.value).not.toContain('/');
+  });
+
+  it('normaliza conteos invalidos antes de mostrarlos en el HUD', () => {
+    expect(getTrackingHudRouteSummary(-2, Number.NaN)).toEqual({
+      active: { label: 'En ruta', value: '0' },
+      unknown: { label: 'Sin datos', value: '0' },
+    });
+    expect(getTrackingHudRouteSummary(2.9, 1.8)).toEqual({
+      active: { label: 'En ruta', value: '2' },
+      unknown: { label: 'Sin datos', value: '1' },
+    });
   });
 });
