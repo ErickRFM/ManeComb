@@ -31,6 +31,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     callParticipants,
     callStatusLabel,
     callTone,
+    canStartCall,
     closeActiveCall,
     startCall,
     conversationFilterCounts,
@@ -342,7 +343,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                       </View>
                     </View>
 
-                    {!activeCallSession ? (
+                    {!activeCallSession && canStartCall ? (
                       <View style={styles.conversationHeaderActions}>
                         <Pressable
                           onPress={() => startCall('audio')}
@@ -375,6 +376,8 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           )}
                         </Pressable>
                       </View>
+                    ) : !activeCallSession ? (
+                      <Text style={styles.sectionHint}>Las llamadas grupales se realizan en Radio.</Text>
                     ) : null}
                   </View>
                 </View>

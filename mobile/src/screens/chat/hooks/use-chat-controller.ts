@@ -1,4 +1,4 @@
-import { io, type Socket } from 'socket.io-client';
+import { type Socket } from 'socket.io-client';
 import { DesignSystem } from '@/constants/theme';
 import {
   RecordingPresets,
@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { useShallow } from 'zustand/react/shallow';
-import { getRtcIceConfigRequest, SOCKET_URL } from '@/src/api/client';
+import { getRtcIceConfigRequest } from '@/src/api/client';
+import { getSharedRealtimeSocket } from '@/src/store/root-store';
+import { canConversationStartCall } from '@/src/features/calls/call-selectors';
 import { launchCameraAsync, launchImageLibraryAsync, requestCameraPermissionAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -143,16 +145,19 @@ export function useChatController() {
   useEffect(() => {
     if (!user || !isWebRTCAvailable()) return;
 
-    const socket = io(SOCKET_URL, {
-      auth: token ? { token } : undefined,
-      transports: ['websocket', 'polling'],
-      timeout: 15000,
-      reconnection: true,
-      reconnectionDelay: 800,
-      reconnectionDelayMax: 10000,
-      randomizationFactor: 0.45,
-    });
+    // RC-MOBILE-CALLS-PRODUCTION-01 Bloque B: se elimina el segundo io(). Este controller consume
+    // TEMPORALMENTE el socket compartido para el transporte de offer/answer/ICE (deuda de Bloque C,
+    // que reescribira el pipeline y moveria el join). NO es dueno del lifecycle del socket (no lo
+    // desconecta) y NO registra listeners globales de incoming-call (eso vive en features/calls).
+    const socket = getSharedRealtimeSocket() as unknown as Socket | null;
+    if (!socket) return;
     socketRef.current = socket;
+    // Registro rastreado: en cleanup se quitan SOLO estos handlers (nunca removeAllListeners).
+    const boundHandlers: Array<[string, (...args: any[]) => void]> = [];
+    const on = (event: string, handler: (...args: any[]) => void) => {
+      boundHandlers.push([event, handler]);
+      socket['on'](event, handler as any);
+    };
     getRtcIceConfigRequest()
       .then((config) => {
         rtcIceConfigRef.current = config;
@@ -335,7 +340,7 @@ export function useChatController() {
       }
     };
 
-    socket.on(
+    on(
       'rtc:participants',
       async (payload: { participants: RtcParticipant[]; roomId: string }) => {
         if (payload.roomId !== joinedRtcRoomRef.current) {
@@ -404,7 +409,7 @@ export function useChatController() {
       }
     );
 
-    socket.on(
+    on(
       'rtc:offer',
       async (payload: {
         fromSocketId: string;
@@ -469,7 +474,7 @@ export function useChatController() {
       }
     );
 
-    socket.on(
+    on(
       'rtc:answer',
       async (payload: { answer: RTCSessionDescriptionInit; fromSocketId: string; roomId: string }) => {
         if (payload.roomId !== joinedRtcRoomRef.current || !peerRef.current) {
@@ -489,7 +494,7 @@ export function useChatController() {
       }
     );
 
-    socket.on('rtc:ice-candidate', async (payload: { candidate: RTCIceCandidateInit; fromSocketId: string; roomId: string }) => {
+    on('rtc:ice-candidate', async (payload: { candidate: RTCIceCandidateInit; fromSocketId: string; roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) {
         return;
       }
@@ -507,7 +512,7 @@ export function useChatController() {
       }
     });
 
-    socket.on('rtc:leave', (payload: { roomId: string; userId?: string }) => {
+    on('rtc:leave', (payload: { roomId: string; userId?: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) {
         return;
       }
@@ -527,7 +532,7 @@ export function useChatController() {
       setCallNotice('La otra persona abandono la cabina.');
     });
 
-    socket.on('rtc:hangup', (payload: { roomId: string }) => {
+    on('rtc:hangup', (payload: { roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) {
         return;
       }
@@ -547,7 +552,7 @@ export function useChatController() {
       setCallNotice('La otra persona finalizo la llamada.');
     });
 
-    socket.on('rtc:busy', (payload: { roomId: string }) => {
+    on('rtc:busy', (payload: { roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) return;
       resetPeerConnection();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -562,7 +567,7 @@ export function useChatController() {
       setCallNotice('La persona esta en otra llamada.');
     });
 
-    socket.on('rtc:reject', (payload: { roomId: string }) => {
+    on('rtc:reject', (payload: { roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) return;
       resetPeerConnection();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -577,7 +582,7 @@ export function useChatController() {
       setCallNotice('La llamada fue rechazada.');
     });
 
-    socket.on('rtc:timeout', (payload: { roomId: string }) => {
+    on('rtc:timeout', (payload: { roomId: string }) => {
       if (payload.roomId !== joinedRtcRoomRef.current) return;
       resetPeerConnection();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -592,7 +597,7 @@ export function useChatController() {
       setCallNotice('La llamada no fue respondida a tiempo.');
     });
 
-    socket.on('disconnect', () => {
+    on('disconnect', () => {
       resetPeerConnection();
       setCallParticipants([]);
       setCallSession((current) =>
@@ -601,7 +606,7 @@ export function useChatController() {
       setCallNotice('Reconectando senal de llamada...');
     });
 
-    socket.io.on('reconnect', () => {
+    const onSocketReconnect = () => {
       const roomId = joinedRtcRoomRef.current;
       if (!roomId) {
         return;
@@ -613,7 +618,8 @@ export function useChatController() {
         name: user.name,
       });
       setCallNotice('Senal de llamada recuperada.');
-    });
+    };
+    socket.io.on('reconnect', onSocketReconnect);
 
     return () => {
       callAttemptRef.current += 1;
@@ -630,9 +636,10 @@ export function useChatController() {
       setIsCallMuted(false);
       setIsCameraEnabled(true);
       setCallElapsedSeconds(0);
-      socket.removeAllListeners();
-      socket.io.removeAllListeners();
-      socket.disconnect();
+      // Socket COMPARTIDO: quitar SOLO los handlers de este controller; nunca desconectar ni
+      // removeAllListeners (romperia el resto de la app).
+      boundHandlers.forEach(([event, handler]) => socket.off(event, handler as any));
+      socket.io.off('reconnect', onSocketReconnect);
     };
   }, [token, user]);
 
@@ -1493,6 +1500,9 @@ export function useChatController() {
     callTone,
     canRecord,
     canSendText,
+    // RC-MOBILE-CALLS-PRODUCTION-01 Bloque B: solo conversaciones DIRECTAS pueden llamar por RTC.
+    // La comunicacion grupal (General Operativo) pertenece a Radio; el backend tambien lo rechaza.
+    canStartCall: canConversationStartCall(activeConversation),
     closeActiveCall,
     startCall,
     composerPlaceholder,

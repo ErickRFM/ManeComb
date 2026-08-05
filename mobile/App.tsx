@@ -43,6 +43,7 @@ import {
   shouldReturnToMapOnAndroidBack,
 } from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
+import { CallOverlay } from '@/src/features/calls/call-overlay';
 import { useLocationEngine } from '@/src/screens/map/hooks/use-location-engine';
 import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
 import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
@@ -782,6 +783,7 @@ export default function App() {
               )}
             </MobileErrorBoundary>
             {isReady && user ? <UpdateBanner /> : null}
+            {isReady && user ? <CallOverlay /> : null}
             <StatusBar style={theme.statusBar} backgroundColor={theme.colors.background} />
           </ThemeProvider>
           </NavigationContainer>

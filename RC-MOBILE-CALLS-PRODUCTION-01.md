@@ -170,3 +170,52 @@ Rechazos de ACK unificados en **`code`** (`invalid_request`, `forbidden`, `inval
 `test/rtc-call-signaling.test.js` ampliado: grupal rechazada; incompleta rechazada; payload no elige caller/callee; `mode` inválido; accept tras timeout; accept duplicado; reject/cancel/end duplicados; **disconnect definitivo tras gracia (peer_disconnected)**; **reconexión dentro de la gracia cancela cleanup**; **conserva otro socket → sin cleanup**; namespace `rtc:call:{callId}`. Suite backend completa **verde (EXIT=0)**.
 
 **Commit:** `fix(rtc): harden direct call contract and disconnect lifecycle`. **STOP para revisión** antes del Bloque B.
+
+---
+
+# Bloque B — Estado global mobile, socket único y timbre global (implementado)
+
+> Solo lifecycle de signaling mobile; **sin negociar WebRTC** (media/join/mic/CONNECTED = Bloque C). Rama `rc-mobile-calls-production-01`. **Sin push/merge.**
+
+## Módulo dedicado `mobile/src/features/calls/`
+- `call-types.ts` — tipos (fases, `CallState` con los campos mínimos, `IncomingCallPayload`, `CallSocket`).
+- `call-machine.ts` — **transición única** `reduce(state, event)` (pura, sin RN). Fases `IDLE / OUTGOING_RINGING / INCOMING_RINGING / CONNECTING / ENDING / FAILED` (+ `CONNECTED` en el tipo, **no alcanzable** en B). Sin booleanos contradictorios: `phase` es la verdad.
+- `call-signaling.ts` — binder del socket compartido: registra **una vez** los listeners y los quita con `off` puntual (nunca `removeAllListeners`); `emitStartCall` espera el **ACK** con el `callId` del backend.
+- `call-store.ts` — store zustand (vive junto al socket, **no** en una pantalla): `startCall / acceptIncomingCall / rejectIncomingCall / cancelOutgoingCall` + handlers `handleIncoming/Accepted/Rejected/Cancelled/Timeout/RemoteEnd` + `bindSocket/unbindSocket/reset`. Idempotente; vuelve a IDLE tras mostrar brevemente el resultado.
+- `call-selectors.ts` — selectores + `canConversationStartCall` (gate directo/grupal).
+- `components/incoming-call-modal.tsx` — modal global.
+- `call-overlay.tsx` — enlaza el socket compartido y monta el modal.
+
+## Socket único
+- Se **eliminó** el segundo `io(SOCKET_URL, …)` de `use-chat-controller.ts`; ahora consume `getSharedRealtimeSocket()`.
+- El binder del store registra **exactamente una vez** por instancia; si cambia la instancia (re-auth) quita los del socket anterior y registra en el nuevo; un **reconnect** (misma instancia) no acumula listeners.
+- El chat controller **no** es dueño del lifecycle (ya no `disconnect()` ni `removeAllListeners()`): quita **solo** sus handlers (registro rastreado). **Deuda temporal documentada:** su offer/answer/ICE/join siguen ahí como adaptador hasta el Bloque C (que reescribe el pipeline y mueve el join). No registra listeners globales de incoming-call.
+
+## Timbre global
+- `presence:join` se emite en el socket compartido tras autenticar (root-store) → el `user:{userId}` recibe `rtc:incoming-call` **desde cualquier pantalla** (Mapa/Chat/Checklist/Perfil/Usuarios/Radio/otra conversación), sin depender de Chat.
+- El `IncomingCallModal` se monta en el **root** (`App.tsx`, gated a sesión), por encima de los navegadores; no navega, no monta Chat, no crea peer, no pide micrófono. Guard de doble-tap y safe areas.
+
+## Contrato de acciones (Bloque B)
+- `startCall({conversationId, mode})`: verifica IDLE → emite `rtc:call` → espera ACK → toma el `callId` backend → `OUTGOING_RINGING`. Maneja `busy/direct_call_required/invalid_mode/…`. **No** join, **no** micrófono, **no** cronómetro. No confía en caller/callee del cliente.
+- `rtc:incoming-call`: valida payload, ignora duplicados por `callId`, si IDLE → `INCOMING_RINGING`, si ocupado → `rtc:busy`. No navega ni crea peer.
+- `acceptIncomingCall()`: `CONNECTING` + `rtc:accept` + `acceptedAt`. **No** `rtc:join`, **no** CONNECTED (eso es C).
+- reject/cancel + handlers remotos (rejected/cancelled/timeout/end/busy): limpian idempotente y vuelven a IDLE.
+
+## Conversaciones grupales
+El botón de llamada se **oculta** en conversaciones no directas (`canConversationStartCall`) y se muestra "Las llamadas grupales se realizan en Radio". El backend igual rechaza (`direct_call_required`).
+
+## Pruebas mobile
+`src/features/calls/call-machine.test.ts` + `src/features/calls/call-store.test.ts` (en el runner jest): 21 casos cubriendo incoming global, `callId` del ACK, busy→IDLE, `direct_call_required` sin sesión, accept→CONNECTING (no CONNECTED), rechazo/cancelación/timeout limpian, duplicado no crea segundo modal, nuevo socket reemplaza listeners, logout limpia, login no conserva llamada vieja, gate grupal, y **sin segundo `io()`** en el controller.
+
+## Validación
+- `npm run typecheck`: **PASS (exit 0)**.
+- `jest` (módulo de llamadas + relacionados): **PASS** (33/33 en el subconjunto ejecutado).
+- `assembleDebug`: **BUILD SUCCESSFUL** → `android/app/build/outputs/apk/debug/app-debug.apk` generado.
+
+## Alcance y restricciones
+No toca rutas múltiples/GPS/ventas/portal/mensajes/E2EE. **No** negocia WebRTC (media = Bloque C). Sin push/merge/PR.
+
+## Deuda temporal documentada (para Bloque C)
+El `use-chat-controller.ts` conserva su pipeline offer/answer/ICE/join sobre el socket compartido como **adaptador temporal**. Bloque C: reescribir peer/media, eliminar el `rtc:join` automático al abrir conversación, hacer join a `rtc:call:{callId}` solo tras aceptar, exigir CONNECTED real (2 participantes + peer connected + remote audio) y cronómetro desde `connectedAt`.
+
+**Commit:** `feat(rtc): add global mobile call state machine`. **STOP para revisión** antes del Bloque C.
