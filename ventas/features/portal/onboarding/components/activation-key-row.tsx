@@ -21,9 +21,10 @@ export function ActivationKeyRow({
   isSubmitting: boolean;
   onCopy: (activationKey: PortalActivationKey) => void;
   onDelete: (activationKey: PortalActivationKey) => void;
-  onReplace: (activationKey: PortalActivationKey) => void;
+  onReplace?: (activationKey: PortalActivationKey) => void;
   onRevoke: (activationKey: PortalActivationKey) => void;
   onShare: (activationKey: PortalActivationKey) => void;
+  showShare?: boolean;
 }) {
   const isAvailable = activationKey.status === 'available';
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
@@ -80,7 +81,7 @@ export function ActivationKeyRow({
             disabled={!isAvailable}
             tone="info"
           />
-          {isAvailable ? (
+          {isAvailable && onReplace ? (
             <KeyActionButton
               icon="key-change"
               label="Reemplazar"
