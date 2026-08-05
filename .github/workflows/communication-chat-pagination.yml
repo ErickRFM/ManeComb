@@ -1,0 +1,42 @@
+name: Close paginated chat history
+
+on:
+  push:
+    branches:
+      - agent/communication-closure
+
+permissions:
+  contents: write
+
+jobs:
+  close-phase:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/communication-closure
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Apply pagination patch
+        run: python scripts/close-chat-pagination.py
+      - name: Install mobile
+        working-directory: mobile
+        run: npm ci
+      - name: Typecheck mobile
+        working-directory: mobile
+        run: npm run typecheck
+      - name: Test mobile
+        working-directory: mobile
+        run: npm test -- --runInBand
+      - name: Commit closed phase
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/communication-chat-pagination.yml scripts/close-chat-pagination.py
+          git add mobile/src
+          git commit -m "perf(chat): paginate long conversation history"
+          git push origin HEAD:agent/communication-closure
