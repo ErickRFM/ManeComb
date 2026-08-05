@@ -63,12 +63,12 @@ controller.write_text(text)
 modal = Path("mobile/src/features/calls/components/active-call-modal.tsx")
 text = modal.read_text()
 text = text.replace("import { useAppStore } from '@/src/store/use-app-store';\n", "")
-call_service_import = "import { startCallForegroundService, stopCallForegroundService } from '@/src/native/call-service';"
-if call_service_import not in text:
-    raise SystemExit("ActiveCallModal call service import not found")
+webrtc_import = "import { RTCViewComponent } from '@/src/native/webrtc';"
+if webrtc_import not in text:
+    raise SystemExit("ActiveCallModal WebRTC import not found")
 text = text.replace(
-    call_service_import,
-    "import { useAppStore } from '@/src/store/use-app-store';\n" + call_service_import,
+    webrtc_import,
+    "import { useAppStore } from '@/src/store/use-app-store';\n" + webrtc_import,
     1,
 )
 old_state = """  const callerName = useCallStore((state) => state.callerName);
