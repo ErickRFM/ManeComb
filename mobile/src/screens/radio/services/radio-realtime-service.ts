@@ -247,8 +247,8 @@ export class RadioRealtimeService {
     }
     if (generation !== this.joinGeneration || channelId !== this.channelId || radioRealtimeSuspended) return;
     if (ack.ok) {
-      await startRadioForegroundService().catch(() => undefined);
       this.handlers.onStateChange('ready');
+      startRadioForegroundService().catch(() => undefined);
       return;
     }
     const unauthorized = ack.error === 'forbidden' || ack.error === 'unauthorized';
