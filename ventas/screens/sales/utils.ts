@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
-import { accentByTone, planVisualTones, neonPalette } from './constants';
+import { accentByTone, planVisualTones, neonPalette, PUBLIC_DEMO_PLAN_ID } from './constants';
 import { buildCheckoutParams } from '@/src/utils/checkout-context';
 import type { IconName, PointerVector } from './types';
 import { formatCurrency as _formatCurrency, getFirstParam as _getFirstParam } from '../shared/utils';
@@ -20,8 +20,17 @@ export function getPlanVisualTone(index: number) {
   return planVisualTones[index % planVisualTones.length];
 }
 
+export function isPublicDemoPlan(plan: CommercialPlan | null | undefined) {
+  return Boolean(
+    plan &&
+      plan.id === PUBLIC_DEMO_PLAN_ID &&
+      Number(plan.units) === 2 &&
+      plan.trialEligible
+  );
+}
+
 export function buildPlanParams(plan: CommercialPlan, requestTrial = false) {
-  return buildCheckoutParams(plan.id, requestTrial);
+  return buildCheckoutParams(plan.id, requestTrial && isPublicDemoPlan(plan));
 }
 
 export function prefersReducedMotion() {
