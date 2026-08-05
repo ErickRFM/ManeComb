@@ -13,85 +13,105 @@ export function ActivationKeyRow({
   isSubmitting,
   onCopy,
   onDelete,
+  onReplace,
   onRevoke,
   onShare,
-  showShare = true,
 }: {
   activationKey: PortalActivationKey;
   isSubmitting: boolean;
   onCopy: (activationKey: PortalActivationKey) => void;
   onDelete: (activationKey: PortalActivationKey) => void;
+  onReplace: (activationKey: PortalActivationKey) => void;
   onRevoke: (activationKey: PortalActivationKey) => void;
   onShare: (activationKey: PortalActivationKey) => void;
-  showShare?: boolean;
 }) {
-  const canRevoke = activationKey.status === 'available';
+  const isAvailable = activationKey.status === 'available';
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
 
   return (
-    <PortalDataRow leading={<View style={styles.keyIcon}>
-        <MaterialCommunityIcons
-          name={activationKey.status === 'used' ? 'account-check-outline' : 'key-variant'}
-          size={21}
-          color={activationKey.status === 'available' ? portalPalette.success : portalPalette.accent}
-        />
-      </View>} body={<>
-        <View style={styles.keyTopLine}>
-          <Text style={styles.keyValue} selectable>
-            {activationKey.key}
-          </Text>
-          <StatusBadge
-            label={formatActivationKeyStatus(activationKey.status)}
-            tone={getActivationKeyTone(activationKey.status)}
+    <PortalDataRow
+      leading={
+        <View style={styles.keyIcon}>
+          <MaterialCommunityIcons
+            name={activationKey.status === 'used' ? 'account-check-outline' : 'key-variant'}
+            size={21}
+            color={isAvailable ? portalPalette.success : portalPalette.accent}
           />
         </View>
-        <Text style={styles.keyMeta}>
-          {activationKey.status === 'used'
-            ? activationKey.usedByDriverState === 'offboarded'
-              ? `Conductor dado de baja: ${usedBy || 'asociado'}`
-              : activationKey.usedByDriverState === 'deleted'
-                ? `Conductor eliminado: ${usedBy || 'evidencia conservada'}`
-                : `Conductor: ${usedBy || 'asociado'}`
-            : `Vence: ${activationKey.expiresAt ? new Date(activationKey.expiresAt).toLocaleDateString('es-MX') : 'sin fecha'}`}
-        </Text>
-      </>} actions={<View style={styles.keyActions}>
-        <KeyActionButton
-          icon="content-copy"
-          label="Copiar"
-          accessibilityLabel={`Copiar key ${activationKey.key}`}
-          onPress={() => onCopy(activationKey)}
-          disabled={activationKey.status !== 'available'}
-        />
-        {showShare ? (
+      }
+      body={
+        <>
+          <View style={styles.keyTopLine}>
+            <Text style={styles.keyValue} selectable>
+              {activationKey.key}
+            </Text>
+            <StatusBadge
+              label={formatActivationKeyStatus(activationKey.status)}
+              tone={getActivationKeyTone(activationKey.status)}
+            />
+          </View>
+          <Text style={styles.keyMeta}>
+            {activationKey.status === 'used'
+              ? activationKey.usedByDriverState === 'offboarded'
+                ? `Conductor dado de baja: ${usedBy || 'asociado'}`
+                : activationKey.usedByDriverState === 'deleted'
+                  ? `Conductor eliminado: ${usedBy || 'evidencia conservada'}`
+                  : `Conductor: ${usedBy || 'asociado'}`
+              : activationKey.status === 'available'
+                ? `Vence: ${activationKey.expiresAt ? new Date(activationKey.expiresAt).toLocaleString('es-MX') : 'sin fecha'}`
+                : `Historial conservado · Creada: ${activationKey.createdAt ? new Date(activationKey.createdAt).toLocaleDateString('es-MX') : 'sin fecha'}`}
+          </Text>
+        </>
+      }
+      actions={
+        <View style={styles.keyActions}>
+          <KeyActionButton
+            icon="content-copy"
+            label="Copiar"
+            accessibilityLabel={`Copiar key ${activationKey.key}`}
+            onPress={() => onCopy(activationKey)}
+            disabled={!isAvailable}
+          />
           <KeyActionButton
             icon="share-variant-outline"
             label="Compartir"
             accessibilityLabel={`Compartir key ${activationKey.key}`}
             onPress={() => onShare(activationKey)}
-            disabled={activationKey.status !== 'available'}
+            disabled={!isAvailable}
             tone="info"
           />
-        ) : null}
-        {activationKey.status === 'available' ? (
-          <KeyActionButton
-            icon="block-helper"
-            label="Revocar"
-            accessibilityLabel={`Revocar key ${activationKey.key}`}
-            onPress={() => onRevoke(activationKey)}
-            disabled={!canRevoke || isSubmitting}
-            tone="danger"
-          />
-        ) : null}
-        {activationKey.status === 'available' ? (
-          <KeyActionButton
-            icon="trash-can-outline"
-            label="Eliminar"
-            accessibilityLabel={`Eliminar key ${activationKey.key}`}
-            onPress={() => onDelete(activationKey)}
-            disabled={isSubmitting}
-            tone="danger"
-          />
-        ) : null}
-      </View>} />
+          {isAvailable ? (
+            <KeyActionButton
+              icon="key-change"
+              label="Reemplazar"
+              accessibilityLabel={`Revocar y reemplazar key ${activationKey.key}`}
+              onPress={() => onReplace(activationKey)}
+              disabled={isSubmitting}
+              tone="info"
+            />
+          ) : null}
+          {isAvailable ? (
+            <KeyActionButton
+              icon="block-helper"
+              label="Revocar"
+              accessibilityLabel={`Revocar key ${activationKey.key}`}
+              onPress={() => onRevoke(activationKey)}
+              disabled={isSubmitting}
+              tone="danger"
+            />
+          ) : null}
+          {isAvailable ? (
+            <KeyActionButton
+              icon="trash-can-outline"
+              label="Eliminar"
+              accessibilityLabel={`Eliminar key ${activationKey.key}`}
+              onPress={() => onDelete(activationKey)}
+              disabled={isSubmitting}
+              tone="danger"
+            />
+          ) : null}
+        </View>
+      }
+    />
   );
 }
