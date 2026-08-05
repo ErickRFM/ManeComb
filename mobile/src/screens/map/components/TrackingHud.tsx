@@ -3,6 +3,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { mapStyles as styles } from '../map-styles';
+import { getTrackingHudRouteSummary } from '../utils/tracking';
 
 type TrackingHudProps = {
   activeRouteCount: number;
@@ -30,9 +31,12 @@ export function TrackingHud({
   trafficEnabled,
 }: TrackingHudProps) {
   const { theme } = useAppTheme();
+  const routeSummary = getTrackingHudRouteSummary(activeRouteCount, unknownStateCount);
 
   return (
-    <View style={[styles.topOverlay, { paddingTop }]}>
+    <View
+      style={[styles.topOverlay, { paddingTop }]}
+      accessibilityLabel={`Seguimiento. ${routeSummary.active.label}: ${routeSummary.active.value}. ${routeSummary.unknown.label}: ${routeSummary.unknown.value}. GPS local: ${locationStatusLabel}. GPS de unidad asignada: ${serverSyncLabel}. Tráfico ${trafficEnabled ? 'activado' : 'desactivado'}.`}>
       <View style={styles.topBar}>
         <Pressable
           hitSlop={10}
@@ -44,24 +48,29 @@ export function TrackingHud({
 
         <View style={[styles.hud, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.line }]}>
           {/*
-            Se muestra "en ruta / sin datos" cuando hay unidades cuyo estado no
-            se puede afirmar. Antes esas unidades caian en `stopped` y el
-            contador daba 0 sin explicar por que.
+            "En ruta" y "Sin datos" son estados independientes. Nunca se
+            presentan como fraccion: el segundo numero no es el total de rutas.
           */}
           <HUDItem
-            label="Rutas"
-            value={unknownStateCount ? `${activeRouteCount} / ${unknownStateCount}?` : `${activeRouteCount}`}
+            label={routeSummary.active.label}
+            value={routeSummary.active.value}
             icon="bus"
-            color={theme.colors.info}
+            color={theme.colors.success}
+          />
+          <HUDItem
+            label={routeSummary.unknown.label}
+            value={routeSummary.unknown.value}
+            icon="help-circle-outline"
+            color={unknownStateCount ? theme.colors.warning : theme.colors.muted}
           />
           <HUDItem label="GPS local" value={locationStatusLabel} icon="crosshairs-gps" color={locationStatusColor} />
-          <HUDItem label="Servidor" value={serverSyncLabel} icon="cloud-check-outline" color={serverSyncColor} />
-          <HUDItem
-            label="Trafico"
-            value={trafficEnabled ? 'ON' : 'OFF'}
-            icon="traffic-light"
-            color={trafficEnabled ? theme.colors.warning : theme.colors.muted}
-          />
+          {/*
+            Este valor viene de la unidad asignada al usuario, no del socket.
+            Se corrige el rotulo historico "Servidor" para no afirmar una
+            conexion que este dato nunca midio. El estado de red/socket sigue
+            perteneciendo al banner global de conexion.
+          */}
+          <HUDItem label="GPS unidad" value={serverSyncLabel} icon="bus-marker" color={serverSyncColor} />
         </View>
 
         <Pressable
