@@ -1,9 +1,18 @@
 import { StyleSheet } from 'react-native';
 import { AppTheme, Typography } from '@/constants/theme';
+import { portalPalette } from '../portal-theme';
 
 export const styles = StyleSheet.create({
   disabledButton: { opacity: 0.55 },
-  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 0 },
+  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, minWidth: 0 },
+  fieldGroup: { flex: 1, flexBasis: 220, gap: 6, minWidth: 0 },
+  fieldLabel: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.25,
+  },
   input: {
     borderRadius: AppTheme.radius.sm, borderWidth: 1, flex: 1, flexBasis: 220,
     fontFamily: Typography.body, fontSize: 14, minHeight: 46, minWidth: 0, paddingHorizontal: 14,
@@ -32,4 +41,87 @@ export const styles = StyleSheet.create({
     flexDirection: 'row', flexWrap: 'wrap', gap: 12, minWidth: 0, padding: 12,
   },
   supportCopy: { flex: 1, flexBasis: 240, minWidth: 0 },
+  securityHeader: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    padding: 12,
+  },
+  securityIcon: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.accentSoft,
+    borderRadius: AppTheme.radius.sm,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  securityCopy: { flex: 1, flexBasis: 260, gap: 3, minWidth: 0 },
+  securityTitle: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  securityText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  visibilityButton: {
+    alignItems: 'center',
+    borderColor: portalPalette.lineStrong,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 38,
+    paddingHorizontal: 12,
+  },
+  visibilityText: {
+    color: portalPalette.text,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  requirementsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  requirementRow: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderRadius: AppTheme.radius.pill,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  requirementText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  securityFeedback: {
+    alignItems: 'center',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+  },
+  securityFeedbackText: {
+    color: portalPalette.text,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
 });
