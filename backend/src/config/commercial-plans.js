@@ -39,8 +39,8 @@ const COMMERCIAL_PLANS = [
     badge: "Más vendido",
     accent: "success",
     subtitle: "El punto de entrada más balanceado",
-    trialDays: 7,
-    trialEligible: true,
+    trialDays: 0,
+    trialEligible: false,
     includesRadioModule: false,
     radioAddonEligible: true,
     radioAddonPrice: RADIO_ADDON_PRICE
@@ -55,8 +55,8 @@ const COMMERCIAL_PLANS = [
     badge: "Operación estable",
     accent: "warning",
     subtitle: "Pensado para crecimiento con control operativo",
-    trialDays: 7,
-    trialEligible: true,
+    trialDays: 0,
+    trialEligible: false,
     includesRadioModule: false,
     radioAddonEligible: true,
     radioAddonPrice: RADIO_ADDON_PRICE
@@ -71,8 +71,8 @@ const COMMERCIAL_PLANS = [
     badge: "Cobertura total",
     accent: "danger",
     subtitle: "Mayor cobertura, supervisores y evidencia",
-    trialDays: 7,
-    trialEligible: true,
+    trialDays: 0,
+    trialEligible: false,
     includesRadioModule: true,
     radioAddonEligible: false,
     radioAddonPrice: 0
@@ -87,8 +87,8 @@ const COMMERCIAL_PLANS = [
     badge: "Escala multi patio",
     accent: "info",
     subtitle: "Multi patio, onboarding y despliegue empresarial",
-    trialDays: 7,
-    trialEligible: true,
+    trialDays: 0,
+    trialEligible: false,
     includesRadioModule: true,
     radioAddonEligible: false,
     radioAddonPrice: 0
