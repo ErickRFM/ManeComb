@@ -10,6 +10,7 @@ import { useCheckoutExperience, type TestCardInput } from '@/features/commercial
 import {
   buildCheckoutParams,
   clearCheckoutContext,
+  markCheckoutAttemptRedirected,
   readCheckoutContext,
   saveCheckoutContext,
 } from '@/src/utils/checkout-context';
@@ -137,6 +138,10 @@ export function PlanCheckoutScreen() {
         return;
       }
       if (nextResult.session?.checkoutUrl) {
+        // La misma llave sigue protegiendo el submit actual. Solo después de
+        // entregar el control al proveedor se marca como consumida para que
+        // un clic posterior cree una orden/preference nueva.
+        markCheckoutAttemptRedirected();
         openCheckoutUrl(nextResult.session.checkoutUrl);
         return;
       }
