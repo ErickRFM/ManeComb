@@ -21,17 +21,14 @@ fs.writeFileSync(controllerPath, controller);
 
 const modalPath = 'mobile/src/features/calls/components/active-call-modal.tsx';
 let modal = fs.readFileSync(modalPath, 'utf8');
-modal = modal.replace("import { useAppStore } from '@/src/store/use-app-store';\n", '');
-const formatImport = "import { formatDuration } from '@/src/screens/chat/utils/conversation';";
-if (!modal.includes(formatImport)) throw new Error('ActiveCallModal format import not found');
-modal = modal.replace(
-  formatImport,
-  `${formatImport}\nimport { useAppStore } from '@/src/store/use-app-store';`
-);
-const formatIndex = modal.indexOf(formatImport);
-const appStoreIndex = modal.indexOf("import { useAppStore } from '@/src/store/use-app-store';");
-const relativeIndex = modal.indexOf("import { useCallStore } from '../call-store';");
-if (!(formatIndex < appStoreIndex && appStoreIndex < relativeIndex)) {
+const appStoreImport = "import { useAppStore } from '@/src/store/use-app-store';";
+const relativeImport = "import { useCallStore } from '../call-store';";
+modal = modal.replace(`${appStoreImport}\n`, '');
+if (!modal.includes(relativeImport)) throw new Error('ActiveCallModal relative store import not found');
+modal = modal.replace(relativeImport, `${appStoreImport}\n${relativeImport}`);
+const appStoreIndex = modal.indexOf(appStoreImport);
+const relativeIndex = modal.indexOf(relativeImport);
+if (!(appStoreIndex >= 0 && appStoreIndex < relativeIndex)) {
   throw new Error('ActiveCallModal imports are not ordered');
 }
 fs.writeFileSync(modalPath, modal);
