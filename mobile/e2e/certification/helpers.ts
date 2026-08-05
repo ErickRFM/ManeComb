@@ -6,6 +6,101 @@ type RuntimeProbe = {
   dispose: () => void;
 };
 
+const LOCAL_COMMERCIAL_PLANS = [
+  {
+    id: 'starter-2',
+    name: '2 combis',
+    units: 2,
+    price: 149,
+    pricePerVehicle: 74.5,
+    strategy: 'Entrada',
+    badge: 'Arranque rápido',
+    accent: 'info',
+    subtitle: 'Ideal para pilotos y patios pequeños',
+    trialDays: 7,
+    trialEligible: true,
+    includesRadioModule: false,
+    radioAddonEligible: true,
+    radioAddonPrice: 20,
+  },
+  {
+    id: 'value-4',
+    name: '4 combis',
+    units: 4,
+    price: 209,
+    pricePerVehicle: 52.3,
+    strategy: 'Mejor valor',
+    badge: 'Más vendido',
+    accent: 'success',
+    subtitle: 'El punto de entrada más balanceado',
+    trialDays: 0,
+    trialEligible: false,
+    includesRadioModule: false,
+    radioAddonEligible: true,
+    radioAddonPrice: 20,
+  },
+  {
+    id: 'control-6',
+    name: '6 combis',
+    units: 6,
+    price: 299,
+    pricePerVehicle: 49.8,
+    strategy: 'Ajustado',
+    badge: 'Operación estable',
+    accent: 'warning',
+    subtitle: 'Pensado para crecimiento con control operativo',
+    trialDays: 0,
+    trialEligible: false,
+    includesRadioModule: false,
+    radioAddonEligible: true,
+    radioAddonPrice: 20,
+  },
+  {
+    id: 'premium-8',
+    name: '8 combis',
+    units: 8,
+    price: 449,
+    pricePerVehicle: 56.1,
+    strategy: 'Premium',
+    badge: 'Cobertura total',
+    accent: 'danger',
+    subtitle: 'Mayor cobertura, supervisores y evidencia',
+    trialDays: 0,
+    trialEligible: false,
+    includesRadioModule: true,
+    radioAddonEligible: false,
+    radioAddonPrice: 0,
+  },
+  {
+    id: 'enterprise-12',
+    name: '12 combis',
+    units: 12,
+    price: 749,
+    pricePerVehicle: 62.4,
+    strategy: 'Empresas',
+    badge: 'Escala multi patio',
+    accent: 'info',
+    subtitle: 'Multi patio, onboarding y despliegue empresarial',
+    trialDays: 0,
+    trialEligible: false,
+    includesRadioModule: true,
+    radioAddonEligible: false,
+    radioAddonPrice: 0,
+  },
+];
+
+export async function installLocalCertificationContracts(page: Page) {
+  if (String(process.env.CERT_BASE_URL || '').trim()) return;
+
+  await page.route('**/api/commercial/plans', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: LOCAL_COMMERCIAL_PLANS }),
+    });
+  });
+}
+
 export function attachRuntimeProbe(page: Page): RuntimeProbe {
   const pageErrors: string[] = [];
   const serverErrors: string[] = [];
