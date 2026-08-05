@@ -28,6 +28,7 @@ import type {
 } from '../types';
 import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getPresenceStatus } from '@/src/utils/presence';
+import { createClientMessageId } from '@/src/utils/chat-message-id';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
 
@@ -102,6 +103,7 @@ export function useChatController() {
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const [pendingTextMessages, setPendingTextMessages] = useState<LocalTextMessage[]>([]);
   const [activeAudioMessageId, setActiveAudioMessageId] = useState<string | null>(null);
+  const [typingClock, setTypingClock] = useState(() => Date.now());
   const webRecorderRef = useRef<any>(null);
   const webStreamRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
@@ -117,6 +119,11 @@ export function useChatController() {
   useEffect(() => {
     loadChatContacts();
   }, [loadChatContacts]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTypingClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (bootstrappedRef.current) return;
@@ -354,7 +361,8 @@ export function useChatController() {
   const handleSendText = async () => {
     if (!activeConversation || !draft.trim()) return;
     const text = draft.trim();
-    const localId = `local-${activeConversation.id}-${Date.now()}`;
+    const clientMessageId = createClientMessageId();
+    const localId = `local-${clientMessageId}`;
     const localMessage: LocalTextMessage = {
       id: localId,
       conversationId: activeConversation.id,
@@ -365,12 +373,13 @@ export function useChatController() {
       createdAt: new Date().toISOString(),
       localStatus: 'sending',
       retryText: text,
+      clientMessageId,
     };
 
     shouldScrollAfterSendRef.current = true;
     setPendingTextMessages((current) => [...current, localMessage]);
     try {
-      const result = await sendMessage(activeConversation.id, text);
+      const result = await sendMessage(activeConversation.id, text, clientMessageId);
       if (!result || result.ok) {
         setDraft('');
         setPendingTextMessages((current) => current.filter((message) => message.id !== localId));
@@ -396,7 +405,11 @@ export function useChatController() {
           : entry
       )
     );
-    const result = await sendMessage(message.conversationId, message.retryText);
+    const result = await sendMessage(
+      message.conversationId,
+      message.retryText,
+      message.clientMessageId
+    );
     if (!result || result.ok) {
       setPendingTextMessages((current) => current.filter((entry) => entry.id !== message.id));
       return;
@@ -598,6 +611,16 @@ export function useChatController() {
     }
   }, [activeConversation, draft, sendMediaMessage]);
 
+  const activeTypingUsers = useMemo(
+    () =>
+      activeConversation
+        ? (typingByConversation[activeConversation.id] || []).filter(
+            (entry) => typingClock - entry.startedAt < 5000
+          )
+        : [],
+    [activeConversation, typingByConversation, typingClock]
+  );
+
   const showDirectoryPanel = !isCompact || mobilePane === 'directory';
   const showConversationPanel = !isCompact || mobilePane === 'conversation';
   const isMobileConversation = isCompact && mobilePane === 'conversation';
@@ -639,7 +662,7 @@ export function useChatController() {
     isSubmitting,
     markAsRead,
     emitTyping,
-    typingByConversation,
+    activeTypingUsers,
     messagesListRef,
     mobilePane,
     recordingSeconds,

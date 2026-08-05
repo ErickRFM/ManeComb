@@ -68,7 +68,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     theme,
     presenceByUser,
     token,
-    typingByConversation,
+    activeTypingUsers,
     user,
   } = props;
   const presenceFor = (userId?: string | null) => getPresenceStatus(presenceByUser, userId);
@@ -592,13 +592,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   }
                 />
 
-                {typingByConversation[activeConversation.id]?.length ? (
+                {activeTypingUsers.length ? (
                   <View style={styles.typingIndicator}>
                     <Text style={styles.typingIndicatorText}>
-                      {typingByConversation[activeConversation.id]
-                        .map((entry) => entry.userName)
-                        .join(', ')}
-                      {typingByConversation[activeConversation.id].length === 1
+                      {activeTypingUsers.map((entry) => entry.userName).join(', ')}
+                      {activeTypingUsers.length === 1
                         ? ' esta escribiendo...'
                         : ' estan escribiendo...'}
                     </Text>

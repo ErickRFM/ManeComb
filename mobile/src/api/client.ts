@@ -635,6 +635,7 @@ export async function sendMessageRequest(
   payload: {
     text?: string;
     textPreview?: string;
+    clientMessageId?: string;
     e2eeEnvelope?: {
       version: string;
       nonce: string;

@@ -119,6 +119,7 @@ import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/naviga
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
 import { isRealtimeAuthError } from '@/src/utils/realtime-state';
+import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/chat-message-id';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -284,7 +285,7 @@ export type AppState = {
     channelMode?: ConversationChannelMode,
     options?: { setActive?: boolean }
   ) => Promise<ConversationSummary | null>;
-  sendMessage: (conversationId: string, text: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
+  sendMessage: (conversationId: string, text: string, clientMessageId?: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendMediaMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   createIncident: (draft: IncidentDraft) => Promise<boolean>;
@@ -1740,15 +1741,20 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
         } else if (operation.type === 'chat:sendMessage') {
           const state = get();
           if (!state.user) throw new Error('No hay una sesion activa para sincronizar el mensaje');
+          const durableClientMessageId =
+            normalizeClientMessageId(operation.payload.clientMessageId) || operation.id;
           await sendMessageRequest(
             operation.payload.conversationId,
-            await buildTextMessagePayload({
-              conversation: state.conversations.find(
-                (entry) => entry.id === operation.payload.conversationId
-              ) || null,
-              user: state.user,
-              text: operation.payload.text,
-            })
+            {
+              ...(await buildTextMessagePayload({
+                conversation: state.conversations.find(
+                  (entry) => entry.id === operation.payload.conversationId
+                ) || null,
+                user: state.user,
+                text: operation.payload.text,
+              })),
+              clientMessageId: durableClientMessageId,
+            }
           );
         } else if (operation.type === 'chat:sendVoice') {
           const { conversationId, fileUri, fileName, fileType, durationSeconds, caption } = operation.payload;
@@ -2224,7 +2230,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }
   },
-  sendMessage: async (cid, t) => {
+  sendMessage: async (cid, t, requestedClientMessageId) => {
+    const clientMessageId =
+      normalizeClientMessageId(requestedClientMessageId) || createClientMessageId();
     const { user } = get();
     if (!t.trim() || !user) {
       return { ok: false, message: 'El mensaje no puede ir vacio.' };
@@ -2234,7 +2242,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const conversation = get().conversations.find(e => e.id === cid) || null;
       const m = await sendMessageRequest(
         cid,
-        await buildTextMessagePayload({ conversation, user, text: t })
+        {
+          ...(await buildTextMessagePayload({ conversation, user, text: t })),
+          clientMessageId,
+        }
       );
       const h = await hydrateConversationMessage(m, conversation, user);
       set(s => ({
@@ -2250,6 +2261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           payload: {
             conversationId: cid,
             text: t.trim(),
+            clientMessageId,
           },
         });
         await refreshPendingSyncCount(set);

@@ -1,3 +1,4 @@
+const { createHash } = require("crypto");
 const { Router } = require("express");
 const multer = require("multer");
 const { authenticate } = require("../../middlewares/authenticate");
@@ -10,6 +11,18 @@ const logger = require("../../services/logger");
 
 const router = Router();
 const MAX_VOICE_NOTE_SECONDS = 60;
+const CLIENT_MESSAGE_ID_PATTERN = /^[A-Za-z0-9:_-]{8,128}$/;
+
+function normalizeClientMessageId(value) {
+  const normalized = String(value || "").trim();
+  return CLIENT_MESSAGE_ID_PATTERN.test(normalized) ? normalized : "";
+}
+
+function buildChatMessageId({ organizationId, conversationId, senderId, clientMessageId }) {
+  return `chat-${createHash("sha256")
+    .update(`${organizationId}:${conversationId}:${senderId}:${clientMessageId}`)
+    .digest("hex")}`;
+}
 
 function isValidE2eePublicKey(value) {
   try {
@@ -158,31 +171,24 @@ router.get("/conversations/:conversationId/messages", authenticate, async (req, 
 });
 
 router.post("/conversations/:conversationId/messages", authenticate, async (req, res) => {
-  const { text, e2eeEnvelope, textPreview } = req.body;
+  const { text, e2eeEnvelope, textPreview, clientMessageId } = req.body;
 
   if (!text?.trim() && !e2eeEnvelope?.ciphertext) {
-    return res.status(400).json({
-      ok: false,
-      message: "El mensaje no puede ir vacio"
-    });
+    return res.status(400).json({ ok: false, message: "El mensaje no puede ir vacio" });
+  }
+
+  const safeClientMessageId = normalizeClientMessageId(clientMessageId);
+  if (clientMessageId && !safeClientMessageId) {
+    return res.status(400).json({ ok: false, message: "Identidad de mensaje invalida" });
   }
 
   const conversation = await req.app.locals.store.getConversationById(req.params.conversationId);
-
-  if (
-    !conversation ||
-    !(await req.app.locals.store.canUserAccessConversation(req.user.id, conversation))
-  ) {
-    return res.status(404).json({
-      ok: false,
-      message: "Conversacion no disponible"
-    });
+  if (!conversation || !(await req.app.locals.store.canUserAccessConversation(req.user.id, conversation))) {
+    return res.status(404).json({ ok: false, message: "Conversacion no disponible" });
   }
 
   if (e2eeEnvelope?.ciphertext) {
-    const recipientIds = conversation.participants.filter(
-      (participantId) => participantId !== req.user.id
-    );
+    const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
     const validDirectEnvelope =
       conversation.kind === "direct" &&
       conversation.channelMode !== "radio" &&
@@ -191,15 +197,19 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
       e2eeEnvelope.recipientId === recipientIds[0] &&
       isValidE2eePublicKey(e2eeEnvelope.senderPublicKey) &&
       e2eeEnvelope.senderPublicKey === req.user.e2eePublicKey;
-
     if (!validDirectEnvelope) {
-      return res.status(400).json({
-        ok: false,
-        message: "El sobre E2EE no corresponde a este chat directo"
-      });
+      return res.status(400).json({ ok: false, message: "El sobre E2EE no corresponde a este chat directo" });
     }
   }
 
+  const messageId = safeClientMessageId
+    ? buildChatMessageId({
+        organizationId: conversation.organizationId,
+        conversationId: conversation.id,
+        senderId: req.user.id,
+        clientMessageId: safeClientMessageId
+      })
+    : undefined;
   const message = await req.app.locals.store.addMessage(
     req.params.conversationId,
     req.user.id,
@@ -208,27 +218,29 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
           kind: "text",
           text: "",
           textPreview: String(textPreview || "").trim() || "Mensaje cifrado de extremo a extremo",
-          e2eeEnvelope
+          e2eeEnvelope,
+          messageId
         }
-      : text.trim()
+      : { kind: "text", text: text.trim(), messageId }
   );
+  const deduplicated = Boolean(message?.deduplicated);
+  const responseMessage = message ? { ...message } : null;
+  if (responseMessage) delete responseMessage.deduplicated;
 
-  emitConversationUpdate(req, conversation, message);
+  if (!deduplicated) emitConversationUpdate(req, conversation, responseMessage);
 
   const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
   const isDirectChat = conversation.kind === "direct" && conversation.channelMode !== "radio";
-
-  if (recipientIds.length) {
+  if (!deduplicated && recipientIds.length) {
     await deliverOperationalNotification({
       io: req.app.locals.io,
       store: req.app.locals.store,
-      // Los mensajes de texto solo generan notificacion nativa; no ensucian el feed de Perfil.
       persist: conversation.channelMode === "radio",
-        payload: {
-          organizationId: conversation.organizationId,
-          title:
-            conversation.channelMode === "radio"
-              ? `Radio: ${conversation.title}`
+      payload: {
+        organizationId: conversation.organizationId,
+        title:
+          conversation.channelMode === "radio"
+            ? `Radio: ${conversation.title}`
             : isDirectChat
               ? `Mensaje directo de ${req.user.name}`
               : `Nuevo mensaje en ${conversation.title}`,
@@ -241,22 +253,21 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
         level: conversation.channelMode === "radio" ? "warning" : "info",
         category: conversation.channelMode === "radio" ? "radio" : "chat",
         targetUserIds: recipientIds,
-          data: {
-            conversationId: conversation.id,
-            channelMode: conversation.channelMode,
-            kind: "text",
-            // El cliente usa este flag para no ofrecer respuesta rapida desde la
-            // notificacion: responder desde ahi viajaria en texto plano.
-            encrypted: Boolean(e2eeEnvelope?.ciphertext)
-          },
-          deepLink: `/chat?conversationId=${encodeURIComponent(conversation.id)}&channelMode=${encodeURIComponent(conversation.channelMode)}`
-        }
-      });
+        data: {
+          conversationId: conversation.id,
+          channelMode: conversation.channelMode,
+          kind: "text",
+          encrypted: Boolean(e2eeEnvelope?.ciphertext)
+        },
+        deepLink: `/chat?conversationId=${encodeURIComponent(conversation.id)}&channelMode=${encodeURIComponent(conversation.channelMode)}`
+      }
+    });
   }
 
-  return res.status(201).json({
+  return res.status(deduplicated ? 200 : 201).json({
     ok: true,
-    data: message
+    data: responseMessage,
+    deduplicated
   });
 });
 
