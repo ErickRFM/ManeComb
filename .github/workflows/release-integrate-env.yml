@@ -1,0 +1,45 @@
+name: Integrate environment audit
+
+on:
+  push:
+    branches:
+      - release/consolidation-20260805
+    paths:
+      - .github/workflows/release-integrate-env.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout consolidation branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/consolidation-20260805
+          fetch-depth: 0
+
+      - name: Merge certified environment audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if git merge-base --is-ancestor origin/audit/environment-integrity-20260805-v2 HEAD; then
+            echo 'Environment audit is already integrated.'
+            exit 0
+          fi
+
+          if ! git merge --no-ff --no-edit origin/audit/environment-integrity-20260805-v2; then
+            echo '::error::Environment integration has conflicts.'
+            git status --short
+            echo 'Conflicted files:'
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          git push origin HEAD:release/consolidation-20260805
