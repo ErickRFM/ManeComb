@@ -1,6 +1,8 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
+const originalPlatform = Platform.OS;
 const mockStoreState: {
   activeRouteSession: { id: string; status: string } | null;
   apiUrl: string;
@@ -82,6 +84,17 @@ async function flushPromises() {
 }
 
 describe('useLocationEngine capture ownership', () => {
+  beforeAll(() => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(Platform, 'OS', {
+      configurable: true,
+      value: originalPlatform,
+    });
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockStoreState.activeRouteSession = null;
