@@ -18,7 +18,10 @@ project.ext.vectoricons = [
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def nodeExecutable = System.getenv('NODE_BINARY') ?: 'C:\\Program Files\\nodejs\\node.exe'
+// NODE_BINARY sigue permitiendo un override explicito. Sin override, se resuelve desde PATH para
+// que el mismo Gradle funcione en Windows local y en runners Linux; no se congela una ruta C:\\.
+def nodeExecutable = System.getenv('NODE_BINARY')
+    ?: (org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'node.exe' : 'node')
 def combisDetoxBundle = (findProperty('combis.detoxBundle') ?: 'false').toBoolean()
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
@@ -110,7 +113,7 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = [nodeExecutable]
 
     //
     //   The path to the CLI configuration file. Default is empty.
@@ -127,7 +130,7 @@ react {
     // extraPackagerArgs = []
 
     /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
+    //   The hermes compiler command to run. By default it is 'hermesc'.
     // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
     //
     //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
@@ -138,15 +141,15 @@ react {
 }
 
 /**
- * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+def enableProguardInReleaseBuilds = false
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
  * For example, to use the international variant, you can use:
- * `def jscFlavor = 'org.webkit:android-jsc-intl:+'`
+ * `def jscFlavor = 'io.github.react-native-community:jsc-android-intl:2026004.+'`
  *
  * The international variant includes ICU i18n library and necessary data
  * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
@@ -156,30 +159,21 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
-    ndkVersion = rootProject.ext.ndkVersion
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
 
-    buildToolsVersion = rootProject.ext.buildToolsVersion
-    compileSdk = rootProject.ext.compileSdkVersion
-
-    namespace = 'com.anonymous.combiscontrol'
+    namespace "com.manecomb.app"
     defaultConfig {
-        applicationId = 'com.anonymous.combiscontrol'
+        applicationId "com.manecomb.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
-        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        if (combisDetoxBundle) {
-            missingDimensionStrategy 'detox', 'full'
-        }
+        versionCode 3
+        versionName "1.0.2"
         manifestPlaceholders = [
             MAPBOX_ACCESS_TOKEN: mapboxAccessToken,
-            usesCleartextTraffic: allowCleartextTraffic.toString(),
+            MANECOMB_USES_CLEARTEXT_TRAFFIC: allowCleartextTraffic.toString()
         ]
-        // Mapbox reads this resource before Fabric mounts the first MapView.
-        resValue "string", "mapbox_access_token", mapboxAccessToken
-
-        buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
         debug {
@@ -188,74 +182,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        release {
-            if (hasReleaseSigningConfig) {
-                storeFile = rootProject.file(releaseStoreFile)
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+        if (hasReleaseSigningConfig) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             }
         }
     }
     buildTypes {
         debug {
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.debug
         }
         release {
-            if (hasReleaseSigningConfig) {
-                signingConfig = signingConfigs.release
-            }
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources = enableShrinkResources.toBoolean()
-            minifyEnabled = enableMinifyInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
-            crunchPngs = enablePngCrunchInRelease.toBoolean()
-        }
-    }
-    androidResources {
-        ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
-    }
-}
-
-gradle.taskGraph.whenReady { taskGraph ->
-    def needsReleaseSigning = taskGraph.allTasks.any {
-        it.path == ':app:assembleRelease' || it.path == ':app:bundleRelease'
-    }
-
-    if (needsReleaseSigning && !hasReleaseSigningConfig) {
-        throw new GradleException(
-            'ManeComb release signing no esta configurado. Define MANECOMB_UPLOAD_STORE_FILE, ' +
-            'MANECOMB_UPLOAD_STORE_PASSWORD, MANECOMB_UPLOAD_KEY_ALIAS y MANECOMB_UPLOAD_KEY_PASSWORD ' +
-            'en android/local.properties o como variables de entorno.'
-        )
-    }
-
-    if (needsReleaseSigning && hasReleaseSigningConfig && !rootProject.file(releaseStoreFile).exists()) {
-        throw new GradleException("No existe el keystore release: ${rootProject.file(releaseStoreFile)}")
-    }
-
-    if (needsReleaseSigning && !mapboxAccessToken.startsWith('pk.')) {
-        throw new GradleException('MAPBOX_ACCESS_TOKEN publico es obligatorio para compilar Release.')
-    }
-}
-
-// Apply static values from `gradle.properties` to the `android.packagingOptions`
-// Accepts values in comma delimited lists, example:
-// android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini
-["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
-    // Split option: 'foo,bar' -> ['foo', 'bar']
-    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",");
-    // Trim all elements in place.
-    for (i in 0..<options.size()) options[i] = options[i].trim();
-    // `[] - ""` is essentially `[""].filter(Boolean)` removing all empty strings.
-    options -= ""
-
-    if (options.length > 0) {
-        println "android.packagingOptions.$prop += $options ($options.length)"
-        // Ex: android.packagingOptions.pickFirsts += '**/SCCS/**'
-        options.each {
-            android.packagingOptions[prop] += it
+            signingConfig hasReleaseSigningConfig ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
 }
@@ -263,30 +206,10 @@ gradle.taskGraph.whenReady { taskGraph ->
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
-    if (combisDetoxBundle) {
-        androidTestImplementation(project(':detox'))
-        androidTestImplementation('junit:junit:4.13.2')
-    }
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
-    }
-}
-
-// React Native new architecture regenerates codegen JNI folders during build.
-// Running CMake's external native clean after those folders are already removed
-// can make `gradlew clean` fail with stale autolinking paths. The app clean still
-// removes Gradle outputs and `.cxx`; the next build recreates native artifacts.
-tasks.configureEach { task ->
-    if (task.name.startsWith("externalNativeBuildClean")) {
-        task.enabled = false
-    }
-}
-
-tasks.named("clean").configure {
-    doFirst {
-        delete file(".cxx")
     }
 }
