@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 
 controller = Path("mobile/src/screens/chat/hooks/use-chat-controller.ts")
 text = controller.read_text()
@@ -8,7 +9,45 @@ text = text.replace(
     "        mode,\n",
     1,
 )
-controller.write_text(text)
+# Main previously imported this permission in Chat's old RTC implementation.
+# Chat no longer owns camera permissions; the global call runtime does.
+text = text.replace("  requestCameraPermissionAsync,\n", "")
+old_scroll = """  const handleChatMessagesScroll = useCallback(
+    (event: Parameters<typeof handleMessagesScroll>[0]) => {
+      handleMessagesScroll(event);
+      if (
+        event.nativeEvent.contentOffset.y <= 80 &&
+        activeConversation &&
+        activeChatPageInfo?.hasMore &&
+        !isLoadingOlderMessages
+      ) {
+        void loadOlderChatMessages(activeConversation.id);
+      }
+    },
+    [
+      activeChatPageInfo?.hasMore,
+      activeConversation,
+      handleMessagesScroll,
+      isLoadingOlderMessages,
+      loadOlderChatMessages,
+    ]
+  );"""
+new_scroll = """  const handleChatMessagesScroll = (
+    event: Parameters<typeof handleMessagesScroll>[0]
+  ) => {
+    handleMessagesScroll(event);
+    if (
+      event.nativeEvent.contentOffset.y <= 80 &&
+      activeConversation &&
+      activeChatPageInfo?.hasMore &&
+      !isLoadingOlderMessages
+    ) {
+      void loadOlderChatMessages(activeConversation.id);
+    }
+  };"""
+if old_scroll not in text:
+    raise SystemExit("Chat pagination scroll wrapper not found")
+controller.write_text(text.replace(old_scroll, new_scroll, 1))
 
 modal = Path("mobile/src/features/calls/components/active-call-modal.tsx")
 text = modal.read_text()
@@ -24,7 +63,6 @@ old_state = """  const callerName = useCallStore((state) => state.callerName);
   const direction = useCallStore((state) => state.direction);"""
 new_state = """  const callerName = useCallStore((state) => state.callerName);
   const conversationId = useCallStore((state) => state.conversationId);
-  const direction = useCallStore((state) => state.direction);
   const conversations = useAppStore((state) => state.conversations);
   const currentUserId = useAppStore((state) => state.user?.id || null);"""
 if old_state not in text:
