@@ -3,7 +3,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
 import { neonPalette } from '../constants';
 import { styles } from '../styles';
-import { formatCurrency, getPlanVisualTone } from '../utils';
+import { formatCurrency, getPlanVisualTone, isPublicDemoPlan } from '../utils';
 
 export function PlanCard({
   index,
@@ -31,11 +31,12 @@ export function PlanCard({
   const visual = getPlanVisualTone(index);
   const cardEdge = active ? visual.edge : accent;
   const compactCard = width <= 316;
+  const demoEligible = isPublicDemoPlan(plan);
   const features = [
     `${plan.units} unidades incluidas`,
     `${formatCurrency(plan.pricePerVehicle)} por unidad`,
     plan.includesRadioModule ? 'Radio incluido' : 'Radio opcional',
-    plan.trialEligible ? `Prueba de ${plan.trialDays || 7} días` : 'Activación directa',
+    demoEligible ? `Demo de ${plan.trialDays || 7} días disponible` : 'Activación directa',
   ];
 
   return (
@@ -140,6 +141,32 @@ export function PlanCard({
         ]}>
         {plan.subtitle}
       </Text>
+      {demoEligible ? (
+        <View
+          style={{
+            alignItems: 'center',
+            alignSelf: 'flex-start',
+            backgroundColor: neonPalette.cyanSoft,
+            borderColor: 'rgba(0, 194, 255, 0.36)',
+            borderRadius: 999,
+            borderWidth: 1,
+            flexDirection: 'row',
+            gap: 6,
+            minHeight: 30,
+            paddingHorizontal: 10,
+          }}>
+          <MaterialCommunityIcons name="flask-outline" size={15} color={neonPalette.cyan} />
+          <Text
+            style={{
+              color: neonPalette.cyan,
+              fontSize: 10.5,
+              fontWeight: '900',
+              letterSpacing: 0.3,
+            }}>
+            DEMO DISPONIBLE
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.planPriceRow}>
         <Text
           numberOfLines={1}
@@ -195,7 +222,7 @@ export function PlanCard({
             {userLabel}
           </Text>
         </Pressable>
-        {onTrial ? (
+        {demoEligible && onTrial ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${trialLabel || 'Probar plan'}: ${plan.name}`}
@@ -208,12 +235,12 @@ export function PlanCard({
                 styles.planTrialButton,
                 compactCard ? { minHeight: 44, paddingHorizontal: 10 } : undefined,
                 {
-                  borderColor: hovered ? neonPalette.accent : `${neonPalette.accent}88`,
-                  backgroundColor: hovered ? 'rgba(255, 45, 122, 0.2)' : neonPalette.accentSoft,
+                  borderColor: hovered ? neonPalette.cyan : `${neonPalette.cyan}88`,
+                  backgroundColor: hovered ? 'rgba(0, 194, 255, 0.18)' : neonPalette.cyanSoft,
                   transform: [{ scale: hovered ? 1.012 : 1 }],
                   ...(Platform.OS === 'web'
                     ? ({
-                        boxShadow: hovered ? `0 0 18px ${neonPalette.accent}44` : 'none',
+                        boxShadow: hovered ? `0 0 18px ${neonPalette.cyan}44` : 'none',
                         transitionDuration: '220ms',
                         transitionProperty: 'transform, box-shadow, border-color, background-color',
                         cursor: 'pointer',
@@ -223,9 +250,9 @@ export function PlanCard({
                 pressed ? styles.buttonPressed : undefined,
               ];
             }}>
-            <MaterialCommunityIcons name="credit-card-clock-outline" size={17} color={neonPalette.accent} />
+            <MaterialCommunityIcons name="flask-outline" size={17} color={neonPalette.cyan} />
             <Text
-              style={[styles.planTrialLabel, { color: neonPalette.accent }]}
+              style={[styles.planTrialLabel, { color: neonPalette.cyan }]}
               numberOfLines={compactCard ? 2 : 1}>
               {trialLabel}
             </Text>
