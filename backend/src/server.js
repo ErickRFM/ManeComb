@@ -11,6 +11,7 @@ const {
   EMAIL_ENABLED, EMAIL_DRY_RUN, EMAIL_FROM, EMAIL_FROM_NAME,
   PORTAL_PUBLIC_URL, REDIS_PERSISTENCE_ENABLED, REDIS_MAXMEMORY_POLICY
 } = require("./config/env");
+const { assertPlatformSecurityConfiguration } = require("./config/platform-security");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
@@ -20,6 +21,14 @@ const { registerSocketServer } = require("./sockets");
 const logger = require("./services/logger");
 
 async function startServer() {
+  const platformSecurity = assertPlatformSecurityConfiguration();
+  logger.info({
+    action: "PlatformSecurityConfiguration",
+    metadata: platformSecurity,
+    module: "Platform",
+    status: platformSecurity.ready ? "ready" : platformSecurity.configured ? "degraded" : "disabled"
+  });
+
   await connectDB();
   await connectRedis();
   communication.configure({

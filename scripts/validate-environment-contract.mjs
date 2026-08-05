@@ -93,6 +93,11 @@ if (backend.get('EMAIL_DRY_RUN') !== 'true') {
 if (backend.get('CLIENT_ORIGIN')?.includes('*') && !backend.get('CLIENT_ORIGIN')?.includes('*.manecomb1.pages.dev')) {
   fail('backend/.env.example: CLIENT_ORIGIN no debe usar wildcard global');
 }
+for (const requiredOrigin of ['https://admin.manecomb.com', 'http://localhost:5174']) {
+  if (!backend.get('CLIENT_ORIGIN')?.includes(requiredOrigin)) {
+    fail(`backend/.env.example: CLIENT_ORIGIN debe incluir ${requiredOrigin}`);
+  }
+}
 
 for (const [name, entries] of [
   ['ventas/.env.example', ventas],
@@ -138,6 +143,30 @@ for (const file of ['ventas/public/_redirects', 'admin-global/public/_redirects'
 const ci = read('.github/workflows/ci.yml');
 if (ci.includes('VITE_API_URL: https://manecomb.onrender.com')) {
   fail('CI no debe depender del backend real de Produccion para compilar');
+}
+
+const backendPackage = JSON.parse(read('backend/package.json'));
+const platformTestCommand = backendPackage.scripts?.['test:platform'] || '';
+for (const testFile of ['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js']) {
+  if (!platformTestCommand.includes(testFile)) fail(`backend/package.json: test:platform no ejecuta ${testFile}`);
+}
+if (!String(backendPackage.scripts?.test || '').includes('npm run test:platform')) {
+  fail('backend/package.json: npm test debe ejecutar test:platform');
+}
+
+const platformAuthService = read('backend/src/modules/platform/platform-auth-service.js');
+const platformAuthMiddleware = read('backend/src/middlewares/platform-auth.js');
+if (platformAuthService.includes('isMfaRequired(user.role) && isMfaOperational()')) {
+  fail('Platform Auth conserva el patrón MFA fail-open');
+}
+if (!platformAuthService.includes('mfaRequired && !isMfaOperational()')) {
+  fail('Platform Auth no niega login cuando MFA no está operativo');
+}
+if (!platformAuthMiddleware.includes('mfaRequired && !isMfaOperational()')) {
+  fail('Middleware Platform no niega acceso cuando MFA no está operativo');
+}
+if (!read('backend/src/server.js').includes('assertPlatformSecurityConfiguration')) {
+  fail('Backend no valida la configuración Platform antes de escuchar tráfico');
 }
 
 const dockerfile = read('backend/Dockerfile');
