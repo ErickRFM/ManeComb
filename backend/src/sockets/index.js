@@ -11,6 +11,10 @@ const { ingestVehicleLocation } = require("../services/vehicle-location-ingestio
 const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
 const { createRtcCallService } = require("../services/rtc-call-service");
 const {
+  buildChatMessageId,
+  normalizeClientMessageId
+} = require("../services/chat-message-idempotency");
+const {
   appendFrame,
   FRAME_BASE64_LENGTH,
   FRAME_BYTES,
@@ -1007,11 +1011,14 @@ function registerSocketServer(server, store) {
         return;
       }
 
+      const clientIdentity = payload.clientMessageId || payload.packetId || "";
+      const safeClientMessageId = normalizeClientMessageId(clientIdentity);
       if (
         !(await canUseOperations(socket)) ||
         !conversationId ||
         !senderId ||
         (!text?.trim() && payload.kind !== "audio") ||
+        (clientIdentity && !safeClientMessageId) ||
         !(await store.canUserAccessConversation?.(authenticatedUser.id, conversationId))
       ) {
         acknowledge(ack, { ok: false, error: "forbidden_or_invalid_payload" });
@@ -1019,26 +1026,46 @@ function registerSocketServer(server, store) {
         return;
       }
 
+      const messageId = safeClientMessageId
+        ? buildChatMessageId({
+            organizationId: getOrganizationId(authenticatedUser),
+            conversationId,
+            senderId,
+            clientMessageId: safeClientMessageId
+          })
+        : undefined;
       const message = await store.addMessage(
         conversationId,
         senderId,
         payload.kind === "audio"
-          ? payload
-          : text.trim()
+          ? { ...payload, messageId }
+          : { kind: "text", text: text.trim(), messageId }
       );
 
       if (message) {
-        io.to(`conversation:${conversationId}`).emit("chat:message", message);
+        const deduplicated = Boolean(message.deduplicated);
+        const responseMessage = { ...message };
+        delete responseMessage.deduplicated;
+        if (!deduplicated) {
+          io.to(`conversation:${conversationId}`).emit("chat:message", responseMessage);
+          incrementMetric("chat_messages_total", 1, { transport: "socket" });
+          if (payload.kind === "audio") {
+            incrementMetric("radio_transmissions_total", 1, { transport: "socket" });
+          }
+        }
         acknowledge(ack, {
           ok: true,
-          messageId: message.id,
-          packetId: String(payload.packetId || "")
+          messageId: responseMessage.id,
+          packetId: String(payload.packetId || ""),
+          deduplicated
         });
-        incrementMetric("chat_messages_total", 1, { transport: "socket" });
-        if (payload.kind === "audio") {
-          incrementMetric("radio_transmissions_total", 1, { transport: "socket" });
-        }
-        observeSocketEvent(socket, "chat:send", startedAt, "success", { conversationId });
+        observeSocketEvent(
+          socket,
+          "chat:send",
+          startedAt,
+          deduplicated ? "duplicate" : "success",
+          { conversationId }
+        );
       }
     });
 

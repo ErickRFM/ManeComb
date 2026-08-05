@@ -630,11 +630,37 @@ export async function getMessagesRequest(conversationId: string) {
   return response.data.data;
 }
 
+export type ChatMessagePageInfo = {
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export async function getMessagesPageRequest(
+  conversationId: string,
+  options: { before?: string | null; limit?: number } = {}
+) {
+  const response = await apiClient.get<{
+    ok: boolean;
+    data: ChatMessage[];
+    pageInfo: ChatMessagePageInfo;
+  }>(`/chat/conversations/${conversationId}/messages`, {
+    params: {
+      limit: options.limit || 50,
+      ...(options.before ? { before: options.before } : {}),
+    },
+  });
+  return {
+    items: response.data.data,
+    pageInfo: response.data.pageInfo,
+  };
+}
+
 export async function sendMessageRequest(
   conversationId: string,
   payload: {
     text?: string;
     textPreview?: string;
+    clientMessageId?: string;
     e2eeEnvelope?: {
       version: string;
       nonce: string;

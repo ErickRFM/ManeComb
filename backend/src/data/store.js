@@ -3156,6 +3156,19 @@ function createEmbeddedStore() {
     if (!canUserAccessConversation(senderId, conversation)) {
       return null;
     }
+    const requestedMessageId =
+      text && typeof text === "object" ? String(text.messageId || "").trim() : "";
+    const existingIdempotentMessage = requestedMessageId
+      ? state.chatMessages.find(
+          (entry) => entry.id === requestedMessageId && entry.conversationId === conversationId
+        )
+      : null;
+    if (existingIdempotentMessage) {
+      return {
+        ...clone(serializeConversationMessage(existingIdempotentMessage, conversationId)),
+        deduplicated: true
+      };
+    }
 
     const message = buildStoredConversationMessage(senderId, text);
     const existingMessage = getStoredConversationMessages(conversationId).find(
@@ -3175,7 +3188,7 @@ function createEmbeddedStore() {
         conversation.unreadBy[participantId] = (conversation.unreadBy[participantId] || 0) + 1;
       });
 
-    return clone(serializeConversationMessage(message, conversationId));
+    return { ...clone(serializeConversationMessage(message, conversationId)), deduplicated: false };
   }
 
   function canUserAccessChatMedia(userId, storageKey) {

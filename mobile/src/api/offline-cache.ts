@@ -85,6 +85,7 @@ export type PendingSyncOperation =
       payload: {
         conversationId: string;
         text: string;
+        clientMessageId?: string;
       };
     }
   | {

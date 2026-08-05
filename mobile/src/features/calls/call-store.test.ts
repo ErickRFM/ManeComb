@@ -212,9 +212,11 @@ describe('call-store signaling global', () => {
     );
     const content = fs.readFileSync(file, 'utf8');
     expect(content.includes('io(SOCKET_URL')).toBe(false);
-    expect(content.includes('getSharedRealtimeSocket()')).toBe(true);
-    expect(content.includes('Join RTC room when entering a conversation')).toBe(false);
-    expect(content.includes('abrir una conversacion YA NO ejecuta rtc:join')).toBe(true);
+    expect(content.includes('getSharedRealtimeSocket()')).toBe(false);
+    expect(content.includes('useCallStore')).toBe(true);
+    expect(content.includes('startCall')).toBe(true);
+    expect(content.includes('rtc:join')).toBe(false);
+    expect(content.includes('RTCPeerConnection')).toBe(false);
   });
 });
 

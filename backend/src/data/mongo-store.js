@@ -3821,6 +3821,7 @@ async function createMongoStore() {
       if (!duplicate || String(duplicate.conversationId) !== String(conversationId)) throw error;
       const duplicateSender = await UserModel.findById(duplicate.senderId).lean();
       return {
+        deduplicated: true,
         ...serializeChatMessageEntry(duplicate, conversationId),
         sender: sanitizeUser(duplicateSender)
       };
@@ -3835,6 +3836,7 @@ async function createMongoStore() {
     const sender = await UserModel.findById(senderId).lean();
 
     return {
+      deduplicated: false,
       ...serializeChatMessageEntry(message, conversationId),
       sender: sanitizeUser(sender)
     };

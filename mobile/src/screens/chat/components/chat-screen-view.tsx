@@ -1,18 +1,31 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { FlatList, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
-import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { formatRelativeTime, formatRole } from '@/src/utils/format';
 import { PresenceDot } from '@/src/components/presence-indicator';
 import { getPresencePresentation, getPresenceStatus } from '@/src/utils/presence';
 import type { ChatDirectoryContact } from '@/src/types/app';
 import type { DirectoryMode, LocalTextMessage } from '../types';
-import { formatDuration, formatMessageTime, getConversationContact, getConversationDisplayTitle, getConversationIconName, getConversationPreview, getConversationSubline, getMessageDeliveryStatus, isSystemMessage } from '../utils/conversation';
+import {
+  formatMessageTime,
+  getConversationContact,
+  getConversationDisplayTitle,
+  getConversationIconName,
+  getConversationPreview,
+  getConversationSubline,
+  getMessageDeliveryStatus,
+  isSystemMessage,
+} from '../utils/conversation';
 import { ChatComposer } from './chat-composer';
 import { ChatHeader } from './chat-header';
-import { CallMediaTile, ImageMessageBubble, MessageDeliveryMeta, VideoMessageBubble, VoiceMessageBubble } from './message-media';
+import {
+  ImageMessageBubble,
+  MessageDeliveryMeta,
+  VideoMessageBubble,
+  VoiceMessageBubble,
+} from './message-media';
 import type { useChatController } from '../hooks/use-chat-controller';
 
 export type ChatScreenViewProps = ReturnType<typeof useChatController>;
@@ -20,19 +33,13 @@ export type ChatScreenViewProps = ReturnType<typeof useChatController>;
 export function ChatScreenView(props: ChatScreenViewProps) {
   const {
     activeAudioMessageId,
-    activeCallSession,
     activeContact,
     activeConversation,
     activeMessageItems,
     attachmentMenuOpen,
     attachmentMenuMode,
-    callElapsedSeconds,
     callNotice,
-    callParticipants,
-    callStatusLabel,
-    callTone,
     canStartCall,
-    closeActiveCall,
     startCall,
     conversationFilterCounts,
     directoryHelperText,
@@ -41,17 +48,16 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleMediaPicked,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
-    handleMessagesScroll,
+    handleChatMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     handleRetryTextMessage,
     handleSelectConversation,
-    isCallMuted,
-    isCameraEnabled,
+    hasOlderMessages,
     isCompact,
+    isLoadingOlderMessages,
     isMobileConversation,
     isPhone,
-    localStreamRef,
     messagesListRef,
     setActiveAudioMessageId,
     setAttachmentMenuOpen,
@@ -62,11 +68,9 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     sortedOperationalContacts,
     styles,
     theme,
-    toggleCallMute,
-    toggleCamera,
     presenceByUser,
     token,
-    typingByConversation,
+    activeTypingUsers,
     user,
   } = props;
   const presenceFor = (userId?: string | null) => getPresenceStatus(presenceByUser, userId);
@@ -79,9 +83,7 @@ export function ChatScreenView(props: ChatScreenViewProps) {
         styles.container,
         isMobileConversation ? styles.containerConversationOnly : undefined,
       ]}
-      header={
-        isMobileConversation ? null : <ChatHeader {...props} />
-      }
+      header={isMobileConversation ? null : <ChatHeader {...props} />}
       hideMobileToolbar={isMobileConversation}>
       <View style={styles.layout}>
         {showDirectoryPanel ? (
@@ -194,16 +196,19 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
                   return (
                     <Pressable
-                      onPress={() => {
-                        handleSelectConversation(conversation.id);
-                      }}
+                      onPress={() => handleSelectConversation(conversation.id)}
                       style={[
                         styles.conversationTile,
                         isActive ? styles.conversationTileActive : undefined,
                       ]}>
                       <View style={styles.tileLead}>
                         {conversation.kind === 'direct' && contact ? (
-                          <UserAvatar user={contact} status={presenceFor(contact.id)} showStatus size={42} />
+                          <UserAvatar
+                            user={contact}
+                            status={presenceFor(contact.id)}
+                            showStatus
+                            size={42}
+                          />
                         ) : (
                           <View style={styles.groupAvatar}>
                             <MaterialCommunityIcons
@@ -230,12 +235,16 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                             </Text>
                             {conversation.unreadCount ? (
                               <View style={styles.unreadBubble}>
-                                <Text style={styles.unreadBubbleText}>{conversation.unreadCount}</Text>
+                                <Text style={styles.unreadBubbleText}>
+                                  {conversation.unreadCount}
+                                </Text>
                               </View>
                             ) : null}
                           </View>
                           <View style={styles.tileStatusRow}>
-                            {conversation.kind === 'direct' ? <PresenceDot status={presenceFor(contact?.id)} size={8} /> : null}
+                            {conversation.kind === 'direct' ? (
+                              <PresenceDot status={presenceFor(contact?.id)} size={8} />
+                            ) : null}
                             <Text style={styles.tileStatusText} numberOfLines={1}>
                               {conversation.kind === 'group'
                                 ? 'Canal operativo'
@@ -250,21 +259,25 @@ export function ChatScreenView(props: ChatScreenViewProps) {
 
                 if (item.type === 'contact') {
                   const { contact } = item;
-
                   return (
                     <View style={styles.contactRow}>
                       <View style={styles.tileLead}>
-                        <UserAvatar user={contact} status={presenceFor(contact.id)} showStatus size={42} />
+                        <UserAvatar
+                          user={contact}
+                          status={presenceFor(contact.id)}
+                          showStatus
+                          size={42}
+                        />
                         <View style={styles.tileCopy}>
                           <Text style={styles.tileTitle} numberOfLines={1}>
                             {contact.name}
                           </Text>
                           <Text style={styles.tileMeta} numberOfLines={1}>
-                            {formatRole(contact.role)} | {getPresencePresentation(presenceFor(contact.id)).label}
+                            {formatRole(contact.role)} |{' '}
+                            {getPresencePresentation(presenceFor(contact.id)).label}
                           </Text>
                         </View>
                       </View>
-
                       <Pressable
                         onPress={() => { handleOpenDirect(contact.id, 'chat'); }}
                         style={styles.contactActionButton}>
@@ -312,7 +325,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           onPress={() => setMobilePane('directory')}
                           style={styles.headerBackButton}
                           accessibilityLabel="Volver a canales">
-                          <MaterialCommunityIcons name="arrow-left" size={22} color={theme.colors.text} />
+                          <MaterialCommunityIcons
+                            name="arrow-left"
+                            size={22}
+                            color={theme.colors.text}
+                          />
                         </Pressable>
                       ) : null}
 
@@ -338,12 +355,15 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           {getConversationDisplayTitle(activeConversation)}
                         </Text>
                         <Text style={styles.conversationSubtitle} numberOfLines={1}>
-                          {getConversationSubline(activeConversation, activeContact)}  |  {activeConversation.kind === 'direct' ? getPresencePresentation(presenceFor(activeContact?.id)).label : 'Canal operativo'}
+                          {getConversationSubline(activeConversation, activeContact)} |{' '}
+                          {activeConversation.kind === 'direct'
+                            ? getPresencePresentation(presenceFor(activeContact?.id)).label
+                            : 'Canal operativo'}
                         </Text>
                       </View>
                     </View>
 
-                    {!activeCallSession && canStartCall ? (
+                    {canStartCall ? (
                       <View style={styles.conversationHeaderActions}>
                         <Pressable
                           onPress={() => startCall('audio')}
@@ -357,7 +377,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           accessibilityLabel="Iniciar llamada de audio"
                           accessibilityHint="Inicia una llamada de audio con esta conversacion">
                           {({ pressed }) => (
-                            <MaterialCommunityIcons name="phone-outline" size={22} color={pressed ? '#FFFFFF' : theme.colors.accent} />
+                            <MaterialCommunityIcons
+                              name="phone-outline"
+                              size={22}
+                              color={pressed ? '#FFFFFF' : theme.colors.accent}
+                            />
                           )}
                         </Pressable>
                         <Pressable
@@ -372,115 +396,23 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                           accessibilityLabel="Iniciar videollamada"
                           accessibilityHint="Inicia una videollamada con esta conversacion">
                           {({ pressed }) => (
-                            <MaterialCommunityIcons name="video-outline" size={22} color={pressed ? '#FFFFFF' : theme.colors.info} />
+                            <MaterialCommunityIcons
+                              name="video-outline"
+                              size={22}
+                              color={pressed ? '#FFFFFF' : theme.colors.info}
+                            />
                           )}
                         </Pressable>
                       </View>
-                    ) : !activeCallSession ? (
-                      <Text style={styles.sectionHint}>Las llamadas grupales se realizan en Radio.</Text>
-                    ) : null}
+                    ) : (
+                      <Text style={styles.sectionHint}>
+                        Las llamadas grupales se realizan en Radio.
+                      </Text>
+                    )}
                   </View>
                 </View>
 
-                {activeCallSession ? (
-                  <View style={styles.callHub}>
-                    <View style={styles.callHubHeader}>
-                      <View style={styles.callHubCopy}>
-                        <Text style={styles.callHubTitle}>Cabina en vivo</Text>
-
-                      </View>
-                      <StatusPill label={callStatusLabel} tone={callTone} />
-                    </View>
-
-                    <View style={styles.callStage}>
-                      <CallMediaTile
-                        stream={activeCallSession.remoteStream}
-                        label={activeConversation.title}
-                        caption={
-                          activeCallSession.phase === 'connected'
-                            ? 'Conectado'
-                            : 'Esperando respuesta'
-                        }
-                        mode={activeCallSession.mode}
-                        muted={false}
-                      />
-                      <CallMediaTile
-                        stream={localStreamRef.current}
-                        label="Tu"
-                        caption={
-                          isCallMuted
-                            ? 'Microfono en silencio'
-                            : activeCallSession.mode === 'video'
-                              ? 'Camara lista'
-                              : 'Audio listo'
-                        }
-                        mode={activeCallSession.mode}
-                        muted
-                        isSelf
-                      />
-                    </View>
-
-                    <View style={styles.callControlRow}>
-                      <Pressable
-                        onPress={toggleCallMute}
-                        style={[
-                          styles.callControlButton,
-                          isCallMuted ? styles.callControlButtonActive : undefined,
-                        ]}>
-                        <MaterialCommunityIcons
-                          name={isCallMuted ? 'microphone-off' : 'microphone'}
-                          size={18}
-                          color="#FFFFFF"
-                        />
-                        <Text style={styles.callControlText}>
-                          {isCallMuted ? 'Activar micro' : 'Silenciar'}
-                        </Text>
-                      </Pressable>
-
-                      {activeCallSession.mode === 'video' ? (
-                        <Pressable
-                          onPress={toggleCamera}
-                          style={[
-                            styles.callControlButtonSecondary,
-                            !isCameraEnabled ? styles.callControlButtonSecondaryActive : undefined,
-                          ]}>
-                          <MaterialCommunityIcons
-                            name={isCameraEnabled ? 'video-outline' : 'video-off-outline'}
-                            size={18}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.callControlText}>
-                            {isCameraEnabled ? 'Pausar camara' : 'Encender camara'}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-
-                      <Pressable
-                        onPress={() =>
-                          closeActiveCall({
-                            reason: 'Llamada finalizada.',
-                          })
-                        }
-                        style={styles.callControlButtonDanger}>
-                        <MaterialCommunityIcons name="phone-hangup" size={18} color="#FFFFFF" />
-                        <Text style={styles.callControlText}>Colgar</Text>
-                      </Pressable>
-                    </View>
-
-                    <View style={styles.callMetaRow}>
-                      <StatusPill label={`${Math.max(callParticipants.length, 1)} en cabina`} tone="info" />
-                      <StatusPill label={formatDuration(callElapsedSeconds)} tone="neutral" />
-                      {activeCallSession.mode === 'video' ? (
-                        <StatusPill
-                          label={isCameraEnabled ? 'Camara activa' : 'Camara pausada'}
-                          tone={isCameraEnabled ? 'positive' : 'neutral'}
-                        />
-                      ) : null}
-                    </View>
-
-                    {callNotice ? <Text style={styles.callHubNotice}>{callNotice}</Text> : null}
-                  </View>
-                ) : callNotice ? (
+                {callNotice ? (
                   <View style={styles.callHub}>
                     <Text style={styles.callHubNotice} accessibilityLiveRegion="polite">
                       {callNotice}
@@ -500,9 +432,24 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   automaticallyAdjustKeyboardInsets={false}
                   onContentSizeChange={handleMessagesContentSizeChange}
                   onLayout={handleMessagesLayout}
-                  onScroll={handleMessagesScroll}
+                  onScroll={handleChatMessagesScroll}
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
+                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+                  ListHeaderComponent={
+                    isLoadingOlderMessages ? (
+                      <View style={styles.typingIndicator}>
+                        <ActivityIndicator size="small" color={theme.colors.info} />
+                        <Text style={styles.typingIndicatorText}>Cargando mensajes anteriores…</Text>
+                      </View>
+                    ) : hasOlderMessages ? (
+                      <View style={styles.typingIndicator}>
+                        <Text style={styles.typingIndicatorText}>
+                          Desliza hasta arriba para cargar mensajes anteriores.
+                        </Text>
+                      </View>
+                    ) : null
+                  }
                   renderItem={({ item }) => {
                     if (item.type === 'date') {
                       return (
@@ -518,122 +465,137 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                     const isSystem = isSystemMessage(message);
                     const localTextMessage = message as LocalTextMessage;
                     const canRetryMessage =
-                      localTextMessage.localStatus === 'failed' && Boolean(localTextMessage.retryText);
+                      localTextMessage.localStatus === 'failed' &&
+                      Boolean(localTextMessage.retryText);
 
-                      return (
+                    return (
+                      <View
+                        key={message.id}
+                        style={[
+                          styles.messageRow,
+                          isOwn ? styles.messageRowOwn : undefined,
+                          isSystem ? styles.messageRowSystem : undefined,
+                        ]}>
+                        {!isOwn && !isSystem ? (
+                          <UserAvatar
+                            user={message.sender || activeContact}
+                            status={presenceFor(message.sender?.id || activeContact?.id)}
+                            size={34}
+                          />
+                        ) : null}
+
                         <View
-                          key={message.id}
                           style={[
-                            styles.messageRow,
-                            isOwn ? styles.messageRowOwn : undefined,
-                            isSystem ? styles.messageRowSystem : undefined,
+                            styles.messageBubble,
+                            isOwn ? styles.messageBubbleOwn : undefined,
+                            !isOwn ? styles.messageBubbleOther : undefined,
+                            isSystem ? styles.systemMessageBubble : undefined,
+                            message.kind === 'audio' ? styles.messageBubbleAudio : undefined,
+                            message.kind === 'image' || message.kind === 'video'
+                              ? styles.messageBubbleMedia
+                              : undefined,
                           ]}>
-                          {!isOwn && !isSystem ? (
-                            <UserAvatar
-                              user={message.sender || activeContact}
-                              status={presenceFor(message.sender?.id || activeContact?.id)}
-                              size={34}
+                          <View style={styles.messageHeader}>
+                            {isSystem ? (
+                              <MaterialCommunityIcons
+                                name="clipboard-pulse-outline"
+                                size={15}
+                                color={theme.colors.warning}
+                              />
+                            ) : null}
+                            <Text
+                              style={[
+                                styles.messageSender,
+                                isSystem ? styles.systemMessageSender : undefined,
+                                isOwn && !isSystem ? styles.messageSenderOwn : undefined,
+                              ]}>
+                              {isSystem
+                                ? 'Evento operativo'
+                                : isOwn
+                                  ? 'Tu'
+                                  : message.sender?.name ||
+                                    activeConversation.title ||
+                                    'Operacion'}
+                            </Text>
+                            {!isOwn || isSystem ? (
+                              <Text style={styles.messageMeta}>
+                                {formatMessageTime(message.createdAt)}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {message.kind === 'audio' ? (
+                            <VoiceMessageBubble
+                              isActive={activeAudioMessageId === message.id}
+                              isOwn={isOwn}
+                              message={message}
+                              onActivate={setActiveAudioMessageId}
+                              onDeactivate={() => {
+                                setActiveAudioMessageId((current) =>
+                                  current === message.id ? null : current
+                                );
+                              }}
+                              token={token}
+                              isCompact={isCompact}
+                              isPhone={isPhone}
+                            />
+                          ) : message.kind === 'image' ? (
+                            <ImageMessageBubble
+                              message={message}
+                              token={token}
+                              isCompact={isCompact}
+                              isPhone={isPhone}
+                            />
+                          ) : message.kind === 'video' ? (
+                            <VideoMessageBubble
+                              message={message}
+                              token={token}
+                              isCompact={isCompact}
+                              isPhone={isPhone}
+                            />
+                          ) : (
+                            <Text
+                              style={[
+                                styles.messageText,
+                                isOwn && !isSystem ? styles.messageTextOwn : undefined,
+                              ]}>
+                              {message.text}
+                            </Text>
+                          )}
+
+                          {deliveryStatus && !isSystem ? (
+                            <MessageDeliveryMeta
+                              status={deliveryStatus}
+                              isOwn={isOwn}
+                              time={formatMessageTime(message.createdAt)}
+                              isCompact={isCompact}
+                              isPhone={isPhone}
                             />
                           ) : null}
 
-                          <View
-                            style={[
-                              styles.messageBubble,
-                              isOwn ? styles.messageBubbleOwn : undefined,
-                              !isOwn ? styles.messageBubbleOther : undefined,
-                              isSystem ? styles.systemMessageBubble : undefined,
-                              message.kind === 'audio' ? styles.messageBubbleAudio : undefined,
-                              (message.kind === 'image' || message.kind === 'video') ? styles.messageBubbleMedia : undefined,
-                            ]}>
-                            <View style={styles.messageHeader}>
-                              {isSystem ? (
-                                <MaterialCommunityIcons
-                                  name="clipboard-pulse-outline"
-                                  size={15}
-                                  color={theme.colors.warning}
-                                />
-                              ) : null}
+                          {canRetryMessage ? (
+                            <Pressable
+                              onPress={() => { handleRetryTextMessage(localTextMessage); }}
+                              style={styles.retryMessageButton}
+                              accessibilityRole="button"
+                              accessibilityLabel="Reintentar mensaje">
+                              <MaterialCommunityIcons
+                                name="refresh"
+                                size={14}
+                                color={isOwn ? '#FFFFFF' : theme.colors.danger}
+                              />
                               <Text
                                 style={[
-                                  styles.messageSender,
-                                  isSystem ? styles.systemMessageSender : undefined,
-                                  isOwn && !isSystem ? styles.messageSenderOwn : undefined,
+                                  styles.retryMessageText,
+                                  isOwn ? styles.retryMessageTextOwn : undefined,
                                 ]}>
-                                {isSystem
-                                  ? 'Evento operativo'
-                                  : isOwn
-                                    ? 'Tu'
-                                    : message.sender?.name || activeConversation.title || 'Operacion'}
+                                Reintentar
                               </Text>
-                              {!isOwn || isSystem ? (
-                                <Text style={styles.messageMeta}>
-                                  {formatMessageTime(message.createdAt)}
-                                </Text>
-                              ) : null}
-                            </View>
-
-                            {message.kind === 'audio' ? (
-                              <VoiceMessageBubble
-                                isActive={activeAudioMessageId === message.id}
-                                isOwn={isOwn}
-                                message={message}
-                                onActivate={setActiveAudioMessageId}
-                                onDeactivate={() => {
-                                  setActiveAudioMessageId((current) =>
-                                    current === message.id ? null : current
-                                  );
-                                }}
-                                token={token}
-                                isCompact={isCompact}
-                                isPhone={isPhone}
-                              />
-                            ) : message.kind === 'image' ? (
-                              <ImageMessageBubble message={message} token={token} isCompact={isCompact} isPhone={isPhone} />
-                            ) : message.kind === 'video' ? (
-                              <VideoMessageBubble message={message} token={token} isCompact={isCompact} isPhone={isPhone} />
-                            ) : (
-                              <Text
-                                style={[
-                                   styles.messageText,
-                                   isOwn && !isSystem ? styles.messageTextOwn : undefined,
-                                 ]}>
-                                {message.text}
-                              </Text>
-                            )}
-
-                            {deliveryStatus && !isSystem ? (
-                              <MessageDeliveryMeta
-                                status={deliveryStatus}
-                                isOwn={isOwn}
-                                time={formatMessageTime(message.createdAt)}
-                                isCompact={isCompact}
-                                isPhone={isPhone}
-                              />
-                            ) : null}
-
-                            {canRetryMessage ? (
-                              <Pressable
-                                onPress={() => { handleRetryTextMessage(localTextMessage); }}
-                                style={styles.retryMessageButton}
-                                accessibilityRole="button"
-                                accessibilityLabel="Reintentar mensaje">
-                                <MaterialCommunityIcons
-                                  name="refresh"
-                                  size={14}
-                                  color={isOwn ? '#FFFFFF' : theme.colors.danger}
-                                />
-                                <Text
-                                  style={[
-                                    styles.retryMessageText,
-                                    isOwn ? styles.retryMessageTextOwn : undefined,
-                                  ]}>
-                                  Reintentar
-                                </Text>
-                              </Pressable>
-                            ) : null}
-                          </View>
+                            </Pressable>
+                          ) : null}
                         </View>
-                      );
+                      </View>
+                    );
                   }}
                   ListEmptyComponent={
                     <View style={styles.emptyState}>
@@ -642,18 +604,18 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                         size={28}
                         color={theme.colors.muted}
                       />
-                      <Text style={styles.emptyTitle}>
-                        Sin mensajes
-                      </Text>
+                      <Text style={styles.emptyTitle}>Sin mensajes</Text>
                     </View>
                   }
                 />
 
-                {activeConversation && typingByConversation[activeConversation.id]?.length ? (
+                {activeTypingUsers.length ? (
                   <View style={styles.typingIndicator}>
                     <Text style={styles.typingIndicatorText}>
-                      {typingByConversation[activeConversation.id].map(t => t.userName).join(', ')}
-                      {typingByConversation[activeConversation.id].length === 1 ? ' esta escribiendo...' : ' estan escribiendo...'}
+                      {activeTypingUsers.map((entry) => entry.userName).join(', ')}
+                      {activeTypingUsers.length === 1
+                        ? ' esta escribiendo...'
+                        : ' estan escribiendo...'}
                     </Text>
                   </View>
                 ) : null}
@@ -661,7 +623,11 @@ export function ChatScreenView(props: ChatScreenViewProps) {
               </>
             ) : (
               <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="forum-outline" size={28} color={theme.colors.muted} />
+                <MaterialCommunityIcons
+                  name="forum-outline"
+                  size={28}
+                  color={theme.colors.muted}
+                />
                 <Text style={styles.emptyTitle}>Selecciona un canal</Text>
               </View>
             )}
@@ -684,65 +650,93 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                 </Text>
               </View>
             </View>
-            {attachmentMenuMode === 'conversation' ? <View style={styles.sheetMediaOptions}>
-              <Pressable
-                style={styles.sheetMediaButton}
-                onPress={() => {
-                  setAttachmentMenuOpen(false);
-                  handleMediaPicked('camera');
-                }}>
-                <MaterialCommunityIcons name="camera" size={22} color={theme.colors.text} />
-                <Text style={styles.sheetMediaLabel}>Camara</Text>
-              </Pressable>
-              <Pressable
-                style={styles.sheetMediaButton}
-                onPress={() => {
-                  setAttachmentMenuOpen(false);
-                  handleMediaPicked('gallery');
-                }}>
-                <MaterialCommunityIcons name="image-multiple-outline" size={22} color={theme.colors.text} />
-                <Text style={styles.sheetMediaLabel}>Galeria</Text>
-              </Pressable>
-            </View> : null}
+            {attachmentMenuMode === 'conversation' ? (
+              <View style={styles.sheetMediaOptions}>
+                <Pressable
+                  style={styles.sheetMediaButton}
+                  onPress={() => {
+                    setAttachmentMenuOpen(false);
+                    handleMediaPicked('camera');
+                  }}>
+                  <MaterialCommunityIcons name="camera" size={22} color={theme.colors.text} />
+                  <Text style={styles.sheetMediaLabel}>Camara</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.sheetMediaButton}
+                  onPress={() => {
+                    setAttachmentMenuOpen(false);
+                    handleMediaPicked('gallery');
+                  }}>
+                  <MaterialCommunityIcons
+                    name="image-multiple-outline"
+                    size={22}
+                    color={theme.colors.text}
+                  />
+                  <Text style={styles.sheetMediaLabel}>Galeria</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
-            {attachmentMenuMode === 'directory' ? <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
-              {sortedOperationalContacts.map((contact) => {
-                const unitLabel =
-                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).unit ||
-                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicle ||
-                  (contact as ChatDirectoryContact & { unit?: string; vehicle?: string; vehicleName?: string }).vehicleName ||
-                  formatRole(contact.role);
-                const contactPresence = presenceFor(contact.id);
+            {attachmentMenuMode === 'directory' ? (
+              <ScrollView
+                style={styles.sheetList}
+                contentContainerStyle={styles.sheetListContent}>
+                {sortedOperationalContacts.map((contact) => {
+                  const unitLabel =
+                    (contact as ChatDirectoryContact & {
+                      unit?: string;
+                      vehicle?: string;
+                      vehicleName?: string;
+                    }).unit ||
+                    (contact as ChatDirectoryContact & {
+                      unit?: string;
+                      vehicle?: string;
+                      vehicleName?: string;
+                    }).vehicle ||
+                    (contact as ChatDirectoryContact & {
+                      unit?: string;
+                      vehicle?: string;
+                      vehicleName?: string;
+                    }).vehicleName ||
+                    formatRole(contact.role);
+                  const contactPresence = presenceFor(contact.id);
 
-                return (
-                  <Pressable
-                    key={contact.id}
-                    style={styles.driverActionRow}
-                    onPress={() => {
-                      setAttachmentMenuOpen(false);
-                      handleOpenDirect(contact.id, 'chat');
-                    }}>
-                    <UserAvatar user={contact} status={contactPresence} showStatus size={42} />
-                    <View style={styles.driverActionCopy}>
-                      <Text style={styles.driverActionName} numberOfLines={1}>
-                        {contact.name}
-                      </Text>
-                      <Text style={styles.driverActionUnit} numberOfLines={1}>
-                        {unitLabel}
-                      </Text>
-                    </View>
-                    <View style={styles.driverStatusPill}>
-                      <PresenceDot status={contactPresence} size={8} />
-                      <Text style={styles.driverStatusText}>{getPresencePresentation(contactPresence).label}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView> : null}
+                  return (
+                    <Pressable
+                      key={contact.id}
+                      style={styles.driverActionRow}
+                      onPress={() => {
+                        setAttachmentMenuOpen(false);
+                        handleOpenDirect(contact.id, 'chat');
+                      }}>
+                      <UserAvatar
+                        user={contact}
+                        status={contactPresence}
+                        showStatus
+                        size={42}
+                      />
+                      <View style={styles.driverActionCopy}>
+                        <Text style={styles.driverActionName} numberOfLines={1}>
+                          {contact.name}
+                        </Text>
+                        <Text style={styles.driverActionUnit} numberOfLines={1}>
+                          {unitLabel}
+                        </Text>
+                      </View>
+                      <View style={styles.driverStatusPill}>
+                        <PresenceDot status={contactPresence} size={8} />
+                        <Text style={styles.driverStatusText}>
+                          {getPresencePresentation(contactPresence).label}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
-
     </AppShell>
   );
 }

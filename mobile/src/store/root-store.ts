@@ -36,6 +36,7 @@ import {
   getOperationalUnitsRequest,
   getActiveRouteSessionRequest,
   getRouteSessionHistoryRequest,
+  getMessagesPageRequest,
   getMessagesRequest,
   getNotificationsRequest,
   getOperationalObservabilityRequest,
@@ -119,6 +120,7 @@ import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/naviga
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
 import { isRealtimeAuthError } from '@/src/utils/realtime-state';
+import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/chat-message-id';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -155,6 +157,11 @@ export function getSharedRealtimeSocket() {
 type ActionResult = {
   ok: boolean;
   message?: string;
+};
+
+type ChatPageInfo = {
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 type NetworkStatus = 'unknown' | 'online' | 'offline' | 'recovering';
@@ -223,6 +230,8 @@ export type AppState = {
   chatContacts: ChatDirectoryContact[];
   presenceByUser: Record<string, 'online' | 'offline'>;
   messagesByConversation: Record<string, ChatMessage[]>;
+  chatPageInfoByConversation: Record<string, ChatPageInfo>;
+  isLoadingOlderChatByConversation: Record<string, boolean>;
   documents: DocumentItem[];
   notifications: NotificationItem[];
   observability: OperationalObservabilitySnapshot | null;
@@ -275,6 +284,8 @@ export type AppState = {
   updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
   loadConversation: (conversationId: string) => Promise<void>;
+  loadChatConversation: (conversationId: string) => Promise<void>;
+  loadOlderChatMessages: (conversationId: string) => Promise<void>;
   loadChatContacts: () => Promise<void>;
   openDirectConversation: (
     targetUserId: string,
@@ -284,7 +295,7 @@ export type AppState = {
     channelMode?: ConversationChannelMode,
     options?: { setActive?: boolean }
   ) => Promise<ConversationSummary | null>;
-  sendMessage: (conversationId: string, text: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
+  sendMessage: (conversationId: string, text: string, clientMessageId?: string) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendVoiceMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   sendMediaMessage: (conversationId: string, formData: FormData) => Promise<ActionResult & { messageRecord?: ChatMessage }>;
   createIncident: (draft: IncidentDraft) => Promise<boolean>;
@@ -311,6 +322,8 @@ function getEmptyOperationalState(): Partial<AppState> {
     chatContacts: [],
     presenceByUser: {},
     messagesByConversation: {},
+    chatPageInfoByConversation: {},
+    isLoadingOlderChatByConversation: {},
     documents: [],
     notifications: [],
     observability: null,
@@ -1740,15 +1753,20 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
         } else if (operation.type === 'chat:sendMessage') {
           const state = get();
           if (!state.user) throw new Error('No hay una sesion activa para sincronizar el mensaje');
+          const durableClientMessageId =
+            normalizeClientMessageId(operation.payload.clientMessageId) || operation.id;
           await sendMessageRequest(
             operation.payload.conversationId,
-            await buildTextMessagePayload({
-              conversation: state.conversations.find(
-                (entry) => entry.id === operation.payload.conversationId
-              ) || null,
-              user: state.user,
-              text: operation.payload.text,
-            })
+            {
+              ...(await buildTextMessagePayload({
+                conversation: state.conversations.find(
+                  (entry) => entry.id === operation.payload.conversationId
+                ) || null,
+                user: state.user,
+                text: operation.payload.text,
+              })),
+              clientMessageId: durableClientMessageId,
+            }
           );
         } else if (operation.type === 'chat:sendVoice') {
           const { conversationId, fileUri, fileName, fileType, durationSeconds, caption } = operation.payload;
@@ -1797,7 +1815,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
+  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2107,9 +2125,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       const aid = curr.activeConversationId || data.conversations?.[0]?.id || null;
       if (aid) {
         try {
-          const ms = await getMessagesRequest(aid);
-          const hms = await hydrateMessages(ms, data.conversations || curr.conversations, get().user, aid);
+          const availableConversations = data.conversations || curr.conversations;
+          const activeConversation = availableConversations.find(
+            (conversation: ConversationSummary) => conversation.id === aid
+          );
+          const page = activeConversation?.channelMode === 'chat'
+            ? await getMessagesPageRequest(aid)
+            : null;
+          const ms = page ? page.items : await getMessagesRequest(aid);
+          const hms = await hydrateMessages(ms, availableConversations, get().user, aid);
           data.messagesByConversation = { ...curr.messagesByConversation, [aid]: hms };
+          if (page) {
+            data.chatPageInfoByConversation = {
+              ...curr.chatPageInfoByConversation,
+              [aid]: page.pageInfo,
+            };
+          }
           data.activeConversationId = aid;
         } catch (error) {
           logStoreError('refreshAll:messages', error);
@@ -2224,7 +2255,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }
   },
-  sendMessage: async (cid, t) => {
+  sendMessage: async (cid, t, requestedClientMessageId) => {
+    const clientMessageId =
+      normalizeClientMessageId(requestedClientMessageId) || createClientMessageId();
     const { user } = get();
     if (!t.trim() || !user) {
       return { ok: false, message: 'El mensaje no puede ir vacio.' };
@@ -2234,7 +2267,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const conversation = get().conversations.find(e => e.id === cid) || null;
       const m = await sendMessageRequest(
         cid,
-        await buildTextMessagePayload({ conversation, user, text: t })
+        {
+          ...(await buildTextMessagePayload({ conversation, user, text: t })),
+          clientMessageId,
+        }
       );
       const h = await hydrateConversationMessage(m, conversation, user);
       set(s => ({
@@ -2250,6 +2286,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           payload: {
             conversationId: cid,
             text: t.trim(),
+            clientMessageId,
           },
         });
         await refreshPendingSyncCount(set);
@@ -2435,6 +2472,68 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) { logStoreError('loadConversation', error); }
     finally { set({ isLoadingConversation: false }); }
   },
+  loadChatConversation: async (id) => {
+    set({ isLoadingConversation: true });
+    try {
+      const page = await getMessagesPageRequest(id);
+      const hydrated = await hydrateMessages(page.items, get().conversations, get().user, id);
+      set(state => ({
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [id]: mergeConversationMessages(state.messagesByConversation[id] || [], hydrated),
+        },
+        chatPageInfoByConversation: {
+          ...state.chatPageInfoByConversation,
+          [id]: page.pageInfo,
+        },
+      }));
+      socket?.emit('conversation:join', id);
+    } catch (error) {
+      logStoreError('loadChatConversation', error);
+    } finally {
+      set({ isLoadingConversation: false });
+    }
+  },
+  loadOlderChatMessages: async (id) => {
+    const current = get();
+    const pageInfo = current.chatPageInfoByConversation[id];
+    if (
+      current.isLoadingOlderChatByConversation[id] ||
+      !pageInfo?.hasMore ||
+      !pageInfo.nextCursor
+    ) {
+      return;
+    }
+    set(state => ({
+      isLoadingOlderChatByConversation: {
+        ...state.isLoadingOlderChatByConversation,
+        [id]: true,
+      },
+    }));
+    try {
+      const page = await getMessagesPageRequest(id, { before: pageInfo.nextCursor });
+      const hydrated = await hydrateMessages(page.items, get().conversations, get().user, id);
+      set(state => ({
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [id]: mergeConversationMessages(hydrated, state.messagesByConversation[id] || []),
+        },
+        chatPageInfoByConversation: {
+          ...state.chatPageInfoByConversation,
+          [id]: page.pageInfo,
+        },
+      }));
+    } catch (error) {
+      logStoreError('loadOlderChatMessages', error);
+    } finally {
+      set(state => ({
+        isLoadingOlderChatByConversation: {
+          ...state.isLoadingOlderChatByConversation,
+          [id]: false,
+        },
+      }));
+    }
+  },
   loadChatContacts: async () => {
     set({ isLoadingChatContacts: true });
     try {
@@ -2461,10 +2560,37 @@ export const useAppStore = create<AppState>((set, get) => ({
           status: get().presenceByUser[participant.id] || 'offline',
         })),
       };
-      const [ms, cc] = await Promise.all([getMessagesRequest(c.id), getChatContactsRequest()]);
+      const [page, cc] = await Promise.all([
+        m === 'chat'
+          ? getMessagesPageRequest(c.id)
+          : getMessagesRequest(c.id).then(items => ({
+              items,
+              pageInfo: { hasMore: false, nextCursor: null },
+            })),
+        getChatContactsRequest(),
+      ]);
       const ncs = upsertConversation(get().conversations, c);
-      const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, chatContacts: cc.map(contact => ({ ...contact, status: s.presenceByUser[contact.id] || 'offline' })), activeConversationId: c.id, messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
+      const hms = await hydrateMessages(page.items, ncs, get().user, c.id);
+      set(s => ({
+        conversations: ncs,
+        chatContacts: cc.map(contact => ({
+          ...contact,
+          status: s.presenceByUser[contact.id] || 'offline',
+        })),
+        activeConversationId: c.id,
+        messagesByConversation: {
+          ...s.messagesByConversation,
+          [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms),
+        },
+        ...(m === 'chat'
+          ? {
+              chatPageInfoByConversation: {
+                ...s.chatPageInfoByConversation,
+                [c.id]: page.pageInfo,
+              },
+            }
+          : {}),
+      }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openDirectConversation', error); return null; }
   },
@@ -2481,10 +2607,30 @@ export const useAppStore = create<AppState>((set, get) => ({
           status: get().presenceByUser[participant.id] || 'offline',
         })),
       };
-      const ms = await getMessagesRequest(c.id);
+      const page = m === 'chat'
+        ? await getMessagesPageRequest(c.id)
+        : {
+            items: await getMessagesRequest(c.id),
+            pageInfo: { hasMore: false, nextCursor: null },
+          };
       const ncs = upsertConversation(get().conversations, c);
-      const hms = await hydrateMessages(ms, ncs, get().user, c.id);
-      set(s => ({ conversations: ncs, ...(setActive ? { activeConversationId: c.id } : {}), messagesByConversation: { ...s.messagesByConversation, [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms) } }));
+      const hms = await hydrateMessages(page.items, ncs, get().user, c.id);
+      set(s => ({
+        conversations: ncs,
+        ...(setActive ? { activeConversationId: c.id } : {}),
+        messagesByConversation: {
+          ...s.messagesByConversation,
+          [c.id]: mergeConversationMessages(s.messagesByConversation[c.id] || [], hms),
+        },
+        ...(m === 'chat'
+          ? {
+              chatPageInfoByConversation: {
+                ...s.chatPageInfoByConversation,
+                [c.id]: page.pageInfo,
+              },
+            }
+          : {}),
+      }));
       socket?.emit('conversation:join', c.id); return c;
     } catch (error) { logStoreError('openGeneralConversation', error); return null; }
   },
@@ -2617,7 +2763,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const m = i.target === 'radio' ? 'radio' : i.channelMode || 'chat';
       if (i.conversationId) {
         if (!get().conversations.some(c => c.id === i.conversationId)) await get().refreshAll().catch(() => {});
-        set({ activeConversationId: i.conversationId }); await get().loadConversation(i.conversationId); return;
+        set({ activeConversationId: i.conversationId });
+        if (i.target === 'chat') await get().loadChatConversation(i.conversationId);
+        else await get().loadConversation(i.conversationId);
+        return;
       }
       await get().openGeneralConversation(m); return;
     }

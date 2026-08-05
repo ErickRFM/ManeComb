@@ -1,15 +1,26 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useVideoPlayer, VideoView } from '@/src/native/video';
-import { getAudioPlaybackErrorMessage, useAudioPlayer, useAudioPlayerStatus } from '@/src/native/audio';
-import { createElement, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Platform, Pressable, Share, Text, View } from 'react-native';
+import {
+  getAudioPlaybackErrorMessage,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+} from '@/src/native/audio';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Modal,
+  Pressable,
+  Share,
+  Text,
+  View,
+} from 'react-native';
 import { resolveAssetUrl } from '@/src/api/client';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatDuration } from '../utils/conversation';
-import type { CallMode, MessageDeliveryStatus } from '../types';
+import type { MessageDeliveryStatus } from '../types';
 import { createStyles } from '../chat-screen.styles';
-import { RTCViewComponent } from '@/src/native/webrtc';
 
 export function MessageDeliveryMeta({
   status,
@@ -25,7 +36,10 @@ export function MessageDeliveryMeta({
   isPhone?: boolean;
 }) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, isCompact ?? false, isPhone ?? false), [theme, isCompact, isPhone]);
+  const styles = useMemo(
+    () => createStyles(theme, isCompact ?? false, isPhone ?? false),
+    [theme, isCompact, isPhone]
+  );
   const config = {
     sending: {
       icon: 'clock-outline',
@@ -61,7 +75,9 @@ export function MessageDeliveryMeta({
       accessibilityLabel={config.label}
       accessibilityHint="Estado del mensaje"
       style={styles.deliveryMeta}>
-      {time ? <Text style={[styles.deliveryMetaText, { color: config.color }]}>{time}</Text> : null}
+      {time ? (
+        <Text style={[styles.deliveryMetaText, { color: config.color }]}>{time}</Text>
+      ) : null}
       {status === 'sending' ? (
         <ActivityIndicator size={12} color={config.color} />
       ) : (
@@ -91,7 +107,10 @@ export function VoiceMessageBubble({
   isPhone?: boolean;
 }) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, isCompact ?? false, isPhone ?? false), [theme, isCompact, isPhone]);
+  const styles = useMemo(
+    () => createStyles(theme, isCompact ?? false, isPhone ?? false),
+    [theme, isCompact, isPhone]
+  );
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const resolvedAudioUrl = resolveAssetUrl(message.audioUrl);
   const player = useAudioPlayer(
@@ -163,7 +182,7 @@ export function VoiceMessageBubble({
     }
 
     try {
-      if (playerStatus?.playing) {
+      if (playerStatus.playing) {
         await player.pause();
         return;
       }
@@ -171,7 +190,7 @@ export function VoiceMessageBubble({
       onActivate(message.id);
 
       if (
-        playerStatus?.isLoaded &&
+        playerStatus.isLoaded &&
         playerStatus.duration > 0 &&
         playerStatus.currentTime >= playerStatus.duration
       ) {
@@ -186,7 +205,13 @@ export function VoiceMessageBubble({
   };
 
   return (
-    <Pressable onPress={() => { handlePlayback(); }} style={styles.voiceMessageCard}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={isPlaying ? 'Pausar nota de voz' : 'Reproducir nota de voz'}
+      onPress={() => {
+        void handlePlayback();
+      }}
+      style={styles.voiceMessageCard}>
       <View style={[styles.voicePlayButton, isOwn ? styles.voicePlayButtonOwn : undefined]}>
         {isLoading ? (
           <ActivityIndicator color={isOwn ? theme.colors.accent : '#FFFFFF'} />
@@ -200,7 +225,11 @@ export function VoiceMessageBubble({
       </View>
 
       <View style={styles.voiceCopy}>
-        <View style={[styles.voiceProgressTrack, isOwn ? styles.voiceProgressTrackOwn : undefined]}>
+        <View
+          style={[
+            styles.voiceProgressTrack,
+            isOwn ? styles.voiceProgressTrackOwn : undefined,
+          ]}>
           <View
             style={[
               styles.voiceProgressFill,
@@ -211,7 +240,8 @@ export function VoiceMessageBubble({
         </View>
         <View style={styles.voiceMetaRow}>
           <Text style={[styles.voiceMeta, isOwn ? styles.voiceMetaOwn : undefined]}>
-            {formatDuration(currentSeconds)} / {formatDuration(durationSeconds || message.durationSeconds || 0)}
+            {formatDuration(currentSeconds)} /{' '}
+            {formatDuration(durationSeconds || message.durationSeconds || 0)}
           </Text>
           <Text style={[styles.voiceStateText, isOwn ? styles.voiceMetaOwn : undefined]}>
             {stateLabel}
@@ -234,24 +264,42 @@ export function VoiceMessageBubble({
   );
 }
 
-export function ImageMessageBubble({ message, token, isCompact, isPhone }: { message: ChatMessage; token: string | null; isCompact?: boolean; isPhone?: boolean }) {
+export function ImageMessageBubble({
+  message,
+  token,
+  isCompact,
+  isPhone,
+}: {
+  message: ChatMessage;
+  token: string | null;
+  isCompact?: boolean;
+  isPhone?: boolean;
+}) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, isCompact ?? false, isPhone ?? false), [theme, isCompact, isPhone]);
+  const styles = useMemo(
+    () => createStyles(theme, isCompact ?? false, isPhone ?? false),
+    [theme, isCompact, isPhone]
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const resolvedUrl = resolveAssetUrl(message.imageUrl);
-  const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
+  const headers = useMemo(
+    () => (token ? { Authorization: `Bearer ${token}` } : undefined),
+    [token]
+  );
 
   if (!resolvedUrl) return null;
 
   return (
     <View style={styles.mediaContainer}>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={hasError ? 'Reintentar imagen' : 'Abrir imagen'}
         onPress={() => {
           if (hasError) {
-            setRetryKey(current => current + 1);
+            setRetryKey((current) => current + 1);
             setHasError(false);
             setIsLoading(true);
             return;
@@ -285,7 +333,11 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
         ) : null}
         {hasError ? (
           <View style={styles.mediaErrorBox}>
-            <MaterialCommunityIcons name="image-off-outline" size={24} color={theme.colors.warning} />
+            <MaterialCommunityIcons
+              name="image-off-outline"
+              size={24}
+              color={theme.colors.warning}
+            />
             <Text style={[styles.mediaStateText, { color: theme.colors.warning }]}>
               No se pudo cargar la imagen. Toca para reintentar.
             </Text>
@@ -294,40 +346,72 @@ export function ImageMessageBubble({ message, token, isCompact, isPhone }: { mes
       </Pressable>
       {message.text ? <Text style={styles.mediaCaption}>{message.text}</Text> : null}
 
-      <Modal visible={isFullscreen} transparent={true} onRequestClose={() => setIsFullscreen(false)}>
+      <Modal
+        visible={isFullscreen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsFullscreen(false)}>
         <View style={styles.fullscreenOverlay}>
-          <Pressable style={styles.closeFullscreen} onPress={() => setIsFullscreen(false)}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar imagen"
+            style={styles.closeFullscreen}
+            onPress={() => setIsFullscreen(false)}>
             <MaterialCommunityIcons name="close" size={30} color="#FFFFFF" />
           </Pressable>
           <Pressable
-            style={styles.downloadFullscreen}
+            accessibilityRole="button"
             accessibilityLabel="Compartir imagen"
+            style={styles.downloadFullscreen}
             onPress={() => {
-              Share.share({ url: resolvedUrl, message: resolvedUrl }).catch(() => undefined);
+              void Share.share({ url: resolvedUrl, message: resolvedUrl });
             }}>
             <MaterialCommunityIcons name="share-variant" size={26} color="#FFFFFF" />
           </Pressable>
-          <Image source={{ uri: resolvedUrl, headers }} style={styles.fullscreenImage} resizeMode="contain" />
+          <Image
+            source={{ uri: resolvedUrl, headers }}
+            style={styles.fullscreenImage}
+            resizeMode="contain"
+          />
         </View>
       </Modal>
     </View>
   );
 }
 
-export function VideoMessageBubble({ message, token, isCompact, isPhone }: { message: ChatMessage; token: string | null; isCompact?: boolean; isPhone?: boolean }) {
+export function VideoMessageBubble({
+  message,
+  token,
+  isCompact,
+  isPhone,
+}: {
+  message: ChatMessage;
+  token: string | null;
+  isCompact?: boolean;
+  isPhone?: boolean;
+}) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, isCompact ?? false, isPhone ?? false), [theme, isCompact, isPhone]);
+  const styles = useMemo(
+    () => createStyles(theme, isCompact ?? false, isPhone ?? false),
+    [theme, isCompact, isPhone]
+  );
   const resolvedUrl = resolveAssetUrl(message.videoUrl);
-  const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
+  const headers = useMemo(
+    () => (token ? { Authorization: `Bearer ${token}` } : undefined),
+    [token]
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const playbackUrl = resolvedUrl
     ? `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}retry=${retryKey}`
     : null;
-  const player = useVideoPlayer(playbackUrl ? { uri: playbackUrl, headers } : null, (videoPlayer) => {
-    videoPlayer.loop = false;
-  });
+  const player = useVideoPlayer(
+    playbackUrl ? { uri: playbackUrl, headers } : null,
+    (videoPlayer) => {
+      videoPlayer.loop = false;
+    }
+  );
 
   useEffect(() => {
     if (player.status.isLoaded) {
@@ -338,23 +422,29 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
       setHasError(true);
       setIsLoading(false);
     }
-  }, [player.status.isLoaded, player.status.error]);
+  }, [player.status.error, player.status.isLoaded]);
 
   if (!resolvedUrl) return null;
 
   return (
     <View style={styles.mediaContainer}>
       <Pressable
-        disabled={hasError}
+        accessibilityRole="button"
+        accessibilityLabel={hasError ? 'Reintentar video' : 'Video del mensaje'}
+        disabled={!hasError}
         onPress={() => {
-          if (hasError) {
-            setHasError(false);
-            setIsLoading(true);
-            setRetryKey(current => current + 1);
-          }
+          setHasError(false);
+          setIsLoading(true);
+          setRetryKey((current) => current + 1);
         }}
         style={styles.mediaPreviewShell}>
-        <VideoView player={player} style={styles.messageVideo} allowsFullscreen allowsPictureInPicture nativeControls />
+        <VideoView
+          player={player}
+          style={styles.messageVideo}
+          allowsFullscreen
+          allowsPictureInPicture
+          nativeControls
+        />
         {isLoading ? (
           <View style={styles.mediaLoadingOverlay}>
             <ActivityIndicator color="#FFFFFF" />
@@ -363,7 +453,11 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
         ) : null}
         {hasError ? (
           <View style={styles.mediaErrorBox}>
-            <MaterialCommunityIcons name="video-off-outline" size={24} color={theme.colors.warning} />
+            <MaterialCommunityIcons
+              name="video-off-outline"
+              size={24}
+              color={theme.colors.warning}
+            />
             <Text style={[styles.mediaStateText, { color: theme.colors.warning }]}>
               No se pudo cargar el video. Toca para reintentar.
             </Text>
@@ -371,96 +465,6 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
         ) : null}
       </Pressable>
       {message.text ? <Text style={styles.mediaCaption}>{message.text}</Text> : null}
-    </View>
-  );
-}
-
-export function CallMediaTile({
-  stream,
-  label,
-  caption,
-  mode,
-  muted,
-  isSelf = false,
-}: {
-  stream: MediaStream | null;
-  label: string;
-  caption: string;
-  mode: CallMode;
-  muted: boolean;
-  isSelf?: boolean;
-}) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, false, false), [theme]);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const hasVideoTrack = Boolean(
-    stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
-  );
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  const showVideo = hasVideoTrack && mode === 'video';
-  const RTCView = Platform.OS === 'web' ? null : RTCViewComponent;
-
-  return (
-    <View style={[styles.callTile, isSelf ? styles.callTileSelf : undefined]}>
-      {Platform.OS === 'web' && showVideo
-        ? createElement('video', {
-            autoPlay: true,
-            playsInline: true,
-            muted,
-            ref: videoRef as any,
-            style: {
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              backgroundColor: '#000000',
-            },
-          })
-        : RTCView && showVideo
-          ? createElement(RTCView as any, {
-              streamURL: (stream as any)?.toURL?.() || '',
-              objectFit: 'cover',
-              mirror: isSelf,
-              zOrder: isSelf ? 1 : 0,
-              style: {
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                backgroundColor: '#000000',
-              },
-            })
-          : null}
-
-      {!showVideo ? (
-        <View style={styles.callTileFallback}>
-          <View style={[styles.callTileIconShell, isSelf ? styles.callTileIconShellSelf : undefined]}>
-            <MaterialCommunityIcons
-              name={mode === 'video' ? 'video-outline' : 'phone-outline'}
-              size={28}
-              color="#FFFFFF"
-            />
-          </View>
-        </View>
-      ) : null}
-
-      <View style={styles.callTileFooter}>
-        <Text style={styles.callTileLabel}>{label}</Text>
-        <Text style={styles.callTileCaption}>{caption}</Text>
-      </View>
     </View>
   );
 }

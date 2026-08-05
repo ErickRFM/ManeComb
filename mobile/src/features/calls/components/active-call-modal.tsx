@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RTCViewComponent } from '@/src/native/webrtc';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { useAppStore } from '@/src/store/use-app-store';
 import { useCallStore } from '../call-store';
 import type { CallPhase } from '../call-types';
 
@@ -129,7 +130,9 @@ export function ActiveCallModal(): React.ReactElement | null {
   const phase = useCallStore((state) => state.phase);
   const mode = useCallStore((state) => state.mode);
   const callerName = useCallStore((state) => state.callerName);
-  const direction = useCallStore((state) => state.direction);
+  const conversationId = useCallStore((state) => state.conversationId);
+  const conversations = useAppStore((state) => state.conversations);
+  const currentUserId = useAppStore((state) => state.user?.id || null);
   const elapsedSeconds = useCallStore((state) => state.elapsedSeconds);
   const failureCode = useCallStore((state) => state.failureCode);
   const isMuted = useCallStore((state) => state.isMuted);
@@ -147,9 +150,9 @@ export function ActiveCallModal(): React.ReactElement | null {
 
   const isTerminal = phase === 'ENDING' || phase === 'FAILED';
   const isVideo = mode === 'video';
-  const title = direction === 'incoming'
-    ? callerName || 'Contacto operativo'
-    : 'Contacto operativo';
+  const conversation = conversations.find((entry) => entry.id === conversationId) || null;
+  const peer = conversation?.participants.find((participant) => participant.id !== currentUserId) || null;
+  const title = callerName || peer?.name || conversation?.title || 'Contacto operativo';
   const subtitle = phase === 'FAILED' ? failureCopy(failureCode) : phaseCopy(phase);
 
   return (
