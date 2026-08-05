@@ -1,8 +1,7 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque B — Maquina de estados global de llamadas (pura).
-// Transicion UNICA y explicita (`reduce`). Sin booleanos contradictorios; el `phase` es la verdad.
-// Bloque B NO alcanza CONNECTED (eso requiere media real = Bloque C).
+// RC-RTC-FINALIZATION-20260805 — Maquina de estados global y pura.
+// `phase` es la unica verdad del lifecycle; los eventos invalidos son no-op idempotentes.
 
-import type { CallState, CallEndResult, IncomingCallPayload, CallMode } from './call-types';
+import type { CallEndResult, CallMode, CallState, IncomingCallPayload } from './call-types';
 
 export function initialCallState(): CallState {
   return {
@@ -26,7 +25,6 @@ export function initialCallState(): CallState {
 
 export const isIdle = (state: CallState): boolean => state.phase === 'IDLE';
 
-// "Ocupado" para responder busy: cualquier fase distinta de IDLE (y no un cierre ya mostrado).
 export const isBusyPhase = (state: CallState): boolean =>
   state.phase !== 'IDLE' && state.phase !== 'ENDING' && state.phase !== 'FAILED';
 
@@ -34,16 +32,24 @@ export const matchesCall = (state: CallState, callId: string | null | undefined)
   Boolean(callId) && state.callId === callId;
 
 export type CallEvent =
-  | { type: 'OUTGOING_RINGING'; callId: string; conversationId: string; mode: CallMode; roomId: string | null; peerUserId?: string | null; now: number }
+  | {
+      type: 'OUTGOING_RINGING';
+      callId: string;
+      conversationId: string;
+      mode: CallMode;
+      roomId: string | null;
+      peerUserId?: string | null;
+      now: number;
+    }
   | { type: 'INCOMING'; payload: IncomingCallPayload; now: number }
   | { type: 'LOCAL_ACCEPT'; now: number }
   | { type: 'REMOTE_ACCEPTED'; roomId?: string | null; now: number }
   | { type: 'CONNECTED'; now: number }
+  | { type: 'RECONNECTING' }
   | { type: 'END'; result: CallEndResult; now: number }
   | { type: 'FAIL'; failureCode: string; now: number }
   | { type: 'RESET' };
 
-// Transiciones permitidas. Un evento invalido para la fase actual NO muta el estado (idempotente/seguro).
 export function reduce(state: CallState, event: CallEvent): CallState {
   switch (event.type) {
     case 'OUTGOING_RINGING': {
@@ -61,7 +67,6 @@ export function reduce(state: CallState, event: CallEvent): CallState {
       };
     }
     case 'INCOMING': {
-      // Solo desde IDLE. Duplicado del mismo callId o estar ocupado => sin cambio (lo maneja el store).
       if (state.phase !== 'IDLE') return state;
       const { payload } = event;
       return {
@@ -83,12 +88,25 @@ export function reduce(state: CallState, event: CallEvent): CallState {
     }
     case 'REMOTE_ACCEPTED': {
       if (state.phase !== 'OUTGOING_RINGING') return state;
-      return { ...state, phase: 'CONNECTING', acceptedAt: event.now, roomId: event.roomId ?? state.roomId };
+      return {
+        ...state,
+        phase: 'CONNECTING',
+        acceptedAt: event.now,
+        roomId: event.roomId ?? state.roomId,
+      };
     }
     case 'CONNECTED': {
-      // C.6: solo desde CONNECTING (tras verificar 2 participantes + peer connected + audio remoto).
-      if (state.phase !== 'CONNECTING') return state;
-      return { ...state, phase: 'CONNECTED', connectedAt: event.now };
+      if (state.phase !== 'CONNECTING' && state.phase !== 'RECONNECTING') return state;
+      return {
+        ...state,
+        phase: 'CONNECTED',
+        connectedAt: state.connectedAt ?? event.now,
+        failureCode: null,
+      };
+    }
+    case 'RECONNECTING': {
+      if (state.phase !== 'CONNECTED') return state;
+      return { ...state, phase: 'RECONNECTING' };
     }
     case 'END': {
       if (state.phase === 'IDLE') return state;
@@ -96,7 +114,13 @@ export function reduce(state: CallState, event: CallEvent): CallState {
     }
     case 'FAIL': {
       if (state.phase === 'IDLE') return state;
-      return { ...state, phase: 'FAILED', failureCode: event.failureCode, endResult: 'failed', endedAt: event.now };
+      return {
+        ...state,
+        phase: 'FAILED',
+        failureCode: event.failureCode,
+        endResult: 'failed',
+        endedAt: event.now,
+      };
     }
     case 'RESET':
       return initialCallState();

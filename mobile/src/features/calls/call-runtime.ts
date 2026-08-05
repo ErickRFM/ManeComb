@@ -1,7 +1,5 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque C.2/C.3/C.5/C.7/C.8 — Runtime nativo: PROPIETARIO UNICO del
-// peer, media, candidatos, negociacion y cleanup de UNA llamada. Vive en features/calls (no en Chat).
-// Las DECISIONES deterministas (offerer, cola ICE, CONNECTED, ICE config) estan en los cores puros
-// (call-ice/call-peer), aqui probados; esta capa es la glue nativa (se valida en dispositivo).
+// RC-RTC-FINALIZATION-20260805 — Runtime WebRTC global.
+// Es el propietario unico del peer, streams, signaling de media, reconexion y cleanup de una llamada.
 
 import { getRtcIceConfigRequest } from '@/src/api/client';
 import {
@@ -10,9 +8,15 @@ import {
   createRTCSessionDescription,
 } from '@/src/native/webrtc';
 
-import { resolveIceConfig, type RawIceConfig } from './call-ice';
 import { createIdempotentCleanup } from './call-cleanup';
-import { acquireLocalMedia, setMicEnabled, stopLocalMedia, type LocalMedia } from './call-media';
+import { resolveIceConfig, type RawIceConfig } from './call-ice';
+import {
+  acquireLocalMedia,
+  setCameraEnabled as setLocalCameraEnabled,
+  setMicEnabled,
+  stopLocalMedia,
+  type LocalMedia,
+} from './call-media';
 import {
   createIceQueue,
   evaluateConnected,
@@ -21,9 +25,13 @@ import {
 } from './call-peer';
 import type { CallDirection, CallMode, CallSocket } from './call-types';
 
+export const RTC_JOIN_ACK_TIMEOUT_MS = 10000;
+export const RTC_DISCONNECT_GRACE_MS = 15000;
+
 export interface CallRuntime {
   stop(): void;
   setMicEnabled(enabled: boolean): void;
+  setCameraEnabled(enabled: boolean): void;
 }
 
 export interface CallRuntimeParams {
@@ -31,35 +39,148 @@ export interface CallRuntimeParams {
   direction: CallDirection;
   mode: CallMode;
   socket: CallSocket;
+  onLocalStream?: (stream: any | null) => void;
+  onRemoteStream?: (stream: any | null) => void;
   onConnected: () => void;
+  onReconnecting?: () => void;
+  onReconnected?: () => void;
   onFailed: (code: string) => void;
-  // inyectable para pruebas/plataforma
+
+  // Dependencias inyectables para probar la glue sin cargar WebRTC nativo.
   fetchIceConfig?: () => Promise<RawIceConfig>;
+  acquireMedia?: (mode: CallMode) => Promise<LocalMedia>;
+  peerConnectionFactory?: (config: RTCConfiguration) => any;
+  schedule?: (handler: () => void, delay: number) => any;
+  cancelSchedule?: (timer: any) => void;
+  joinAckTimeoutMs?: number;
+  disconnectGraceMs?: number;
 }
 
 export type CallRuntimeFactory = (params: CallRuntimeParams) => CallRuntime;
 
-// Factory nativo por defecto. Secuencia (C.3/C.4/C.5): ICE config -> media -> peer -> join ->
-// participants -> offer/answer -> ICE -> CONNECTED. Nunca crea el peer sin ICE config valida.
+export function resolveRtcJoinFailureCode(ack: any): string {
+  const reason = String(ack?.reason || ack?.code || '').trim();
+  switch (reason) {
+    case 'busy':
+      return 'rtc_join_busy';
+    case 'forbidden':
+      return 'rtc_join_forbidden';
+    case 'not_accepted':
+      return 'rtc_join_not_accepted';
+    case 'call_ended':
+      return 'rtc_join_call_ended';
+    case 'unknown_call':
+      return 'rtc_join_unknown_call';
+    case 'ack_timeout':
+      return 'rtc_join_timeout';
+    default:
+      return 'rtc_join_failed';
+  }
+}
+
+export function payloadBelongsToCall(payload: any, callId: string): boolean {
+  if (!payload) return false;
+  if (payload.callId != null) return String(payload.callId) === callId;
+  const roomId = String(payload.roomId || '');
+  return roomId === `call:${callId}` || roomId === `rtc:call:${callId}`;
+}
+
+function countLogicalParticipants(payload: any): number {
+  const participants = Array.isArray(payload?.participants) ? payload.participants : [];
+  const logicalIds = new Set(
+    participants
+      .map((participant: any) => String(participant?.userId || participant?.socketId || '').trim())
+      .filter(Boolean)
+  );
+  return logicalIds.size;
+}
+
+function defaultPeerConnectionFactory(config: RTCConfiguration): any {
+  if (!NativeRTCPeerConnection) throw new Error('webrtc_unavailable');
+  return new NativeRTCPeerConnection(config);
+}
+
 export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
-  const { callId, direction, mode, socket, onConnected, onFailed } = params;
-  const fetchIceConfig = params.fetchIceConfig || (() => getRtcIceConfigRequest() as Promise<RawIceConfig>);
+  const {
+    callId,
+    direction,
+    mode,
+    socket,
+    onConnected,
+    onFailed,
+    onLocalStream = () => undefined,
+    onRemoteStream = () => undefined,
+    onReconnecting = () => undefined,
+    onReconnected = () => undefined,
+  } = params;
+  const fetchIceConfig =
+    params.fetchIceConfig || (() => getRtcIceConfigRequest() as Promise<RawIceConfig>);
+  const acquireMedia = params.acquireMedia || acquireLocalMedia;
+  const createPeer = params.peerConnectionFactory || defaultPeerConnectionFactory;
+  const schedule = params.schedule || ((handler: () => void, delay: number) => setTimeout(handler, delay));
+  const cancelSchedule = params.cancelSchedule || ((timer: any) => clearTimeout(timer));
+  const joinAckTimeoutMs = Math.max(250, params.joinAckTimeoutMs || RTC_JOIN_ACK_TIMEOUT_MS);
+  const disconnectGraceMs = Math.max(1000, params.disconnectGraceMs || RTC_DISCONNECT_GRACE_MS);
 
   let stopped = false;
+  let failureReported = false;
+  let joined = false;
   let peer: any = null;
   let media: LocalMedia | null = null;
   let remoteStream: any = null;
-  let connectedReported = false;
   let participantCount = 0;
+  let initialConnected = false;
+  let reconnecting = false;
+  let disconnectTimer: any = null;
+  let offerInFlight = false;
+  let initialOfferCreated = false;
+  let relayReported = false;
   const iceQueue = createIceQueue<RTCIceCandidateInit>(callId);
 
-  const fail = (code: string) => {
-    if (stopped) return;
+  const clearDisconnectTimer = (): void => {
+    if (disconnectTimer) cancelSchedule(disconnectTimer);
+    disconnectTimer = null;
+  };
+
+  const emit = (event: string, payload: Record<string, unknown> = {}): void => {
+    socket.emit(event, { callId, ...payload });
+  };
+
+  const fail = (code: string): void => {
+    if (stopped || failureReported) return;
+    failureReported = true;
+    clearDisconnectTimer();
     onFailed(code);
   };
 
-  const maybeConnected = () => {
-    if (stopped || connectedReported || !peer) return;
+  const reportRelayUsage = async (): Promise<void> => {
+    if (stopped || relayReported || !peer || typeof peer.getStats !== 'function') return;
+    relayReported = true;
+    try {
+      const stats = await peer.getStats();
+      if (stopped) return;
+      const candidates = new Map<string, any>();
+      let selectedPair: any = null;
+      stats?.forEach?.((report: any) => {
+        if (report?.type === 'local-candidate' || report?.type === 'remote-candidate') {
+          candidates.set(report.id, report);
+        }
+        if (report?.type === 'candidate-pair' && report.state === 'succeeded') {
+          if (!selectedPair || report.nominated || report.selected) selectedPair = report;
+        }
+      });
+      if (!selectedPair) return;
+      const local = candidates.get(selectedPair.localCandidateId);
+      const remote = candidates.get(selectedPair.remoteCandidateId);
+      const usedRelay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
+      emit('rtc:stats', { usedRelay: Boolean(usedRelay) });
+    } catch {
+      // Diagnostico best-effort: nunca rompe una llamada ni expone candidatos/credenciales.
+    }
+  };
+
+  const maybeConnected = (): void => {
+    if (stopped || !peer) return;
     const audio = remoteAudioSignals(remoteStream);
     const connected = evaluateConnected({
       participantCount,
@@ -67,59 +188,94 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
       hasRemoteAudioTrack: audio.hasRemoteAudioTrack,
       remoteAudioTrackLive: audio.remoteAudioTrackLive,
     });
-    if (connected) {
-      connectedReported = true;
+    if (!connected) return;
+
+    clearDisconnectTimer();
+    if (!initialConnected) {
+      initialConnected = true;
+      reconnecting = false;
       onConnected();
+      reportRelayUsage().catch(() => undefined);
+      return;
+    }
+    if (reconnecting) {
+      reconnecting = false;
+      onReconnected();
     }
   };
 
-  const emit = (event: string, payload: Record<string, unknown>) => {
-    socket.emit(event, { callId, ...payload });
-  };
+  const beginReconnecting = (): void => {
+    if (stopped || failureReported || !initialConnected || reconnecting) return;
+    reconnecting = true;
+    onReconnecting();
+    clearDisconnectTimer();
+    disconnectTimer = schedule(() => fail('reconnect_timeout'), disconnectGraceMs);
 
-  // --- Listeners de signaling (filtrados por callId; otra llamada se ignora) ---
-  const onParticipants = (payload: any) => {
-    if (stopped || !payload) return;
-    const list = Array.isArray(payload.participants) ? payload.participants : [];
-    participantCount = list.length;
-    // C.5: el CALLER es el offerer canonico; crea la offer al confirmarse los 2 usuarios.
-    if (participantCount === 2 && isCanonicalOfferer(direction)) {
-      void createAndSendOffer();
+    if (isCanonicalOfferer(direction)) {
+      try {
+        peer?.restartIce?.();
+      } catch {
+        // createOffer({iceRestart:true}) sigue siendo el intento principal.
+      }
+      createAndSendOffer(true).catch(() => undefined);
     }
-    maybeConnected();
   };
 
-  let offerCreated = false;
-  const createAndSendOffer = async () => {
-    if (stopped || offerCreated || !peer) return;
-    offerCreated = true; // evita offers duplicadas por participants repetidos/reconnect
+  const drainIce = async (): Promise<void> => {
+    if (!peer) return;
+    for (const candidate of iceQueue.drain()) {
+      try {
+        await peer.addIceCandidate(createRTCIceCandidate(candidate));
+      } catch {
+        // Un candidato individual invalido no cancela toda la negociacion.
+      }
+    }
+  };
+
+  const createAndSendOffer = async (iceRestart = false): Promise<void> => {
+    if (stopped || !peer || offerInFlight) return;
+    if (!iceRestart && initialOfferCreated) return;
+    offerInFlight = true;
+    if (!iceRestart) initialOfferCreated = true;
     try {
-      const offer = await peer.createOffer({});
-      if (stopped) return;
+      const offer = await peer.createOffer(iceRestart ? { iceRestart: true } : {});
+      if (stopped || !peer) return;
       await peer.setLocalDescription(offer);
       emit('rtc:offer', { offer, mode });
     } catch {
-      fail('negotiation_failed');
+      fail(iceRestart ? 'ice_restart_failed' : 'negotiation_failed');
+    } finally {
+      offerInFlight = false;
     }
   };
 
-  const onRemoteOffer = async (payload: any) => {
-    if (stopped || !payload || payload.callId !== callId || !peer) return; // otra llamada -> ignora
+  const onParticipants = (payload: any): void => {
+    if (stopped || !payloadBelongsToCall(payload, callId)) return;
+    participantCount = countLogicalParticipants(payload);
+    if (participantCount === 2 && isCanonicalOfferer(direction)) {
+      createAndSendOffer(false).catch(() => undefined);
+    }
+    if (initialConnected && participantCount < 2) beginReconnecting();
+    maybeConnected();
+  };
+
+  const onRemoteOffer = async (payload: any): Promise<void> => {
+    if (stopped || !payloadBelongsToCall(payload, callId) || !peer || !payload.offer) return;
     try {
       await peer.setRemoteDescription(createRTCSessionDescription(payload.offer));
       iceQueue.markRemoteReady();
       await drainIce();
       const answer = await peer.createAnswer();
-      if (stopped) return;
+      if (stopped || !peer) return;
       await peer.setLocalDescription(answer);
-      emit('rtc:answer', { answer });
+      emit('rtc:answer', { answer, mode });
     } catch {
       fail('negotiation_failed');
     }
   };
 
-  const onRemoteAnswer = async (payload: any) => {
-    if (stopped || !payload || payload.callId !== callId || !peer) return;
+  const onRemoteAnswer = async (payload: any): Promise<void> => {
+    if (stopped || !payloadBelongsToCall(payload, callId) || !peer || !payload.answer) return;
     try {
       await peer.setRemoteDescription(createRTCSessionDescription(payload.answer));
       iceQueue.markRemoteReady();
@@ -129,9 +285,13 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
     }
   };
 
-  const onRemoteIce = async (payload: any) => {
-    if (stopped || !payload || payload.callId !== callId || !peer || !payload.candidate) return;
-    // encola hasta tener remote description; luego se drena en orden
+  const onRemoteIce = async (payload: any): Promise<void> => {
+    if (
+      stopped ||
+      !payloadBelongsToCall(payload, callId) ||
+      !peer ||
+      !payload.candidate
+    ) return;
     if (!iceQueue.isRemoteReady()) {
       iceQueue.add(callId, payload.candidate);
       return;
@@ -139,40 +299,79 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
     try {
       await peer.addIceCandidate(createRTCIceCandidate(payload.candidate));
     } catch {
-      // un candidato fallido no cae la llamada
+      // Best-effort: otros candidatos pueden establecer el pair.
     }
   };
 
-  const drainIce = async () => {
-    for (const candidate of iceQueue.drain()) {
-      try {
-        await peer.addIceCandidate(createRTCIceCandidate(candidate));
-      } catch {
-        // best-effort
-      }
+  const onRoomHangup = (payload: any): void => {
+    if (!payloadBelongsToCall(payload, callId)) return;
+    fail('peer_left');
+  };
+
+  const joinAuthoritativeRoom = (): Promise<{ ok: boolean; reason?: string }> =>
+    new Promise((resolve) => {
+      let settled = false;
+      const timer = schedule(() => {
+        if (settled) return;
+        settled = true;
+        resolve({ ok: false, reason: 'ack_timeout' });
+      }, joinAckTimeoutMs);
+      socket.emit('rtc:join', { callId }, (ack: any) => {
+        if (settled) return;
+        settled = true;
+        cancelSchedule(timer);
+        resolve(ack && typeof ack === 'object' ? ack : { ok: false });
+      });
+    });
+
+  const rejoinAfterSocketReconnect = async (): Promise<void> => {
+    if (stopped || !peer || !joined) return;
+    const ack = await joinAuthoritativeRoom();
+    if (stopped) return;
+    if (!ack.ok) {
+      fail(resolveRtcJoinFailureCode(ack));
+      return;
     }
+    if (isCanonicalOfferer(direction)) {
+      createAndSendOffer(true).catch(() => undefined);
+    }
+  };
+
+  const onSocketDisconnect = (): void => beginReconnecting();
+  const onSocketConnect = (): void => {
+    if (reconnecting) rejoinAfterSocketReconnect().catch(() => fail('rtc_rejoin_failed'));
   };
 
   socket.on('rtc:participants', onParticipants);
   socket.on('rtc:offer', onRemoteOffer);
   socket.on('rtc:answer', onRemoteAnswer);
   socket.on('rtc:ice-candidate', onRemoteIce);
+  socket.on('rtc:hangup', onRoomHangup);
+  socket.on('disconnect', onSocketDisconnect);
+  socket.on('connect', onSocketConnect);
 
   const cleanup = createIdempotentCleanup([
+    () => clearDisconnectTimer(),
     () => socket.off('rtc:participants', onParticipants),
     () => socket.off('rtc:offer', onRemoteOffer),
     () => socket.off('rtc:answer', onRemoteAnswer),
     () => socket.off('rtc:ice-candidate', onRemoteIce),
+    () => socket.off('rtc:hangup', onRoomHangup),
+    () => socket.off('disconnect', onSocketDisconnect),
+    () => socket.off('connect', onSocketConnect),
     () => {
-      if (peer) {
-        peer.onicecandidate = null;
-        peer.ontrack = null;
-        peer.onconnectionstatechange = null;
-        try {
-          peer.close();
-        } catch {
-          // best-effort
-        }
+      if (joined) emit('rtc:leave');
+      joined = false;
+    },
+    () => {
+      if (!peer) return;
+      peer.onicecandidate = null;
+      peer.ontrack = null;
+      peer.onconnectionstatechange = null;
+      try {
+        peer.close();
+      } catch {
+        // best-effort
       }
       peer = null;
     },
@@ -180,24 +379,26 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
     () => {
       media = null;
       remoteStream = null;
+      onLocalStream(null);
+      onRemoteStream(null);
     },
     () => iceQueue.reset(null),
   ]);
 
-  // --- Arranque asincrono: ICE config -> media -> peer ---
-  const start = async () => {
+  const start = async (): Promise<void> => {
     const ice = await resolveIceConfig(fetchIceConfig);
     if (stopped) return;
     if (!ice.ok) {
-      fail('rtc_config_unavailable'); // NO fallback silencioso a STUN
+      fail('rtc_config_unavailable');
       return;
     }
 
     let localMedia: LocalMedia;
     try {
-      localMedia = await acquireLocalMedia(mode);
-    } catch {
-      fail('media_capture_failed');
+      localMedia = await acquireMedia(mode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      fail(message === 'video_track_unavailable' ? 'camera_unavailable' : 'media_capture_failed');
       return;
     }
     if (stopped) {
@@ -205,44 +406,61 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
       return;
     }
     media = localMedia;
+    onLocalStream(media.stream);
 
-    if (!NativeRTCPeerConnection) {
-      fail('webrtc_unavailable');
+    try {
+      peer = createPeer({ iceServers: ice.iceServers as RTCIceServer[] });
+    } catch (error) {
+      fail(error instanceof Error && error.message === 'webrtc_unavailable'
+        ? 'webrtc_unavailable'
+        : 'peer_creation_failed');
       return;
     }
-    peer = new NativeRTCPeerConnection({ iceServers: ice.iceServers as RTCIceServer[] });
-    media.audioTracks.forEach((track) => peer.addTrack(track as unknown as MediaStreamTrack, media!.stream));
+
+    media.allTracks.forEach((track) => {
+      peer.addTrack(track as any, media!.stream);
+    });
 
     peer.onicecandidate = (event: { candidate?: RTCIceCandidateInit | null }) => {
-      if (stopped || !event || !event.candidate) return;
+      if (stopped || !event?.candidate) return;
       emit('rtc:ice-candidate', { candidate: event.candidate });
     };
-    peer.ontrack = (event: { streams: any[] }) => {
+    peer.ontrack = (event: { streams?: any[]; track?: any }) => {
       if (stopped) return;
-      remoteStream = event.streams && event.streams[0] ? event.streams[0] : remoteStream;
+      remoteStream = event?.streams?.[0] || remoteStream;
+      if (remoteStream) onRemoteStream(remoteStream);
       maybeConnected();
     };
     peer.onconnectionstatechange = () => {
       if (stopped || !peer) return;
-      const cs = String(peer.connectionState || '');
-      if (cs === 'failed') fail('ice_failed');
-      else maybeConnected();
+      const state = String(peer.connectionState || '');
+      if (state === 'connected') maybeConnected();
+      else if (state === 'disconnected') beginReconnecting();
+      else if (state === 'failed' || state === 'closed') fail('ice_failed');
     };
 
-    // Unirse a la sala autoritativa por callId (C.1) — solo despues de aceptar.
-    emit('rtc:join', {});
+    const ack = await joinAuthoritativeRoom();
+    if (stopped) return;
+    if (!ack.ok) {
+      fail(resolveRtcJoinFailureCode(ack));
+      return;
+    }
+    joined = true;
   };
 
-  void start();
+  start().catch(() => fail('runtime_start_failed'));
 
   return {
-    stop() {
+    stop(): void {
       if (stopped) return;
       stopped = true;
       cleanup();
     },
-    setMicEnabled(enabled: boolean) {
+    setMicEnabled(enabled: boolean): void {
       setMicEnabled(media, enabled);
+    },
+    setCameraEnabled(enabled: boolean): void {
+      setLocalCameraEnabled(media, enabled);
     },
   };
 };
