@@ -203,7 +203,7 @@ export function PasswordRecoverySentScreen() {
     try {
       await forgotPasswordRequest(email);
       setRemaining(PASSWORD_RECOVERY_RESEND_SECONDS);
-      setFeedback({ tone: 'info', message: 'Si la cuenta existe, se procesó una nueva solicitud.' });
+      setFeedback({ tone: 'info', message: 'Solicitud enviada nuevamente. Revisa tu correo y la carpeta de spam.' });
     } catch (error) {
       setFeedback({ tone: 'error', message: getRecoveryError(error, 'request') });
     } finally {
@@ -220,7 +220,7 @@ export function PasswordRecoverySentScreen() {
   return (
     <RecoveryScaffold
       title="Revisa tu correo"
-      subtitle={`Si existe una cuenta asociada a ${maskRecoveryEmail(email)}, recibirás un enlace para crear una nueva contraseña.`}>
+      subtitle={`Solicitud recibida para ${maskRecoveryEmail(email)}. Revisa tu bandeja de entrada y spam para continuar.`}>
       {slow ? <FeedbackBox feedback={{ tone: 'info', message: 'Conectando con ManeComb…' }} /> : null}
       <FeedbackBox feedback={feedback} />
       <PrimaryButton label="Abrir correo" onPress={() => void openMail()} />
