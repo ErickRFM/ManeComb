@@ -60,13 +60,7 @@ const ChatStack = createNativeStackNavigator();
 const RadioStack = createNativeStackNavigator();
 const ChecklistStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
-// El backend corre en el tier gratuito de Render: un servicio dormido tarda
-// 30-60s en despertar. El timeout de arranque debe cubrir ese caso (va alineado
-// con COLD_START_SESSION_TIMEOUT_MS del cliente HTTP) para que un arranque en
-// frio lento no se presente como un fallo de sincronizacion.
 const BOOT_SYNC_TIMEOUT_MS = 80000;
-// A partir de aqui avisamos que el servidor se esta despertando, sin salir aun
-// del estado de carga.
 const BOOT_SLOW_NOTICE_MS = 7000;
 
 type AppStyles = ReturnType<typeof createStyles>;
@@ -129,18 +123,31 @@ function OperationalBackgroundServices() {
     let cancelled = false;
     const syncService = async () => {
       if (foregroundOwnsCapture) {
-        if (location.watcherActive || location.permission !== 'undetermined' || location.issue) {
+        const foregroundCaptureReady = location.watcherActive;
+        const foregroundCaptureUnavailable =
+          location.permission === 'denied' || location.servicesEnabled === false;
+
+        // The native service remains owner until React either starts its watcher
+        // or proves that foreground capture cannot run. This prevents a capture gap.
+        if (foregroundCaptureReady || foregroundCaptureUnavailable) {
           await stopBackgroundLocationServiceAsync().catch(() => undefined);
         }
         return;
       }
 
       const canTryStart =
-        Boolean(token && user?.vehicleId) &&
+        user?.role === 'driver' &&
+        Boolean(token && user.vehicleId) &&
         authContext?.canAccessMobile === true;
 
       if (!canTryStart) {
         await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        return;
+      }
+
+      // Wait until useLocationEngine confirms that the React watcher released
+      // ownership before starting the Android foreground service.
+      if (location.watcherActive) {
         return;
       }
 
@@ -178,9 +185,8 @@ function OperationalBackgroundServices() {
     activeRouteSession?.status,
     authContext?.canAccessMobile,
     foregroundOwnsCapture,
-    location.backgroundPermission,
-    location.issue,
     location.permission,
+    location.servicesEnabled,
     location.watcherActive,
     token,
     refreshToken,
@@ -673,8 +679,6 @@ export default function App() {
       return undefined;
     }
 
-    // Mientras la sincronizacion sigue en curso mostramos carga, no error: solo
-    // al agotarse el timeout generoso pasamos al estado recuperable.
     const slowNotice = setTimeout(() => setBootIsSlow(true), BOOT_SLOW_NOTICE_MS);
     const timeout = setTimeout(() => {
       setBootTimedOut(true);
@@ -687,8 +691,6 @@ export default function App() {
     };
   }, [hideSplash, isReady]);
 
-  // La splash nativa se oculta pronto para dar paso al loader de marca, que es
-  // quien comunica el progreso real de la sincronizacion.
   useEffect(() => {
     const timeout = setTimeout(hideSplash, 2500);
     return () => clearTimeout(timeout);

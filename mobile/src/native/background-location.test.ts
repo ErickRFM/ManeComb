@@ -36,11 +36,24 @@ describe('background location native bridge', () => {
     );
   });
 
-  it('exposes interruption status and rotated credentials', async () => {
+  it('exposes sanitized interruption and queue diagnostics', async () => {
     const { getBackgroundLocationServiceStatusAsync } = require('./background-location');
-    const status = { active: false, reason: 'auth_failed', token: 'new-access', refreshToken: 'new-refresh' };
+    const status = {
+      active: false,
+      reason: 'auth_failed',
+      vehicleId: 'vehicle-1',
+      sessionIdPresent: false,
+      trackingActive: false,
+      pendingPackets: 3,
+      droppedPackets: 1,
+      lastCapturedAt: 1,
+      lastSentAt: 2,
+      lastConfirmedAt: 3,
+    };
     mockGetServiceStatus.mockResolvedValue(status);
     await expect(getBackgroundLocationServiceStatusAsync()).resolves.toEqual(status);
+    expect(status).not.toHaveProperty('token');
+    expect(status).not.toHaveProperty('refreshToken');
   });
 
   it('stops the Android service', async () => {

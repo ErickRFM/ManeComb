@@ -19,7 +19,9 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -52,10 +54,19 @@ class ManeCombLocationService : Service(), LocationListener {
   private var lastSentLocation: Location? = null
   private val pendingLocations = ArrayDeque<JSONObject>()
   private val queueLock = Object()
+  private val scheduleHandler = Handler(Looper.getMainLooper())
   private var flushInProgress = false
   private var retryScheduled = false
   private var retryDelayMs = RETRY_BASE_MS
   private var stopAfterFlush = false
+  private var trackingActive = false
+
+  private val scheduleMonitor = object : Runnable {
+    override fun run() {
+      updateTrackingForSchedule()
+      scheduleHandler.postDelayed(this, SCHEDULE_RECHECK_MS)
+    }
+  }
 
   override fun onCreate() {
     super.onCreate()
@@ -66,6 +77,7 @@ class ManeCombLocationService : Service(), LocationListener {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
+      scheduleHandler.removeCallbacks(scheduleMonitor)
       stopTracking()
       stopAfterFlush = true
       prefs().edit().putBoolean(KEY_SERVICE_ENABLED, false).apply()
@@ -103,7 +115,7 @@ class ManeCombLocationService : Service(), LocationListener {
     loadPendingLocations()
     startForeground(NOTIFICATION_ID, buildNotification())
     registerNetworkCallback()
-    startTracking()
+    startScheduleMonitor()
     flushPendingLocations()
     return START_STICKY
   }
@@ -111,6 +123,7 @@ class ManeCombLocationService : Service(), LocationListener {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onDestroy() {
+    scheduleHandler.removeCallbacks(scheduleMonitor)
     stopTracking()
     unregisterNetworkCallback()
     super.onDestroy()
@@ -128,6 +141,7 @@ class ManeCombLocationService : Service(), LocationListener {
     }
 
     if (!isWithinSchedule()) {
+      updateTrackingForSchedule()
       return
     }
 
@@ -139,25 +153,75 @@ class ManeCombLocationService : Service(), LocationListener {
   @Deprecated("Deprecated in Android SDK")
   override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
-  override fun onProviderEnabled(provider: String) = Unit
+  override fun onProviderEnabled(provider: String) {
+    updateTrackingForSchedule()
+  }
 
-  override fun onProviderDisabled(provider: String) = Unit
+  override fun onProviderDisabled(provider: String) {
+    updateTrackingForSchedule()
+  }
+
+  private fun startScheduleMonitor() {
+    scheduleHandler.removeCallbacks(scheduleMonitor)
+    scheduleHandler.post(scheduleMonitor)
+  }
+
+  private fun updateTrackingForSchedule() {
+    if (!isWithinSchedule()) {
+      stopTracking()
+      setServiceStatus(true, "outside_schedule")
+      return
+    }
+
+    if (!hasLocationPermission()) {
+      stopTracking()
+      setServiceStatus(true, "permission_denied")
+      return
+    }
+
+    if (!hasEnabledLocationProvider()) {
+      stopTracking()
+      setServiceStatus(true, "services_disabled")
+      return
+    }
+
+    setServiceStatus(true, null)
+    startTracking()
+  }
 
   private fun startTracking() {
-    if (apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank() || !hasLocationPermission()) {
+    if (trackingActive || apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank() || !hasLocationPermission()) {
       return
     }
 
     val manager = locationManager ?: return
+    var registeredProvider = false
+
     try {
       manager.removeUpdates(this)
-      manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
-      manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+
+      if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+        manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+        registeredProvider = true
+      }
+
+      if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+        manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+        registeredProvider = true
+      }
+
+      trackingActive = registeredProvider
+      prefs().edit().putBoolean(KEY_TRACKING_ACTIVE, trackingActive).apply()
     } catch (error: SecurityException) {
+      trackingActive = false
+      prefs().edit().putBoolean(KEY_TRACKING_ACTIVE, false).apply()
       Log.w(TAG, "Location permission changed while starting service.", error)
-      stopSelf()
+      setServiceStatus(true, "permission_denied")
     } catch (error: IllegalArgumentException) {
+      trackingActive = false
+      prefs().edit().putBoolean(KEY_TRACKING_ACTIVE, false).apply()
       Log.w(TAG, "Location provider unavailable on this device.", error)
+      setServiceStatus(true, "services_disabled")
     }
   }
 
@@ -166,6 +230,9 @@ class ManeCombLocationService : Service(), LocationListener {
       locationManager?.removeUpdates(this)
     } catch (error: SecurityException) {
       Log.w(TAG, "Location permission changed while stopping service.", error)
+    } finally {
+      trackingActive = false
+      prefs().edit().putBoolean(KEY_TRACKING_ACTIVE, false).apply()
     }
   }
 
@@ -178,6 +245,7 @@ class ManeCombLocationService : Service(), LocationListener {
       return
     }
 
+    val capturedAt = System.currentTimeMillis()
     val body = JSONObject()
       .put("vehicleId", safeVehicleId)
       .put("sessionId", sessionId)
@@ -192,11 +260,13 @@ class ManeCombLocationService : Service(), LocationListener {
           .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
       )
       .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
-      .put("timestamp", System.currentTimeMillis())
+      .put("timestamp", capturedAt)
 
     synchronized(queueLock) {
+      trimPendingLocationsLocked(capturedAt)
       pendingLocations.addLast(body)
-      prefs().edit().putLong(KEY_LAST_CAPTURED_AT, System.currentTimeMillis()).apply()
+      trimPendingLocationsLocked(capturedAt)
+      prefs().edit().putLong(KEY_LAST_CAPTURED_AT, capturedAt).apply()
       savePendingLocationsLocked()
     }
 
@@ -214,7 +284,7 @@ class ManeCombLocationService : Service(), LocationListener {
     Thread {
       try {
         val hasPendingLocations = synchronized(queueLock) { pendingLocations.isNotEmpty() }
-        val needsServerSession = sessionId.isBlank() || sessionId.startsWith("pending:")
+        val needsServerSession = sessionId.startsWith("pending:")
         if (hasPendingLocations && needsServerSession && !ensureRouteSessionStarted()) {
           scheduleRetry()
           return@Thread
@@ -247,9 +317,8 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   /**
-   * The start endpoint is idempotent. Calling it before draining the native GPS queue
-   * guarantees that positions captured during an offline start are not uploaded before
-   * the server has an active RouteSession to attach them to.
+   * `pending:*` is an explicit offline-session marker. A blank session means live tracking only
+   * and must never create a RouteSession implicitly.
    */
   private fun ensureRouteSessionStarted(authRetry: Boolean = true): Boolean {
     val safeApiUrl = apiUrl
@@ -272,22 +341,18 @@ class ManeCombLocationService : Service(), LocationListener {
       val responseCode = connection.responseCode
       closeConnectionBody(connection)
       when {
-        responseCode in 200..299 -> {
-          val confirmedAt = System.currentTimeMillis()
-          prefs().edit().putLong(KEY_LAST_SENT_AT, confirmedAt).putLong(KEY_LAST_CONFIRMED_AT, confirmedAt).apply()
-          true
-        }
+        responseCode in 200..299 -> true
         responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
           responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
           if (authRetry && refreshAccessToken()) ensureRouteSessionStarted(false) else stopForAuthFailure(responseCode)
         }
         else -> {
-          Log.w(TAG, "Could not ensure route session HTTP $responseCode; GPS queue retained.")
+          Log.w(TAG, "Could not ensure pending route session HTTP $responseCode; GPS queue retained.")
           false
         }
       }
     } catch (error: Exception) {
-      Log.w(TAG, "Could not ensure route session; GPS queue retained.", error)
+      Log.w(TAG, "Could not ensure pending route session; GPS queue retained.", error)
       false
     } finally {
       connection?.disconnect()
@@ -317,7 +382,14 @@ class ManeCombLocationService : Service(), LocationListener {
       closeConnectionBody(connection)
 
       when {
-        responseCode in 200..299 -> true
+        responseCode in 200..299 -> {
+          val confirmedAt = System.currentTimeMillis()
+          prefs().edit()
+            .putLong(KEY_LAST_SENT_AT, confirmedAt)
+            .putLong(KEY_LAST_CONFIRMED_AT, confirmedAt)
+            .apply()
+          true
+        }
         responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
           responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
           if (authRetry && refreshAccessToken()) postLocation(body, false) else stopForAuthFailure(responseCode)
@@ -376,6 +448,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private fun stopForAuthFailure(responseCode: Int): Boolean {
     Log.w(TAG, "Stopping background GPS after auth failure HTTP $responseCode.")
     setServiceStatus(false, "auth_failed")
+    scheduleHandler.removeCallbacks(scheduleMonitor)
     stopTracking()
     stopSelf()
     return false
@@ -494,6 +567,17 @@ class ManeCombLocationService : Service(), LocationListener {
     return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
   }
 
+  private fun hasEnabledLocationProvider(): Boolean {
+    val manager = locationManager ?: return false
+    return try {
+      manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not read location provider state.", error)
+      false
+    }
+  }
+
   private fun isWithinSchedule(): Boolean {
     if (scheduleStartTime.isBlank() || scheduleEndTime.isBlank()) {
       return true
@@ -567,6 +651,7 @@ class ManeCombLocationService : Service(), LocationListener {
     prefs()
       .edit()
       .putBoolean(KEY_SERVICE_ENABLED, false)
+      .putBoolean(KEY_TRACKING_ACTIVE, false)
       .remove(KEY_API_URL)
       .remove(KEY_TOKEN)
       .remove(KEY_REFRESH_TOKEN)
@@ -577,12 +662,14 @@ class ManeCombLocationService : Service(), LocationListener {
       .remove(KEY_SCHEDULE_END)
       .remove(KEY_ACTIVE_DAYS)
       .remove(KEY_PENDING_LOCATIONS)
+      .putInt(KEY_PENDING_COUNT, 0)
       .apply()
   }
 
   private fun loadPendingLocations() {
     val rawQueue = prefs().getString(KEY_PENDING_LOCATIONS, "").orEmpty()
     if (rawQueue.isBlank()) {
+      prefs().edit().putInt(KEY_PENDING_COUNT, 0).apply()
       return
     }
 
@@ -594,17 +681,49 @@ class ManeCombLocationService : Service(), LocationListener {
           val entry = entries.optJSONObject(index) ?: continue
           pendingLocations.addLast(entry)
         }
+        trimPendingLocationsLocked(System.currentTimeMillis())
+        savePendingLocationsLocked()
       }
     } catch (error: Exception) {
       Log.w(TAG, "Could not restore pending GPS queue.", error)
-      prefs().edit().remove(KEY_PENDING_LOCATIONS).apply()
+      synchronized(queueLock) {
+        pendingLocations.clear()
+      }
+      prefs().edit().remove(KEY_PENDING_LOCATIONS).putInt(KEY_PENDING_COUNT, 0).apply()
+    }
+  }
+
+  private fun trimPendingLocationsLocked(now: Long) {
+    var dropped = 0
+
+    while (pendingLocations.isNotEmpty()) {
+      val capturedAt = pendingLocations.peekFirst()?.optLong("timestamp", 0L) ?: 0L
+      if (capturedAt <= 0L || now - capturedAt <= MAX_PENDING_AGE_MS) {
+        break
+      }
+      pendingLocations.removeFirst()
+      dropped += 1
+    }
+
+    while (pendingLocations.size > MAX_PENDING_LOCATIONS) {
+      pendingLocations.removeFirst()
+      dropped += 1
+    }
+
+    if (dropped > 0) {
+      val totalDropped = prefs().getInt(KEY_DROPPED_COUNT, 0) + dropped
+      prefs().edit().putInt(KEY_DROPPED_COUNT, totalDropped).apply()
+      Log.w(TAG, "Compacted background GPS queue; dropped=$dropped totalDropped=$totalDropped")
     }
   }
 
   private fun savePendingLocationsLocked() {
     val entries = JSONArray()
     pendingLocations.forEach { entries.put(it) }
-    prefs().edit().putString(KEY_PENDING_LOCATIONS, entries.toString()).putInt(KEY_PENDING_COUNT, pendingLocations.size).apply()
+    prefs().edit()
+      .putString(KEY_PENDING_LOCATIONS, entries.toString())
+      .putInt(KEY_PENDING_COUNT, pendingLocations.size)
+      .apply()
   }
 
   private fun ensureNotificationChannel() {
@@ -625,7 +744,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private fun buildNotification() =
     NotificationCompat.Builder(this, CHANNEL_ID)
       .setContentTitle("ManeComb compartiendo ubicacion")
-      .setContentText("GPS operativo activo dentro de horario.")
+      .setContentText("GPS operativo preparado segun horario y permisos.")
       .setSmallIcon(R.drawable.notification_icon)
       .setOngoing(true)
       .setContentIntent(
@@ -660,6 +779,9 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val LOCATION_DISTANCE_METERS = 20f
     private const val RETRY_BASE_MS = 5000L
     private const val RETRY_MAX_MS = 60000L
+    private const val SCHEDULE_RECHECK_MS = 60000L
+    private const val MAX_PENDING_LOCATIONS = 1440
+    private const val MAX_PENDING_AGE_MS = 24L * 60L * 60L * 1000L
     const val PREFS_NAME = "manecomb-location-service"
     const val KEY_SERVICE_ENABLED = "serviceEnabled"
     private const val KEY_API_URL = "apiUrl"
@@ -669,6 +791,8 @@ class ManeCombLocationService : Service(), LocationListener {
     const val KEY_VEHICLE_ID = "vehicleId"
     const val KEY_SESSION_ID = "sessionId"
     const val KEY_PENDING_COUNT = "pendingCount"
+    const val KEY_DROPPED_COUNT = "droppedCount"
+    const val KEY_TRACKING_ACTIVE = "trackingActive"
     const val KEY_LAST_CAPTURED_AT = "lastCapturedAt"
     const val KEY_LAST_SENT_AT = "lastSentAt"
     const val KEY_LAST_CONFIRMED_AT = "lastConfirmedAt"
