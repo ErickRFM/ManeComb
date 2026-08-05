@@ -1,7 +1,6 @@
 import Config from 'react-native-config';
 import { Platform } from 'react-native';
 import {
-  apiPath,
   resolveRuntimeUrl,
   type RuntimeTarget,
 } from './runtime-url';
