@@ -1,148 +1,188 @@
-# Deployment ManeComb
+# Despliegue reproducible de ManeComb
 
-Fecha de validacion: 2026-06-11.
+Ultima revision: 2026-08-05.
 
-## Backend Render
+Este documento describe el contrato de despliegue. Los valores secretos viven exclusivamente en Render, Cloudflare, el proveedor correspondiente o archivos `.env` locales ignorados por Git.
 
-URL publica:
+## Versiones base
+
+- Node.js 22 (`.nvmrc` y `.node-version`).
+- Java 17 para Android.
+- Instalaciones reproducibles con `npm ci`.
+- Cambios mediante rama y Pull Request; no publicar directamente desde una copia local sin CI.
+
+## Matriz de artefactos
+
+| Artefacto | Carpeta | Comando de validacion | Salida/puerto |
+|---|---|---|---|
+| Backend | `backend` + `communication-service` | `npm ci --prefix backend && npm test --prefix backend` | HTTP `5000` |
+| Ventas/Portal | `ventas` | `npm ci && npm run typecheck && npm run build` | `ventas/dist` |
+| Mobile | `mobile` | `npm ci && npm run typecheck && npm run lint && npm test` | APK/AAB |
+| Admin Global | `admin-global` | `npm ci && npm run typecheck && npm run build` | `admin-global/dist` |
+| Docker | raiz | `docker compose config` | API + web + Redis + Nginx |
+
+CI ejecuta estas validaciones, construye el APK debug, construye las imagenes Docker y levanta contenedores de prueba antes de autorizar merge.
+
+## Backend en Render
+
+Backend productivo de referencia:
 
 ```text
 https://manecomb.onrender.com
-https://manecomb.onrender.com/api/health
 ```
 
-Variables relevantes:
-
-```env
-NODE_ENV=production
-MONGO_URI=<mongodb-atlas-uri>
-# Tambien se acepta MONGODB_URI si Render/Atlas ya usa ese nombre.
-JWT_SECRET=<secret-de-32-caracteres-o-mas>
-CLIENT_ORIGIN=https://manecomb1.pages.dev,https://*.manecomb1.pages.dev,http://localhost:5173,http://127.0.0.1:5173
-APP_URL=https://manecomb1.pages.dev
-```
-
-`CLIENT_ORIGIN` acepta lista separada por comas y patrones `*` para previews de Cloudflare Pages.
-En Render, `TRUST_PROXY` se activa automaticamente cuando `RENDER=true`, `RENDER_SERVICE_ID` o `RENDER_EXTERNAL_URL` estan presentes. Si `JWT_SECRET` falta o es debil, el backend debe fallar al arrancar con un mensaje claro.
-No publicar `.env`, secrets, keystores ni credenciales.
-
-Comandos de validacion:
-
-```powershell
-& "C:\Program Files\nodejs\npm.cmd" --prefix backend test
-curl.exe -s -D - -o NUL -H "Origin: https://manecomb1.pages.dev" https://manecomb.onrender.com/api/health
-curl.exe -s -D - -o NUL -H "Origin: https://manecomb1.pages.dev" https://manecomb.onrender.com/api/commercial/plans
-curl.exe -s -D - -o NUL -H "Origin: https://preview.manecomb1.pages.dev" https://manecomb.onrender.com/api/auth/session
-```
-
-Resultados esperados:
-
-- `/api/health`: `200 OK`.
-- `/api/commercial/plans`: `200 OK`.
-- `/api/auth/session` sin cookie/token: `401 Unauthorized`, con `Access-Control-Allow-Origin`.
-- Header CORS reflejando el origen permitido.
-
-## MongoDB Atlas
-
-El backend intenta usar Atlas si `MONGO_URI` o `MONGODB_URI` esta presente. En pruebas locales sin acceso a Atlas, el backend mantiene almacenamiento interno y las pruebas pasan.
-
-Validar en Render:
-
-- `MONGO_URI` o `MONGODB_URI` configurado.
-- `JWT_SECRET` configurado con al menos 32 caracteres.
-- IP allowlist / network access correcto.
-- Logs sin errores recurrentes de conexion ni `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`.
-- Health responde.
-
-## Ventas Cloudflare Pages
-
-URL:
+Backend Sandbox de referencia:
 
 ```text
-https://manecomb1.pages.dev
+https://manecomb-backend-sandbox.onrender.com
 ```
 
-Configuracion Cloudflare Pages:
+Render debe clonar el monorepo completo. `backend` consume `communication-service` como carpeta hermana; no se debe desplegar un ZIP que contenga solamente `backend/`.
 
-- Root directory: `ventas`
-- Framework preset: `Vite` o `None`
-- Build command: `npm install && npm run build`
-- Build output directory: `dist`
+Configuracion sin Docker desde la raiz del repo:
 
-Variables:
+```text
+Build command: npm ci --prefix backend
+Start command: npm start --prefix backend
+```
+
+Configuracion Docker:
+
+```text
+Dockerfile: backend/Dockerfile
+Build context: raiz del repositorio
+```
+
+Variables obligatorias o condicionadas se documentan en `backend/.env.example`. Reglas principales:
+
+- `JWT_SECRET`: obligatorio y minimo 32 caracteres.
+- `MONGO_URI`/`MONGODB_URI`: Atlas del ambiente correcto.
+- `MONGO_DB_NAME`: nunca compartir la misma base entre Sandbox y Produccion.
+- `CLIENT_ORIGIN`: lista exacta de clientes permitidos; no usar `*` global en Produccion.
+- `APP_URL`, `PORTAL_PUBLIC_URL`, `APP_PUBLIC_URL`: URLs del mismo ambiente.
+- `PAYMENT_PROVIDER`: `manual` mientras se usan transferencias; `mercado_pago` solamente con credenciales y URLs del ambiente correspondiente.
+- `REQUIRE_MONGO=true` en servicios persistentes.
+- `ENABLE_REDIS`, `ENABLE_QUEUES` y `REDIS_URL` deben activarse juntos cuando se requieran colas durables.
+
+Endpoints de comprobacion:
+
+```text
+GET /api/health/live
+GET /api/health
+GET /api/health/ready
+GET /api/commercial/plans
+```
+
+`/api/health/live` valida que el proceso atiende HTTP. `/api/health` puede indicar `degraded` cuando una integracion opcional no esta lista; no equivale por si solo a que el proceso este caido.
+
+## Ventas y Portal en Cloudflare Pages
+
+Configuracion:
+
+```text
+Root directory: ventas
+Build command: npm ci && npm run build
+Build output directory: dist
+```
+
+Produccion:
 
 ```env
 VITE_API_URL=https://manecomb.onrender.com/api
 VITE_SOCKET_URL=https://manecomb.onrender.com
 ```
 
-Rutas SPA esperadas:
+Preview/Sandbox:
 
-- `/`
-- `/ventas/login`
-- `/ventas/registro`
-- `/portal`
-- `/portal/plan`
-- `/portal/facturacion`
-- `/portal/pagos`
-- `/portal/perfil`
-
-Validacion local:
-
-```powershell
-cd ventas
-& "C:\Program Files\nodejs\npm.cmd" install
-& "C:\Program Files\nodejs\npm.cmd" run build
-& "C:\Program Files\nodejs\npm.cmd" run preview
+```env
+VITE_API_URL=https://manecomb-backend-sandbox.onrender.com/api
+VITE_SOCKET_URL=https://manecomb-backend-sandbox.onrender.com
 ```
 
-Validacion HTTP produccion:
+No mezclar una URL de API Sandbox con un Socket de Produccion, ni al contrario. El build rechaza URLs vacias, invalidas, con credenciales o protocolos diferentes de HTTP(S).
 
-```powershell
-curl.exe -s -D - -o NUL https://manecomb1.pages.dev/
-curl.exe -s -D - -o NUL https://manecomb1.pages.dev/ventas/login
-curl.exe -s -D - -o NUL https://manecomb1.pages.dev/portal/plan
+`ventas/public/_redirects` debe llegar al artefacto como `dist/_redirects` con:
+
+```text
+/* /index.html 200
 ```
 
-## Mobile Android
+Esto permite recargar directamente `/portal`, `/ventas/login`, `/reset-password` y las demas rutas SPA.
 
-Stack activo: React Native CLI sin Expo.
+## Mobile Android/iOS
 
-Release:
-
-```powershell
-cd mobile
-& "C:\Program Files\nodejs\npm.cmd" run typecheck
-& "C:\Program Files\nodejs\npm.cmd" run lint
-& "C:\Program Files\nodejs\npm.cmd" run android:release
-```
-
-Variables release:
+Produccion se fija en `mobile/.env.production`:
 
 ```env
 MANECOMB_APP_ENV=production
 MANECOMB_API_URL=https://manecomb.onrender.com/api
 MANECOMB_SOCKET_URL=https://manecomb.onrender.com
-MANECOMB_API_TIMEOUT_MS=15000
 MANECOMB_ANDROID_CLEARTEXT=0
 ```
 
-Artefactos:
+Desarrollo en dispositivo fisico puede usar una IP LAN por HTTP solamente cuando `__DEV__` esta activo:
 
-```text
-mobile/dist/app-release.apk
-mobile/dist/app-release.aab
+```env
+MANECOMB_APP_ENV=development
+MANECOMB_API_URL=http://192.168.1.20:5000/api
+MANECOMB_SOCKET_URL=http://192.168.1.20:5000
+MANECOMB_ANDROID_CLEARTEXT=1
 ```
 
-## Git
+Un build operativo rechaza la URL LAN y conserva el destino de Produccion. Sandbox debe compilarse con URLs HTTPS explicitas y `MANECOMB_APP_ENV=sandbox`.
 
-Antes de publicar:
+Comandos:
 
 ```powershell
-git status
-git add .gitignore mobile/App.tsx mobile/android/app/build.gradle mobile/android/build.gradle mobile/src/hooks/use-user-location.ts mobile/src/native/location.ts mobile/src/navigation/router.tsx mobile/src/screens/customer-auth-screen.tsx mobile/src/screens/map-screen.native.tsx mobile/src/store/use-app-store.ts mobile/src/utils/account-routing.ts mobile/src/utils/checkout-context.ts docs/final-qa-report.md docs/mobile-release.md docs/deployment.md docs/troubleshooting.md
-git commit -m "stabilize ManeComb production integration"
-git push origin main
+cd mobile
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run android:release
 ```
 
-No usar `git add .` si hay capturas, `.env`, keystores, APK/AAB o caches visibles.
+## Admin Global
+
+Desarrollo local usa proxy Vite hacia el backend en `5000`:
+
+```env
+API_PORT=5000
+```
+
+Cualquier build estatico exige un origen absoluto:
+
+```env
+VITE_API_URL=https://manecomb.onrender.com
+```
+
+No agregar `/api/platform/auth`; el cliente agrega la ruta internamente. La URL no puede contener usuario, contraseña ni otro protocolo distinto de HTTP(S).
+
+## Docker local/servidor propio
+
+```bash
+cp backend/.env.example backend/.env
+# Completar solamente el archivo local ignorado por Git.
+docker compose config
+docker compose up --build
+```
+
+Produccion autogestionada:
+
+```bash
+docker compose -f docker-compose.prod.yml config
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+El backend Docker incluye `communication-service`. API, Redis y web tienen healthchecks, y Nginx espera a que API/web esten saludables.
+
+## Cierre antes de merge/despliegue
+
+1. Rama actualizada contra `main` sin conflictos.
+2. Todos los jobs de CI verdes, incluido Android debug APK.
+3. Contrato de entorno verde.
+4. Ningun `.env`, keystore, APK, temporal `.tmp-*` o credencial versionado.
+5. Variables del proveedor revisadas sin copiar valores a Git ni al PR.
+6. Cloudflare Preview apunta al backend del mismo ambiente.
+7. Health, planes, autenticacion y Socket.IO comprobados despues del despliegue.
+8. Produccion se despliega solamente desde un commit identificado y reversible.

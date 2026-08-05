@@ -1,19 +1,28 @@
 .git
+.github
 .idea
 codex-logs
+.tmp-*
 
-backend/node_modules
-backend/npm-debug.log
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/npm-debug.log
+
+backend/uploads
 
 mobile/.expo
-mobile/android
+mobile/android/.gradle
+mobile/android/app/build
 mobile/dist
-mobile/node_modules
 mobile/test-results
 mobile/web-build
-mobile/npm-debug.log
 
-ventas/node_modules
+ventas/dist
+admin-global/dist
 
 **/.DS_Store
 **/*.log
+*.apk
+*.aab

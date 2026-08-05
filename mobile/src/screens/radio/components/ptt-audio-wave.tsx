@@ -1,4 +1,5 @@
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -16,9 +17,11 @@ const BAR_COUNT = 18;
 const BAR_WIDTH = 4;
 const MIN_HEIGHT = 5;
 const MAX_EXTRA_HEIGHT = 20;
+const WAVEFORM_DURATION_MS = 76;
 
 export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const radius = diameter / 2 - MAX_EXTRA_HEIGHT / 2;
 
   return (
@@ -34,6 +37,7 @@ export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
             color={theme.colors.danger}
             index={index}
             left={x}
+            reducedMotion={reducedMotion}
             rotation={(angle * 180) / Math.PI + 90}
             samples={samples}
             top={y}
@@ -44,24 +48,46 @@ export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
   );
 }
 
-function PttAudioWaveBar({ color, index, left, rotation, samples, top }: {
+function PttAudioWaveBar({
+  color,
+  index,
+  left,
+  reducedMotion,
+  rotation,
+  samples,
+  top,
+}: {
   color: string;
   index: number;
   left: number;
+  reducedMotion: boolean;
   rotation: number;
   samples: SharedValue<number[]>;
   top: number;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const level = Math.max(0, Math.min(1, samples.value[index] || 0));
+    const targetHeight = MIN_HEIGHT + level * MAX_EXTRA_HEIGHT;
+    const targetOpacity = 0.42 + level * 0.58;
+
+    if (reducedMotion) {
+      return {
+        height: targetHeight,
+        opacity: targetOpacity,
+      };
+    }
+
     return {
-      height: withTiming(MIN_HEIGHT + level * MAX_EXTRA_HEIGHT, {
-        duration: 90,
-        easing: Easing.out(Easing.quad),
+      height: withTiming(targetHeight, {
+        duration: WAVEFORM_DURATION_MS,
+        easing: Easing.linear,
       }),
-      opacity: withTiming(0.42 + level * 0.58, { duration: 90 }),
+      opacity: withTiming(targetOpacity, {
+        duration: WAVEFORM_DURATION_MS,
+        easing: Easing.linear,
+      }),
     };
-  }, [index]);
+  }, [index, reducedMotion]);
 
   return (
     <Animated.View style={[
