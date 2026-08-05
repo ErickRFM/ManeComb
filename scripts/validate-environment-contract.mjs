@@ -147,11 +147,20 @@ if (ci.includes('VITE_API_URL: https://manecomb.onrender.com')) {
 
 const backendPackage = JSON.parse(read('backend/package.json'));
 const platformTestCommand = backendPackage.scripts?.['test:platform'] || '';
-for (const testFile of ['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js']) {
+for (const testFile of ['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js', 'platform-companies.test.js']) {
   if (!platformTestCommand.includes(testFile)) fail(`backend/package.json: test:platform no ejecuta ${testFile}`);
 }
 if (!String(backendPackage.scripts?.test || '').includes('npm run test:platform')) {
   fail('backend/package.json: npm test debe ejecutar test:platform');
+}
+
+const adminPackage = JSON.parse(read('admin-global/package.json'));
+const adminTestCommand = adminPackage.scripts?.test || '';
+for (const testFile of ['p1-contract.test.mjs', 'p2-companies-contract.test.mjs']) {
+  if (!adminTestCommand.includes(testFile)) fail(`admin-global/package.json: npm test no ejecuta ${testFile}`);
+}
+if (!ci.includes('name: Test') || !ci.includes('run: npm test')) {
+  fail('CI debe ejecutar las pruebas propias de Admin Global');
 }
 
 const platformAuthService = read('backend/src/modules/platform/platform-auth-service.js');
