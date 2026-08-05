@@ -9,6 +9,7 @@ const { incrementMetric, observeDuration, setGauge } = require("../services/metr
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { ingestVehicleLocation } = require("../services/vehicle-location-ingestion");
 const { resolveAuthenticatedUser } = require("../middlewares/authenticate");
+const { createRtcCallRegistry } = require("./rtc-call-registry");
 const {
   appendFrame,
   FRAME_BASE64_LENGTH,
@@ -52,6 +53,49 @@ function registerSocketServer(server, store) {
   const redisClient = getRedisClient();
   const redisReadiness = getRedisReadiness();
   let radioClusterReady = !redisReadiness.enabled;
+
+  function getRtcCallPayload(call, extra = {}) {
+    return {
+      callId: call.id,
+      roomId: call.roomId,
+      mode: call.mode,
+      caller: call.caller,
+      createdAt: call.createdAt,
+      expiresAt: call.expiresAt,
+      ...extra
+    };
+  }
+
+  function emitRtcCallCancelled(call, reason, userIds = call.remainingCalleeUserIds) {
+    uniqueRtcUserIds(userIds).forEach((userId) => {
+      io.to(`user:${userId}`).emit("rtc:call-cancelled",
+        getRtcCallPayload(call, { reason }));
+    });
+  }
+
+  function uniqueRtcUserIds(values) {
+    return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))];
+  }
+
+  function getConversationParticipantIds(conversation) {
+    return uniqueRtcUserIds(
+      (conversation?.participants || []).map((participant) =>
+        typeof participant === "string"
+          ? participant
+          : participant?.id || participant?.userId
+      )
+    );
+  }
+
+  const rtcCallRegistry = createRtcCallRegistry({
+    onTimeout(call) {
+      io.to(`user:${call.caller.id}`).emit(
+        "rtc:call-timeout",
+        getRtcCallPayload(call, { reason: "timeout" })
+      );
+      emitRtcCallCancelled(call, "timeout");
+    }
+  });
 
   async function hasAnotherLivePresenceSocket(sourceSocket, userId) {
     const candidates = await io.in(`user:${userId}`).fetchSockets();
@@ -1068,6 +1112,130 @@ function registerSocketServer(server, store) {
       }
     });
 
+    socket.on("rtc:call", async ({ roomId, mode } = {}, ack) => {
+      const startedAt = Date.now();
+      const authenticatedUser = socket.data.user;
+      const safeRoomId = String(roomId || "").trim();
+
+      if (
+        !authenticatedUser ||
+        !safeRoomId ||
+        !(await canUseOperations(socket)) ||
+        !(await store.canUserAccessConversation?.(authenticatedUser.id, safeRoomId)) ||
+        (rtcRooms.get(safeRoomId)?.size || 0) >= 2
+      ) {
+        acknowledge(ack, { ok: false, reason: "forbidden_or_busy" });
+        observeSocketEvent(socket, "rtc:call", startedAt, "forbidden", { roomId: safeRoomId });
+        return;
+      }
+
+      const conversation = await store.getConversationById?.(safeRoomId);
+      const calleeUserIds = getConversationParticipantIds(conversation).filter(
+        (userId) => userId !== authenticatedUser.id
+      );
+      const created = rtcCallRegistry.create({
+        roomId: safeRoomId,
+        mode,
+        caller: { id: authenticatedUser.id, name: authenticatedUser.name || "Operador" },
+        calleeUserIds
+      });
+
+      if (!created.ok) {
+        acknowledge(ack, { ok: false, reason: created.reason });
+        observeSocketEvent(socket, "rtc:call", startedAt, created.reason, { roomId: safeRoomId });
+        return;
+      }
+
+      // Acknowledge first so the caller stores callId before an exceptionally
+      // fast callee can accept the ring.
+      acknowledge(ack, {
+        ok: true,
+        callId: created.call.id,
+        expiresAt: created.call.expiresAt
+      });
+      created.call.remainingCalleeUserIds.forEach((userId) => {
+        io.to(`user:${userId}`).emit("rtc:incoming-call", getRtcCallPayload(created.call));
+      });
+      observeSocketEvent(socket, "rtc:call", startedAt, "success", {
+        callId: created.call.id,
+        roomId: safeRoomId,
+        recipients: created.call.remainingCalleeUserIds.length
+      });
+    });
+
+    socket.on("rtc:accept", ({ callId } = {}, ack) => {
+      const startedAt = Date.now();
+      const userId = socket.data.user?.id;
+      const result = rtcCallRegistry.accept(callId, userId);
+
+      if (!result.ok) {
+        acknowledge(ack, { ok: false, reason: result.reason });
+        observeSocketEvent(socket, "rtc:accept", startedAt, result.reason, { callId });
+        return;
+      }
+
+      io.to(`user:${result.call.caller.id}`).emit(
+        "rtc:call-accepted",
+        getRtcCallPayload(result.call, { acceptedBy: userId })
+      );
+      emitRtcCallCancelled(
+        result.call,
+        "answered_elsewhere",
+        result.call.calleeUserIds.filter((calleeId) => calleeId !== userId)
+      );
+      acknowledge(ack, { ok: true, roomId: result.call.roomId });
+      observeSocketEvent(socket, "rtc:accept", startedAt, "success", {
+        callId: result.call.id,
+        roomId: result.call.roomId
+      });
+    });
+
+    socket.on("rtc:reject", ({ callId, reason } = {}, ack) => {
+      const startedAt = Date.now();
+      const userId = socket.data.user?.id;
+      const result = rtcCallRegistry.reject(callId, userId);
+
+      if (!result.ok) {
+        acknowledge(ack, { ok: false, reason: result.reason });
+        observeSocketEvent(socket, "rtc:reject", startedAt, result.reason, { callId });
+        return;
+      }
+
+      io.to(`user:${result.call.caller.id}`).emit(
+        "rtc:call-rejected",
+        getRtcCallPayload(result.call, {
+          final: result.final,
+          reason: String(reason || "declined"),
+          rejectedBy: userId
+        })
+      );
+      acknowledge(ack, { ok: true, final: result.final });
+      observeSocketEvent(socket, "rtc:reject", startedAt, "success", {
+        callId: result.call.id,
+        final: result.final,
+        roomId: result.call.roomId
+      });
+    });
+
+    socket.on("rtc:cancel", ({ callId, reason } = {}, ack) => {
+      const startedAt = Date.now();
+      const userId = socket.data.user?.id;
+      const result = rtcCallRegistry.cancel(callId, userId);
+
+      if (!result.ok) {
+        acknowledge(ack, { ok: false, reason: result.reason });
+        observeSocketEvent(socket, "rtc:cancel", startedAt, result.reason, { callId });
+        return;
+      }
+
+      emitRtcCallCancelled(result.call, String(reason || "caller_cancelled"));
+      acknowledge(ack, { ok: true });
+      observeSocketEvent(socket, "rtc:cancel", startedAt, "success", {
+        callId: result.call.id,
+        roomId: result.call.roomId
+      });
+    });
+
     socket.on("rtc:join", async ({ roomId }, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user;
@@ -1205,6 +1373,22 @@ function registerSocketServer(server, store) {
       });
       const disconnectedUserId = socket.data.user?.id;
       const disconnectedOrganizationId = getOrganizationId(socket.data.user);
+      if (disconnectedUserId) {
+        rtcCallRegistry.releaseUser(disconnectedUserId).forEach((released) => {
+          if (released.type === "cancelled") {
+            emitRtcCallCancelled(released.call, "caller_disconnected");
+            return;
+          }
+          io.to(`user:${released.call.caller.id}`).emit(
+            "rtc:call-rejected",
+            getRtcCallPayload(released.call, {
+              final: released.final,
+              reason: "callee_disconnected",
+              rejectedBy: disconnectedUserId
+            })
+          );
+        });
+      }
       if (socket.data.presenceJoined && disconnectedOrganizationId && disconnectedUserId) {
         await emitPresenceStatus(socket, "offline");
       }
