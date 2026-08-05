@@ -6,6 +6,7 @@ import { SUPPORT_EMAIL, SUPPORT_PHONE, SYSTEM_STATUS_URL, footerColumns, neonPal
 import { styles } from '../styles';
 import { openExternalUrl } from '../utils';
 import type { IconName } from '../types';
+import { AppDownloadSection } from './app-download-section';
 
 function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => void; text: string }) {
   const content = (
@@ -32,6 +33,10 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
     }
     if (label === 'Funciones' || label === 'Demo') {
       onNavigate('funcionalidades');
+      return;
+    }
+    if (label === 'App móvil') {
+      onNavigate('descargar');
       return;
     }
     if (label === 'Nosotros' || label.startsWith('Casos de')) {
@@ -65,44 +70,57 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
   };
 
   return (
-    <View style={styles.footer}>
-      <View style={styles.footerInner}>
-        <View style={styles.footerBrand}>
-          <BrandLogo size="sm" plain />
-          <Text style={styles.footerDescription}>
-            Plataforma integral para el control y operación de flotillas de transporte tipo combi.
-          </Text>
-        </View>
-
-        <View style={styles.footerColumns}>
-          {footerColumns.map((column) => (
-            <View key={column.title} style={styles.footerColumn}>
-              <Text style={styles.footerColumnTitle}>{column.title}</Text>
-              {column.links.map((link) => (
-                <Pressable
-                  key={link}
-                  accessibilityRole="link"
-                  onPress={() => handleFooterLink(link)}
-                  style={styles.footerLinkButton}>
-                  <Text style={styles.footerLink}>{link}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.contactCard}>
-          <Text style={styles.contactTitle}>¿Hablamos?</Text>
-          <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
-          <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
-          <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
-        </View>
+    <>
+      <View
+        style={{
+          alignSelf: 'center',
+          marginBottom: 78,
+          maxWidth: 1240,
+          paddingHorizontal: 22,
+          width: '100%',
+        }}>
+        <AppDownloadSection onPortalPress={() => router.push('/portal' as never)} />
       </View>
 
-      <View style={styles.footerBottom}>
-        <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
-        <Text style={styles.footerBottomText}>Hecho con control operativo para el transporte.</Text>
+      <View style={styles.footer}>
+        <View style={styles.footerInner}>
+          <View style={styles.footerBrand}>
+            <BrandLogo size="sm" plain />
+            <Text style={styles.footerDescription}>
+              Plataforma integral para el control y operación de flotillas de transporte tipo combi.
+            </Text>
+          </View>
+
+          <View style={styles.footerColumns}>
+            {footerColumns.map((column) => (
+              <View key={column.title} style={styles.footerColumn}>
+                <Text style={styles.footerColumnTitle}>{column.title}</Text>
+                {column.links.map((link) => (
+                  <Pressable
+                    key={link}
+                    accessibilityRole="link"
+                    onPress={() => handleFooterLink(link)}
+                    style={styles.footerLinkButton}>
+                    <Text style={styles.footerLink}>{link}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.contactCard}>
+            <Text style={styles.contactTitle}>¿Hablamos?</Text>
+            <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
+            <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
+            <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
+          </View>
+        </View>
+
+        <View style={styles.footerBottom}>
+          <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
+          <Text style={styles.footerBottomText}>Hecho con control operativo para el transporte.</Text>
+        </View>
       </View>
-    </View>
+    </>
   );
 }
