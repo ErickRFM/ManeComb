@@ -49,27 +49,26 @@ plain_scroll = """  const handleChatMessagesScroll = (
       void loadOlderChatMessages(activeConversation.id);
     }
   };"""
-callback_pattern = re.compile(
-    r"  const handleChatMessagesScroll = useCallback\(\n"
-    r"    \(event: Parameters<typeof handleMessagesScroll>\[0\]\) => \{.*?\n"
-    r"  \);",
-    re.S,
-)
-text, scroll_count = callback_pattern.subn(plain_scroll, text, count=1)
-if scroll_count == 0 and plain_scroll not in text:
+scroll_start = text.find("  const handleChatMessagesScroll = useCallback(")
+if scroll_start >= 0:
+    scroll_end_marker = "\n\n  const startRecordingTicker = () => {"
+    scroll_end = text.find(scroll_end_marker, scroll_start)
+    if scroll_end < 0:
+        raise SystemExit("Chat pagination scroll end marker not found")
+    text = text[:scroll_start] + plain_scroll + text[scroll_end:]
+elif plain_scroll not in text:
     raise SystemExit("Chat pagination scroll wrapper not found")
 controller.write_text(text)
 
 modal = Path("mobile/src/features/calls/components/active-call-modal.tsx")
 text = modal.read_text()
-# Keep alias imports together and ordered before relative call imports.
 text = text.replace("import { useAppStore } from '@/src/store/use-app-store';\n", "")
-webrtc_import = "import { RTCViewComponent } from '@/src/native/webrtc';"
-if webrtc_import not in text:
-    raise SystemExit("ActiveCallModal WebRTC import not found")
+call_service_import = "import { startCallForegroundService, stopCallForegroundService } from '@/src/native/call-service';"
+if call_service_import not in text:
+    raise SystemExit("ActiveCallModal call service import not found")
 text = text.replace(
-    webrtc_import,
-    "import { useAppStore } from '@/src/store/use-app-store';\n" + webrtc_import,
+    call_service_import,
+    "import { useAppStore } from '@/src/store/use-app-store';\n" + call_service_import,
     1,
 )
 old_state = """  const callerName = useCallStore((state) => state.callerName);
