@@ -3,7 +3,6 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge, type StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatCurrency } from '@/src/utils/format';
 import { planVisualTones } from '@/screens/sales/constants';
-import { portalPalette } from '../../portal-theme';
 import { styles } from '../plan.styles';
 import type { CommercialPlanView } from '@/features/commercial';
 
@@ -37,21 +36,30 @@ export function PlanComparisonCard({
                 backgroundImage: `linear-gradient(145deg, ${visual.soft}, rgba(18, 24, 33, 0.94) 68%)`,
                 boxShadow: emphasized
                   ? `0 0 0 1px ${visual.edge}55, 0 18px 42px ${visual.cursor}`
-                  : `0 14px 34px rgba(0, 0, 0, 0.24)`,
+                  : '0 14px 34px rgba(0, 0, 0, 0.24)',
                 transition: 'transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
               } as any)
             : undefined),
         },
-        selected ? styles.planCardSelected : undefined,
-        active ? styles.planCardActive : undefined,
       ]}>
       <View style={styles.planCardHeader}>
         <View style={styles.planCardTitleWrap}>
-          <View style={styles.planIdentityRow}>
-            <View style={[styles.planIcon, { borderColor: `${visual.edge}66`, backgroundColor: visual.secondarySoft }]}>
+          <View style={{ alignItems: 'flex-start', flexDirection: 'row', gap: 10, minWidth: 0 }}>
+            <View
+              style={{
+                alignItems: 'center',
+                backgroundColor: visual.secondarySoft,
+                borderColor: `${visual.edge}66`,
+                borderRadius: 12,
+                borderWidth: 1,
+                flexShrink: 0,
+                height: 42,
+                justifyContent: 'center',
+                width: 42,
+              }}>
               <MaterialCommunityIcons name="bus-electric" size={21} color={visual.edge} />
             </View>
-            <View style={styles.planIdentityCopy}>
+            <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
               <Text style={[styles.planName, { color: visual.edge }]}>{plan.displayName}</Text>
               <Text style={styles.planDescription}>{plan.description}</Text>
             </View>
@@ -68,7 +76,7 @@ export function PlanComparisonCard({
         {plan.units} unidades incluidas · aprox. {formatCurrency(plan.pricePerVehicle)} por unidad
       </Text>
 
-      <View style={[styles.planAccentLine, { backgroundColor: visual.edge }]} />
+      <View style={{ backgroundColor: visual.edge, borderRadius: 99, height: 3, opacity: 0.85, width: 54 }} />
 
       <View style={styles.benefitList}>
         {plan.benefits.map((benefit) => (
@@ -80,7 +88,7 @@ export function PlanComparisonCard({
       </View>
 
       {active ? (
-        <View style={[styles.currentPlanAction, { borderColor: `${visual.secondary}66`, backgroundColor: visual.secondarySoft }]}>
+        <View style={[styles.currentPlanAction, { borderColor: `${visual.secondary}66`, borderWidth: 1, backgroundColor: visual.secondarySoft }]}>
           <MaterialCommunityIcons name="check" size={17} color={visual.secondary} />
           <Text style={[styles.currentPlanActionText, { color: visual.secondary }]}>Este es tu plan actual</Text>
         </View>
