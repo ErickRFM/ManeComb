@@ -6,7 +6,7 @@ import { StatusBar } from '@/src/native/status-bar';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
-import { useCheckoutExperience, type TestCardInput } from '@/features/commercial';
+import { useCheckoutExperience, validateTestCard, type TestCardInput } from '@/features/commercial';
 import {
   buildCheckoutParams,
   clearCheckoutContext,
@@ -29,6 +29,14 @@ import type { PaymentMethod, CheckoutStep } from './checkout/checkout.types';
 import { getFirstParam, formatCurrency, openCheckoutUrl, getCheckoutMessage } from './checkout/checkout.utils';
 import { styles } from './checkout/checkout.styles';
 
+const EMPTY_TEST_CARD: TestCardInput = {
+  cardholderName: '',
+  cardNumber: '',
+  cvv: '',
+  expiry: '',
+  postalCode: '',
+};
+
 export function PlanCheckoutScreen() {
   const { width } = useWindowDimensions();
   const isTwoColumn = width >= 980;
@@ -47,16 +55,11 @@ export function PlanCheckoutScreen() {
       loadAll: state.loadAll,
     }))
   );
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('spei');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [includeRadioAddon, setIncludeRadioAddon] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('payment');
-  const [testCard, setTestCard] = useState<TestCardInput>({
-    cardholderName: '',
-    cardNumber: '',
-    cvv: '',
-    expiry: '',
-    postalCode: '',
-  });
+  const [testCard, setTestCard] = useState<TestCardInput>(EMPTY_TEST_CARD);
+  const [cardDemoMessage, setCardDemoMessage] = useState<string | null>(null);
   const paymentInFlight = useRef(false);
 
   const {
@@ -78,18 +81,13 @@ export function PlanCheckoutScreen() {
   const canSubmit = Boolean(selectedPlan && user && !processing && providerMode !== 'unavailable');
   const isTestPaymentMode = providerMode === 'test';
   const isManualPaymentMode = providerMode === 'manual';
+  const isManualCardDemo = isManualPaymentMode && selectedMethod === 'card' && !requestTrial;
 
   useEffect(() => {
     if (planId) {
       saveCheckoutContext(planId, requestTrial);
     }
   }, [planId, requestTrial]);
-
-  useEffect(() => {
-    if (isManualPaymentMode && selectedMethod !== 'spei') {
-      setSelectedMethod('spei');
-    }
-  }, [isManualPaymentMode, selectedMethod]);
 
   if (!planId) {
     return <Redirect href="/ventas" />;
@@ -132,8 +130,29 @@ export function PlanCheckoutScreen() {
 
   const submitPayment = async () => {
     if (!canSubmit || paymentInFlight.current) return;
+
+    if (isManualCardDemo) {
+      paymentInFlight.current = true;
+      try {
+        const validationMessage = validateTestCard(testCard);
+        if (validationMessage) {
+          setCardDemoMessage(validationMessage);
+          return;
+        }
+
+        setCardDemoMessage(
+          'Tarjeta demo validada correctamente. No se realizó ningún cargo, no se creó una orden y los datos fueron limpiados.'
+        );
+        setTestCard(EMPTY_TEST_CARD);
+      } finally {
+        paymentInFlight.current = false;
+      }
+      return;
+    }
+
     paymentInFlight.current = true;
     setStep('confirmation');
+    setCardDemoMessage(null);
     try {
       const nextResult = await submit({
         method: selectedMethod,
@@ -160,6 +179,11 @@ export function PlanCheckoutScreen() {
     }
   };
 
+  const selectPaymentMethod = (method: PaymentMethod) => {
+    setSelectedMethod(method);
+    setCardDemoMessage(null);
+  };
+
   const goToPortal = () => {
     router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never);
   };
@@ -174,7 +198,7 @@ export function PlanCheckoutScreen() {
       ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
       : 'Revisa el estado del pago desde tu portal ManeComb.');
   const doneButtonLabel = receiptIsActive ? 'Continuar configuración' : 'Ver estado en portal';
-  const checkoutMessage = getCheckoutMessage(message);
+  const checkoutMessage = getCheckoutMessage(cardDemoMessage || message);
 
   return (
     <View style={styles.screen}>
@@ -210,9 +234,12 @@ export function PlanCheckoutScreen() {
                   isTestPaymentMode={isTestPaymentMode}
                   requestTrial={requestTrial}
                   selectedMethod={selectedMethod}
-                  onSelectMethod={setSelectedMethod}
+                  onSelectMethod={selectPaymentMethod}
                   testCard={testCard}
-                  onTestCardChange={(updates) => setTestCard((current) => ({ ...current, ...updates }))}
+                  onTestCardChange={(updates) => {
+                    setCardDemoMessage(null);
+                    setTestCard((current) => ({ ...current, ...updates }));
+                  }}
                   includeRadioAddon={includeRadioAddon}
                   onToggleRadioAddon={() => setIncludeRadioAddon((current) => !current)}
                   selectedPlan={selectedPlan}
