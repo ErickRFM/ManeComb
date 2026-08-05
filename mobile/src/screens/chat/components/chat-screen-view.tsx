@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { FlatList, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { KeyboardSafeView } from '@/src/components/keyboard-safe-layout';
 import { AppShell } from '@/src/components/app-shell';
 import { UserAvatar } from '@/src/components/user-avatar';
@@ -48,12 +48,14 @@ export function ChatScreenView(props: ChatScreenViewProps) {
     handleMediaPicked,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
-    handleMessagesScroll,
+    handleChatMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     handleRetryTextMessage,
     handleSelectConversation,
+    hasOlderMessages,
     isCompact,
+    isLoadingOlderMessages,
     isMobileConversation,
     isPhone,
     messagesListRef,
@@ -430,9 +432,24 @@ export function ChatScreenView(props: ChatScreenViewProps) {
                   automaticallyAdjustKeyboardInsets={false}
                   onContentSizeChange={handleMessagesContentSizeChange}
                   onLayout={handleMessagesLayout}
-                  onScroll={handleMessagesScroll}
+                  onScroll={handleChatMessagesScroll}
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
+                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+                  ListHeaderComponent={
+                    isLoadingOlderMessages ? (
+                      <View style={styles.typingIndicator}>
+                        <ActivityIndicator size="small" color={theme.colors.info} />
+                        <Text style={styles.typingIndicatorText}>Cargando mensajes anteriores…</Text>
+                      </View>
+                    ) : hasOlderMessages ? (
+                      <View style={styles.typingIndicator}>
+                        <Text style={styles.typingIndicatorText}>
+                          Desliza hasta arriba para cargar mensajes anteriores.
+                        </Text>
+                      </View>
+                    ) : null
+                  }
                   renderItem={({ item }) => {
                     if (item.type === 'date') {
                       return (

@@ -45,8 +45,11 @@ export function useChatController() {
     conversations,
     isSubmitting,
     loadChatContacts,
-    loadConversation,
+    loadChatConversation,
+    loadOlderChatMessages,
     messagesByConversation,
+    chatPageInfoByConversation,
+    isLoadingOlderChatByConversation,
     openDirectConversation,
     openGeneralConversation,
     presenceByUser,
@@ -66,8 +69,11 @@ export function useChatController() {
       conversations: state.conversations,
       isSubmitting: state.isSubmitting,
       loadChatContacts: state.loadChatContacts,
-      loadConversation: state.loadConversation,
+      loadChatConversation: state.loadChatConversation,
+      loadOlderChatMessages: state.loadOlderChatMessages,
       messagesByConversation: state.messagesByConversation,
+      chatPageInfoByConversation: state.chatPageInfoByConversation,
+      isLoadingOlderChatByConversation: state.isLoadingOlderChatByConversation,
       openDirectConversation: state.openDirectConversation,
       openGeneralConversation: state.openGeneralConversation,
       presenceByUser: state.presenceByUser,
@@ -138,7 +144,7 @@ export function useChatController() {
       if (preferredConversation?.id) {
         setActiveConversationId(preferredConversation.id);
         if (messagesByConversation[preferredConversation.id] === undefined) {
-          loadConversation(preferredConversation.id).catch(() => undefined);
+          loadChatConversation(preferredConversation.id).catch(() => undefined);
         }
       }
       return;
@@ -151,7 +157,7 @@ export function useChatController() {
   }, [
     chatConversations,
     isCompact,
-    loadConversation,
+    loadChatConversation,
     openGeneralConversation,
     messagesByConversation,
     setActiveConversationId,
@@ -169,12 +175,12 @@ export function useChatController() {
       chatConversations[0];
     setActiveConversationId(fallbackConversation.id);
     if (messagesByConversation[fallbackConversation.id] === undefined) {
-      loadConversation(fallbackConversation.id).catch(() => undefined);
+      loadChatConversation(fallbackConversation.id).catch(() => undefined);
     }
   }, [
     activeConversationId,
     chatConversations,
-    loadConversation,
+    loadChatConversation,
     messagesByConversation,
     setActiveConversationId,
   ]);
@@ -295,6 +301,33 @@ export function useChatController() {
     shouldScrollAfterSendRef,
   } = useChatScroll({ activeConversationKey, activeMessageItems });
 
+  const activeChatPageInfo = activeConversation
+    ? chatPageInfoByConversation[activeConversation.id] || null
+    : null;
+  const isLoadingOlderMessages = activeConversation
+    ? Boolean(isLoadingOlderChatByConversation[activeConversation.id])
+    : false;
+  const handleChatMessagesScroll = useCallback(
+    (event: Parameters<typeof handleMessagesScroll>[0]) => {
+      handleMessagesScroll(event);
+      if (
+        event.nativeEvent.contentOffset.y <= 80 &&
+        activeConversation &&
+        activeChatPageInfo?.hasMore &&
+        !isLoadingOlderMessages
+      ) {
+        void loadOlderChatMessages(activeConversation.id);
+      }
+    },
+    [
+      activeChatPageInfo?.hasMore,
+      activeConversation,
+      handleMessagesScroll,
+      isLoadingOlderMessages,
+      loadOlderChatMessages,
+    ]
+  );
+
   const startRecordingTicker = () => {
     recordStartedAtRef.current = Date.now();
     setRecordingSeconds(0);
@@ -330,7 +363,7 @@ export function useChatController() {
     setActiveConversationId(conversationId);
     if (isCompact) setMobilePane('conversation');
     if (messagesByConversation[conversationId] === undefined) {
-      loadConversation(conversationId).catch(() => undefined);
+      loadChatConversation(conversationId).catch(() => undefined);
     }
   };
 
@@ -647,7 +680,7 @@ export function useChatController() {
     handleMediaPicked,
     handleMessagesContentSizeChange,
     handleMessagesLayout,
-    handleMessagesScroll,
+    handleChatMessagesScroll,
     handleOpenDirect,
     handleOpenGeneral,
     openDirectoryMenu,
@@ -660,6 +693,8 @@ export function useChatController() {
     isNearMessagesBottomRef,
     isPhone,
     isSubmitting,
+    isLoadingOlderMessages,
+    hasOlderMessages: Boolean(activeChatPageInfo?.hasMore),
     markAsRead,
     emitTyping,
     activeTypingUsers,
