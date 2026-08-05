@@ -1,6 +1,5 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque B — Adaptador de signaling sobre el socket compartido.
-// Registra EXACTAMENTE una vez los listeners de llamada y los quita con `off` puntual (nunca
-// removeAllListeners; el socket es compartido). No abre conexiones ni es dueno del lifecycle.
+// RC-RTC-FINALIZATION-20260805 — Adaptador de signaling sobre el socket compartido.
+// Registra listeners puntuales, espera ACKs autoritativos y nunca crea otra conexion.
 
 import type { CallAck, CallSocket, IncomingCallPayload } from './call-types';
 
@@ -15,10 +14,9 @@ export interface CallSocketHandlers {
 
 const ACK_TIMEOUT_MS = 12000;
 
-// Vincula los listeners globales de llamada. Devuelve un unbind que quita SOLO estos handlers.
 export function bindCallSocket(socket: CallSocket, handlers: CallSocketHandlers): () => void {
   const entries: Array<[string, (...args: any[]) => void]> = [
-    ['rtc:incoming-call', handlers.onIncoming as (...a: any[]) => void],
+    ['rtc:incoming-call', handlers.onIncoming as (...args: any[]) => void],
     ['rtc:call-accepted', handlers.onAccepted],
     ['rtc:call-rejected', handlers.onRejected],
     ['rtc:call-cancelled', handlers.onCancelled],
@@ -29,11 +27,10 @@ export function bindCallSocket(socket: CallSocket, handlers: CallSocketHandlers)
   return () => entries.forEach(([event, handler]) => socket.off(event, handler));
 }
 
-// Inicia la llamada y espera el ACK autoritativo del backend (que trae el callId). El cliente
-// NUNCA decide el callId ni el destinatario.
-export function emitStartCall(
+function emitWithAck(
   socket: CallSocket,
-  input: { conversationId: string; mode: 'audio' | 'video' }
+  event: string,
+  payload: Record<string, unknown>
 ): Promise<CallAck> {
   return new Promise((resolve) => {
     let settled = false;
@@ -42,7 +39,8 @@ export function emitStartCall(
       settled = true;
       resolve({ ok: false, code: 'ack_timeout' });
     }, ACK_TIMEOUT_MS);
-    socket.emit('rtc:call', { conversationId: input.conversationId, mode: input.mode }, (ack: CallAck) => {
+
+    socket.emit(event, payload, (ack: CallAck) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -51,8 +49,31 @@ export function emitStartCall(
   });
 }
 
-export const emitAccept = (socket: CallSocket, callId: string): void => { socket.emit('rtc:accept', { callId }); };
-export const emitReject = (socket: CallSocket, callId: string): void => { socket.emit('rtc:reject', { callId }); };
-export const emitCancel = (socket: CallSocket, callId: string): void => { socket.emit('rtc:cancel', { callId }); };
-export const emitBusy = (socket: CallSocket, callId: string): void => { socket.emit('rtc:busy', { callId }); };
-export const emitEnd = (socket: CallSocket, callId: string): void => { socket.emit('rtc:end', { callId }); };
+export function emitStartCall(
+  socket: CallSocket,
+  input: { conversationId: string; mode: 'audio' | 'video' }
+): Promise<CallAck> {
+  return emitWithAck(socket, 'rtc:call', {
+    conversationId: input.conversationId,
+    mode: input.mode,
+  });
+}
+
+// El callee no arranca getUserMedia/peer/join hasta que el backend confirma que la llamada
+// ya transiciono a active. Esto elimina la carrera accept -> join(not_accepted).
+export function emitAccept(socket: CallSocket, callId: string): Promise<CallAck> {
+  return emitWithAck(socket, 'rtc:accept', { callId });
+}
+
+export const emitReject = (socket: CallSocket, callId: string): void => {
+  socket.emit('rtc:reject', { callId });
+};
+export const emitCancel = (socket: CallSocket, callId: string): void => {
+  socket.emit('rtc:cancel', { callId });
+};
+export const emitBusy = (socket: CallSocket, callId: string): void => {
+  socket.emit('rtc:busy', { callId });
+};
+export const emitEnd = (socket: CallSocket, callId: string): void => {
+  socket.emit('rtc:end', { callId });
+};
