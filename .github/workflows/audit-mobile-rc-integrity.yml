@@ -1,0 +1,102 @@
+name: Audit mobile RC integrity
+
+on:
+  push:
+    branches:
+      - fix/mobile-server-banner-auth-20260805
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          ref: fix/mobile-server-banner-auth-20260805
+          fetch-depth: 0
+
+      - name: Fetch all branches
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+      - name: Audit history and documented contracts
+        shell: bash
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/mobile-rc-audit.txt"
+          : > "$report"
+
+          echo '=== REMOTE BRANCHES AHEAD OF MAIN ===' | tee -a "$report"
+          while IFS= read -r ref; do
+            branch="${ref#refs/remotes/origin/}"
+            [ "$branch" = "main" ] && continue
+            ahead=$(git rev-list --count "origin/main..$ref")
+            behind=$(git rev-list --count "$ref..origin/main")
+            if [ "$ahead" -gt 0 ]; then
+              printf '%s ahead=%s behind=%s\n' "$branch" "$ahead" "$behind" | tee -a "$report"
+              git log --format='  %h %s' "origin/main..$ref" | tee -a "$report"
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin | sort)
+
+          echo | tee -a "$report"
+          echo '=== COMMIT REFERENCES IN RC-MOBILE DOCS ===' | tee -a "$report"
+          declare -A seen=()
+          while IFS=: read -r file hash; do
+            [ -n "${seen[$file:$hash]+x}" ] && continue
+            seen[$file:$hash]=1
+            if git cat-file -e "$hash^{commit}" 2>/dev/null; then
+              full=$(git rev-parse "$hash")
+              if git merge-base --is-ancestor "$full" origin/main; then
+                state='IN_MAIN'
+              else
+                state='OBJECT_NOT_IN_MAIN'
+              fi
+            else
+              state='MISSING_OBJECT'
+            fi
+            printf '%-28s %-16s %s\n' "$state" "$hash" "$file" | tee -a "$report"
+          done < <(
+            for file in RC-MOBILE*.md; do
+              [ -f "$file" ] || continue
+              grep -Eo '`[0-9a-f]{7,40}`' "$file" 2>/dev/null |
+                tr -d '`' |
+                awk -v f="$file" '{ print f ":" $0 }'
+            done | sort
+          )
+
+          echo | tee -a "$report"
+          echo '=== DOCUMENTED FEATURE SIGNATURES IN CURRENT TREE ===' | tee -a "$report"
+          check() {
+            label="$1"; shift
+            if "$@" >/dev/null 2>&1; then
+              printf 'PRESENT %-42s\n' "$label" | tee -a "$report"
+            else
+              printf 'MISSING %-42s\n' "$label" | tee -a "$report"
+            fi
+          }
+
+          check 'socket auth classifier' grep -Rqs 'isRealtimeAuthError' mobile/src
+          check 'socket refresh single-flight' grep -Rqs 'realtimeAuthRefreshInFlight' mobile/src
+          check 'socket unauthorized state' grep -Rqs "'unauthorized'" mobile/src/utils/realtime-state.ts
+          check 'backend rtc incoming ring' grep -Rqs "rtc:incoming-call" backend/src
+          check 'backend rtc accept' grep -Rqs "rtc:accept" backend/src
+          check 'mobile incomingCall state' grep -Rqs 'incomingCall' mobile/src/screens/chat
+          check 'mobile acceptIncomingCall' grep -Rqs 'acceptIncomingCall' mobile/src/screens/chat
+          check 'mobile incoming call modal' grep -Rqs 'Llamada entrante' mobile/src/screens/chat
+          check 'Mapbox MarkerView unit marker' grep -Rqs 'MarkerView' mobile/src/screens/map
+          check 'checklist route modal maxHeight' grep -Rqs 'modalScrollMaxHeight' mobile/src/screens/checklist-screen.tsx
+          check 'mobile password recovery' grep -Rqs 'forgotPassword' mobile/src
+          check 'mobile update banner' test -f mobile/src/components/update-banner.tsx
+          check 'operational snapshot canonical source' grep -Rqs 'operationalUnits' mobile/src/store/root-store.ts
+
+          echo | tee -a "$report"
+          echo '=== MAIN REVERTS / REAPPLIES ===' | tee -a "$report"
+          git log origin/main --format='%h %ad %s' --date=short --grep='^Revert\|^Reapply' | tee -a "$report"
+
+          echo | tee -a "$report"
+          echo '=== REPORT END ===' | tee -a "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
