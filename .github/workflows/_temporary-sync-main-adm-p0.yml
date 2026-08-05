@@ -1,0 +1,56 @@
+name: Temporary sync main for Admin Global P0
+
+on:
+  push:
+    branches:
+      - fix/adm-global-p0-security
+    paths:
+      - .github/workflows/_temporary-sync-main-adm-p0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout P0 branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/adm-global-p0-security
+          fetch-depth: 0
+
+      - name: Merge latest main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-ff origin/main -m "merge(main): integrate latest ManeComb changes into Admin Global P0"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            communication-service/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          npm ci --prefix communication-service
+          npm ci --prefix backend --ignore-scripts
+
+      - name: Re-run Platform security suites
+        run: npm run test:platform --prefix backend
+
+      - name: Re-run environment contract
+        run: node scripts/validate-environment-contract.mjs
+
+      - name: Remove temporary workflow and push
+        run: |
+          rm .github/workflows/_temporary-sync-main-adm-p0.yml
+          git add -A
+          git commit -m "chore(ci): remove temporary Admin Global P0 sync"
+          git push origin HEAD:fix/adm-global-p0-security
