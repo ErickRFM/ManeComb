@@ -1,11 +1,16 @@
 const CHECKOUT_CONTEXT_KEY = 'manecomb-ventas-checkout-context';
+const CHECKOUT_CONTEXT_VERSION = 2;
+
+type CheckoutAttemptState = 'active' | 'redirected';
 
 export type CheckoutContext = {
   planId: string;
   requestTrial: boolean;
   updatedAt: number;
+  version?: number;
   intentFingerprint?: string;
   idempotencyKey?: string;
+  attemptState?: CheckoutAttemptState;
 };
 
 function canUseStorage() {
@@ -25,7 +30,14 @@ export function saveCheckoutContext(planId: string, requestTrial = false) {
     planId: cleanPlanId,
     requestTrial,
     updatedAt: Date.now(),
-    ...(preserveIntent ? { intentFingerprint: current.intentFingerprint, idempotencyKey: current.idempotencyKey } : {}),
+    version: CHECKOUT_CONTEXT_VERSION,
+    ...(preserveIntent
+      ? {
+          intentFingerprint: current.intentFingerprint,
+          idempotencyKey: current.idempotencyKey,
+          attemptState: current.attemptState,
+        }
+      : {}),
   };
 
   window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify(context));
@@ -45,12 +57,22 @@ export function readCheckoutContext(): CheckoutContext | null {
       return null;
     }
 
+    const idempotencyKey = parsed.idempotencyKey ? String(parsed.idempotencyKey) : undefined;
+    const parsedAttemptState = parsed.attemptState === 'active' || parsed.attemptState === 'redirected'
+      ? parsed.attemptState
+      : undefined;
+
     return {
       planId: String(parsed.planId),
       requestTrial: Boolean(parsed.requestTrial),
       updatedAt: Number(parsed.updatedAt || Date.now()),
+      version: Number(parsed.version || 1),
       intentFingerprint: parsed.intentFingerprint ? String(parsed.intentFingerprint) : undefined,
-      idempotencyKey: parsed.idempotencyKey ? String(parsed.idempotencyKey) : undefined,
+      idempotencyKey,
+      // Contextos anteriores a v2 solo podían contener una llave después de
+      // haber intentado crear el checkout. Se consideran entregados al proveedor
+      // para que el siguiente clic explícito genere un intento nuevo.
+      attemptState: parsedAttemptState || (idempotencyKey ? 'redirected' : undefined),
     };
   } catch {
     return null;
@@ -84,18 +106,68 @@ export function getOrCreateCheckoutIdempotencyKey(input: {
   };
   const intentFingerprint = JSON.stringify(normalized);
   const current = readCheckoutContext();
-  if (current?.intentFingerprint === intentFingerprint && current.idempotencyKey) return current.idempotencyKey;
+
+  // Mientras el intento sigue activo, la misma intención conserva la llave:
+  // esto protege doble clic, reintentos de transporte y concurrencia.
+  if (
+    current?.intentFingerprint === intentFingerprint
+    && current.idempotencyKey
+    && current.attemptState !== 'redirected'
+  ) {
+    return current.idempotencyKey;
+  }
+
+  // Una vez que el checkout fue entregado al proveedor, un nuevo clic del
+  // operador representa un intento nuevo y debe obtener una llave distinta.
   const idempotencyKey = createOpaqueCheckoutKey();
   if (canUseStorage()) {
     window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
       planId: normalized.planId,
       requestTrial: normalized.requestTrial,
       updatedAt: Date.now(),
+      version: CHECKOUT_CONTEXT_VERSION,
       intentFingerprint,
       idempotencyKey,
+      attemptState: 'active',
     } satisfies CheckoutContext));
   }
   return idempotencyKey;
+}
+
+export function markCheckoutAttemptRedirected() {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  const current = readCheckoutContext();
+  if (!current?.idempotencyKey || !current.intentFingerprint) {
+    return;
+  }
+
+  window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
+    ...current,
+    version: CHECKOUT_CONTEXT_VERSION,
+    updatedAt: Date.now(),
+    attemptState: 'redirected',
+  } satisfies CheckoutContext));
+}
+
+export function beginNewCheckoutAttempt() {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  const current = readCheckoutContext();
+  if (!current) {
+    return;
+  }
+
+  window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
+    planId: current.planId,
+    requestTrial: current.requestTrial,
+    updatedAt: Date.now(),
+    version: CHECKOUT_CONTEXT_VERSION,
+  } satisfies CheckoutContext));
 }
 
 export function clearCheckoutContext() {
