@@ -18,14 +18,15 @@ function enqueue(operation: () => Promise<void>) {
 
 function reconcile(expectedRevision: number) {
   return enqueue(async () => {
+    // An intent superseded before its native operation begins is skipped.
     if (expectedRevision !== revision) return;
 
     const nextMode = desiredMode;
     if (!nextMode) {
       if (appliedMode) {
         await stopCallForegroundService();
-      }
-      if (expectedRevision === revision) {
+        // The native stop happened even if a newer revision arrived while it was
+        // in flight. Record reality; the queued newer revision will restart it.
         appliedMode = null;
       }
       return;
@@ -34,9 +35,9 @@ function reconcile(expectedRevision: number) {
     if (appliedMode === nextMode) return;
 
     await startCallForegroundService(nextMode === 'video');
-    if (expectedRevision === revision) {
-      appliedMode = nextMode;
-    }
+    // The native start happened even if the desired state changed while awaiting
+    // the bridge. Recording it lets the next queued reconcile stop/update it.
+    appliedMode = nextMode;
   });
 }
 
