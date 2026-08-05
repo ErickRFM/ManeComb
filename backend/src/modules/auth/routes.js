@@ -70,6 +70,8 @@ const passwordResetLimiter = enterpriseRateLimit({
   windowMs: 15 * 60 * 1000,
   message: "Demasiadas solicitudes de recuperacion. Intenta de nuevo mas tarde."
 });
+const PASSWORD_RECOVERY_ACCEPTED_MESSAGE =
+  "Solicitud recibida. Revisa tu correo para continuar con la recuperacion.";
 
 function shouldLogAuthAccessDecision() {
   return process.env.AUTH_ACCESS_DEBUG === "true" || process.env.NODE_ENV === "development";
@@ -343,7 +345,7 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
     if (!result) {
       return res.json({
         ok: true,
-        message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
+        message: PASSWORD_RECOVERY_ACCEPTED_MESSAGE
       });
     }
 
@@ -448,13 +450,13 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
 
     return res.json({
       ok: true,
-      message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
+      message: PASSWORD_RECOVERY_ACCEPTED_MESSAGE
     });
   } catch (error) {
     logger.error({ action: "forgotPassword", message: communication.security.sanitizeProviderError(error) });
     return res.json({
       ok: true,
-      message: "Si el correo existe, recibiras instrucciones para recuperar tu contrasena"
+      message: PASSWORD_RECOVERY_ACCEPTED_MESSAGE
     });
   }
 });
