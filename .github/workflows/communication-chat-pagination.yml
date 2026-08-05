@@ -44,7 +44,7 @@ jobs:
           test = test_file.read_text()
           test = test.replace(
               "import { readFileSync } from 'fs';\nimport { resolve } from 'path';",
-              "declare const require: (id: string) => any;\ndeclare const __dirname: string;\nconst { readFileSync } = require('fs');\nconst { resolve } = require('path');",
+              "declare const __dirname: string;\nconst { readFileSync } = require('fs');\nconst { resolve } = require('path');",
               1,
           )
           test_file.write_text(test)
