@@ -11,6 +11,11 @@ const AUDIT_SORTS = ["createdAt", "action", "severity"];
 const PAYMENT_STATUSES = ["pending", "approved", "paid", "active", "completed", "cancelled", "refunded", "failed", "expired"];
 const ACTIVATION_STATUSES = ["pending_payment", "pending_activation", "active", "blocked", "cancelled"];
 const AUDIT_SEVERITIES = ["debug", "info", "warn", "warning", "error", "critical"];
+const AUDIT_FILTER_KEYS = new Set([
+  "search", "q", "planId", "paymentStatus", "activationStatus",
+  "onboardingStatus", "organizationId", "action", "actorId",
+  "severity", "since", "until", "page", "limit", "sort", "order"
+]);
 
 function timestamp(value) {
   const time = value ? new Date(value).getTime() : 0;
@@ -22,13 +27,14 @@ function iso(value) {
   return time ? new Date(time).toISOString() : null;
 }
 
-function normalizeIdentifier(value, maxLength = 128) {
-  const normalized = sanitizeText(value, maxLength);
+function normalizeIdentifier(value) {
+  const normalized = sanitizeText(value, 128);
   return normalized && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(normalized) ? normalized : null;
 }
 
 function serializeCommercialOrder(order) {
   const plan = order.planId ? getCommercialPlanById(order.planId) : null;
+  const hasPlan = Boolean(plan || order.planId || order.planName);
   return {
     id: order.id,
     organizationId: order.organizationId || null,
@@ -39,7 +45,7 @@ function serializeCommercialOrder(order) {
       name: order.ownerAccountName || null,
       email: order.ownerAccountEmail || null
     },
-    plan: plan || order.planId || order.planName
+    plan: hasPlan
       ? {
           id: plan?.id || order.planId || null,
           name: plan?.name || order.planName || "Plan no identificado",
@@ -188,16 +194,20 @@ function sanitizeAuditMetadata(metadata) {
     "users", "vehicles", "orders", "statusCode"
   ]) {
     const value = source[key];
-    if (["string", "boolean", "number"].includes(typeof value)) safe[key] = typeof value === "string" ? sanitizeText(value, 160) : value;
+    if (["string", "boolean", "number"].includes(typeof value)) {
+      safe[key] = typeof value === "string" ? sanitizeText(value, 160) : value;
+    }
   }
+
   if (source.filters && typeof source.filters === "object") {
     safe.filters = Object.fromEntries(
       Object.entries(source.filters)
-        .filter(([, value]) => ["string", "boolean", "number"].includes(typeof value) || value === null)
-        .slice(0, 12)
-        .map(([key, value]) => [sanitizeText(key, 40), typeof value === "string" ? sanitizeText(value, 120) : value])
+        .filter(([key, value]) => AUDIT_FILTER_KEYS.has(key) && (["string", "boolean", "number"].includes(typeof value) || value === null))
+        .slice(0, AUDIT_FILTER_KEYS.size)
+        .map(([key, value]) => [key, typeof value === "string" ? sanitizeText(value, 120) : value])
     );
   }
+
   return safe;
 }
 
