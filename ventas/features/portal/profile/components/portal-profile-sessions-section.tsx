@@ -10,6 +10,7 @@ import { styles } from '../profile.styles';
 
 type PortalProfileSessionsSectionProps = {
   isSubmitting: boolean;
+  message?: string | null;
   onRevoke: (session: PortalSession) => void;
   onRevokeAllOthers: () => void;
   sessions: PortalSession[];
@@ -25,16 +26,20 @@ function formatDateTime(value?: string | null) {
 
 export function PortalProfileSessionsSection({
   isSubmitting,
+  message,
   onRevoke,
   onRevokeAllOthers,
   sessions,
 }: PortalProfileSessionsSectionProps) {
   const otherSessions = sessions.filter((session) => !session.current && session.isActive !== false);
+  const countLabel = sessions.length
+    ? `${sessions.length} ${sessions.length === 1 ? 'sesión registrada' : 'sesiones registradas'}`
+    : undefined;
 
   return (
     <PortalSectionCard
       title="Sesiones activas"
-      subtitle={sessions.length ? `${sessions.length} ${sessions.length === 1 ? 'sesión registrada' : 'sesiones registradas'}` : undefined}
+      subtitle={message || countLabel}
       right={otherSessions.length ? (
         <PortalButton
           icon="logout-variant"
