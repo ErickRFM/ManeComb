@@ -13,6 +13,7 @@ const {
   TRUST_PROXY
 } = require("./config/env");
 const accountRoutes = require("./modules/account/routes");
+const accountSecurityRoutes = require("./modules/account-security/routes");
 const {
   adminActivationKeyRoutes,
   driverActivationRoutes
@@ -253,6 +254,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/app", appRoutes);
   app.use("/api/radio", radioRoutes);
   app.use("/api/rtc", rtcRoutes);
+  app.use("/api/users/me", accountSecurityRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/vehicles", vehicleRoutes);
 

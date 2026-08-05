@@ -9,6 +9,7 @@ export function PlanCard({
   index,
   plan,
   width,
+  compact = false,
   active,
   accent,
   onPress,
@@ -20,6 +21,7 @@ export function PlanCard({
   index: number;
   plan: CommercialPlan;
   width: number;
+  compact?: boolean;
   active: boolean;
   accent: string;
   onPress: () => void;
@@ -30,7 +32,7 @@ export function PlanCard({
 }) {
   const visual = getPlanVisualTone(index);
   const cardEdge = active ? visual.edge : accent;
-  const compactCard = width <= 316;
+  const compactCard = compact || width <= 316;
   const demoEligible = isPublicDemoPlan(plan);
   const features = [
     `${plan.units} unidades incluidas`,

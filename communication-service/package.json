@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "private": true,
   "scripts": {
-    "test": "node --require ./tests/setup-env.js tests/communication.test.js",
+    "test": "node --require ./tests/setup-env.js tests/communication.test.js && node tests/email-branding.test.js",
     "test:all": "node tests/run-all.js"
   },
   "dependencies": {

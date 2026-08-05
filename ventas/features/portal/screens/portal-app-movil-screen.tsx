@@ -28,41 +28,60 @@ export function PortalAppMovilScreen() {
     }))
   );
   const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<TabKey>('info');
   const { ref: novidadesRef, scrollToNovidades } = useNovidadesScroll();
 
   const toggleVersionExpanded = useCallback((version: string) => {
-    setExpandedVersions((prev) => {
-      const next = new Set(prev);
-      if (next.has(version)) {
-        next.delete(version);
-      } else {
-        next.add(version);
-      }
+    setExpandedVersions((previous) => {
+      const next = new Set(previous);
+      if (next.has(version)) next.delete(version);
+      else next.add(version);
       return next;
     });
   }, []);
 
   useEffect(() => {
-    if (!appInfo) {
-      loadAppInfo();
+    if (!appInfo && !isLoading) {
+      void loadAppInfo();
     }
-  }, []);
+  }, [appInfo, isLoading, loadAppInfo]);
 
   useEffect(() => {
-    if (appInfo?.apkUrl) {
-      QRCode.toString(appInfo.apkUrl, {
-        type: 'svg',
-        margin: 1,
-        color: { dark: '#000000', light: '#FFFFFF' },
-      }).then((svg) => setQrSvg(svg));
-    }
+    let cancelled = false;
+    setQrSvg(null);
+    setQrError(false);
+
+    if (!appInfo?.apkUrl) return () => { cancelled = true; };
+
+    void QRCode.toString(appInfo.apkUrl, {
+      type: 'svg',
+      margin: 1,
+      color: { dark: '#000000', light: '#FFFFFF' },
+    })
+      .then((svg) => {
+        if (!cancelled) setQrSvg(svg);
+      })
+      .catch(() => {
+        if (!cancelled) setQrError(true);
+      });
+
+    return () => { cancelled = true; };
   }, [appInfo?.apkUrl]);
 
-  const handleDownload = () => {
-    if (appInfo?.apkUrl) {
-      Linking.openURL(appInfo.apkUrl);
+  const handleDownload = async () => {
+    setDownloadMessage(null);
+    if (!appInfo?.apkUrl) {
+      setDownloadMessage('La descarga todavía no está disponible.');
+      return;
+    }
+
+    try {
+      await Linking.openURL(appInfo.apkUrl);
+    } catch {
+      setDownloadMessage('No fue posible abrir la descarga. Revisa el enlace publicado e intenta nuevamente.');
     }
   };
 
@@ -88,12 +107,8 @@ export function PortalAppMovilScreen() {
     return (
       <PortalLayout title="App Móvil" subtitle="Centro de descarga de la aplicación ManeComb para conductores.">
         <View style={styles.errorState}>
-          <EmptyState
-            icon="cloud-alert"
-            title="No pudimos cargar la información"
-            description={error}
-          />
-          <Pressable accessibilityRole="button" onPress={loadAppInfo} style={styles.retryButton}>
+          <EmptyState icon="cloud-alert" title="No pudimos cargar la información" description={error} />
+          <Pressable accessibilityRole="button" onPress={() => void loadAppInfo()} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Reintentar</Text>
           </Pressable>
         </View>
@@ -113,20 +128,28 @@ export function PortalAppMovilScreen() {
     );
   }
 
+  const versionHistory = appInfo.versionHistory || [];
+
   return (
-    <PortalLayout title="App Móvil" subtitle="Centro de descarga de la aplicación ManeComb para conductores.">
+    <PortalLayout title="App Móvil" subtitle="Descarga, requisitos, versión publicada y administración del APK para conductores.">
       <AppMobileHero
         compact={compact}
         appName="ManeComb"
         appStatus={appInfo.status ?? 'Disponible'}
         appVersion={appInfo.version}
-        onDownload={handleDownload}
+        onDownload={() => void handleDownload()}
         onNovidades={scrollToNovidades}
       />
 
+      {downloadMessage ? (
+        <View style={styles.errorState}>
+          <Text style={styles.retryButtonText}>{downloadMessage}</Text>
+        </View>
+      ) : null}
+
       <AppMobileTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {activeTab === 'info' && (
+      {activeTab === 'info' ? (
         <>
           <AppMobileInfoFacts
             facts={[
@@ -139,28 +162,44 @@ export function PortalAppMovilScreen() {
 
           <AppMobileDownloadCard
             compact={compact}
-            qrSvg={qrSvg}
+            qrSvg={qrError ? null : qrSvg}
             androidMin={appInfo.androidMin}
             size={appInfo.size}
             version={appInfo.version}
-            onDownload={handleDownload}
+            onDownload={() => void handleDownload()}
           />
+
+          {qrError ? (
+            <EmptyState
+              icon="qrcode-remove"
+              title="No se pudo generar el QR"
+              description="La descarga directa sigue disponible desde el botón."
+            />
+          ) : null}
 
           <AppMobileReleaseNotes ref={novidadesRef} version={appInfo.version} notes={appInfo.releaseNotes} />
         </>
-      )}
+      ) : null}
 
-      {activeTab === 'history' && appInfo.versionHistory && appInfo.versionHistory.length > 1 && (
-        <AppMobileVersionTimeline
-          versions={appInfo.versionHistory}
-          expandedVersions={expandedVersions}
-          onToggleVersion={toggleVersionExpanded}
-          onDownload={handleDownload}
-          compact={compact}
-        />
-      )}
+      {activeTab === 'history' ? (
+        versionHistory.length > 1 ? (
+          <AppMobileVersionTimeline
+            versions={versionHistory}
+            expandedVersions={expandedVersions}
+            onToggleVersion={toggleVersionExpanded}
+            onDownload={() => void handleDownload()}
+            compact={compact}
+          />
+        ) : (
+          <EmptyState
+            icon="history"
+            title="Aún no hay versiones anteriores"
+            description={`La versión ${appInfo.version} es la única publicación disponible en este momento.`}
+          />
+        )
+      ) : null}
 
-      {activeTab === 'admin' && <PortalAppAdmin />}
+      {activeTab === 'admin' ? <PortalAppAdmin /> : null}
     </PortalLayout>
   );
 }

@@ -75,7 +75,7 @@ export function PortalPlanScreen() {
         )}
       </PortalSectionCard>
 
-      <PortalSectionCard title="Compara planes" subtitle="Elige una opción para ver exactamente qué cambiaría.">
+      <PortalSectionCard title="Compara planes" subtitle="Cada plan conserva la misma identidad visual de la landing y muestra exactamente qué cambiaría.">
         {actionMessage ? (
           <View style={styles.actionFeedback}>
             <MaterialCommunityIcons name="information-outline" size={18} color={portalPalette.info} />
@@ -107,10 +107,11 @@ export function PortalPlanScreen() {
         ) : plans.length ? (
           <View style={styles.planGridWrapper}>
             <View style={styles.planGrid}>
-              {plans.map((plan) => (
+              {plans.map((plan, index) => (
                 <PlanComparisonCard
                   key={plan.id}
                   active={plan.id === currentPlan?.id}
+                  index={index}
                   plan={plan}
                   selected={plan.id === selectedPlanId}
                   onSelect={() => void selectPlan(plan.id)}
@@ -172,4 +173,3 @@ export function PortalPlanScreen() {
     </PortalLayout>
   );
 }
-
