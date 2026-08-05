@@ -6,19 +6,20 @@ on:
       - audit/environment-integrity-20260805-v2
     paths:
       - .github/workflows/_temporary-lock-refresh.yml
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh-locks:
-    name: Refresh vulnerable locks
+    name: Refresh and commit vulnerable locks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Checkout
+      - name: Checkout audit branch
         uses: actions/checkout@v5
+        with:
+          ref: audit/environment-integrity-20260805-v2
 
       - name: Setup Node
         uses: actions/setup-node@v5
@@ -41,21 +42,24 @@ jobs:
         working-directory: communication-service
         run: npm install --package-lock-only --ignore-scripts --save-optional nodemailer@^9.0.4
 
-      - name: Show changed manifests
-        run: git diff --stat -- backend/package.json backend/package-lock.json ventas/package.json ventas/package-lock.json mobile/package.json mobile/package-lock.json communication-service/package.json communication-service/package-lock.json
+      - name: Verify runtime dependency audits
+        run: |
+          npm audit --prefix backend --omit=dev --audit-level=high
+          npm audit --prefix ventas --omit=dev --audit-level=high
+          npm audit --prefix mobile --omit=dev --audit-level=high
+          npm audit --prefix communication-service --omit=dev --audit-level=high
+          npm audit --prefix admin-global --omit=dev --audit-level=high
 
-      - name: Upload reviewed lock candidates
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-lock-refresh
-          path: |
-            backend/package.json
-            backend/package-lock.json
-            ventas/package.json
-            ventas/package-lock.json
-            mobile/package.json
-            mobile/package-lock.json
-            communication-service/package.json
-            communication-service/package-lock.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit exact generated manifests and locks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            backend/package.json backend/package-lock.json \
+            ventas/package.json ventas/package-lock.json \
+            mobile/package.json mobile/package-lock.json \
+            communication-service/package.json communication-service/package-lock.json
+          git diff --cached --stat
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(security): refresh vulnerable production dependency locks"
+          git push origin HEAD:audit/environment-integrity-20260805-v2
