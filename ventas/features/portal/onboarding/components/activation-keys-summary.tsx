@@ -35,19 +35,29 @@ export function ActivationKeysSummary({
         <Text style={styles.metricDetail}>{summary.maxUnits} combis incluidas</Text>
       </View>
       <ActivationMetric
-        label="Límite"
-        value={`${summary.maxDrivers}`}
-        detail="conductores / unidades activas"
-      />
-      <ActivationMetric
-        label="Keys"
-        value={`${summary.keysGenerated}`}
-        detail={`${summary.keysUsed} usadas / ${summary.keysAvailable} disponibles`}
-      />
-      <ActivationMetric
-        label="Cupos disponibles"
+        label="Cupos"
         value={`${summary.availableSlots}`}
-        detail={`${summary.activeDrivers} conductores activados`}
+        detail={`${summary.activeDrivers} conductores activos`}
+      />
+      <ActivationMetric
+        label="Disponibles"
+        value={`${summary.keysAvailable}`}
+        detail="listas para compartir"
+      />
+      <ActivationMetric
+        label="Usadas"
+        value={`${summary.keysUsed}`}
+        detail="con evidencia conservada"
+      />
+      <ActivationMetric
+        label="Expiradas"
+        value={`${summary.keysExpired || 0}`}
+        detail="ya no pueden utilizarse"
+      />
+      <ActivationMetric
+        label="Revocadas"
+        value={`${summary.keysRevoked || 0}`}
+        detail={`${summary.keysGenerated} generadas en total`}
       />
     </View>
   );
