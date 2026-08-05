@@ -1,18 +1,32 @@
 export const COMMERCIAL_FAQS = [
   {
-    question: 'El precio es por mes?',
-    answer: 'La landing presenta los paquetes como mensualidad comercial por numero de combis activas.',
+    question: '¿Qué plan incluye demo?',
+    answer:
+      'La demo de 7 días está disponible únicamente en el plan de 2 combis. Los planes de 4, 6, 8 y 12 combis se activan directamente al elegirlos.',
   },
   {
-    question: 'Puedo arrancar con pocas unidades?',
-    answer: 'Si. El plan de 2 combis es la puerta de entrada para operadores pequenos o pilotos.',
+    question: '¿El precio es por mes?',
+    answer:
+      'Sí. Cada tarjeta muestra la mensualidad del paquete y la cantidad de unidades incluidas para comparar la capacidad de la flotilla.',
   },
   {
-    question: 'La app sirve para supervisores y administracion?',
-    answer: 'Si. La plataforma centraliza choferes, incidencias, documentos, seguimiento y control.',
+    question: '¿Puedo arrancar con pocas unidades?',
+    answer:
+      'Sí. El plan de 2 combis está pensado para pilotos y operaciones pequeñas; después puedes elegir una capacidad mayor conforme crezca tu flotilla.',
   },
   {
-    question: 'El pago queda automatizado?',
-    answer: 'Si configuras Mercado Pago, el checkout abre pago real. Mientras tanto, SPEI y transferencia mantienen referencia comercial.',
+    question: '¿Qué puedo administrar desde ManeComb?',
+    answer:
+      'El portal organiza usuarios, roles, unidades, rutas, documentos, planes y seguimiento. La app móvil concentra GPS, jornadas, checklist, incidencias, chat, radio, PTT y llamadas.',
+  },
+  {
+    question: '¿La app sirve para conductores, supervisores y administración?',
+    answer:
+      'Sí. Cada perfil recibe acceso según su rol y permisos, mientras la información operativa permanece conectada dentro de la misma organización.',
+  },
+  {
+    question: '¿Cómo se activa un plan?',
+    answer:
+      'Elige la capacidad, crea o abre tu cuenta y continúa con el método disponible. El portal conserva la referencia y el estado de la activación.',
   },
 ];

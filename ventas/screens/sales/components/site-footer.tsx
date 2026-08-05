@@ -27,11 +27,11 @@ function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => v
 
 export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
   const handleFooterLink = (label: string) => {
-    if (label === 'Planes') {
+    if (label === 'Planes' || label === 'Demo 2 combis') {
       onNavigate('planes');
       return;
     }
-    if (label === 'Funciones' || label === 'Demo') {
+    if (label === 'Funciones') {
       onNavigate('funcionalidades');
       return;
     }
@@ -55,17 +55,12 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
       openExternalUrl(SYSTEM_STATUS_URL);
       return;
     }
-    if (label === 'Cookies') {
-      router.push('/privacidad' as never);
-      return;
-    }
-    if (label === 'Privacidad') {
+    if (label === 'Cookies' || label === 'Privacidad') {
       router.push('/privacidad' as never);
       return;
     }
     if (label === 'Términos') {
       router.push('/terminos' as never);
-      return;
     }
   };
 
@@ -87,7 +82,7 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
           <View style={styles.footerBrand}>
             <BrandLogo size="sm" plain />
             <Text style={styles.footerDescription}>
-              Plataforma integral para el control y operación de flotillas de transporte tipo combi.
+              Portal administrativo y app operativa para controlar unidades, rutas, equipo, comunicación y evidencia desde una sola plataforma.
             </Text>
           </View>
 
@@ -118,7 +113,7 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
 
         <View style={styles.footerBottom}>
           <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
-          <Text style={styles.footerBottomText}>Hecho con control operativo para el transporte.</Text>
+          <Text style={styles.footerBottomText}>Una sola operación. Una sola fuente de información.</Text>
         </View>
       </View>
     </>

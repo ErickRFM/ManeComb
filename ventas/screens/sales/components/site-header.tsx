@@ -1,12 +1,11 @@
 import { Platform, Pressable, Text, View } from 'react-native';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { neonPalette } from '../constants';
 import { styles } from '../styles';
 import { webStyle } from '../utils';
 import { ActionButton } from './section-heading';
 
 const navItems = [
-  { label: 'Funcionalidades', compactLabel: 'Funciones', target: 'funcionalidades' },
+  { label: 'Plataforma', compactLabel: 'Funciones', target: 'funcionalidades' },
   { label: 'App móvil', compactLabel: 'App', target: 'descargar' },
   { label: 'Planes', compactLabel: 'Planes', target: 'planes' },
   { label: 'Confianza', compactLabel: 'Confianza', target: 'confianza' },
@@ -73,7 +72,7 @@ export function SiteHeader({
           {stacked ? (
             <View style={styles.headerActions}>
               <ActionButton label="Entrar" icon="login" variant="ghost" compact onPress={onLogin} />
-              <ActionButton label="Comprar" icon="arrow-right" compact onPress={onBuy} />
+              <ActionButton label="Elegir plan" icon="arrow-right" compact onPress={onBuy} />
             </View>
           ) : null}
         </View>
@@ -89,7 +88,7 @@ export function SiteHeader({
         {!stacked ? (
           <View style={styles.headerActions}>
             <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-            <ActionButton label="Comprar ahora" icon="arrow-right" compact onPress={onBuy} />
+            <ActionButton label="Elegir plan" icon="arrow-right" compact onPress={onBuy} />
           </View>
         ) : null}
       </View>

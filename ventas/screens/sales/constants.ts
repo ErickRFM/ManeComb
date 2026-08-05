@@ -3,6 +3,7 @@ import type { IconName } from './types';
 export const SUPPORT_EMAIL = 'ventas@manecomb.com';
 export const SUPPORT_PHONE = '81812345678';
 export const SYSTEM_STATUS_URL = 'https://manecomb.onrender.com/api/health';
+export const PUBLIC_DEMO_PLAN_ID = 'starter-2';
 
 export const accentByTone = {
   info: '#00C2FF',
@@ -82,47 +83,56 @@ export const planVisualTones = [
   },
 ] as const;
 
-export const benefits: Array<{
+export const heroSignals: Array<{
+  label: string;
+  icon: IconName;
+  color: string;
+}> = [
+  { label: 'GPS y rutas', icon: 'map-marker-path', color: neonPalette.cyan },
+  { label: 'Chat, radio y PTT', icon: 'radio-handheld', color: neonPalette.mint },
+  { label: 'Llamadas de audio y video', icon: 'phone-in-talk-outline', color: neonPalette.accent },
+  { label: 'Documentos y alertas', icon: 'file-document-check-outline', color: neonPalette.violet },
+];
+
+export const platformPillars: Array<{
+  eyebrow: string;
   title: string;
   body: string;
   icon: IconName;
   color: string;
+  features: string[];
 }> = [
   {
-    title: 'Monitoreo en tiempo real',
-    body: 'Ubica cada unidad en mapa vivo, con estado de ruta, velocidad y actividad operativa.',
-    icon: 'map-marker-path',
-    color: neonPalette.cyan,
-  },
-  {
-    title: 'Comunicación instantánea',
-    body: 'Coordina conductores, supervisores y despacho desde una misma plataforma.',
-    icon: 'message-processing-outline',
-    color: neonPalette.mint,
-  },
-  {
-    title: 'Alertas y notificaciones',
-    body: 'Recibe avisos críticos sobre eventos, vencimientos, incidencias y operación diaria.',
-    icon: 'bell-ring-outline',
-    color: neonPalette.accent,
-  },
-  {
-    title: 'Gestión documental',
-    body: 'Centraliza licencias, seguros, verificaciones y documentos de cada unidad.',
-    icon: 'file-document-check-outline',
-    color: neonPalette.mint,
-  },
-  {
-    title: 'Historial de viajes',
-    body: 'Consulta rutas, paradas y recorridos anteriores para auditar la operación.',
-    icon: 'history',
+    eyebrow: 'PREPARA',
+    title: 'Flotilla lista antes de salir',
+    body: 'Configura unidades, conductores, permisos, documentos y rutas desde el portal administrativo.',
+    icon: 'clipboard-check-outline',
     color: neonPalette.violet,
+    features: ['Usuarios y roles', 'Documentos', 'Checklist', 'Rutas y paradas'],
   },
   {
-    title: 'Analítica operativa',
-    body: 'Detecta patrones, mide disponibilidad y toma mejores decisiones de flotilla.',
-    icon: 'chart-line-variant',
+    eyebrow: 'SUPERVISA',
+    title: 'Operación visible en tiempo real',
+    body: 'Consulta ubicación, estado de ruta, ETA, tráfico, jornadas y última posición conocida de cada unidad.',
+    icon: 'map-clock-outline',
+    color: neonPalette.cyan,
+    features: ['GPS en vivo', 'Seguimiento', 'ETA y tráfico', 'Jornadas'],
+  },
+  {
+    eyebrow: 'COORDINA',
+    title: 'Todo el equipo en el mismo canal',
+    body: 'Conecta despacho, supervisores y conductores con chat, radio, PTT y llamadas directas.',
+    icon: 'account-voice',
+    color: neonPalette.mint,
+    features: ['Chat operativo', 'Radio general', 'PTT', 'Audio y video'],
+  },
+  {
+    eyebrow: 'RESPONDE',
+    title: 'Evidencia y acción cuando importa',
+    body: 'Registra incidencias, envía alertas, conserva historial y trabaja con sincronización cuando vuelve la red.',
+    icon: 'shield-alert-outline',
     color: neonPalette.accent,
+    features: ['Incidencias', 'Notificaciones', 'Historial', 'Sincronización'],
   },
 ];
 
@@ -132,24 +142,24 @@ export const processSteps: Array<{
   icon: IconName;
 }> = [
   {
-    title: 'Selecciona tu plan.',
-    body: 'Elige el paquete que coincide con el tamaño de tu flotilla.',
+    title: 'Elige demo o plan.',
+    body: 'Prueba 7 días con 2 combis o activa directamente el paquete de tu flotilla.',
     icon: 'credit-card-outline',
   },
   {
-    title: 'Crea tu cuenta.',
-    body: 'Registra tu empresa y deja listo el acceso administrativo.',
-    icon: 'account-plus-outline',
+    title: 'Configura tu operación.',
+    body: 'Registra empresa, responsables, permisos y estructura administrativa.',
+    icon: 'account-cog-outline',
   },
   {
-    title: 'Activa tus unidades.',
-    body: 'Agrega combis, conductores y permisos desde el portal.',
+    title: 'Conecta unidades y rutas.',
+    body: 'Agrega combis, conductores, documentos, recorridos y jornadas.',
     icon: 'bus-multiple',
   },
   {
-    title: 'Accede a tu panel.',
-    body: 'Monitorea GPS, alertas, documentos y comunicación.',
-    icon: 'monitor-dashboard',
+    title: 'Opera desde portal y app.',
+    body: 'Supervisa, comunica, responde y conserva evidencia en un solo sistema.',
+    icon: 'monitor-cellphone',
   },
 ];
 
@@ -160,33 +170,33 @@ export const trustMetrics: Array<{
   color: string;
 }> = [
   {
-    value: '99.8%',
-    label: 'Disponibilidad',
-    icon: 'shield-check-outline',
+    value: 'GPS + rutas',
+    label: 'Operación en vivo',
+    icon: 'map-marker-path',
     color: neonPalette.cyan,
   },
   {
-    value: '< 5 min',
-    label: 'Implementación',
-    icon: 'timer-outline',
+    value: 'Chat + radio',
+    label: 'Coordinación del equipo',
+    icon: 'radio-handheld',
+    color: neonPalette.mint,
+  },
+  {
+    value: 'Roles + docs',
+    label: 'Control y evidencia',
+    icon: 'shield-account-outline',
     color: neonPalette.violet,
   },
   {
-    value: '24/7',
-    label: 'Soporte',
-    icon: 'headset',
+    value: 'Portal + app',
+    label: 'Trabajo conectado',
+    icon: 'monitor-cellphone',
     color: neonPalette.accent,
-  },
-  {
-    value: 'Datos',
-    label: 'Seguridad',
-    icon: 'lock-check-outline',
-    color: neonPalette.mint,
   },
 ];
 
 export const footerColumns = [
-  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes', 'Demo'] },
+  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes', 'Demo 2 combis'] },
   { title: 'Empresa', links: ['Nosotros', 'Casos de éxito', 'Contacto'] },
   { title: 'Soporte', links: ['Centro de ayuda', 'Documentación', 'Estado del sistema'] },
   { title: 'Legal', links: ['Privacidad', 'Términos', 'Cookies'] },
