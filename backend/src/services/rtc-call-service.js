@@ -1,22 +1,12 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 — Bloque A + A.1: signaling global de llamadas (autoritativo backend).
+// RC-MOBILE-CALLS-PRODUCTION-01 — signaling global autoritativo + push de llamada.
 //
 // Estado de llamadas EN MEMORIA (una sola instancia de backend). Si en el futuro hay varias
-// replicas, esta reserva debe centralizarse (p.ej. Redis) — ver reporte. La logica es pura respecto
-// a la red: recibe un `emitToUser(userId, event, payload)` inyectado y timers inyectables, de modo
-// que se prueba en aislamiento (el repo no tiene socket.io-client en tests).
-//
-// Reglas del contrato:
-// - El `callId` lo genera el BACKEND (nunca el cliente) y se devuelve por ACK de rtc:call.
-// - Solo llamadas DIRECTAS: conversacion con exactamente 2 participantes (caller + 1 callee).
-// - Sala canonica por llamada: `rtc:call:{callId}` (namespace unico; sin `call:{callId}`).
-// - Destinatario resuelto por backend desde participantes de la conversacion (no desde el cliente).
-// - Aislamiento por organizacion.
-// - Reserva de ocupacion por usuario para responder `busy`.
-// - Idempotencia por `callId`.
-// - Disconnect con GRACIA de 15s alineada con la retencion RTC.
+// replicas, esta reserva debe centralizarse (p.ej. Redis). Push nunca reemplaza al socket:
+// despierta el dispositivo y transporta el mismo callId que gobierna signaling/WebRTC.
 
 const { randomUUID } = require("crypto");
 const { getOrganizationId } = require("../middlewares/access-control");
+const { deliverOperationalNotification } = require("./notification-delivery");
 
 const RING_TIMEOUT_MS = 35000;
 const DISCONNECT_GRACE_MS = 15000;
@@ -25,20 +15,84 @@ function callRoom(callId) {
   return `rtc:call:${callId}`;
 }
 
+function buildIncomingCallDeepLink(call, caller) {
+  const params = new URLSearchParams({
+    callId: call.callId,
+    conversationId: call.conversationId,
+    callerId: call.callerId,
+    callerName: String(caller?.name || "Contacto operativo"),
+    mode: call.mode,
+    action: "incoming"
+  });
+  return `manecomb:///call?${params.toString()}`;
+}
+
 function createRtcCallService({
   store,
   emitToUser,
+  deliverNotification = deliverOperationalNotification,
   now = () => Date.now(),
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   ringTimeoutMs = RING_TIMEOUT_MS,
   disconnectGraceMs = DISCONNECT_GRACE_MS
 } = {}) {
-  const callsById = new Map(); // callId -> call
-  const userState = new Map(); // userId -> callId (ocupacion)
-  const pendingDisconnects = new Map(); // `${callId}:${userId}` -> timer handle
+  const callsById = new Map();
+  const userState = new Map();
+  const pendingDisconnects = new Map();
 
   const isBusy = (userId) => userState.has(userId);
+
+  function queuePush(targetUserIds, call, input = {}) {
+    if (!call || !Array.isArray(targetUserIds) || !targetUserIds.length) return;
+    const payload = {
+      organizationId: call.organizationId,
+      targetUserIds,
+      category: "call",
+      level: input.level || "critical",
+      title: input.title || "Llamada ManeComb",
+      body: input.body || "Actualizacion de llamada",
+      silent: Boolean(input.silent),
+      ttlSeconds: input.ttlSeconds || Math.ceil(ringTimeoutMs / 1000) + 5,
+      data: {
+        type: input.type || "call_state",
+        callId: call.callId,
+        conversationId: call.conversationId,
+        callerId: call.callerId,
+        callerName: String(input.callerName || ""),
+        mode: call.mode,
+        reason: String(input.reason || ""),
+        expiresAt: String(input.expiresAt || "")
+      },
+      deepLink: input.deepLink || ""
+    };
+
+    Promise.resolve(
+      deliverNotification({ io: null, store, persist: false, payload })
+    ).catch(() => undefined);
+  }
+
+  function queueIncomingPush(call, caller) {
+    queuePush(call.calleeIds, call, {
+      type: "incoming_call",
+      title: caller?.name ? `${caller.name} te está llamando` : "Llamada entrante",
+      body: call.mode === "video" ? "Videollamada de ManeComb" : "Llamada de audio de ManeComb",
+      callerName: caller?.name || "Contacto operativo",
+      expiresAt: new Date(call.createdAt + ringTimeoutMs).toISOString(),
+      deepLink: buildIncomingCallDeepLink(call, caller)
+    });
+  }
+
+  function queueCallDismiss(call, targetUserIds, reason) {
+    queuePush(targetUserIds, call, {
+      type: "call_dismiss",
+      title: "",
+      body: "",
+      reason,
+      silent: true,
+      ttlSeconds: 60
+    });
+  }
 
   function freeUsers(call) {
     for (const userId of [call.callerId, ...call.calleeIds]) {
@@ -74,6 +128,7 @@ function createRtcCallService({
     const payload = { callId, conversationId: call.conversationId, reason: "timeout" };
     emitToUser(call.callerId, "rtc:call-timeout", payload);
     for (const calleeId of call.calleeIds) emitToUser(calleeId, "rtc:call-timeout", payload);
+    queueCallDismiss(call, call.calleeIds, "timeout");
     finalize(call);
   }
 
@@ -85,21 +140,17 @@ function createRtcCallService({
     if (!callerId || !safeConversationId) return { ok: false, code: "invalid_request" };
     if (!organizationId) return { ok: false, code: "forbidden" };
 
-    // Modo estricto: solo audio/video. Ausente => audio.
     const rawMode = mode == null ? "audio" : String(mode);
     if (rawMode !== "audio" && rawMode !== "video") return { ok: false, code: "invalid_mode" };
 
-    // Acceso a la conversacion (autorizacion) + resolucion de participantes DESDE backend.
     const canAccess = await store.canUserAccessConversation?.(callerId, safeConversationId);
     if (!canAccess) return { ok: false, code: "forbidden" };
     const conversation = await store.getConversationById?.(safeConversationId);
     if (!conversation) return { ok: false, code: "forbidden" };
-    // Aislamiento por organizacion.
     if (String(conversation.organizationId || "").trim() !== organizationId) {
       return { ok: false, code: "forbidden" };
     }
 
-    // Solo llamadas DIRECTAS: exactamente 2 participantes (caller + 1 callee distinto).
     const participants = Array.isArray(conversation.participants) ? conversation.participants.map(String) : [];
     const calleeIds = participants.filter((id) => id && id !== callerId);
     if (participants.length !== 2 || calleeIds.length !== 1) {
@@ -119,7 +170,7 @@ function createRtcCallService({
       callerId,
       callerSocketId: callerSocketId || null,
       calleeIds: [calleeId],
-      calleeSockets: new Map(), // userId -> socketId (al aceptar)
+      calleeSockets: new Map(),
       status: "ringing",
       acceptedBy: null,
       createdAt: now(),
@@ -137,6 +188,7 @@ function createRtcCallService({
       mode: rawMode,
       caller: { id: callerId, name: (caller && caller.name) || null }
     });
+    queueIncomingPush(call, caller);
 
     call.timeoutHandle = setTimeoutFn(() => onRingTimeout(callId), ringTimeoutMs);
     return { ok: true, callId, roomId: callRoom(callId), status: "ringing", calleeId };
@@ -144,11 +196,11 @@ function createRtcCallService({
 
   function accept({ user, socketId, callId }) {
     const call = callsById.get(callId);
-    if (!call || call.status === "ended") return { ok: false, code: "unknown_call" }; // idempotente/tras timeout
+    if (!call || call.status === "ended") return { ok: false, code: "unknown_call" };
     if (!call.calleeIds.includes(user.id)) return { ok: false, code: "forbidden" };
     if (call.status === "active") {
       return call.acceptedBy === user.id
-        ? { ok: true, callId, roomId: callRoom(callId), idempotent: true } // accept duplicado
+        ? { ok: true, callId, roomId: callRoom(callId), idempotent: true }
         : { ok: false, code: "already_active" };
     }
 
@@ -163,6 +215,7 @@ function createRtcCallService({
     const payload = { callId, conversationId: call.conversationId, roomId: callRoom(callId), mode: call.mode, acceptedBy: user.id };
     emitToUser(call.callerId, "rtc:call-accepted", payload);
     emitToUser(user.id, "rtc:call-accepted", payload);
+    queueCallDismiss(call, call.calleeIds, "accepted");
     return { ok: true, callId, roomId: callRoom(callId) };
   }
 
@@ -171,11 +224,11 @@ function createRtcCallService({
     if (!call || call.status === "ended") return { ok: true, idempotent: true };
     if (!call.calleeIds.includes(user.id)) return { ok: false, code: "forbidden" };
     emitToUser(call.callerId, "rtc:call-rejected", { callId, conversationId: call.conversationId, reason });
+    queueCallDismiss(call, call.calleeIds, reason);
     finalize(call);
     return { ok: true };
   }
 
-  // El callee declina por estar ocupado: el caller recibe rejected(reason=busy).
   function busy({ user, callId }) {
     return reject({ user, callId, reason: "busy" });
   }
@@ -187,6 +240,7 @@ function createRtcCallService({
     for (const id of call.calleeIds) {
       emitToUser(id, "rtc:call-cancelled", { callId, conversationId: call.conversationId, reason: "cancelled" });
     }
+    queueCallDismiss(call, call.calleeIds, "cancelled");
     finalize(call);
     return { ok: true };
   }
@@ -200,13 +254,14 @@ function createRtcCallService({
     for (const id of [call.callerId, ...call.calleeIds]) {
       if (id !== user.id) emitToUser(id, "rtc:end", payload);
     }
+    queueCallDismiss(call, [call.callerId, ...call.calleeIds], "ended");
     finalize(call);
     return { ok: true };
   }
 
   function scheduleDisconnectCleanup(call, goneUserId) {
     const key = `${call.callId}:${goneUserId}`;
-    if (pendingDisconnects.has(key)) return; // idempotente
+    if (pendingDisconnects.has(key)) return;
     const handle = setTimeoutFn(() => {
       pendingDisconnects.delete(key);
       const current = callsById.get(call.callId);
@@ -215,14 +270,12 @@ function createRtcCallService({
       for (const id of others) {
         emitToUser(id, "rtc:end", { callId: current.callId, conversationId: current.conversationId, reason: "peer_disconnected", endedBy: goneUserId });
       }
+      queueCallDismiss(current, [current.callerId, ...current.calleeIds], "peer_disconnected");
       finalize(current);
     }, disconnectGraceMs);
     pendingDisconnects.set(key, handle);
   }
 
-  // Un socket que era parte de una llamada se cayo. Gracia de 15s: no se limpia si el usuario
-  // conserva/recupera otro socket autenticado dentro del plazo.
-  // isUserConnected(userId) -> boolean (o Promise<boolean>): hay OTRO socket vivo del usuario.
   async function handleDisconnect(socketId, { isUserConnected } = {}) {
     for (const call of Array.from(callsById.values())) {
       const isCaller = call.callerSocketId === socketId;
@@ -230,11 +283,9 @@ function createRtcCallService({
       if (!isCaller && !calleeEntry) continue;
 
       const goneUserId = isCaller ? call.callerId : calleeEntry[0];
-      // Desasociar el socket caido (no lo vuelve a contar un disconnect posterior).
       if (isCaller) call.callerSocketId = null;
       else call.calleeSockets.delete(goneUserId);
 
-      // Si conserva otro socket activo, no iniciar cleanup.
       const stillConnected = isUserConnected ? await isUserConnected(goneUserId) : false;
       if (stillConnected) continue;
 
@@ -242,7 +293,6 @@ function createRtcCallService({
     }
   }
 
-  // El usuario recupero un socket autenticado dentro de la gracia: cancelar su cleanup pendiente.
   function noteUserReconnected(userId) {
     for (const [key, handle] of Array.from(pendingDisconnects.entries())) {
       if (key.endsWith(`:${userId}`)) {
@@ -252,7 +302,6 @@ function createRtcCallService({
     }
   }
 
-  // C.1: snapshot sanitizado de una llamada (para el socket layer). null si no existe.
   function getCall(callId) {
     const call = callsById.get(callId);
     if (!call) return null;
@@ -262,27 +311,24 @@ function createRtcCallService({
       organizationId: call.organizationId,
       callerId: call.callerId,
       calleeIds: [...call.calleeIds],
-      room: callRoom(call.callId),
+      room: callRoom(call.callId)
     };
   }
 
-  // C.1: autoridad para unirse a la sala rtc:call:{callId}. NO confia en conversationId/room/callee
-  // enviados por el cliente: valida contra el registro autoritativo.
   function canJoinCall({ callId, userId, organizationId }) {
     const call = callsById.get(callId);
-    if (!call) return { ok: false, reason: 'unknown_call' };
-    if (call.status === 'ended') return { ok: false, reason: 'call_ended' };
-    if (call.status !== 'active') return { ok: false, reason: 'not_accepted' };
-    if (organizationId && call.organizationId !== organizationId) return { ok: false, reason: 'forbidden' };
+    if (!call) return { ok: false, reason: "unknown_call" };
+    if (call.status === "ended") return { ok: false, reason: "call_ended" };
+    if (call.status !== "active") return { ok: false, reason: "not_accepted" };
+    if (organizationId && call.organizationId !== organizationId) return { ok: false, reason: "forbidden" };
     const isParticipant = userId === call.callerId || call.calleeIds.includes(userId);
-    if (!isParticipant) return { ok: false, reason: 'forbidden' };
+    if (!isParticipant) return { ok: false, reason: "forbidden" };
     return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
   }
 
-  // C.1: pertenencia a una llamada viva (respaldo de la validacion de offer/answer/ICE/leave/stats).
   function isCallMember(callId, userId) {
     const call = callsById.get(callId);
-    if (!call || call.status === 'ended') return false;
+    if (!call || call.status === "ended") return false;
     return userId === call.callerId || call.calleeIds.includes(userId);
   }
 
@@ -298,9 +344,14 @@ function createRtcCallService({
     getCall,
     canJoinCall,
     isCallMember,
-    // Solo para pruebas / diagnostico.
     _state: { callsById, userState, pendingDisconnects }
   };
 }
 
-module.exports = { createRtcCallService, RING_TIMEOUT_MS, DISCONNECT_GRACE_MS, callRoom };
+module.exports = {
+  createRtcCallService,
+  RING_TIMEOUT_MS,
+  DISCONNECT_GRACE_MS,
+  callRoom,
+  buildIncomingCallDeepLink
+};
