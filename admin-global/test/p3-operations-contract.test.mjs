@@ -34,7 +34,7 @@ assert.match(screens, /Solo lectura/);
 assert.match(screens, /Nunca expone secretos, tokens ni URLs privadas/);
 assert.match(screens, /IP, user-agent y payloads crudos permanecen fuera/);
 assert.match(screens, /paymentStatus/);
-assert.match(screens, /auditPersistent/);
+assert.match(screens, /Persistencia no disponible/);
 assert.doesNotMatch(screens, /refundOrder|capturePayment|cancelSubscription|forceActivation|rotateSecret|deleteAudit/i);
 
 assert.doesNotMatch(types, /accessToken|apiKey|webhookSecret|paymentProviderReference|userAgent|\bip:/i);
