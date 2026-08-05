@@ -1,19 +1,15 @@
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { neonPalette } from '../constants';
 import { styles } from '../styles';
 import { webStyle } from '../utils';
 import { ActionButton } from './section-heading';
-import type { IconName } from '../types';
 
 const navItems = [
-  { label: 'Inicio', target: 'inicio' },
-  { label: 'Funcionalidades', target: 'funcionalidades' },
-  { label: 'App móvil', target: 'descargar' },
-  { label: 'Planes', target: 'planes' },
-  { label: 'Confianza', target: 'confianza' },
-  { label: 'FAQ', target: 'faq' },
+  { label: 'Funcionalidades', compactLabel: 'Funciones', target: 'funcionalidades' },
+  { label: 'App móvil', compactLabel: 'App', target: 'descargar' },
+  { label: 'Planes', compactLabel: 'Planes', target: 'planes' },
+  { label: 'Confianza', compactLabel: 'Confianza', target: 'confianza' },
 ] as const;
 
 export function SiteHeader({
@@ -35,6 +31,7 @@ export function SiteHeader({
     <Pressable
       key={item.target}
       accessibilityRole="link"
+      accessibilityLabel={`Ir a ${item.label}`}
       onPress={() => onNavigate(item.target)}
       style={(state) => {
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
@@ -49,7 +46,9 @@ export function SiteHeader({
           }),
         ];
       }}>
-      <Text style={[styles.navItemText, stacked ? styles.navItemTextPhone : undefined]}>{item.label}</Text>
+      <Text style={[styles.navItemText, stacked ? styles.navItemTextPhone : undefined]}>
+        {stacked ? item.compactLabel : item.label}
+      </Text>
     </Pressable>
   ));
 
@@ -59,6 +58,7 @@ export function SiteHeader({
         styles.headerShell,
         compact ? styles.headerShellCompact : undefined,
         stacked ? styles.headerShellPhone : undefined,
+        stacked ? { minHeight: 100, paddingVertical: 8 } : undefined,
         webStyle({
           backdropFilter: 'blur(22px) saturate(160%)',
           WebkitBackdropFilter: 'blur(22px) saturate(160%)',
@@ -67,7 +67,7 @@ export function SiteHeader({
             : '0 1px 0 rgba(245, 247, 255, 0.08)',
         }),
       ]}>
-      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined]}>
+      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined, stacked ? { gap: 7 } : undefined]}>
         <View style={styles.headerTopRow}>
           <BrandLogo size={stacked ? 'sm' : 'md'} align="left" plain />
           {stacked ? (
@@ -79,13 +79,9 @@ export function SiteHeader({
         </View>
 
         {stacked ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.headerNavScroll}
-            contentContainerStyle={styles.headerNavPhoneContent}>
+          <View style={[styles.headerNav, { flex: 0, justifyContent: 'space-between', width: '100%' }]}>
             {navButtons}
-          </ScrollView>
+          </View>
         ) : (
           <View style={styles.headerNav}>{navButtons}</View>
         )}
