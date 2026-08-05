@@ -1,0 +1,120 @@
+name: Temporary certify Admin Global P2
+
+on:
+  push:
+    branches:
+      - feat/adm-global-p2-companies
+    paths:
+      - .github/workflows/_temporary-certify-adm-p2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout P2 branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/adm-global-p2-companies
+          fetch-depth: 0
+
+      - name: Connect P2 tests to environment contract
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'scripts/validate-environment-contract.mjs';
+          let content = fs.readFileSync(path, 'utf8');
+          const oldList = "['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js']";
+          const newList = "['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js', 'platform-companies.test.js']";
+          if (!content.includes(oldList)) throw new Error('No se encontró la lista Platform esperada');
+          content = content.replace(oldList, newList);
+
+          const marker = "if (!String(backendPackage.scripts?.test || '').includes('npm run test:platform')) {\n  fail('backend/package.json: npm test debe ejecutar test:platform');\n}\n";
+          const addition = `${marker}\nconst adminPackage = JSON.parse(read('admin-global/package.json'));\nconst adminTestCommand = adminPackage.scripts?.test || '';\nfor (const testFile of ['p1-contract.test.mjs', 'p2-companies-contract.test.mjs']) {\n  if (!adminTestCommand.includes(testFile)) fail(\`admin-global/package.json: npm test no ejecuta \${testFile}\`);\n}\nif (!ci.includes('name: Test') || !ci.includes('run: npm test')) {\n  fail('CI debe ejecutar las pruebas propias de Admin Global');\n}\n`;
+          if (!content.includes(marker)) throw new Error('No se encontró el marcador de scripts Platform');
+          content = content.replace(marker, addition);
+          fs.writeFileSync(path, content);
+          NODE
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            admin-global/package-lock.json
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix admin-global
+
+      - name: Verify Platform company backend
+        shell: bash
+        run: |
+          npm run test:platform --prefix backend
+          node scripts/validate-environment-contract.mjs
+
+      - name: Verify Admin Global P2
+        shell: bash
+        env:
+          VITE_API_URL: http://127.0.0.1:5000
+        run: |
+          npm run typecheck --prefix admin-global
+          npm test --prefix admin-global
+          npm run build --prefix admin-global
+          test -f admin-global/dist/_redirects
+          grep -Fxq '/* /index.html 200' admin-global/dist/_redirects
+
+      - name: Write closure report and push verified changes
+        shell: bash
+        run: |
+          cat > RC-ADM-GLOBAL-P2.md <<'EOF'
+          # ADM-GLOBAL-P2 — Empresas y detalle global en modo lectura
+
+          **Rama:** `feat/adm-global-p2-companies`  
+          **Base apilada:** `feat/adm-global-p1-shell`  
+          **Estado:** implementación técnica cerrada; pendiente de revisión y merge secuencial
+
+          ## Alcance cerrado
+
+          - Read model `PlatformCompanyView` construido desde `organizationId`.
+          - Fuentes canónicas existentes: usuarios empresariales, unidades, órdenes comerciales y catálogo de planes.
+          - Listado global paginado con búsqueda, plan, estado de pago y onboarding.
+          - Orden controlado por empresa, creación o último acceso.
+          - Detalle sanitizado de propietario, plan, estado comercial, usuarios y unidades.
+          - Sin posiciones GPS, secretos, hashes, referencias privadas del proveedor ni payloads comerciales completos.
+          - Endpoints protegidos `GET /api/platform/companies` y `GET /api/platform/companies/:organizationId`.
+          - Permiso obligatorio `platform.companies.read`, MFA y token Platform.
+          - Auditoría `platform.company.list` y `platform.company.view`.
+          - Pantallas responsive de lista y detalle exclusivamente de lectura.
+          - Pruebas backend, integración HTTP y contratos frontend conectadas a los gates permanentes.
+
+          ## Límites
+
+          P2 no suspende empresas, no cambia planes, no ejecuta reembolsos, no activa cuentas y no modifica datos empresariales. Las acciones permanecen reservadas para P4.
+
+          No se creó una colección Organization ni se reutilizó el bypass empresarial legado. No se modificaron secretos, MongoDB, Render, Cloudflare ni Producción.
+
+          ## Certificación
+
+          - Platform backend suites: PASS
+          - Company service and HTTP tests: PASS
+          - Admin Global typecheck: PASS
+          - Admin Global P1/P2 contract tests: PASS
+          - Admin Global build and SPA fallback: PASS
+          - Environment contract: PASS
+          EOF
+
+          rm .github/workflows/_temporary-certify-adm-p2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs(admin): close ADM-GLOBAL-P2"
+          git push origin HEAD:feat/adm-global-p2-companies
