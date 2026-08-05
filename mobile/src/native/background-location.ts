@@ -36,6 +36,20 @@ export type LocationCaptureOwner =
   | 'TRANSITIONING'
   | 'DISABLED';
 
+export type BackgroundLocationServiceOwner =
+  | 'operational-runtime'
+  | 'journey'
+  | 'legacy';
+
+type BackgroundLocationConfig = {
+  apiUrl: string;
+  schedule: OperationalSchedule | null | undefined;
+  token: string;
+  refreshToken: string;
+  vehicleId: string;
+  sessionId: string;
+};
+
 export function getLocationCaptureOwner({
   appState,
   backgroundServiceActive,
@@ -59,43 +73,158 @@ const NativeLocation =
     ? (NativeModules.ManeCombLocation as ManeCombLocationModule | undefined)
     : undefined;
 
-export async function startBackgroundLocationServiceAsync({
-  apiUrl,
-  schedule,
-  token,
-  refreshToken,
-  vehicleId,
-  sessionId,
-}: {
-  apiUrl: string;
-  schedule: OperationalSchedule | null | undefined;
-  token: string;
-  refreshToken: string;
-  vehicleId: string;
-  sessionId: string;
-}) {
-  if (!NativeLocation || !apiUrl || !token || !vehicleId) {
-    return false;
-  }
+const ownerPriority: BackgroundLocationServiceOwner[] = [
+  'journey',
+  'operational-runtime',
+  'legacy',
+];
+const ownerConfigs = new Map<BackgroundLocationServiceOwner, BackgroundLocationConfig>();
+let appliedConfigKey: string | null = null;
+let serviceActive = false;
+let operationQueue: Promise<boolean> = Promise.resolve(false);
 
-  // Foreground capture belongs to useLocationEngine. Calls made while the app
-  // is visible are treated as prepared successfully; App.tsx starts the native
-  // service only after React has released foreground ownership.
-  if (AppState.currentState === 'active') {
-    return true;
-  }
+function enqueue(operation: () => Promise<boolean>) {
+  const next = operationQueue.then(operation, operation);
+  operationQueue = next.catch(() => false);
+  return next;
+}
 
-  return await NativeLocation.startService(
-    apiUrl,
-    token,
-    refreshToken,
-    vehicleId,
-    sessionId,
-    schedule?.enabled !== false,
-    schedule?.startTime || '',
-    schedule?.endTime || '',
-    schedule?.activeDays || []
+function getConfigKey(config: BackgroundLocationConfig) {
+  return JSON.stringify({
+    activeDays: config.schedule?.activeDays || [],
+    apiUrl: config.apiUrl.trim().replace(/\/+$/, ''),
+    refreshToken: config.refreshToken,
+    scheduleEnabled: config.schedule?.enabled !== false,
+    scheduleEnd: config.schedule?.endTime || '',
+    scheduleStart: config.schedule?.startTime || '',
+    sessionId: config.sessionId,
+    token: config.token,
+    vehicleId: config.vehicleId,
+  });
+}
+
+function getSelectedConfig() {
+  for (const owner of ownerPriority) {
+    const config = ownerConfigs.get(owner);
+    if (config) return config;
+  }
+  return null;
+}
+
+function isValidConfig(config: BackgroundLocationConfig) {
+  return Boolean(
+    NativeLocation &&
+      config.apiUrl.trim() &&
+      config.token.trim() &&
+      config.vehicleId.trim()
   );
+}
+
+function reconcileBackgroundLocationService() {
+  return enqueue(async () => {
+    if (!NativeLocation) return false;
+
+    const config = getSelectedConfig();
+    if (!config) {
+      const stopped = await NativeLocation.stopService().catch(() => false);
+      serviceActive = false;
+      appliedConfigKey = null;
+      return stopped;
+    }
+
+    // Keep the lease while React owns foreground capture. The service is started
+    // only after the app moves to background, avoiding duplicate GPS listeners.
+    if (AppState.currentState === 'active') {
+      return true;
+    }
+
+    const configKey = getConfigKey(config);
+    if (serviceActive && appliedConfigKey === configKey) {
+      return true;
+    }
+
+    const started = await NativeLocation.startService(
+      config.apiUrl,
+      config.token,
+      config.refreshToken,
+      config.vehicleId,
+      config.sessionId,
+      config.schedule?.enabled !== false,
+      config.schedule?.startTime || '',
+      config.schedule?.endTime || '',
+      config.schedule?.activeDays || []
+    );
+
+    if (started) {
+      serviceActive = true;
+      appliedConfigKey = configKey;
+    }
+
+    return started;
+  });
+}
+
+export function acquireBackgroundLocationServiceAsync(
+  owner: BackgroundLocationServiceOwner,
+  config: BackgroundLocationConfig
+) {
+  if (!isValidConfig(config)) {
+    ownerConfigs.delete(owner);
+    return reconcileBackgroundLocationService();
+  }
+
+  const normalizedConfig: BackgroundLocationConfig = {
+    ...config,
+    apiUrl: config.apiUrl.trim().replace(/\/+$/, ''),
+    refreshToken: config.refreshToken.trim(),
+    sessionId: config.sessionId.trim(),
+    token: config.token.trim(),
+    vehicleId: config.vehicleId.trim(),
+  };
+
+  ownerConfigs.set(owner, normalizedConfig);
+
+  // The operational runtime reflects the canonical store state. Remove a stale
+  // journey lease after token, vehicle, schedule or session changes.
+  if (owner === 'operational-runtime') {
+    const journeyConfig = ownerConfigs.get('journey');
+    if (journeyConfig && getConfigKey(journeyConfig) !== getConfigKey(normalizedConfig)) {
+      ownerConfigs.delete('journey');
+    }
+  }
+
+  return reconcileBackgroundLocationService();
+}
+
+export function releaseBackgroundLocationServiceAsync(
+  owner: BackgroundLocationServiceOwner
+) {
+  ownerConfigs.delete(owner);
+  return reconcileBackgroundLocationService();
+}
+
+export async function startBackgroundLocationServiceAsync(
+  config: BackgroundLocationConfig
+) {
+  const owner: BackgroundLocationServiceOwner = config.sessionId.trim()
+    ? 'journey'
+    : 'legacy';
+  return acquireBackgroundLocationServiceAsync(owner, config);
+}
+
+/**
+ * Compatibility stop for existing callers. It releases legacy/journey intent,
+ * but cannot tear down the current operational-runtime lease.
+ */
+export async function stopBackgroundLocationServiceAsync() {
+  ownerConfigs.delete('journey');
+  ownerConfigs.delete('legacy');
+  return reconcileBackgroundLocationService();
+}
+
+export async function resetBackgroundLocationServiceAsync() {
+  ownerConfigs.clear();
+  return reconcileBackgroundLocationService();
 }
 
 export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
@@ -114,13 +243,18 @@ export async function getBackgroundLocationServiceStatusAsync(): Promise<Backgro
     };
   }
 
-  return NativeLocation.getServiceStatus();
+  const status = await NativeLocation.getServiceStatus();
+  serviceActive = status.active;
+  if (!status.active) {
+    appliedConfigKey = null;
+  }
+  return status;
 }
 
-export async function stopBackgroundLocationServiceAsync() {
-  if (!NativeLocation) {
-    return false;
-  }
-
-  return await NativeLocation.stopService();
+export function getBackgroundLocationOwnershipSnapshot() {
+  return {
+    appliedConfigKey,
+    owners: [...ownerConfigs.keys()],
+    serviceActive,
+  };
 }
