@@ -240,7 +240,6 @@ export function useChatController() {
       const result = await useCallStore.getState().startCall({
         conversationId: activeConversation.id,
         mode,
-        peerName: activeConversation.title,
       });
       if (result.ok) {
         setCallNotice(null);
@@ -307,26 +306,19 @@ export function useChatController() {
   const isLoadingOlderMessages = activeConversation
     ? Boolean(isLoadingOlderChatByConversation[activeConversation.id])
     : false;
-  const handleChatMessagesScroll = useCallback(
-    (event: Parameters<typeof handleMessagesScroll>[0]) => {
-      handleMessagesScroll(event);
-      if (
-        event.nativeEvent.contentOffset.y <= 80 &&
-        activeConversation &&
-        activeChatPageInfo?.hasMore &&
-        !isLoadingOlderMessages
-      ) {
-        void loadOlderChatMessages(activeConversation.id);
-      }
-    },
-    [
-      activeChatPageInfo?.hasMore,
-      activeConversation,
-      handleMessagesScroll,
-      isLoadingOlderMessages,
-      loadOlderChatMessages,
-    ]
-  );
+  const handleChatMessagesScroll = (
+    event: Parameters<typeof handleMessagesScroll>[0]
+  ) => {
+    handleMessagesScroll(event);
+    if (
+      event.nativeEvent.contentOffset.y <= 80 &&
+      activeConversation &&
+      activeChatPageInfo?.hasMore &&
+      !isLoadingOlderMessages
+    ) {
+      void loadOlderChatMessages(activeConversation.id);
+    }
+  };
 
   const startRecordingTicker = () => {
     recordStartedAtRef.current = Date.now();

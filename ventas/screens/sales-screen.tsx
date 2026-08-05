@@ -68,20 +68,40 @@ export function SalesScreen() {
   const isPhone = width < 640;
   const isTablet = !isDesktop && !isPhone;
   const heroSideBySide = width >= 880;
+  const cardWidth = isPhone
+    ? Math.max(240, Math.min(316, width - 48))
+    : isDesktop
+      ? 336
+      : 306;
+  const cardStep = cardWidth + 18;
   const carouselRef = useRef<ScrollView>(null);
   const user = useAppStore((state) => state.user);
-  const [activePlanIndex, setActivePlanIndex] = useState(1);
-  const [openFaqIndex, setOpenFaqIndex] = useState(0);
+  const [activePlanIndex, setActivePlanIndex] = useState(0);
+  const [openFaqIndex, setOpenFaqIndex] = useState(-1);
   const [headerCompact, setHeaderCompact] = useState(false);
   const [nativeScrollY, setNativeScrollY] = useState(0);
 
   useEffect(() => {
+    if (!plans.length) {
+      setActivePlanIndex(0);
+      return;
+    }
+
     const bestValueIndex = Math.max(
       plans.findIndex((plan) => plan.badge.toLowerCase().includes('vendido')),
       0
     );
     setActivePlanIndex(bestValueIndex);
-  }, [plans]);
+
+    const frame = requestAnimationFrame(() => {
+      carouselRef.current?.scrollTo({
+        x: bestValueIndex * cardStep,
+        animated: false,
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [cardStep, plans]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -113,8 +133,6 @@ export function SalesScreen() {
     };
   }, []);
 
-  const cardWidth = isPhone ? Math.max(268, width - 42) : isDesktop ? 336 : 306;
-  const cardStep = cardWidth + 14;
   const activePlan = plans[activePlanIndex] || plans[0] || null;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
@@ -290,8 +308,7 @@ export function SalesScreen() {
             index={1}
             scrollY={nativeScrollY}
             viewportHeight={height}
-            style={styles.section}
-          >
+            style={styles.section}>
             <SectionHeading
               nativeID="funcionalidades"
               eyebrow="CONTROL OPERATIVO EN UN SOLO LUGAR"
@@ -313,6 +330,21 @@ export function SalesScreen() {
                   <Text style={styles.sectionEyebrow}>PLANES</Text>
                 </View>
                 <View style={styles.carouselControls}>
+                  {plans.length ? (
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      style={[
+                        styles.sectionEyebrow,
+                        {
+                          color: neonPalette.mutedStrong,
+                          letterSpacing: 0.4,
+                          minWidth: 42,
+                          textAlign: 'center',
+                        },
+                      ]}>
+                      {activePlanIndex + 1} / {plans.length}
+                    </Text>
+                  ) : null}
                   <RoundIconButton
                     accessibilityLabel="Plan anterior"
                     icon="chevron-left"
@@ -329,7 +361,7 @@ export function SalesScreen() {
               </View>
 
               {plansLoading ? (
-                <View style={styles.planCarousel}>
+                <View style={[styles.planCarousel, { alignItems: 'flex-start' }]}>
                   {[0, 1, 2].map((i) => (
                     <PlanCardSkeleton key={i} width={cardWidth} />
                   ))}
@@ -344,51 +376,33 @@ export function SalesScreen() {
                   </Pressable>
                 </View>
               ) : plans.length ? (
-                <>
-              <ScrollView
-                ref={carouselRef}
-                horizontal
-                style={styles.planCarouselViewport}
-                snapToInterval={cardStep}
-                decelerationRate="fast"
-                contentContainerStyle={styles.planCarousel}
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={handlePlansScrollEnd}>
-                {plans.map((plan, index) => (
-                  <PlanCard
-                    key={plan.id}
-                    index={index}
-                    plan={plan}
-                    width={cardWidth}
-                    active={activePlanIndex === index}
-                    accent={getPlanAccent(plan, index)}
-                    onPress={() => jumpToPlan(index)}
-                    onBuy={() => goToPlanCheckout(plan)}
-                    onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
-                    userLabel={buyLabel}
-                    trialLabel={`Probar demo ${plan.trialDays || 7} días`}
-                  />
-                ))}
-              </ScrollView>
-
-              <View style={styles.planDots}>
-                {plans.map((plan, index) => (
-                  <Pressable
-                    key={plan.id}
-                    accessibilityLabel={`Ver plan ${plan.name}`}
-                    accessibilityRole="button"
-                    onPress={() => jumpToPlan(index)}
-                    style={[
-                      styles.planDot,
-                      activePlanIndex === index ? styles.planDotActive : undefined,
-                      activePlanIndex === index
-                        ? { backgroundColor: getPlanAccent(plan, index) }
-                        : undefined,
-                    ]}
-                  />
-                ))}
-              </View>
-                </>
+                <ScrollView
+                  ref={carouselRef}
+                  horizontal
+                  style={styles.planCarouselViewport}
+                  snapToInterval={cardStep}
+                  snapToAlignment="start"
+                  disableIntervalMomentum
+                  decelerationRate="fast"
+                  contentContainerStyle={[styles.planCarousel, { alignItems: 'flex-start' }]}
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={handlePlansScrollEnd}>
+                  {plans.map((plan, index) => (
+                    <PlanCard
+                      key={plan.id}
+                      index={index}
+                      plan={plan}
+                      width={cardWidth}
+                      active={activePlanIndex === index}
+                      accent={getPlanAccent(plan, index)}
+                      onPress={() => jumpToPlan(index)}
+                      onBuy={() => goToPlanCheckout(plan)}
+                      onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
+                      userLabel={buyLabel}
+                      trialLabel={`Probar demo ${plan.trialDays || 7} días`}
+                    />
+                  ))}
+                </ScrollView>
               ) : (
                 <View style={styles.plansEmpty}>
                   <MaterialCommunityIcons name="clipboard-list-outline" size={28} color={neonPalette.muted} />
@@ -477,14 +491,16 @@ export function SalesScreen() {
                     } as any)
                   : undefined,
               ]}>
-              <View style={styles.supportVisual} pointerEvents="none">
-                <View style={styles.supportCard}>
-                  <MaterialCommunityIcons name="headset" size={64} color={neonPalette.cyan} />
-                  <View style={styles.supportBubble}>
-                    <MaterialCommunityIcons name="help" size={22} color="#FFFFFF" />
+              {!isPhone ? (
+                <View style={styles.supportVisual} pointerEvents="none">
+                  <View style={styles.supportCard}>
+                    <MaterialCommunityIcons name="headset" size={64} color={neonPalette.cyan} />
+                    <View style={styles.supportBubble}>
+                      <MaterialCommunityIcons name="help" size={22} color="#FFFFFF" />
+                    </View>
                   </View>
                 </View>
-              </View>
+              ) : null}
               <View style={styles.faqContent}>
                 <SectionHeading
                   eyebrow="PREGUNTAS FRECUENTES"

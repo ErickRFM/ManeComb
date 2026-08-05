@@ -1,3 +1,6 @@
+// RC-RTC-FINALIZATION-20260805 — Contrato global y unico del ciclo de llamadas.
+// Sin dependencias de React Native: la maquina y el store se prueban en Node/Jest.
+
 export type CallPhase =
   | 'IDLE'
   | 'OUTGOING_RINGING'
@@ -11,6 +14,7 @@ export type CallPhase =
 export type CallDirection = 'outgoing' | 'incoming' | null;
 export type CallMode = 'audio' | 'video';
 
+// Resultado breve mostrado antes de volver a IDLE.
 export type CallEndResult =
   | 'rejected'
   | 'busy'
@@ -51,8 +55,11 @@ export interface CallAck {
   roomId?: string;
   status?: string;
   code?: string;
+  reason?: string;
 }
 
+// Contrato minimo del socket compartido. Evita acoplar el modulo a socket.io-client y permite
+// probar el lifecycle con un doble sin abrir una segunda conexion.
 export interface CallSocket {
   on(event: string, handler: (...args: any[]) => void): unknown;
   off(event: string, handler: (...args: any[]) => void): unknown;

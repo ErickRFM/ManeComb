@@ -1,4 +1,7 @@
-import type { CallState, CallEndResult, IncomingCallPayload, CallMode } from './call-types';
+// RC-RTC-FINALIZATION-20260805 — Maquina de estados global y pura.
+// `phase` es la unica verdad del lifecycle; los eventos invalidos son no-op idempotentes.
+
+import type { CallEndResult, CallMode, CallState, IncomingCallPayload } from './call-types';
 
 export function initialCallState(): CallState {
   return {
@@ -29,12 +32,20 @@ export const matchesCall = (state: CallState, callId: string | null | undefined)
   Boolean(callId) && state.callId === callId;
 
 export type CallEvent =
-  | { type: 'OUTGOING_RINGING'; callId: string; conversationId: string; mode: CallMode; roomId: string | null; peerUserId?: string | null; now: number }
+  | {
+      type: 'OUTGOING_RINGING';
+      callId: string;
+      conversationId: string;
+      mode: CallMode;
+      roomId: string | null;
+      peerUserId?: string | null;
+      now: number;
+    }
   | { type: 'INCOMING'; payload: IncomingCallPayload; now: number }
   | { type: 'LOCAL_ACCEPT'; now: number }
   | { type: 'REMOTE_ACCEPTED'; roomId?: string | null; now: number }
   | { type: 'CONNECTED'; now: number }
-  | { type: 'RECONNECTING'; now: number }
+  | { type: 'RECONNECTING' }
   | { type: 'END'; result: CallEndResult; now: number }
   | { type: 'FAIL'; failureCode: string; now: number }
   | { type: 'RESET' };
@@ -90,12 +101,11 @@ export function reduce(state: CallState, event: CallEvent): CallState {
         ...state,
         phase: 'CONNECTED',
         connectedAt: state.connectedAt ?? event.now,
+        failureCode: null,
       };
     }
     case 'RECONNECTING': {
-      if (state.phase !== 'CONNECTING' && state.phase !== 'CONNECTED' && state.phase !== 'RECONNECTING') {
-        return state;
-      }
+      if (state.phase !== 'CONNECTED') return state;
       return { ...state, phase: 'RECONNECTING' };
     }
     case 'END': {

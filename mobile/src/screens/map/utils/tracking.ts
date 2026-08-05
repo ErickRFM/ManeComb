@@ -63,6 +63,32 @@ export function getUnknownStateCount(units: readonly OperationalUnitSnapshot[]) 
   return units.filter((unit) => unit.operationalState === 'unknown').length;
 }
 
+function normalizeHudCount(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+/**
+ * Presentacion compacta del estado operacional para el HUD.
+ *
+ * Antes se renderizaba `activas / desconocidas?` bajo la etiqueta "Rutas".
+ * Ese slash parecia una relacion completadas/total (por ejemplo, 0/3), aunque
+ * el segundo numero NO era el total: eran unidades sin estado confirmable.
+ * Se devuelven dos indicadores independientes para que la UI no invente una
+ * fraccion ni confunda catalogo de rutas con unidades actualmente en marcha.
+ */
+export function getTrackingHudRouteSummary(activeRouteCount: number, unknownStateCount: number) {
+  return {
+    active: {
+      label: 'En ruta',
+      value: String(normalizeHudCount(activeRouteCount)),
+    },
+    unknown: {
+      label: 'Sin datos',
+      value: String(normalizeHudCount(unknownStateCount)),
+    },
+  };
+}
+
 export function hasVehicleLiveLocation(vehicle: Vehicle | null | undefined) {
   return Boolean(
     vehicle?.locationTimestamp &&

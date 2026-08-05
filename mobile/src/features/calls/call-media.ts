@@ -1,12 +1,25 @@
-// Media local de llamadas. Este modulo es la unica frontera que abre y controla
-// microfono/camara para el runtime global.
+// RC-RTC-FINALIZATION-20260805 — Captura y controles de media local.
+// El runtime es el unico propietario del stream; este modulo solo crea, conmuta y libera tracks.
 
 import { mediaDevices } from '@/src/native/webrtc';
 
+export interface LocalMediaTrack {
+  enabled: boolean;
+  stop: () => void;
+  readyState?: string;
+  kind?: string;
+}
+
 export interface LocalMedia {
   stream: any;
-  audioTracks: Array<{ enabled: boolean; stop: () => void; readyState?: string }>;
-  videoTracks: Array<{ enabled: boolean; stop: () => void; readyState?: string }>;
+  audioTracks: LocalMediaTrack[];
+  videoTracks: LocalMediaTrack[];
+  allTracks: LocalMediaTrack[];
+}
+
+function listTracks(stream: any, method: 'getAudioTracks' | 'getVideoTracks' | 'getTracks'):
+  LocalMediaTrack[] {
+  return stream && typeof stream[method] === 'function' ? stream[method]() : [];
 }
 
 export async function acquireLocalMedia(mode: 'audio' | 'video'): Promise<LocalMedia> {
@@ -18,19 +31,38 @@ export async function acquireLocalMedia(mode: 'audio' | 'video'): Promise<LocalM
     audio: true,
     video: mode === 'video',
   });
-  const audioTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
-  const videoTracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
+  const audioTracks = listTracks(stream, 'getAudioTracks');
+  const videoTracks = listTracks(stream, 'getVideoTracks');
+  const allTracks = listTracks(stream, 'getTracks');
 
   if (!audioTracks.length) {
-    stream.getTracks?.().forEach((track: any) => track.stop?.());
-    throw new Error('microphone_unavailable');
-  }
-  if (mode === 'video' && !videoTracks.length) {
-    stream.getTracks?.().forEach((track: any) => track.stop?.());
-    throw new Error('camera_unavailable');
+    allTracks.forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // best-effort
+      }
+    });
+    throw new Error('audio_track_unavailable');
   }
 
-  return { stream, audioTracks, videoTracks };
+  if (mode === 'video' && !videoTracks.length) {
+    allTracks.forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // best-effort
+      }
+    });
+    throw new Error('video_track_unavailable');
+  }
+
+  return {
+    stream,
+    audioTracks,
+    videoTracks,
+    allTracks: allTracks.length ? allTracks : [...audioTracks, ...videoTracks],
+  };
 }
 
 export function setMicEnabled(media: LocalMedia | null, enabled: boolean): void {
@@ -47,18 +79,16 @@ export function setCameraEnabled(media: LocalMedia | null, enabled: boolean): vo
 
 export function stopLocalMedia(media: LocalMedia | null): void {
   if (!media) return;
-  const stopped = new Set<unknown>();
-  const stopTrack = (track: any) => {
-    if (!track || stopped.has(track)) return;
-    stopped.add(track);
-    try {
-      track.stop?.();
-    } catch {
-      // cleanup best-effort
-    }
-  };
 
-  media.audioTracks.forEach(stopTrack);
-  media.videoTracks.forEach(stopTrack);
-  media.stream?.getTracks?.().forEach(stopTrack);
+  const uniqueTracks = new Set<LocalMediaTrack>(media.allTracks);
+  media.audioTracks.forEach((track) => uniqueTracks.add(track));
+  media.videoTracks.forEach((track) => uniqueTracks.add(track));
+
+  uniqueTracks.forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      // Cerrar una pista nunca debe bloquear el cleanup de las demas.
+    }
+  });
 }

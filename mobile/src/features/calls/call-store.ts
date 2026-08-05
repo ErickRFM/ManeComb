@@ -1,3 +1,6 @@
+// RC-RTC-FINALIZATION-20260805 — Store global de llamadas.
+// Es la unica fuente de verdad para signaling, peer/media expuestos a UI, controles y cronometro.
+
 import { create } from 'zustand';
 import {
   initialCallState,
@@ -7,6 +10,7 @@ import {
   reduce,
   type CallEvent,
 } from './call-machine';
+import { computeElapsedSeconds } from './call-selectors';
 import {
   bindCallSocket,
   emitAccept,
@@ -18,7 +22,6 @@ import {
 } from './call-signaling';
 import type { CallMode, CallSocket, CallState, IncomingCallPayload } from './call-types';
 import type { CallRuntime, CallRuntimeFactory } from './call-runtime';
-import { computeElapsedSeconds } from './call-selectors';
 
 let RESULT_DISPLAY_MS = 1600;
 export function __setResultDisplayMsForTests(ms: number): void {
@@ -38,7 +41,6 @@ export function setCallRuntimeFactory(factory: CallRuntimeFactory | null): void 
 const now = (): number => Date.now();
 
 interface CallStore extends CallState {
-  displayName: string | null;
   elapsedSeconds: number;
   isMuted: boolean;
   isCameraEnabled: boolean;
@@ -55,12 +57,12 @@ interface CallStore extends CallState {
 
   bindSocket: (socket: CallSocket | null) => void;
   unbindSocket: () => void;
+
   startCall: (input: {
     conversationId: string;
     mode: CallMode;
-    peerName?: string | null;
   }) => Promise<{ ok: boolean; code?: string }>;
-  acceptIncomingCall: () => void;
+  acceptIncomingCall: () => Promise<void>;
   rejectIncomingCall: () => void;
   cancelOutgoingCall: () => void;
   endCall: () => void;
@@ -85,51 +87,40 @@ export const useCallStore = create<CallStore>()((set, get) => {
     set({ _resetTimer: null });
   };
 
+  const scheduleReset = (): void => {
+    clearResetTimer();
+    const timer = setTimeout(() => {
+      set({ _resetTimer: null });
+      const phase = get().phase;
+      if (phase === 'ENDING' || phase === 'FAILED') dispatch({ type: 'RESET' });
+    }, RESULT_DISPLAY_MS);
+    set({ _resetTimer: timer });
+  };
+
   const clearConnectTimeout = (): void => {
     const timer = get()._connectTimeout;
     if (timer) clearTimeout(timer);
     set({ _connectTimeout: null });
   };
 
-  const scheduleReset = (): void => {
-    clearResetTimer();
-    const timer = setTimeout(() => {
-      set({ _resetTimer: null });
-      const phase = get().phase;
-      if (phase === 'ENDING' || phase === 'FAILED') {
-        set({ displayName: null });
-        dispatch({ type: 'RESET' });
-      }
-    }, RESULT_DISPLAY_MS);
-    set({ _resetTimer: timer });
+  const stopElapsedTimer = (): void => {
+    const timer = get()._elapsedTimer;
+    if (timer) clearInterval(timer);
+    set({ _elapsedTimer: null });
   };
 
   const stopRuntime = (): void => {
-    const state = get();
-    state._runtime?.stop();
-    if (state._elapsedTimer) clearInterval(state._elapsedTimer);
+    const runtime = get()._runtime;
+    if (runtime) runtime.stop();
     clearConnectTimeout();
+    stopElapsedTimer();
     set({
       _runtime: null,
-      _elapsedTimer: null,
       localStream: null,
       remoteStream: null,
       isMuted: false,
       isCameraEnabled: true,
     });
-  };
-
-  const armConnectTimeout = (callId: string): void => {
-    clearConnectTimeout();
-    const timeout = setTimeout(() => {
-      const state = get();
-      if (state.callId !== callId || !['CONNECTING', 'RECONNECTING'].includes(state.phase)) return;
-      if (state._socket) emitEnd(state._socket, callId);
-      stopRuntime();
-      dispatch({ type: 'FAIL', failureCode: 'ice_timeout', now: now() });
-      scheduleReset();
-    }, CONNECT_TIMEOUT_MS);
-    set({ _connectTimeout: timeout });
   };
 
   const endWith = (result: CallState['endResult']): void => {
@@ -139,27 +130,30 @@ export const useCallStore = create<CallStore>()((set, get) => {
     scheduleReset();
   };
 
+  const ensureElapsedTimer = (): void => {
+    if (get()._elapsedTimer) return;
+    const timer = setInterval(() => {
+      set({ elapsedSeconds: computeElapsedSeconds(get().connectedAt, now()) });
+    }, 1000);
+    set({
+      _elapsedTimer: timer,
+      elapsedSeconds: computeElapsedSeconds(get().connectedAt, now()),
+    });
+  };
+
   const onRuntimeConnected = (callId: string): void => {
     const state = get();
-    if (state.callId !== callId || !['CONNECTING', 'RECONNECTING'].includes(state.phase)) return;
+    if (state.callId !== callId) return;
+    if (state.phase !== 'CONNECTING' && state.phase !== 'RECONNECTING') return;
     clearConnectTimeout();
     dispatch({ type: 'CONNECTED', now: now() });
-    if (!get()._elapsedTimer) {
-      const elapsedTimer = setInterval(() => {
-        set({ elapsedSeconds: computeElapsedSeconds(get().connectedAt, now()) });
-      }, 1000);
-      set({ _elapsedTimer: elapsedTimer });
-    }
-    set({ elapsedSeconds: computeElapsedSeconds(get().connectedAt, now()) });
+    ensureElapsedTimer();
   };
 
   const onRuntimeReconnecting = (callId: string): void => {
     const state = get();
-    if (state.callId !== callId || !['CONNECTING', 'CONNECTED', 'RECONNECTING'].includes(state.phase)) {
-      return;
-    }
-    dispatch({ type: 'RECONNECTING', now: now() });
-    armConnectTimeout(callId);
+    if (state.callId !== callId || state.phase !== 'CONNECTED') return;
+    dispatch({ type: 'RECONNECTING' });
   };
 
   const onRuntimeFailed = (callId: string, code: string): void => {
@@ -175,7 +169,13 @@ export const useCallStore = create<CallStore>()((set, get) => {
 
   const startRuntime = (): void => {
     const state = get();
-    if (state.phase !== 'CONNECTING' || !state._socket || !state.callId || state._runtime) return;
+    if (
+      state.phase !== 'CONNECTING' ||
+      !state._socket ||
+      !state.callId ||
+      state._runtime
+    ) return;
+
     const activeCallId = state.callId;
     if (!runtimeFactory) {
       onRuntimeFailed(activeCallId, 'runtime_unavailable');
@@ -187,29 +187,32 @@ export const useCallStore = create<CallStore>()((set, get) => {
       direction: state.direction,
       mode: state.mode || 'audio',
       socket: state._socket,
-      onConnected: () => onRuntimeConnected(activeCallId),
-      onReconnecting: () => onRuntimeReconnecting(activeCallId),
-      onFailed: (code) => onRuntimeFailed(activeCallId, code),
       onLocalStream: (stream) => {
         if (get().callId === activeCallId) set({ localStream: stream });
       },
       onRemoteStream: (stream) => {
         if (get().callId === activeCallId) set({ remoteStream: stream });
       },
+      onConnected: () => onRuntimeConnected(activeCallId),
+      onReconnecting: () => onRuntimeReconnecting(activeCallId),
+      onReconnected: () => onRuntimeConnected(activeCallId),
+      onFailed: (code) => onRuntimeFailed(activeCallId, code),
     });
-
+    const timeout = setTimeout(
+      () => onRuntimeFailed(activeCallId, 'ice_timeout'),
+      CONNECT_TIMEOUT_MS
+    );
     set({
       _runtime: runtime,
+      _connectTimeout: timeout,
       isMuted: false,
       isCameraEnabled: true,
       elapsedSeconds: 0,
     });
-    armConnectTimeout(activeCallId);
   };
 
   return {
     ...initialCallState(),
-    displayName: null,
     elapsedSeconds: 0,
     isMuted: false,
     isCameraEnabled: true,
@@ -224,7 +227,8 @@ export const useCallStore = create<CallStore>()((set, get) => {
     _elapsedTimer: null,
 
     bindSocket: (socket) => {
-      if (get()._socket === socket) return;
+      const current = get()._socket;
+      if (current === socket) return;
       get().unbindSocket();
       if (!socket) return;
       const unbind = bindCallSocket(socket, {
@@ -239,52 +243,46 @@ export const useCallStore = create<CallStore>()((set, get) => {
     },
 
     unbindSocket: () => {
-      get()._unbind?.();
+      const unbind = get()._unbind;
+      if (unbind) unbind();
       set({ _socket: null, _unbind: null });
     },
 
     reset: () => {
       clearResetTimer();
       stopRuntime();
-      set({
-        _starting: false,
-        displayName: null,
-        elapsedSeconds: 0,
-        isMuted: false,
-        isCameraEnabled: true,
-        localStream: null,
-        remoteStream: null,
-      });
+      set({ _starting: false, elapsedSeconds: 0 });
       dispatch({ type: 'RESET' });
     },
 
     toggleMute: () => {
       const state = get();
+      if (!state._runtime) return;
       const nextMuted = !state.isMuted;
-      state._runtime?.setMicEnabled(!nextMuted);
+      state._runtime.setMicEnabled(!nextMuted);
       set({ isMuted: nextMuted });
     },
 
     toggleCamera: () => {
       const state = get();
-      if (state.mode !== 'video') return;
+      if (!state._runtime || state.mode !== 'video') return;
       const nextEnabled = !state.isCameraEnabled;
-      state._runtime?.setCameraEnabled(nextEnabled);
+      state._runtime.setCameraEnabled(nextEnabled);
       set({ isCameraEnabled: nextEnabled });
     },
 
-    startCall: async ({ conversationId, mode, peerName }) => {
+    startCall: async ({ conversationId, mode }) => {
       const state = get();
       if (!isIdle(state) || state._starting) return { ok: false, code: 'busy_local' };
-      if (!state._socket) return { ok: false, code: 'no_socket' };
+      const socket = state._socket;
+      if (!socket) return { ok: false, code: 'no_socket' };
       set({ _starting: true });
       try {
-        const ack = await emitStartCall(state._socket, { conversationId, mode });
+        const ack = await emitStartCall(socket, { conversationId, mode });
         if (!isIdle(get())) return { ok: false, code: 'busy_local' };
         if (!ack?.ok || !ack.callId) {
-          return { ok: false, code: ack?.code || 'call_failed' };
+          return { ok: false, code: ack?.code || ack?.reason || 'call_failed' };
         }
-        set({ displayName: peerName?.trim() || 'Contacto' });
         dispatch({
           type: 'OUTGOING_RINGING',
           callId: ack.callId,
@@ -299,25 +297,40 @@ export const useCallStore = create<CallStore>()((set, get) => {
       }
     },
 
-    acceptIncomingCall: () => {
+    acceptIncomingCall: async () => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
+      const activeCallId = state.callId;
       dispatch({ type: 'LOCAL_ACCEPT', now: now() });
-      state._socket && emitAccept(state._socket, state.callId);
+      if (!state._socket) {
+        onRuntimeFailed(activeCallId, 'accept_no_socket');
+        return;
+      }
+
+      const ack = await emitAccept(state._socket, activeCallId);
+      const current = get();
+      if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
+      if (!ack.ok) {
+        onRuntimeFailed(
+          activeCallId,
+          ack.code === 'ack_timeout' ? 'accept_timeout' : 'accept_failed'
+        );
+        return;
+      }
       startRuntime();
     },
 
     rejectIncomingCall: () => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
-      state._socket && emitReject(state._socket, state.callId);
+      if (state._socket) emitReject(state._socket, state.callId);
       endWith('rejected');
     },
 
     cancelOutgoingCall: () => {
       const state = get();
       if (state.phase !== 'OUTGOING_RINGING' || !state.callId) return;
-      state._socket && emitCancel(state._socket, state.callId);
+      if (state._socket) emitCancel(state._socket, state.callId);
       endWith('cancelled');
     },
 
@@ -332,8 +345,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
         get().rejectIncomingCall();
         return;
       }
-      if (['CONNECTING', 'CONNECTED', 'RECONNECTING'].includes(state.phase)) {
-        state._socket && emitEnd(state._socket, state.callId);
+      if (
+        state.phase === 'CONNECTING' ||
+        state.phase === 'CONNECTED' ||
+        state.phase === 'RECONNECTING'
+      ) {
+        if (state._socket) emitEnd(state._socket, state.callId);
         endWith('ended');
       }
     },
@@ -343,10 +360,9 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const state = get();
       if (matchesCall(state, payload.callId)) return;
       if (isBusyPhase(state)) {
-        state._socket && emitBusy(state._socket, payload.callId);
+        if (state._socket) emitBusy(state._socket, payload.callId);
         return;
       }
-      set({ displayName: payload.caller.name?.trim() || 'Contacto' });
       dispatch({ type: 'INCOMING', payload, now: now() });
     },
 
