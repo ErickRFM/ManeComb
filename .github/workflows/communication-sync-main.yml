@@ -28,8 +28,6 @@ jobs:
           git fetch origin main
           git merge --no-commit -X ours origin/main
 
-          # Conservar todo el cierre de Chat y traer explícitamente el RTC final,
-          # CI/APK y cambios comerciales que llegaron a main.
           git checkout origin/main -- .github/workflows/ci.yml
           git checkout origin/main -- RC-RTC-FINALIZATION-20260805.md
           git checkout origin/main -- mobile/android/app/build.gradle
@@ -41,7 +39,9 @@ jobs:
           git checkout origin/main -- ventas/src/react-native-web.d.ts
 
           python scripts/sync-communication-main.py
-          git rm -f .github/workflows/communication-sync-main.yml scripts/sync-communication-main.py
+          node scripts/final-communication-lint-patch.js
+          git rm -f .github/workflows/communication-sync-main.yml
+          git rm -f scripts/sync-communication-main.py scripts/final-communication-lint-patch.js
 
           if grep -R -n -E 'RTCPeerConnection|peerRef|joinedRtcRoomRef|localStreamRef|rtc:offer|rtc:answer|rtc:ice-candidate' mobile/src/screens/chat; then
             echo 'Legacy RTC ownership remains in Chat' >&2
@@ -49,6 +49,10 @@ jobs:
           fi
           if grep -R -n 'CallMediaTile' mobile/src/screens/chat; then
             echo 'Legacy CallMediaTile remains in Chat' >&2
+            exit 1
+          fi
+          if grep -q 'const handleChatMessagesScroll = useCallback' mobile/src/screens/chat/hooks/use-chat-controller.ts; then
+            echo 'Pagination scroll still uses an incompatible callback' >&2
             exit 1
           fi
           helper_count=$(grep -R -h 'function buildChatMessageId' backend/src | wc -l)
