@@ -66,12 +66,13 @@ export function SalesScreen() {
   const isPhone = width < 640;
   const isTablet = !isDesktop && !isPhone;
   const heroSideBySide = width >= 880;
+  const planCardGap = isPhone ? 12 : 18;
   const cardWidth = isPhone
-    ? Math.max(240, Math.min(316, width - 48))
+    ? Math.max(0, width - 32)
     : isDesktop
       ? 336
       : 306;
-  const cardStep = cardWidth + 18;
+  const cardStep = cardWidth + planCardGap;
   const carouselRef = useRef<ScrollView>(null);
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
@@ -362,7 +363,12 @@ export function SalesScreen() {
               ) : null}
 
               {plansLoading ? (
-                <View style={[styles.planCarousel, { alignItems: 'flex-start' }]}>
+                <View
+                  style={[
+                    styles.planCarousel,
+                    isPhone ? styles.planCarouselPhone : undefined,
+                    { alignItems: 'flex-start' },
+                  ]}>
                   {[0, 1, 2].map((i) => (
                     <PlanCardSkeleton key={i} width={cardWidth} />
                   ))}
@@ -380,12 +386,19 @@ export function SalesScreen() {
                 <ScrollView
                   ref={carouselRef}
                   horizontal
-                  style={styles.planCarouselViewport}
+                  style={[
+                    styles.planCarouselViewport,
+                    isPhone ? styles.planCarouselViewportPhone : undefined,
+                  ]}
                   snapToInterval={cardStep}
                   snapToAlignment="start"
                   disableIntervalMomentum
                   decelerationRate="fast"
-                  contentContainerStyle={[styles.planCarousel, { alignItems: 'flex-start' }]}
+                  contentContainerStyle={[
+                    styles.planCarousel,
+                    isPhone ? styles.planCarouselPhone : undefined,
+                    { alignItems: 'flex-start' },
+                  ]}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={handlePlansScrollEnd}>
                   {plans.map((plan, index) => (
@@ -394,6 +407,7 @@ export function SalesScreen() {
                       index={index}
                       plan={plan}
                       width={cardWidth}
+                      compact={isPhone}
                       active={activePlanIndex === index}
                       accent={getPlanAccent(plan, index)}
                       onPress={() => jumpToPlan(index)}

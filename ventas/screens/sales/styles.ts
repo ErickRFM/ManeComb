@@ -15,6 +15,7 @@ export const styles = StyleSheet.create({
   },
   webPage: {
     minHeight: '100vh' as any,
+    overflowX: 'hidden' as any,
     width: '100%',
   },
   content: {
@@ -707,10 +708,19 @@ export const styles = StyleSheet.create({
     opacity: 0.42,
   },
   planCarouselViewport: {
+    alignSelf: 'stretch',
     marginHorizontal: -18,
     marginTop: -18,
+    maxWidth: '100%' as any,
     paddingHorizontal: 18,
     paddingTop: 18,
+    width: '100%',
+  },
+  planCarouselViewportPhone: {
+    marginHorizontal: 0,
+    marginTop: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   planCarousel: {
     gap: 18,
@@ -718,6 +728,13 @@ export const styles = StyleSheet.create({
     paddingRight: 30,
     paddingTop: 18,
     paddingBottom: 34,
+  },
+  planCarouselPhone: {
+    gap: 12,
+    paddingBottom: 22,
+    paddingLeft: 0,
+    paddingRight: 0,
+    paddingTop: 8,
   },
   planCardSkeleton: {
     backgroundColor: neonPalette.panel,

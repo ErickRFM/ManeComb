@@ -15,9 +15,9 @@ function logo() {
         <img
           src="https://manecomb1.pages.dev/logo-email.png"
           alt="ManeComb"
-          width="160"
+          width="200"
           height="auto"
-          style="display: block; width: 160px; height: auto; border: 0; outline: none;"
+          style="display: block; width: 200px; height: auto; border: 0; border-radius: 10px; outline: none; background-color: #050816;"
         />
       </td>
     </tr>
