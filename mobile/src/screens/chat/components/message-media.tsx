@@ -1,15 +1,14 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useVideoPlayer, VideoView } from '@/src/native/video';
 import { getAudioPlaybackErrorMessage, useAudioPlayer, useAudioPlayerStatus } from '@/src/native/audio';
-import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, Share, Text, View } from 'react-native';
 import { resolveAssetUrl } from '@/src/api/client';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { ChatMessage } from '@/src/types/app';
 import { formatDuration } from '../utils/conversation';
-import type { CallMode, MessageDeliveryStatus } from '../types';
+import type { MessageDeliveryStatus } from '../types';
 import { createStyles } from '../chat-screen.styles';
-import { RTCViewComponent } from '@/src/native/webrtc';
 
 export function MessageDeliveryMeta({
   status,
@@ -371,96 +370,6 @@ export function VideoMessageBubble({ message, token, isCompact, isPhone }: { mes
         ) : null}
       </Pressable>
       {message.text ? <Text style={styles.mediaCaption}>{message.text}</Text> : null}
-    </View>
-  );
-}
-
-export function CallMediaTile({
-  stream,
-  label,
-  caption,
-  mode,
-  muted,
-  isSelf = false,
-}: {
-  stream: MediaStream | null;
-  label: string;
-  caption: string;
-  mode: CallMode;
-  muted: boolean;
-  isSelf?: boolean;
-}) {
-  const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme, false, false), [theme]);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const hasVideoTrack = Boolean(
-    stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
-  );
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  const showVideo = hasVideoTrack && mode === 'video';
-  const RTCView = Platform.OS === 'web' ? null : RTCViewComponent;
-
-  return (
-    <View style={[styles.callTile, isSelf ? styles.callTileSelf : undefined]}>
-      {Platform.OS === 'web' && showVideo
-        ? createElement('video', {
-            autoPlay: true,
-            playsInline: true,
-            muted,
-            ref: videoRef as any,
-            style: {
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              backgroundColor: '#000000',
-            },
-          })
-        : RTCView && showVideo
-          ? createElement(RTCView as any, {
-              streamURL: (stream as any)?.toURL?.() || '',
-              objectFit: 'cover',
-              mirror: isSelf,
-              zOrder: isSelf ? 1 : 0,
-              style: {
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                backgroundColor: '#000000',
-              },
-            })
-          : null}
-
-      {!showVideo ? (
-        <View style={styles.callTileFallback}>
-          <View style={[styles.callTileIconShell, isSelf ? styles.callTileIconShellSelf : undefined]}>
-            <MaterialCommunityIcons
-              name={mode === 'video' ? 'video-outline' : 'phone-outline'}
-              size={28}
-              color="#FFFFFF"
-            />
-          </View>
-        </View>
-      ) : null}
-
-      <View style={styles.callTileFooter}>
-        <Text style={styles.callTileLabel}>{label}</Text>
-        <Text style={styles.callTileCaption}>{caption}</Text>
-      </View>
     </View>
   );
 }

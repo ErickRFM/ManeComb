@@ -1,4 +1,3 @@
-const { createHash } = require("crypto");
 const { Router } = require("express");
 const multer = require("multer");
 const { authenticate } = require("../../middlewares/authenticate");
@@ -7,23 +6,14 @@ const { requireOperationalAccess } = require("../../middlewares/operational-acce
 const { streamChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
 const { transcribeAudioBuffer } = require("../../services/audio-transcription");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
+const {
+  buildChatMessageId,
+  normalizeClientMessageId
+} = require("../../services/chat-message-idempotency");
 const logger = require("../../services/logger");
 
 const router = Router();
 const MAX_VOICE_NOTE_SECONDS = 60;
-const CLIENT_MESSAGE_ID_PATTERN = /^[A-Za-z0-9:_-]{8,128}$/;
-
-function normalizeClientMessageId(value) {
-  const normalized = String(value || "").trim();
-  return CLIENT_MESSAGE_ID_PATTERN.test(normalized) ? normalized : "";
-}
-
-function buildChatMessageId({ organizationId, conversationId, senderId, clientMessageId }) {
-  return `chat-${createHash("sha256")
-    .update(`${organizationId}:${conversationId}:${senderId}:${clientMessageId}`)
-    .digest("hex")}`;
-}
-
 function isValidE2eePublicKey(value) {
   try {
     return Buffer.from(String(value || "").trim(), "base64").length === 32;
