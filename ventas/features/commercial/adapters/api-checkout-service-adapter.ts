@@ -16,6 +16,21 @@ import {
   type TestCardInput,
 } from '../types';
 
+type LegacyPaymentInstructions = {
+  type?: string;
+  brandName?: string;
+  legalName?: string;
+  accountHolder?: string;
+  clabe?: string;
+  bankName?: string | null;
+  amount?: number;
+  currency?: string;
+  reference?: string;
+  concept?: string;
+  summary?: string;
+  details?: string[];
+};
+
 type LegacyCheckoutResponse = {
   id?: string;
   planId?: string;
@@ -27,8 +42,9 @@ type LegacyCheckoutResponse = {
   referenceCode?: string;
   status?: string;
   paymentStatus?: string;
+  paymentProvider?: string;
   nextStep?: string;
-  paymentInstructions?: { summary?: string };
+  paymentInstructions?: LegacyPaymentInstructions | null;
 };
 
 function resolveResultStatus(response: LegacyCheckoutResponse) {
@@ -42,6 +58,27 @@ function resolveResultStatus(response: LegacyCheckoutResponse) {
   return PAYMENT_SESSION_STATUSES.PREPARING;
 }
 
+function buildManualTransferNextStep(instructions?: LegacyPaymentInstructions | null) {
+  if (!instructions) return '';
+
+  const amount = Number(instructions.amount || 0);
+  const amountLabel = amount > 0
+    ? `${amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${instructions.currency || 'MXN'}`
+    : '';
+  const rows = [
+    instructions.summary,
+    instructions.bankName ? `Banco: ${instructions.bankName}` : '',
+    instructions.accountHolder ? `Titular: ${instructions.accountHolder}` : '',
+    instructions.clabe ? `CLABE: ${instructions.clabe}` : '',
+    amountLabel ? `Importe: ${amountLabel}` : '',
+    instructions.reference ? `Referencia: ${instructions.reference}` : '',
+    instructions.concept ? `Concepto: ${instructions.concept}` : '',
+    'Tu plan se activará después de validar la transferencia.',
+  ];
+
+  return rows.filter(Boolean).join('\n');
+}
+
 export class ApiCheckoutServiceAdapter implements CheckoutService {
   async listPlans() {
     // Un fallo de transporte no equivale a un catalogo vacio. El consumidor
@@ -53,8 +90,16 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
   async getProviderMode(): Promise<PaymentProviderMode> {
     const health = await getRuntimeHealthRequest().catch(() => null);
     if (!health) return 'unavailable';
-    const provider = String(health?.readiness?.payments?.provider || health?.payments || '').trim();
-    return provider === 'test' ? 'test' : 'hosted';
+
+    const paymentReadiness = health?.readiness?.payments;
+    const provider = String(paymentReadiness?.provider || health?.payments || '').trim().toLowerCase();
+
+    if (paymentReadiness?.ready === false) return 'unavailable';
+    if (provider === 'test') return 'test';
+    if (['manual', 'manual_bank_transfer', 'bank_transfer'].includes(provider)) return 'manual';
+    if (provider === 'mercado_pago') return 'hosted';
+
+    return 'unavailable';
   }
 
   validateTestCard(input: TestCardInput) {
@@ -66,8 +111,9 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
       const { idempotencyKey, ...payload } = request;
       const response = await createCommercialCheckoutRequest(payload, idempotencyKey) as LegacyCheckoutResponse;
       const status = resolveResultStatus(response);
-      const nextStep = response.nextStep
-        || response.paymentInstructions?.summary
+      const manualTransferNextStep = buildManualTransferNextStep(response.paymentInstructions);
+      const nextStep = manualTransferNextStep
+        || response.nextStep
         || (status === PAYMENT_SESSION_STATUSES.COMPLETED
           ? `${response.planName || 'Tu plan'} quedó ligado a tu portal ManeComb.`
           : 'Revisa el estado desde tu portal ManeComb.');
@@ -77,12 +123,14 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
         code: 'SESSION_CREATED',
         message: status === PAYMENT_SESSION_STATUSES.REDIRECT_REQUIRED
           ? 'Continúa en el checkout seguro del proveedor.'
-          : 'La orden comercial quedó registrada.',
+          : response.paymentInstructions
+            ? 'La orden quedó registrada. Realiza la transferencia con los datos mostrados.'
+            : 'La orden comercial quedó registrada.',
         status,
         session: {
           id: response.id || response.referenceCode || `session-${Date.now()}`,
           planId: response.planId || request.planId,
-          providerId: 'legacy-commercial-api',
+          providerId: response.paymentProvider || 'legacy-commercial-api',
           status,
           amount: Number(response.totalPrice || 0),
           currency: response.currency || 'MXN',
