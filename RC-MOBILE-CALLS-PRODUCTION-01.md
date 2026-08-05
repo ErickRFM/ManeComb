@@ -142,3 +142,31 @@ El registro pending/active es **en memoria** → asume **una sola instancia de b
 - UI compacta de audio → **Bloque D**.
 
 **Commit:** `feat(rtc): add authoritative global call signaling`. **STOP para revisión** antes del Bloque B.
+
+---
+
+# A.1 — Endurecimiento del contrato directo y del lifecycle de desconexión (implementado)
+
+> Cierre solicitado antes del Bloque B. Solo backend. Suite completa **verde**. **Sin push/merge.**
+
+## 1. Alcance: solo llamadas DIRECTAS (2 participantes)
+`startCall` ahora exige que la conversación tenga **exactamente 2 participantes** (caller + un único callee). Menos o más → ACK `{ ok:false, code:"direct_call_required" }`: **no** genera `callId`, **no** reserva usuarios, **no** emite `rtc:incoming-call`. La comunicación grupal permanece en Radio; General Operativo no inicia llamadas RTC de Chat.
+
+## 2. Namespace canónico `rtc:call:{callId}`
+Se eliminó la ambigüedad con `call:{callId}`. El servicio devuelve y emite **`rtc:call:{callId}`** (helper `callRoom`). El futuro `rtc:join` (Bloque C) recibirá `callId` y validará: la llamada existe, está aceptada, el usuario pertenece a ella y no está terminada — **sin** confiar en el `conversationId` del cliente para autorizar el join.
+
+## 3. Desconexión con gracia de 15 s
+`handleDisconnect(socketId, { isUserConnected })` ya **no** limpia de inmediato:
+- si el usuario **conserva** otro socket autenticado → no se programa cleanup;
+- si no, se programa cleanup a **15 s** (alineado con la retención RTC);
+- si **recupera** un socket (presence:join → `noteUserReconnected`) dentro del plazo → se **cancela** el cleanup;
+- al vencer → termina la llamada, libera reservas y notifica al otro extremo con `rtc:end` **reason `peer_disconnected`**.
+Timers y cleanup **idempotentes** (`pendingDisconnects`, se limpian al finalizar).
+
+## 4. Códigos de ACK y validación
+Rechazos de ACK unificados en **`code`** (`invalid_request`, `forbidden`, `invalid_mode`, `direct_call_required`, `caller_busy`, `busy`, `unknown_call`, `already_active`). Los `reason` quedan solo en payloads de eventos emitidos (`timeout`, `busy`, `cancelled`, `peer_disconnected`, …). El cliente **no** puede elegir caller/callee: el caller es el usuario autenticado y el callee sale de los participantes reales.
+
+## Pruebas (A.1, en `npm test`)
+`test/rtc-call-signaling.test.js` ampliado: grupal rechazada; incompleta rechazada; payload no elige caller/callee; `mode` inválido; accept tras timeout; accept duplicado; reject/cancel/end duplicados; **disconnect definitivo tras gracia (peer_disconnected)**; **reconexión dentro de la gracia cancela cleanup**; **conserva otro socket → sin cleanup**; namespace `rtc:call:{callId}`. Suite backend completa **verde (EXIT=0)**.
+
+**Commit:** `fix(rtc): harden direct call contract and disconnect lifecycle`. **STOP para revisión** antes del Bloque B.

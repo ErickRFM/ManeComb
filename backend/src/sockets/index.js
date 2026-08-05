@@ -431,6 +431,8 @@ function registerSocketServer(server, store) {
 
       socket.data.presenceJoined = true;
       socket.data.lastPresenceHeartbeatAt = Date.now();
+      // A.1: si el usuario recupero un socket dentro de la gracia, cancelar el cleanup de su llamada.
+      if (resolvedUserId) callService.noteUserReconnected(resolvedUserId);
       const organizationSockets = resolvedOrganizationId
         ? await io.in(`org:${resolvedOrganizationId}`).fetchSockets()
         : [];
@@ -1214,8 +1216,8 @@ function registerSocketServer(server, store) {
       const result = await callService.startCall({ caller: user, callerSocketId: socket.id, conversationId, mode });
       acknowledge(ack, result.ok
         ? { ok: true, callId: result.callId, roomId: result.roomId, status: result.status }
-        : { ok: false, reason: result.reason });
-      observeSocketEvent(socket, "rtc:call", startedAt, result.ok ? "success" : "rejected", { callId: result.callId || null, reason: result.reason || null });
+        : { ok: false, code: result.code });
+      observeSocketEvent(socket, "rtc:call", startedAt, result.ok ? "success" : "rejected", { callId: result.callId || null, code: result.code || null });
     });
 
     const callActionHandler = (eventName, action) => async ({ callId } = {}, ack) => {
@@ -1228,7 +1230,7 @@ function registerSocketServer(server, store) {
       }
       const result = action({ user, socketId: socket.id, callId: String(callId || "").trim() });
       acknowledge(ack, result);
-      observeSocketEvent(socket, eventName, startedAt, result.ok ? "success" : "rejected", { callId: String(callId || "") || null, reason: result.reason || null });
+      observeSocketEvent(socket, eventName, startedAt, result.ok ? "success" : "rejected", { callId: String(callId || "") || null, code: result.code || null });
     };
 
     socket.on("rtc:accept", callActionHandler("rtc:accept", (args) => callService.accept(args)));
@@ -1268,8 +1270,11 @@ function registerSocketServer(server, store) {
       Array.from(activeRadioTransmissions.entries()).forEach(([channelId, transmission]) => {
         if (transmission.socketId === socket.id) void finishRadioTransmission(channelId, "disconnected");
       });
-      // Bloque A: si el socket era parte de una llamada, limpiarla e informar al otro extremo.
-      callService.handleDisconnect(socket.id);
+      // Bloque A/A.1: si el socket era parte de una llamada, aplicar gracia de 15s antes de limpiar
+      // (no limpiar si conserva/recupera otro socket autenticado). Idempotente.
+      await callService.handleDisconnect(socket.id, {
+        isUserConnected: (userId) => hasAnotherLivePresenceSocket(socket, userId)
+      });
     });
   });
 
