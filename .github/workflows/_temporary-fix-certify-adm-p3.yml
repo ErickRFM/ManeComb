@@ -14,6 +14,8 @@ jobs:
   certify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CERTIFICATION_REVISION: "3"
     steps:
       - name: Checkout P3 branch
         uses: actions/checkout@v5
@@ -21,38 +23,11 @@ jobs:
           ref: feat/adm-global-p3-operations
           fetch-depth: 0
 
-      - name: Enforce audit filter allowlist and permanent gates
+      - name: Connect P3 tests to permanent gates
         shell: bash
         run: |
           node <<'NODE'
           const fs = require('fs');
-
-          const servicePath = 'backend/src/modules/platform/operations-service.js';
-          let service = fs.readFileSync(servicePath, 'utf8');
-          const oldBlock = `  if (source.filters && typeof source.filters === "object") {
-            safe.filters = Object.fromEntries(
-              Object.entries(source.filters)
-                .filter(([, value]) => ["string", "boolean", "number"].includes(typeof value) || value === null)
-                .slice(0, 12)
-                .map(([key, value]) => [sanitizeText(key, 40), typeof value === "string" ? sanitizeText(value, 120) : value])
-            );
-          }`;
-          const newBlock = `  if (source.filters && typeof source.filters === "object") {
-            const allowedFilterKeys = new Set([
-              "search", "q", "planId", "paymentStatus", "activationStatus",
-              "onboardingStatus", "organizationId", "action", "actorId",
-              "severity", "since", "until", "page", "limit", "sort", "order"
-            ]);
-            safe.filters = Object.fromEntries(
-              Object.entries(source.filters)
-                .filter(([key, value]) => allowedFilterKeys.has(key) && (["string", "boolean", "number"].includes(typeof value) || value === null))
-                .slice(0, 18)
-                .map(([key, value]) => [key, typeof value === "string" ? sanitizeText(value, 120) : value])
-            );
-          }`;
-          if (!service.includes(oldBlock)) throw new Error('No se encontró el bloque de filtros de auditoría esperado');
-          service = service.replace(oldBlock, newBlock);
-          fs.writeFileSync(servicePath, service);
 
           const backendPath = 'backend/package.json';
           const backend = JSON.parse(fs.readFileSync(backendPath, 'utf8'));
