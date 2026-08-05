@@ -3,6 +3,7 @@ import {
   assertNoDocumentOverflow,
   attachFullPageScreenshot,
   attachRuntimeProbe,
+  installLocalCertificationContracts,
 } from './helpers';
 
 const routes = [
@@ -23,6 +24,10 @@ const routes = [
 ];
 
 test.describe('CERT-PROD-01 — responsive público', () => {
+  test.beforeEach(async ({ page }) => {
+    await installLocalCertificationContracts(page);
+  });
+
   for (const route of routes) {
     test(`${route.name} renderiza sin error ni overflow`, async ({ page }, testInfo) => {
       const probe = attachRuntimeProbe(page);
