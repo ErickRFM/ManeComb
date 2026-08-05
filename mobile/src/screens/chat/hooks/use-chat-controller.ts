@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { getRtcIceConfigRequest } from '@/src/api/client';
 import { getSharedRealtimeSocket } from '@/src/store/root-store';
 import { canConversationStartCall } from '@/src/features/calls/call-selectors';
+import { useCallStore } from '@/src/features/calls/call-store';
 import { launchCameraAsync, launchImageLibraryAsync, requestCameraPermissionAsync } from '@/src/native/image-picker';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -27,7 +28,6 @@ import { createStyles } from '../chat-screen.styles';
 import type { CallMode, CallSession, DirectoryMode, LocalTextMessage, MobilePane, RecordingState, RtcParticipant } from '../types';
 import { MAX_VOICE_NOTE_SECONDS } from '../types';
 import { getPresenceStatus } from '@/src/utils/presence';
-import { resolveRtcJoinFailureNotice, type RtcJoinAck } from '../utils/rtc-join-ack';
 import { startCallForegroundService, stopCallForegroundService } from '@/src/native/call-service';
 import { useChatDirectoryData } from './use-chat-directory-data';
 import { useChatScroll } from './use-chat-scroll';
@@ -41,10 +41,6 @@ import {
 type CloseActiveCallOptions = {
   reason?: string | null;
 };
-
-// Si el backend no acusa el rtc:join en este plazo, abortamos la llamada en
-// lugar de dejarla colgada en "llamando" para siempre.
-const RTC_JOIN_ACK_TIMEOUT_MS = 10000;
 
 export function useChatController() {
   const route = useRoute();
@@ -156,7 +152,7 @@ export function useChatController() {
     const boundHandlers: Array<[string, (...args: any[]) => void]> = [];
     const on = (event: string, handler: (...args: any[]) => void) => {
       boundHandlers.push([event, handler]);
-      socket['on'](event, handler as any);
+      socket.on(event, handler as any);
     };
     getRtcIceConfigRequest()
       .then((config) => {
@@ -180,7 +176,7 @@ export function useChatController() {
     const reportRelayUsage = async (
       peer: RTCPeerConnection,
       roomId: string,
-      socket: Socket
+      realtimeSocket: Socket
     ) => {
       if (relayStatsReportedRef.current) return;
       relayStatsReportedRef.current = true;
@@ -208,7 +204,7 @@ export function useChatController() {
         const usedRelay =
           local?.candidateType === 'relay' || remote?.candidateType === 'relay';
 
-        socket.emit('rtc:stats', { roomId, usedRelay });
+        realtimeSocket.emit('rtc:stats', { roomId, usedRelay });
       } catch {
         // getStats puede no estar disponible o fallar; se mantiene usedRelay=null.
       }
@@ -773,89 +769,37 @@ export function useChatController() {
     }
   }, [activeConversationKey, activeMessages, isCompact, markAsRead, mobilePane, user?.id]);
 
-  // Join RTC room when entering a conversation
-  useEffect(() => {
-    if (!activeConversation?.id || !socketRef.current?.connected) {
-      return;
-    }
+  // RC-MOBILE-CALLS-PRODUCTION-01 Bloque C: abrir una conversacion YA NO ejecuta rtc:join.
+  // El join a la sala rtc:call:{callId} lo hace el runtime global SOLO tras aceptar una llamada.
 
-    if (joinedRtcRoomRef.current === activeConversation.id) {
-      return;
-    }
-
-    if (joinedRtcRoomRef.current) {
-      socketRef.current.emit('rtc:leave', { roomId: joinedRtcRoomRef.current });
-    }
-
-    joinedRtcRoomRef.current = activeConversation.id;
-    callAttemptRef.current += 1;
-    isStartingCallRef.current = false;
-    socketRef.current.emit('rtc:join', {
-      roomId: activeConversation.id,
-      userId: user?.id,
-      name: user?.name,
-    });
-  }, [activeConversation?.id, user?.id, user?.name]);
-
-  const startCall = useCallback(async (mode: CallMode) => {
-    if (!activeConversation || !socketRef.current?.connected || !isWebRTCAvailable()) {
-      setCallNotice('La cabina de llamadas no esta disponible.');
-      return;
-    }
-
-    if (callSession) {
-      setCallNotice('Ya hay una llamada activa en esta cabina.');
-      return;
-    }
-
-    if (isStartingCallRef.current) return;
-    isStartingCallRef.current = true;
-
-    const ok = await obtainLocalMediaRef.current(mode);
-    if (!ok) {
-      isStartingCallRef.current = false;
-      return;
-    }
-
-    if (!localStreamRef.current) {
-      isStartingCallRef.current = false;
-      return;
-    }
-
-    currentCallModeRef.current = mode;
-    const roomId = activeConversation.id;
-    joinedRtcRoomRef.current = roomId;
-    callAttemptRef.current += 1;
-
-    setCallSession({
-      roomId,
-      mode,
-      phase: 'calling',
-      joinedAt: Date.now(),
-      remoteStream: null,
-      remoteSocketId: null,
-    });
-
-    const joinAttempt = callAttemptRef.current;
-
-    socketRef.current
-      .timeout(RTC_JOIN_ACK_TIMEOUT_MS)
-      .emit(
-        'rtc:join',
-        { roomId, userId: user?.id, name: user?.name },
-        (ackError: Error | null, ack?: RtcJoinAck) => {
-          // Una llamada posterior (o un colgado) ya invalido este intento.
-          if (callAttemptRef.current !== joinAttempt) return;
-
-          const notice = resolveRtcJoinFailureNotice(ack, ackError);
-          if (!notice) return;
-
-          closeActiveCallRef.current({ reason: notice });
-        }
-      );
-
-    isStartingCallRef.current = false;
-  }, [activeConversation, callSession, user?.id, user?.name]);
+  // C: startCall delega al store global (features/calls). El controller ya NO crea peer/estado
+  // local ni hace rtc:join; el pipeline (media/ICE/peer/negociacion) vive en el runtime global.
+  const startCall = useCallback(
+    async (mode: CallMode) => {
+      if (!activeConversation) {
+        setCallNotice('Selecciona una conversacion directa para llamar.');
+        return;
+      }
+      if (!canConversationStartCall(activeConversation)) {
+        setCallNotice('Las llamadas grupales se realizan en Radio.');
+        return;
+      }
+      const result = await useCallStore.getState().startCall({
+        conversationId: activeConversation.id,
+        mode,
+      });
+      if (!result.ok) {
+        const notice =
+          result.code === 'busy'
+            ? 'La unidad esta ocupada en otra llamada.'
+            : result.code === 'direct_call_required'
+              ? 'Solo se puede llamar en conversaciones directas.'
+              : 'No fue posible iniciar la llamada.';
+        setCallNotice(notice);
+      }
+    },
+    [activeConversation, setCallNotice]
+  );
 
   const composerPlaceholder = 'Escribe un mensaje...';
   const supportsMicrophoneCapture =

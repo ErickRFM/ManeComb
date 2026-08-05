@@ -7,6 +7,10 @@ import type { CallState } from './call-types';
 export const canConversationStartCall = (conversation?: { kind?: string } | null): boolean =>
   conversation?.kind === 'direct';
 
+// C.6: el cronometro corre desde connectedAt (nunca desde joinedAt). Antes de CONNECTED => 0.
+export const computeElapsedSeconds = (connectedAt: number | null, nowMs: number): number =>
+  connectedAt ? Math.max(0, Math.floor((nowMs - connectedAt) / 1000)) : 0;
+
 export const selectPhase = (s: CallState) => s.phase;
 export const selectIsIncoming = (s: CallState) => s.phase === 'INCOMING_RINGING';
 export const selectIsOutgoing = (s: CallState) => s.phase === 'OUTGOING_RINGING';

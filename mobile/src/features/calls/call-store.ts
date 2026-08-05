@@ -21,6 +21,8 @@ import {
   emitStartCall,
 } from './call-signaling';
 import type { CallMode, CallSocket, CallState, IncomingCallPayload } from './call-types';
+import type { CallRuntime, CallRuntimeFactory } from './call-runtime';
+import { computeElapsedSeconds } from './call-selectors';
 
 // Tiempo que se muestra el resultado (Rechazada/Ocupado/…) antes de volver a IDLE.
 let RESULT_DISPLAY_MS = 1600;
@@ -28,14 +30,35 @@ export function __setResultDisplayMsForTests(ms: number): void {
   RESULT_DISPLAY_MS = ms;
 }
 
+// C.7: timeout de conexion tras aceptar. Si no llega a CONNECTED -> FAILED.
+let CONNECT_TIMEOUT_MS = 20000;
+export function __setConnectTimeoutMsForTests(ms: number): void {
+  CONNECT_TIMEOUT_MS = ms;
+}
+
+// El runtime nativo es el propietario del peer/media. Se INYECTA (call-overlay lo wirea con el
+// runtime nativo en la app; las pruebas inyectan un doble). Asi call-store no acopla lo nativo.
+let runtimeFactory: CallRuntimeFactory | null = null;
+export function setCallRuntimeFactory(factory: CallRuntimeFactory | null): void {
+  runtimeFactory = factory;
+}
+
 const now = (): number => Date.now();
 
 interface CallStore extends CallState {
+  // C: media/peer/tiempo
+  elapsedSeconds: number;
+  isMuted: boolean;
+  toggleMute: () => void;
+
   // internos (no UI)
   _socket: CallSocket | null;
   _unbind: (() => void) | null;
   _resetTimer: ReturnType<typeof setTimeout> | null;
   _starting: boolean;
+  _runtime: CallRuntime | null;
+  _connectTimeout: ReturnType<typeof setTimeout> | null;
+  _elapsedTimer: ReturnType<typeof setInterval> | null;
 
   // enlace al socket compartido
   bindSocket: (socket: CallSocket | null) => void;
@@ -77,17 +100,79 @@ export const useCallStore = create<CallStore>()((set, get) => {
     set({ _resetTimer: timer });
   };
 
+  const stopRuntime = (): void => {
+    const s = get();
+    if (s._runtime) s._runtime.stop();
+    if (s._connectTimeout) clearTimeout(s._connectTimeout);
+    if (s._elapsedTimer) clearInterval(s._elapsedTimer);
+    set({ _runtime: null, _connectTimeout: null, _elapsedTimer: null });
+  };
+
   const endWith = (result: CallState['endResult']): void => {
+    stopRuntime();
+    set({ isMuted: false, elapsedSeconds: 0 });
     dispatch({ type: 'END', result, now: now() });
     scheduleReset();
   };
 
+  // C.6/C.7/C.9: el runtime reporta CONNECTED o falla. Se guarda con el callId capturado para que
+  // un callback de una llamada VIEJA no altere una nueva.
+  const onRuntimeConnected = (callId: string): void => {
+    const s = get();
+    if (s.callId !== callId || s.phase !== 'CONNECTING') return; // evento tardio / llamada vieja
+    if (s._connectTimeout) clearTimeout(s._connectTimeout);
+    dispatch({ type: 'CONNECTED', now: now() });
+    // C.6: cronometro desde connectedAt.
+    const elapsedTimer = setInterval(() => {
+      set({ elapsedSeconds: computeElapsedSeconds(get().connectedAt, now()) });
+    }, 1000);
+    set({ _connectTimeout: null, _elapsedTimer: elapsedTimer, elapsedSeconds: 0 });
+  };
+
+  const onRuntimeFailed = (callId: string, code: string): void => {
+    const s = get();
+    if (s.callId !== callId) return; // llamada vieja
+    if (s.phase === 'IDLE' || s.phase === 'ENDING' || s.phase === 'FAILED') return;
+    if (s._socket && s.callId) emitEnd(s._socket, s.callId); // avisa al otro extremo
+    stopRuntime();
+    set({ isMuted: false, elapsedSeconds: 0 });
+    dispatch({ type: 'FAIL', failureCode: code, now: now() });
+    scheduleReset();
+  };
+
+  // Arranca el runtime al entrar en CONNECTING (tras aceptar / call-accepted). Media/ICE/peer/join
+  // viven en el runtime; si el micrófono o la config fallan -> onRuntimeFailed limpia y avisa.
+  const startRuntime = (): void => {
+    const s = get();
+    if (s.phase !== 'CONNECTING' || !s._socket || !s.callId || s._runtime) return;
+    const activeCallId = s.callId;
+    if (!runtimeFactory) {
+      onRuntimeFailed(activeCallId, 'runtime_unavailable');
+      return;
+    }
+    const runtime = runtimeFactory({
+      callId: activeCallId,
+      direction: s.direction,
+      mode: s.mode || 'audio',
+      socket: s._socket,
+      onConnected: () => onRuntimeConnected(activeCallId),
+      onFailed: (code) => onRuntimeFailed(activeCallId, code),
+    });
+    const timeout = setTimeout(() => onRuntimeFailed(activeCallId, 'ice_timeout'), CONNECT_TIMEOUT_MS);
+    set({ _runtime: runtime, _connectTimeout: timeout, isMuted: false, elapsedSeconds: 0 });
+  };
+
   return {
     ...initialCallState(),
+    elapsedSeconds: 0,
+    isMuted: false,
     _socket: null,
     _unbind: null,
     _resetTimer: null,
     _starting: false,
+    _runtime: null,
+    _connectTimeout: null,
+    _elapsedTimer: null,
 
     bindSocket: (socket) => {
       const current = get()._socket;
@@ -114,8 +199,16 @@ export const useCallStore = create<CallStore>()((set, get) => {
 
     reset: () => {
       clearResetTimer();
-      set({ _starting: false });
+      stopRuntime();
+      set({ _starting: false, isMuted: false, elapsedSeconds: 0 });
       dispatch({ type: 'RESET' });
+    },
+
+    toggleMute: () => {
+      const state = get();
+      const next = !state.isMuted;
+      if (state._runtime) state._runtime.setMicEnabled(!next); // enabled = !muted
+      set({ isMuted: next });
     },
 
     startCall: async ({ conversationId, mode }) => {
@@ -148,9 +241,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
     acceptIncomingCall: () => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
-      // Bloque B: solo signaling. El microfono/ICE/peer/join son Bloque C.
+      // C.3: transicion a CONNECTING, emite accept y arranca el runtime (ICE config -> media ->
+      // peer -> join -> negociacion). Orden documentado: si la config/media fallan tras el accept,
+      // onRuntimeFailed limpia y avisa al caller con rtc:end(reason), evitando "conectando" eterno.
       dispatch({ type: 'LOCAL_ACCEPT', now: now() });
       if (state._socket) emitAccept(state._socket, state.callId);
+      startRuntime();
     },
 
     rejectIncomingCall: () => {
@@ -184,7 +280,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
       if (!matchesCall(state, payload && payload.callId)) return;
       if (state.phase !== 'OUTGOING_RINGING') return;
       dispatch({ type: 'REMOTE_ACCEPTED', roomId: payload.roomId ?? null, now: now() });
-      // Bloque C tomara desde CONNECTING (obtener ICE/media, join, negociar).
+      startRuntime(); // caller = offerer; el runtime hace media -> peer -> join -> offer.
     },
 
     handleRejected: (payload) => {

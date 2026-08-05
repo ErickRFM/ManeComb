@@ -38,6 +38,7 @@ export type CallEvent =
   | { type: 'INCOMING'; payload: IncomingCallPayload; now: number }
   | { type: 'LOCAL_ACCEPT'; now: number }
   | { type: 'REMOTE_ACCEPTED'; roomId?: string | null; now: number }
+  | { type: 'CONNECTED'; now: number }
   | { type: 'END'; result: CallEndResult; now: number }
   | { type: 'FAIL'; failureCode: string; now: number }
   | { type: 'RESET' };
@@ -83,6 +84,11 @@ export function reduce(state: CallState, event: CallEvent): CallState {
     case 'REMOTE_ACCEPTED': {
       if (state.phase !== 'OUTGOING_RINGING') return state;
       return { ...state, phase: 'CONNECTING', acceptedAt: event.now, roomId: event.roomId ?? state.roomId };
+    }
+    case 'CONNECTED': {
+      // C.6: solo desde CONNECTING (tras verificar 2 participantes + peer connected + audio remoto).
+      if (state.phase !== 'CONNECTING') return state;
+      return { ...state, phase: 'CONNECTED', connectedAt: event.now };
     }
     case 'END': {
       if (state.phase === 'IDLE') return state;

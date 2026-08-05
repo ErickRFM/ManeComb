@@ -6,8 +6,12 @@ import React, { useEffect } from 'react';
 
 import { getSharedRealtimeSocket } from '@/src/store/root-store';
 import type { CallSocket } from './call-types';
-import { useCallStore } from './call-store';
+import { setCallRuntimeFactory, useCallStore } from './call-store';
+import { createNativeCallRuntime } from './call-runtime';
 import { IncomingCallModal } from './components/incoming-call-modal';
+
+// El wiring del runtime nativo vive aqui (solo en la app), para no acoplar lo nativo al store.
+setCallRuntimeFactory(createNativeCallRuntime);
 
 export function CallOverlay(): React.ReactElement {
   const socket = getSharedRealtimeSocket() as unknown as CallSocket | null;

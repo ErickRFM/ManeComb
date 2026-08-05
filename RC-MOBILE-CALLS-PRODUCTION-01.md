@@ -239,3 +239,41 @@ El `use-chat-controller.ts` conserva su pipeline offer/answer/ICE/join sobre el 
 Las pruebas ejercitan la **lógica autoritativa** del join (`canJoinCall`/`isCallMember`) directamente. La retransmisión a nivel socket (offer/answer/ICE con callId incorrecto ignorados; reconnect no duplica participante lógico) se apoya en los guards existentes `isSocketInRtcRoom` + `isCallMember`; no se ejercita con un cliente socket.io real (el repo no lo tiene en tests).
 
 **Commit:** `fix(rtc): authorize call rooms by authoritative call id`. Continúa el Bloque C con el pipeline mobile (C.2–C.9).
+
+---
+
+# Bloque C.2–C.9 — Peer, audio y negociación deterministas (mobile, implementado)
+
+> Segundo commit del Bloque C. Rama `rc-mobile-calls-production-01`. **Sin push/merge.** La conexión de media real se certifica en **dispositivo** (`CALLS_RELEASE_BLOCKED` hasta la prueba física).
+
+## Módulos nuevos en `mobile/src/features/calls/` (propietario global del peer)
+- `call-ice.ts` (C.4): `validateIceConfig` / `resolveIceConfig`. STUN-only y STUN+TURN válidos; vacía/inválida/fallo → `rtc_config_unavailable` (**sin fallback silencioso a STUN**). Diagnóstico sanitizado (solo `turnEnabled` + `iceServerCount`; nunca credenciales/urls).
+- `call-peer.ts` (C.5/C.6): `isCanonicalOfferer` (**el caller es el offerer**, no por socket id), `createIceQueue` (encola antes de remote description, drena en orden, ignora otro callId), `evaluateConnected` (**las 4 condiciones**), `remoteAudioSignals`.
+- `call-media.ts` (C.8): `acquireLocalMedia` (mic/permiso), `setMicEnabled` (mute = `track.enabled`), `stopLocalMedia`.
+- `call-runtime.ts` (C.2/C.3/C.5/C.7): runtime nativo, **propietario único** de peer/localStream/remoteStream/candidatos/negociación/cleanup de UNA llamada. Secuencia: ICE config (obligatoria) → media → peer → `rtc:join {callId}` → participants → offer(caller)/answer(callee) → ICE → CONNECTED. Filtra signaling por `callId`; offer única (evita glare por participants repetidos/reconnect).
+- `call-cleanup.ts` (C.9): `createCallEpoch` (un callback de llamada vieja no altera la nueva) + `createIdempotentCleanup`.
+
+## Store (`call-store.ts`) — contrato de conexión
+- Al entrar en `CONNECTING` (accept / call-accepted) arranca el runtime inyectado (native en la app; doble en pruebas).
+- **CONNECTED solo** cuando el runtime reporta `onConnected` (2 participantes + peer `connected` + audio remoto live). El cronómetro corre **desde `connectedAt`** (`joinedAt` eliminado).
+- **Timeout de conexión 20 s** (C.7): sin CONNECTED → `FAILED(ice_timeout)` + `rtc:end` + cleanup.
+- `onFailed(code)` (media/ICE/config) → `FAILED` + `rtc:end` + cleanup. Guard por `callId` (C.9): callbacks de una llamada vieja se ignoran.
+- `toggleMute` → `setMicEnabled(!muted)`. Cleanup detiene runtime/tracks/timers en todo terminal (reject/cancel/timeout/remote-end/logout), **idempotente**.
+
+## Deuda temporal del controller — reducida
+`use-chat-controller.ts`: se **eliminó el `rtc:join` al abrir Chat** y `startCall` ahora **delega al store global** (sin peer/estado/timer local nuevo). Los listeners RTC legados quedan **inertes** (filtran por `roomId`, que ya nunca se setea) — su borrado final + el rewire del panel activo pertenecen al **Bloque D** (que reescribe la UI). No hay segundo `io()`, ni join automático, ni inicio de llamadas por el controller.
+
+## Pruebas mobile (jest)
+- `call-runtime.test.ts` (cores puros): ICE config (STUN/STUN+TURN/inválida/fallo, diagnóstico sanitizado); offerer canónico; cola ICE (encola/drena/ignora otro callId/reset); **CONNECTED exige las 4 condiciones** y ninguna señal por sí sola conecta; epoch/cleanup idempotente.
+- `call-store.test.ts` (Bloque C, runtime doble): accept arranca runtime en CONNECTING sin conectar; `onConnected` → CONNECTED + `connectedAt`; timer no corre antes de `connectedAt`; **timeout 20s → FAILED(ice_timeout)+rtc:end**; `onFailed(ice_failed)`; mute/unmute; **callback de llamada vieja no conecta la nueva**; remote-end/logout detienen el runtime; doble reset idempotente; **abrir Chat no ejecuta rtc:join** (#20).
+
+## Validación
+- `npm run typecheck`: **PASS (exit 0)**.
+- `jest` (módulo de llamadas): **43/43 PASS** (`call-machine` + `call-store` + `call-runtime`).
+- backend `npm test`: **verde** (C.1).
+- `assembleDebug`: __PENDIENTE_DE_RESULTADO__.
+
+## Límite honesto
+Los cores deterministas (C.4/C.5/C.6/C.9) están probados en jest. La **glue nativa** del runtime (getUserMedia/RTCPeerConnection/ICE reales) y el audio bidireccional se certifican en **dispositivo** (2 teléfonos: timbre global, 2 en cabina, audio, misma Wi-Fi y redes distintas) → `CALLS_RELEASE_BLOCKED`.
+
+**Commit:** `fix(rtc): make peer negotiation and audio lifecycle deterministic`. **STOP para revisión** antes del Bloque D.

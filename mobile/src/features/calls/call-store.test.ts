@@ -7,8 +7,27 @@ const fs = require('fs');
 const path = require('path');
 
 import { canConversationStartCall } from './call-selectors';
-import { __setResultDisplayMsForTests, useCallStore } from './call-store';
+import {
+  __setConnectTimeoutMsForTests,
+  __setResultDisplayMsForTests,
+  setCallRuntimeFactory,
+  useCallStore,
+} from './call-store';
 import type { CallAck } from './call-types';
+import type { CallRuntimeParams } from './call-runtime';
+
+// Runtime falso: captura params y registra stop/mic sin tocar nativo/red.
+let capturedRuntime: { params: CallRuntimeParams; stopped: number; mic: boolean[] } | null = null;
+function installFakeRuntime() {
+  setCallRuntimeFactory((params) => {
+    const entry = { params, stopped: 0, mic: [] as boolean[] };
+    capturedRuntime = entry;
+    return {
+      stop: () => { entry.stopped += 1; },
+      setMicEnabled: (enabled: boolean) => { entry.mic.push(enabled); },
+    };
+  });
+}
 
 type Handler = (payload: any) => void;
 
@@ -42,6 +61,9 @@ const incoming = { callId: 'call-1', conversationId: 'conv-1', mode: 'audio' as 
 
 beforeEach(() => {
   __setResultDisplayMsForTests(0);
+  __setConnectTimeoutMsForTests(100000); // grande por defecto; el test de timeout lo baja
+  installFakeRuntime();
+  capturedRuntime = null;
   const s = state();
   s.unbindSocket();
   s.reset();
@@ -187,5 +209,104 @@ describe('call-store lifecycle', () => {
     const content = fs.readFileSync(file, 'utf8');
     expect(content.includes('io(SOCKET_URL')).toBe(false);
     expect(content.includes('getSharedRealtimeSocket()')).toBe(true);
+  });
+
+  it('20. abrir Chat no ejecuta rtc:join (join solo tras aceptar, en el runtime global)', () => {
+    const file = path.join(__dirname, '..', '..', 'screens', 'chat', 'hooks', 'use-chat-controller.ts');
+    const content = fs.readFileSync(file, 'utf8');
+    expect(content.includes('Join RTC room when entering a conversation')).toBe(false);
+    expect(content.includes('abrir una conversacion YA NO ejecuta rtc:join')).toBe(true);
+  });
+});
+
+describe('call-store runtime (Bloque C)', () => {
+  async function acceptFlow() {
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', incoming);
+    state().acceptIncomingCall();
+    return socket;
+  }
+
+  it('C6. aceptar arranca el runtime en CONNECTING; NO conecta sin onConnected', async () => {
+    await acceptFlow();
+    expect(state().phase).toBe('CONNECTING');
+    expect(capturedRuntime).not.toBeNull();
+    expect(capturedRuntime!.params.callId).toBe('call-1');
+    // ninguna señal por si sola conecta: seguimos en CONNECTING
+    expect(state().phase).not.toBe('CONNECTED');
+    expect(state().connectedAt).toBeNull();
+    expect(state().elapsedSeconds).toBe(0); // C6: timer no corre antes de connectedAt
+  });
+
+  it('C6. onConnected del runtime pasa a CONNECTED con connectedAt', async () => {
+    await acceptFlow();
+    capturedRuntime!.params.onConnected();
+    expect(state().phase).toBe('CONNECTED');
+    expect(typeof state().connectedAt).toBe('number'); // timer corre desde connectedAt
+  });
+
+  it('C7. timeout de conexion sin CONNECTED -> FAILED(ice_timeout) y avisa rtc:end', async () => {
+    __setResultDisplayMsForTests(100000); // sin auto-reset durante la espera (test determinista)
+    __setConnectTimeoutMsForTests(20);
+    const socket = await acceptFlow();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(state().phase).toBe('FAILED');
+    expect(state().failureCode).toBe('ice_timeout');
+    expect(socket.emitted.some((e) => e.event === 'rtc:end')).toBe(true);
+    state().reset();
+    expect(state().phase).toBe('IDLE');
+  });
+
+  it('C. onFailed(ice_failed) del runtime -> FAILED y limpia', async () => {
+    await acceptFlow();
+    capturedRuntime!.params.onFailed('ice_failed');
+    expect(state().phase).toBe('FAILED');
+    expect(state().failureCode).toBe('ice_failed');
+    expect(capturedRuntime!.stopped).toBeGreaterThanOrEqual(1);
+  });
+
+  it('C8. mute/unmute cambia setMicEnabled (enabled = !muted)', async () => {
+    await acceptFlow();
+    state().toggleMute();
+    expect(state().isMuted).toBe(true);
+    expect(capturedRuntime!.mic[capturedRuntime!.mic.length - 1]).toBe(false);
+    state().toggleMute();
+    expect(state().isMuted).toBe(false);
+    expect(capturedRuntime!.mic[capturedRuntime!.mic.length - 1]).toBe(true);
+  });
+
+  it('C9. un onConnected de una llamada VIEJA no conecta una nueva', async () => {
+    await acceptFlow();
+    const oldConnected = capturedRuntime!.params.onConnected;
+    state().reset(); // termina la llamada vieja
+    // nueva llamada
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', { ...incoming, callId: 'call-2' });
+    state().acceptIncomingCall();
+    expect(state().phase).toBe('CONNECTING');
+    oldConnected(); // callback viejo (callId call-1)
+    expect(state().phase).toBe('CONNECTING'); // NO conecto la nueva
+    expect(state().callId).toBe('call-2');
+  });
+
+  it('C9. remote end detiene el runtime y vuelve a IDLE', async () => {
+    await acceptFlow();
+    capturedRuntime!.params.onConnected();
+    const runtime = capturedRuntime!;
+    state().handleRemoteEnd({ callId: 'call-1' });
+    expect(runtime.stopped).toBeGreaterThanOrEqual(1);
+    await flush();
+    expect(state().phase).toBe('IDLE');
+  });
+
+  it('C9. logout/reset detiene el runtime; doble reset es idempotente', async () => {
+    await acceptFlow();
+    const runtime = capturedRuntime!;
+    state().reset();
+    state().reset();
+    expect(runtime.stopped).toBeGreaterThanOrEqual(1);
+    expect(state().phase).toBe('IDLE');
   });
 });
