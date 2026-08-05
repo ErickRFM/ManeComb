@@ -23,6 +23,8 @@ jobs:
       - name: Merge latest main selectively
         shell: bash
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           OLD_HEAD=$(git rev-parse HEAD)
           git fetch origin main
           git merge --no-commit -X theirs origin/main
@@ -65,8 +67,6 @@ jobs:
       - name: Commit integrated closure
         shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "merge: integrate communication closure with latest main"
           git push origin HEAD:agent/communication-closure
