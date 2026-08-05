@@ -1,8 +1,4 @@
 import type { Socket } from 'socket.io-client';
-import {
-  startRadioForegroundService,
-  stopRadioForegroundService,
-} from '@/src/native/audio';
 import { getRadioRealtimeErrorMessage } from './radio-audio-service';
 
 export type RadioLiveIdentity = {
@@ -57,11 +53,6 @@ let radioRealtimeSuspended = false;
 export function setRadioRealtimeSuspended(suspended: boolean) {
   if (radioRealtimeSuspended === suspended) return;
   radioRealtimeSuspended = suspended;
-
-  if (suspended) {
-    stopRadioForegroundService().catch(() => undefined);
-  }
-
   activeRadioServices.forEach((service) => service.setExternallySuspended(suspended));
 }
 
@@ -248,7 +239,6 @@ export class RadioRealtimeService {
     if (generation !== this.joinGeneration || channelId !== this.channelId || radioRealtimeSuspended) return;
     if (ack.ok) {
       this.handlers.onStateChange('ready');
-      startRadioForegroundService().catch(() => undefined);
       return;
     }
     const unauthorized = ack.error === 'forbidden' || ack.error === 'unauthorized';
