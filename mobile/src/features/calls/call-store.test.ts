@@ -241,8 +241,8 @@ describe('call-store media runtime', () => {
     state().toggleCamera();
     expect(state().isMuted).toBe(true);
     expect(state().isCameraEnabled).toBe(false);
-    expect(capturedRuntime!.mic.at(-1)).toBe(false);
-    expect(capturedRuntime!.camera.at(-1)).toBe(false);
+    expect(capturedRuntime!.mic[capturedRuntime!.mic.length - 1]).toBe(false);
+    expect(capturedRuntime!.camera[capturedRuntime!.camera.length - 1]).toBe(false);
   });
 
   it('endCall emite rtc:end y detiene el runtime', async () => {

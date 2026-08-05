@@ -205,7 +205,7 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
       const candidate = event.candidate.toJSON?.() || event.candidate;
       emit('rtc:ice-candidate', { candidate });
     };
-    nextPeer.ontrack = (event: { streams?: any[] }) => {
+    nextPeer.ontrack = (event: { streams?: readonly any[] }) => {
       if (stopped || generation !== peerGeneration) return;
       remoteStream = event.streams?.[0] || remoteStream;
       onRemoteStream(remoteStream);

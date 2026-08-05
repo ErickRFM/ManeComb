@@ -111,7 +111,9 @@ export function IncomingCallModal(): React.ReactElement | null {
   useEffect(() => {
     if (!['CONNECTING', 'CONNECTED', 'RECONNECTING'].includes(phase)) return undefined;
     startCallForegroundService(isVideo);
-    return () => stopCallForegroundService();
+    return () => {
+      void stopCallForegroundService();
+    };
   }, [isVideo, phase]);
 
   if (!visible) return null;
@@ -349,7 +351,7 @@ const styles = StyleSheet.create({
   },
   videoTile: { flex: 1, backgroundColor: '#020617', overflow: 'hidden' },
   videoFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  nativeVideo: { position: 'absolute', inset: 0, width: '100%', height: '100%' },
+  nativeVideo: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%' },
   webVideo: {
     position: 'absolute',
     top: 0,
