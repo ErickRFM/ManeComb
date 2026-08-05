@@ -43,10 +43,20 @@ assert.match(screen, /paymentStatus/);
 assert.match(screen, /planId/);
 assert.match(screen, /pagination\.hasNext/);
 assert.match(screen, /router\.push\(`\/admin\/companies\//);
-assert.doesNotMatch(screen, /suspend|reactivate|changePlan|refund|forceActivation/i);
+for (const forbiddenAction of [
+  'suspendCompany',
+  'reactivateCompany',
+  'changeCompanyPlan',
+  'refundCompanyOrder',
+  'forceCompanyActivation',
+]) {
+  assert.equal(screen.includes(forbiddenAction), false, `P2 no debe incluir ${forbiddenAction}.`);
+  assert.equal(api.includes(forbiddenAction), false, `La API P2 no debe incluir ${forbiddenAction}.`);
+}
 
 assert.match(types, /operationalStatus: 'operational' \| 'attention' \| 'inactive'/);
 assert.doesNotMatch(types, /latitude|longitude|location:/i);
 assert.match(shell, /pathname\.startsWith/);
+assert.match(shell, /resetCompanies\(\)/);
 
 console.log('ok - ADM-GLOBAL-P2 company list and detail contracts');
