@@ -54,10 +54,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: |
+            mobile/package-lock.json
+            ventas/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Playwright dependencies
         run: npm ci
+
+      - name: Install Ventas dependencies
+        run: npm ci --prefix ../ventas
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
