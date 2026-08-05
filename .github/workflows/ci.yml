@@ -219,7 +219,7 @@ jobs:
   infrastructure-validation:
     name: Infrastructure validation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -238,3 +238,6 @@ jobs:
 
       - name: Build backend image with Communication Service
         run: docker build --file backend/Dockerfile --tag manecomb-backend:ci .
+
+      - name: Smoke backend and web containers
+        run: bash scripts/smoke-containers.sh
