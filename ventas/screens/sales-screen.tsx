@@ -18,22 +18,20 @@ import type { CommercialPlan } from '@/src/types/app';
 import { saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
-import { neonPalette, benefits, processSteps, trustMetrics } from './sales/constants';
+import { neonPalette, processSteps, trustMetrics } from './sales/constants';
 import { styles } from './sales/styles';
 import {
   buildPlanParams,
   getFirstParam,
   getPlanAccent,
+  isPublicDemoPlan,
   normalizePaymentReturnStatus,
 } from './sales/utils';
 import { SiteHeader } from './sales/components/site-header';
 import { ImmersiveBackground } from './sales/components/immersive-background';
 import { DashboardMockup } from './sales/components/dashboard-mockup';
-import { SectionHeading } from './sales/components/section-heading';
-import { ActionButton } from './sales/components/section-heading';
-import { BenefitCard } from './sales/components/section-heading';
-import { ProcessStep } from './sales/components/section-heading';
-import { RoundIconButton } from './sales/components/section-heading';
+import { ActionButton, ProcessStep, RoundIconButton, SectionHeading } from './sales/components/section-heading';
+import { DemoPlanNotice, HeroSignalRow, PlatformOverview } from './sales/components/sales-story';
 import { RevealView } from './sales/components/reveal-view';
 import { PlanCardSkeleton } from './sales/components/plan-card-skeleton';
 import { PlanCard } from './sales/components/plan-card';
@@ -134,6 +132,8 @@ export function SalesScreen() {
   }, []);
 
   const activePlan = plans[activePlanIndex] || plans[0] || null;
+  const demoPlanIndex = plans.findIndex((plan) => isPublicDemoPlan(plan));
+  const demoPlan = demoPlanIndex >= 0 ? plans[demoPlanIndex] : null;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
     normalizePaymentReturnStatus(checkoutConfirm.paymentStatus) ||
@@ -141,8 +141,9 @@ export function SalesScreen() {
     normalizePaymentReturnStatus(providerReturnStatus);
 
   const goToPlanCheckout = (plan: CommercialPlan, requestTrial = false) => {
-    const params = buildPlanParams(plan, requestTrial);
-    saveCheckoutContext(plan.id, requestTrial);
+    const safeRequestTrial = requestTrial && isPublicDemoPlan(plan);
+    const params = buildPlanParams(plan, safeRequestTrial);
+    saveCheckoutContext(plan.id, safeRequestTrial);
 
     if (user && isCustomerAccount(user)) {
       router.push({
@@ -215,7 +216,7 @@ export function SalesScreen() {
 
   const loginLabel = user ? 'Abrir portal' : 'Iniciar sesión';
   const loginAction = () => router.push((user ? getAuthenticatedHome(user) : '/ventas/login') as never);
-  const buyLabel = !user ? 'Elegir plan' : isCustomerAccount(user) ? 'Continuar compra' : 'Ir al portal';
+  const buyLabel = 'Elegir plan';
 
   return (
     <View style={styles.screen}>
@@ -246,6 +247,7 @@ export function SalesScreen() {
               router.push((status === 'pending' ? '/portal/pagos' : '/portal') as never);
             }}
           />
+
           <RevealView index={0} scrollY={nativeScrollY} viewportHeight={height} immediate>
             <View
               nativeID="inicio"
@@ -266,8 +268,8 @@ export function SalesScreen() {
               ]}>
               <View style={[styles.heroCopy, isPhone ? styles.heroCopyPhone : undefined]}>
                 <View style={styles.heroKicker}>
-                  <MaterialCommunityIcons name="crosshairs-gps" size={14} color={neonPalette.accent} />
-                  <Text style={styles.heroKickerText}>OPERACIÓN Y POSTVENTA</Text>
+                  <MaterialCommunityIcons name="transit-connection-variant" size={14} color={neonPalette.accent} />
+                  <Text style={styles.heroKickerText}>CONTROL TOTAL DE LA OPERACIÓN</Text>
                 </View>
                 <Text
                   style={[
@@ -275,7 +277,7 @@ export function SalesScreen() {
                     isPhone ? styles.heroTitlePhone : undefined,
                     isTablet ? styles.heroTitleTablet : undefined,
                   ]}>
-                  Controla toda tu flotilla desde una sola plataforma.
+                  Tu flotilla, tu equipo y tus rutas. Todo bajo control.
                 </Text>
                 <Text
                   style={[
@@ -283,12 +285,14 @@ export function SalesScreen() {
                     isPhone ? styles.heroSubtitlePhone : undefined,
                     isTablet ? styles.heroSubtitleTablet : undefined,
                   ]}>
-                  GPS en tiempo real, comunicación operativa, alertas y gestión documental para empresas de transporte.
+                  ManeComb une portal administrativo y app operativa para supervisar GPS, rutas, jornadas,
+                  documentos, incidencias, chat, radio y llamadas desde una sola plataforma.
                 </Text>
+                <HeroSignalRow compact={isPhone} />
                 <View style={styles.heroActions}>
                   <ActionButton
-                    label="Ver funciones"
-                    icon="play-circle-outline"
+                    label="Conocer la plataforma"
+                    icon="view-dashboard-outline"
                     onPress={() => scrollToSection('funcionalidades')}
                   />
                   <ActionButton
@@ -304,31 +308,18 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView
-            index={1}
-            scrollY={nativeScrollY}
-            viewportHeight={height}
-            style={styles.section}>
-            <SectionHeading
-              nativeID="funcionalidades"
-              eyebrow="CONTROL OPERATIVO EN UN SOLO LUGAR"
-              title="Funciones que impulsan tu operación"
-              intro="Una capa operativa para ver, coordinar, documentar y decidir con datos de tu flotilla."
-              centered
-            />
-            <View style={[styles.benefitGrid, isPhone ? styles.benefitGridPhone : undefined]}>
-              {benefits.map((benefit, index) => (
-                <BenefitCard key={benefit.title} benefit={benefit} index={index} isPhone={isPhone} />
-              ))}
-            </View>
+          <RevealView index={1} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+            <PlatformOverview compact={isPhone || isTablet} />
           </RevealView>
 
           <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <View nativeID="planes" style={styles.anchorOffset}>
               <View style={styles.plansHeader}>
-                <View style={styles.sectionCopy}>
-                  <Text style={styles.sectionEyebrow}>PLANES</Text>
-                </View>
+                <SectionHeading
+                  eyebrow="PLANES CLAROS, SIN LETRA CHIQUITA"
+                  title="Elige la capacidad de tu flotilla"
+                  intro="Todos los planes incluyen la plataforma operativa. La demo de 7 días está disponible únicamente en el plan de 2 combis; los demás se activan directamente."
+                />
                 <View style={styles.carouselControls}>
                   {plans.length ? (
                     <Text
@@ -359,6 +350,16 @@ export function SalesScreen() {
                   />
                 </View>
               </View>
+
+              {demoPlan ? (
+                <DemoPlanNotice
+                  compact={isPhone}
+                  demoPlan={demoPlan}
+                  onPress={() => {
+                    if (demoPlanIndex >= 0) jumpToPlan(demoPlanIndex);
+                  }}
+                />
+              ) : null}
 
               {plansLoading ? (
                 <View style={[styles.planCarousel, { alignItems: 'flex-start' }]}>
@@ -397,9 +398,9 @@ export function SalesScreen() {
                       accent={getPlanAccent(plan, index)}
                       onPress={() => jumpToPlan(index)}
                       onBuy={() => goToPlanCheckout(plan)}
-                      onTrial={plan.trialEligible ? () => goToPlanCheckout(plan, true) : undefined}
+                      onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}
                       userLabel={buyLabel}
-                      trialLabel={`Probar demo ${plan.trialDays || 7} días`}
+                      trialLabel={`Usar demo ${plan.trialDays || 7} días`}
                     />
                   ))}
                 </ScrollView>
@@ -417,9 +418,9 @@ export function SalesScreen() {
 
           <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <SectionHeading
-              eyebrow="¿CÓMO FUNCIONA?"
-              title="Activa tu plan en 4 pasos simples"
-              intro="Del plan al panel operativo sin fricción: compra, configura y empieza a monitorear."
+              eyebrow="DE LA COMPRA A LA OPERACIÓN"
+              title="Empieza con una estructura clara"
+              intro="Selecciona capacidad, configura tu empresa y conecta portal, unidades y conductores sin cambiar de sistema."
               centered
             />
             <View style={[styles.processRail, isPhone || isTablet ? styles.processRailPhone : undefined]}>
@@ -451,9 +452,9 @@ export function SalesScreen() {
                   : undefined,
               ]}>
               <SectionHeading
-                eyebrow="CONFIANZA QUE SE DEMUESTRA"
-                title="Operación estable para empresas que no pueden detenerse"
-                intro="La plataforma está diseñada para control operativo continuo, seguridad de datos y acompañamiento humano."
+                eyebrow="UNA PLATAFORMA, TODA LA OPERACIÓN"
+                title="Cada módulo comparte la misma información"
+                intro="Menos herramientas aisladas y menos capturas repetidas: administración, seguimiento, comunicación y evidencia trabajan sobre la misma cuenta y flotilla."
                 centered
               />
               <View
@@ -504,8 +505,8 @@ export function SalesScreen() {
               <View style={styles.faqContent}>
                 <SectionHeading
                   eyebrow="PREGUNTAS FRECUENTES"
-                  title="Resolvemos tus dudas"
-                  intro="Información clara antes de activar tu plan."
+                  title="Decide con información clara"
+                  intro="Demo, planes, operación y activación explicados antes de registrarte."
                 />
                 <View style={styles.faqList}>
                   {COMMERCIAL_FAQS.map((faq, index) => (
