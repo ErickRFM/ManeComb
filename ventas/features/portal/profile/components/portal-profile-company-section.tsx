@@ -1,4 +1,4 @@
-import { TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { palette } from '@/constants/theme';
 import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
@@ -12,6 +12,14 @@ type PortalProfileCompanySectionProps = {
   onSave: () => void;
 };
 
+const fields = [
+  { key: 'companyName', label: 'Nombre comercial', placeholder: 'Empresa', autoCapitalize: 'words' },
+  { key: 'legalName', label: 'Razón social', placeholder: 'Razón social completa', autoCapitalize: 'words' },
+  { key: 'taxId', label: 'RFC', placeholder: 'RFC de 12 o 13 caracteres', autoCapitalize: 'characters' },
+  { key: 'billingEmail', label: 'Correo fiscal', placeholder: 'facturacion@empresa.com', autoCapitalize: 'none' },
+  { key: 'billingAddress', label: 'Dirección fiscal', placeholder: 'Dirección fiscal completa', autoCapitalize: 'sentences' },
+] as const;
+
 export function PortalProfileCompanySection({
   form,
   isSubmitting,
@@ -19,36 +27,27 @@ export function PortalProfileCompanySection({
   onSave,
 }: PortalProfileCompanySectionProps) {
   return (
-    <PortalSectionCard title="Datos de empresa" subtitle="Información fiscal y de activación.">
+    <PortalSectionCard title="Datos de empresa" subtitle="Información comercial y fiscal utilizada en tu cuenta.">
       <View style={styles.formGrid}>
-        {(['companyName', 'legalName', 'taxId', 'billingEmail', 'billingAddress'] as const).map((field) => (
-          <TextInput
-            key={field}
-            value={form[field]}
-            onChangeText={(value) => onFieldChange(field, value)}
-            placeholder={
-              field === 'companyName'
-                ? 'Empresa'
-                : field === 'legalName'
-                  ? 'Razon social'
-                  : field === 'taxId'
-                    ? 'RFC'
-                    : field === 'billingEmail'
-                      ? 'Correo fiscal'
-                      : 'Direccion fiscal'
-            }
-            accessibilityLabel={
-              field === 'companyName' ? 'Empresa' : field === 'legalName' ? 'Razón social' : field === 'taxId' ? 'RFC' : field === 'billingEmail' ? 'Correo fiscal' : 'Dirección fiscal'
-            }
-            placeholderTextColor={palette.muted}
-            autoCapitalize={field === 'billingEmail' ? 'none' : 'sentences'}
-            style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
-          />
+        {fields.map((field) => (
+          <View key={field.key} style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>{field.label}</Text>
+            <TextInput
+              value={form[field.key]}
+              onChangeText={(value) => onFieldChange(field.key, value)}
+              placeholder={field.placeholder}
+              accessibilityLabel={field.label}
+              placeholderTextColor={palette.muted}
+              autoCapitalize={field.autoCapitalize}
+              keyboardType={field.key === 'billingEmail' ? 'email-address' : 'default'}
+              style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]}
+            />
+          </View>
         ))}
       </View>
       <View style={styles.actions}>
-        <PortalButton icon="content-save-outline" loading={isSubmitting} onPress={onSave}>
-          {isSubmitting ? 'Guardando...' : 'Guardar perfil'}
+        <PortalButton icon="domain" loading={isSubmitting} onPress={onSave}>
+          Guardar datos de empresa
         </PortalButton>
       </View>
     </PortalSectionCard>
