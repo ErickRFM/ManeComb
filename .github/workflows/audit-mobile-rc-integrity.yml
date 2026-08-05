@@ -46,6 +46,8 @@ jobs:
           echo '=== COMMIT REFERENCES IN RC-MOBILE DOCS ===' | tee -a "$report"
           declare -A seen=()
           while IFS=: read -r file hash; do
+            [ -z "$file" ] && continue
+            [ -z "$hash" ] && continue
             [ -n "${seen[$file:$hash]+x}" ] && continue
             seen[$file:$hash]=1
             if git cat-file -e "$hash^{commit}" 2>/dev/null; then
@@ -62,36 +64,49 @@ jobs:
           done < <(
             for file in RC-MOBILE*.md; do
               [ -f "$file" ] || continue
-              grep -Eo '`[0-9a-f]{7,40}`' "$file" 2>/dev/null |
+              matches=$(grep -Eo '`[0-9a-f]{7,40}`' "$file" 2>/dev/null || true)
+              [ -z "$matches" ] && continue
+              printf '%s\n' "$matches" |
                 tr -d '`' |
                 awk -v f="$file" '{ print f ":" $0 }'
             done | sort
           )
 
           echo | tee -a "$report"
+          echo '=== DOCUMENTED IMPLEMENTATION BRANCHES ===' | tee -a "$report"
+          grep -HEn 'implementad[oa].*rama|Estado:.*rama|commits? `[0-9a-f]{7,40}`' RC-MOBILE*.md 2>/dev/null |
+            sed -E 's/^/DOC /' | tee -a "$report" || true
+
+          echo | tee -a "$report"
           echo '=== DOCUMENTED FEATURE SIGNATURES IN CURRENT TREE ===' | tee -a "$report"
           check() {
             label="$1"; shift
             if "$@" >/dev/null 2>&1; then
-              printf 'PRESENT %-42s\n' "$label" | tee -a "$report"
+              printf 'PRESENT %-46s\n' "$label" | tee -a "$report"
             else
-              printf 'MISSING %-42s\n' "$label" | tee -a "$report"
+              printf 'MISSING %-46s\n' "$label" | tee -a "$report"
             fi
           }
 
           check 'socket auth classifier' grep -Rqs 'isRealtimeAuthError' mobile/src
           check 'socket refresh single-flight' grep -Rqs 'realtimeAuthRefreshInFlight' mobile/src
           check 'socket unauthorized state' grep -Rqs "'unauthorized'" mobile/src/utils/realtime-state.ts
-          check 'backend rtc incoming ring' grep -Rqs "rtc:incoming-call" backend/src
-          check 'backend rtc accept' grep -Rqs "rtc:accept" backend/src
+          check 'backend rtc incoming ring' grep -Rqs 'rtc:incoming-call' backend/src
+          check 'backend rtc accept' grep -Rqs 'rtc:accept' backend/src
+          check 'backend rtc reject' grep -Rqs 'rtc:reject' backend/src
+          check 'backend rtc cancel' grep -Rqs 'rtc:cancel' backend/src
           check 'mobile incomingCall state' grep -Rqs 'incomingCall' mobile/src/screens/chat
           check 'mobile acceptIncomingCall' grep -Rqs 'acceptIncomingCall' mobile/src/screens/chat
+          check 'mobile rejectIncomingCall' grep -Rqs 'rejectIncomingCall' mobile/src/screens/chat
           check 'mobile incoming call modal' grep -Rqs 'Llamada entrante' mobile/src/screens/chat
           check 'Mapbox MarkerView unit marker' grep -Rqs 'MarkerView' mobile/src/screens/map
-          check 'checklist route modal maxHeight' grep -Rqs 'modalScrollMaxHeight' mobile/src/screens/checklist-screen.tsx
+          check 'checklist modal bounded scroll' grep -Rqs 'height \* 0\.78' mobile/src/screens/checklist-screen.tsx
           check 'mobile password recovery' grep -Rqs 'forgotPassword' mobile/src
           check 'mobile update banner' test -f mobile/src/components/update-banner.tsx
           check 'operational snapshot canonical source' grep -Rqs 'operationalUnits' mobile/src/store/root-store.ts
+          check 'driver document upload lifecycle' grep -Rqs 'uploadDocument' mobile/src
+          check 'multi-route assignment model' grep -Rqs 'VehicleRouteAssignment' backend/src
+          check 'automatic route geo service' grep -Rqs 'route-auto\|routeAuto\|infer.*route' backend/src
 
           echo | tee -a "$report"
           echo '=== MAIN REVERTS / REAPPLIES ===' | tee -a "$report"
