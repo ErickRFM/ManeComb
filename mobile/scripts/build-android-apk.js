@@ -6,6 +6,7 @@ const { patchAndroidNodePath } = require('./patch-android-node-path');
 
 const projectRoot = path.resolve(__dirname, '..');
 const androidDir = path.join(projectRoot, 'android');
+const googleServicesPath = path.join(androidDir, 'app', 'google-services.json');
 const releaseApkPath = path.join(
   androidDir,
   'app',
@@ -152,6 +153,15 @@ function removeInsideAndroidDir(targetPath) {
   console.log(`[apk] Cache nativa removida: ${resolvedTarget}`);
 }
 
+function hasManualFirebaseConfig(env) {
+  return [
+    'MANECOMB_FIREBASE_PROJECT_ID',
+    'MANECOMB_FIREBASE_APP_ID',
+    'MANECOMB_FIREBASE_API_KEY',
+    'MANECOMB_FIREBASE_SENDER_ID',
+  ].every((key) => String(env[key] || '').trim());
+}
+
 runFromShortWindowsPathIfNeeded();
 
 function run(command, args, options = {}) {
@@ -169,11 +179,9 @@ function run(command, args, options = {}) {
   }
 }
 
-// 1. Setup Environment with OneDrive Isolation
 const localEnv = readEnvFile('.env');
 const fileEnv = {
   ...productionDefaults,
-  // The public map credential is shared by native resources and the JS bundle.
   ...(localEnv.MAPBOX_ACCESS_TOKEN
     ? { MAPBOX_ACCESS_TOKEN: localEnv.MAPBOX_ACCESS_TOKEN }
     : {}),
@@ -185,13 +193,20 @@ if (!String(fileEnv.MAPBOX_ACCESS_TOKEN || '').startsWith('pk.')) {
     '[apk] MAPBOX_ACCESS_TOKEN publico es obligatorio para Release; sin el, MapView cierra la aplicacion.'
   );
 }
+
+const firebaseConfigured = fs.existsSync(googleServicesPath) || hasManualFirebaseConfig(fileEnv);
+if (String(fileEnv.MANECOMB_REQUIRE_FCM || '').trim() === '1' && !firebaseConfigured) {
+  throw new Error(
+    '[apk] FCM es obligatorio para este release. Agrega android/app/google-services.json o MANECOMB_FIREBASE_*.'
+  );
+}
+
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   ...process.env,
   ...fileEnv,
   CI: '1',
   NODE_ENV: 'production',
   ENVFILE: '.env.production',
-  // Move Gradle cache OUT of OneDrive to avoid locking issues
   GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
 });
 
@@ -199,6 +214,10 @@ console.log('[apk] Modo: release React Native CLI (APK + AAB)');
 console.log('[apk] Envfile: .env.production');
 console.log(`[apk] API: ${env.MANECOMB_API_URL}`);
 console.log(`[apk] Socket: ${env.MANECOMB_SOCKET_URL}`);
+console.log(`[apk] FCM Android: ${firebaseConfigured ? 'configurado' : 'NO CONFIGURADO'}`);
+if (!firebaseConfigured) {
+  console.warn('[apk] Aviso: el APK compilara, pero no recibira mensajes/llamadas con la app cerrada.');
+}
 console.log(`[apk] Android SDK: ${sdkRoot}`);
 console.log(`[apk] JAVA_HOME: ${javaHome}`);
 console.log(`[apk] GRADLE_USER_HOME: ${gradleUserHome}`);
@@ -208,17 +227,10 @@ if (!fs.existsSync(androidDir)) {
   process.exit(2);
 }
 
-// 3. Patch Node path (Fixes common Windows issue)
 console.log('[apk] Parcheando rutas de Node...');
 patchAndroidNodePath(androidDir, env.NODE_BINARY);
-
-// 3.5 Remove stale CMake state before Gradle clean. The generated autolinking
-// metadata must remain available while Gradle configures the clean task.
 removeInsideAndroidDir(path.join(androidDir, 'app', '.cxx'));
 
-// 4. Assemble release artifacts. Avoid Gradle's global clean because third-party
-// native modules under node_modules can be locked by Windows; app CMake state was
-// already cleared above.
 console.log('[apk] Compilando release...');
 const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
 
@@ -232,7 +244,6 @@ run(gradlew, ['bundleRelease', '--no-daemon', ...gradlePassthroughArgs], {
   env,
 });
 
-// 5. Success check
 if (!fs.existsSync(releaseApkPath)) {
   console.error(`[apk] No se encontro el APK release en: ${releaseApkPath}`);
   console.error('[apk] Sugerencia: Si hay errores de Ninja/CMake, mueve el proyecto a C:\\combis-app');
