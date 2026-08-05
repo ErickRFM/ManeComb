@@ -21,13 +21,48 @@ jobs:
           ref: fix/adm-global-p0-security
           fetch-depth: 0
 
-      - name: Merge latest main
+      - name: Merge latest main and preserve both test contracts
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
+
+          set +e
           git merge --no-edit origin/main
+          merge_status=$?
+          set -e
+
+          if [ "$merge_status" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [ "$conflicts" != "backend/package.json" ]; then
+              echo "Conflictos no esperados:"
+              printf '%s\n' "$conflicts"
+              exit 1
+            fi
+
+            git checkout --theirs backend/package.json
+            node <<'NODE'
+          const fs = require('fs');
+          const path = 'backend/package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const platformCommand = [
+            'node --require ./test/setup-env.js test/platform-auth.test.js',
+            'node --require ./test/setup-env.js test/platform-mfa.test.js',
+            'node --require ./test/setup-env.js test/platform-api-base.test.js',
+            'node --require ./test/setup-env.js test/platform-security-config.test.js'
+          ].join(' && ');
+
+          pkg.scripts['test:platform'] = platformCommand;
+          if (!pkg.scripts.test.includes('npm run test:platform')) {
+            pkg.scripts.test = `${pkg.scripts.test} && npm run test:platform`;
+          }
+
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+            git add backend/package.json
+            git commit --no-edit
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
