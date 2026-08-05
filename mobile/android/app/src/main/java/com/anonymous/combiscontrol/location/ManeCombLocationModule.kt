@@ -1,13 +1,15 @@
 package com.anonymous.combiscontrol.location
 
+import android.content.Context
 import android.content.Intent
+import android.location.LocationManager
 import android.os.Build
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
-import com.facebook.react.bridge.Arguments
 
 class ManeCombLocationModule(
   private val reactContext: ReactApplicationContext
@@ -52,27 +54,61 @@ class ManeCombLocationModule(
   }
 
   @ReactMethod
+  fun hasServicesEnabled(promise: Promise) {
+    try {
+      val manager = reactContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+      val enabled = manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+      promise.resolve(enabled)
+    } catch (error: Exception) {
+      promise.reject("location_services_status_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun getServiceStatus(promise: Promise) {
-    val prefs = reactContext.getSharedPreferences(ManeCombLocationService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    val prefs = reactContext.getSharedPreferences(
+      ManeCombLocationService.PREFS_NAME,
+      Context.MODE_PRIVATE
+    )
     val reason = prefs.getString(ManeCombLocationService.KEY_STATUS_REASON, null)
+    val sessionId = prefs.getString(ManeCombLocationService.KEY_SESSION_ID, null)
+
     promise.resolve(Arguments.createMap().apply {
       putBoolean("active", prefs.getBoolean(ManeCombLocationService.KEY_SERVICE_ENABLED, false))
       putString("reason", reason)
-      putString("token", prefs.getString(ManeCombLocationService.KEY_TOKEN, null))
-      putString("refreshToken", prefs.getString(ManeCombLocationService.KEY_REFRESH_TOKEN, null))
       putString("vehicleId", prefs.getString(ManeCombLocationService.KEY_VEHICLE_ID, null))
-      putString("sessionId", prefs.getString(ManeCombLocationService.KEY_SESSION_ID, null))
+      putBoolean("sessionIdPresent", !sessionId.isNullOrBlank())
+      putBoolean("trackingActive", prefs.getBoolean(ManeCombLocationService.KEY_TRACKING_ACTIVE, false))
       putInt("pendingPackets", prefs.getInt(ManeCombLocationService.KEY_PENDING_COUNT, 0))
-      putNullableTimestamp(this, "lastCapturedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L))
-      putNullableTimestamp(this, "lastSentAt", prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L))
-      putNullableTimestamp(this, "lastConfirmedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L))
+      putInt("droppedPackets", prefs.getInt(ManeCombLocationService.KEY_DROPPED_COUNT, 0))
+      putNullableTimestamp(
+        this,
+        "lastCapturedAt",
+        prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L)
+      )
+      putNullableTimestamp(
+        this,
+        "lastSentAt",
+        prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L)
+      )
+      putNullableTimestamp(
+        this,
+        "lastConfirmedAt",
+        prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L)
+      )
     })
+
     if (reason != null) {
       prefs.edit().remove(ManeCombLocationService.KEY_STATUS_REASON).apply()
     }
   }
 
-  private fun putNullableTimestamp(map: com.facebook.react.bridge.WritableMap, key: String, value: Long) {
+  private fun putNullableTimestamp(
+    map: com.facebook.react.bridge.WritableMap,
+    key: String,
+    value: Long
+  ) {
     if (value > 0L) map.putDouble(key, value.toDouble()) else map.putNull(key)
   }
 

@@ -3,7 +3,7 @@ import Geolocation, {
   type GeoPosition,
   type GeoWatchOptions,
 } from 'react-native-geolocation-service';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import type { Permission } from 'react-native';
 
 export const PermissionStatus = {
@@ -32,6 +32,10 @@ type LocationOptions = {
   mayShowUserSettingsDialog?: boolean;
 };
 
+type NativeLocationStatusModule = {
+  hasServicesEnabled?: () => Promise<boolean>;
+};
+
 export type LocationErrorCode =
   | 'permission_denied'
   | 'services_disabled'
@@ -40,6 +44,10 @@ export type LocationErrorCode =
   | 'unknown';
 
 const ANDROID_PERMISSION_SETTLE_MS = 450;
+const NativeLocationStatus =
+  Platform.OS === 'android'
+    ? (NativeModules.ManeCombLocation as NativeLocationStatusModule | undefined)
+    : undefined;
 
 function wait(ms: number) {
   return new Promise((resolve) => {
@@ -174,7 +182,15 @@ async function requestAndroidForegroundPermission() {
 }
 
 export async function hasServicesEnabledAsync() {
-  return true;
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+
+  try {
+    return Boolean(await NativeLocationStatus?.hasServicesEnabled?.());
+  } catch {
+    return false;
+  }
 }
 
 export async function getForegroundPermissionsAsync() {

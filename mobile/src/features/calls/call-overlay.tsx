@@ -1,8 +1,10 @@
 // RC-RTC-FINALIZATION-20260805 — Overlay global de llamadas.
 // Enlaza el unico socket, monta timbre + llamada activa y gobierna el foreground service Android.
+// RC-OPERATIONAL-RUNTIME-01 añade Radio global como runtime hermano, sin alterar ownership RTC.
 
 import React, { useEffect } from 'react';
 
+import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
 import {
   startCallForegroundService,
   stopCallForegroundService,
@@ -55,6 +57,7 @@ export function CallOverlay(): React.ReactElement {
 
   return (
     <>
+      <RadioLiveOverlay />
       <IncomingCallModal />
       <ActiveCallModal />
     </>

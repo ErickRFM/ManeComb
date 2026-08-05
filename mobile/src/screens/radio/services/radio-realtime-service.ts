@@ -1,4 +1,8 @@
 import type { Socket } from 'socket.io-client';
+import {
+  startRadioForegroundService,
+  stopRadioForegroundService,
+} from '@/src/native/audio';
 import { getRadioRealtimeErrorMessage } from './radio-audio-service';
 
 export type RadioLiveIdentity = {
@@ -47,6 +51,24 @@ type Ack = {
   transmitter?: RadioLiveIdentity;
 };
 
+const activeRadioServices = new Set<RadioRealtimeService>();
+let radioRealtimeSuspended = false;
+
+export function setRadioRealtimeSuspended(suspended: boolean) {
+  if (radioRealtimeSuspended === suspended) return;
+  radioRealtimeSuspended = suspended;
+
+  if (suspended) {
+    stopRadioForegroundService().catch(() => undefined);
+  }
+
+  activeRadioServices.forEach((service) => service.setExternallySuspended(suspended));
+}
+
+export function isRadioRealtimeSuspended() {
+  return radioRealtimeSuspended;
+}
+
 export class RadioRealtimeService {
   private channelId: string | null = null;
   private handlers: RadioLiveHandlers;
@@ -58,7 +80,11 @@ export class RadioRealtimeService {
   }
 
   connect(socket: Socket | null, channelId: string) {
-    if (this.socket === socket && this.channelId === channelId) return;
+    activeRadioServices.add(this);
+    if (this.socket === socket && this.channelId === channelId) {
+      if (radioRealtimeSuspended) this.handlers.onStateChange('offline');
+      return;
+    }
     const previousSocket = this.socket;
     const previousChannelId = this.channelId;
     this.joinGeneration += 1;
@@ -71,13 +97,30 @@ export class RadioRealtimeService {
       if (socket) this.attachSocket(socket);
     }
     this.channelId = channelId;
-    this.handlers.onStateChange('connecting');
-    if (socket?.connected) {
+    this.handlers.onStateChange(radioRealtimeSuspended ? 'offline' : 'connecting');
+    if (socket?.connected && !radioRealtimeSuspended) {
+      this.joinChannel().catch(() => undefined);
+    }
+  }
+
+  setExternallySuspended(suspended: boolean) {
+    this.joinGeneration += 1;
+    if (suspended) {
+      this.handlers.onError('Radio pausada durante la llamada.');
+      this.handlers.onStateChange('offline');
+      return;
+    }
+
+    if (this.socket?.connected && this.channelId) {
+      this.handlers.onStateChange('connecting');
       this.joinChannel().catch(() => undefined);
     }
   }
 
   async requestTransmission(): Promise<Ack> {
+    if (radioRealtimeSuspended) {
+      return { ok: false, error: 'radio_paused_by_call' };
+    }
     const socket = this.socket;
     const channelId = this.channelId;
     const generation = this.joinGeneration;
@@ -95,7 +138,7 @@ export class RadioRealtimeService {
   }
 
   sendFrame(payload: Omit<RadioLiveFrame, 'channelId'>) {
-    if (!this.socket?.connected || !this.channelId || !payload.transmissionId ||
+    if (radioRealtimeSuspended || !this.socket?.connected || !this.channelId || !payload.transmissionId ||
         payload.data.length !== 856 || !Number.isInteger(payload.sequence) || payload.sequence < 0 ||
         !Number.isFinite(payload.sentAt)) return false;
     this.socket.emit('radio:frame', { ...payload, channelId: this.channelId });
@@ -114,6 +157,7 @@ export class RadioRealtimeService {
   }
 
   disconnect() {
+    activeRadioServices.delete(this);
     if (this.socket?.connected && this.channelId) {
       this.socket.emit('radio:leave', { channelId: this.channelId });
     }
@@ -124,12 +168,22 @@ export class RadioRealtimeService {
   }
 
   private handleConnect = () => {
+    if (radioRealtimeSuspended) {
+      this.handlers.onStateChange('offline');
+      return;
+    }
     this.joinChannel().catch(() => undefined);
   };
 
-  private handleReconnectAttempt = () => this.handlers.onStateChange('reconnecting');
+  private handleReconnectAttempt = () => {
+    this.handlers.onStateChange(radioRealtimeSuspended ? 'offline' : 'reconnecting');
+  };
 
   private handleConnectError = (error: Error) => {
+    if (radioRealtimeSuspended) {
+      this.handlers.onStateChange('offline');
+      return;
+    }
     const message = getRadioRealtimeErrorMessage(error.message);
     this.handlers.onStateChange(message === 'Sesion expirada' ? 'unauthorized' : 'reconnecting');
   };
@@ -140,11 +194,11 @@ export class RadioRealtimeService {
   };
 
   private handleStart = (payload: Parameters<RadioLiveHandlers['onStart']>[0]) => {
-    if (payload.channelId === this.channelId) this.handlers.onStart(payload);
+    if (!radioRealtimeSuspended && payload.channelId === this.channelId) this.handlers.onStart(payload);
   };
 
   private handleFrame = (payload: RadioLiveFrame) => {
-    if (payload.channelId === this.channelId) this.handlers.onFrame(payload);
+    if (!radioRealtimeSuspended && payload.channelId === this.channelId) this.handlers.onFrame(payload);
   };
 
   private handleEnd = (payload: Parameters<RadioLiveHandlers['onEnd']>[0]) => {
@@ -152,7 +206,9 @@ export class RadioRealtimeService {
   };
 
   private handleError = (payload?: { message?: string }) => {
-    this.handlers.onError(getRadioRealtimeErrorMessage(payload?.message));
+    if (!radioRealtimeSuspended) {
+      this.handlers.onError(getRadioRealtimeErrorMessage(payload?.message));
+    }
   };
 
   private attachSocket(socket: Socket) {
@@ -180,18 +236,19 @@ export class RadioRealtimeService {
   }
 
   private async joinChannel() {
-    if (!this.socket?.connected || !this.channelId) return;
+    if (radioRealtimeSuspended || !this.socket?.connected || !this.channelId) return;
     const generation = ++this.joinGeneration;
     const channelId = this.channelId;
     this.handlers.onStateChange('join_sent');
     let ack = await this.emitWithAck('radio:join', { channelId });
     const stillCurrent = generation === this.joinGeneration && channelId === this.channelId;
-    if (ack.error === 'radio_ack_timeout' && stillCurrent && this.socket?.connected) {
+    if (ack.error === 'radio_ack_timeout' && stillCurrent && this.socket?.connected && !radioRealtimeSuspended) {
       ack = await this.emitWithAck('radio:join', { channelId });
     }
-    if (generation !== this.joinGeneration || channelId !== this.channelId) return;
+    if (generation !== this.joinGeneration || channelId !== this.channelId || radioRealtimeSuspended) return;
     if (ack.ok) {
       this.handlers.onStateChange('ready');
+      startRadioForegroundService().catch(() => undefined);
       return;
     }
     const unauthorized = ack.error === 'forbidden' || ack.error === 'unauthorized';

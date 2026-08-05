@@ -20,11 +20,11 @@ type ManeCombLocationModule = {
 export type BackgroundLocationServiceStatus = {
   active: boolean;
   reason: string | null;
-  token: string | null;
-  refreshToken: string | null;
   vehicleId: string | null;
-  sessionId: string | null;
+  sessionIdPresent: boolean;
+  trackingActive: boolean;
   pendingPackets: number;
+  droppedPackets: number;
   lastCapturedAt: number | null;
   lastSentAt: number | null;
   lastConfirmedAt: number | null;
@@ -100,8 +100,18 @@ export async function startBackgroundLocationServiceAsync({
 
 export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
   if (!NativeLocation) {
-    return { active: false, reason: null, token: null, refreshToken: null, vehicleId: null, sessionId: null,
-      pendingPackets: 0, lastCapturedAt: null, lastSentAt: null, lastConfirmedAt: null };
+    return {
+      active: false,
+      reason: null,
+      vehicleId: null,
+      sessionIdPresent: false,
+      trackingActive: false,
+      pendingPackets: 0,
+      droppedPackets: 0,
+      lastCapturedAt: null,
+      lastSentAt: null,
+      lastConfirmedAt: null,
+    };
   }
 
   return NativeLocation.getServiceStatus();
