@@ -36,8 +36,8 @@ export default defineConfig({
   ...(runsAgainstLocalServer
     ? {
         webServer: {
-          command: process.platform === 'win32' ? 'set CI=1&& npm run web' : 'CI=1 npm run web',
-          port: 8081,
+          command: 'npm --prefix ../ventas run dev -- --host 127.0.0.1 --port 8081',
+          url: 'http://127.0.0.1:8081/ventas',
           reuseExistingServer: true,
           timeout: 180_000,
         },
