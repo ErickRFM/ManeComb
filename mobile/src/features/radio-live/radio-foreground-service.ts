@@ -10,6 +10,7 @@ const STOP_GRACE_MS = 350;
 
 let serviceActive = false;
 let pendingStop: ReturnType<typeof setTimeout> | null = null;
+let pendingStopResolve: (() => void) | null = null;
 let operationQueue: Promise<void> = Promise.resolve();
 
 function enqueue(operation: () => Promise<void>) {
@@ -19,9 +20,14 @@ function enqueue(operation: () => Promise<void>) {
 }
 
 function cancelPendingStop() {
-  if (!pendingStop) return;
-  clearTimeout(pendingStop);
-  pendingStop = null;
+  if (pendingStop) {
+    clearTimeout(pendingStop);
+    pendingStop = null;
+  }
+
+  const resolve = pendingStopResolve;
+  pendingStopResolve = null;
+  resolve?.();
 }
 
 export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner) {
@@ -49,8 +55,10 @@ export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner
   cancelPendingStop();
 
   return new Promise<void>((resolve) => {
+    pendingStopResolve = resolve;
     pendingStop = setTimeout(() => {
       pendingStop = null;
+      pendingStopResolve = null;
       enqueue(async () => {
         if (owners.size > 0 || !serviceActive) return;
         serviceActive = false;
