@@ -252,6 +252,40 @@ function createRtcCallService({
     }
   }
 
+  // C.1: snapshot sanitizado de una llamada (para el socket layer). null si no existe.
+  function getCall(callId) {
+    const call = callsById.get(callId);
+    if (!call) return null;
+    return {
+      callId: call.callId,
+      status: call.status,
+      organizationId: call.organizationId,
+      callerId: call.callerId,
+      calleeIds: [...call.calleeIds],
+      room: callRoom(call.callId),
+    };
+  }
+
+  // C.1: autoridad para unirse a la sala rtc:call:{callId}. NO confia en conversationId/room/callee
+  // enviados por el cliente: valida contra el registro autoritativo.
+  function canJoinCall({ callId, userId, organizationId }) {
+    const call = callsById.get(callId);
+    if (!call) return { ok: false, reason: 'unknown_call' };
+    if (call.status === 'ended') return { ok: false, reason: 'call_ended' };
+    if (call.status !== 'active') return { ok: false, reason: 'not_accepted' };
+    if (organizationId && call.organizationId !== organizationId) return { ok: false, reason: 'forbidden' };
+    const isParticipant = userId === call.callerId || call.calleeIds.includes(userId);
+    if (!isParticipant) return { ok: false, reason: 'forbidden' };
+    return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
+  }
+
+  // C.1: pertenencia a una llamada viva (respaldo de la validacion de offer/answer/ICE/leave/stats).
+  function isCallMember(callId, userId) {
+    const call = callsById.get(callId);
+    if (!call || call.status === 'ended') return false;
+    return userId === call.callerId || call.calleeIds.includes(userId);
+  }
+
   return {
     startCall,
     accept,
@@ -261,6 +295,9 @@ function createRtcCallService({
     end,
     handleDisconnect,
     noteUserReconnected,
+    getCall,
+    canJoinCall,
+    isCallMember,
     // Solo para pruebas / diagnostico.
     _state: { callsById, userState, pendingDisconnects }
   };

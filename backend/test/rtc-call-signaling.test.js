@@ -222,7 +222,44 @@ function fakeStore(conversation) {
   assert.equal(callRoom("abc"), "rtc:call:abc", "callRoom canonico");
   console.log("ok - A.1-2: namespace canonico rtc:call:{callId}");
 
-  console.log("ok - rtc-call-signaling A/A.1: contrato directo, namespace, ocupacion, idempotencia y gracia");
+  // ============ C.1: autorizacion de join por callId ============
+  {
+    const h = harness(store);
+    // 1. sin callId / 2. inexistente -> unknown_call
+    assert.equal(h.service.canJoinCall({ callId: '', userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-1 sin callId');
+    assert.equal(h.service.canJoinCall({ callId: 'nope', userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-2 inexistente');
+
+    const call = await h.service.startCall({ caller: admin, callerSocketId: 'sock-a', conversationId: CONV_DIRECT, mode: 'audio' });
+    // 3. no aceptada (ringing) -> not_accepted
+    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'not_accepted', 'C1-3 ringing');
+
+    h.service.accept({ user: driver, socketId: 'sock-b', callId: call.callId });
+    // 6. caller y callee aceptados -> ok ; 7. sala canonica
+    const joinCaller = h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId });
+    const joinCallee = h.service.canJoinCall({ callId: call.callId, userId: 'user-driver-01', organizationId: admin.organizationId });
+    assert.equal(joinCaller.ok, true, 'C1-6 caller join');
+    assert.equal(joinCallee.ok, true, 'C1-6 callee join');
+    assert.equal(joinCaller.room, `rtc:call:${call.callId}`, 'C1-7 sala canonica');
+
+    // 4/8. usuario ajeno (tercero) -> forbidden
+    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-supervisor-01', organizationId: admin.organizationId }).reason, 'forbidden', 'C1-4/8 ajeno');
+    // org inconsistente -> forbidden
+    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: 'otra-org' }).reason, 'forbidden', 'C1 org inconsistente');
+
+    // 9. isCallMember respalda offer/answer/ICE
+    assert.equal(h.service.isCallMember(call.callId, 'user-admin-01'), true, 'C1-9 caller es miembro');
+    assert.equal(h.service.isCallMember(call.callId, 'user-driver-01'), true, 'C1-9 callee es miembro');
+    assert.equal(h.service.isCallMember(call.callId, 'user-supervisor-01'), false, 'C1-9 ajeno no es miembro');
+
+    // 5/11. terminada -> call_ended / getCall null
+    h.service.end({ user: admin, callId: call.callId });
+    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-5/11 terminada limpia');
+    assert.equal(h.service.getCall(call.callId), null, 'C1-11 getCall null tras end');
+    assert.equal(h.service.isCallMember(call.callId, 'user-admin-01'), false, 'C1 miembro falso tras end');
+  }
+  console.log("ok - C.1: join autorizado por callId (existencia/aceptacion/pertenencia/org/sala/terminada)");
+
+  console.log("ok - rtc-call-signaling A/A.1/C.1: contrato directo, namespace, ocupacion, idempotencia, gracia y join por callId");
 })().catch((error) => {
   console.error(error);
   process.exit(1);

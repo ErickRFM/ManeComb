@@ -219,3 +219,23 @@ No toca rutas múltiples/GPS/ventas/portal/mensajes/E2EE. **No** negocia WebRTC 
 El `use-chat-controller.ts` conserva su pipeline offer/answer/ICE/join sobre el socket compartido como **adaptador temporal**. Bloque C: reescribir peer/media, eliminar el `rtc:join` automático al abrir conversación, hacer join a `rtc:call:{callId}` solo tras aceptar, exigir CONNECTED real (2 participantes + peer connected + remote audio) y cronómetro desde `connectedAt`.
 
 **Commit:** `feat(rtc): add global mobile call state machine`. **STOP para revisión** antes del Bloque C.
+
+---
+
+# Bloque C.1 — Autorización de join por callId (backend, implementado)
+
+> Primer commit del Bloque C. Solo backend. Suite completa **verde**. **Sin push/merge.**
+
+## Cambios
+- `rtc-call-service.js`: `getCall(callId)`, `canJoinCall({callId,userId,organizationId})`, `isCallMember(callId,userId)`. La autoridad de join sale del registro de llamadas, **no** del cliente.
+- `sockets/index.js`:
+  - `rtc:join` ahora recibe `{ callId }` y valida vía `canJoinCall`: existe, **aceptada/activa**, no terminada, usuario ∈ llamada (caller o callee aceptado), organización consistente. Sala interna `call:{callId}` → `rtc:call:{callId}` (namespace canónico). Reutiliza la lógica existente de max 1 socket por usuario / max 2 sockets. **Ya no** usa `conversationId` ni `canUserAccessConversation` para autorizar.
+  - `rtc:leave / rtc:offer / rtc:answer / rtc:ice-candidate / rtc:stats` migrados a `{ callId }`; derivan la sala `call:{callId}` y validan pertenencia (`isSocketInRtcRoom` + `isCallMember`). Los eventos relay incluyen `callId`; un evento de otra llamada se ignora (no está en esa sala). No confían en room/conversationId/callee del cliente.
+
+## Pruebas (backend, en `npm test`)
+`rtc-call-signaling.test.js` (sección C.1): sin callId / inexistente → `unknown_call`; ringing → `not_accepted`; caller+callee aceptados → ok; sala canónica; ajeno/tercero → `forbidden`; org inconsistente → `forbidden`; `isCallMember` (caller/callee true, ajeno false); terminada → limpia (`getCall` null). Suite backend completa **verde (EXIT=0)**.
+
+## Límite de validación (honesto)
+Las pruebas ejercitan la **lógica autoritativa** del join (`canJoinCall`/`isCallMember`) directamente. La retransmisión a nivel socket (offer/answer/ICE con callId incorrecto ignorados; reconnect no duplica participante lógico) se apoya en los guards existentes `isSocketInRtcRoom` + `isCallMember`; no se ejercita con un cliente socket.io real (el repo no lo tiene en tests).
+
+**Commit:** `fix(rtc): authorize call rooms by authoritative call id`. Continúa el Bloque C con el pipeline mobile (C.2–C.9).

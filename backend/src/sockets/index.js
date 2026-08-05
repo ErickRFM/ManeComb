@@ -1080,24 +1080,28 @@ function registerSocketServer(server, store) {
       }
     });
 
-    socket.on("rtc:join", async ({ roomId }, ack) => {
+    // C.1: join autorizado por callId autoritativo (NO por conversationId/room del cliente).
+    // La sala interna es `call:{callId}` -> getRoomKey -> `rtc:call:{callId}` (namespace canonico).
+    socket.on("rtc:join", async ({ callId } = {}, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user;
-      const safeRoomId = String(roomId || "").trim();
+      const safeCallId = String(callId || "").trim();
       const organizationId = getOrganizationId(authenticatedUser);
 
-      if (
-        !safeRoomId ||
-        !organizationId ||
-        !(await canUseOperations(socket)) ||
-        !(await store.canUserAccessConversation?.(authenticatedUser.id, safeRoomId)) ||
-        !isRtcRoomCompatible(safeRoomId, organizationId)
-      ) {
-        observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { roomId: safeRoomId });
+      if (!authenticatedUser || !safeCallId || !organizationId || !(await canUseOperations(socket))) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { callId: safeCallId || null });
         acknowledge(ack, { ok: false, reason: "forbidden" });
         return;
       }
 
+      const auth = callService.canJoinCall({ callId: safeCallId, userId: authenticatedUser.id, organizationId });
+      if (!auth.ok) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { callId: safeCallId, reason: auth.reason });
+        acknowledge(ack, { ok: false, reason: auth.reason });
+        return;
+      }
+
+      const safeRoomId = auth.roomId; // `call:{callId}`
       const roomKey = getRoomKey(safeRoomId);
       const members = rtcRooms.get(safeRoomId) || new Map();
       const previousConnection = Array.from(members.values()).find(
@@ -1131,16 +1135,25 @@ function registerSocketServer(server, store) {
       acknowledge(ack, { ok: true });
     });
 
-    socket.on("rtc:leave", ({ roomId }) => {
+    // C.1: leave/offer/answer/ICE/stats usan callId. La sala interna es `call:{callId}`; la
+    // pertenencia se valida por isSocketInRtcRoom (solo entra quien paso canJoinCall).
+    const callRoomIdOf = (callId) => {
+      const safe = String(callId || "").trim();
+      return safe ? `call:${safe}` : "";
+    };
+
+    socket.on("rtc:leave", ({ callId } = {}) => {
       const startedAt = Date.now();
-      void leaveRtcRoom(socket, String(roomId || "").trim());
-      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { roomId: String(roomId || "").trim() });
+      const safeRoomId = callRoomIdOf(callId);
+      if (safeRoomId) void leaveRtcRoom(socket, safeRoomId);
+      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: String(callId || "") || null });
     });
 
     ["rtc:offer", "rtc:answer", "rtc:ice-candidate"].forEach((eventName) => {
-      socket.on(eventName, async ({ roomId, targetSocketId, ...payload }) => {
+      socket.on(eventName, async ({ callId, targetSocketId, ...payload }) => {
         const startedAt = Date.now();
-        const safeRoomId = String(roomId || "").trim();
+        const safeCallId = String(callId || "").trim();
+        const safeRoomId = callRoomIdOf(safeCallId);
         const authenticatedUser = socket.data.user;
 
         if (
@@ -1148,9 +1161,10 @@ function registerSocketServer(server, store) {
           !authenticatedUser ||
           !(await canUseOperations(socket)) ||
           !isSocketInRtcRoom(socket, safeRoomId) ||
+          !callService.isCallMember(safeCallId, authenticatedUser.id) ||
           (targetSocketId && !rtcRooms.get(safeRoomId)?.has(String(targetSocketId)))
         ) {
-          observeSocketEvent(socket, eventName, startedAt, "forbidden", { roomId: safeRoomId });
+          observeSocketEvent(socket, eventName, startedAt, "forbidden", { callId: safeCallId || null });
           return;
         }
 
@@ -1167,23 +1181,23 @@ function registerSocketServer(server, store) {
         const eventPayload = {
           ...payload,
           fromSocketId: socket.id,
-          roomId: safeRoomId
+          callId: safeCallId
         };
 
         if (targetSocketId) {
           io.to(String(targetSocketId)).emit(eventName, eventPayload);
-          observeSocketEvent(socket, eventName, startedAt, "success", { roomId: safeRoomId });
+          observeSocketEvent(socket, eventName, startedAt, "success", { callId: safeCallId });
           return;
         }
 
         socket.to(getRoomKey(safeRoomId)).emit(eventName, eventPayload);
-        observeSocketEvent(socket, eventName, startedAt, "success", { roomId: safeRoomId });
+        observeSocketEvent(socket, eventName, startedAt, "success", { callId: safeCallId });
       });
     });
 
-    socket.on("rtc:stats", async ({ roomId, usedRelay }) => {
+    socket.on("rtc:stats", async ({ callId, usedRelay }) => {
       const startedAt = Date.now();
-      const safeRoomId = String(roomId || "").trim();
+      const safeRoomId = callRoomIdOf(callId);
 
       if (
         !safeRoomId ||
@@ -1191,7 +1205,7 @@ function registerSocketServer(server, store) {
         !(await canUseOperations(socket)) ||
         !isSocketInRtcRoom(socket, safeRoomId)
       ) {
-        observeSocketEvent(socket, "rtc:stats", startedAt, "forbidden", { roomId: safeRoomId });
+        observeSocketEvent(socket, "rtc:stats", startedAt, "forbidden", { callId: String(callId || "") || null });
         return;
       }
 
@@ -1201,7 +1215,7 @@ function registerSocketServer(server, store) {
         await syncRtcSession(safeRoomId, { usedRelay });
       }
 
-      observeSocketEvent(socket, "rtc:stats", startedAt, "success", { roomId: safeRoomId, usedRelay });
+      observeSocketEvent(socket, "rtc:stats", startedAt, "success", { callId: String(callId || "") || null, usedRelay });
     });
 
     // --- Signaling de llamadas (Bloque A). El cliente NUNCA decide callId ni destinatarios. ---
