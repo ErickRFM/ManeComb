@@ -1,5 +1,6 @@
 import { DesignSystem } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
@@ -22,9 +23,9 @@ type RadioWaveformProps = {
   disabled: boolean;
 };
 
-const motion = {
-  duration: DesignSystem.motion.normal,
-  easing: Easing.out(Easing.cubic),
+const WAVEFORM_MOTION = {
+  duration: 84,
+  easing: Easing.linear,
 };
 
 function isSharedSamples(
@@ -42,6 +43,7 @@ export function RadioWaveform({
   disabled,
 }: RadioWaveformProps) {
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const localSamples = useSharedValue<number[]>(
     Array.isArray(samples) ? samples.map(clampVolume) : []
   );
@@ -80,6 +82,7 @@ export function RadioWaveform({
           fill={getProgressBarFill(normalizedProgress, index, barCount)}
           index={index}
           mode={mode}
+          reducedMotion={reducedMotion}
           samples={sampleSource}
         />
       ))}
@@ -93,6 +96,7 @@ function RadioWaveformBar({
   fill,
   index,
   mode,
+  reducedMotion,
   samples,
 }: {
   activeColor: string;
@@ -100,17 +104,21 @@ function RadioWaveformBar({
   fill: number;
   index: number;
   mode: RadioWaveformMode;
+  reducedMotion: boolean;
   samples: SharedValue<number[]>;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const level = Math.max(0, Math.min(1, samples.value[index] || 0));
     const minimum = mode === 'live' ? 7 : 4;
     const amplitude = mode === 'live' ? 43 : 24;
+    const targetHeight = minimum + level * amplitude;
 
     return {
-      height: withTiming(minimum + level * amplitude, motion),
+      height: reducedMotion
+        ? targetHeight
+        : withTiming(targetHeight, WAVEFORM_MOTION),
     };
-  }, [mode]);
+  }, [mode, reducedMotion]);
 
   return (
     <Animated.View style={[styles.bar, { backgroundColor: baseColor }, animatedStyle]}>
