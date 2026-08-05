@@ -21,7 +21,12 @@ jobs:
         with:
           node-version: 20
       - name: Apply durable chat patch
-        run: python scripts/close-chat-idempotency.py
+        shell: bash
+        run: |
+          sed -i 's/const existingMessage = requestedMessageId/const existingIdempotentMessage = requestedMessageId/' scripts/close-chat-idempotency.py
+          sed -i 's/if (existingMessage) {/if (existingIdempotentMessage) {/' scripts/close-chat-idempotency.py
+          sed -i 's/serializeConversationMessage(existingMessage, conversationId)/serializeConversationMessage(existingIdempotentMessage, conversationId)/' scripts/close-chat-idempotency.py
+          python scripts/close-chat-idempotency.py
       - name: Install backend
         working-directory: backend
         run: npm ci
