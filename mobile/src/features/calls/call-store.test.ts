@@ -43,10 +43,12 @@ type Handler = (payload: any) => void;
 
 function fakeSocket() {
   const handlers = new Map<string, Set<Handler>>();
-  let nextAck: CallAck = { ok: false, code: 'no_ack' };
+  let nextCallAck: CallAck = { ok: false, code: 'no_ack' };
+  let nextAcceptAck: CallAck = { ok: true };
   return {
     emitted: [] as Array<{ event: string; payload: any }>,
-    setNextAck(ack: CallAck) { nextAck = ack; },
+    setNextAck(ack: CallAck) { nextCallAck = ack; },
+    setNextAcceptAck(ack: CallAck) { nextAcceptAck = ack; },
     handlerCount(event: string) { return handlers.get(event)?.size ?? 0; },
     on(event: string, handler: Handler) {
       if (!handlers.has(event)) handlers.set(event, new Set());
@@ -55,7 +57,8 @@ function fakeSocket() {
     off(event: string, handler: Handler) { handlers.get(event)?.delete(handler); },
     emit(event: string, payload: any, ack?: (response: any) => void) {
       this.emitted.push({ event, payload });
-      if (event === 'rtc:call' && ack) ack(nextAck);
+      if (event === 'rtc:call' && ack) ack(nextCallAck);
+      if (event === 'rtc:accept' && ack) ack(nextAcceptAck);
     },
     server(event: string, payload: any) {
       (handlers.get(event) ? Array.from(handlers.get(event)!) : []).forEach((handler) =>
@@ -116,15 +119,28 @@ describe('call-store signaling global', () => {
     expect(state().callId).toBeNull();
   });
 
-  it('aceptar pasa a CONNECTING y emite rtc:accept', () => {
+  it('aceptar pasa a CONNECTING, espera ACK y entonces arranca runtime', async () => {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
     socket.server('rtc:incoming-call', incoming);
-    state().acceptIncomingCall();
+    const accepting = state().acceptIncomingCall();
     expect(state().phase).toBe('CONNECTING');
+    await accepting;
     expect(socket.emitted.some((entry) =>
       entry.event === 'rtc:accept' && entry.payload.callId === 'call-1'
     )).toBe(true);
+    expect(capturedRuntime).not.toBeNull();
+  });
+
+  it('un accept rechazado falla sin iniciar peer/media', async () => {
+    const socket = fakeSocket();
+    socket.setNextAcceptAck({ ok: false, code: 'forbidden' });
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', incoming);
+    await state().acceptIncomingCall();
+    expect(state().phase).toBe('FAILED');
+    expect(state().failureCode).toBe('accept_failed');
+    expect(capturedRuntime).toBeNull();
   });
 
   it('rechazo, cancelacion remota y timeout limpian idempotentemente', async () => {
@@ -203,16 +219,16 @@ describe('call-store signaling global', () => {
 });
 
 describe('call-store runtime y media global', () => {
-  function acceptFlow(mode: 'audio' | 'video' = 'audio') {
+  async function acceptFlow(mode: 'audio' | 'video' = 'audio') {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
     socket.server('rtc:incoming-call', { ...incoming, mode });
-    state().acceptIncomingCall();
+    await state().acceptIncomingCall();
     return socket;
   }
 
-  it('no declara CONNECTED hasta que el runtime lo confirma', () => {
-    acceptFlow();
+  it('no declara CONNECTED hasta que el runtime lo confirma', async () => {
+    await acceptFlow();
     expect(state().phase).toBe('CONNECTING');
     expect(capturedRuntime).not.toBeNull();
     expect(state().connectedAt).toBeNull();
@@ -221,8 +237,8 @@ describe('call-store runtime y media global', () => {
     expect(typeof state().connectedAt).toBe('number');
   });
 
-  it('publica streams del runtime para una UI global', () => {
-    acceptFlow('video');
+  it('publica streams del runtime para una UI global', async () => {
+    await acceptFlow('video');
     const local = { id: 'local' };
     const remote = { id: 'remote' };
     capturedRuntime!.params.onLocalStream?.(local);
@@ -231,8 +247,8 @@ describe('call-store runtime y media global', () => {
     expect(state().remoteStream).toBe(remote);
   });
 
-  it('RECONNECTING conserva connectedAt y vuelve a CONNECTED', () => {
-    acceptFlow();
+  it('RECONNECTING conserva connectedAt y vuelve a CONNECTED', async () => {
+    await acceptFlow();
     capturedRuntime!.params.onConnected();
     const connectedAt = state().connectedAt;
     capturedRuntime!.params.onReconnecting?.();
@@ -245,7 +261,7 @@ describe('call-store runtime y media global', () => {
   it('timeout inicial sin media conectada falla y avisa rtc:end', async () => {
     __setResultDisplayMsForTests(100000);
     __setConnectTimeoutMsForTests(20);
-    const socket = acceptFlow();
+    const socket = await acceptFlow();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(state().phase).toBe('FAILED');
     expect(state().failureCode).toBe('ice_timeout');
@@ -253,8 +269,8 @@ describe('call-store runtime y media global', () => {
     state().reset();
   });
 
-  it('onFailed limpia runtime y conserva un codigo sanitizado para la UI', () => {
-    acceptFlow();
+  it('onFailed limpia runtime y conserva un codigo sanitizado para la UI', async () => {
+    await acceptFlow();
     const runtime = capturedRuntime!;
     runtime.params.onFailed('rtc_join_forbidden');
     expect(state().phase).toBe('FAILED');
@@ -262,23 +278,23 @@ describe('call-store runtime y media global', () => {
     expect(runtime.stopped).toBeGreaterThanOrEqual(1);
   });
 
-  it('mute y camara delegan al runtime sin crear media duplicada', () => {
-    acceptFlow('video');
+  it('mute y camara delegan al runtime sin crear media duplicada', async () => {
+    await acceptFlow('video');
     state().toggleMute();
     expect(state().isMuted).toBe(true);
-    expect(capturedRuntime!.mic.at(-1)).toBe(false);
+    expect(capturedRuntime!.mic[capturedRuntime!.mic.length - 1]).toBe(false);
     state().toggleMute();
-    expect(capturedRuntime!.mic.at(-1)).toBe(true);
+    expect(capturedRuntime!.mic[capturedRuntime!.mic.length - 1]).toBe(true);
 
     state().toggleCamera();
     expect(state().isCameraEnabled).toBe(false);
-    expect(capturedRuntime!.camera.at(-1)).toBe(false);
+    expect(capturedRuntime!.camera[capturedRuntime!.camera.length - 1]).toBe(false);
     state().toggleCamera();
-    expect(capturedRuntime!.camera.at(-1)).toBe(true);
+    expect(capturedRuntime!.camera[capturedRuntime!.camera.length - 1]).toBe(true);
   });
 
   it('endCall en llamada conectada emite rtc:end, detiene runtime y limpia streams', async () => {
-    const socket = acceptFlow();
+    const socket = await acceptFlow();
     capturedRuntime!.params.onLocalStream?.({ id: 'local' });
     capturedRuntime!.params.onRemoteStream?.({ id: 'remote' });
     capturedRuntime!.params.onConnected();
@@ -294,21 +310,21 @@ describe('call-store runtime y media global', () => {
     expect(state().phase).toBe('IDLE');
   });
 
-  it('un callback de llamada vieja no altera la nueva', () => {
-    acceptFlow();
+  it('un callback de llamada vieja no altera la nueva', async () => {
+    await acceptFlow();
     const oldConnected = capturedRuntime!.params.onConnected;
     state().reset();
     const socket = fakeSocket();
     state().bindSocket(socket as any);
     socket.server('rtc:incoming-call', { ...incoming, callId: 'call-2' });
-    state().acceptIncomingCall();
+    await state().acceptIncomingCall();
     oldConnected();
     expect(state().phase).toBe('CONNECTING');
     expect(state().callId).toBe('call-2');
   });
 
   it('remote end y doble reset detienen el runtime de forma idempotente', async () => {
-    acceptFlow();
+    await acceptFlow();
     capturedRuntime!.params.onConnected();
     const runtime = capturedRuntime!;
     state().handleRemoteEnd({ callId: 'call-1' });
