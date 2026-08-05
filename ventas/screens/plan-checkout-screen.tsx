@@ -47,7 +47,7 @@ export function PlanCheckoutScreen() {
       loadAll: state.loadAll,
     }))
   );
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('spei');
   const [includeRadioAddon, setIncludeRadioAddon] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [testCard, setTestCard] = useState<TestCardInput>({
@@ -77,12 +77,19 @@ export function PlanCheckoutScreen() {
   const buttonAmount = `${formatCurrency(totalAmount)} MXN`;
   const canSubmit = Boolean(selectedPlan && user && !processing && providerMode !== 'unavailable');
   const isTestPaymentMode = providerMode === 'test';
+  const isManualPaymentMode = providerMode === 'manual';
 
   useEffect(() => {
     if (planId) {
       saveCheckoutContext(planId, requestTrial);
     }
   }, [planId, requestTrial]);
+
+  useEffect(() => {
+    if (isManualPaymentMode && selectedMethod !== 'spei') {
+      setSelectedMethod('spei');
+    }
+  }, [isManualPaymentMode, selectedMethod]);
 
   if (!planId) {
     return <Redirect href="/ventas" />;
@@ -159,7 +166,7 @@ export function PlanCheckoutScreen() {
   const doneTitle = receiptIsActive
     ? 'Plan activado en tu cuenta.'
     : receiptIsPending
-      ? 'Pago pendiente de confirmacion.'
+      ? 'Transferencia pendiente de validación.'
       : 'Orden registrada.';
   const doneText =
     receipt?.nextStep ||
