@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Platform } from 'react-native';
+import { useShallow } from 'zustand/react/shallow';
 import * as Location from '@/src/native/location';
+import {
+  acquireBackgroundLocationServiceAsync,
+  releaseBackgroundLocationServiceAsync,
+} from '@/src/native/background-location';
 import { useAppStore } from '@/src/store/root-store';
 import { MAX_ACCEPTED_ACCURACY_METERS } from '../constants/tracking';
 import { initialLocationEngineState, locationReducer } from '../reducers/location-reducer';
@@ -20,13 +25,30 @@ import {
 } from '../services/location-service';
 import type { LiveLocationPoint, LocationPosition } from '../types/location-engine';
 
+const BACKGROUND_OWNER = 'operational-runtime' as const;
+
 export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}) {
-  const operationallyEligible = useAppStore(
-    (state) =>
-      state.user?.role === 'driver' &&
-      Boolean(state.user.vehicleId) &&
-      state.authContext?.canAccessMobile === true
+  const {
+    activeRouteSession,
+    apiUrl,
+    authContext,
+    refreshToken,
+    token,
+    user,
+  } = useAppStore(
+    useShallow((store) => ({
+      activeRouteSession: store.activeRouteSession,
+      apiUrl: store.apiUrl,
+      authContext: store.authContext,
+      refreshToken: store.refreshToken,
+      token: store.token,
+      user: store.user,
+    }))
   );
+  const operationallyEligible =
+    user?.role === 'driver' &&
+    Boolean(user.vehicleId) &&
+    authContext?.canAccessMobile === true;
   const trackingEnabled = enabled && operationallyEligible;
   const trackingEnabledRef = useRef(trackingEnabled);
   trackingEnabledRef.current = trackingEnabled;
@@ -239,6 +261,98 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       releaseTracking();
     };
   }, [releaseTracking, requestLocation, trackingEnabled]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    let cancelled = false;
+    const reconcileBackgroundOwner = async () => {
+      const foregroundCaptureUnavailable =
+        state.permission === 'denied' || state.servicesEnabled === false;
+
+      if (
+        !operationallyEligible ||
+        !apiUrl ||
+        !token ||
+        !user?.vehicleId
+      ) {
+        await releaseBackgroundLocationServiceAsync(BACKGROUND_OWNER).catch(
+          () => undefined
+        );
+        return;
+      }
+
+      // Keep native ownership until React has a watcher or proves foreground
+      // capture cannot run. This removes the background -> foreground gap.
+      if (enabled) {
+        if (watcherActive || foregroundCaptureUnavailable) {
+          await releaseBackgroundLocationServiceAsync(BACKGROUND_OWNER).catch(
+            () => undefined
+          );
+        }
+        return;
+      }
+
+      if (watcherActive) return;
+
+      const [foreground, background] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch(() => ({
+          status: Location.PermissionStatus.DENIED,
+        })),
+        Location.requestBackgroundPermissionsAsync().catch(() => ({
+          status: Location.PermissionStatus.DENIED,
+        })),
+      ]);
+
+      if (cancelled) return;
+
+      if (
+        foreground.status !== Location.PermissionStatus.GRANTED ||
+        background.status !== Location.PermissionStatus.GRANTED
+      ) {
+        await releaseBackgroundLocationServiceAsync(BACKGROUND_OWNER).catch(
+          () => undefined
+        );
+        return;
+      }
+
+      await acquireBackgroundLocationServiceAsync(BACKGROUND_OWNER, {
+        apiUrl,
+        refreshToken: refreshToken || '',
+        schedule: user.operationalSchedule || null,
+        sessionId:
+          activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : '',
+        token,
+        vehicleId: user.vehicleId,
+      }).catch(() => undefined);
+    };
+
+    reconcileBackgroundOwner().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeRouteSession?.id,
+    activeRouteSession?.status,
+    apiUrl,
+    enabled,
+    operationallyEligible,
+    refreshToken,
+    state.permission,
+    state.servicesEnabled,
+    token,
+    user?.operationalSchedule,
+    user?.vehicleId,
+    watcherActive,
+  ]);
+
+  useEffect(
+    () => () => {
+      releaseBackgroundLocationServiceAsync(BACKGROUND_OWNER).catch(() => undefined);
+    },
+    []
+  );
 
   return {
     ...state,
