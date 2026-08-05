@@ -39,7 +39,12 @@ function FloatingIndicator({
         <MaterialCommunityIcons name={icon} size={20} color={color} />
       </View>
       <View style={styles.floatingTextBlock}>
-        <Text style={[styles.floatingValue, { color }]}>{value}</Text>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          style={[styles.floatingValue, { color, fontSize: 17, lineHeight: 21 }]}>
+          {value}
+        </Text>
         <Text style={styles.floatingLabel}>{label}</Text>
       </View>
     </View>
@@ -68,9 +73,9 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
         ]}>
         <View style={styles.dashboardSidebar}>
           {isPhone ? <Text style={styles.dashboardMiniBrand}>MC</Text> : <BrandLogo size="sm" plain />}
-          {['Resumen', 'Mapa', 'Unidades', 'Alertas', 'Documentos'].map((item, index) => (
-            <View key={item} style={[styles.dashboardNavRow, index === 1 ? styles.dashboardNavRowActive : undefined]}>
-              <View style={[styles.dashboardNavDot, index === 1 ? styles.dashboardNavDotActive : undefined]} />
+          {['Mapa', 'Rutas', 'Radio', 'Alertas', 'Documentos'].map((item, index) => (
+            <View key={item} style={[styles.dashboardNavRow, index === 0 ? styles.dashboardNavRowActive : undefined]}>
+              <View style={[styles.dashboardNavDot, index === 0 ? styles.dashboardNavDotActive : undefined]} />
               <Text style={styles.dashboardNavText}>{item}</Text>
             </View>
           ))}
@@ -78,7 +83,7 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
         <View style={styles.dashboardMain}>
           <View style={styles.dashboardTopbar}>
             <Text style={styles.dashboardTitle} numberOfLines={2}>
-              {isPhone ? 'Mapa en vivo' : 'Mapa en tiempo real'}
+              {isPhone ? 'Seguimiento' : 'Seguimiento operativo'}
             </Text>
             <View style={styles.dashboardStatus}>
               <View style={[styles.liveDot, reducedMotion ? undefined : pulseDot()]} />
@@ -116,23 +121,23 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
       </View>
 
       <FloatingIndicator
-        icon="bus-multiple"
-        label="Unidades activas"
-        value="24"
+        icon="map-marker-path"
+        label="GPS y rutas"
+        value="En vivo"
         color={neonPalette.cyan}
         style={isPhone ? styles.floatingIndicatorPhoneA : styles.floatingIndicatorA}
       />
       <FloatingIndicator
-        icon="bell-check-outline"
-        label="Alertas resueltas"
-        value="3"
+        icon="radio-handheld"
+        label="Chat, radio y llamadas"
+        value="Conectado"
         color={neonPalette.accent}
         style={isPhone ? styles.floatingIndicatorPhoneB : styles.floatingIndicatorB}
       />
       <FloatingIndicator
-        icon="pulse"
-        label="Disponibilidad"
-        value="99.8%"
+        icon="file-document-check-outline"
+        label="Documentos y alertas"
+        value="Centralizado"
         color={neonPalette.mint}
         style={isPhone ? styles.floatingIndicatorPhoneC : styles.floatingIndicatorC}
       />
