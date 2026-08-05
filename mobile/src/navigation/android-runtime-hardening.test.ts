@@ -27,4 +27,41 @@ describe('Android runtime hardening', () => {
     expect(manifest).not.toContain('android.intent.action.LOCKED_BOOT_COMPLETED');
     expect(receiver).not.toContain('Intent.ACTION_LOCKED_BOOT_COMPLETED');
   });
+
+  it('wires FCM data delivery without requiring credentials in CI', () => {
+    const rootGradle = fs.readFileSync(path.join(mobileRoot, 'android', 'build.gradle'), 'utf8');
+    const appGradle = fs.readFileSync(path.join(mobileRoot, 'android', 'app', 'build.gradle'), 'utf8');
+    const manifest = fs.readFileSync(path.join(mobileRoot, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+
+    expect(rootGradle).toContain("com.google.gms:google-services:4.4.4");
+    expect(appGradle).toContain("com.google.firebase:firebase-messaging");
+    expect(appGradle).toContain("if (googleServicesConfigFile.exists())");
+    expect(appGradle).toContain("MANECOMB_FIREBASE_CONFIGURED");
+    expect(manifest).toContain('.notifications.ManeCombFirebaseMessagingService');
+    expect(manifest).toContain('com.google.firebase.MESSAGING_EVENT');
+  });
+
+  it('renders calls with explicit accept/reject and never auto-accepts full screen', () => {
+    const renderer = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombPushNotificationRenderer.kt'
+      ),
+      'utf8'
+    );
+
+    expect(renderer).toContain('NotificationCompat.CallStyle.forIncomingCall');
+    expect(renderer).toContain('ManeCombCallActionReceiver.ACTION_REJECT');
+    expect(renderer).toContain('builder.setFullScreenIntent(contentIntent, true)');
+    expect(renderer).not.toContain('builder.setFullScreenIntent(acceptIntent, true)');
+  });
 });
