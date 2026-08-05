@@ -35,11 +35,35 @@ jobs:
           fi
 
           if ! git merge --no-ff --no-edit origin/rc-operational-runtime-01; then
-            echo '::error::Operational runtime integration has conflicts.'
-            git status --short
-            echo 'Conflicted files:'
-            git diff --name-only --diff-filter=U
-            exit 1
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'Conflicts: %s\n' "${conflicts[*]}"
+
+            if [ "${#conflicts[@]}" -ne 1 ] || [ "${conflicts[0]}" != 'mobile/package.json' ]; then
+              echo '::error::Unexpected operational runtime conflicts.'
+              git status --short
+              exit 1
+            fi
+
+            # Main/consolidation owns the complete current suite. Add only the
+            # two focused Radio runtime tests contributed by this RC.
+            git checkout --ours mobile/package.json
+            node <<'NODE'
+          const fs = require('fs');
+          const path = 'mobile/package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const additions = [
+            'src/features/radio-live/radio-live-store.test.ts',
+            'src/screens/radio/services/radio-realtime-service.test.ts',
+          ];
+          for (const testPath of additions) {
+            if (!pkg.scripts.test.includes(testPath)) {
+              pkg.scripts.test = `${pkg.scripts.test} ${testPath}`;
+            }
+          }
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+            git add mobile/package.json
+            git commit --no-edit
           fi
 
           git push origin HEAD:release/consolidation-20260805
