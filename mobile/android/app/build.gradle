@@ -18,7 +18,10 @@ project.ext.vectoricons = [
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def nodeExecutable = System.getenv('NODE_BINARY') ?: 'C:\\Program Files\\nodejs\\node.exe'
+// NODE_BINARY permite override explicito. Por defecto se resuelve desde PATH en Windows y Linux,
+// evitando congelar una ruta local de Windows dentro del proyecto compartido.
+def nodeExecutable = System.getenv('NODE_BINARY')
+    ?: (org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'node.exe' : 'node')
 def combisDetoxBundle = (findProperty('combis.detoxBundle') ?: 'false').toBoolean()
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
@@ -103,20 +106,20 @@ react {
     // codegenDir = file("../../node_modules/@react-native/codegen")
 
     /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
+    //   The list of variants that are debuggable. For those we're going to
     //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
     // debuggableVariants = ["liteDebug", "prodDebug"]
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = [nodeExecutable]
 
     //
     //   The path to the CLI configuration file. Default is empty.
     // bundleConfig = file(../rn-cli.config.js)
     //
-    //   The name of the generated asset file containing your JS bundle
+    //   The name of the generated asset file containing the JS bundle
     // bundleAssetName = "MyApplication.android.bundle"
     //
     //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
