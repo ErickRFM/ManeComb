@@ -35,11 +35,30 @@ jobs:
           fi
 
           if ! git merge --no-ff --no-edit origin/agent/email-production-ux-audit; then
-            echo '::error::Email integration has conflicts.'
-            git status --short
-            echo 'Conflicted files:'
-            git diff --name-only --diff-filter=U
-            exit 1
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'Conflicts: %s\n' "${conflicts[*]}"
+
+            if [ "${#conflicts[@]}" -ne 1 ] || [ "${conflicts[0]}" != 'backend/package.json' ]; then
+              echo '::error::Unexpected email integration conflicts.'
+              git status --short
+              exit 1
+            fi
+
+            # Keep the current complete backend suite and extend the focused
+            # password recovery command with the copy contract from the email audit.
+            git checkout --ours backend/package.json
+            node <<'NODE'
+          const fs = require('fs');
+          const path = 'backend/package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const copyTest = 'node --require ./test/setup-env.js test/password-recovery-copy.test.js';
+          if (!pkg.scripts['test:password-recovery'].includes('password-recovery-copy.test.js')) {
+            pkg.scripts['test:password-recovery'] = `${pkg.scripts['test:password-recovery']} && ${copyTest}`;
+          }
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+            git add backend/package.json
+            git commit --no-edit
           fi
 
           git push origin HEAD:release/consolidation-20260805
