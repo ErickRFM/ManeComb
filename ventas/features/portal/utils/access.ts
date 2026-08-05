@@ -9,8 +9,12 @@ const ROLE_PERMISSIONS = {
   viewer: new Set<string>(),
 } as const;
 
+export function isPortalRole(role: User['role'] | string | null | undefined) {
+  return PORTAL_ROLES.has(String(role || ''));
+}
+
 export function canAccessPortal(user: Pick<User, 'accountType' | 'role'> | null | undefined) {
-  return user?.accountType === 'company_owner' && PORTAL_ROLES.has(String(user?.role || ''));
+  return user?.accountType === 'company_owner' && isPortalRole(user?.role);
 }
 
 export type PortalPermission = 'users' | 'billing' | 'vehicles' | 'routes';
