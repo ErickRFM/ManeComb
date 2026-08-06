@@ -44,6 +44,7 @@ export function createPlatformApiClient(pathname: string): AxiosInstance {
     baseURL: `${API_BASE}${normalizedPath}`,
     headers: { 'Content-Type': 'application/json' },
     timeout: 15000,
+    withCredentials: true,
   });
 
   instance.interceptors.response.use(

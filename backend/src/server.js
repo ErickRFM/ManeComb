@@ -12,6 +12,7 @@ const {
   PORTAL_PUBLIC_URL, REDIS_PERSISTENCE_ENABLED, REDIS_MAXMEMORY_POLICY
 } = require("./config/env");
 const { assertPlatformSecurityConfiguration } = require("./config/platform-security");
+const { assertPlatformAccessConfiguration } = require("./config/platform-access");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
@@ -27,6 +28,19 @@ async function startServer() {
     metadata: platformSecurity,
     module: "Platform",
     status: platformSecurity.ready ? "ready" : platformSecurity.configured ? "degraded" : "disabled"
+  });
+
+  const platformAccessSecurity = assertPlatformAccessConfiguration();
+  logger.info({
+    action: "PlatformAccessConfiguration",
+    metadata: {
+      enabled: platformAccessSecurity.enabled,
+      issuerConfigured: Boolean(platformAccessSecurity.issuer),
+      audienceConfigured: Boolean(platformAccessSecurity.audience),
+      jwksConfigured: Boolean(platformAccessSecurity.jwksUrl)
+    },
+    module: "Platform",
+    status: platformAccessSecurity.enabled ? "ready" : "disabled"
   });
 
   await connectDB();

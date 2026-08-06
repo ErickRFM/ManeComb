@@ -12,6 +12,9 @@ import { useAdminStore } from '@/features/auth/store';
 import { palette, Typography } from '@/styles/theme';
 import { getAdminNavigation } from '../navigation';
 import { usePlatformStore } from '../store';
+import { usePlatformCompanyStore } from '../companies/store';
+import { usePlatformOperationsStore } from '../operations/store';
+import { usePlatformGovernanceStore } from '../governance/store';
 
 type AdminShellProps = {
   title: string;
@@ -28,6 +31,9 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   const capabilities = usePlatformStore((state) => state.capabilities);
   const load = usePlatformStore((state) => state.load);
   const resetPlatform = usePlatformStore((state) => state.reset);
+  const resetCompanies = usePlatformCompanyStore((state) => state.reset);
+  const resetOperations = usePlatformOperationsStore((state) => state.reset);
+  const resetGovernance = usePlatformGovernanceStore((state) => state.reset);
   const isDesktop = width >= 900;
   const navigation = getAdminNavigation(capabilities);
 
@@ -36,6 +42,9 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   }, [load, session?.token]);
 
   const handleLogout = async () => {
+    resetGovernance();
+    resetOperations();
+    resetCompanies();
     resetPlatform();
     await logout();
     router.replace('/admin/login');
@@ -44,7 +53,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   if (!session) return null;
 
   const navigationContent = navigation.map((item) => {
-    const active = pathname === item.path;
+    const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
     return (
       <Pressable
         accessibilityRole="button"
@@ -68,7 +77,10 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
             </Text>
           ) : null}
         </View>
-        <Text style={[styles.phaseBadge, item.phase === 'P1' && styles.phaseBadgeReady]}>
+        <Text style={[
+          styles.phaseBadge,
+          ['P1', 'P2', 'P3', 'P4'].includes(item.phase) && styles.phaseBadgeReady,
+        ]}>
           {item.phase}
         </Text>
       </Pressable>
