@@ -4,8 +4,9 @@
 
 ```text
 CERTIFICATION_HARNESS_READY
-PORTAL_PUBLIC_EXECUTION_PENDING
-PORTAL_AUTHENTICATED_EXECUTION_PENDING
+PORTAL_PUBLIC_LOCAL_MATRIX_PASSED
+PORTAL_PRODUCTION_AUTHENTICATED_EXECUTION_PENDING
+ADMIN_GLOBAL_P0_MERGED_PRODUCTION_CONFIG_PENDING
 ANDROID_PHYSICAL_CERTIFICATION_PENDING
 ```
 
@@ -23,21 +24,11 @@ El workflow `Portal production certification` ejecuta Chromium en:
 - 1280 × 800;
 - 1440 × 900.
 
-Comprueba:
+Comprueba landing, login, registro, recuperación, reset inválido y protección del Portal sin sesión. También bloquea pantallas en blanco, respuestas 5xx, errores JavaScript no controlados y desbordamiento horizontal.
 
-- landing de Ventas;
-- login;
-- registro;
-- recuperación de contraseña;
-- reset con token inválido;
-- protección del Portal sin sesión;
-- ausencia de pantalla en blanco;
-- ausencia de respuestas HTTP 5xx;
-- ausencia de errores JavaScript no controlados;
-- ausencia de desbordamiento horizontal del documento;
-- presencia de jerarquía y acciones comerciales de planes.
+La matriz local determinista pasó en el run `31057973283`. Artifact de evidencia: `8951106660`, digest `sha256:bc36e9d59d92589eafd7d585420b53b862f727a741f6d91a2ba2fd52a720c54b`.
 
-Cada ejecución conserva reporte HTML/JSON, capturas y trazas o video ante fallo.
+El contrato local simula únicamente la respuesta pública de planes cuando no existe `CERT_BASE_URL`. La ejecución manual contra `https://manecomb.com` no instala mocks y consulta el backend real.
 
 ## 2. Certificación autenticada
 
@@ -57,20 +48,13 @@ CERT_SUPERVISOR_PASSWORD
 
 Nunca se escriben credenciales en el repositorio.
 
-La matriz valida:
-
-- owner y admin con administración y facturación;
-- billing_manager limitado a módulos comerciales;
-- supervisor fuera del Portal empresarial;
-- cambio incorrecto de contraseña;
-- cambio correcto y rollback automático a la contraseña original;
-- revocación de una segunda sesión conservando la actual.
+La matriz valida owner, admin, billing_manager y supervisor; también cubre contraseña incorrecta, cambio correcto con rollback y revocación de una segunda sesión conservando la actual.
 
 Las mutaciones permanecen bloqueadas salvo que `allow_mutations=true` y exista `CERT_OWNER_NEXT_PASSWORD`.
 
-## 3. Operaciones que requieren datos fixture y revisión humana
+## 3. Operaciones con fixtures y revisión humana
 
-Las siguientes pruebas permanecen en el issue #29 porque requieren elegir registros de certificación y observar su impacto real:
+Permanecen en el issue #29:
 
 - keys de 1, 7, 14 y 30 días;
 - revocación, eliminación y reemplazo;
@@ -82,14 +66,13 @@ Las siguientes pruebas permanecen en el issue #29 porque requieren elegir regist
 - factura PDF/XML;
 - verificación de permisos backend 403.
 
-No se automatizan mutaciones destructivas contra datos arbitrarios. Deben utilizar prefijos o fixtures identificables y conservar evidencia sanitizada.
+No se automatizan mutaciones destructivas contra datos arbitrarios.
 
 ## 4. Admin Global
 
-- PR #25 contiene el cierre P0 de MFA fail-closed.
-- Se solicitó una ejecución actual de CI y auditoría antes de su merge.
-- PR #28 permanece apilado sobre P0 y no debe integrarse antes.
-- Secretos Platform, `platform_owner`, CORS y TOTP real requieren validación externa.
+- PR #25 fue revalidado y fusionado en `main` como `c5e5acb8c8b3f6da4d0029e07493b41659877ed7`.
+- PR #28 fue reconstruido sobre ese P0 y su diff quedó limitado a 14 archivos P1.
+- Secretos Platform, `platform_owner`, CORS y TOTP real siguen requiriendo validación externa.
 
 ## 5. Android físico
 
@@ -101,20 +84,19 @@ Los PR #20, #23 y #24 permanecen sin merge porque sus criterios dependen de Andr
 - Firebase/FCM con app cerrada;
 - llamada entrante, aceptar, rechazar, cancelar y timeout.
 
-CI certifica compilación y contratos, no audio, GPS prolongado, notificaciones FCM, restricciones del fabricante ni NAT/TURN.
+CI certifica compilación y contratos, no audio, GPS prolongado, FCM, restricciones del fabricante ni NAT/TURN.
 
 ## Ejecución local pública
 
 ```bat
 cd C:\proyectos\combis-app\mobile
 npm ci
+npm ci --prefix ..\ventas
 npx playwright install chromium
 npx playwright test --config playwright.certification.config.ts e2e/certification/public-responsive.spec.ts
 ```
 
 ## Ejecución contra producción
-
-Las credenciales se configuran como Secrets en GitHub. Después se ejecuta manualmente:
 
 ```text
 Actions
@@ -122,12 +104,11 @@ Actions
 → Run workflow
 → base_url: https://manecomb.com
 → run_authenticated: true
-→ allow_mutations: false o true de forma deliberada
+→ allow_mutations: false inicialmente
+→ allow_mutations: true únicamente para el bloque controlado de seguridad
 ```
 
 ## Criterio de cierre
-
-Solo después de adjuntar evidencia y completar el issue #29 podrá declararse:
 
 ```text
 PORTAL_PRODUCTION_CERTIFIED
