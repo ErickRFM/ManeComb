@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   public-responsive:
-    name: Public portal responsive
+    name: Public portal responsive and local channel matrix
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -67,10 +67,14 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run five-viewport public certification
-        run: npx playwright test --config playwright.certification.config.ts e2e/certification/public-responsive.spec.ts
+      - name: Run five-viewport public certification and local authenticated channel matrix
+        run: >-
+          npx playwright test
+          --config playwright.certification.config.ts
+          e2e/certification/public-responsive.spec.ts
+          e2e/certification/local-account-channel.spec.ts
 
-      - name: Upload public evidence
+      - name: Upload public and local contract evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:

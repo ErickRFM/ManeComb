@@ -11,6 +11,7 @@ export type Role =
   | 'driver';
 
 export type AccountType = 'operations' | 'company_owner';
+export type AccountChannel = 'blocked' | 'company_portal' | 'mobile_operations' | 'platform_admin';
 export type ConnectionMode = 'online' | 'local';
 export type UserAccountStatus = 'active' | 'pending' | 'suspended';
 
@@ -70,6 +71,8 @@ export type User = {
   email: string;
   role: Role;
   accountType: AccountType;
+  accountChannel?: AccountChannel;
+  accountChannelReason?: string | null;
   organizationId?: string;
   userStatus?: UserAccountStatus;
   lastAccessAt?: string | null;

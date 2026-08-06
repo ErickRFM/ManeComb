@@ -1,12 +1,23 @@
 const { buildAuthContext } = require("../services/auth-context");
 const logger = require("../services/logger");
 
+const OPERATIONAL_BLOCK_MESSAGES = {
+  account_blocked: "Tu cuenta no tiene acceso operativo",
+  inactive_plan: "Tu plan no está activo",
+  missing_tenant: "La empresa aún no está lista para operar",
+  no_plan: "Necesitas un plan activo para acceder al panel operativo",
+  payment_pending: "El pago del plan aún no está confirmado",
+  sync_error: "No fue posible confirmar el estado operativo",
+  wrong_channel: "Esta cuenta pertenece a otro producto de ManeComb"
+};
+
 function getBlockLogPayload(user, authContext) {
   return {
     userId: user?.id || null,
     tenantId: authContext?.tenant?.id || null,
     role: user?.role || null,
-    reason: authContext?.mobileBlockReason || "sync_error",
+    accountChannel: authContext?.accountChannel || null,
+    reason: authContext?.operationalBlockReason || "sync_error",
     planStatus: authContext?.subscription?.status || null,
     tenantStatus: authContext?.tenant?.status || null
   };
@@ -30,6 +41,8 @@ async function requireOperationalAccess(req, res, next) {
       return next();
     }
 
+    const reason = authContext.operationalBlockReason || "sync_error";
+
     logger.warn({
       action: "OperationalAccessBlocked",
       metadata: getBlockLogPayload(req.user, authContext),
@@ -43,8 +56,8 @@ async function requireOperationalAccess(req, res, next) {
     return res.status(403).json({
       ok: false,
       code: "PLAN_REQUIRED",
-      reason: authContext.mobileBlockReason || "sync_error",
-      message: "Necesitas un plan activo para acceder al panel operativo"
+      reason,
+      message: OPERATIONAL_BLOCK_MESSAGES[reason] || OPERATIONAL_BLOCK_MESSAGES.sync_error
     });
   } catch (error) {
     return next(error);
