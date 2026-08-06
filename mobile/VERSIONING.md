@@ -6,14 +6,14 @@ La versión de la aplicación móvil tiene una sola fuente de verdad:
 mobile/app.json
 ```
 
-Ejemplo actual:
+Versión actual de la rama de integración:
 
 ```json
 {
   "name": "main",
   "displayName": "ManeComb",
-  "version": "1.1.0",
-  "buildNumber": 19
+  "version": "1.2.0",
+  "buildNumber": 20
 }
 ```
 
