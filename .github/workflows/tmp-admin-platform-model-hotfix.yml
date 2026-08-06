@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - fix/admin-global-platform-user-model-20260806
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply-hotfix:
+    if: github.head_ref == 'fix/admin-global-platform-user-model-20260806' || github.ref_name == 'fix/admin-global-platform-user-model-20260806'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
