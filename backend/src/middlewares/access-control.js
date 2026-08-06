@@ -87,6 +87,14 @@ function requireOrganization(req, res, next) {
     });
   }
 
+  if (!hasCapability(req.user, ENTERPRISE_CAPABILITY.TENANT_ACCESS)) {
+    return res.status(403).json({
+      ok: false,
+      code: "TENANT_ACCESS_DENIED",
+      message: "La cuenta no tiene acceso al tenant asignado"
+    });
+  }
+
   req.tenant = {
     organizationId,
     companyId: organizationId
@@ -115,6 +123,8 @@ function requireCapability(permission) {
 const requirePermission = requireCapability;
 
 function canAccessTenantResource(user, resource = {}) {
+  if (!hasCapability(user, ENTERPRISE_CAPABILITY.TENANT_ACCESS)) return false;
+
   const organizationId = getOrganizationId(user);
   const resourceOrganizationId = String(
     resource.organizationId || resource.companyId || ""
@@ -128,6 +138,8 @@ function canAccessTenantResource(user, resource = {}) {
 }
 
 function filterTenantList(user, items = []) {
+  if (!hasCapability(user, ENTERPRISE_CAPABILITY.TENANT_ACCESS)) return [];
+
   const organizationId = getOrganizationId(user);
   if (!organizationId) return [];
 
