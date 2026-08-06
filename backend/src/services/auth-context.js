@@ -90,17 +90,7 @@ function isActiveTenant(tenant) {
   return normalizeStatus(tenant?.status) === "active";
 }
 
-function getMobileBlockReason(subscription, tenant, accountChannel = null) {
-  const channel = accountChannel?.channel || accountChannel;
-
-  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
-    return "account_blocked";
-  }
-
-  if (channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
-    return "wrong_channel";
-  }
-
+function getSubscriptionBlockReason(subscription, tenant) {
   const status = normalizeStatus(subscription?.status);
   const hasPlan = Boolean(subscription?.id || subscription?.planId);
   const activeSubscription = isActiveSubscription(subscription);
@@ -125,6 +115,34 @@ function getMobileBlockReason(subscription, tenant, accountChannel = null) {
   }
 
   return "sync_error";
+}
+
+function getMobileBlockReason(subscription, tenant, accountChannel = null) {
+  const channel = accountChannel?.channel || accountChannel;
+
+  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
+    return "account_blocked";
+  }
+
+  if (channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
+    return "wrong_channel";
+  }
+
+  return getSubscriptionBlockReason(subscription, tenant);
+}
+
+function getOperationalBlockReason(subscription, tenant, accountChannel = null) {
+  const channel = accountChannel?.channel || accountChannel;
+
+  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
+    return "account_blocked";
+  }
+
+  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN) {
+    return "wrong_channel";
+  }
+
+  return getSubscriptionBlockReason(subscription, tenant);
 }
 
 function resolveMobileAccess(subscription, tenant, accountChannel, options = {}) {
@@ -278,6 +296,7 @@ async function buildAuthContext(store, user, options = {}) {
       canAccessPortal: false,
       canUseOperations: false,
       onboarding: null,
+      operationalBlockReason: "missing_user",
       productDestination: resolution.destination,
       productRoute: resolution.route,
       subscription,
@@ -336,6 +355,9 @@ async function buildAuthContext(store, user, options = {}) {
     canAccessPortal: accountChannel.canAccessPortal,
     canUseOperations,
     onboarding,
+    operationalBlockReason: canUseOperations
+      ? null
+      : getOperationalBlockReason(subscription, tenant, accountChannel),
     productDestination: resolution.destination,
     productRoute: resolution.route,
     source: activeOrder?.source || null,
@@ -348,6 +370,8 @@ module.exports = {
   buildTenantContext,
   buildAuthContext,
   getMobileBlockReason,
+  getOperationalBlockReason,
+  getSubscriptionBlockReason,
   isActiveSubscription,
   isActiveTenant,
   resolveMobileAccess,
