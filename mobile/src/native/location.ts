@@ -157,6 +157,12 @@ async function getAndroidForegroundPermissionStatus() {
     : PermissionStatus.UNDETERMINED;
 }
 
+async function getAndroidBackgroundPermissionStatus() {
+  return getAndroidPermissionStatus(
+    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+  );
+}
+
 async function requestAndroidForegroundPermission() {
   const current = await getAndroidForegroundPermissionStatus();
 
@@ -186,10 +192,16 @@ export async function hasServicesEnabledAsync() {
     return true;
   }
 
+  if (!NativeLocationStatus?.hasServicesEnabled) {
+    return true;
+  }
+
   try {
-    return Boolean(await NativeLocationStatus?.hasServicesEnabled?.());
+    return Boolean(await NativeLocationStatus.hasServicesEnabled());
   } catch {
-    return false;
+    // La ausencia del bridge no demuestra que el GPS del telefono este apagado.
+    // La captura nativa reportara un error explicito si el proveedor no responde.
+    return true;
   }
 }
 
@@ -211,17 +223,25 @@ export async function requestForegroundPermissionsAsync() {
   };
 }
 
+export async function getBackgroundPermissionsAsync() {
+  if (Platform.OS !== 'android') {
+    return { status: PermissionStatus.GRANTED };
+  }
+
+  return {
+    status: await getAndroidBackgroundPermissionStatus(),
+  };
+}
+
 export async function requestBackgroundPermissionsAsync() {
   if (Platform.OS !== 'android') {
     return { status: PermissionStatus.GRANTED };
   }
 
-  const isGranted = await PermissionsAndroid.check(
-    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
-  );
+  const current = await getAndroidBackgroundPermissionStatus();
 
-  if (isGranted) {
-    return { status: PermissionStatus.GRANTED };
+  if (current === PermissionStatus.GRANTED) {
+    return { status: current };
   }
 
   const result = await PermissionsAndroid.request(
@@ -277,6 +297,12 @@ export async function watchPositionAsync(
     Platform.OS === 'android' &&
     (await getAndroidForegroundPermissionStatus()) !== PermissionStatus.GRANTED
   ) {
+    onError?.(
+      createLocationError(
+        'permission_denied',
+        'Location foreground permission is not granted.'
+      )
+    );
     return {
       remove: () => undefined,
     };
