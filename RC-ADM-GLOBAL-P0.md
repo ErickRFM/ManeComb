@@ -1,7 +1,7 @@
 # ADM-GLOBAL-P0 — Seguridad fail-closed y cobertura obligatoria
 
 **Rama:** `fix/adm-global-p0-security`  
-**Estado:** implementación técnica cerrada; pendiente de merge y validación operativa  
+**Estado:** implementación técnica cerrada; revalidación de CI solicitada antes del merge  
 **Alcance:** autenticación Platform, MFA, configuración productiva, CORS y CI
 
 ## Problema corregido
@@ -18,6 +18,10 @@ La política anterior calculaba MFA como requerido únicamente cuando la llave d
 - CORS contempla `admin.manecomb.com` y el puerto local `5174`.
 - Las suites Platform forman parte obligatoria de `npm test`.
 - El contrato de entorno detecta la reaparición del patrón fail-open.
+
+## Gate de integración
+
+La rama debe ejecutar nuevamente CI y auditoría de dependencias sobre su head vigente antes del merge. No se fusionará únicamente por resultados históricos.
 
 ## Validación operativa posterior
 
