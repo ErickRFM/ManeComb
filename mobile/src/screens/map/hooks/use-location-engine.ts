@@ -11,12 +11,12 @@ import { MAX_ACCEPTED_ACCURACY_METERS } from '../constants/tracking';
 import { initialLocationEngineState, locationReducer } from '../reducers/location-reducer';
 import {
   buildLivePoint,
+  getBackgroundPermission,
   getCurrentLocation,
   getForegroundPermission,
   getIssueFromError,
   hasLocationServicesEnabled,
   prepareNativeLocationProvider,
-  requestBackgroundPermission,
   requestForegroundPermission,
   shouldAcceptLocation,
   toIsoTimestamp,
@@ -24,6 +24,10 @@ import {
   watchNativeLocation,
 } from '../services/location-service';
 import type { LiveLocationPoint, LocationPosition } from '../types/location-engine';
+import {
+  canCaptureLocalLocation,
+  canOwnVehicleTracking,
+} from '../utils/location-eligibility';
 
 const BACKGROUND_OWNER = 'operational-runtime' as const;
 
@@ -45,11 +49,9 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       user: store.user,
     }))
   );
-  const operationallyEligible =
-    user?.role === 'driver' &&
-    Boolean(user.vehicleId) &&
-    authContext?.canAccessMobile === true;
-  const trackingEnabled = enabled && operationallyEligible;
+  const localCaptureEligible = canCaptureLocalLocation(user, authContext);
+  const operationallyEligible = canOwnVehicleTracking(user, authContext);
+  const trackingEnabled = enabled && localCaptureEligible;
   const trackingEnabledRef = useRef(trackingEnabled);
   trackingEnabledRef.current = trackingEnabled;
 
@@ -118,7 +120,9 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       await prepareNativeLocationProvider();
       if (!isCurrent()) return;
 
-      const background = await requestBackgroundPermission();
+      // La lectura normal nunca abre el dialogo de "Permitir siempre". Ese
+      // permiso solo se solicita al confirmar/iniciar una jornada.
+      const background = await getBackgroundPermission();
       if (!isCurrent()) return;
 
       const backgroundPermission = toPermissionState(background.status);
@@ -242,7 +246,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
             ? 'unknown'
             : 'permission_denied',
         permission: toPermissionState(foreground.status),
-        servicesEnabled: false,
+        servicesEnabled: true,
       });
     }
   }, [releaseTracking, trackingEnabled]);
@@ -299,7 +303,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
         Location.getForegroundPermissionsAsync().catch(() => ({
           status: Location.PermissionStatus.DENIED,
         })),
-        Location.requestBackgroundPermissionsAsync().catch(() => ({
+        Location.getBackgroundPermissionsAsync().catch(() => ({
           status: Location.PermissionStatus.DENIED,
         })),
       ]);
