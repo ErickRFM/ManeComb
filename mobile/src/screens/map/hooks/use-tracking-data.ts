@@ -40,6 +40,8 @@ export function useTrackingData(
     () => getSelectedUnit(selectedUnitId, prioritizedUnits, unitById),
     [prioritizedUnits, selectedUnitId, unitById]
   );
+  // Jornada ya resuelta por backend. El hook no reconstruye estados ni tiempos.
+  const selectedJourney = selectedUnit?.journey ?? null;
 
   const activeRouteCount = useMemo(() => getActiveRouteCount(prioritizedUnits), [prioritizedUnits]);
   // Se expone aparte: nunca se suma a `activeRouteCount`.
@@ -66,6 +68,7 @@ export function useTrackingData(
     unknownStateCount,
     mappableUnits,
     prioritizedUnits,
+    selectedJourney,
     selectedUnit,
     unitById,
     vehicleById,
