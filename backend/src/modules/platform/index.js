@@ -6,6 +6,7 @@ const { recordPlatformAction } = require("../../services/platform-audit");
 const { getPlatformPermissions } = require("../../config/platform-roles");
 const companiesRouter = require("./companies-routes");
 const operationsRouter = require("./operations-routes");
+const governanceRouter = require("./governance-routes");
 
 const readLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
@@ -133,5 +134,6 @@ router.get(
 
 router.use("/companies", companiesRouter);
 router.use(operationsRouter);
+router.use(governanceRouter);
 
 module.exports = router;
