@@ -16,7 +16,7 @@ import { usePublicCommercialFlow } from '@/features/commercial';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
 import { saveCheckoutContext } from '@/src/utils/checkout-context';
-import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
+import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { COMMERCIAL_FAQS } from '@/src/constants/commercial';
 import { neonPalette, processSteps, trustMetrics } from './sales/constants';
 import { styles } from './sales/styles';
@@ -31,7 +31,7 @@ import { SiteHeader } from './sales/components/site-header';
 import { ImmersiveBackground } from './sales/components/immersive-background';
 import { DashboardMockup } from './sales/components/dashboard-mockup';
 import { ActionButton, ProcessStep, RoundIconButton, SectionHeading } from './sales/components/section-heading';
-import { DemoPlanNotice, HeroSignalRow, PlatformOverview } from './sales/components/sales-story';
+import { HeroSignalRow, PlatformOverview } from './sales/components/sales-story';
 import { RevealView } from './sales/components/reveal-view';
 import { PlanCardSkeleton } from './sales/components/plan-card-skeleton';
 import { PlanCard } from './sales/components/plan-card';
@@ -153,8 +153,6 @@ export function SalesScreen() {
   }, []);
 
   const activePlan = plans[activePlanIndex] || plans[0] || null;
-  const demoPlanIndex = plans.findIndex((plan) => isPublicDemoPlan(plan));
-  const demoPlan = demoPlanIndex >= 0 ? plans[demoPlanIndex] : null;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
     normalizePaymentReturnStatus(checkoutConfirm.paymentStatus) ||
@@ -166,16 +164,14 @@ export function SalesScreen() {
     const params = buildPlanParams(plan, safeRequestTrial);
     saveCheckoutContext(plan.id, safeRequestTrial);
 
-    if (user && isCustomerAccount(user)) {
-      router.push({
-        pathname: '/ventas/pago',
-        params,
-      } as never);
+    // La compra manda: cualquier cuenta autenticada continúa al pago (antes, una cuenta no-cliente
+    // era desviada y perdía el plan elegido).
+    if (user) {
+      router.push({ pathname: '/ventas/pago', params } as never);
       return;
     }
 
-    const target = user ? getAuthenticatedHome(user) : '/ventas/registro';
-    router.push({ pathname: target, params } as never);
+    router.push({ pathname: '/ventas/registro', params } as never);
   };
 
   const PageScroller = Platform.OS === 'web' ? View : ScrollView;
@@ -339,7 +335,7 @@ export function SalesScreen() {
                 <SectionHeading
                   eyebrow="PLANES CLAROS, SIN LETRA CHIQUITA"
                   title="Elige la capacidad de tu flotilla"
-                  intro="Todos los planes incluyen la plataforma operativa. La demo de 7 días está disponible únicamente en el plan de 2 combis; los demás se activan directamente."
+                  intro="Todos los planes incluyen la plataforma operativa y se activan directamente. Elige la capacidad que necesita tu empresa."
                 />
                 <View style={styles.carouselControls}>
                   {plans.length ? (
@@ -372,16 +368,6 @@ export function SalesScreen() {
                 </View>
               </View>
 
-              {demoPlan ? (
-                <DemoPlanNotice
-                  compact={isPhone}
-                  demoPlan={demoPlan}
-                  onPress={() => {
-                    if (demoPlanIndex >= 0) jumpToPlan(demoPlanIndex);
-                  }}
-                />
-              ) : null}
-
               {plansLoading ? (
                 <View
                   style={[
@@ -391,7 +377,7 @@ export function SalesScreen() {
                     isDesktop
                       ? { alignSelf: 'center', width: desktopCarouselWidth }
                       : undefined,
-                    { alignItems: 'flex-start' },
+                    { alignItems: 'stretch' },
                   ]}>
                   {[0, 1, 2].map((i) => (
                     <PlanCardSkeleton key={i} width={cardWidth} />
@@ -424,7 +410,7 @@ export function SalesScreen() {
                     styles.planCarousel,
                     isPhone ? styles.planCarouselPhone : undefined,
                     isDesktop ? styles.planCarouselDesktop : undefined,
-                    { alignItems: 'flex-start' },
+                    { alignItems: 'stretch' },
                   ]}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={handlePlansScrollEnd}>
@@ -439,9 +425,7 @@ export function SalesScreen() {
                       accent={getPlanAccent(plan, index)}
                       onPress={() => jumpToPlan(index)}
                       onBuy={() => goToPlanCheckout(plan)}
-                      onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}
                       userLabel={buyLabel}
-                      trialLabel={`Usar demo ${plan.trialDays || 7} días`}
                     />
                   ))}
                 </ScrollView>
@@ -547,7 +531,7 @@ export function SalesScreen() {
                 <SectionHeading
                   eyebrow="PREGUNTAS FRECUENTES"
                   title="Decide con información clara"
-                  intro="Demo, planes, operación y activación explicados antes de registrarte."
+                  intro="Planes, operación y activación explicados antes de registrarte."
                 />
                 <View style={styles.faqList}>
                   {COMMERCIAL_FAQS.map((faq, index) => (

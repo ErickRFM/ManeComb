@@ -142,8 +142,8 @@ export const processSteps: Array<{
   icon: IconName;
 }> = [
   {
-    title: 'Elige demo o plan.',
-    body: 'Prueba 7 días con 2 combis o activa directamente el paquete de tu flotilla.',
+    title: 'Elige tu plan.',
+    body: 'Selecciona el paquete que corresponde al tamaño de tu flotilla y actívalo directamente.',
     icon: 'credit-card-outline',
   },
   {
@@ -196,7 +196,7 @@ export const trustMetrics: Array<{
 ];
 
 export const footerColumns = [
-  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes', 'Demo 2 combis'] },
+  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes'] },
   { title: 'Empresa', links: ['Nosotros', 'Casos de éxito', 'Contacto'] },
   { title: 'Soporte', links: ['Centro de ayuda', 'Documentación', 'Estado del sistema'] },
   { title: 'Legal', links: ['Privacidad', 'Términos', 'Cookies'] },

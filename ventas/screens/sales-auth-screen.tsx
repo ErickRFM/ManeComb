@@ -80,10 +80,17 @@ export function SalesAuthScreen({ mode }: Props) {
   }, [routeRequestsTrial, selectedPlanId]);
 
   if (user) {
-    if (isCustomerAccount(user)) {
+    // La COMPRA manda: si hay un checkout pendiente, cualquier cuenta autenticada continúa al pago
+    // (antes solo lo hacían las cuentas de cliente y el resto perdía la compra en curso).
+    if (selectedPlanId) {
       return <Redirect href={buildPaymentRoute(selectedPlanId, routeRequestsTrial) as never} />;
     }
 
+    if (isCustomerAccount(user)) {
+      return <Redirect href="/portal" />;
+    }
+
+    // Sin compra pendiente, la cuenta operativa cae en el handoff de acceso operativo (#45).
     return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 

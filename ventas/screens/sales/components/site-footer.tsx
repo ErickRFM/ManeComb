@@ -27,7 +27,7 @@ function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => v
 
 export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
   const handleFooterLink = (label: string) => {
-    if (label === 'Planes' || label === 'Demo 2 combis') {
+    if (label === 'Planes') {
       onNavigate('planes');
       return;
     }

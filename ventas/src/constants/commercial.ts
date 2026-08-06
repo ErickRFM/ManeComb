@@ -1,8 +1,8 @@
 export const COMMERCIAL_FAQS = [
   {
-    question: '¿Qué plan incluye demo?',
+    question: '¿Cómo elijo la capacidad correcta?',
     answer:
-      'La demo de 7 días está disponible únicamente en el plan de 2 combis. Los planes de 4, 6, 8 y 12 combis se activan directamente al elegirlos.',
+      'Cada plan indica cuántas unidades incluye y el costo por unidad. Elige el paquete que corresponde al tamaño actual de tu flotilla; puedes cambiar a una capacidad mayor conforme crezcas.',
   },
   {
     question: '¿El precio es por mes?',

@@ -14,7 +14,6 @@ import {
   readCheckoutContext,
   saveCheckoutContext,
 } from '@/src/utils/checkout-context';
-import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 
 import { CheckoutHeader } from './checkout/components/checkout-header';
@@ -132,10 +131,6 @@ export function PlanCheckoutScreen() {
 
   if (!user) {
     return <Redirect href={{ pathname: '/ventas/registro', params: buildCheckoutParams(planId, requestTrial) }} />;
-  }
-
-  if (!isCustomerAccount(user)) {
-    return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
   if (plansLoading) {

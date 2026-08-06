@@ -1,6 +1,5 @@
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import type { CommercialPlan } from '@/src/types/app';
 import { Typography } from '@/constants/theme';
 import { heroSignals, neonPalette, platformPillars } from '../constants';
 import { webStyle } from '../utils';
@@ -162,58 +161,6 @@ export function PlatformOverview({ compact }: { compact: boolean }) {
   );
 }
 
-export function DemoPlanNotice({
-  compact,
-  demoPlan,
-  onPress,
-}: {
-  compact: boolean;
-  demoPlan: CommercialPlan | null;
-  onPress: () => void;
-}) {
-  const trialDays = Math.max(1, Number(demoPlan?.trialDays) || 7);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Ver plan de 2 combis con demo"
-      onPress={onPress}
-      style={(state) => [
-        localStyles.demoNotice,
-        compact ? localStyles.demoNoticeCompact : undefined,
-        state.pressed ? localStyles.pressed : undefined,
-        webStyle({
-          cursor: 'pointer',
-          backgroundImage:
-            'linear-gradient(120deg, rgba(0, 194, 255, 0.14), rgba(122, 60, 255, 0.12) 48%, rgba(255, 45, 122, 0.14))',
-          boxShadow: '0 0 0 1px rgba(0, 194, 255, 0.18), 0 18px 54px rgba(0, 0, 0, 0.24)',
-          transitionDuration: '240ms',
-          transitionProperty: 'transform, box-shadow, border-color',
-        }),
-      ]}>
-      <View style={localStyles.demoIcon}>
-        <MaterialCommunityIcons name="flask-outline" size={27} color={neonPalette.cyan} />
-      </View>
-      <View style={localStyles.demoCopy}>
-        <View style={localStyles.demoTitleRow}>
-          <Text style={localStyles.demoKicker}>DEMO EXCLUSIVA</Text>
-          <View style={localStyles.demoBadge}>
-            <Text style={localStyles.demoBadgeText}>Solo plan 2 combis</Text>
-          </View>
-        </View>
-        <Text style={localStyles.demoTitle}>Prueba ManeComb durante {trialDays} días con dos unidades.</Text>
-        <Text style={localStyles.demoBody}>
-          Los planes de 4, 6, 8 y 12 combis se contratan directamente. Así la oferta es clara y cada empresa elige
-          exactamente la capacidad que necesita.
-        </Text>
-      </View>
-      <View style={localStyles.demoAction}>
-        <Text style={localStyles.demoActionText}>Ver demo</Text>
-        <MaterialCommunityIcons name="arrow-right" size={18} color="#FFFFFF" />
-      </View>
-    </Pressable>
-  );
-}
 
 const localStyles = StyleSheet.create({
   signalRow: {
@@ -473,92 +420,6 @@ const localStyles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     lineHeight: 18,
-  },
-  demoNotice: {
-    alignItems: 'center',
-    borderColor: 'rgba(0, 194, 255, 0.24)',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    minHeight: 112,
-    padding: 16,
-  },
-  demoNoticeCompact: {
-    alignItems: 'stretch',
-    flexDirection: 'column',
-  },
-  demoIcon: {
-    alignItems: 'center',
-    backgroundColor: neonPalette.cyanSoft,
-    borderColor: 'rgba(0, 194, 255, 0.35)',
-    borderRadius: 14,
-    borderWidth: 1,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  demoCopy: {
-    flex: 1,
-    gap: 5,
-    minWidth: 0,
-  },
-  demoTitleRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  demoKicker: {
-    color: neonPalette.cyan,
-    fontFamily: Typography.body,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-  },
-  demoBadge: {
-    backgroundColor: 'rgba(255, 45, 122, 0.1)',
-    borderColor: 'rgba(255, 45, 122, 0.3)',
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  demoBadgeText: {
-    color: neonPalette.accent,
-    fontFamily: Typography.body,
-    fontSize: 9.5,
-    fontWeight: '900',
-  },
-  demoTitle: {
-    color: neonPalette.text,
-    fontFamily: Typography.display,
-    fontSize: 17,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
-  demoBody: {
-    color: neonPalette.mutedStrong,
-    fontFamily: Typography.body,
-    fontSize: 12.5,
-    lineHeight: 19,
-  },
-  demoAction: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: neonPalette.accent,
-    borderRadius: 12,
-    flexDirection: 'row',
-    gap: 7,
-    justifyContent: 'center',
-    minHeight: 46,
-    paddingHorizontal: 14,
-  },
-  demoActionText: {
-    color: '#FFFFFF',
-    fontFamily: Typography.body,
-    fontSize: 12.5,
-    fontWeight: '900',
   },
   pressed: {
     opacity: 0.86,
