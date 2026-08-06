@@ -14,6 +14,8 @@ export function PlanCard({
   accent,
   onPress,
   onBuy,
+  onTrial,
+  trialLabel,
   userLabel,
 }: {
   index: number;
@@ -24,6 +26,8 @@ export function PlanCard({
   accent: string;
   onPress: () => void;
   onBuy: () => void;
+  onTrial?: () => void;
+  trialLabel?: string | null;
   userLabel: string;
 }) {
   const visual = getPlanVisualTone(index);
@@ -35,6 +39,7 @@ export function PlanCard({
     plan.includesRadioModule ? 'Radio incluido' : 'Radio opcional',
     'Activación directa',
   ];
+  const showTrialAction = Boolean(onTrial && trialLabel);
 
   return (
     <Pressable
@@ -160,7 +165,7 @@ export function PlanCard({
           </View>
         ))}
       </View>
-      <View style={styles.planActions}>
+      <View style={[styles.planActions, { gap: 9 }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${userLabel}: ${plan.name}`}
@@ -195,6 +200,43 @@ export function PlanCard({
             {userLabel}
           </Text>
         </Pressable>
+
+        {showTrialAction ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${trialLabel}: ${plan.name}`}
+            onPress={onTrial}
+            style={(state) => {
+              const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
+              const pressed = state.pressed;
+
+              return [
+                styles.planButton,
+                compactCard ? { minHeight: 48, paddingHorizontal: 12 } : { minHeight: 48 },
+                {
+                  backgroundColor: hovered ? `${cardEdge}20` : 'rgba(255, 255, 255, 0.035)',
+                  borderColor: `${cardEdge}A8`,
+                  transform: [{ scale: hovered ? 1.012 : 1 }],
+                  ...(Platform.OS === 'web'
+                    ? ({
+                        boxShadow: hovered ? `0 0 18px ${cardEdge}30` : 'none',
+                        transitionDuration: '220ms',
+                        transitionProperty: 'transform, box-shadow, background-color',
+                        cursor: 'pointer',
+                      } as any)
+                    : null),
+                },
+                pressed ? styles.buttonPressed : undefined,
+              ];
+            }}>
+            <MaterialCommunityIcons name="clock-fast" size={18} color={cardEdge} />
+            <Text
+              style={[styles.planButtonLabel, { color: cardEdge }]}
+              numberOfLines={compactCard ? 2 : 1}>
+              {trialLabel}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </Pressable>
   );
