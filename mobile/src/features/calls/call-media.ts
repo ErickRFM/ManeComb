@@ -2,6 +2,7 @@
 // El runtime es el unico propietario del stream; este modulo solo crea, conmuta y libera tracks.
 
 import { mediaDevices } from '@/src/native/webrtc';
+import { assertCallMediaPermissions } from './call-permissions';
 
 export interface LocalMediaTrack {
   enabled: boolean;
@@ -26,6 +27,8 @@ export async function acquireLocalMedia(mode: 'audio' | 'video'): Promise<LocalM
   if (!mediaDevices || typeof mediaDevices.getUserMedia !== 'function') {
     throw new Error('media_unavailable');
   }
+
+  await assertCallMediaPermissions(mode);
 
   const stream: any = await mediaDevices.getUserMedia({
     audio: true,

@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { navigationRef } from '@/src/navigation/router';
 import { MODULE_ROUTE_NAMES } from '@/src/navigation/route-registry';
 import { useCallStore } from '@/src/features/calls/call-store';
-import { getSharedRealtimeSocket, useAppStore } from '@/src/store/use-app-store';
+import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
 import { setRadioRealtimeSuspended } from '@/src/screens/radio/services/radio-realtime-service';
 import {
   acquireRadioForegroundService,
@@ -35,6 +35,7 @@ function useCurrentRouteName() {
 
 export function RadioLiveOverlay(): React.ReactElement | null {
   const routeName = useCurrentRouteName();
+  const socket = useSharedRealtimeSocket();
   const callPhase = useCallStore((state) => state.phase);
   const { activate, pause, reset } = useRadioLiveStore(
     useShallow((state) => ({
@@ -47,7 +48,6 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     authContext,
     conversations,
     openGeneralConversation,
-    socketStatus,
     token,
     user,
   } = useAppStore(
@@ -55,7 +55,6 @@ export function RadioLiveOverlay(): React.ReactElement | null {
       authContext: state.authContext,
       conversations: state.conversations,
       openGeneralConversation: state.openGeneralConversation,
-      socketStatus: state.socketStatus,
       token: state.token,
       user: state.user,
     }))
@@ -136,7 +135,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   }, [callOwnsAudio, eligible, screenOwnsRadio]);
 
   useEffect(() => {
-    if (!eligible || !user || !channelId) return;
+    if (!eligible || !user || !channelId || !socket) return;
 
     if (callOwnsAudio) {
       pause('call');
@@ -148,9 +147,6 @@ export function RadioLiveOverlay(): React.ReactElement | null {
       return;
     }
 
-    const socket = getSharedRealtimeSocket();
-    if (!socket) return;
-
     activate({ channelId, socket, userId: user.id });
   }, [
     activate,
@@ -159,7 +155,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     eligible,
     pause,
     screenOwnsRadio,
-    socketStatus,
+    socket,
     user,
   ]);
 

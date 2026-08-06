@@ -3,7 +3,6 @@ const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const {
-  canAccessAllTenants,
   canAccessTenantResource,
   filterTenantList,
   getOrganizationId,
@@ -22,17 +21,19 @@ function filterLiveLocationsForTenant(user, live) {
 
   return {
     ...live,
-    routes: (live.routes || []).filter((route) => {
-      return canAccessAllTenants(user) || Boolean(
-        route.organizationId && String(route.organizationId) === String(organizationId || "")
-      );
-    }),
+    routes: (live.routes || []).filter(
+      (route) => Boolean(
+        organizationId &&
+        route.organizationId &&
+        String(route.organizationId) === organizationId
+      )
+    ),
     vehicles: vehicles.map((vehicle) => ({
       ...vehicle,
       gpsFreshness: buildGpsFreshness(vehicle.locationTimestamp, live.updatedAt)
     })),
     incidents: (live.incidents || []).filter((incident) => {
-      if (user.role === "driver") {
+      if (["driver", "conductor"].includes(String(user.role || "").toLowerCase())) {
         return incident.reporterId === user.id || incident.vehicleId === user.vehicleId;
       }
 
@@ -40,7 +41,7 @@ function filterLiveLocationsForTenant(user, live) {
         return true;
       }
 
-      return canAccessAllTenants(user) || canAccessTenantResource(user, incident);
+      return canAccessTenantResource(user, incident);
     })
   };
 }

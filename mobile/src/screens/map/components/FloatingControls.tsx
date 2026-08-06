@@ -15,7 +15,8 @@ type FloatingControlsProps = {
   onToggleTraffic: () => void;
   top: number;
   trafficEnabled: boolean;
-  journeyStatus?: 'none' | 'running' | 'paused';
+  journeyStatus?: 'none' | 'assigned' | 'ready' | 'running' | 'paused';
+  onConfirmJourney?: () => void;
   onStartJourney?: () => void;
   onFinishJourney?: () => void;
   onPauseJourney?: () => void;
@@ -34,6 +35,7 @@ export function FloatingControls({
   top,
   trafficEnabled,
   journeyStatus,
+  onConfirmJourney,
   onStartJourney,
   onFinishJourney,
   onPauseJourney,
@@ -96,16 +98,25 @@ export function FloatingControls({
           <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#FFF" />
         </Pressable>
       )}
-      {journeyStatus && onStartJourney && onFinishJourney && onPauseJourney ? (
+      {journeyStatus ? (
         <View style={[styles.fabGroup, { backgroundColor: theme.colors.headerGlass, borderColor: theme.colors.accent }]}>
-          {journeyStatus === 'none' ? (
+          {journeyStatus === 'assigned' && onConfirmJourney ? (
+            <Pressable
+              onPress={onConfirmJourney}
+              style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
+              accessibilityLabel="Confirmar jornada asignada">
+              <MaterialCommunityIcons name="check-circle-outline" size={24} color={theme.colors.accent} />
+            </Pressable>
+          ) : null}
+          {(journeyStatus === 'none' || journeyStatus === 'ready') && onStartJourney ? (
             <Pressable
               onPress={onStartJourney}
               style={({ pressed }) => [styles.fabCompact, pressed ? styles.controlPressed : undefined]}
-              accessibilityLabel="Iniciar jornada">
+              accessibilityLabel={journeyStatus === 'ready' ? 'Iniciar jornada confirmada' : 'Iniciar jornada'}>
               <MaterialCommunityIcons name="play-circle-outline" size={24} color={theme.colors.accent} />
             </Pressable>
-          ) : (
+          ) : null}
+          {(journeyStatus === 'running' || journeyStatus === 'paused') && onPauseJourney && onFinishJourney ? (
             <>
               <Pressable
                 onPress={onPauseJourney}
@@ -125,7 +136,7 @@ export function FloatingControls({
                 <MaterialCommunityIcons name="stop-circle-outline" size={24} color={theme.colors.danger} />
               </Pressable>
             </>
-          )}
+          ) : null}
         </View>
       ) : null}
     </View>

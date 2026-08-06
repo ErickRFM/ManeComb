@@ -4,6 +4,7 @@ import type {
   LiveLocationsData,
   NavigationRouteOption,
   NavigationStop,
+  RouteShape,
   Vehicle,
 } from '@/src/types/app';
 
@@ -68,6 +69,16 @@ function normalizeStop(value: unknown, index: number): NavigationStop | null {
   };
 }
 
+function normalizeStops(value: unknown): NavigationStop[] {
+  return Array.isArray(value)
+    ? value
+        .map(normalizeStop)
+        .filter((entry): entry is NavigationStop => Boolean(entry))
+        .sort((left, right) => left.order - right.order)
+        .map((stop, index) => ({ ...stop, order: index }))
+    : [];
+}
+
 export function normalizeNavigationRouteOption(value: unknown): NavigationRouteOption | null {
   if (!isRecord(value)) {
     return null;
@@ -114,13 +125,6 @@ export function normalizeAssignedRoute(value: unknown): AssignedRoute | null {
         .map(normalizeNavigationRouteOption)
         .filter((entry): entry is NavigationRouteOption => Boolean(entry))
     : [];
-  const stops = Array.isArray(value.stops)
-    ? value.stops
-        .map(normalizeStop)
-        .filter((entry): entry is NavigationStop => Boolean(entry))
-        .sort((left, right) => left.order - right.order)
-        .map((stop, index) => ({ ...stop, order: index }))
-    : [];
 
   return {
     alternatives,
@@ -136,17 +140,55 @@ export function normalizeAssignedRoute(value: unknown): AssignedRoute | null {
     routeColor: stringValue(value.routeColor) || null,
     routeId: stringValue(value.routeId) || null,
     routeName: stringValue(value.routeName),
-    stops,
+    stops: normalizeStops(value.stops),
+  };
+}
+
+export function normalizeRouteShape(value: unknown, index = 0): RouteShape | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const polyline = Array.isArray(value.polyline)
+    ? value.polyline.map(normalizePoint).filter((point): point is GeoPoint => Boolean(point))
+    : [];
+  const id = stringValue(value.id, `route-${index + 1}`);
+  const code = stringValue(value.code);
+  const name = stringValue(value.name, code || `Ruta ${index + 1}`);
+
+  return {
+    id,
+    name,
+    code: code || name,
+    color: stringValue(value.color, '#E31E24'),
+    origin: normalizePoint(value.origin) || polyline[0] || null,
+    originLabel: stringValue(value.originLabel),
+    destination: normalizePoint(value.destination) || polyline[polyline.length - 1] || null,
+    destinationLabel: stringValue(value.destinationLabel),
+    stops: normalizeStops(value.stops),
+    distanceMeters: Math.max(0, finiteNumber(value.distanceMeters)),
+    durationSeconds: Math.max(0, finiteNumber(value.durationSeconds)),
+    durationInTrafficSeconds: Math.max(0, finiteNumber(value.durationInTrafficSeconds)),
+    polyline,
   };
 }
 
 export function normalizeVehicle(value: Vehicle): Vehicle {
-  const location = normalizePoint(value.location as unknown);
+  const raw = value as Vehicle & { label?: unknown };
+  const id = stringValue(raw.id);
+  const plate = stringValue(raw.plate);
+  const code = stringValue(raw.code, stringValue(raw.label, plate || (id ? `Unidad ${id}` : 'Unidad')));
+  const location = normalizePoint(raw.location as unknown);
 
   return {
     ...value,
+    id,
+    code,
+    plate,
+    delayMinutes: Math.max(0, finiteNumber(raw.delayMinutes)),
     location,
-    assignedRoute: normalizeAssignedRoute((value as { assignedRoute?: unknown }).assignedRoute),
+    assignedRoute: normalizeAssignedRoute((raw as { assignedRoute?: unknown }).assignedRoute),
+    route: normalizeRouteShape((raw as { route?: unknown }).route),
   };
 }
 
@@ -157,6 +199,12 @@ export function normalizeLiveLocationsData(value: LiveLocationsData | null | und
 
   return {
     ...value,
+    routes: Array.isArray(value.routes)
+      ? value.routes
+          .map(normalizeRouteShape)
+          .filter((route): route is RouteShape => Boolean(route))
+      : [],
     vehicles: Array.isArray(value.vehicles) ? value.vehicles.map(normalizeVehicle) : [],
+    incidents: Array.isArray(value.incidents) ? value.incidents : [],
   };
 }

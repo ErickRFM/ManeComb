@@ -1,33 +1,21 @@
 /**
  * Contrato operacional canonico.
  *
- * Fuente de verdad: backend/src/domain/operational-unit-snapshot.js
- * Este archivo es la contraparte tipada. Si cambia uno, cambia el otro.
+ * Fuente de verdad: backend/src/domain/operational-unit-snapshot.js y
+ * backend/src/domain/operational-journey-snapshot.js.
+ * Si cambia uno, cambia este archivo.
  *
- * Ninguna superficie puede derivar estado, frescura, velocidad ni ETA por su
- * cuenta: todo lo que se muestra viene ya resuelto en este objeto.
+ * Ninguna superficie puede derivar estado, frescura, velocidad, ETA o estado
+ * de Jornada por su cuenta: todo lo que se muestra viene resuelto aqui.
  */
 
 export type GpsFreshness = 'fresh' | 'stale' | 'missing';
 export type GpsConnectionState = 'live' | 'delayed' | 'stale' | 'lost';
-
 export type OperationalUnitStatus = 'active' | 'idle' | 'maintenance' | 'offline';
-
-/**
- * Estado operativo de la unidad.
- *
- * `unknown` significa literalmente "no lo sabemos": hay ruta asignada pero el
- * GPS no reporta dato fresco, asi que no se puede afirmar ni que circula ni que
- * esta detenida. Antes este caso caia en `stopped` y la interfaz aseguraba algo
- * que el sistema no sabia.
- *
- * No agrupes `unknown` con `stopped` ni con `on_route` en conteos ni filtros.
- */
 export type OperationalState = 'on_route' | 'stopped' | 'no_route' | 'maintenance' | 'unknown';
-
 export type DriverSource = 'session' | 'assignment' | 'none';
-
 export type OperationalVisibility = 'visible' | 'hidden';
+export type OperationalJourneyStatus = 'ASSIGNED' | 'READY' | 'RUNNING' | 'PAUSED';
 
 export type OperationalGps = {
   lat: number | null;
@@ -62,10 +50,35 @@ export type OperationalRoute = {
   currentCheckpoint: string | null;
 };
 
+/** Compatibilidad con consumidores anteriores: solo existe tras inicio real. */
 export type OperationalSession = {
   id: string;
   startedAt: string;
   elapsedSeconds: number;
+};
+
+export type OperationalJourney = {
+  id: string;
+  status: OperationalJourneyStatus;
+  driverId: string | null;
+  vehicleId: string | null;
+  routeId: string | null;
+  scheduledStartAt: string | null;
+  scheduledEndAt: string | null;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  startedAt: string | null;
+  pausedAt: string | null;
+  resumedAt: string | null;
+  elapsedSeconds: number | null;
+  requiresDriverConfirmation: boolean;
+  canStart: boolean;
+  isDriving: boolean;
+  isPaused: boolean;
+  legacyTiming: {
+    inferredScheduledStartAt: string | null;
+    reason: string | null;
+  };
 };
 
 export type OperationalIncidents = {
@@ -75,7 +88,7 @@ export type OperationalIncidents = {
 };
 
 export type OperationalUnitSnapshot = {
-  snapshotVersion: 1;
+  snapshotVersion: 2;
   unitId: string;
   plates: string | null;
   /** Nombre visible de la unidad. Nunca vacio. */
@@ -85,12 +98,12 @@ export type OperationalUnitSnapshot = {
   gps: OperationalGps;
   driver: OperationalDriver | null;
   route: OperationalRoute | null;
+  /** Campo legado conservado durante la migracion. */
   session: OperationalSession | null;
+  /** Autoridad completa de la Jornada activa, incluso ASSIGNED y READY. */
+  journey: OperationalJourney | null;
   incidents: OperationalIncidents;
   lastEventAt: string | null;
-  /**
-   * Depende solo del alta de la unidad.
-   * JAMAS de la frescura del GPS ni del estado de tracking.
-   */
+  /** Depende solo del alta de la unidad, nunca de la frescura del GPS. */
   visibility: OperationalVisibility;
 };

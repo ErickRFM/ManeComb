@@ -2,6 +2,7 @@ const {
   ACTIVE_SESSION_STATUSES,
   buildOperationalUnitSnapshot
 } = require("../domain/operational-unit-snapshot");
+const { attachOperationalJourney } = require("../domain/operational-journey-snapshot");
 
 /**
  * Ensambla la proyeccion operacional canonica.
@@ -39,7 +40,8 @@ function pickActiveSession(sessions) {
       .filter((session) => ACTIVE_SESSION_STATUSES.has(String(session?.status ?? "").toUpperCase()))
       .sort(
         (left, right) =>
-          new Date(right.updatedAt || right.startedAt || 0) - new Date(left.updatedAt || left.startedAt || 0)
+          new Date(right.updatedAt || right.startedAt || right.scheduledStartAt || 0) -
+          new Date(left.updatedAt || left.startedAt || left.scheduledStartAt || 0)
       )[0] || null
   );
 }
@@ -79,10 +81,10 @@ function snapshotFromContext(vehicle, context, now) {
   const vehicleId = String(vehicle?.id ?? vehicle?._id ?? "");
   const activeSession = pickActiveSession(context.sessionsByVehicle.get(vehicleId));
   const routeId =
-    vehicle?.assignedRoute?.routeId || vehicle?.routeId || activeSession?.routeId || null;
+    activeSession?.routeId || vehicle?.assignedRoute?.routeId || vehicle?.routeId || null;
   const driverId = activeSession?.driverId || vehicle?.driverId || null;
 
-  return buildOperationalUnitSnapshot({
+  const snapshot = buildOperationalUnitSnapshot({
     vehicle,
     route: routeId ? context.routesById.get(String(routeId)) || null : null,
     activeSession,
@@ -90,6 +92,8 @@ function snapshotFromContext(vehicle, context, now) {
     incidents: context.incidentsByVehicle.get(vehicleId) || [],
     now
   });
+
+  return attachOperationalJourney(snapshot, activeSession, now);
 }
 
 /**
@@ -135,7 +139,7 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
 
   const sessionList = Array.isArray(sessions) ? sessions : sessions?.items || [];
   const activeSession = pickActiveSession(sessionList);
-  const routeId = vehicle.assignedRoute?.routeId || vehicle.routeId || activeSession?.routeId || null;
+  const routeId = activeSession?.routeId || vehicle.assignedRoute?.routeId || vehicle.routeId || null;
   const driverId = activeSession?.driverId || vehicle.driverId || null;
   const incidentList = Array.isArray(incidents) ? incidents : incidents?.items || [];
 
@@ -144,7 +148,7 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
     driverId ? Promise.resolve(store.getUserById(driverId)).catch(() => null) : null
   ]);
 
-  return buildOperationalUnitSnapshot({
+  const snapshot = buildOperationalUnitSnapshot({
     vehicle,
     route,
     activeSession,
@@ -152,6 +156,8 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
     incidents: incidentList.filter((incident) => String(incident?.vehicleId || "") === vehicleId),
     now
   });
+
+  return attachOperationalJourney(snapshot, activeSession, now);
 }
 
 /**

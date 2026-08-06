@@ -10,6 +10,7 @@ const mockStoreState: {
   refreshToken: string | null;
   token: string | null;
   user: {
+    accountType: string;
     operationalSchedule: null;
     role: string;
     vehicleId: string | null;
@@ -20,7 +21,12 @@ const mockStoreState: {
   authContext: { canAccessMobile: true },
   refreshToken: 'refresh-token',
   token: 'access-token',
-  user: { operationalSchedule: null, role: 'driver', vehicleId: 'vehicle-1' },
+  user: {
+    accountType: 'operations',
+    operationalSchedule: null,
+    role: 'driver',
+    vehicleId: 'vehicle-1',
+  },
 };
 
 jest.mock('@/src/store/root-store', () => ({
@@ -37,7 +43,7 @@ jest.mock('@/src/native/location', () => ({
     UNDETERMINED: 'undetermined',
   },
   getForegroundPermissionsAsync: (...args: unknown[]) => mockNativeForegroundPermission(...args),
-  requestBackgroundPermissionsAsync: (...args: unknown[]) => mockNativeBackgroundPermission(...args),
+  getBackgroundPermissionsAsync: (...args: unknown[]) => mockNativeBackgroundPermission(...args),
 }));
 
 const mockAcquireBackground = jest.fn();
@@ -51,17 +57,17 @@ jest.mock('@/src/native/background-location', () => ({
 const removeWatcher = jest.fn();
 const mockWatchNativeLocation = jest.fn();
 const mockRequestForegroundPermission = jest.fn();
-const mockRequestBackgroundPermission = jest.fn();
+const mockGetBackgroundPermission = jest.fn();
 const mockGetCurrentLocation = jest.fn();
 
 jest.mock('../services/location-service', () => ({
   buildLivePoint: (coords: unknown) => coords,
+  getBackgroundPermission: (...args: unknown[]) => mockGetBackgroundPermission(...args),
   getCurrentLocation: (...args: unknown[]) => mockGetCurrentLocation(...args),
   getForegroundPermission: jest.fn(async () => ({ status: 'granted' })),
   getIssueFromError: jest.fn(() => 'unknown'),
   hasLocationServicesEnabled: jest.fn(async () => true),
   prepareNativeLocationProvider: jest.fn(async () => undefined),
-  requestBackgroundPermission: (...args: unknown[]) => mockRequestBackgroundPermission(...args),
   requestForegroundPermission: (...args: unknown[]) => mockRequestForegroundPermission(...args),
   shouldAcceptLocation: jest.fn(() => true),
   toIsoTimestamp: jest.fn(() => '2023-11-14T22:13:20.000Z'),
@@ -103,13 +109,14 @@ describe('useLocationEngine capture ownership', () => {
     mockStoreState.refreshToken = 'refresh-token';
     mockStoreState.token = 'access-token';
     mockStoreState.user = {
+      accountType: 'operations',
       operationalSchedule: null,
       role: 'driver',
       vehicleId: 'vehicle-1',
     };
     mockWatchNativeLocation.mockResolvedValue({ remove: removeWatcher });
     mockRequestForegroundPermission.mockResolvedValue({ status: 'granted' });
-    mockRequestBackgroundPermission.mockResolvedValue({ status: 'granted' });
+    mockGetBackgroundPermission.mockResolvedValue({ status: 'granted' });
     mockNativeForegroundPermission.mockResolvedValue({ status: 'granted' });
     mockNativeBackgroundPermission.mockResolvedValue({ status: 'granted' });
     mockAcquireBackground.mockResolvedValue(true);
@@ -159,15 +166,21 @@ describe('useLocationEngine capture ownership', () => {
     expect(mockAcquireBackground).toHaveBeenCalledTimes(1);
   });
 
-  it('does not continuously capture for a user without an assigned driver vehicle', async () => {
-    mockStoreState.user = { operationalSchedule: null, role: 'admin', vehicleId: null };
+  it('captures local GPS for an operational admin without acquiring vehicle tracking', async () => {
+    mockStoreState.user = {
+      accountType: 'operations',
+      operationalSchedule: null,
+      role: 'admin',
+      vehicleId: null,
+    };
 
     await act(async () => {
       TestRenderer.create(React.createElement(Probe, { enabled: true, onChange: () => undefined }));
     });
 
-    expect(mockRequestForegroundPermission).not.toHaveBeenCalled();
-    expect(mockWatchNativeLocation).not.toHaveBeenCalled();
+    expect(mockRequestForegroundPermission).toHaveBeenCalledTimes(1);
+    expect(mockWatchNativeLocation).toHaveBeenCalledTimes(1);
+    expect(mockAcquireBackground).not.toHaveBeenCalled();
     expect(mockReleaseBackground).toHaveBeenCalledWith('operational-runtime');
   });
 
@@ -199,7 +212,7 @@ describe('useLocationEngine capture ownership', () => {
       await flushPromises();
     });
 
-    expect(mockRequestBackgroundPermission).not.toHaveBeenCalled();
+    expect(mockGetBackgroundPermission).not.toHaveBeenCalled();
     expect(mockGetCurrentLocation).not.toHaveBeenCalled();
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
   });
