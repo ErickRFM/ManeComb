@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -67,10 +67,15 @@ export function SalesScreen() {
   const isTablet = !isDesktop && !isPhone;
   const heroSideBySide = width >= 880;
   const planCardGap = isPhone ? 12 : 18;
+  const desktopVisibleCards = width >= 1320 ? 4 : 3;
+  const desktopCarouselWidth = Math.max(0, Math.min(width, 1240) - 44);
   const cardWidth = isPhone
     ? Math.max(0, width - 32)
     : isDesktop
-      ? 336
+      ? Math.floor(
+          (desktopCarouselWidth - planCardGap * (desktopVisibleCards - 1)) /
+            desktopVisibleCards
+        )
       : 306;
   const cardStep = cardWidth + planCardGap;
   const carouselRef = useRef<ScrollView>(null);
@@ -79,6 +84,20 @@ export function SalesScreen() {
   const [openFaqIndex, setOpenFaqIndex] = useState(-1);
   const [headerCompact, setHeaderCompact] = useState(false);
   const [nativeScrollY, setNativeScrollY] = useState(0);
+
+  const getPlanScrollOffset = useCallback(
+    (planIndex: number) => {
+      if (!isDesktop) {
+        return planIndex * cardStep;
+      }
+
+      const maxStartIndex = Math.max(0, plans.length - desktopVisibleCards);
+      const centeredStartIndex = planIndex - Math.floor(desktopVisibleCards / 2);
+      const startIndex = Math.max(0, Math.min(maxStartIndex, centeredStartIndex));
+      return startIndex * cardStep;
+    },
+    [cardStep, desktopVisibleCards, isDesktop, plans.length]
+  );
 
   useEffect(() => {
     if (!plans.length) {
@@ -94,13 +113,13 @@ export function SalesScreen() {
 
     const frame = requestAnimationFrame(() => {
       carouselRef.current?.scrollTo({
-        x: bestValueIndex * cardStep,
+        x: getPlanScrollOffset(bestValueIndex),
         animated: false,
       });
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [cardStep, plans]);
+  }, [getPlanScrollOffset, plans]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -184,7 +203,7 @@ export function SalesScreen() {
     }
 
     if (target === 'planes') {
-      carouselRef.current?.scrollTo({ x: activePlanIndex * cardStep, animated: true });
+      carouselRef.current?.scrollTo({ x: getPlanScrollOffset(activePlanIndex), animated: true });
     }
   };
 
@@ -197,7 +216,7 @@ export function SalesScreen() {
     const boundedIndex = Math.max(0, Math.min(plans.length - 1, nextIndex));
     setActivePlanIndex(boundedIndex);
     carouselRef.current?.scrollTo({
-      x: boundedIndex * cardStep,
+      x: getPlanScrollOffset(boundedIndex),
       animated: true,
     });
   };
@@ -367,6 +386,10 @@ export function SalesScreen() {
                   style={[
                     styles.planCarousel,
                     isPhone ? styles.planCarouselPhone : undefined,
+                    isDesktop ? styles.planCarouselDesktop : undefined,
+                    isDesktop
+                      ? { alignSelf: 'center', width: desktopCarouselWidth }
+                      : undefined,
                     { alignItems: 'flex-start' },
                   ]}>
                   {[0, 1, 2].map((i) => (
@@ -389,6 +412,8 @@ export function SalesScreen() {
                   style={[
                     styles.planCarouselViewport,
                     isPhone ? styles.planCarouselViewportPhone : undefined,
+                    isDesktop ? styles.planCarouselViewportDesktop : undefined,
+                    isDesktop ? { maxWidth: desktopCarouselWidth } : undefined,
                   ]}
                   snapToInterval={cardStep}
                   snapToAlignment="start"
@@ -397,6 +422,7 @@ export function SalesScreen() {
                   contentContainerStyle={[
                     styles.planCarousel,
                     isPhone ? styles.planCarouselPhone : undefined,
+                    isDesktop ? styles.planCarouselDesktop : undefined,
                     { alignItems: 'flex-start' },
                   ]}
                   showsHorizontalScrollIndicator={false}
