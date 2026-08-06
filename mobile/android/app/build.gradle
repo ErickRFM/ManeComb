@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -25,6 +27,24 @@ project.ext.vectoricons = [
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def appMetadataFile = file("../../app.json")
+if (!appMetadataFile.exists()) {
+    throw new GradleException("No existe mobile/app.json; no se puede resolver la version de ManeComb.")
+}
+
+def appMetadata = new JsonSlurper().parse(appMetadataFile)
+def appVersionName = appMetadata.version?.toString()?.trim()
+def appVersionCodeText = appMetadata.buildNumber?.toString()?.trim()
+
+if (!(appVersionName ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)) {
+    throw new GradleException("mobile/app.json debe contener version SemVer valida (ejemplo: 1.1.0).")
+}
+if (!(appVersionCodeText ==~ /^[1-9]\d*$/)) {
+    throw new GradleException("mobile/app.json debe contener buildNumber entero positivo.")
+}
+
+def appVersionCode = appVersionCodeText.toInteger()
+
 // NODE_BINARY permite override explicito. Por defecto se resuelve desde PATH en Windows y Linux,
 // evitando congelar una ruta local de Windows dentro del proyecto compartido.
 def nodeExecutable = System.getenv('NODE_BINARY')
@@ -130,8 +150,8 @@ android {
         applicationId = 'com.anonymous.combiscontrol'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         if (combisDetoxBundle) {
             missingDimensionStrategy 'detox', 'full'
