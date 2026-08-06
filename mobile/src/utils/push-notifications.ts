@@ -11,6 +11,8 @@ type ManeCombNotificationModule = {
     deepLink: string,
     encrypted: boolean
   ) => Promise<boolean>;
+  getPushToken: () => Promise<string | null>;
+  deletePushToken: () => Promise<boolean>;
 };
 
 const NativeNotification =
@@ -28,10 +30,7 @@ export type PushRouteIntent = {
 };
 
 export async function configureAppNotifications() {
-  if (notificationsConfigured) {
-    return;
-  }
-
+  if (notificationsConfigured) return;
   notificationsConfigured = true;
 
   if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
@@ -43,7 +42,15 @@ export async function configureAppNotifications() {
 
 export async function requestNativePushToken() {
   await configureAppNotifications();
-  return null;
+  if (Platform.OS !== 'android' || !NativeNotification?.getPushToken) return null;
+
+  const token = await NativeNotification.getPushToken().catch(() => null);
+  return String(token || '').trim() || null;
+}
+
+export async function deleteNativePushToken() {
+  if (Platform.OS !== 'android' || !NativeNotification?.deletePushToken) return false;
+  return await NativeNotification.deletePushToken().catch(() => false);
 }
 
 export async function showInAppNotification(payload: {
@@ -55,8 +62,6 @@ export async function showInAppNotification(payload: {
   encrypted?: boolean;
 }) {
   await configureAppNotifications();
-  // Ante la duda (flag ausente en un payload viejo o remoto) se asume cifrado: sin boton
-  // de responder es una degradacion de UX; con boton seria una degradacion de cifrado.
   const encrypted =
     payload.encrypted ?? parseEncryptedFlag(payload.data?.encrypted ?? payload.data?.e2ee);
 
@@ -71,15 +76,8 @@ export async function showInAppNotification(payload: {
 }
 
 function parseEncryptedFlag(value: unknown) {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    return value.trim().toLowerCase() !== 'false';
-  }
-
-  // Sin senal explicita se falla cerrado.
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.trim().toLowerCase() !== 'false';
   return true;
 }
 
@@ -146,7 +144,5 @@ export function getPushRouteIntent(rawData: Record<string, unknown> | null | und
 export function addPushResponseListener(
   _callback: (intent: PushRouteIntent) => void | Promise<void>
 ) {
-  return () => {
-    // Native push provider is intentionally not wired until FCM/Notifee credentials exist.
-  };
+  return () => undefined;
 }
