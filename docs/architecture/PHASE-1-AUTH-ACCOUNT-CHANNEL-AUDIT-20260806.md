@@ -15,7 +15,7 @@ PHASE_1_NOT_READY_TO_MERGE
 | Base exacta | `624816d052bceb16d491b321b2dbfcc175037233` |
 | Pull request | `#48` |
 | Fecha | 2026-08-06 |
-| Merge permitido | No, hasta certificación completa |
+| Merge permitido | No, hasta certificación completa del mismo SHA |
 
 ---
 
@@ -107,16 +107,24 @@ canUseOperations = false
 
 ---
 
-# 4. Fronteras visibles
+# 4. Fronteras y frases visibles
 
 ## Ventas / Portal
 
 - `/portal` y todas sus subrutas exigen `company_portal`.
-- Una cuenta `mobile_operations` recibe un aviso en `/acceso-operativo`.
+- Una cuenta `mobile_operations` recibe `/acceso-operativo` con `CUENTA OPERATIVA` y `Continúa en la app móvil`.
 - Ventas ya no monta rutas `/mapa` ni `/radio`.
-- El aviso operativo dice que la operación ocurre en la app Mobile; no simula el producto.
-- Una identidad Platform recibe `/acceso-admin`.
-- Una identidad bloqueada recibe `/acceso-restringido`.
+- El aviso operativo explica que mapa, GPS, rutas, Radio, Chat y llamadas pertenecen a Mobile; no simula ese producto.
+- Una identidad Platform recibe `/acceso-admin` con `Usa Admin Global`.
+- Una identidad bloqueada recibe `/acceso-restringido` con `Cuenta sin producto autorizado`.
+
+## Compra y demo
+
+- El botón principal conserva la frase `Elegir plan`.
+- Solo un plan con `trialEligible=true` y `trialDays>0` muestra la acción secundaria.
+- La frase canónica es `Usar demo {trialDays} días`; para `starter-2` es `Usar demo 7 días`.
+- La acción de demo ejecuta el mismo checkout con `requestTrial=true`; no es decorativa.
+- `planId` y `requestTrial` sobreviven registro, login y recuperación de contraseña.
 
 ## Mobile
 
@@ -172,10 +180,10 @@ El gate `verify:account-routing` comprueba:
 - AND heredado en lugar de OR;
 - guard global de Portal;
 - ausencia de `/mapa` y `/radio` en Ventas;
-- aviso canónico para Mobile;
-- salidas separadas para Platform y cuenta bloqueada;
+- avisos canónicos de Mobile, Platform y bloqueo;
 - compra pendiente antes del redirect por canal;
-- recuperación con `planId` y `requestTrial` preservados.
+- recuperación con `planId` y `requestTrial` preservados;
+- elegibilidad, frase y conexión operativa de `Usar demo {trialDays} días`.
 
 ## Mobile
 
@@ -185,6 +193,21 @@ El gate `verify:account-routing` comprueba:
 - compatibilidad heredada cerrada;
 - bloqueo por plan, pago, tenant y sincronización;
 - sesión cacheada sin concesión local de permisos.
+
+## Navegador autenticado sin secretos
+
+`local-account-channel.spec.ts` restaura una sesión controlada mediante el contrato real de `/auth/session`, abre `/portal` y exige:
+
+- `company_portal` permanece en `/portal` y muestra navegación `Operaciones`;
+- `mobile_operations` termina en `/acceso-operativo` y muestra `Continúa en la app móvil`;
+- `platform_admin` termina en `/acceso-admin` y muestra `Usa Admin Global`;
+- `blocked` termina en `/acceso-restringido` y muestra `Cuenta sin producto autorizado`.
+
+La matriz captura evidencia, verifica ausencia de errores JavaScript y respuestas 5xx, y comprueba overflow.
+
+## Navegador autenticado desplegado
+
+La matriz `role-access.spec.ts` usa cuentas reales de owner, admin, billing manager y supervisor. Es una ejecución manual separada y exige `CERT_*` secrets. En un pull request sin esas credenciales su estado correcto es **no ejecutada**, no aprobada ni fallida. La certificación local, las pruebas de integración y la matriz backend no se presentan como sustituto de esa prueba desplegada.
 
 ---
 
@@ -198,10 +221,13 @@ El gate `verify:account-routing` comprueba:
 - [ ] Ventas typecheck verde.
 - [ ] Ventas contratos verdes.
 - [ ] Ventas build verde.
+- [ ] Matriz pública responsive verde en cinco viewports.
+- [ ] Matriz local autenticada de cuatro canales verde.
 - [ ] Dependency audit verde.
 - [ ] APK Android debug generado.
 - [ ] Deployments aplicables verdes.
+- [ ] Diff final sin herramientas temporales.
 - [ ] Cero review threads.
-- [ ] SHA final congelado y registrado.
+- [ ] SHA final congelado y registrado en el cierre del PR.
 
-El documento se actualizará con IDs de workflows, artefacto APK, SHA final y veredicto únicamente después de que cada evidencia exista.
+La evidencia dinámica —SHA final, IDs de workflows, digest del APK, artefactos y veredicto— se registrará en el comentario de cierre del PR #48 después de certificar exactamente el mismo commit. Así el documento no crea un ciclo infinito de nuevos SHA al intentar escribir dentro de sí el resultado de su propia certificación.
