@@ -7,6 +7,8 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const routing = read('src/utils/account-routing.ts');
 const access = read('features/portal/utils/access.ts');
 const app = read('src/App.tsx');
+const authScreen = read('screens/sales-auth-screen.tsx');
+const recoveryScreen = read('screens/password-recovery/password-recovery-request-screen.tsx');
 
 const requiredPortalRoles = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
 const requiredChannels = ['company_portal', 'mobile_operations', 'platform_admin', 'blocked'];
@@ -19,7 +21,7 @@ for (const role of requiredPortalRoles) {
 
 for (const channel of requiredChannels) {
   if (!routing.includes(`'${channel}'`)) {
-    throw new Error(`Falta el canal canonico ${channel} en el enrutamiento autenticado.`);
+    throw new Error(`Falta el canal canónico ${channel} en el enrutamiento autenticado.`);
   }
 }
 
@@ -32,28 +34,52 @@ if (!access.includes("user.accountType === 'company_owner' && isPortalRole(user.
 }
 
 if (routing.includes("accountType === 'company_owner' ||") || routing.includes('accountType === "company_owner" ||')) {
-  throw new Error('Regreso la clasificacion permisiva accountType OR role.');
+  throw new Error('Regresó la clasificación permisiva accountType OR role.');
+}
+
+if (!routing.includes("channel === 'mobile_operations') return '/acceso-operativo'")) {
+  throw new Error('La cuenta operativa debe ir al aviso de frontera, no a una ruta operativa web.');
+}
+
+const forbiddenSalesOperationalRoutes = [
+  "case '/mapa':",
+  "case '/radio':",
+  "return '/mapa'",
+  "return '/radio'",
+  '<OperationalHandoff',
+];
+
+for (const forbidden of forbiddenSalesOperationalRoutes) {
+  if (app.includes(forbidden) || routing.includes(forbidden)) {
+    throw new Error(`Ventas todavía conserva una ruta operativa prohibida: ${forbidden}`);
+  }
 }
 
 if (!app.includes('isPortalRoute && !canAccessPortal(user)')) {
-  throw new Error('El guard global del Portal no exige el canal canonico.');
+  throw new Error('El guard global del Portal no exige el canal canónico.');
 }
 
-if (!app.includes("getAccountChannel(user) !== 'mobile_operations'")) {
-  throw new Error('El handoff operativo no esta protegido por mobile_operations.');
+if (!app.includes("isOperationalNoticeRoute && getAccountChannel(user) !== 'mobile_operations'")) {
+  throw new Error('El aviso de frontera no está protegido por mobile_operations.');
 }
 
-const handoffContracts = [
-  'Tu sesión inició correctamente.',
-  'Canal: {accountChannel}',
+const noticeContracts = [
+  'CUENTA OPERATIVA',
+  'Continúa en la app móvil',
+  'Esta cuenta pertenece a Mobile.',
+  'Esta cuenta mobile_operations no puede entrar al Portal empresarial.',
   'Cerrar sesión',
-  '<OperationalHandoff title="Acceso operativo" />',
+  '<OperationalAccountNotice />',
 ];
 
-for (const contract of handoffContracts) {
+for (const contract of noticeContracts) {
   if (!app.includes(contract)) {
-    throw new Error(`Falta el contrato visible de acceso operativo: ${contract}`);
+    throw new Error(`Falta el mensaje canónico de frontera de producto: ${contract}`);
   }
+}
+
+if (!app.includes("case '/acceso-operativo':")) {
+  throw new Error('Falta el aviso web para cuentas mobile_operations.');
 }
 
 if (!app.includes("case '/acceso-restringido':")) {
@@ -61,7 +87,40 @@ if (!app.includes("case '/acceso-restringido':")) {
 }
 
 if (!app.includes("case '/acceso-admin':")) {
-  throw new Error('Falta la separacion visible del canal Platform.');
+  throw new Error('Falta la separación visible del canal Platform.');
 }
 
-console.log('Canonical account channel, Portal guard and operational handoff verified.');
+const checkoutGuard = authScreen.indexOf('if (selectedPlanId)');
+const channelRedirect = authScreen.indexOf('if (isCustomerAccount(user))');
+
+if (checkoutGuard < 0 || channelRedirect < 0 || checkoutGuard > channelRedirect) {
+  throw new Error('La intención de compra debe resolverse antes del redirect por canal.');
+}
+
+const checkoutContracts = [
+  'saveCheckoutContext(selectedPlanId, routeRequestsTrial)',
+  'buildPaymentRoute(selectedPlanId, routeRequestsTrial)',
+  "buildRecoveryRoute('/ventas/recuperar-contrasena'",
+  'planId: selectedPlanId',
+  'requestTrial: routeRequestsTrial',
+];
+
+for (const contract of checkoutContracts) {
+  if (!authScreen.includes(contract)) {
+    throw new Error(`La autenticación no preserva la intención de compra: ${contract}`);
+  }
+}
+
+const recoveryContracts = [
+  'resolveRecoveryCheckoutContext(params.planId, params.trial, readCheckoutContext())',
+  "buildRecoveryRoute('/ventas/login', context)",
+  "buildRecoveryRoute('/ventas/recuperacion-enviada', context)",
+];
+
+for (const contract of recoveryContracts) {
+  if (!recoveryScreen.includes(contract)) {
+    throw new Error(`La recuperación no conserva la compra pendiente: ${contract}`);
+  }
+}
+
+console.log('Canonical account channels, Portal guard, checkout intent and product boundaries verified.');
