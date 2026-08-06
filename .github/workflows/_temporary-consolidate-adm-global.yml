@@ -1,0 +1,138 @@
+name: Temporary consolidate Admin Global P2-P5
+
+on:
+  push:
+    branches:
+      - merge/adm-global-p2-p5-final
+    paths:
+      - .github/workflows/_temporary-consolidate-adm-global.yml
+
+permissions:
+  contents: write
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout consolidation branch
+        uses: actions/checkout@v5
+        with:
+          ref: merge/adm-global-p2-p5-final
+          fetch-depth: 0
+
+      - name: Overlay certified Admin Global scope
+        shell: bash
+        env:
+          SOURCE_BRANCH: feat/adm-global-p5-private-access
+          SOURCE_SHA: ce2850e6f2588533c87bc95aee14e7ad94885a16
+        run: |
+          set -euo pipefail
+          git fetch origin "$SOURCE_BRANCH"
+          test "$(git rev-parse "origin/$SOURCE_BRANCH")" = "$SOURCE_SHA"
+
+          # Admin Global final P1-P5 tree. Restore main-only Worker documentation afterwards.
+          git checkout "$SOURCE_SHA" -- admin-global
+          git checkout HEAD -- admin-global/.gitignore admin-global/DEPLOY-WORKERS-SPA.md
+          git rm -f --ignore-unmatch admin-global/public/_redirects
+          cat > admin-global/wrangler.jsonc <<'JSON'
+          {
+            "name": "manecomb-admin",
+            "compatibility_date": "2026-08-06",
+            "workers_dev": false,
+            "preview_urls": false,
+            "observability": {
+              "enabled": true
+            },
+            "assets": {
+              "directory": "./dist",
+              "not_found_handling": "single-page-application"
+            }
+          }
+          JSON
+
+          # Backend Platform P2-P5. Unrelated backend, FCM, RTC and mobile files remain from main.
+          git checkout "$SOURCE_SHA" -- \
+            backend/src/app.js \
+            backend/src/server.js \
+            backend/src/config/platform-access.js \
+            backend/src/middlewares/platform-access.js \
+            backend/src/modules/platform \
+            backend/src/services/platform-sessions.js \
+            backend/test/platform-access.test.js \
+            backend/test/platform-companies.test.js \
+            backend/test/platform-governance.test.js \
+            backend/test/platform-operations.test.js
+
+          # Documentation and permanent environment contract.
+          git checkout "$SOURCE_SHA" -- \
+            RC-ADM-GLOBAL-P2.md \
+            RC-ADM-GLOBAL-P3.md \
+            RC-ADM-GLOBAL-P5.md \
+            docs/admin-global-private-deployment.md \
+            scripts/validate-environment-contract.mjs
+
+          # Preserve every current main test while extending only the Platform suite.
+          node <<'NODE'
+          const fs = require('fs');
+          const packagePath = 'backend/package.json';
+          const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          const platformTests = [
+            'platform-auth.test.js',
+            'platform-mfa.test.js',
+            'platform-api-base.test.js',
+            'platform-security-config.test.js',
+            'platform-companies.test.js',
+            'platform-operations.test.js',
+            'platform-governance.test.js',
+            'platform-access.test.js',
+          ];
+          packageJson.scripts['test:platform'] = platformTests
+            .map((file) => `node --require ./test/setup-env.js test/${file}`)
+            .join(' && ');
+          fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+          const envPath = 'backend/.env.example';
+          let env = fs.readFileSync(envPath, 'utf8');
+          const values = {
+            PLATFORM_ACCESS_ENFORCEMENT_ENABLED: 'false',
+            PLATFORM_ACCESS_ISSUER: '',
+            PLATFORM_ACCESS_AUDIENCE: '',
+            PLATFORM_ACCESS_JWKS_URL: '',
+          };
+          for (const [key, value] of Object.entries(values)) {
+            const line = `${key}=${value}`;
+            const pattern = new RegExp(`^${key}=.*$`, 'm');
+            env = pattern.test(env) ? env.replace(pattern, line) : `${env.trimEnd()}\n${line}\n`;
+          }
+          fs.writeFileSync(envPath, `${env.trim()}\n`);
+          NODE
+
+          cat > RC-ADM-GLOBAL-P4.md <<'EOF'
+          # ADM-GLOBAL-P4 — Gobierno interno y acciones controladas
+
+          **Estado:** cerrado e integrado en la consolidación P2-P5.
+
+          ## Alcance
+
+          - Personal Platform paginado y sanitizado.
+          - Alta interna con contraseña temporal y MFA obligatorio.
+          - Sesiones sanitizadas sin IP, user-agent ni hashes.
+          - Acciones owner-only con razón, confirmación e Idempotency-Key.
+          - Protección de la sesión actual, auto-modificación y último owner.
+          - Revocación de sesiones al suspender o cambiar privilegios.
+          - Auditoría de lecturas, altas y acciones sensibles.
+          - Pantallas responsive de Personal y Sesiones.
+          - Pruebas backend, HTTP y frontend incorporadas a gates permanentes.
+
+          No habilita acciones empresariales o comerciales destructivas.
+          EOF
+
+          # The assembly workflow must never remain in the resulting branch.
+          rm -f .github/workflows/_temporary-consolidate-adm-global.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(admin): consolidate ADM-GLOBAL P2-P5 on current main"
+          git push origin HEAD:merge/adm-global-p2-p5-final
