@@ -59,9 +59,12 @@ El estado `none` se conserva únicamente para compatibilidad temporal con sesion
 | Typecheck móvil | Pendiente de CI |
 | Pruebas móviles | Pendiente de CI |
 | APK Android | Pendiente de CI |
+| Reconciliación con `main` | Bloqueada: la rama quedó 48 commits atrás |
+
+## Riesgo de integración detectado
+
+`main` avanzó 48 commits desde el merge base `624816d`. El PR #47 aparece como no mergeable hasta reconciliar los cambios recientes. No debe continuar la expansión de UI ni hacerse merge antes de integrar `main`, resolver conflictos y volver a ejecutar toda la matriz.
 
 ## Veredicto provisional
 
-`MDX_10_IMPLEMENTED_CI_PENDING`
-
-No debe hacerse merge hasta que el SHA final complete la matriz de CI.
+`MDX_10_IMPLEMENTED_REBASE_REQUIRED`
