@@ -1,43 +1,31 @@
 import type {
+  AccountChannel,
   AuthRoutingContext,
   MobileBlockReason,
   PostLoginDestination,
   User,
 } from '@/src/types/app';
 
-type AccountChannel =
-  | 'blocked'
-  | 'company_portal'
-  | 'mobile_operations'
-  | 'platform_admin';
-
-type AccountBlockReason = MobileBlockReason | 'account_blocked' | 'wrong_channel';
-
 type RouteUser = Pick<User, 'accountType' | 'id' | 'role'> & {
   accountChannel?: AccountChannel | string | null;
 };
 
-type ChannelAwareAuthContext = AuthRoutingContext & {
-  accountChannel?: AccountChannel | string | null;
-  accountChannelReason?: string | null;
-};
-
 type MobilePostLoginSession = {
-  authContext?: ChannelAwareAuthContext | null;
+  authContext?: AuthRoutingContext | null;
   canAccessMobile?: boolean | null;
   error?: unknown;
-  mobileBlockReason?: AccountBlockReason | null;
+  mobileBlockReason?: MobileBlockReason | null;
   user?: RouteUser | null;
 };
 
 export type PostLoginResolution = {
   destination: PostLoginDestination;
-  reason: AccountBlockReason | 'active_mobile_access' | 'missing_user';
+  reason: MobileBlockReason | 'active_mobile_access' | 'missing_user';
   route: string;
 };
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
-const OPERATIONAL_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor', 'driver']);
+const OPERATIONAL_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor', 'driver', 'conductor']);
 
 function isAccountChannel(value: unknown): value is AccountChannel {
   return (
@@ -79,7 +67,7 @@ function resolveAccountChannel(
   return 'blocked';
 }
 
-function normalizeBlockReason(value: unknown): AccountBlockReason {
+function normalizeBlockReason(value: unknown): MobileBlockReason {
   if (
     value === 'account_blocked' ||
     value === 'inactive_plan' ||
@@ -153,7 +141,7 @@ export function resolveMobilePostLoginRoute(
 
 export function getAuthenticatedHome(
   user: RouteUser,
-  authContext?: ChannelAwareAuthContext | null
+  authContext?: AuthRoutingContext | null
 ) {
   return resolveMobilePostLoginRoute({
     authContext,
@@ -163,7 +151,7 @@ export function getAuthenticatedHome(
 
 export function getOperationalHome(
   user: RouteUser,
-  authContext?: ChannelAwareAuthContext | null
+  authContext?: AuthRoutingContext | null
 ) {
   return getAuthenticatedHome(user, authContext);
 }
