@@ -77,11 +77,17 @@ async function loadOperationalContext({ store, user, organizationId, filterTenan
   };
 }
 
+function resolveOperationalRouteId(vehicle, activeSession) {
+  // La asignacion vigente de la unidad es la autoridad para dibujar y operar la
+  // ruta. Una Jornada ASSIGNED/READY puede coexistir antes de iniciar, pero no
+  // debe sustituir silenciosamente la geometria ya activa del vehiculo.
+  return vehicle?.assignedRoute?.routeId || vehicle?.routeId || activeSession?.routeId || null;
+}
+
 function snapshotFromContext(vehicle, context, now) {
   const vehicleId = String(vehicle?.id ?? vehicle?._id ?? "");
   const activeSession = pickActiveSession(context.sessionsByVehicle.get(vehicleId));
-  const routeId =
-    activeSession?.routeId || vehicle?.assignedRoute?.routeId || vehicle?.routeId || null;
+  const routeId = resolveOperationalRouteId(vehicle, activeSession);
   const driverId = activeSession?.driverId || vehicle?.driverId || null;
 
   const snapshot = buildOperationalUnitSnapshot({
@@ -139,7 +145,7 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
 
   const sessionList = Array.isArray(sessions) ? sessions : sessions?.items || [];
   const activeSession = pickActiveSession(sessionList);
-  const routeId = activeSession?.routeId || vehicle.assignedRoute?.routeId || vehicle.routeId || null;
+  const routeId = resolveOperationalRouteId(vehicle, activeSession);
   const driverId = activeSession?.driverId || vehicle.driverId || null;
   const incidentList = Array.isArray(incidents) ? incidents : incidents?.items || [];
 
@@ -198,5 +204,7 @@ module.exports = {
   getOperationalUnit,
   listOperationalUnits,
   loadOperationalContext,
+  pickActiveSession,
+  resolveOperationalRouteId,
   snapshotFromContext
 };
