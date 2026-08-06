@@ -1,0 +1,64 @@
+name: RC Mobile Startup PR Trigger
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/mobile-startup-stability-20260806'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            backend/package-lock.json
+            communication-service/package-lock.json
+
+      - name: Extract and apply audited patch
+        shell: bash
+        run: |
+          awk '
+            /^          python <<'"'"'PY'"'"'$/ { capture=1; next }
+            capture && /^          PY$/ { capture=0; exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/rc-mobile-startup-apply.yml > /tmp/apply-startup.py
+          test -s /tmp/apply-startup.py
+          python /tmp/apply-startup.py
+
+      - name: Install and verify Mobile
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Install and verify Backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm test
+
+      - name: Commit verified RC and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name "ErickRFM"
+          git config user.email "55464579+ErickRFM@users.noreply.github.com"
+          git rm .github/workflows/rc-mobile-startup-apply.yml
+          git rm .github/workflows/rc-mobile-startup-pr-trigger.yml
+          git add RC-MOBILE-STARTUP-STABILITY-01.md mobile
+          git commit -m "fix(mobile): stabilize session startup state machine"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
