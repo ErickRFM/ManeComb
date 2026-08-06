@@ -17,6 +17,7 @@ const {
   JourneyTransitionError,
   transitionJourneySession
 } = require("../../services/journey-transition-service");
+const { emitOperationalUnitUpdate } = require("../../services/operational-units-service");
 const { recordSessionEvent } = require("../../services/route-event-engine");
 const { calculateAndPersistRouteMetrics } = require("../../services/route-metrics-engine");
 const { processCompletedRouteSession } = require("../../services/auto-route-learning");
@@ -33,7 +34,7 @@ function resolveEventType(previousStatus, nextStatus) {
   return null;
 }
 
-function emitJourneyUpdate(req, session) {
+async function emitJourneyUpdate(req, session) {
   const organizationId = String(session.organizationId || "").trim();
   getRolesWithPermission("canViewAnalytics").forEach((role) => {
     req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("route-session:updated", session);
@@ -42,6 +43,22 @@ function emitJourneyUpdate(req, session) {
     req.app.locals.io?.to(`user:${session.driverId}`).emit("route-session:updated", session);
   }
   req.app.locals.io?.to("platform:admin").emit("route-session:updated", session);
+
+  try {
+    const vehicle = await req.app.locals.store.getVehicleById(session.vehicleId);
+    if (vehicle) {
+      await emitOperationalUnitUpdate({
+        io: req.app.locals.io,
+        store: req.app.locals.store,
+        vehicle,
+        organizationId,
+        getRolesWithPermission
+      });
+    }
+  } catch {
+    // La persistencia de Jornada ya fue confirmada. Una falla de emision no
+    // debe revertirla ni responder error; REST restaurara el snapshot canonico.
+  }
 }
 
 function actorFromRequest(req) {
@@ -119,7 +136,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res, next) 
     });
 
     const session = serializeJourneySession(result.session);
-    if (result.applied) emitJourneyUpdate(req, session);
+    if (result.applied) await emitJourneyUpdate(req, session);
 
     return res.status(result.applied ? 201 : 200).json({
       ok: true,
@@ -191,7 +208,7 @@ router.post("/:sessionId/transition", authenticate, requireOperationalAccess, as
         void processCompletedRouteSession(req.app.locals.store, session.id).catch(() => undefined);
       }
 
-      emitJourneyUpdate(req, session);
+      await emitJourneyUpdate(req, session);
     }
 
     return res.json({
