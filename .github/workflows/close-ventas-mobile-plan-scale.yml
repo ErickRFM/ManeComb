@@ -55,7 +55,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Certify phone card dimensions and visual scale
         working-directory: mobile
-        run: npx playwright test --config playwright.certification.config.ts --project phone-360 e2e/certification/public-responsive.spec.ts
+        run: npx playwright test e2e/certification/public-responsive.spec.ts --config=playwright.certification.config.ts --project=phone-360
       - name: Validate clean scope
         shell: bash
         run: |
