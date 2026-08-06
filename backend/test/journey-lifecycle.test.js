@@ -21,7 +21,7 @@ function testAllowedTransitions() {
   ];
 
   for (const [currentStatus, nextStatus] of allowed) {
-    assert.deepStrictEqual(canTransitionJourney(currentStatus, nextStatus).ok, true);
+    assert.strictEqual(canTransitionJourney(currentStatus, nextStatus).ok, true);
   }
 }
 
@@ -102,6 +102,20 @@ function testFinishPatch() {
   assert.strictEqual(resolved.patch.endGpsAccuracy, 8);
 }
 
+function testAbsentFinishNumbersRemainNull() {
+  const resolved = resolveJourneyTransitionPatch({
+    currentStatus: "PAUSED",
+    nextStatus: "CANCELLED",
+    actorId: "admin-1",
+    now: "2026-08-06T20:05:00.000Z"
+  });
+
+  assert.strictEqual(resolved.ok, true);
+  assert.strictEqual(resolved.patch.finishedOdometer, null);
+  assert.strictEqual(resolved.patch.endBattery, null);
+  assert.strictEqual(resolved.patch.endGpsAccuracy, null);
+}
+
 function testStatusGroups() {
   for (const status of ["ASSIGNED", "READY", "RUNNING", "PAUSED"]) {
     assert.strictEqual(isJourneyActive(status), true);
@@ -120,6 +134,7 @@ testIdempotency();
 testConfirmationPatch();
 testStartPatch();
 testFinishPatch();
+testAbsentFinishNumbersRemainNull();
 testStatusGroups();
 
 console.log("journey-lifecycle.test.js: OK");
