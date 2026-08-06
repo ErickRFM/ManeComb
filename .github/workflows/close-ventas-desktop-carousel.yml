@@ -12,6 +12,9 @@ jobs:
   close-phase:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    env:
+      VITE_API_URL: https://api.example.invalid/api
+      VITE_SOCKET_URL: https://api.example.invalid
     steps:
       - uses: actions/checkout@v5
         with:
@@ -19,7 +22,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - name: Apply desktop carousel fix
         run: python scripts/close-ventas-desktop-carousel.py
       - name: Install Ventas
@@ -39,6 +42,7 @@ jobs:
           grep -q "planCarouselDesktop" ventas/screens/sales/styles.ts
           test -f ventas/dist/index.html
           test -f ventas/dist/_redirects
+          grep -Fxq '/* /index.html 200' ventas/dist/_redirects
           git diff --check
       - name: Commit closed phase
         shell: bash
