@@ -1,1 +1,0 @@
-Hotfix registrado en `PORTAL-OPERATIONAL-ROUTE-REGRESSION.md`.
