@@ -77,6 +77,12 @@ export async function requestBackgroundPermission() {
   }));
 }
 
+export async function getBackgroundPermission() {
+  return Location.getBackgroundPermissionsAsync().catch(() => ({
+    status: Location.PermissionStatus.UNDETERMINED,
+  }));
+}
+
 export async function getForegroundPermission() {
   return Location.getForegroundPermissionsAsync().catch(() => ({
     status: Location.PermissionStatus.UNDETERMINED,
