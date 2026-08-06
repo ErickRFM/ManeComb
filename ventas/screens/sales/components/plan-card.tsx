@@ -32,7 +32,7 @@ export function PlanCard({
 }) {
   const visual = getPlanVisualTone(index);
   const cardEdge = active ? visual.edge : accent;
-  const compactCard = compact || width <= 316;
+  const compactCard = compact;
   const demoEligible = isPublicDemoPlan(plan);
   const features = [
     `${plan.units} unidades incluidas`,
