@@ -4,10 +4,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking } from 'react-native';
-import { useShallow } from 'zustand/react/shallow';
 
 import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
-import { getSharedRealtimeSocket, useAppStore } from '@/src/store/root-store';
+import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
 import {
   resetCallForegroundService,
   setCallForegroundServiceMode,
@@ -22,14 +21,9 @@ import { IncomingCallModal } from './components/incoming-call-modal';
 setCallRuntimeFactory(createNativeCallRuntime);
 
 export function CallOverlay(): React.ReactElement {
-  const { socketStatus, token, userId } = useAppStore(
-    useShallow((state) => ({
-      socketStatus: state.socketStatus,
-      token: state.token,
-      userId: state.user?.id || null,
-    }))
-  );
-  const socket = getSharedRealtimeSocket() as unknown as CallSocket | null;
+  const socketStatus = useAppStore((state) => state.socketStatus);
+  const sharedSocket = useSharedRealtimeSocket();
+  const socket = sharedSocket as unknown as CallSocket | null;
   const bindSocket = useCallStore((state) => state.bindSocket);
   const phase = useCallStore((state) => state.phase);
   const mode = useCallStore((state) => state.mode);
@@ -49,13 +43,11 @@ export function CallOverlay(): React.ReactElement {
   }, [receivePushUrl]);
 
   useEffect(() => {
-    bindSocket(socket ?? null);
-  }, [bindSocket, socket, socketStatus, token, userId]);
+    bindSocket(socket);
+  }, [bindSocket, socket]);
 
   useEffect(() => {
-    if (!pendingPushCall || socketStatus !== 'connected') return;
-    const currentSocket = getSharedRealtimeSocket() as unknown as CallSocket | null;
-    if (!currentSocket) return;
+    if (!pendingPushCall || socketStatus !== 'connected' || !socket) return;
 
     const store = useCallStore.getState();
     if (store.phase === 'IDLE') {
@@ -81,7 +73,7 @@ export function CallOverlay(): React.ReactElement {
     if (pendingPushCall.action === 'accept') {
       void useCallStore.getState().acceptIncomingCall();
     }
-  }, [pendingPushCall, socketStatus]);
+  }, [pendingPushCall, socket, socketStatus]);
 
   const needsForegroundService =
     phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
