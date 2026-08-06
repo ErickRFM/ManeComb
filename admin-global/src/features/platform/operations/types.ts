@@ -77,7 +77,7 @@ export type PlatformAuditEntry = {
   severity: string;
   result: string | null;
   platformRole: string | null;
-  metadata: Record<string, string | number | boolean | null | Record<string, unknown>>;
+  metadata: Record<string, unknown>;
   createdAt: string | null;
 };
 

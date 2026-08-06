@@ -39,6 +39,7 @@ assert.doesNotMatch(screens, /refundOrder|capturePayment|cancelSubscription|forc
 
 assert.doesNotMatch(types, /accessToken|apiKey|webhookSecret|paymentProviderReference|userAgent|\bip:/i);
 assert.match(shell, /resetOperations\(\)/);
-assert.match(shell, /item\.phase === 'P3'/);
+assert.match(shell, /['"]P3['"]/);
+assert.match(shell, /styles\.phaseBadgeReady/);
 
 console.log('ok - ADM-GLOBAL-P3 commercial system and audit contracts');

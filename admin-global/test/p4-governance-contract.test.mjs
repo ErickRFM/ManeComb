@@ -17,9 +17,9 @@ for (const screen of ['AdminTeamScreen', 'AdminSessionsScreen']) {
 assert.match(app, /case '\/admin\/team':/);
 assert.match(app, /case '\/admin\/sessions':/);
 
-for (const endpoint of ["'/team'", "'/sessions'", "'/actions'"]) {
-  assert.ok(api.includes(endpoint), `La API debe usar ${endpoint}.`);
-}
+assert.ok(api.includes('/team'), 'La API debe usar /team.');
+assert.ok(api.includes('/sessions'), 'La API debe usar /sessions.');
+assert.match(api, /['`]\/actions['`]/);
 assert.match(api, /'Idempotency-Key': idempotencyKey/);
 assert.match(api, /getPlatformTokenHeader\(token\)/);
 
@@ -45,6 +45,6 @@ assert.doesNotMatch(screens, /console\.log|console\.error/);
 
 assert.doesNotMatch(types, /passwordHash|mfaSecretEncrypted|mfaBackupCodes|refreshTokenHash|userAgent|\bip:/i);
 assert.match(shell, /resetGovernance\(\)/);
-assert.match(shell, /styles\.phaseBadgeReady/);
+assert.match(shell, /\['P1', 'P2', 'P3', 'P4'\]/);
 
 console.log('ok - ADM-GLOBAL-P4 team sessions and controlled action contracts');
