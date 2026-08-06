@@ -1,3 +1,5 @@
+const { applyAccountChannel } = require("../services/account-channel");
+
 function toPlain(doc) {
   if (!doc) {
     return null;
@@ -55,7 +57,7 @@ function sanitizeUser(doc) {
   safeUser.invitedAt = safeUser.invitedAt || null;
   safeUser.suspendedAt = safeUser.userStatus === "suspended" ? safeUser.suspendedAt || null : null;
   safeUser.operationalSchedule = safeUser.operationalSchedule || null;
-  return safeUser;
+  return applyAccountChannel(safeUser);
 }
 
 function normalizeRouteId(value) {
