@@ -13,3 +13,8 @@ AppRegistry.registerHeadlessTask(
   'ManeCombNotificationReply',
   () => require('./src/native/reply-headless-task').replyHeadlessTask
 );
+
+AppRegistry.registerHeadlessTask(
+  'ManeCombCallNotificationAction',
+  () => require('./src/native/call-action-headless-task').callNotificationActionHeadlessTask
+);

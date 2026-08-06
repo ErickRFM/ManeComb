@@ -19,12 +19,45 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlin.math.abs
 
 class ManeCombNotificationModule(
   private val reactContext: ReactApplicationContext
 ) : ReactContextBaseJavaModule(reactContext) {
   override fun getName(): String = "ManeCombNotification"
+
+  @ReactMethod
+  fun getPushToken(promise: Promise) {
+    val stored = ManeCombPushTokenStore.read(reactContext)
+    if (FirebaseApp.getApps(reactContext).isEmpty()) {
+      promise.resolve(stored)
+      return
+    }
+
+    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+      if (!task.isSuccessful) {
+        promise.resolve(stored)
+        return@addOnCompleteListener
+      }
+      val token = task.result?.trim().orEmpty()
+      if (token.isNotEmpty()) ManeCombPushTokenStore.save(reactContext, token)
+      promise.resolve(token.ifEmpty { stored })
+    }
+  }
+
+  @ReactMethod
+  fun deletePushToken(promise: Promise) {
+    ManeCombPushTokenStore.clear(reactContext)
+    if (FirebaseApp.getApps(reactContext).isEmpty()) {
+      promise.resolve(true)
+      return
+    }
+    FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener {
+      promise.resolve(it.isSuccessful)
+    }
+  }
 
   @ReactMethod
   fun show(
@@ -93,26 +126,19 @@ class ManeCombNotificationModule(
         builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
 
         if (encrypted) {
-          // Hilo cifrado: responder desde aqui degradaria el mensaje a texto plano,
-          // asi que se explica por que no hay boton en vez de dejarlo ausente sin mas.
           builder.setSubText(ENCRYPTED_REPLY_HINT)
         } else {
           builder.addAction(buildReplyAction(notificationId, safeConversationId))
         }
       }
 
-      val notification = builder.build()
-
-      NotificationManagerCompat.from(reactContext).notify(notificationId, notification)
+      NotificationManagerCompat.from(reactContext).notify(notificationId, builder.build())
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("notification_show_failed", error.message, error)
     }
   }
 
-  /**
-   * Usado por el Headless JS Task para cerrar el ciclo de la respuesta rapida.
-   */
   @ReactMethod
   fun updateReplyStatus(notificationId: Double, status: String, promise: Promise) {
     try {
@@ -135,7 +161,6 @@ class ManeCombNotificationModule(
       putExtra(EXTRA_CONVERSATION_ID, conversationId)
       putExtra(EXTRA_NOTIFICATION_ID, notificationId)
     }
-    // RemoteInput exige un PendingIntent mutable para poder inyectar el texto escrito.
     val replyPendingIntent = PendingIntent.getBroadcast(
       reactContext,
       notificationId,
@@ -156,9 +181,8 @@ class ManeCombNotificationModule(
   }
 
   private fun ensureChannels() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-      return
-    }
+    ManeCombPushNotificationRenderer.ensureChannels(reactContext)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
     val manager = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val general = NotificationChannel(
@@ -210,6 +234,7 @@ class ManeCombNotificationModule(
       "incident", "incidents", "incidente", "incidencias" -> CHANNEL_INCIDENTS
       "radio" -> CHANNEL_RADIO
       "sos" -> CHANNEL_SOS
+      "chat" -> ManeCombPushNotificationRenderer.CHANNEL_CHAT
       else -> CHANNEL_GENERAL
     }
 
@@ -217,7 +242,7 @@ class ManeCombNotificationModule(
     when (category) {
       "emergency", "emergencies", "emergencia", "emergencias" -> NotificationCompat.PRIORITY_MAX
       "incident", "incidents", "incidente", "incidencias" -> NotificationCompat.PRIORITY_HIGH
-      "radio" -> NotificationCompat.PRIORITY_HIGH
+      "radio", "chat" -> NotificationCompat.PRIORITY_HIGH
       "sos" -> NotificationCompat.PRIORITY_MAX
       else -> NotificationCompat.PRIORITY_DEFAULT
     }
@@ -235,10 +260,6 @@ class ManeCombNotificationModule(
     private const val CHANNEL_EMERGENCIES = "operacion-emergencias"
     private const val CHANNEL_SOS = "operacion-sos"
 
-    /**
-     * Los chats con conversacion conocida reutilizan un id estable para que la respuesta
-     * desde la notificacion pueda actualizar esa misma tarjeta.
-     */
     fun notificationIdFor(category: String, conversationId: String): Int =
       if (conversationId.isNotEmpty()) {
         abs("chat:$conversationId".hashCode())

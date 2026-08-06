@@ -1,5 +1,6 @@
 package com.anonymous.combiscontrol
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 
@@ -10,19 +11,42 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    configureIncomingCallWindow(intent)
     super.onCreate(null)
   }
 
-  /**
-   * Returns the name of the main component registered from JavaScript. This is used to schedule
-   * rendering of the component.
-   */
-  override fun getMainComponentName(): String = "main"
+  override fun onNewIntent(intent: Intent) {
+    configureIncomingCallWindow(intent)
+    super.onNewIntent(intent)
+    setIntent(intent)
+  }
 
   /**
-   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
-   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
+   * Solo una URL autoritativa /call puede aparecer sobre la pantalla bloqueada. Una apertura
+   * normal restaura inmediatamente el comportamiento de privacidad habitual de la app.
    */
+  private fun configureIncomingCallWindow(sourceIntent: Intent?) {
+    val isCallIntent = sourceIntent?.data?.path?.trim()?.equals("/call", ignoreCase = true) == true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      setShowWhenLocked(isCallIntent)
+      setTurnScreenOn(isCallIntent)
+    } else if (isCallIntent) {
+      @Suppress("DEPRECATION")
+      window.addFlags(
+        android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+          android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+      )
+    } else {
+      @Suppress("DEPRECATION")
+      window.clearFlags(
+        android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+          android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+      )
+    }
+  }
+
+  override fun getMainComponentName(): String = "main"
+
   override fun createReactActivityDelegate(): ReactActivityDelegate {
     return DefaultReactActivityDelegate(
       this,
@@ -31,22 +55,14 @@ class MainActivity : ReactActivity() {
     )
   }
 
-  /**
-    * Align the back button behavior with Android S
-    * where moving root activities to background instead of finishing activities.
-    * @see <a href="https://developer.android.com/reference/android/app/Activity#onBackPressed()">onBackPressed</a>
-    */
   override fun invokeDefaultOnBackPressed() {
       if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
           if (!moveTaskToBack(false)) {
-              // For non-root activities, use the default implementation to finish them.
               super.invokeDefaultOnBackPressed()
           }
           return
       }
 
-      // Use the default back button implementation on Android S
-      // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
   }
 }

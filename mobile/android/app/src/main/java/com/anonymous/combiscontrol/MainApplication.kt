@@ -2,6 +2,7 @@ package com.anonymous.combiscontrol
 
 import android.app.Application
 import android.content.res.Configuration
+import android.util.Log
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -18,6 +19,8 @@ import com.anonymous.combiscontrol.calls.ManeCombCallPackage
 import com.anonymous.combiscontrol.location.ManeCombLocationPackage
 import com.anonymous.combiscontrol.notifications.ManeCombNotificationPackage
 import com.anonymous.combiscontrol.documents.ManeCombDocumentFilePackage
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 
 class MainApplication : Application(), ReactApplication {
 
@@ -25,8 +28,6 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
               add(ManeCombAudioPackage())
               add(ManeCombCallPackage())
               add(ManeCombLocationPackage())
@@ -46,6 +47,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    initializeFirebaseIfNeeded()
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {
@@ -54,7 +56,31 @@ class MainApplication : Application(), ReactApplication {
     loadReactNative(this)
   }
 
+  private fun initializeFirebaseIfNeeded() {
+    if (FirebaseApp.getApps(this).isNotEmpty()) return
+    if (!BuildConfig.MANECOMB_FIREBASE_CONFIGURED) {
+      Log.i(TAG, "FCM deshabilitado: falta google-services.json o MANECOMB_FIREBASE_*")
+      return
+    }
+
+    try {
+      val options = FirebaseOptions.Builder()
+        .setProjectId(getString(R.string.manecomb_firebase_project_id))
+        .setApplicationId(getString(R.string.manecomb_firebase_app_id))
+        .setApiKey(getString(R.string.manecomb_firebase_api_key))
+        .setGcmSenderId(getString(R.string.manecomb_firebase_sender_id))
+        .build()
+      FirebaseApp.initializeApp(this, options)
+    } catch (error: Exception) {
+      Log.e(TAG, "No fue posible inicializar Firebase", error)
+    }
+  }
+
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
+  }
+
+  companion object {
+    private const val TAG = "ManeCombApplication"
   }
 }

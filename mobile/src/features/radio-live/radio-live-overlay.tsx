@@ -5,6 +5,10 @@ import { MODULE_ROUTE_NAMES } from '@/src/navigation/route-registry';
 import { useCallStore } from '@/src/features/calls/call-store';
 import { getSharedRealtimeSocket, useAppStore } from '@/src/store/use-app-store';
 import { setRadioRealtimeSuspended } from '@/src/screens/radio/services/radio-realtime-service';
+import {
+  acquireRadioForegroundService,
+  releaseRadioForegroundService,
+} from './radio-foreground-service';
 import { createNativeRadioLiveRuntime } from './radio-live-runtime';
 import {
   setRadioLiveRuntimeFactory,
@@ -116,6 +120,21 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     };
   }, [conversations, eligible, ensureAttempt, openGeneralConversation, reset, user]);
 
+  // Claim the native service before stopping the global runtime. This makes the
+  // Mapa -> Radio handoff continuous and prevents startForegroundService/stopService
+  // from crossing during the first screen mount.
+  useEffect(() => {
+    if (!eligible || !screenOwnsRadio || callOwnsAudio) {
+      releaseRadioForegroundService('screen').catch(() => undefined);
+      return undefined;
+    }
+
+    acquireRadioForegroundService('screen').catch(() => undefined);
+    return () => {
+      releaseRadioForegroundService('screen').catch(() => undefined);
+    };
+  }, [callOwnsAudio, eligible, screenOwnsRadio]);
+
   useEffect(() => {
     if (!eligible || !user || !channelId) return;
 
@@ -147,6 +166,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   useEffect(
     () => () => {
       setRadioRealtimeSuspended(false);
+      releaseRadioForegroundService('screen').catch(() => undefined);
       reset();
     },
     [reset]

@@ -1,12 +1,14 @@
 import {
   enqueuePttAudioFrame,
   startPttAudioPlayback,
-  startRadioForegroundService,
   stopActiveAudioPlaybackAsync,
   stopPttAudioPlayback,
-  stopRadioForegroundService,
 } from '@/src/native/audio';
 import { RadioRealtimeService } from '@/src/screens/radio/services/radio-realtime-service';
+import {
+  acquireRadioForegroundService,
+  releaseRadioForegroundService,
+} from './radio-foreground-service';
 import type {
   RadioLiveRuntimeFactory,
   RadioLiveRuntimeTransportState,
@@ -35,9 +37,9 @@ export const createNativeRadioLiveRuntime: RadioLiveRuntimeFactory = (params) =>
 
     if (active) {
       try {
-        await startRadioForegroundService();
+        await acquireRadioForegroundService('global');
         if (stopped) {
-          await stopRadioForegroundService().catch(() => undefined);
+          await releaseRadioForegroundService('global').catch(() => undefined);
           return;
         }
         foregroundServiceActive = true;
@@ -50,7 +52,7 @@ export const createNativeRadioLiveRuntime: RadioLiveRuntimeFactory = (params) =>
 
     foregroundServiceActive = false;
     onForegroundServiceChange(false);
-    await stopRadioForegroundService().catch(() => undefined);
+    await releaseRadioForegroundService('global').catch(() => undefined);
   };
 
   const finishCurrentTransmission = (reason?: string | null) => {
@@ -76,8 +78,8 @@ export const createNativeRadioLiveRuntime: RadioLiveRuntimeFactory = (params) =>
     }
 
     // Once LISTENING was confirmed, keep the foreground service through transient
-    // reconnects. Restarting it from background can be rejected by modern Android.
-    // It is stopped only for terminal auth/runtime errors or an explicit owner handoff.
+    // reconnects. It is stopped only for terminal auth/runtime errors or an
+    // explicit owner handoff.
     if (state === 'unauthorized' || state === 'error') {
       void setForegroundService(false);
     }
@@ -145,7 +147,7 @@ export const createNativeRadioLiveRuntime: RadioLiveRuntimeFactory = (params) =>
       stopPttAudioPlayback().catch(() => undefined);
       foregroundServiceActive = false;
       onForegroundServiceChange(false);
-      stopRadioForegroundService().catch(() => undefined);
+      releaseRadioForegroundService('global').catch(() => undefined);
     },
   };
 };
