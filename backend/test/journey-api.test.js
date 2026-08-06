@@ -31,8 +31,65 @@ async function main() {
 
   const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
   const adminToken = signToken(store.getUserById("user-admin-01"));
+  const driver = store.getUserById("user-driver-01");
+  const driverToken = signToken(driver);
+  const vehicle = store.getVehicleById("vehicle-101");
+  const routeId = vehicle.routeId || vehicle.assignedRoute?.routeId;
 
   try {
+    assert.ok(routeId, "La unidad de prueba debe tener una ruta asignada");
+
+    const scheduledStartAt = "2026-08-07T12:00:00.000Z";
+    const scheduledEndAt = "2026-08-07T20:00:00.000Z";
+    const assignmentBody = {
+      driverId: driver.id,
+      vehicleId: vehicle.id,
+      routeId,
+      scheduledStartAt,
+      scheduledEndAt,
+      notes: "Jornada API de certificacion"
+    };
+
+    const assigned = await request(baseUrl, adminToken, "/journeys", "POST", assignmentBody);
+    assert.equal(assigned.status, 201);
+    assert.equal(assigned.data.applied, true);
+    assert.equal(assigned.data.data.status, "ASSIGNED");
+    assert.equal(assigned.data.data.scheduledStartAt, scheduledStartAt);
+    assert.equal(assigned.data.data.scheduledEndAt, scheduledEndAt);
+    assert.equal(assigned.data.data.startedAt, null);
+    const assignedSessionId = assigned.data.data.id;
+
+    const duplicateAssignment = await request(baseUrl, adminToken, "/journeys", "POST", assignmentBody);
+    assert.equal(duplicateAssignment.status, 200);
+    assert.equal(duplicateAssignment.data.applied, false);
+    assert.equal(duplicateAssignment.data.idempotent, true);
+    assert.equal(duplicateAssignment.data.data.id, assignedSessionId);
+
+    const confirmed = await request(baseUrl, driverToken, `/journeys/${assignedSessionId}/transition`, "POST", {
+      status: "READY"
+    });
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.data.data.status, "READY");
+    assert.ok(confirmed.data.data.confirmedAt);
+    assert.equal(confirmed.data.data.confirmedBy, driver.id);
+    assert.equal(confirmed.data.data.startedAt, null);
+
+    const running = await request(baseUrl, driverToken, `/journeys/${assignedSessionId}/transition`, "POST", {
+      status: "RUNNING"
+    });
+    assert.equal(running.status, 200);
+    assert.equal(running.data.data.status, "RUNNING");
+    assert.ok(running.data.data.startedAt);
+    assert.notEqual(running.data.data.startedAt, scheduledStartAt);
+
+    const cancelled = await request(baseUrl, adminToken, `/journeys/${assignedSessionId}/transition`, "POST", {
+      status: "CANCELLED",
+      finishReason: "test_cleanup"
+    });
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.data.data.status, "CANCELLED");
+    assert.equal(cancelled.data.data.finishReason, "test_cleanup");
+
     const started = await request(baseUrl, adminToken, "/navigation/sessions/start", "POST", {
       vehicleId: "vehicle-101"
     });
