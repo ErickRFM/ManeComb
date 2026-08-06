@@ -1,0 +1,65 @@
+name: Consolidate pending non-admin work
+
+on:
+  push:
+    branches:
+      - release/non-admin-consolidation-20260805
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout consolidation branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: release/non-admin-consolidation-20260805
+
+      - name: Stop after completed integration
+        id: guard
+        shell: bash
+        run: |
+          if [[ -f .non-admin-consolidation-complete ]]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge pending non-admin branches
+        if: steps.guard.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin \
+            hotfix-radio-first-open-crash-01 \
+            hotfix-mobile-runtime-lifecycle-02 \
+            feat/push-calls-android-01
+
+          merge_branch() {
+            local branch="$1"
+            echo "::group::Merging ${branch}"
+            if ! git merge --no-ff --no-edit "origin/${branch}"; then
+              echo "Conflicts while merging ${branch}:"
+              git diff --name-only --diff-filter=U
+              git status --short
+              exit 1
+            fi
+            echo "::endgroup::"
+          }
+
+          merge_branch hotfix-radio-first-open-crash-01
+          merge_branch hotfix-mobile-runtime-lifecycle-02
+          merge_branch feat/push-calls-android-01
+
+          printf '%s\n' \
+            'main + PR #20 + PR #24 + PR #23' \
+            "generated=${GITHUB_SHA}" \
+            > .non-admin-consolidation-complete
+          git add .non-admin-consolidation-complete
+          git commit -m "chore(release): consolidate pending non-admin work"
+          git push origin HEAD:release/non-admin-consolidation-20260805
