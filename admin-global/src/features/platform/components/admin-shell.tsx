@@ -8,7 +8,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router, usePathname } from '@/components/router';
-import { useAdminStore } from '@/features/auth/store';
+import { shouldRenewPlatformSession, useAdminStore } from '@/features/auth/store';
 import { palette, Typography } from '@/styles/theme';
 import { getAdminNavigation } from '../navigation';
 import { usePlatformStore } from '../store';
@@ -27,6 +27,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   const { width } = useWindowDimensions();
   const pathname = usePathname().replace(/\/+$/, '') || '/';
   const session = useAdminStore((state) => state.session);
+  const renewSession = useAdminStore((state) => state.renewSession);
   const logout = useAdminStore((state) => state.logout);
   const capabilities = usePlatformStore((state) => state.capabilities);
   const load = usePlatformStore((state) => state.load);
@@ -40,6 +41,36 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   useEffect(() => {
     if (session?.token) void load(session.token);
   }, [load, session?.token]);
+
+  useEffect(() => {
+    if (!session?.token || typeof window === 'undefined') return undefined;
+    let disposed = false;
+
+    const verifyExpiration = () => {
+      if (!disposed && shouldRenewPlatformSession(session.token)) {
+        void renewSession();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        verifyExpiration();
+      }
+    };
+
+    verifyExpiration();
+    const interval = window.setInterval(verifyExpiration, 60_000);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, [renewSession, session?.token]);
 
   const handleLogout = async () => {
     resetGovernance();
