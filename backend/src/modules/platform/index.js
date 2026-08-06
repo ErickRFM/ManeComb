@@ -29,7 +29,7 @@ const MODULE_PERMISSIONS = {
 function deriveModules(permissions) {
   const modules = {};
   for (const [name, perms] of Object.entries(MODULE_PERMISSIONS)) {
-    modules[name] = perms.some((p) => permissions.includes(p));
+    modules[name] = perms.some((permission) => permissions.includes(permission));
   }
   return modules;
 }
@@ -50,7 +50,7 @@ router.get(
         modules
       };
 
-      recordPlatformAction(req, {
+      await recordPlatformAction(req, {
         action: "platform.capabilities.read",
         severity: "info",
         metadata: { role: req.platformUser.role }
@@ -78,11 +78,11 @@ router.get(
 
       const orgIds = new Set();
       const usersByStatus = { active: 0, pending: 0, suspended: 0 };
-      for (const u of users) {
-        if (u.organizationId) orgIds.add(u.organizationId);
-        const status = u.userStatus || u.status || "active";
-        if (usersByStatus[status] !== undefined) usersByStatus[status]++;
-        else usersByStatus.active++;
+      for (const user of users) {
+        if (user.organizationId) orgIds.add(user.organizationId);
+        const status = user.userStatus || user.status || "active";
+        if (usersByStatus[status] !== undefined) usersByStatus[status] += 1;
+        else usersByStatus.active += 1;
       }
 
       const overviewData = {
@@ -104,17 +104,17 @@ router.get(
           ? await store.listCommercialOrders()
           : [];
         const ordersByStatus = { pending: 0, active: 0, completed: 0, cancelled: 0 };
-        for (const o of orders) {
-          const raw = o.paymentStatus || o.status || "pending";
-          if (raw === "paid" || raw === "active") ordersByStatus.active++;
-          else if (raw === "completed" || raw === "expired") ordersByStatus.completed++;
-          else if (raw === "cancelled" || raw === "refunded" || raw === "failed") ordersByStatus.cancelled++;
-          else ordersByStatus.pending++;
+        for (const order of orders) {
+          const raw = order.paymentStatus || order.status || "pending";
+          if (raw === "paid" || raw === "active") ordersByStatus.active += 1;
+          else if (raw === "completed" || raw === "expired") ordersByStatus.completed += 1;
+          else if (raw === "cancelled" || raw === "refunded" || raw === "failed") ordersByStatus.cancelled += 1;
+          else ordersByStatus.pending += 1;
         }
         overviewData.commercialOrders = { total: orders.length, byStatus: ordersByStatus };
       }
 
-      recordPlatformAction(req, {
+      await recordPlatformAction(req, {
         action: "platform.overview.read",
         severity: "info",
         metadata: {
