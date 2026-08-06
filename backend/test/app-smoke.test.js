@@ -134,10 +134,15 @@ async function testCriticalFlows() {
     assert.equal(registerResponse.payload.ok, true);
     createdUserId = registerResponse.payload.user.id;
     assert.equal(registerResponse.payload.user.accountType, "company_owner");
+    assert.equal(registerResponse.payload.user.accountChannel, "company_portal");
+    assert.equal(registerResponse.payload.accountChannel, "company_portal");
+    assert.equal(registerResponse.payload.canAccessPortal, true);
+    assert.equal(registerResponse.payload.canUseOperations, false);
     assert.equal(registerResponse.payload.dashboard, null);
     assert.equal(registerResponse.payload.authContext.destination, "PlanRequired");
     assert.equal(registerResponse.payload.canAccessMobile, false);
-    assert.equal(registerResponse.payload.mobileBlockReason, "no_plan");
+    assert.equal(registerResponse.payload.mobileBlockReason, "wrong_channel");
+    assert.equal(registerResponse.payload.operationalBlockReason, "no_plan");
     assert.equal(registerResponse.payload.postLoginRoute, "/portal/plan");
     const token = registerResponse.payload.token;
 
@@ -152,8 +157,12 @@ async function testCriticalFlows() {
     assert.equal(loginResponse.status, 200);
     assert.equal(loginResponse.payload.ok, true);
     assert.equal(loginResponse.payload.authContext.destination, "PlanRequired");
+    assert.equal(loginResponse.payload.accountChannel, "company_portal");
     assert.equal(loginResponse.payload.canAccessMobile, false);
-    assert.equal(loginResponse.payload.mobileBlockReason, "no_plan");
+    assert.equal(loginResponse.payload.canAccessPortal, true);
+    assert.equal(loginResponse.payload.canUseOperations, false);
+    assert.equal(loginResponse.payload.mobileBlockReason, "wrong_channel");
+    assert.equal(loginResponse.payload.operationalBlockReason, "no_plan");
     assert.equal(loginResponse.payload.postLoginRoute, "/portal/plan");
 
     const blockedLocationsResponse = await requestJson(`${context.url}/locations/live`, {
@@ -164,6 +173,7 @@ async function testCriticalFlows() {
 
     assert.equal(blockedLocationsResponse.status, 403);
     assert.equal(blockedLocationsResponse.payload.code, "PLAN_REQUIRED");
+    assert.equal(blockedLocationsResponse.payload.reason, "no_plan");
 
     const checkoutResponse = await requestJson(`${context.url}/commercial/checkout`, {
       body: JSON.stringify({
@@ -244,10 +254,15 @@ async function testCriticalFlows() {
     });
 
     assert.equal(activeSessionResponse.status, 200);
-    assert.equal(activeSessionResponse.payload.authContext.destination, "HomeOperativo");
-    assert.equal(activeSessionResponse.payload.canAccessMobile, true);
-    assert.equal(activeSessionResponse.payload.mobileBlockReason, null);
-    assert.equal(activeSessionResponse.payload.postLoginRoute, "/mapa");
+    assert.equal(activeSessionResponse.payload.profile.user.accountChannel, "company_portal");
+    assert.equal(activeSessionResponse.payload.authContext.destination, "CompanyPortal");
+    assert.equal(activeSessionResponse.payload.accountChannel, "company_portal");
+    assert.equal(activeSessionResponse.payload.canAccessMobile, false);
+    assert.equal(activeSessionResponse.payload.canAccessPortal, true);
+    assert.equal(activeSessionResponse.payload.canUseOperations, true);
+    assert.equal(activeSessionResponse.payload.mobileBlockReason, "wrong_channel");
+    assert.equal(activeSessionResponse.payload.operationalBlockReason, null);
+    assert.equal(activeSessionResponse.payload.postLoginRoute, "/portal");
     assert.equal(activeSessionResponse.payload.subscription.isActive, true);
     assert.equal(activeSessionResponse.payload.subscription.status, "active");
     assert.equal(activeSessionResponse.payload.tenant.status, "active");
@@ -280,8 +295,11 @@ async function testCriticalFlows() {
     assert.equal(activeWithPendingUsersResponse.status, 200);
     assert.equal(activeWithPendingUsersResponse.payload.subscription.status, "active");
     assert.equal(activeWithPendingUsersResponse.payload.tenant.status, "active");
-    assert.equal(activeWithPendingUsersResponse.payload.canAccessMobile, true);
-    assert.equal(activeWithPendingUsersResponse.payload.mobileBlockReason, null);
+    assert.equal(activeWithPendingUsersResponse.payload.accountChannel, "company_portal");
+    assert.equal(activeWithPendingUsersResponse.payload.canAccessMobile, false);
+    assert.equal(activeWithPendingUsersResponse.payload.canUseOperations, true);
+    assert.equal(activeWithPendingUsersResponse.payload.mobileBlockReason, "wrong_channel");
+    assert.equal(activeWithPendingUsersResponse.payload.operationalBlockReason, null);
 
     const subscriptionResponse = await requestJson(`${context.url}/account/subscription`, {
       headers: {

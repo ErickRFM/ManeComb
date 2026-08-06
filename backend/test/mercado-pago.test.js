@@ -567,7 +567,13 @@ async function testPaymentStatusesDoNotActivateUnlessApproved() {
   const approved = await runConfirmationScenario("approved");
   assert.equal(approved.confirmation.paymentStatus, "paid");
   assert.equal(approved.confirmation.activationStatus, "active");
-  assert.equal(approved.session.canAccessMobile, true);
+  assert.equal(approved.session.accountChannel, "company_portal");
+  assert.equal(approved.session.canAccessMobile, false);
+  assert.equal(approved.session.canAccessPortal, true);
+  assert.equal(approved.session.canUseOperations, true);
+  assert.equal(approved.session.mobileBlockReason, "wrong_channel");
+  assert.equal(approved.session.operationalBlockReason, null);
+  assert.equal(approved.session.postLoginRoute, "/portal");
   assert.equal(approved.session.subscription.status, "active");
   assert.equal(approved.session.subscription.isActive, true);
   assert.equal(approved.session.tenant.status, "active");
@@ -601,7 +607,13 @@ async function testPaymentProviderTestActivatesWithoutMercadoPago() {
           }
         });
 
-        assert.equal(session.payload.canAccessMobile, true);
+        assert.equal(session.payload.accountChannel, "company_portal");
+        assert.equal(session.payload.canAccessMobile, false);
+        assert.equal(session.payload.canAccessPortal, true);
+        assert.equal(session.payload.canUseOperations, true);
+        assert.equal(session.payload.mobileBlockReason, "wrong_channel");
+        assert.equal(session.payload.operationalBlockReason, null);
+        assert.equal(session.payload.postLoginRoute, "/portal");
         assert.equal(session.payload.subscription.status, "active");
         assert.equal(session.payload.tenant.status, "active");
 

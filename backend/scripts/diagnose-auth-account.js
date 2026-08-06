@@ -132,7 +132,7 @@ function detectInconsistencies({ authContext, ownerCount, orders, tenant, user, 
   const issues = [];
   const role = normalize(user?.role);
   const activeSubscription = Boolean(authContext?.subscription?.isActive);
-  const canAccessMobile = authContext?.canAccessMobile === true;
+  const canUseOperations = authContext?.canUseOperations === true;
 
   if (!role) {
     issues.push({
@@ -176,12 +176,12 @@ function detectInconsistencies({ authContext, ownerCount, orders, tenant, user, 
     user?.accountType === "company_owner" &&
     activeSubscription &&
     tenant?.id &&
-    !canAccessMobile
+    !canUseOperations
   ) {
     issues.push({
-      code: "ACTIVE_SALES_ACCOUNT_WRONG_ROUTE",
+      code: "ACTIVE_COMPANY_WITHOUT_OPERATIONAL_ACCESS",
       severity: "error",
-      message: `Cuenta company_owner con plan activo no obtuvo acceso movil (${authContext?.mobileBlockReason || "sin razon"}).`
+      message: `Cuenta company_owner con plan activo no obtuvo acceso operativo (${authContext?.operationalBlockReason || "sin razon"}).`
     });
   }
 
@@ -282,12 +282,18 @@ async function main() {
     activeOrderId: activeOrder?.id || null,
     orders: orders.map(buildOrderSummary),
     authDecision: {
+      accountChannel: authContext.accountChannel,
+      accountChannelReason: authContext.accountChannelReason,
       canAccessMobile: authContext.canAccessMobile,
+      canAccessPortal: authContext.canAccessPortal,
+      canUseOperations: authContext.canUseOperations,
       destination: authContext.destination,
       mobileBlockReason: authContext.mobileBlockReason,
-      route: authContext.route,
+      operationalBlockReason: authContext.operationalBlockReason,
+      productDestination: authContext.productDestination,
+      productRoute: authContext.productRoute,
       reason: authContext.reason,
-      canUseOperations: authContext.canUseOperations
+      route: authContext.route
     },
     subscription: authContext.subscription,
     onboarding: authContext.onboarding,
