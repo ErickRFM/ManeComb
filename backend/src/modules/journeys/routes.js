@@ -10,6 +10,10 @@ const {
 const { ensureJourneySessionSchema } = require("../../domain/journey-session-schema");
 const { serializeJourneySession } = require("../../domain/journey-session-compatibility");
 const {
+  JourneyAssignmentError,
+  createJourneyAssignment
+} = require("../../services/journey-assignment-service");
+const {
   JourneyTransitionError,
   transitionJourneySession
 } = require("../../services/journey-transition-service");
@@ -48,21 +52,39 @@ function actorFromRequest(req) {
   };
 }
 
-function respondTransitionError(res, error) {
-  if (!(error instanceof JourneyTransitionError)) return false;
-
+function respondJourneyError(res, error) {
   const statusByCode = {
     actor_required: 401,
+    organization_required: 403,
     driver_mismatch: 403,
+    driver_not_found: 404,
+    vehicle_not_found: 404,
+    route_not_found: 404,
     tenant_mismatch: 404,
-    session_id_required: 400,
     session_not_found: 404,
+    session_id_required: 400,
+    assignment_fields_required: 400,
+    scheduled_start_invalid: 400,
+    scheduled_end_invalid: 400,
+    schedule_invalid: 400,
     invalid_status: 400,
     invalid_transition_time: 400,
+    driver_unavailable: 409,
+    vehicle_unavailable: 409,
+    driver_vehicle_mismatch: 409,
+    vehicle_route_mismatch: 409,
+    schedule_conflict: 409,
+    vehicle_active_journey: 409,
+    assignment_transition_failed: 409,
+    assignment_create_failed: 500,
     invalid_transition: 409,
     terminal_status: 409,
     concurrent_transition: 409
   };
+
+  if (!(error instanceof JourneyTransitionError) && !(error instanceof JourneyAssignmentError)) {
+    return false;
+  }
 
   res.status(statusByCode[error.code] || 409).json({
     ok: false,
@@ -72,6 +94,44 @@ function respondTransitionError(res, error) {
   });
   return true;
 }
+
+router.post("/", authenticate, requireOperationalAccess, async (req, res, next) => {
+  try {
+    if (!hasPermission(req.user, "canManageRoutes")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para asignar jornadas" });
+    }
+
+    const actor = actorFromRequest(req);
+    if (!actor.organizationId) {
+      return res.status(403).json({ ok: false, message: "Selecciona una organizacion para asignar la jornada" });
+    }
+
+    const result = await createJourneyAssignment({
+      store: req.app.locals.store,
+      actor,
+      driverId: req.body.driverId,
+      vehicleId: req.body.vehicleId,
+      routeId: req.body.routeId,
+      scheduledStartAt: req.body.scheduledStartAt,
+      scheduledEndAt: req.body.scheduledEndAt,
+      supervisorId: req.body.supervisorId,
+      notes: req.body.notes
+    });
+
+    const session = serializeJourneySession(result.session);
+    if (result.applied) emitJourneyUpdate(req, session);
+
+    return res.status(result.applied ? 201 : 200).json({
+      ok: true,
+      applied: result.applied,
+      idempotent: result.idempotent,
+      data: session
+    });
+  } catch (error) {
+    if (respondJourneyError(res, error)) return undefined;
+    return next(error);
+  }
+});
 
 router.get("/:sessionId", authenticate, requireOperationalAccess, async (req, res, next) => {
   try {
@@ -141,7 +201,7 @@ router.post("/:sessionId/transition", authenticate, requireOperationalAccess, as
       data: serializeJourneySession(session)
     });
   } catch (error) {
-    if (respondTransitionError(res, error)) return undefined;
+    if (respondJourneyError(res, error)) return undefined;
     return next(error);
   }
 });
