@@ -5,10 +5,14 @@ const {
   ACCOUNT_CHANNEL,
   resolveAccountChannel
 } = require("../src/services/account-channel");
+const { buildAuthContext } = require("../src/services/auth-context");
+
+const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
 function buildUser(overrides = {}) {
   return {
     _id: "user-channel-test",
+    id: "user-channel-test",
     name: "Channel Test",
     email: "channel@manecomb.test",
     passwordHash: "must-not-leak",
@@ -17,6 +21,31 @@ function buildUser(overrides = {}) {
     organizationId: "tenant-channel",
     userStatus: "active",
     ...overrides
+  };
+}
+
+function buildActiveOrder(overrides = {}) {
+  return {
+    id: "order-channel-test",
+    planId: "growth-6",
+    planName: "Growth 6",
+    fleetSize: 6,
+    ownerUserId: "user-channel-test",
+    ownerAccountEmail: "channel@manecomb.test",
+    paymentStatus: "paid",
+    activationStatus: "active",
+    status: "active",
+    currentPeriodEnd: futureDate,
+    createdAt: new Date().toISOString(),
+    ...overrides
+  };
+}
+
+function buildStore(order) {
+  return {
+    listActivationKeysForCompany: async () => [],
+    listCommercialOrdersForUser: async () => order ? [order] : [],
+    listUsers: async () => []
   };
 }
 
@@ -152,7 +181,43 @@ function testMissingUserFailsClosed() {
   console.log("ok - usuario ausente falla cerrado");
 }
 
-function run() {
+async function testActivePlanWithoutTenantKeepsChannelAndBlocksOperations() {
+  const orderWithoutTenant = buildActiveOrder({
+    organizationId: "",
+    organizationSlug: ""
+  });
+  const company = buildUser({ organizationId: "" });
+  const driver = buildUser({
+    accountType: "operations",
+    organizationId: "",
+    role: "driver"
+  });
+
+  const companyContext = await buildAuthContext(buildStore(orderWithoutTenant), company);
+  const driverContext = await buildAuthContext(buildStore(orderWithoutTenant), driver);
+
+  assert.equal(companyContext.accountChannel, "company_portal");
+  assert.equal(companyContext.destination, "OperationalOnboarding");
+  assert.equal(companyContext.route, "/portal/onboarding");
+  assert.equal(companyContext.canAccessMobile, false);
+  assert.equal(companyContext.canUseOperations, false);
+  assert.equal(companyContext.mobileBlockReason, "wrong_channel");
+  assert.equal(companyContext.operationalBlockReason, "missing_tenant");
+  assert.equal(companyContext.tenant, null);
+
+  assert.equal(driverContext.accountChannel, "mobile_operations");
+  assert.equal(driverContext.destination, "PlanBlocked");
+  assert.equal(driverContext.route, "/plan-blocked");
+  assert.equal(driverContext.canAccessMobile, false);
+  assert.equal(driverContext.canUseOperations, false);
+  assert.equal(driverContext.mobileBlockReason, "missing_tenant");
+  assert.equal(driverContext.operationalBlockReason, "missing_tenant");
+  assert.equal(driverContext.tenant, null);
+
+  console.log("ok - plan activo sin tenant conserva el canal y bloquea operación con missing_tenant");
+}
+
+async function run() {
   testCompanyPortalRoleMatrix();
   testMobileOperationsRoleMatrix();
   testSerializerDecoratesEverySessionRead();
@@ -160,6 +225,10 @@ function run() {
   testSuspensionOverridesProductIdentity();
   testPlatformIdentityHasDedicatedChannel();
   testMissingUserFailsClosed();
+  await testActivePlanWithoutTenantKeepsChannelAndBlocksOperations();
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
