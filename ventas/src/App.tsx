@@ -3,7 +3,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
-import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
+import {
+  canAccessPortal,
+  hasPortalPermission,
+  type PortalPermission,
+} from '@/features/portal/utils/access';
+import {
+  getAccountChannel,
+  getAuthenticatedHome,
+} from '@/src/utils/account-routing';
 import { ScreenErrorBoundary } from '@/src/components/screen-error-boundary';
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
@@ -30,7 +38,7 @@ function BootScreen() {
   return (
     <View style={styles.bootScreen}>
       <Text style={styles.bootTitle}>ManeComb</Text>
-      <Text style={styles.bootText}>Preparando portal de ventas...</Text>
+      <Text style={styles.bootText}>Preparando Ventas y Portal...</Text>
     </View>
   );
 }
@@ -41,17 +49,18 @@ function StaticPage({ title, body }: { title: string; body: string }) {
       <Text style={styles.staticTitle}>{title}</Text>
       <Text style={styles.staticBody}>{body}</Text>
       <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')}>
-        <Text style={styles.staticLink}>Volver a ventas</Text>
+        <Text style={styles.staticLink}>Volver a Ventas</Text>
       </Pressable>
     </View>
   );
 }
 
-function OperationalHandoff({ title }: { title: string }) {
+function OperationalAccountNotice() {
   const user = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
   const role = user?.role || 'sin definir';
   const accountType = user?.accountType || 'sin definir';
+  const accountChannel = getAccountChannel(user);
 
   const handleSignOut = async () => {
     await signOut();
@@ -61,18 +70,20 @@ function OperationalHandoff({ title }: { title: string }) {
   return (
     <View style={styles.staticPage}>
       <View style={styles.operationalPanel}>
-        <Text style={styles.operationalBadge}>SESIÓN VÁLIDA</Text>
-        <Text style={styles.staticTitle}>{title}</Text>
+        <Text style={styles.operationalBadge}>CUENTA OPERATIVA</Text>
+        <Text style={styles.staticTitle}>Continúa en la app móvil</Text>
         <Text style={styles.staticBody}>
-          Tu sesión inició correctamente. Esta cuenta pertenece al canal operativo y usa la app móvil de ManeComb para mapa, GPS, radio, chat y llamadas.
+          Esta cuenta pertenece a Mobile. Abre la app ManeComb en tu teléfono para usar mapa, GPS, rutas, Radio, Chat y llamadas.
         </Text>
-        <Text style={styles.operationalMeta}>Rol: {role} · Tipo de cuenta: {accountType}</Text>
+        <Text style={styles.operationalMeta}>
+          Rol: {role} · Tipo: {accountType} · Canal: {accountChannel}
+        </Text>
         <Text style={styles.operationalHint}>
-          El sitio web contiene Ventas y el Portal de empresa. Para entrar al Portal, la cuenta debe ser de empresa y tener un rol autorizado; las cuentas de conductor, supervisor o despacho continúan en la app móvil.
+          Ventas permite conocer y contratar planes. El Portal web es exclusivo de cuentas company_portal. Esta cuenta mobile_operations no puede entrar al Portal empresarial.
         </Text>
         <View style={styles.operationalActions}>
           <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Volver a ventas</Text>
+            <Text style={styles.primaryButtonText}>Ir a Ventas</Text>
           </Pressable>
           <Pressable accessibilityRole="button" onPress={() => void handleSignOut()} style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
@@ -102,12 +113,24 @@ function Routes() {
     '/portal/pagos': 'billing',
     '/portal/documentos': 'billing',
     '/portal/incidencias': 'billing',
-    '/portal/app-movil': null,
   };
   const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
+  const isOperationalNoticeRoute = pathname === '/acceso-operativo';
 
   if (isPortalRoute && !user) {
     return <Redirect href="/ventas/login" />;
+  }
+
+  if (isPortalRoute && !canAccessPortal(user)) {
+    return <Redirect href={getAuthenticatedHome(user) as never} />;
+  }
+
+  if (isOperationalNoticeRoute && !user) {
+    return <Redirect href="/ventas/login" />;
+  }
+
+  if (isOperationalNoticeRoute && getAccountChannel(user) !== 'mobile_operations') {
+    return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
   const requiredPermission = protectedPortalRoutes[pathname];
@@ -159,16 +182,28 @@ function Routes() {
       return <ScreenErrorBoundary name="Incidencias"><PortalIncidentsScreen /></ScreenErrorBoundary>;
     case '/portal/app-movil':
       return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
-    case '/mapa':
-      return <OperationalHandoff title="Acceso operativo" />;
-    case '/radio':
-      return <OperationalHandoff title="Acceso operativo" />;
+    case '/acceso-operativo':
+      return <OperationalAccountNotice />;
+    case '/acceso-admin':
+      return (
+        <StaticPage
+          title="Usa Admin Global"
+          body="Esta identidad pertenece a la administración interna de ManeComb. No puede operar desde Ventas, el Portal de empresa ni Mobile."
+        />
+      );
+    case '/acceso-restringido':
+      return (
+        <StaticPage
+          title="Cuenta sin producto autorizado"
+          body="El tipo de cuenta y el rol no forman una identidad válida de ManeComb. Cierra sesión y solicita al administrador que corrija la cuenta."
+        />
+      );
     case '/terminos':
       return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
       return <StaticPage title="Privacidad" body="Información de privacidad y canales de contacto para cuentas ManeComb." />;
     default:
-      return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
+      return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en Ventas ni en el Portal." />;
   }
 }
 

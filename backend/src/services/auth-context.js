@@ -1,5 +1,10 @@
 const { canAccessAllTenants, getOrganizationId } = require("../middlewares/access-control");
 const {
+  ACCOUNT_CHANNEL,
+  applyAccountChannel,
+  resolveAccountChannel
+} = require("./account-channel");
+const {
   buildOnboarding,
   buildSubscription,
   pickActiveOrder
@@ -85,7 +90,7 @@ function isActiveTenant(tenant) {
   return normalizeStatus(tenant?.status) === "active";
 }
 
-function getMobileBlockReason(subscription, tenant) {
+function getSubscriptionBlockReason(subscription, tenant) {
   const status = normalizeStatus(subscription?.status);
   const hasPlan = Boolean(subscription?.id || subscription?.planId);
   const activeSubscription = isActiveSubscription(subscription);
@@ -112,12 +117,47 @@ function getMobileBlockReason(subscription, tenant) {
   return "sync_error";
 }
 
-function resolveMobileAccess(subscription, tenant) {
-  const canAccessMobile = isActiveSubscription(subscription) && isActiveTenant(tenant);
+function getMobileBlockReason(subscription, tenant, accountChannel = null) {
+  const channel = accountChannel?.channel || accountChannel;
+
+  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
+    return "account_blocked";
+  }
+
+  if (channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
+    return "wrong_channel";
+  }
+
+  return getSubscriptionBlockReason(subscription, tenant);
+}
+
+function getOperationalBlockReason(subscription, tenant, accountChannel = null) {
+  const channel = accountChannel?.channel || accountChannel;
+
+  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
+    return "account_blocked";
+  }
+
+  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN) {
+    return "wrong_channel";
+  }
+
+  return getSubscriptionBlockReason(subscription, tenant);
+}
+
+function resolveMobileAccess(subscription, tenant, accountChannel, options = {}) {
+  const channel = accountChannel?.channel || accountChannel;
+  const mobileProduct = channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
+  const operationalOverride = options.allowOperationalOverride === true;
+  const canAccessMobile =
+    mobileProduct &&
+    (operationalOverride || (isActiveSubscription(subscription) && isActiveTenant(tenant)));
 
   return {
     canAccessMobile,
-    mobileBlockReason: canAccessMobile ? null : getMobileBlockReason(subscription, tenant)
+    mobileBlockReason: canAccessMobile
+      ? null
+      : getMobileBlockReason(subscription, tenant, accountChannel)
   };
 }
 
@@ -130,34 +170,91 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
     };
   }
 
+  const accountChannel = options.accountChannel || resolveAccountChannel(user);
+  const channel = accountChannel.channel;
   const role = normalizeStatus(user.role);
-
   const status = normalizeStatus(subscription?.status);
   const hasPlan = Boolean(subscription?.id || subscription?.planId);
   const active = isActiveSubscription(subscription) || options.canUseOperations === true;
   const tenantReady = isActiveTenant(tenant);
 
-  if (!hasPlan && !active) {
+  if (channel === ACCOUNT_CHANNEL.BLOCKED) {
+    return {
+      destination: "AccessBlocked",
+      reason: accountChannel.reason,
+      route: "/access-blocked"
+    };
+  }
+
+  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN) {
+    return {
+      destination: "PlatformAdmin",
+      reason: accountChannel.reason,
+      route: "/platform"
+    };
+  }
+
+  if (channel === ACCOUNT_CHANNEL.COMPANY_PORTAL) {
+    if (!hasPlan && !active) {
+      return {
+        destination: "PlanRequired",
+        reason: "missing_subscription",
+        route: "/portal/plan"
+      };
+    }
+
+    if (PAYMENT_PENDING_STATUSES.has(status)) {
+      return {
+        destination: "PaymentPending",
+        reason: "payment_pending",
+        route: "/portal/pagos"
+      };
+    }
+
+    if (active && !tenantReady) {
+      return {
+        destination: "OperationalOnboarding",
+        reason: "missing_operational_tenant",
+        route: "/portal/onboarding"
+      };
+    }
+
+    if (active) {
+      return {
+        destination: "CompanyPortal",
+        reason: "company_portal",
+        route: "/portal"
+      };
+    }
+
     return {
       destination: "PlanRequired",
-      reason: "missing_subscription",
+      reason: "inactive_subscription",
       route: "/portal/plan"
+    };
+  }
+
+  if (!hasPlan && !active) {
+    return {
+      destination: "PlanBlocked",
+      reason: "missing_subscription",
+      route: "/plan-blocked"
     };
   }
 
   if (PAYMENT_PENDING_STATUSES.has(status)) {
     return {
-      destination: "PaymentPending",
+      destination: "PlanBlocked",
       reason: "payment_pending",
-      route: "/portal/pagos"
+      route: "/plan-blocked"
     };
   }
 
   if (active && !tenantReady) {
     return {
-      destination: "OperationalOnboarding",
+      destination: "PlanBlocked",
       reason: "missing_operational_tenant",
-      route: "/portal/onboarding"
+      route: "/plan-blocked"
     };
   }
 
@@ -178,28 +275,37 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
   }
 
   return {
-    destination: "PlanRequired",
+    destination: "PlanBlocked",
     reason: "inactive_subscription",
-    route: "/portal/plan"
+    route: "/plan-blocked"
   };
 }
 
 async function buildAuthContext(store, user, options = {}) {
   if (!user) {
-    const resolution = resolvePostLoginRoute(null, null, null, null);
+    const accountChannel = resolveAccountChannel(null);
+    const resolution = resolvePostLoginRoute(null, null, null, null, { accountChannel });
     const subscription = buildSubscription(null);
-    const mobileAccess = resolveMobileAccess(subscription, null);
+    const mobileAccess = resolveMobileAccess(subscription, null, accountChannel);
 
     return {
       ...resolution,
       ...mobileAccess,
+      accountChannel: accountChannel.channel,
+      accountChannelReason: accountChannel.reason,
+      canAccessPortal: false,
       canUseOperations: false,
       onboarding: null,
+      operationalBlockReason: "missing_user",
+      productDestination: resolution.destination,
+      productRoute: resolution.route,
       subscription,
       tenant: null
     };
   }
 
+  applyAccountChannel(user);
+  const accountChannel = resolveAccountChannel(user);
   const orders = store?.listCommercialOrdersForUser
     ? await store.listCommercialOrdersForUser(user)
     : [];
@@ -222,21 +328,38 @@ async function buildAuthContext(store, user, options = {}) {
         users
       })
     : null;
-  const mobileAccess = resolveMobileAccess(subscription, tenant);
+  const operationalOverride =
+    canAccessAllTenants(user) || Boolean(options.allowPlatformAdmin === true);
+  const mobileAccess = resolveMobileAccess(subscription, tenant, accountChannel, {
+    allowOperationalOverride: operationalOverride
+  });
+  const activeTenantAccess =
+    isActiveSubscription(subscription) &&
+    isActiveTenant(tenant) &&
+    (accountChannel.channel === ACCOUNT_CHANNEL.COMPANY_PORTAL ||
+      accountChannel.channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS);
   const canUseOperations =
     options.canUseOperations === true ||
-    mobileAccess.canAccessMobile ||
-    canAccessAllTenants(user) ||
-    Boolean(options.allowPlatformAdmin === true);
+    activeTenantAccess ||
+    operationalOverride;
   const resolution = resolvePostLoginRoute(user, subscription, tenant, onboarding, {
+    accountChannel,
     canUseOperations
   });
 
   return {
     ...resolution,
     ...mobileAccess,
+    accountChannel: accountChannel.channel,
+    accountChannelReason: accountChannel.reason,
+    canAccessPortal: accountChannel.canAccessPortal,
     canUseOperations,
     onboarding,
+    operationalBlockReason: canUseOperations
+      ? null
+      : getOperationalBlockReason(subscription, tenant, accountChannel),
+    productDestination: resolution.destination,
+    productRoute: resolution.route,
     source: activeOrder?.source || null,
     subscription,
     tenant
@@ -247,6 +370,8 @@ module.exports = {
   buildTenantContext,
   buildAuthContext,
   getMobileBlockReason,
+  getOperationalBlockReason,
+  getSubscriptionBlockReason,
   isActiveSubscription,
   isActiveTenant,
   resolveMobileAccess,

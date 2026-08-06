@@ -1,4 +1,8 @@
-import type { User } from '@/src/types/app';
+import type { AccountChannel, User } from '@/src/types/app';
+
+type PortalUser = Pick<User, 'accountType' | 'role'> & {
+  accountChannel?: AccountChannel | string | null;
+};
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
 const ROLE_PERMISSIONS = {
@@ -13,14 +17,24 @@ export function isPortalRole(role: User['role'] | string | null | undefined) {
   return PORTAL_ROLES.has(String(role || ''));
 }
 
-export function canAccessPortal(user: Pick<User, 'accountType' | 'role'> | null | undefined) {
-  return user?.accountType === 'company_owner' && isPortalRole(user?.role);
+export function canAccessPortal(user: PortalUser | null | undefined) {
+  if (!user) return false;
+
+  const explicitChannel = String(user.accountChannel || '').trim();
+
+  if (explicitChannel) {
+    return explicitChannel === 'company_portal';
+  }
+
+  // Compatibilidad temporal para una sesión emitida antes del contrato de canal.
+  // Es deliberadamente AND y falla cerrada para combinaciones incompatibles.
+  return user.accountType === 'company_owner' && isPortalRole(user.role);
 }
 
 export type PortalPermission = 'users' | 'billing' | 'vehicles' | 'routes';
 
 export function hasPortalPermission(
-  user: Pick<User, 'accountType' | 'role'> | null | undefined,
+  user: PortalUser | null | undefined,
   permission: PortalPermission
 ) {
   if (!canAccessPortal(user)) return false;

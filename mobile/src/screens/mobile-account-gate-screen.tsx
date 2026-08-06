@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
 import { StatusBar } from '@/src/native/status-bar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import { useAppStore } from '@/src/store/use-app-store';
+import { useAppStore } from '@/src/store/root-store';
 import { useSyncWaitStage } from '@/src/hooks/use-sync-wait-stage';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import type { MobileBlockReason } from '@/src/types/app';
@@ -15,12 +15,20 @@ import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/s
 import { SYNC_ERROR_BODY, SYNC_ERROR_TITLE } from '@/src/utils/sync-copy';
 import { BrandSyncLoader } from '@/src/components/brand-sync-loader';
 
-const BLOCK_COPY: Record<MobileBlockReason, {
+type GateReason = MobileBlockReason | 'account_blocked' | 'wrong_channel';
+
+const BLOCK_COPY: Record<GateReason, {
   action: string;
   body: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
 }> = {
+  account_blocked: {
+    action: 'Cerrar sesión',
+    body: 'La combinación de cuenta y rol no tiene acceso a un producto operativo de ManeComb. Solicita al administrador que corrija o reactive tu cuenta.',
+    icon: 'calendar-alert',
+    title: 'Cuenta sin acceso',
+  },
   inactive_plan: {
     action: 'Renovar plan',
     body: 'Renueva tu plan para volver a operar ManeComb.',
@@ -51,15 +59,23 @@ const BLOCK_COPY: Record<MobileBlockReason, {
     icon: 'sync-alert',
     title: SYNC_ERROR_TITLE,
   },
+  wrong_channel: {
+    action: 'Abrir producto correcto',
+    body: 'Esta cuenta no pertenece al canal mobile_operations. Las cuentas de empresa usan el Portal web y las identidades internas usan su panel administrativo.',
+    icon: 'office-building-cog-outline',
+    title: 'Esta cuenta usa otro producto',
+  },
 };
 
-function getBlockReason(value: string | undefined): MobileBlockReason {
+function getBlockReason(value: string | undefined): GateReason {
   if (
+    value === 'account_blocked' ||
     value === 'inactive_plan' ||
     value === 'missing_tenant' ||
     value === 'no_plan' ||
     value === 'payment_pending' ||
-    value === 'sync_error'
+    value === 'sync_error' ||
+    value === 'wrong_channel'
   ) {
     return value;
   }
@@ -104,19 +120,33 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
     return <Redirect href="/mapa" />;
   }
 
-  // Cerrar sesion no depende de sincronizar nada: mientras el logout corre no
-  // mostramos ni error ni reintento de sincronizacion.
   if (isSigningOut) {
     return <BrandSyncLoader message="Cerrando sesión..." />;
   }
 
-  // Sin error confirmado la sincronizacion sigue en curso: carga real hasta que
-  // la peticion falle de verdad o se agote el timeout de arranque en frio.
   if (reason === 'sync_error' && !error && waitStage !== 'expired') {
     return <BrandSyncLoader stage={waitStage === 'slow' ? 'slow' : 'loading'} />;
   }
 
+  const handleSignOut = () => {
+    signOut().finally(() => router.replace('/login'));
+  };
+
   const handlePrimaryAction = () => {
+    if (reason === 'account_blocked') {
+      handleSignOut();
+      return;
+    }
+
+    if (reason === 'wrong_channel') {
+      if (user.accountType === 'company_owner') {
+        openSalesPortal('/portal').catch(() => undefined);
+      } else {
+        handleSignOut();
+      }
+      return;
+    }
+
     if (reason === 'missing_tenant') {
       router.replace('/perfil-editar');
       return;
@@ -130,10 +160,6 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
     openSalesPortal(getSalesPortalPathForBlockReason(reason)).catch(() => {
       refreshAll();
     });
-  };
-
-  const handleSignOut = () => {
-    signOut().finally(() => router.replace('/login'));
   };
 
   return (
@@ -160,7 +186,7 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
             {isRefreshing ? <ActivityIndicator size="small" color={theme.colors.text} /> : null}
             <Text style={styles.primaryText}>{isRefreshing ? 'Sincronizando...' : copy.action}</Text>
           </Pressable>
-          {reason !== 'sync_error' ? (
+          {reason !== 'sync_error' && reason !== 'account_blocked' ? (
             <Pressable
               onPress={refreshAll}
               disabled={isRefreshing}

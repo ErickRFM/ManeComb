@@ -85,9 +85,15 @@ function logAuthAccessDecision(source, user, authContext) {
   logger.debug({
     action: "AuthAccessDecision",
     metadata: {
+      accountChannel: authContext?.accountChannel || null,
+      accountChannelReason: authContext?.accountChannelReason || null,
       canAccessMobile: authContext?.canAccessMobile ?? null,
+      canAccessPortal: authContext?.canAccessPortal ?? null,
+      canUseOperations: authContext?.canUseOperations ?? null,
       email: user?.email || null,
       mobileBlockReason: authContext?.mobileBlockReason || null,
+      operationalBlockReason: authContext?.operationalBlockReason || null,
+      productRoute: authContext?.productRoute || authContext?.route || null,
       source,
       subscriptionIsActive: authContext?.subscription?.isActive ?? null,
       subscriptionStatus: authContext?.subscription?.status || null,
@@ -95,7 +101,7 @@ function logAuthAccessDecision(source, user, authContext) {
     },
     module: "Auth",
     organizationId: user?.organizationId,
-    status: authContext?.canAccessMobile ? "allowed" : "blocked",
+    status: authContext?.accountChannel === "blocked" ? "blocked" : "resolved",
     userId: user?.id
   });
 }
@@ -103,12 +109,20 @@ function logAuthAccessDecision(source, user, authContext) {
 function buildAuthContextPayload(authContext) {
   return {
     authContext,
+    accountChannel: authContext.accountChannel,
+    accountChannelReason: authContext.accountChannelReason,
     canAccessMobile: authContext.canAccessMobile,
+    canAccessPortal: authContext.canAccessPortal,
+    canUseOperations: authContext.canUseOperations,
     mobileBlockReason: authContext.mobileBlockReason,
+    operationalBlockReason: authContext.operationalBlockReason,
     tenant: authContext.tenant,
     subscription: authContext.subscription,
     onboarding: authContext.onboarding,
-    postLoginRoute: authContext.route
+    postLoginDestination: authContext.productDestination || authContext.destination,
+    postLoginRoute: authContext.productRoute || authContext.route,
+    productDestination: authContext.productDestination || authContext.destination,
+    productRoute: authContext.productRoute || authContext.route
   };
 }
 

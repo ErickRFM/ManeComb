@@ -8,6 +8,7 @@ export type Role =
   | 'viewer'
   | 'driver';
 export type AccountType = 'operations' | 'company_owner';
+export type AccountChannel = 'blocked' | 'company_portal' | 'mobile_operations' | 'platform_admin';
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'open' | 'in_progress' | 'resolved';
 export type ConnectionMode = 'online' | 'local';
@@ -93,6 +94,8 @@ export type User = {
   email: string;
   role: Role;
   accountType: AccountType;
+  accountChannel?: AccountChannel;
+  accountChannelReason?: string | null;
   organizationId?: string;
   userStatus?: UserAccountStatus;
   lastAccessAt?: string | null;
@@ -244,34 +247,49 @@ export type AuthTenantContext = {
 
 export type PostLoginDestination =
   | 'Login'
+  | 'AccessBlocked'
+  | 'CompanyPortal'
   | 'HomeConductor'
   | 'PlanRequired'
   | 'PaymentPending'
   | 'PlanBlocked'
+  | 'PlatformAdmin'
   | 'SyncError'
   | 'OperationalOnboarding'
   | 'HomeOperativo';
 
+export type AccessBlockReason =
+  | 'account_blocked'
+  | 'inactive_plan'
+  | 'missing_tenant'
+  | 'missing_user'
+  | 'no_plan'
+  | 'payment_pending'
+  | 'sync_error'
+  | 'wrong_channel';
+
+export type MobileBlockReason = Exclude<AccessBlockReason, 'missing_user'>;
+export type OperationalBlockReason = AccessBlockReason;
+
 export type AuthRoutingContext = {
+  accountChannel?: AccountChannel;
+  accountChannelReason?: string | null;
   canAccessMobile?: boolean;
+  canAccessPortal?: boolean;
   canUseOperations?: boolean;
   destination: PostLoginDestination;
   mobileBlockReason?: MobileBlockReason | null;
   onboarding?: PortalOnboarding | null;
+  operationalBlockReason?: OperationalBlockReason | null;
   postLoginRoute?: string;
+  productDestination?: PostLoginDestination;
+  productRoute?: string;
   reason?: string;
   route: string;
   source?: string | null;
   subscription?: PortalSubscription | null;
   tenant?: AuthTenantContext | null;
 };
-
-export type MobileBlockReason =
-  | 'inactive_plan'
-  | 'missing_tenant'
-  | 'no_plan'
-  | 'payment_pending'
-  | 'sync_error';
 
 export type PortalOverview = {
   organization: {
@@ -1007,8 +1025,16 @@ export type LoginResult = {
   session?: PortalSession;
   user: User;
   authContext?: AuthRoutingContext | null;
+  accountChannel?: AccountChannel;
+  accountChannelReason?: string | null;
   canAccessMobile?: boolean;
+  canAccessPortal?: boolean;
+  canUseOperations?: boolean;
   mobileBlockReason?: MobileBlockReason | null;
+  operationalBlockReason?: OperationalBlockReason | null;
+  postLoginDestination?: PostLoginDestination;
+  productDestination?: PostLoginDestination;
+  productRoute?: string;
   onboarding?: PortalOnboarding | null;
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;
@@ -1028,8 +1054,16 @@ export type SessionResult = {
     documents: DocumentItem[];
   };
   authContext?: AuthRoutingContext | null;
+  accountChannel?: AccountChannel;
+  accountChannelReason?: string | null;
   canAccessMobile?: boolean;
+  canAccessPortal?: boolean;
+  canUseOperations?: boolean;
   mobileBlockReason?: MobileBlockReason | null;
+  operationalBlockReason?: OperationalBlockReason | null;
+  postLoginDestination?: PostLoginDestination;
+  productDestination?: PostLoginDestination;
+  productRoute?: string;
   onboarding?: PortalOnboarding | null;
   postLoginRoute?: string;
   subscription?: PortalSubscription | null;

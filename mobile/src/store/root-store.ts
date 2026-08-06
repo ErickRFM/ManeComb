@@ -715,41 +715,69 @@ function getAuthContextFromPayload(
   }
 
   if (payload.authContext) {
-    const canAccessMobile = payload.canAccessMobile ?? payload.authContext.canAccessMobile;
+    const canAccessMobile = payload.authContext.canAccessMobile ?? payload.canAccessMobile;
     const mobileBlockReason: AuthRoutingContext['mobileBlockReason'] =
-      payload.mobileBlockReason ??
       payload.authContext.mobileBlockReason ??
+      payload.mobileBlockReason ??
       (canAccessMobile === false ? 'sync_error' : null);
 
     return {
       ...payload.authContext,
+      accountChannel:
+        payload.authContext.accountChannel ??
+        payload.accountChannel ??
+        payload.user?.accountChannel ??
+        payload.profile?.user?.accountChannel,
+      accountChannelReason:
+        payload.authContext.accountChannelReason ??
+        payload.accountChannelReason ??
+        payload.user?.accountChannelReason ??
+        payload.profile?.user?.accountChannelReason ??
+        null,
       canAccessMobile,
-      canUseOperations: canAccessMobile === true,
-      destination: canAccessMobile === true
-        ? 'HomeOperativo'
-        : canAccessMobile === false
-          ? 'PlanBlocked'
-          : 'SyncError',
+      canAccessPortal:
+        payload.authContext.canAccessPortal ?? payload.canAccessPortal ?? false,
+      canUseOperations:
+        payload.authContext.canUseOperations ?? payload.canUseOperations ?? false,
       mobileBlockReason,
-      route: canAccessMobile === true
-        ? '/mapa'
-        : canAccessMobile === false
-          ? '/plan-blocked'
-          : '/sync-error',
+      operationalBlockReason:
+        payload.authContext.operationalBlockReason ??
+        payload.operationalBlockReason ??
+        null,
+      productDestination:
+        payload.authContext.productDestination ??
+        payload.productDestination ??
+        payload.authContext.destination,
+      productRoute:
+        payload.authContext.productRoute ??
+        payload.productRoute ??
+        payload.postLoginRoute ??
+        payload.authContext.route,
     };
   }
 
   if (typeof payload.canAccessMobile === 'boolean') {
     const canAccessMobile = payload.canAccessMobile === true;
+    const accountChannel =
+      payload.accountChannel ??
+      payload.user?.accountChannel ??
+      payload.profile?.user?.accountChannel ??
+      (canAccessMobile ? 'mobile_operations' : undefined);
     const mobileBlockReason: AuthRoutingContext['mobileBlockReason'] =
       payload.mobileBlockReason ?? (canAccessMobile ? null : 'sync_error');
 
     return {
+      accountChannel,
+      accountChannelReason: payload.accountChannelReason ?? null,
       canAccessMobile,
-      canUseOperations: canAccessMobile,
+      canAccessPortal: payload.canAccessPortal ?? accountChannel === 'company_portal',
+      canUseOperations: payload.canUseOperations ?? canAccessMobile,
       destination: canAccessMobile ? 'HomeOperativo' : 'PlanBlocked',
       mobileBlockReason,
       onboarding: payload.onboarding || null,
+      operationalBlockReason: payload.operationalBlockReason ?? null,
+      productDestination: payload.productDestination ?? (canAccessMobile ? 'HomeOperativo' : 'PlanBlocked'),
+      productRoute: payload.productRoute ?? payload.postLoginRoute ?? (canAccessMobile ? '/mapa' : '/plan-blocked'),
       route: canAccessMobile ? '/mapa' : '/plan-blocked',
       subscription: payload.subscription || null,
       tenant: payload.tenant || null,
@@ -763,15 +791,17 @@ function shouldRefreshOperationalData(
   authContext: AuthRoutingContext | null | undefined,
   user: User | null | undefined
 ) {
-  if (!user) {
+  if (!user || !authContext) {
     return false;
   }
 
-  if (authContext) {
-    return authContext.canAccessMobile === true;
+  const accountChannel = authContext.accountChannel ?? user.accountChannel;
+
+  if (accountChannel) {
+    return accountChannel === 'mobile_operations' && authContext.canAccessMobile === true;
   }
 
-  return false;
+  return user.accountType === 'operations' && authContext.canAccessMobile === true;
 }
 
 async function refreshAuthSession(set: StoreSet, epoch?: number) {
