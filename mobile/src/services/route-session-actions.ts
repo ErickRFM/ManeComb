@@ -1,16 +1,36 @@
 import { isAxiosError } from 'axios';
-import { startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
+import { apiClient, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
 import { enqueuePendingSyncOperation } from '@/src/api/offline-cache';
+import type { OperationalJourney } from '@shared/operational-contract';
 import type { RouteSession } from '@/src/types/app';
 
-export type RouteSessionAction = 'start' | 'pause' | 'resume' | 'finish';
+export type RouteSessionAction = 'confirm' | 'start' | 'pause' | 'resume' | 'finish';
 
 function isOfflineError(error: unknown) {
   return isAxiosError(error) && !error.response;
 }
 
+function canonicalStatusForAction(action: RouteSessionAction) {
+  if (action === 'confirm') return 'READY' as const;
+  if (action === 'start' || action === 'resume') return 'RUNNING' as const;
+  if (action === 'pause') return 'PAUSED' as const;
+  return 'FINISHED' as const;
+}
+
+async function transitionCanonicalJourney(
+  journey: OperationalJourney,
+  action: RouteSessionAction,
+): Promise<RouteSession> {
+  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>(
+    `/journeys/${journey.id}/transition`,
+    { status: canonicalStatusForAction(action) },
+  );
+  return response.data.data;
+}
+
 export async function executeRouteSessionAction({
   action,
+  currentJourney = null,
   currentSession,
   organizationId,
   routeId,
@@ -19,6 +39,7 @@ export async function executeRouteSessionAction({
   driverId,
 }: {
   action: RouteSessionAction;
+  currentJourney?: OperationalJourney | null;
   currentSession: RouteSession | null;
   organizationId: string;
   routeId: string;
@@ -27,6 +48,19 @@ export async function executeRouteSessionAction({
   driverId?: string | null;
 }): Promise<{ offline: boolean; session: RouteSession | null; record: RouteSession | null }> {
   try {
+    if (currentJourney) {
+      const session = await transitionCanonicalJourney(currentJourney, action);
+      return {
+        offline: false,
+        session: action === 'finish' ? null : session,
+        record: session,
+      };
+    }
+
+    if (action === 'confirm') {
+      throw new Error('No existe una jornada asignada para confirmar');
+    }
+
     if (action === 'start') {
       const session = await startRouteSessionRequest(vehicleId);
       return { offline: false, session, record: session };
@@ -37,6 +71,11 @@ export async function executeRouteSessionAction({
     return { offline: false, session: status === 'FINISHED' ? null : session, record: session };
   } catch (error) {
     if (!isOfflineError(error)) throw error;
+
+    // Las jornadas ASSIGNED/READY son autoridad del backend. No se simula una
+    // confirmacion o un inicio canonico sin que el servidor lo haya aceptado.
+    if (currentJourney) throw error;
+
     const now = new Date().toISOString();
     if (action === 'start') {
       await enqueuePendingSyncOperation({ type: 'control:sessionStart', payload: { vehicleId } });
