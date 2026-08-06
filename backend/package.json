@@ -25,7 +25,8 @@
     "express",
     "mongodb",
     "react-native",
-    "api"
+    "api",
+    "socket.io"
   ],
   "author": "",
   "license": "ISC",
