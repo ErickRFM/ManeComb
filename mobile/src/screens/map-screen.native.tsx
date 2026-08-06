@@ -354,6 +354,7 @@ export function MapScreen() {
     unknownStateCount,
     mappableUnits,
     prioritizedUnits,
+    selectedJourney,
     selectedUnit,
     vehicleById,
     visibleIncidents,
@@ -543,8 +544,21 @@ export function MapScreen() {
   const visiblePanelUnits = driverWithoutUnit ? [] : prioritizedUnits;
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
 
-  const journeyStatus: 'none' | 'running' | 'paused' = !activeRouteSession ? 'none' : activeRouteSession.status === 'RUNNING' ? 'running' : activeRouteSession.status === 'PAUSED' ? 'paused' : 'none';
-  const journeyVehicleId = user.vehicleId || selectedUnit?.unitId || '';
+  const driverJourney = user.role === 'driver' ? ownOperationalUnit?.journey || null : selectedJourney;
+  const journeyStatus: 'none' | 'assigned' | 'ready' | 'running' | 'paused' = driverJourney
+    ? driverJourney.status === 'ASSIGNED'
+      ? 'assigned'
+      : driverJourney.status === 'READY'
+        ? 'ready'
+        : driverJourney.status === 'PAUSED'
+          ? 'paused'
+          : 'running'
+    : activeRouteSession?.status === 'PAUSED'
+      ? 'paused'
+      : activeRouteSession?.status === 'RUNNING'
+        ? 'running'
+        : 'none';
+  const journeyVehicleId = driverJourney?.vehicleId || user.vehicleId || selectedUnit?.unitId || '';
   const handleJourneyAction = async () => {
     const action = pendingJourneyAction;
     const vehicle = vehicleById.get(journeyVehicleId);
@@ -553,17 +567,21 @@ export function MapScreen() {
     try {
       const result = await executeRouteSessionAction({
         action,
+        currentJourney: driverJourney,
         currentSession: activeRouteSession,
         organizationId: user.organizationId || '',
-        routeId: vehicle.routeId || '',
+        routeId: driverJourney?.routeId || vehicle.routeId || '',
         userId: user.id,
         vehicleId: vehicle.id,
-        driverId: vehicle.driverId,
+        driverId: driverJourney?.driverId || vehicle.driverId,
       });
       useAppStore.setState({ activeRouteSession: result.session });
       if (action === 'finish') {
         await stopBackgroundLocationServiceAsync().catch(() => undefined);
-      } else if (action === 'start' || action === 'resume') {
+      } else if (
+        (action === 'start' || action === 'resume') &&
+        result.session?.status === 'RUNNING'
+      ) {
         const backgroundPermission = await requestBackgroundPermission();
         if (backgroundPermission.status !== Location.PermissionStatus.GRANTED) {
           Alert.alert(
@@ -577,7 +595,7 @@ export function MapScreen() {
             apiUrl,
             refreshToken,
             schedule: user.operationalSchedule,
-            sessionId: result.session?.id || '',
+            sessionId: result.session.id,
             token,
             vehicleId: vehicle.id,
           }).catch(() => false);
@@ -597,9 +615,34 @@ export function MapScreen() {
       setIsChangingJourney(false);
     }
   };
+  const handleConfirmJourney = () => setPendingJourneyAction('confirm');
   const handleStartJourney = () => setPendingJourneyAction('start');
   const handleFinishJourney = () => setPendingJourneyAction('finish');
   const handlePauseJourney = () => setPendingJourneyAction(journeyStatus === 'paused' ? 'resume' : 'pause');
+
+  const journeyModalTitle = pendingJourneyAction === 'confirm'
+    ? 'Confirmar jornada'
+    : pendingJourneyAction === 'finish'
+      ? 'Finalizar jornada'
+      : pendingJourneyAction === 'pause'
+        ? 'Pausar jornada'
+        : pendingJourneyAction === 'resume'
+          ? 'Reanudar jornada'
+          : 'Iniciar jornada';
+  const journeyModalLabel = pendingJourneyAction === 'confirm'
+    ? 'Confirmar'
+    : pendingJourneyAction === 'finish'
+      ? 'Finalizar'
+      : pendingJourneyAction === 'pause'
+        ? 'Pausar'
+        : pendingJourneyAction === 'resume'
+          ? 'Reanudar'
+          : 'Iniciar';
+  const journeyModalDescription = pendingJourneyAction === 'confirm'
+    ? 'Confirma que la unidad, la ruta y el horario asignados son correctos. La conducción todavía no iniciará.'
+    : pendingJourneyAction === 'start'
+      ? 'La jornada iniciará en el servidor y después se activará el rastreo GPS.'
+      : 'El cambio se sincronizará con Control y quedará registrado en la Jornada.';
 
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -660,6 +703,7 @@ export function MapScreen() {
               incidentCount={visibleIncidents.length}
               isRefreshing={isRefreshing}
               journeyStatus={user.role === 'driver' ? journeyStatus : undefined}
+              onConfirmJourney={user.role === 'driver' ? handleConfirmJourney : undefined}
               onFinishJourney={user.role === 'driver' ? handleFinishJourney : undefined}
               onFocusNextAlert={focusNextAlert}
               onPauseJourney={user.role === 'driver' ? handlePauseJourney : undefined}
@@ -695,9 +739,9 @@ export function MapScreen() {
         <OperationalMenuDrawer visible={menuOpen && !selectorMode} onClose={() => setMenuOpen(false)} activeKey="mapa" />
         <ConfirmModal
           visible={Boolean(pendingJourneyAction)}
-          title={pendingJourneyAction === 'finish' ? 'Finalizar jornada' : pendingJourneyAction === 'pause' ? 'Pausar jornada' : pendingJourneyAction === 'resume' ? 'Reanudar jornada' : 'Iniciar jornada'}
-          description="La unidad permanecera en Seguimiento y el cambio se sincronizara con Control."
-          confirmLabel={pendingJourneyAction === 'finish' ? 'Finalizar' : pendingJourneyAction === 'pause' ? 'Pausar' : pendingJourneyAction === 'resume' ? 'Reanudar' : 'Iniciar'}
+          title={journeyModalTitle}
+          description={journeyModalDescription}
+          confirmLabel={journeyModalLabel}
           danger={pendingJourneyAction === 'finish'}
           processing={isChangingJourney}
           onCancel={() => setPendingJourneyAction(null)}
