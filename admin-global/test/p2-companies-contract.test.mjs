@@ -26,6 +26,10 @@ assert.match(store, /loadList/);
 assert.match(store, /loadDetail/);
 assert.match(store, /listState: 'error'/);
 assert.match(store, /detailState: 'error'/);
+assert.match(store, /listRequestId/);
+assert.match(store, /detailRequestId/);
+assert.match(store, /requestId !== listRequestId/);
+assert.match(store, /requestId !== detailRequestId/);
 
 for (const field of [
   'company.companyName',
@@ -59,4 +63,4 @@ assert.doesNotMatch(types, /latitude|longitude|location:/i);
 assert.match(shell, /pathname\.startsWith/);
 assert.match(shell, /resetCompanies\(\)/);
 
-console.log('ok - ADM-GLOBAL-P2 company list and detail contracts');
+console.log('ok - ADM-GLOBAL-P2 company list, detail and request ordering contracts');
