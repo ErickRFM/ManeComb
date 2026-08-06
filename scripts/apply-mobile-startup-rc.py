@@ -2,18 +2,40 @@ from pathlib import Path
 import re
 
 
-def replace_once(path: str, old: str, new: str) -> None:
-    file = Path(path)
-    text = file.read_text(encoding="utf-8")
+TARGETS = {
+    "client": Path("mobile/src/api/client.ts"),
+    "gate": Path("mobile/src/screens/mobile-account-gate-screen.tsx"),
+    "app": Path("mobile/App.tsx"),
+    "store": Path("mobile/src/store/root-store.ts"),
+    "package": Path("mobile/package.json"),
+}
+
+
+def read_sources():
+    return {name: path.read_text(encoding="utf-8") for name, path in TARGETS.items()}
+
+
+def replace_exact(text: str, label: str, old: str, new: str) -> str:
     count = text.count(old)
     if count != 1:
-        raise SystemExit(f"{path}: expected one match, found {count}")
-    file.write_text(text.replace(old, new, 1), encoding="utf-8")
+        raise SystemExit(f"{label}: expected one exact match, found {count}")
+    return text.replace(old, new, 1)
 
+
+def replace_regex(text: str, label: str, pattern: str, replacement: str) -> str:
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one regex match, found {count}")
+    return updated
+
+
+sources = read_sources()
+outputs = dict(sources)
 
 # 1. Network policy: one bounded cold-start GET and no replay of rotating refresh tokens.
-replace_once(
-    "mobile/src/api/client.ts",
+outputs["client"] = replace_exact(
+    outputs["client"],
+    "client cold-start request",
     """    options.coldStart
       ? { params, timeout: COLD_START_SESSION_TIMEOUT_MS }
       : { params }
@@ -27,8 +49,9 @@ replace_once(
       : { params }
 """,
 )
-replace_once(
-    "mobile/src/api/client.ts",
+outputs["client"] = replace_exact(
+    outputs["client"],
+    "client rotating refresh request",
     """export async function refreshSessionRequest(refreshToken: string, appVersion?: string) {
   const response = await apiClient.post<LoginResult>('/auth/refresh', {
     refreshToken,
@@ -55,86 +78,97 @@ replace_once(
 """,
 )
 
-# 2. Sync error route: render loading only while refreshAll is active.
-gate = Path("mobile/src/screens/mobile-account-gate-screen.tsx")
-gate_text = gate.read_text(encoding="utf-8")
-gate_text = gate_text.replace(
+# 2. Sync-error route: a loader is valid only while refreshAll is actually active.
+gate = outputs["gate"]
+gate = replace_exact(
+    gate,
+    "gate wait-stage import",
     "import { useSyncWaitStage } from '@/src/hooks/use-sync-wait-stage';\n",
     "",
 )
-gate_text = gate_text.replace(
+gate = replace_exact(
+    gate,
+    "gate wait-stage hook",
     "  const waitStage = useSyncWaitStage(reason === 'sync_error' && !isSigningOut && !error);\n",
     "",
 )
-old_gate = """  if (reason === 'sync_error' && !error && waitStage !== 'expired') {
+gate = replace_exact(
+    gate,
+    "gate passive loader",
+    """  if (reason === 'sync_error' && !error && waitStage !== 'expired') {
     return <BrandSyncLoader stage={waitStage === 'slow' ? 'slow' : 'loading'} />;
   }
-"""
-new_gate = """  if (reason === 'sync_error' && isRefreshing && !error) {
+""",
+    """  if (reason === 'sync_error' && isRefreshing && !error) {
     return <BrandSyncLoader />;
   }
-"""
-if gate_text.count(old_gate) != 1:
-    raise SystemExit("mobile-account-gate-screen: loading block not found exactly once")
-gate.write_text(gate_text.replace(old_gate, new_gate, 1), encoding="utf-8")
+""",
+)
+outputs["gate"] = gate
 
 # 3. Root bootstrap recovery: remove the unrelated location bypass and surface terminal errors.
-app = Path("mobile/App.tsx")
-app_text = app.read_text(encoding="utf-8")
-app_text = app_text.replace("  continueLabel,\n", "")
-app_text = app_text.replace("  onContinue,\n", "")
-app_text = app_text.replace("  continueLabel?: string;\n", "")
-app_text = app_text.replace("  onContinue?: () => void;\n", "")
-app_text, conditional_count = re.subn(
+app = outputs["app"]
+for label, old in (
+    ("app continueLabel parameter", "  continueLabel,\n"),
+    ("app onContinue parameter", "  onContinue,\n"),
+    ("app continueLabel type", "  continueLabel?: string;\n"),
+    ("app onContinue type", "  onContinue?: () => void;\n"),
+):
+    app = replace_exact(app, label, old, "")
+
+app = replace_regex(
+    app,
+    "app recoverable continue button",
     r"\n        \{onContinue \? \(.*?\n        \) : null\}",
     "",
-    app_text,
-    count=1,
-    flags=re.S,
 )
-if conditional_count != 1:
-    raise SystemExit("App.tsx: recoverable continue button block not found")
-app_text, callback_count = re.subn(
+app = replace_regex(
+    app,
+    "app continueWithoutLocation callback",
     r"\n  const continueWithoutLocation = useCallback\(\(\) => \{.*?\n  \}, \[authContext, user\]\);\n",
     "\n",
-    app_text,
-    count=1,
-    flags=re.S,
 )
-if callback_count != 1:
-    raise SystemExit("App.tsx: continueWithoutLocation callback not found")
-replace_pairs = [
+
+for label, old, new in (
     (
+        "app store selection",
         "  const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(\n",
         "  const { authContext, error, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(\n",
     ),
     (
+        "app selected error",
         "      authContext: state.authContext,\n      handlePushIntent: state.handlePushIntent,\n",
         "      authContext: state.authContext,\n      error: state.error,\n      handlePushIntent: state.handlePushIntent,\n",
     ),
     (
+        "app bootstrap failed state",
         "  const isReady = isHydrated && !isBootstrapping;\n",
         "  const isReady = isHydrated && !isBootstrapping;\n  const bootstrapFailed = !isReady && !isBootstrapping && Boolean(error);\n",
     ),
     (
+        "app recovery condition",
         "                bootTimedOut ? (\n",
         "                bootTimedOut || bootstrapFailed ? (\n",
     ),
     (
-        "                    message=\"La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo.\"\n                    continueLabel=\"Continuar sin ubicacion\"\n                    onContinue={user ? continueWithoutLocation : undefined}\n",
-        "                    message={error || 'La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo.'}\n",
+        "app recovery message",
+        """                    message="La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo."
+                    continueLabel="Continuar sin ubicacion"
+                    onContinue={user ? continueWithoutLocation : undefined}
+""",
+        """                    message={error || 'La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo.'}
+""",
     ),
-]
-for old, new in replace_pairs:
-    if app_text.count(old) != 1:
-        raise SystemExit(f"App.tsx: expected one match for {old[:60]!r}")
-    app_text = app_text.replace(old, new, 1)
-app.write_text(app_text, encoding="utf-8")
+):
+    app = replace_exact(app, label, old, new)
+outputs["app"] = app
 
-# 4. Store: preserve cached authority, remove duplicate manual refresh and keep renewed credentials.
-store = Path("mobile/src/store/root-store.ts")
-store_text = store.read_text(encoding="utf-8")
-old_initialize = """      setAuthToken(t);
+# 4. Store: preserve cached authority, avoid duplicate refresh and retain renewed credentials.
+store = outputs["store"]
+store = replace_exact(
+    store,
+    "store initialize session block",
+    """      setAuthToken(t);
       let sessionToken = t;
       let nextRefreshToken = rt;
       let s: SessionResult;
@@ -167,8 +201,8 @@ old_initialize = """      setAuthToken(t);
         await persistSession(sessionToken, connectionMode, nextRefreshToken);
         s = await getSessionRequest({ coldStart: true, appVersion: APP_VERSION });
       }
-"""
-new_initialize = """      setAuthToken(t);
+""",
+    """      setAuthToken(t);
       let sessionToken = t;
       let nextRefreshToken = rt;
       let s: SessionResult;
@@ -206,7 +240,7 @@ new_initialize = """      setAuthToken(t);
           }
 
           // Keep persisted credentials for an explicit retry, without leaving a
-          // stale Authorization header active while the recovery screen is shown.
+          // stale Authorization header active while recovery is shown.
           setAuthToken(null);
           set({
             ...getEmptyOperationalState(),
@@ -225,32 +259,31 @@ new_initialize = """      setAuthToken(t);
         }
         throw error;
       }
-"""
-if store_text.count(old_initialize) != 1:
-    raise SystemExit("root-store: initialize session block not found exactly once")
-store_text = store_text.replace(old_initialize, new_initialize, 1)
+""",
+)
 
-old_signin = """      if (shouldRefreshOperationalData(authContext, session.profile.user)) {
-        await get().refreshAll();
-      }
-"""
-new_signin = """      if (shouldRefreshOperationalData(authContext, session.profile.user)) {
-        void get().refreshAll();
-      }
-"""
-if store_text.count(old_signin) != 1:
-    raise SystemExit("root-store: signIn blocking refresh block not found")
-store_text = store_text.replace(old_signin, new_signin, 1)
+store, sign_in_count = re.subn(
+    r"""(if\s*\(\s*shouldRefreshOperationalData\(\s*authContext\s*,\s*session\.profile\.user\s*\)\s*\)\s*\{\s*)await\s+get\(\)\.refreshAll\(\);""",
+    r"\1void get().refreshAll();",
+    store,
+    count=1,
+    flags=re.S,
+)
+if sign_in_count != 1:
+    raise SystemExit(f"store signIn background refresh: expected one match, found {sign_in_count}")
 
-old_refresh_catch = """      if (isProbablyNetworkError(error)) {
+store = replace_exact(
+    store,
+    "store refreshAll terminal catch",
+    """      if (isProbablyNetworkError(error)) {
         const cached = await loadOfflineCache().catch(() => null);
         if (isSessionEpochStale(epoch)) return;
         set({ ...stateFromCache(cached), isRefreshing: false, networkStatus: 'offline' });
         return;
       }
       set({ isRefreshing: false });
-"""
-new_refresh_catch = """      if (isProbablyNetworkError(error)) {
+""",
+    """      if (isProbablyNetworkError(error)) {
         const cached = await loadOfflineCache().catch(() => null);
         if (isSessionEpochStale(epoch)) return;
         const cachedState = stateFromCache(cached);
@@ -279,15 +312,19 @@ new_refresh_catch = """      if (isProbablyNetworkError(error)) {
           get().networkSnapshot
         ),
       });
-"""
-if store_text.count(old_refresh_catch) != 1:
-    raise SystemExit("root-store: refreshAll catch block not found")
-store.write_text(store_text.replace(old_refresh_catch, new_refresh_catch, 1), encoding="utf-8")
+""",
+)
+outputs["store"] = store
 
-# 5. Permanent startup contract test.
-test_path = Path("mobile/src/navigation/startup-stability.test.ts")
-test_path.write_text(
-    """const fs = require('fs');
+# 5. Add the permanent contract to the explicit Jest gate.
+outputs["package"] = replace_exact(
+    outputs["package"],
+    "mobile test command",
+    'src/native/call-action-headless-task.test.ts"',
+    'src/native/call-action-headless-task.test.ts src/navigation/startup-stability.test.ts"',
+)
+
+startup_test = """const fs = require('fs');
 const path = require('path');
 const nodeProcess = require('process');
 
@@ -345,22 +382,9 @@ describe('Mobile startup stability contract', () => {
     expect(signIn).not.toContain('await get().refreshAll();');
   });
 });
-""",
-    encoding="utf-8",
-)
+"""
 
-# Add the contract to the explicit Jest gate.
-package = Path("mobile/package.json")
-package_text = package.read_text(encoding="utf-8")
-needle = 'src/native/call-action-headless-task.test.ts"'
-replacement = 'src/native/call-action-headless-task.test.ts src/navigation/startup-stability.test.ts"'
-if package_text.count(needle) != 1:
-    raise SystemExit("mobile/package.json: test command tail not found")
-package.write_text(package_text.replace(needle, replacement, 1), encoding="utf-8")
-
-# RC evidence document. APK physical validation remains pending before merge.
-Path("RC-MOBILE-STARTUP-STABILITY-01.md").write_text(
-    """# RC-MOBILE-STARTUP-STABILITY-01
+report = """# RC-MOBILE-STARTUP-STABILITY-01
 
 ## Base congelada
 
@@ -418,6 +442,25 @@ Path("RC-MOBILE-STARTUP-STABILITY-01.md").write_text(
 - `OPTIONAL_DATA_NOT_BOOT_BLOCKING`
 - `APK_PHYSICAL_PASS=PENDING`
 - `MERGE=NO`
-""",
-    encoding="utf-8",
-)
+"""
+
+# Final validation before the first write. This makes the patch transactional.
+required_markers = {
+    "client": ["_skipNetworkRetry: true", "_skipAuthRefresh: true"],
+    "gate": ["reason === 'sync_error' && isRefreshing && !error"],
+    "app": ["bootTimedOut || bootstrapFailed"],
+    "store": ["void get().refreshAll();", "...cachedState", "sessionToken = get().token || sessionToken"],
+    "package": ["src/navigation/startup-stability.test.ts"],
+}
+for name, markers in required_markers.items():
+    for marker in markers:
+        if marker not in outputs[name]:
+            raise SystemExit(f"{name}: missing final marker {marker!r}")
+
+for name, path in TARGETS.items():
+    path.write_text(outputs[name], encoding="utf-8")
+
+Path("mobile/src/navigation/startup-stability.test.ts").write_text(startup_test, encoding="utf-8")
+Path("RC-MOBILE-STARTUP-STABILITY-01.md").write_text(report, encoding="utf-8")
+
+print("RC_MOBILE_STARTUP_PATCH_APPLIED")
