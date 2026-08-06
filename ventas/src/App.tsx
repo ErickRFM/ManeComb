@@ -38,7 +38,7 @@ function BootScreen() {
   return (
     <View style={styles.bootScreen}>
       <Text style={styles.bootTitle}>ManeComb</Text>
-      <Text style={styles.bootText}>Preparando portal de ventas...</Text>
+      <Text style={styles.bootText}>Preparando Ventas y Portal...</Text>
     </View>
   );
 }
@@ -49,13 +49,13 @@ function StaticPage({ title, body }: { title: string; body: string }) {
       <Text style={styles.staticTitle}>{title}</Text>
       <Text style={styles.staticBody}>{body}</Text>
       <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')}>
-        <Text style={styles.staticLink}>Volver a ventas</Text>
+        <Text style={styles.staticLink}>Volver a Ventas</Text>
       </Pressable>
     </View>
   );
 }
 
-function OperationalHandoff({ title }: { title: string }) {
+function OperationalAccountNotice() {
   const user = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
   const role = user?.role || 'sin definir';
@@ -70,20 +70,20 @@ function OperationalHandoff({ title }: { title: string }) {
   return (
     <View style={styles.staticPage}>
       <View style={styles.operationalPanel}>
-        <Text style={styles.operationalBadge}>SESIÓN VÁLIDA</Text>
-        <Text style={styles.staticTitle}>{title}</Text>
+        <Text style={styles.operationalBadge}>CUENTA OPERATIVA</Text>
+        <Text style={styles.staticTitle}>Continúa en la app móvil</Text>
         <Text style={styles.staticBody}>
-          Tu sesión inició correctamente. Esta cuenta pertenece al canal operativo y usa la app móvil de ManeComb para mapa, GPS, radio, chat y llamadas.
+          Esta cuenta pertenece a Mobile. Abre la app ManeComb en tu teléfono para usar mapa, GPS, rutas, Radio, Chat y llamadas.
         </Text>
         <Text style={styles.operationalMeta}>
-          Rol: {role} · Tipo de cuenta: {accountType} · Canal: {accountChannel}
+          Rol: {role} · Tipo: {accountType} · Canal: {accountChannel}
         </Text>
         <Text style={styles.operationalHint}>
-          El sitio web contiene Ventas y el Portal de empresa. Para entrar al Portal, la cuenta debe tener el canal company_portal; las cuentas mobile_operations continúan en la app móvil.
+          Ventas permite conocer y contratar planes. El Portal web es exclusivo de cuentas company_portal. Esta cuenta mobile_operations no puede entrar al Portal empresarial.
         </Text>
         <View style={styles.operationalActions}>
           <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Volver a ventas</Text>
+            <Text style={styles.primaryButtonText}>Ir a Ventas</Text>
           </Pressable>
           <Pressable accessibilityRole="button" onPress={() => void handleSignOut()} style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
@@ -115,7 +115,7 @@ function Routes() {
     '/portal/incidencias': 'billing',
   };
   const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
-  const isOperationalHandoffRoute = pathname === '/mapa' || pathname === '/radio';
+  const isOperationalNoticeRoute = pathname === '/acceso-operativo';
 
   if (isPortalRoute && !user) {
     return <Redirect href="/ventas/login" />;
@@ -125,11 +125,11 @@ function Routes() {
     return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
-  if (isOperationalHandoffRoute && !user) {
+  if (isOperationalNoticeRoute && !user) {
     return <Redirect href="/ventas/login" />;
   }
 
-  if (isOperationalHandoffRoute && getAccountChannel(user) !== 'mobile_operations') {
+  if (isOperationalNoticeRoute && getAccountChannel(user) !== 'mobile_operations') {
     return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
@@ -182,21 +182,20 @@ function Routes() {
       return <ScreenErrorBoundary name="Incidencias"><PortalIncidentsScreen /></ScreenErrorBoundary>;
     case '/portal/app-movil':
       return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
-    case '/mapa':
-    case '/radio':
-      return <OperationalHandoff title="Acceso operativo" />;
+    case '/acceso-operativo':
+      return <OperationalAccountNotice />;
     case '/acceso-admin':
       return (
         <StaticPage
-          title="Acceso administrativo separado"
-          body="Esta identidad pertenece al canal interno de plataforma y no puede operar desde Ventas ni desde el Portal de empresa."
+          title="Usa Admin Global"
+          body="Esta identidad pertenece a la administración interna de ManeComb. No puede operar desde Ventas, el Portal de empresa ni Mobile."
         />
       );
     case '/acceso-restringido':
       return (
         <StaticPage
-          title="Acceso restringido"
-          body="La combinación de tipo de cuenta y rol no corresponde a un producto válido de ManeComb. Cierra sesión y solicita la corrección de la cuenta."
+          title="Cuenta sin producto autorizado"
+          body="El tipo de cuenta y el rol no forman una identidad válida de ManeComb. Cierra sesión y solicita al administrador que corrija la cuenta."
         />
       );
     case '/terminos':
@@ -204,7 +203,7 @@ function Routes() {
     case '/privacidad':
       return <StaticPage title="Privacidad" body="Información de privacidad y canales de contacto para cuentas ManeComb." />;
     default:
-      return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en el portal de ventas." />;
+      return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en Ventas ni en el Portal." />;
   }
 }
 
