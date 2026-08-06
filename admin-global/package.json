@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "postbuild": "node test/private-build-smoke.mjs",
     "preview": "vite preview",
-    "test": "node test/p1-contract.test.mjs",
+    "test": "node test/p1-contract.test.mjs && node test/p2-companies-contract.test.mjs && node test/p3-operations-contract.test.mjs && node test/p4-governance-contract.test.mjs && node test/p5-private-access-contract.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
