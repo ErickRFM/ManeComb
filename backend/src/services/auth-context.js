@@ -97,7 +97,7 @@ function getMobileBlockReason(subscription, tenant, accountChannel = null) {
     return "account_blocked";
   }
 
-  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN) {
+  if (channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
     return "wrong_channel";
   }
 
@@ -129,16 +129,11 @@ function getMobileBlockReason(subscription, tenant, accountChannel = null) {
 
 function resolveMobileAccess(subscription, tenant, accountChannel, options = {}) {
   const channel = accountChannel?.channel || accountChannel;
-  const hasOperationalProduct =
-    channel === ACCOUNT_CHANNEL.COMPANY_PORTAL ||
-    channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
-  const hasOperationalOverride = options.allowOperationalOverride === true;
-
-  // Contrato heredado: canAccessMobile representa habilitacion operativa.
-  // El producto correcto se decide exclusivamente con accountChannel.
+  const mobileProduct = channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
+  const operationalOverride = options.allowOperationalOverride === true;
   const canAccessMobile =
-    hasOperationalProduct &&
-    (hasOperationalOverride || (isActiveSubscription(subscription) && isActiveTenant(tenant)));
+    mobileProduct &&
+    (operationalOverride || (isActiveSubscription(subscription) && isActiveTenant(tenant)));
 
   return {
     canAccessMobile,
@@ -207,12 +202,10 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
     }
 
     if (active) {
-      // Compatibilidad con consumidores historicos de postLoginRoute.
-      // productRoute/productDestination contienen la autoridad de producto.
       return {
-        destination: "HomeOperativo",
-        reason: "active_plan_and_tenant",
-        route: "/mapa"
+        destination: "CompanyPortal",
+        reason: "company_portal",
+        route: "/portal"
       };
     }
 
@@ -270,23 +263,6 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
   };
 }
 
-function getProductResolution(accountChannel, routeResolution) {
-  if (
-    accountChannel.channel === ACCOUNT_CHANNEL.COMPANY_PORTAL &&
-    routeResolution.route === "/mapa"
-  ) {
-    return {
-      productDestination: "CompanyPortal",
-      productRoute: "/portal"
-    };
-  }
-
-  return {
-    productDestination: routeResolution.destination,
-    productRoute: routeResolution.route
-  };
-}
-
 async function buildAuthContext(store, user, options = {}) {
   if (!user) {
     const accountChannel = resolveAccountChannel(null);
@@ -296,13 +272,14 @@ async function buildAuthContext(store, user, options = {}) {
 
     return {
       ...resolution,
-      ...getProductResolution(accountChannel, resolution),
       ...mobileAccess,
       accountChannel: accountChannel.channel,
       accountChannelReason: accountChannel.reason,
       canAccessPortal: false,
       canUseOperations: false,
       onboarding: null,
+      productDestination: resolution.destination,
+      productRoute: resolution.route,
       subscription,
       tenant: null
     };
@@ -332,10 +309,10 @@ async function buildAuthContext(store, user, options = {}) {
         users
       })
     : null;
-  const hasOperationalOverride =
+  const operationalOverride =
     canAccessAllTenants(user) || Boolean(options.allowPlatformAdmin === true);
   const mobileAccess = resolveMobileAccess(subscription, tenant, accountChannel, {
-    allowOperationalOverride: hasOperationalOverride
+    allowOperationalOverride: operationalOverride
   });
   const activeTenantAccess =
     isActiveSubscription(subscription) &&
@@ -345,7 +322,7 @@ async function buildAuthContext(store, user, options = {}) {
   const canUseOperations =
     options.canUseOperations === true ||
     activeTenantAccess ||
-    hasOperationalOverride;
+    operationalOverride;
   const resolution = resolvePostLoginRoute(user, subscription, tenant, onboarding, {
     accountChannel,
     canUseOperations
@@ -353,13 +330,14 @@ async function buildAuthContext(store, user, options = {}) {
 
   return {
     ...resolution,
-    ...getProductResolution(accountChannel, resolution),
     ...mobileAccess,
     accountChannel: accountChannel.channel,
     accountChannelReason: accountChannel.reason,
     canAccessPortal: accountChannel.canAccessPortal,
     canUseOperations,
     onboarding,
+    productDestination: resolution.destination,
+    productRoute: resolution.route,
     source: activeOrder?.source || null,
     subscription,
     tenant
@@ -370,7 +348,6 @@ module.exports = {
   buildTenantContext,
   buildAuthContext,
   getMobileBlockReason,
-  getProductResolution,
   isActiveSubscription,
   isActiveTenant,
   resolveMobileAccess,
