@@ -147,6 +147,13 @@ async function installAuthenticatedContract(page: Page, identity: LocalIdentity)
     const pathname = new URL(request.url()).pathname;
     const method = request.method();
 
+    // Vite también sirve módulos bajo rutas como /src/api/client.ts. El mock
+    // contractual solo debe responder a endpoints reales del backend.
+    if (!pathname.startsWith('/api/')) {
+      await route.continue();
+      return;
+    }
+
     if (pathname.endsWith('/api/auth/session')) {
       await route.fulfill({
         status: 200,
