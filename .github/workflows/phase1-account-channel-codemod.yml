@@ -1,0 +1,32 @@
+name: Phase 1 account channel codemod
+
+on:
+  push:
+    branches:
+      - fix/auth-account-channel-authority
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/auth-account-channel-authority
+
+      - name: Apply guarded codemod
+        run: node scripts/phase1-account-channel-codemod.cjs
+
+      - name: Commit validated replacements
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend mobile ventas
+          git diff --cached --check
+          git commit -m "fix(auth): align account channel contracts across products"
+          git push origin HEAD:fix/auth-account-channel-authority
