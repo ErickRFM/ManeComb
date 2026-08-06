@@ -722,6 +722,13 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingTop: 0,
   },
+  planCarouselViewportDesktop: {
+    alignSelf: 'center',
+    marginHorizontal: 0,
+    overflow: 'hidden',
+    paddingHorizontal: 0,
+    width: '100%',
+  },
   planCarousel: {
     gap: 18,
     paddingLeft: 18,
@@ -735,6 +742,11 @@ export const styles = StyleSheet.create({
     paddingLeft: 0,
     paddingRight: 0,
     paddingTop: 8,
+  },
+  planCarouselDesktop: {
+    gap: 18,
+    paddingLeft: 0,
+    paddingRight: 0,
   },
   planCardSkeleton: {
     backgroundColor: neonPalette.panel,
