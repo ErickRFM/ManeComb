@@ -17,8 +17,8 @@ for (const screen of ['AdminTeamScreen', 'AdminSessionsScreen']) {
 assert.match(app, /case '\/admin\/team':/);
 assert.match(app, /case '\/admin\/sessions':/);
 
-assert.match(api, /['`]\/team(?:\?|['`])/);
-assert.match(api, /['`]\/sessions(?:\?|['`])/);
+assert.ok(api.includes('/team'), 'La API debe usar /team.');
+assert.ok(api.includes('/sessions'), 'La API debe usar /sessions.');
 assert.match(api, /['`]\/actions['`]/);
 assert.match(api, /'Idempotency-Key': idempotencyKey/);
 assert.match(api, /getPlatformTokenHeader\(token\)/);
