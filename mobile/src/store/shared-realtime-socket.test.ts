@@ -1,5 +1,6 @@
 import {
   SHARED_SOCKET_DISCOVERY_MAX_ATTEMPTS,
+  shouldRequestColdStartRealtimeRecovery,
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
 
@@ -62,5 +63,36 @@ describe('shared realtime socket discovery', () => {
         socketStatus: 'unauthorized',
       })
     ).toBe(false);
+  });
+
+  it('reconciles a cached session immediately instead of waiting for the 30-second health probe', () => {
+    expect(
+      shouldRequestColdStartRealtimeRecovery({
+        authContextReady: false,
+        hasSession: true,
+        hasSocket: false,
+        isBootstrapping: false,
+        isHydrated: true,
+        networkStatus: 'recovering',
+        socketStatus: 'idle',
+      })
+    ).toBe(true);
+  });
+
+  it('does not reconcile while booting, offline, authorized, or already attached', () => {
+    const base = {
+      authContextReady: false,
+      hasSession: true,
+      hasSocket: false,
+      isBootstrapping: false,
+      isHydrated: true,
+      networkStatus: 'recovering',
+      socketStatus: 'idle',
+    };
+
+    expect(shouldRequestColdStartRealtimeRecovery({ ...base, isBootstrapping: true })).toBe(false);
+    expect(shouldRequestColdStartRealtimeRecovery({ ...base, networkStatus: 'offline' })).toBe(false);
+    expect(shouldRequestColdStartRealtimeRecovery({ ...base, authContextReady: true })).toBe(false);
+    expect(shouldRequestColdStartRealtimeRecovery({ ...base, hasSocket: true })).toBe(false);
   });
 });
