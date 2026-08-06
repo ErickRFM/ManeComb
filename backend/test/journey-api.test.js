@@ -30,21 +30,30 @@ async function main() {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 
   const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
-  const adminToken = signToken(store.getUserById("user-admin-01"));
+  const admin = store.getUserById("user-admin-01");
+  const adminToken = signToken(admin);
   const driver = store.getUserById("user-driver-01");
   const driverToken = signToken(driver);
   const vehicle = store.getVehicleById("vehicle-101");
-  const routeId = vehicle.routeId || vehicle.assignedRoute?.routeId;
+  const route = store.listRoutes(admin)[0];
 
   try {
-    assert.ok(routeId, "La unidad de prueba debe tener una ruta asignada");
+    assert.ok(route?.id, "El tenant de prueba debe tener una ruta disponible");
+
+    if (String(vehicle.routeId || vehicle.assignedRoute?.routeId || "") !== String(route.id)) {
+      store.assignRouteToVehicle({
+        vehicleId: vehicle.id,
+        routeId: route.id,
+        assignedBy: admin.id
+      });
+    }
 
     const scheduledStartAt = "2026-08-07T12:00:00.000Z";
     const scheduledEndAt = "2026-08-07T20:00:00.000Z";
     const assignmentBody = {
       driverId: driver.id,
       vehicleId: vehicle.id,
-      routeId,
+      routeId: route.id,
       scheduledStartAt,
       scheduledEndAt,
       notes: "Jornada API de certificacion"
@@ -99,7 +108,7 @@ async function main() {
     assert.equal(cancelled.data.data.finishReason, "test_cleanup");
 
     const started = await request(baseUrl, adminToken, "/navigation/sessions/start", "POST", {
-      vehicleId: "vehicle-101"
+      vehicleId: vehicle.id
     });
     assert.ok([200, 201].includes(started.status));
     const sessionId = started.data.data.id;
