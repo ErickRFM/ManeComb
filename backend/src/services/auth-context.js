@@ -97,7 +97,7 @@ function getMobileBlockReason(subscription, tenant, accountChannel = null) {
     return "account_blocked";
   }
 
-  if (channel && channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
+  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN) {
     return "wrong_channel";
   }
 
@@ -129,10 +129,15 @@ function getMobileBlockReason(subscription, tenant, accountChannel = null) {
 
 function resolveMobileAccess(subscription, tenant, accountChannel, options = {}) {
   const channel = accountChannel?.channel || accountChannel;
-  const canUseMobileProduct = channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
+  const hasOperationalProduct =
+    channel === ACCOUNT_CHANNEL.COMPANY_PORTAL ||
+    channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
   const hasOperationalOverride = options.allowOperationalOverride === true;
+
+  // Contrato heredado: canAccessMobile representa habilitacion operativa.
+  // El producto correcto se decide exclusivamente con accountChannel.
   const canAccessMobile =
-    canUseMobileProduct &&
+    hasOperationalProduct &&
     (hasOperationalOverride || (isActiveSubscription(subscription) && isActiveTenant(tenant)));
 
   return {
@@ -202,10 +207,12 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
     }
 
     if (active) {
+      // Compatibilidad con consumidores historicos de postLoginRoute.
+      // productRoute/productDestination contienen la autoridad de producto.
       return {
-        destination: "CompanyPortal",
-        reason: "company_portal",
-        route: "/portal"
+        destination: "HomeOperativo",
+        reason: "active_plan_and_tenant",
+        route: "/mapa"
       };
     }
 
@@ -263,6 +270,23 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
   };
 }
 
+function getProductResolution(accountChannel, routeResolution) {
+  if (
+    accountChannel.channel === ACCOUNT_CHANNEL.COMPANY_PORTAL &&
+    routeResolution.route === "/mapa"
+  ) {
+    return {
+      productDestination: "CompanyPortal",
+      productRoute: "/portal"
+    };
+  }
+
+  return {
+    productDestination: routeResolution.destination,
+    productRoute: routeResolution.route
+  };
+}
+
 async function buildAuthContext(store, user, options = {}) {
   if (!user) {
     const accountChannel = resolveAccountChannel(null);
@@ -272,6 +296,7 @@ async function buildAuthContext(store, user, options = {}) {
 
     return {
       ...resolution,
+      ...getProductResolution(accountChannel, resolution),
       ...mobileAccess,
       accountChannel: accountChannel.channel,
       accountChannelReason: accountChannel.reason,
@@ -328,6 +353,7 @@ async function buildAuthContext(store, user, options = {}) {
 
   return {
     ...resolution,
+    ...getProductResolution(accountChannel, resolution),
     ...mobileAccess,
     accountChannel: accountChannel.channel,
     accountChannelReason: accountChannel.reason,
@@ -344,6 +370,7 @@ module.exports = {
   buildTenantContext,
   buildAuthContext,
   getMobileBlockReason,
+  getProductResolution,
   isActiveSubscription,
   isActiveTenant,
   resolveMobileAccess,
