@@ -26,10 +26,10 @@ const defaultAdapter: CallPermissionAdapter = {
   blockedResult: PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN,
   check: (permission) =>
     PermissionsAndroid.check(permission as Parameters<typeof PermissionsAndroid.check>[0]),
-  requestMultiple: (permissions) =>
-    PermissionsAndroid.requestMultiple(
+  requestMultiple: async (permissions) =>
+    (await PermissionsAndroid.requestMultiple(
       permissions as Parameters<typeof PermissionsAndroid.requestMultiple>[0]
-    ),
+    )) as Record<string, string>,
 };
 
 function normalizeRequestedStatus(
