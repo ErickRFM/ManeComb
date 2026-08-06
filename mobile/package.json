@@ -5,6 +5,9 @@
   "scripts": {
     "start": "react-native start --port 8081",
     "start:clear": "react-native start --port 8081 --reset-cache",
+    "version:check": "node ./scripts/app-version.js check",
+    "version:set": "node ./scripts/app-version.js set",
+    "version:bump": "node ./scripts/app-version.js bump",
     "android": "node ./scripts/android-run.js",
     "android:device": "node ./scripts/android-device.js",
     "android:debug": "cd android && gradlew.bat assembleDebug",
