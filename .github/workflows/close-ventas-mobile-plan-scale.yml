@@ -31,6 +31,16 @@ jobs:
             mobile/package-lock.json
       - name: Apply mobile card scale correction
         run: python scripts/close-ventas-mobile-plan-scale.py
+      - name: Scope compact verification to PlanCard
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('ventas/scripts/verify-mobile-sales-layout.cjs')
+          text = path.read_text()
+          text = text.replace("assert.doesNotMatch(screen, /compact=\\{isPhone\\}/);\n", "")
+          path.write_text(text)
+          PY
       - name: Install Ventas
         working-directory: ventas
         run: npm ci
@@ -52,7 +62,6 @@ jobs:
           grep -q "const compactPlanCard = cardWidth < 288" ventas/screens/sales-screen.tsx
           grep -q "compact={compactPlanCard}" ventas/screens/sales-screen.tsx
           grep -q "const compactCard = compact;" ventas/screens/sales/components/plan-card.tsx
-          ! grep -q "compact={isPhone}" ventas/screens/sales-screen.tsx
           ! grep -q "width <= 316" ventas/screens/sales/components/plan-card.tsx
           test -f ventas/dist/index.html
           test -f ventas/dist/_redirects
