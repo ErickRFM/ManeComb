@@ -21,6 +21,11 @@ type PendingGovernanceAction = {
   payload: GovernanceActionPayload;
 };
 
+let teamRequestId = 0;
+let sessionsRequestId = 0;
+let createRequestId = 0;
+let actionRequestId = 0;
+
 type GovernanceStore = {
   teamState: LoadState;
   teamError: string | null;
@@ -88,26 +93,33 @@ export const usePlatformGovernanceStore = create<GovernanceStore>((set, get) => 
 
   loadTeam: async (token, params = {}) => {
     if (!token) return;
+    const requestId = ++teamRequestId;
     set({ teamState: 'loading', teamError: null });
     try {
       const result = await platformTeamRequest(token, params);
+      if (requestId !== teamRequestId) return;
       set({ teamState: 'ready', users: result.items, teamPagination: result.pagination });
     } catch (error) {
+      if (requestId !== teamRequestId) return;
       set({ teamState: 'error', teamError: errorMessage(error, 'No fue posible cargar el personal interno') });
     }
   },
 
   createUser: async (token, payload) => {
     if (!token || get().createState === 'loading') return null;
+    const requestId = ++createRequestId;
     set({ createState: 'loading', createError: null });
     try {
       const created = await createPlatformTeamUserRequest(token, payload);
+      if (requestId !== createRequestId) return null;
+      teamRequestId += 1;
       set((state) => ({
         createState: 'ready',
         users: [created, ...state.users.filter((user) => user.id !== created.id)],
       }));
       return created;
     } catch (error) {
+      if (requestId !== createRequestId) return null;
       set({ createState: 'error', createError: errorMessage(error, 'No fue posible crear el usuario Platform') });
       return null;
     }
@@ -115,17 +127,21 @@ export const usePlatformGovernanceStore = create<GovernanceStore>((set, get) => 
 
   loadSessions: async (token, params = {}) => {
     if (!token) return;
+    const requestId = ++sessionsRequestId;
     set({ sessionsState: 'loading', sessionsError: null });
     try {
       const result = await platformSessionsRequest(token, params);
+      if (requestId !== sessionsRequestId) return;
       set({ sessionsState: 'ready', sessions: result.items, sessionsPagination: result.pagination });
     } catch (error) {
+      if (requestId !== sessionsRequestId) return;
       set({ sessionsState: 'error', sessionsError: errorMessage(error, 'No fue posible cargar las sesiones Platform') });
     }
   },
 
   submitAction: async (token, payload) => {
     if (!token || get().actionState === 'loading') return null;
+    const requestId = ++actionRequestId;
     const fingerprint = actionFingerprint(payload);
     const current = get().pendingAction;
     const pendingAction = current && current.fingerprint === fingerprint
@@ -135,9 +151,13 @@ export const usePlatformGovernanceStore = create<GovernanceStore>((set, get) => 
     set({ actionState: 'loading', actionError: null, pendingAction, lastActionResult: null });
     try {
       const result = await platformGovernanceActionRequest(token, pendingAction.idempotencyKey, pendingAction.payload);
+      if (requestId !== actionRequestId) return null;
+      teamRequestId += 1;
+      sessionsRequestId += 1;
       set({ actionState: 'ready', actionError: null, pendingAction: null, lastActionResult: result });
       return result;
     } catch (error) {
+      if (requestId !== actionRequestId) return null;
       set({
         actionState: 'error',
         actionError: errorMessage(error, 'No fue posible ejecutar la acción controlada'),
@@ -150,33 +170,47 @@ export const usePlatformGovernanceStore = create<GovernanceStore>((set, get) => 
   retryAction: async (token) => {
     const pending = get().pendingAction;
     if (!pending || !token || get().actionState === 'loading') return null;
+    const requestId = ++actionRequestId;
     set({ actionState: 'loading', actionError: null });
     try {
       const result = await platformGovernanceActionRequest(token, pending.idempotencyKey, pending.payload);
+      if (requestId !== actionRequestId) return null;
+      teamRequestId += 1;
+      sessionsRequestId += 1;
       set({ actionState: 'ready', actionError: null, pendingAction: null, lastActionResult: result });
       return result;
     } catch (error) {
+      if (requestId !== actionRequestId) return null;
       set({ actionState: 'error', actionError: errorMessage(error, 'No fue posible reintentar la acción controlada') });
       return null;
     }
   },
 
-  clearAction: () => set({ actionState: 'idle', actionError: null, pendingAction: null, lastActionResult: null }),
+  clearAction: () => {
+    actionRequestId += 1;
+    set({ actionState: 'idle', actionError: null, pendingAction: null, lastActionResult: null });
+  },
 
-  reset: () => set({
-    teamState: 'idle',
-    teamError: null,
-    users: [],
-    teamPagination: null,
-    sessionsState: 'idle',
-    sessionsError: null,
-    sessions: [],
-    sessionsPagination: null,
-    createState: 'idle',
-    createError: null,
-    actionState: 'idle',
-    actionError: null,
-    pendingAction: null,
-    lastActionResult: null,
-  }),
+  reset: () => {
+    teamRequestId += 1;
+    sessionsRequestId += 1;
+    createRequestId += 1;
+    actionRequestId += 1;
+    set({
+      teamState: 'idle',
+      teamError: null,
+      users: [],
+      teamPagination: null,
+      sessionsState: 'idle',
+      sessionsError: null,
+      sessions: [],
+      sessionsPagination: null,
+      createState: 'idle',
+      createError: null,
+      actionState: 'idle',
+      actionError: null,
+      pendingAction: null,
+      lastActionResult: null,
+    });
+  },
 }));
