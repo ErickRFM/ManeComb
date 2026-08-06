@@ -134,10 +134,23 @@ for (const file of tracked) {
   }
 }
 
-for (const file of ['ventas/public/_redirects', 'admin-global/public/_redirects']) {
-  if (read(file).trim() !== '/* /index.html 200') {
-    fail(`${file}: fallback SPA invalido`);
-  }
+if (read('ventas/public/_redirects').trim() !== '/* /index.html 200') {
+  fail('ventas/public/_redirects: fallback SPA invalido');
+}
+
+if (tracked.includes('admin-global/public/_redirects')) {
+  fail('admin-global/public/_redirects no debe coexistir con Workers SPA assets');
+}
+
+const adminWrangler = JSON.parse(read('admin-global/wrangler.jsonc'));
+if (adminWrangler.name !== 'manecomb-admin') {
+  fail('admin-global/wrangler.jsonc: name invalido');
+}
+if (adminWrangler.assets?.directory !== './dist') {
+  fail('admin-global/wrangler.jsonc: assets.directory debe ser ./dist');
+}
+if (adminWrangler.assets?.not_found_handling !== 'single-page-application') {
+  fail('admin-global/wrangler.jsonc: fallback SPA invalido');
 }
 
 const ci = read('.github/workflows/ci.yml');
