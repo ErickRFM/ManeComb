@@ -28,11 +28,19 @@ assert.doesNotMatch(authApi, /axios\.create/);
 
 assert.match(authStore, /restoreSessionFromRefresh/);
 assert.match(authStore, /platformRefreshRequest\(refreshToken\)/);
-assert.match(authStore, /persistSession\(refreshed\.token, refreshed\.refreshToken\)/);
+assert.match(authStore, /persistSession\(restored\.session\.token, restored\.session\.refreshToken\)/);
 assert.match(authStore, /renewSession:/);
 assert.match(authStore, /renewalPromise/);
 assert.match(authStore, /shouldRenewPlatformSession/);
 assert.match(authStore, /persistSession\(refreshResult\.token, refreshResult\.refreshToken\)/);
+assert.match(authStore, /let authEpoch = 0/);
+assert.match(authStore, /epoch !== authEpoch/);
+assert.match(authStore, /latest\.refreshToken !== current\.refreshToken/);
+assert.match(authStore, /authEpoch \+= 1/);
+const logoutIndex = authStore.indexOf("logout: async () =>");
+const clearIndex = authStore.indexOf("clearPersistedSession();", logoutIndex);
+const requestIndex = authStore.indexOf("platformLogoutRequest(current.token)", logoutIndex);
+assert.ok(logoutIndex >= 0 && clearIndex > logoutIndex && requestIndex > clearIndex, 'Logout debe invalidar primero el estado local.');
 
 assert.match(platformApi, /'\/capabilities'/);
 assert.match(platformApi, /'\/overview'/);
@@ -75,4 +83,4 @@ assert.match(overview, /state === 'error'/);
 assert.match(overview, /load\(token, true\)/);
 assert.doesNotMatch(overview, /Math\.random|mockData|fakeData|sampleData/i);
 
-console.log('ok - ADM-GLOBAL-P1 shell, capabilities, overview and session renewal contracts');
+console.log('ok - ADM-GLOBAL-P1 shell, session isolation, capabilities and overview contracts');
