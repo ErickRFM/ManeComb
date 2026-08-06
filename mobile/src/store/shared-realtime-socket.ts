@@ -14,3 +14,18 @@ export function shouldRetrySharedRealtimeSocket(input: {
     input.socketStatus
   );
 }
+
+export function shouldRequestColdStartRealtimeRecovery(input: {
+  authContextReady: boolean;
+  hasSession: boolean;
+  hasSocket: boolean;
+  isBootstrapping: boolean;
+  isHydrated: boolean;
+  networkStatus: string;
+  socketStatus: string;
+}) {
+  if (!input.hasSession || input.hasSocket || input.authContextReady) return false;
+  if (input.isBootstrapping || !input.isHydrated || input.networkStatus === 'offline') return false;
+
+  return ['idle', 'disconnected', 'error'].includes(input.socketStatus);
+}
