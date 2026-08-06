@@ -16,6 +16,7 @@ const adminEnv = readAdmin('.env.example');
 const index = readAdmin('index.html');
 const wrangler = readAdmin('wrangler.jsonc');
 const app = readRepo('backend/src/app.js');
+const accessMiddleware = readRepo('backend/src/middlewares/platform-access.js');
 const server = readRepo('backend/src/server.js');
 const backendEnv = readRepo('backend/.env.example');
 const deployment = readRepo('docs/admin-global-private-deployment.md');
@@ -61,8 +62,9 @@ for (const variable of [
   assert.ok(adminEnv.includes(variable), `Falta ${variable} en Admin Global env example.`);
 }
 
-assert.match(app, /platformAccess/);
-assert.match(app, /app\.use\("\/api\/platform", platformAccess, platformRouter\)/);
+assert.match(app, /app\.use\("\/api\/platform", platformAccess\)/);
+assert.match(accessMiddleware, /cf-access-jwt-assertion/);
+assert.match(accessMiddleware, /createPlatformAccessVerifier/);
 assert.match(server, /assertPlatformAccessConfiguration/);
 for (const variable of [
   'PLATFORM_ACCESS_ENFORCEMENT_ENABLED=',
