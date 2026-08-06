@@ -59,6 +59,14 @@ async function main() {
     assert.equal(assigned.data.data.startedAt, null);
     const assignedSessionId = assigned.data.data.id;
 
+    const legacyStartBlocked = await request(baseUrl, adminToken, "/navigation/sessions/start", "POST", {
+      vehicleId: vehicle.id
+    });
+    assert.equal(legacyStartBlocked.status, 200);
+    assert.equal(legacyStartBlocked.data.data.id, assignedSessionId);
+    assert.equal(legacyStartBlocked.data.data.status, "ASSIGNED");
+    assert.equal(store.listRouteSessions({ vehicleId: vehicle.id }).length, 1);
+
     const duplicateAssignment = await request(baseUrl, adminToken, "/journeys", "POST", assignmentBody);
     assert.equal(duplicateAssignment.status, 200);
     assert.equal(duplicateAssignment.data.applied, false);
