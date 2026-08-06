@@ -15,6 +15,29 @@ describe('location status', () => {
     expect(status.canRetry).toBe(true);
   });
 
+  it('does not report an undetermined permission as denied', () => {
+    const pending = getLocationStatus({
+      coordinatesReady: false,
+      issue: null,
+      loading: false,
+      permission: 'undetermined',
+      servicesEnabled: true,
+    });
+    const loading = getLocationStatus({
+      coordinatesReady: false,
+      issue: null,
+      loading: true,
+      permission: 'undetermined',
+      servicesEnabled: true,
+    });
+
+    expect(pending.title).toBe('GPS pendiente');
+    expect(pending.hudLabel).toBe('WAIT');
+    expect(pending.issue).toBeNull();
+    expect(loading.title).toBe('GPS sincronizando');
+    expect(loading.hudLabel).toBe('...');
+  });
+
   it('distinguishes disabled services from timeout', () => {
     const disabled = getLocationStatus({
       coordinatesReady: false,
