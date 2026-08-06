@@ -1,0 +1,130 @@
+name: Temporary certify Admin Global P4
+
+on:
+  push:
+    branches:
+      - feat/adm-global-p4-governance
+    paths:
+      - .github/workflows/_temporary-certify-adm-p4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout P4 branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/adm-global-p4-governance
+          fetch-depth: 0
+
+      - name: Connect P4 tests to permanent gates
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const backendPath = 'backend/package.json';
+          const backend = JSON.parse(fs.readFileSync(backendPath, 'utf8'));
+          if (!backend.scripts['test:platform'].includes('platform-governance.test.js')) {
+            backend.scripts['test:platform'] += ' && node --require ./test/setup-env.js test/platform-governance.test.js';
+          }
+          fs.writeFileSync(backendPath, `${JSON.stringify(backend, null, 2)}\n`);
+
+          const adminPath = 'admin-global/package.json';
+          const admin = JSON.parse(fs.readFileSync(adminPath, 'utf8'));
+          if (!admin.scripts.test.includes('p4-governance-contract.test.mjs')) {
+            admin.scripts.test += ' && node test/p4-governance-contract.test.mjs';
+          }
+          fs.writeFileSync(adminPath, `${JSON.stringify(admin, null, 2)}\n`);
+
+          const contractPath = 'scripts/validate-environment-contract.mjs';
+          let contract = fs.readFileSync(contractPath, 'utf8');
+          contract = contract.replace(
+            "['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js', 'platform-companies.test.js', 'platform-operations.test.js']",
+            "['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js', 'platform-companies.test.js', 'platform-operations.test.js', 'platform-governance.test.js']"
+          );
+          contract = contract.replace(
+            "['p1-contract.test.mjs', 'p2-companies-contract.test.mjs', 'p3-operations-contract.test.mjs']",
+            "['p1-contract.test.mjs', 'p2-companies-contract.test.mjs', 'p3-operations-contract.test.mjs', 'p4-governance-contract.test.mjs']"
+          );
+          fs.writeFileSync(contractPath, contract);
+          NODE
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            admin-global/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix admin-global
+
+      - name: Verify Platform P4 backend
+        run: |
+          npm run test:platform --prefix backend
+          node scripts/validate-environment-contract.mjs
+
+      - name: Verify Admin Global P4
+        env:
+          VITE_API_URL: http://127.0.0.1:5000
+        run: |
+          npm run typecheck --prefix admin-global
+          npm test --prefix admin-global
+          npm run build --prefix admin-global
+          test -f admin-global/dist/_redirects
+          grep -Fxq '/* /index.html 200' admin-global/dist/_redirects
+
+      - name: Close P4 and remove temporary workflow
+        run: |
+          cat > RC-ADM-GLOBAL-P4.md <<'EOF'
+          # ADM-GLOBAL-P4 — Personal interno, sesiones y acciones controladas
+
+          **Rama:** `feat/adm-global-p4-governance`  
+          **Base apilada:** `feat/adm-global-p3-operations`  
+          **Estado:** implementación técnica cerrada; pendiente de revisión y merge secuencial
+
+          ## Alcance cerrado
+
+          - Listado sanitizado y paginado de usuarios Platform.
+          - Alta de personal interno con contraseña temporal y enrolamiento MFA obligatorio.
+          - Listado sanitizado de sesiones sin IP, user-agent ni hashes de refresh.
+          - Acciones controladas owner-only: suspender, reactivar, cambiar rol, revocar sesión y revocar sesiones de un usuario.
+          - Razón obligatoria, confirmación textual exacta e `Idempotency-Key` por acción.
+          - Replay seguro de la misma acción y conflicto al reutilizar la clave con otro payload.
+          - Protección de la sesión actual, auto-modificación sensible y último `platform_owner` activo.
+          - Revocación automática de sesiones al suspender o cambiar privilegios.
+          - Auditoría de lecturas, creación de usuarios y acciones sensibles.
+          - Pantallas responsive de Personal y Sesiones con reintento de la misma acción idempotente.
+          - Pruebas backend, integración HTTP y contratos frontend en gates permanentes.
+
+          ## Límites
+
+          P4 no despliega el dominio privado ni Cloudflare Access. Esa preparación corresponde a P5. Ninguna acción empresarial o comercial destructiva fue habilitada.
+
+          No se modificaron secretos, MongoDB, Render, Cloudflare ni Producción.
+
+          ## Certificación
+
+          - Platform backend suites P0-P4: PASS
+          - Governance service and HTTP tests: PASS
+          - Idempotency/RBAC/owner/session protections: PASS
+          - Admin Global typecheck and P1-P4 tests: PASS
+          - Admin Global build and SPA fallback: PASS
+          - Environment contract: PASS
+          EOF
+
+          rm .github/workflows/_temporary-certify-adm-p4.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs(admin): close ADM-GLOBAL-P4"
+          git push origin HEAD:feat/adm-global-p4-governance
