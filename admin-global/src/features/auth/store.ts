@@ -19,6 +19,8 @@ import {
 const ACCESS_TOKEN_KEY = 'manecomb-platform-token';
 const REFRESH_TOKEN_KEY = 'manecomb-platform-refresh-token';
 const CHALLENGE_STORAGE_KEY = 'manecomb-platform-challenge';
+const SESSION_REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
+let renewalPromise: Promise<boolean> | null = null;
 
 function getStorageItem(key: string) {
   if (typeof window === 'undefined') return null;
@@ -61,6 +63,43 @@ function clearPersistedSession() {
   removeStorageItem(REFRESH_TOKEN_KEY);
 }
 
+function readTokenExpiration(token: string) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload || typeof globalThis.atob !== 'function') return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = JSON.parse(globalThis.atob(padded)) as { exp?: unknown };
+    const expiresAt = Number(decoded.exp) * 1000;
+    return Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : null;
+  } catch {
+    return null;
+  }
+}
+
+export function shouldRenewPlatformSession(
+  token: string,
+  now = Date.now(),
+  thresholdMs = SESSION_REFRESH_THRESHOLD_MS
+) {
+  const expiresAt = readTokenExpiration(token);
+  return expiresAt === null || expiresAt <= now + thresholdMs;
+}
+
+async function restoreSessionFromRefresh(refreshToken: string) {
+  const refreshed = await platformRefreshRequest(refreshToken);
+  const { user, session: info } = await platformSessionRequest(refreshed.token);
+  persistSession(refreshed.token, refreshed.refreshToken);
+  return {
+    session: {
+      token: refreshed.token,
+      refreshToken: refreshed.refreshToken,
+      user,
+    } satisfies AdminSessionData,
+    sessionInfo: info,
+  };
+}
+
 type AdminStore = {
   mode: AdminAuthMode;
   error: string | null;
@@ -74,6 +113,7 @@ type AdminStore = {
   confirmMfa: (token: string) => Promise<string[]>;
   verifyMfa: (token: string) => Promise<void>;
   recoverMfa: (recoveryCode: string) => Promise<void>;
+  renewSession: () => Promise<boolean>;
   refreshSession: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -90,21 +130,44 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   bootstrap: async () => {
     const token = getStorageItem(ACCESS_TOKEN_KEY);
     const refreshToken = getStorageItem(REFRESH_TOKEN_KEY);
-    if (!token || !refreshToken) {
-      set({ isBootstrapping: false });
+    if (!refreshToken) {
+      clearPersistedSession();
+      set({ mode: 'idle', session: null, sessionInfo: null, isBootstrapping: false });
       return;
     }
+
+    if (token) {
+      try {
+        const { user, session: info } = await platformSessionRequest(token);
+        set({
+          mode: 'authenticated',
+          session: { token, refreshToken, user },
+          sessionInfo: info,
+          isBootstrapping: false,
+        });
+        return;
+      } catch {
+        // El access token puede haber expirado mientras el refresh token sigue vigente.
+      }
+    }
+
     try {
-      const { user, session: info } = await platformSessionRequest(token);
+      const restored = await restoreSessionFromRefresh(refreshToken);
       set({
         mode: 'authenticated',
-        session: { token, refreshToken, user },
-        sessionInfo: info,
+        session: restored.session,
+        sessionInfo: restored.sessionInfo,
         isBootstrapping: false,
       });
     } catch {
       clearPersistedSession();
-      set({ isBootstrapping: false });
+      set({
+        mode: 'idle',
+        session: null,
+        sessionInfo: null,
+        challengeData: null,
+        isBootstrapping: false,
+      });
     }
   },
 
@@ -126,7 +189,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       }
       if (result.token && result.user) {
         persistSession(result.token, result.refreshToken);
-        set({ mode: 'authenticated', session: { token: result.token, refreshToken: result.refreshToken, user: result.user }, error: null });
+        set({
+          mode: 'authenticated',
+          session: { token: result.token, refreshToken: result.refreshToken, user: result.user },
+          sessionInfo: null,
+          error: null,
+        });
         return;
       }
       set({ mode: 'error', error: 'Respuesta del servidor inválida' });
@@ -157,8 +225,18 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     const result = await platformMfaVerifyRequest(challenge.token, totpToken);
     setSessionChallenge(null);
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
-    persistSession(result.token, refreshResult.refreshToken);
-    set({ mode: 'authenticated', session: { token: result.token, refreshToken: refreshResult.refreshToken, user: result.user }, challengeData: null, error: null });
+    persistSession(refreshResult.token, refreshResult.refreshToken);
+    set({
+      mode: 'authenticated',
+      session: {
+        token: refreshResult.token,
+        refreshToken: refreshResult.refreshToken,
+        user: result.user,
+      },
+      sessionInfo: null,
+      challengeData: null,
+      error: null,
+    });
   },
 
   recoverMfa: async (recoveryCode: string) => {
@@ -167,22 +245,61 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     const result = await platformMfaRecoveryRequest(challenge.token, recoveryCode);
     setSessionChallenge(null);
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
-    persistSession(result.token, refreshResult.refreshToken);
-    set({ mode: 'authenticated', session: { token: result.token, refreshToken: refreshResult.refreshToken, user: result.user }, challengeData: null, error: null });
+    persistSession(refreshResult.token, refreshResult.refreshToken);
+    set({
+      mode: 'authenticated',
+      session: {
+        token: refreshResult.token,
+        refreshToken: refreshResult.refreshToken,
+        user: result.user,
+      },
+      sessionInfo: null,
+      challengeData: null,
+      error: null,
+    });
+  },
+
+  renewSession: async () => {
+    if (renewalPromise) return renewalPromise;
+    const current = get().session;
+    if (!current?.refreshToken) return false;
+
+    renewalPromise = (async () => {
+      try {
+        const restored = await restoreSessionFromRefresh(current.refreshToken);
+        set({
+          mode: 'authenticated',
+          session: restored.session,
+          sessionInfo: restored.sessionInfo,
+          error: null,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    try {
+      return await renewalPromise;
+    } finally {
+      renewalPromise = null;
+    }
   },
 
   refreshSession: async () => {
-    const s = get().session;
-    if (!s) return;
+    const current = get().session;
+    if (!current) return;
     try {
-      const { user, session: info } = await platformSessionRequest(s.token);
-      set({ sessionInfo: info });
-    } catch {}
+      const { user, session: info } = await platformSessionRequest(current.token);
+      set({ session: { ...current, user }, sessionInfo: info });
+    } catch {
+      await get().renewSession();
+    }
   },
 
   logout: async () => {
-    const s = get().session;
-    if (s) await platformLogoutRequest(s.token).catch(() => {});
+    const current = get().session;
+    if (current) await platformLogoutRequest(current.token).catch(() => {});
     clearPersistedSession();
     setSessionChallenge(null);
     set({ mode: 'idle', session: null, sessionInfo: null, challengeData: null, error: null });
