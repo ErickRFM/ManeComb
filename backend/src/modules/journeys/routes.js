@@ -8,7 +8,7 @@ const {
   hasPermission
 } = require("../../middlewares/access-control");
 const { ensureJourneySessionSchema } = require("../../domain/journey-session-schema");
-const { normalizeJourneySession } = require("../../domain/journey-session-compatibility");
+const { serializeJourneySession } = require("../../domain/journey-session-compatibility");
 const {
   JourneyTransitionError,
   transitionJourneySession
@@ -86,7 +86,7 @@ router.get("/:sessionId", authenticate, requireOperationalAccess, async (req, re
       return res.status(404).json({ ok: false, message: "Jornada no encontrada" });
     }
 
-    return res.json({ ok: true, data: normalizeJourneySession(session) });
+    return res.json({ ok: true, data: serializeJourneySession(session) });
   } catch (error) {
     return next(error);
   }
@@ -138,7 +138,7 @@ router.post("/:sessionId/transition", authenticate, requireOperationalAccess, as
       ok: true,
       applied: result.applied,
       idempotent: result.idempotent,
-      data: normalizeJourneySession(session)
+      data: serializeJourneySession(session)
     });
   } catch (error) {
     if (respondTransitionError(res, error)) return undefined;
