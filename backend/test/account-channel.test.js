@@ -20,51 +20,146 @@ function buildUser(overrides = {}) {
   };
 }
 
-function testSerializerDecoratesCompanyPortal() {
-  const user = sanitizeUser(buildUser());
-
-  assert.equal(user.accountChannel, "company_portal");
-  assert.equal(user.accountChannelReason, "company_identity");
-  assert.equal(user.passwordHash, undefined);
-  console.log("ok - serializer emite company_portal sin datos sensibles");
+function assertChannel(overrides, expectedChannel, expectedReason) {
+  const resolution = resolveAccountChannel(buildUser(overrides));
+  assert.equal(resolution.channel, expectedChannel);
+  assert.equal(resolution.reason, expectedReason);
+  return resolution;
 }
 
-function testSerializerDecoratesMobileOperations() {
-  const user = sanitizeUser(buildUser({
+function testCompanyPortalRoleMatrix() {
+  ["owner", "admin", "billing_manager", "support", "viewer"].forEach((role) => {
+    const resolution = assertChannel(
+      { accountType: "company_owner", role },
+      ACCOUNT_CHANNEL.COMPANY_PORTAL,
+      "company_identity"
+    );
+    assert.equal(resolution.canAccessPortal, true);
+    assert.equal(resolution.canUseMobileProduct, false);
+  });
+
+  console.log("ok - owner, admin, billing_manager, support y viewer usan company_portal");
+}
+
+function testMobileOperationsRoleMatrix() {
+  ["owner", "admin", "dispatcher", "supervisor", "driver", "conductor"].forEach((role) => {
+    const resolution = assertChannel(
+      { accountType: "operations", role },
+      ACCOUNT_CHANNEL.MOBILE_OPERATIONS,
+      "operational_identity"
+    );
+    assert.equal(resolution.canAccessPortal, false);
+    assert.equal(resolution.canUseMobileProduct, true);
+  });
+
+  console.log("ok - owner, admin, dispatcher, supervisor y driver operativos usan mobile_operations");
+}
+
+function testSerializerDecoratesEverySessionRead() {
+  const company = sanitizeUser(buildUser());
+  const mobile = sanitizeUser(buildUser({
     accountType: "operations",
     role: "driver"
   }));
 
-  assert.equal(user.accountChannel, "mobile_operations");
-  assert.equal(user.accountChannelReason, "operational_identity");
-  console.log("ok - serializer emite mobile_operations");
+  assert.equal(company.accountChannel, "company_portal");
+  assert.equal(company.accountChannelReason, "company_identity");
+  assert.equal(company.passwordHash, undefined);
+  assert.equal(mobile.accountChannel, "mobile_operations");
+  assert.equal(mobile.accountChannelReason, "operational_identity");
+  assert.equal(mobile.passwordHash, undefined);
+  console.log("ok - serializer emite canal canónico sin datos sensibles");
 }
 
 function testInvalidCombinationsFailClosed() {
-  const user = sanitizeUser(buildUser({ role: "driver" }));
+  const invalidCases = [
+    {
+      accountType: "company_owner",
+      role: "driver",
+      reason: "incompatible_company_role"
+    },
+    {
+      accountType: "company_owner",
+      role: "supervisor",
+      reason: "incompatible_company_role"
+    },
+    {
+      accountType: "operations",
+      role: "billing_manager",
+      reason: "incompatible_operations_role"
+    },
+    {
+      accountType: "operations",
+      role: "viewer",
+      reason: "incompatible_operations_role"
+    },
+    {
+      accountType: "unknown",
+      role: "driver",
+      reason: "unknown_account_type"
+    }
+  ];
 
-  assert.equal(user.accountChannel, "blocked");
-  assert.equal(user.accountChannelReason, "incompatible_company_role");
-  console.log("ok - serializer bloquea combinaciones incompatibles");
+  invalidCases.forEach(({ accountType, role, reason }) => {
+    const resolution = assertChannel(
+      { accountType, role },
+      ACCOUNT_CHANNEL.BLOCKED,
+      reason
+    );
+    assert.equal(resolution.canAccessPortal, false);
+    assert.equal(resolution.canUseMobileProduct, false);
+    assert.equal(resolution.isBlocked, true);
+  });
+
+  console.log("ok - combinaciones incompatibles y tipos desconocidos fallan cerrados");
 }
 
 function testSuspensionOverridesProductIdentity() {
-  const resolution = resolveAccountChannel(buildUser({
-    accountType: "operations",
-    role: "driver",
-    userStatus: "suspended"
-  }));
+  [
+    { accountType: "company_owner", role: "owner" },
+    { accountType: "operations", role: "driver" }
+  ].forEach((identity) => {
+    const resolution = resolveAccountChannel(buildUser({
+      ...identity,
+      userStatus: "suspended"
+    }));
 
+    assert.equal(resolution.channel, ACCOUNT_CHANNEL.BLOCKED);
+    assert.equal(resolution.reason, "account_suspended");
+  });
+
+  console.log("ok - suspensión domina cualquier canal de producto");
+}
+
+function testPlatformIdentityHasDedicatedChannel() {
+  ["platform_owner", "platform_admin", "platform_support", "platform_auditor"].forEach((role) => {
+    const resolution = assertChannel(
+      { accountType: "operations", role },
+      ACCOUNT_CHANNEL.PLATFORM_ADMIN,
+      "platform_identity"
+    );
+    assert.equal(resolution.canAccessPortal, false);
+    assert.equal(resolution.canUseMobileProduct, false);
+  });
+
+  console.log("ok - roles Platform usan exclusivamente platform_admin");
+}
+
+function testMissingUserFailsClosed() {
+  const resolution = resolveAccountChannel(null);
   assert.equal(resolution.channel, ACCOUNT_CHANNEL.BLOCKED);
-  assert.equal(resolution.reason, "account_suspended");
-  console.log("ok - suspension domina el canal de producto");
+  assert.equal(resolution.reason, "missing_user");
+  console.log("ok - usuario ausente falla cerrado");
 }
 
 function run() {
-  testSerializerDecoratesCompanyPortal();
-  testSerializerDecoratesMobileOperations();
+  testCompanyPortalRoleMatrix();
+  testMobileOperationsRoleMatrix();
+  testSerializerDecoratesEverySessionRead();
   testInvalidCombinationsFailClosed();
   testSuspensionOverridesProductIdentity();
+  testPlatformIdentityHasDedicatedChannel();
+  testMissingUserFailsClosed();
 }
 
 run();
