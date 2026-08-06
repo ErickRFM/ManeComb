@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CommercialPlan, User } from '@/src/types/app';
-import { clearCheckoutContext, getOrCreateCheckoutIdempotencyKey } from '@/src/utils/checkout-context';
+import {
+  clearCheckoutContext,
+  getOrCreateCheckoutIdempotencyKey,
+  normalizeTrialIntent,
+} from '@/src/utils/checkout-context';
 import { createCheckoutService } from '../create-commercial-service';
 import { readCachedPlans, writeCachedPlans } from '../services/plans-cache';
 import {
@@ -61,6 +65,20 @@ export function useCheckoutExperience({
     [planId, plans]
   );
 
+  const effectiveRequestTrial = Boolean(
+    selectedPlan
+    && normalizeTrialIntent(selectedPlan.id, requestTrial)
+    && selectedPlan.trialEligible === true
+    && Number(selectedPlan.units) === 2
+    && Number(selectedPlan.trialDays) === 7
+  );
+
+  useEffect(() => {
+    if (selectedPlan && requestTrial && !effectiveRequestTrial) {
+      setMessage('La prueba gratuita solo está disponible para el plan de 2 combis durante 7 días.');
+    }
+  }, [effectiveRequestTrial, requestTrial, selectedPlan]);
+
   const submit = useCallback(async ({
     method,
     selectedAddOns = [],
@@ -71,7 +89,13 @@ export function useCheckoutExperience({
     testCard: TestCardInput;
   }) => {
     if (!selectedPlan || !user || submitInFlight.current) return null;
-    if (!requestTrial && providerMode === 'test') {
+
+    if (requestTrial && !effectiveRequestTrial) {
+      setMessage('La prueba gratuita solo está disponible para el plan de 2 combis durante 7 días.');
+      return null;
+    }
+
+    if (!effectiveRequestTrial && providerMode === 'test') {
       const validationMessage = service.validateTestCard(testCard);
       if (validationMessage) {
         setMessage(validationMessage);
@@ -84,12 +108,13 @@ export function useCheckoutExperience({
     setMessage(null);
     try {
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
+      const paymentMethod = effectiveRequestTrial ? 'trial' : method;
       const nextResult = await service.createPaymentSession({
         idempotencyKey: getOrCreateCheckoutIdempotencyKey({
           userId: user.id,
           planId: selectedPlan.id,
-          paymentMethod: requestTrial ? 'trial' : method,
-          requestTrial,
+          paymentMethod,
+          requestTrial: effectiveRequestTrial,
           selectedAddOns,
         }),
         companyName,
@@ -97,8 +122,8 @@ export function useCheckoutExperience({
         email: user.email,
         phone: getContactPhone(user.phone),
         planId: selectedPlan.id,
-        paymentMethod: requestTrial ? 'trial' : method,
-        requestTrial,
+        paymentMethod,
+        requestTrial: effectiveRequestTrial,
         selectedAddOns,
       });
       setResult(nextResult);
@@ -111,10 +136,11 @@ export function useCheckoutExperience({
       submitInFlight.current = false;
       setProcessing(false);
     }
-  }, [providerMode, requestTrial, selectedPlan, service, user]);
+  }, [effectiveRequestTrial, providerMode, requestTrial, selectedPlan, service, user]);
 
   return {
     clearMessage: () => setMessage(null),
+    effectiveRequestTrial,
     isCompleted: result?.status === PAYMENT_SESSION_STATUSES.COMPLETED,
     isPending: result?.status === PAYMENT_SESSION_STATUSES.PENDING,
     message,
@@ -138,8 +164,6 @@ export function usePublicCommercialFlow({
   paymentId?: string | null;
 }) {
   const [service] = useState(() => createCheckoutService());
-  // Sembramos con el catalogo cacheado para que los planes aparezcan al instante
-  // mientras revalidamos contra la API (mitiga el cold start del backend).
   const [plans, setPlans] = useState<CommercialPlan[]>(() => readCachedPlans());
   const [plansLoading, setPlansLoading] = useState(() => readCachedPlans().length === 0);
   const [plansError, setPlansError] = useState<string | null>(null);
@@ -148,15 +172,12 @@ export function usePublicCommercialFlow({
 
   const loadPlans = useCallback(async () => {
     setPlansError(null);
-    // Solo mostramos el estado de carga si no hay nada que mostrar todavia.
     setPlansLoading((current) => current || plans.length === 0);
-
     try {
       const fresh = await service.listPlans();
       setPlans(fresh);
       writeCachedPlans(fresh);
     } catch {
-      // Con cache disponible no interrumpimos la vista: seguimos mostrando lo previo.
       if (plans.length === 0) {
         setPlansError('No pudimos cargar los planes. Revisa tu conexion e intenta nuevamente.');
       }
@@ -177,12 +198,12 @@ export function usePublicCommercialFlow({
     lastConfirmation.current = key;
     setConfirmation({ status: 'checking' });
     void service.confirmPaymentReturn({ paymentId: cleanPaymentId, externalReference })
-      .then((result) => {
-        if (result.ok) clearCheckoutContext();
+      .then((nextResult) => {
+        if (nextResult.ok) clearCheckoutContext();
         setConfirmation({
-          message: result.message,
-          paymentStatus: result.rawPaymentStatus,
-          status: result.ok ? 'confirmed' : 'error',
+          message: nextResult.message,
+          paymentStatus: nextResult.rawPaymentStatus,
+          status: nextResult.ok ? 'confirmed' : 'error',
         });
       });
   }, [externalReference, paymentId, service]);
