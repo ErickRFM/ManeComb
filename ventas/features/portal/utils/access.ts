@@ -1,10 +1,4 @@
-import type { User } from '@/src/types/app';
-
-export type AccountChannel =
-  | 'blocked'
-  | 'company_portal'
-  | 'mobile_operations'
-  | 'platform_admin';
+import type { AccountChannel, User } from '@/src/types/app';
 
 type PortalUser = Pick<User, 'accountType' | 'role'> & {
   accountChannel?: AccountChannel | string | null;
