@@ -1,5 +1,6 @@
 const CHECKOUT_CONTEXT_KEY = 'manecomb-ventas-checkout-context';
-const CHECKOUT_CONTEXT_VERSION = 2;
+const CHECKOUT_CONTEXT_VERSION = 3;
+export const TRIAL_PLAN_ID = 'starter-2';
 
 type CheckoutAttemptState = 'active' | 'redirected';
 
@@ -17,18 +18,24 @@ function canUseStorage() {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
 }
 
+export function isTrialPlanId(planId: string | null | undefined) {
+  return String(planId || '').trim().toLowerCase() === TRIAL_PLAN_ID;
+}
+
+export function normalizeTrialIntent(planId: string | null | undefined, requestTrial = false) {
+  return Boolean(requestTrial && isTrialPlanId(planId));
+}
+
 export function saveCheckoutContext(planId: string, requestTrial = false) {
   const cleanPlanId = String(planId || '').trim();
+  if (!cleanPlanId || !canUseStorage()) return;
 
-  if (!cleanPlanId || !canUseStorage()) {
-    return;
-  }
-
+  const safeRequestTrial = normalizeTrialIntent(cleanPlanId, requestTrial);
   const current = readCheckoutContext();
-  const preserveIntent = current?.planId === cleanPlanId && current.requestTrial === requestTrial;
+  const preserveIntent = current?.planId === cleanPlanId && current.requestTrial === safeRequestTrial;
   const context: CheckoutContext = {
     planId: cleanPlanId,
-    requestTrial,
+    requestTrial: safeRequestTrial,
     updatedAt: Date.now(),
     version: CHECKOUT_CONTEXT_VERSION,
     ...(preserveIntent
@@ -44,34 +51,25 @@ export function saveCheckoutContext(planId: string, requestTrial = false) {
 }
 
 export function readCheckoutContext(): CheckoutContext | null {
-  if (!canUseStorage()) {
-    return null;
-  }
+  if (!canUseStorage()) return null;
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(CHECKOUT_CONTEXT_KEY) || 'null') as
-      | CheckoutContext
-      | null;
+    const parsed = JSON.parse(window.localStorage.getItem(CHECKOUT_CONTEXT_KEY) || 'null') as CheckoutContext | null;
+    if (!parsed?.planId) return null;
 
-    if (!parsed?.planId) {
-      return null;
-    }
-
+    const planId = String(parsed.planId);
     const idempotencyKey = parsed.idempotencyKey ? String(parsed.idempotencyKey) : undefined;
     const parsedAttemptState = parsed.attemptState === 'active' || parsed.attemptState === 'redirected'
       ? parsed.attemptState
       : undefined;
 
     return {
-      planId: String(parsed.planId),
-      requestTrial: Boolean(parsed.requestTrial),
+      planId,
+      requestTrial: normalizeTrialIntent(planId, Boolean(parsed.requestTrial)),
       updatedAt: Number(parsed.updatedAt || Date.now()),
       version: Number(parsed.version || 1),
       intentFingerprint: parsed.intentFingerprint ? String(parsed.intentFingerprint) : undefined,
       idempotencyKey,
-      // Contextos anteriores a v2 solo podían contener una llave después de
-      // haber intentado crear el checkout. Se consideran entregados al proveedor
-      // para que el siguiente clic explícito genere un intento nuevo.
       attemptState: parsedAttemptState || (idempotencyKey ? 'redirected' : undefined),
     };
   } catch {
@@ -97,28 +95,21 @@ export function getOrCreateCheckoutIdempotencyKey(input: {
   requestTrial: boolean;
   selectedAddOns: string[];
 }) {
+  const safeRequestTrial = normalizeTrialIntent(input.planId, input.requestTrial);
   const normalized = {
     userId: String(input.userId || '').trim(),
     planId: String(input.planId || '').trim().toLowerCase(),
-    paymentMethod: String(input.paymentMethod || '').trim().toLowerCase(),
-    requestTrial: Boolean(input.requestTrial),
+    paymentMethod: String(safeRequestTrial ? 'trial' : input.paymentMethod || '').trim().toLowerCase(),
+    requestTrial: safeRequestTrial,
     selectedAddOns: Array.from(new Set(input.selectedAddOns.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean))).sort(),
   };
   const intentFingerprint = JSON.stringify(normalized);
   const current = readCheckoutContext();
 
-  // Mientras el intento sigue activo, la misma intención conserva la llave:
-  // esto protege doble clic, reintentos de transporte y concurrencia.
-  if (
-    current?.intentFingerprint === intentFingerprint
-    && current.idempotencyKey
-    && current.attemptState !== 'redirected'
-  ) {
+  if (current?.intentFingerprint === intentFingerprint && current.idempotencyKey && current.attemptState !== 'redirected') {
     return current.idempotencyKey;
   }
 
-  // Una vez que el checkout fue entregado al proveedor, un nuevo clic del
-  // operador representa un intento nuevo y debe obtener una llave distinta.
   const idempotencyKey = createOpaqueCheckoutKey();
   if (canUseStorage()) {
     window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
@@ -135,14 +126,9 @@ export function getOrCreateCheckoutIdempotencyKey(input: {
 }
 
 export function markCheckoutAttemptRedirected() {
-  if (!canUseStorage()) {
-    return;
-  }
-
+  if (!canUseStorage()) return;
   const current = readCheckoutContext();
-  if (!current?.idempotencyKey || !current.intentFingerprint) {
-    return;
-  }
+  if (!current?.idempotencyKey || !current.intentFingerprint) return;
 
   window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
     ...current,
@@ -153,14 +139,9 @@ export function markCheckoutAttemptRedirected() {
 }
 
 export function beginNewCheckoutAttempt() {
-  if (!canUseStorage()) {
-    return;
-  }
-
+  if (!canUseStorage()) return;
   const current = readCheckoutContext();
-  if (!current) {
-    return;
-  }
+  if (!current) return;
 
   window.localStorage.setItem(CHECKOUT_CONTEXT_KEY, JSON.stringify({
     planId: current.planId,
@@ -171,16 +152,13 @@ export function beginNewCheckoutAttempt() {
 }
 
 export function clearCheckoutContext() {
-  if (!canUseStorage()) {
-    return;
-  }
-
+  if (!canUseStorage()) return;
   window.localStorage.removeItem(CHECKOUT_CONTEXT_KEY);
 }
 
 export function buildCheckoutParams(planId: string, requestTrial = false) {
   return {
     planId,
-    trial: requestTrial ? '1' : '0',
+    trial: normalizeTrialIntent(planId, requestTrial) ? '1' : '0',
   };
 }
