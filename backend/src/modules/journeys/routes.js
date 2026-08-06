@@ -21,13 +21,13 @@ ensureJourneySessionSchema();
 
 const router = Router();
 
-const EVENT_BY_STATUS = {
-  READY: "SESSION_CONFIRMED",
-  RUNNING: "SESSION_RESUMED",
-  PAUSED: "SESSION_PAUSED",
-  FINISHED: "SESSION_FINISHED",
-  CANCELLED: "SESSION_FINISHED"
-};
+function resolveEventType(previousStatus, nextStatus) {
+  if (previousStatus === "READY" && nextStatus === "RUNNING") return "SESSION_STARTED";
+  if (previousStatus === "PAUSED" && nextStatus === "RUNNING") return "SESSION_RESUMED";
+  if (nextStatus === "PAUSED") return "SESSION_PAUSED";
+  if (nextStatus === "FINISHED" || nextStatus === "CANCELLED") return "SESSION_FINISHED";
+  return null;
+}
 
 function emitJourneyUpdate(req, session) {
   const organizationId = String(session.organizationId || "").trim();
@@ -112,7 +112,7 @@ router.post("/:sessionId/transition", authenticate, requireOperationalAccess, as
 
     let session = result.session;
     if (result.applied) {
-      const eventType = EVENT_BY_STATUS[nextStatus];
+      const eventType = resolveEventType(result.previousStatus, nextStatus);
       if (eventType) {
         await recordSessionEvent(req.app.locals.store, session, eventType, {
           previousStatus: result.previousStatus,
