@@ -425,6 +425,12 @@ export function SalesScreen() {
                       accent={getPlanAccent(plan, index)}
                       onPress={() => jumpToPlan(index)}
                       onBuy={() => goToPlanCheckout(plan)}
+                      onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}
+                      trialLabel={
+                        isPublicDemoPlan(plan) && Number(plan.trialDays) > 0
+                          ? `Usar demo ${plan.trialDays} días`
+                          : null
+                      }
                       userLabel={buyLabel}
                     />
                   ))}
