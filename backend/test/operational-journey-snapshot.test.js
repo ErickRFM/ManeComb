@@ -3,6 +3,7 @@ const {
   attachOperationalJourney,
   buildOperationalJourneySnapshot
 } = require("../src/domain/operational-journey-snapshot");
+const { resolveOperationalRouteId } = require("../src/services/operational-units-service");
 
 const NOW = new Date("2026-08-06T15:00:00.000Z");
 
@@ -86,6 +87,33 @@ const NOW = new Date("2026-08-06T15:00:00.000Z");
   assert.equal(snapshot.session, null, "el contrato session legado se conserva sin inventar inicio");
   assert.equal(snapshot.journey.status, "ASSIGNED");
   assert.equal(snapshot.snapshotVersion, 2);
+}
+
+{
+  const vehicle = {
+    assignedRoute: { routeId: "route-operational" },
+    routeId: "route-legacy"
+  };
+  const pendingJourney = {
+    status: "ASSIGNED",
+    routeId: "route-future"
+  };
+
+  assert.equal(
+    resolveOperationalRouteId(vehicle, pendingJourney),
+    "route-operational",
+    "una Jornada pendiente no debe reemplazar la ruta operativa asignada de la unidad"
+  );
+  assert.equal(
+    resolveOperationalRouteId({ routeId: "route-legacy" }, pendingJourney),
+    "route-legacy",
+    "el routeId vigente del vehículo conserva prioridad sobre una Jornada pendiente"
+  );
+  assert.equal(
+    resolveOperationalRouteId({}, pendingJourney),
+    "route-future",
+    "la ruta de Jornada solo funciona como fallback cuando la unidad no tiene asignación"
+  );
 }
 
 console.log("operational-journey-snapshot.test.js: OK");
