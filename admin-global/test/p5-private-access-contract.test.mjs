@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const adminRoot = resolve(import.meta.dirname, '..');
@@ -9,10 +9,12 @@ const readRepo = (path) => readFileSync(resolve(repoRoot, path), 'utf8');
 
 const runtime = readAdmin('src/lib/private-runtime.ts');
 const main = readAdmin('src/main.tsx');
+const client = readAdmin('src/lib/platform-api-client.ts');
 const headers = readAdmin('public/_headers');
 const robots = readAdmin('public/robots.txt');
 const adminEnv = readAdmin('.env.example');
 const index = readAdmin('index.html');
+const wrangler = readAdmin('wrangler.jsonc');
 const app = readRepo('backend/src/app.js');
 const server = readRepo('backend/src/server.js');
 const backendEnv = readRepo('backend/.env.example');
@@ -23,6 +25,17 @@ assert.match(runtime, /parsed\.protocol !== 'https:'/);
 assert.match(runtime, /admin-api\.manecomb\.com/);
 assert.match(runtime, /validatePrivateAdminRuntime/);
 assert.match(main, /assertPrivateAdminRuntimeConfiguration\(\)/);
+assert.match(client, /withCredentials:\s*true/);
+
+assert.equal(
+  existsSync(resolve(adminRoot, 'public/_redirects')),
+  false,
+  'Workers no debe conservar el fallback Pages _redirects.'
+);
+assert.match(wrangler, /"directory"\s*:\s*"\.\/dist"/);
+assert.match(wrangler, /"not_found_handling"\s*:\s*"single-page-application"/);
+assert.match(wrangler, /"workers_dev"\s*:\s*false/);
+assert.match(wrangler, /"preview_urls"\s*:\s*false/);
 
 for (const directive of [
   'X-Content-Type-Options: nosniff',
@@ -65,4 +78,4 @@ assert.match(deployment, /401.*sin token Platform/s);
 assert.match(deployment, /200.*Access \+ Platform \+ MFA/s);
 assert.match(deployment, /no afirma que DNS, Cloudflare Access, Render o Producción ya estén configurados/);
 
-console.log('ok - ADM-GLOBAL-P5 private access and deployment contracts');
+console.log('ok - ADM-GLOBAL-P5 private Access and Worker deployment contracts');
