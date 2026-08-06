@@ -8,6 +8,7 @@ on:
       - "stabilization/**"
       - "codex/**"
       - "audit/**"
+      - "chore/**"
   workflow_dispatch:
 
 permissions:
@@ -98,6 +99,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate app version
+        run: npm run version:check
 
       - name: Typecheck
         run: npm run typecheck
