@@ -236,6 +236,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Validate system authority map
+        run: node scripts/validate-system-authorities.mjs
+
       - name: Validate environment contract
         run: node scripts/validate-environment-contract.mjs
 

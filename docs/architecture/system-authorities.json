@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "branch": "main",
+    "commit": "06909cca6814441386f7be25e6e5d5a0e9c636f8",
+    "capturedAt": "2026-08-06",
+    "phase": "0-system-inventory"
+  },
+  "products": [
+    {
+      "id": "backend",
+      "name": "Backend API",
+      "rootPaths": ["backend"],
+      "runtime": "Node.js and Express on Render",
+      "audience": ["system"],
+      "allowedChannels": ["company_portal", "mobile_operations", "platform_admin"]
+    },
+    {
+      "id": "sales-portal",
+      "name": "Ventas and company Portal",
+      "rootPaths": ["ventas"],
+      "runtime": "Cloudflare Pages",
+      "audience": ["public", "company"],
+      "allowedChannels": ["public", "company_portal"],
+      "forbiddenResponsibilities": ["live GPS ingestion", "radio runtime", "RTC call runtime"]
+    },
+    {
+      "id": "mobile",
+      "name": "Operational mobile application",
+      "rootPaths": ["mobile"],
+      "runtime": "React Native Android and iOS",
+      "audience": ["operations"],
+      "allowedChannels": ["mobile_operations"]
+    },
+    {
+      "id": "admin-global",
+      "name": "ManeComb internal administration",
+      "rootPaths": ["admin-global"],
+      "runtime": "Cloudflare Workers Static Assets behind Cloudflare Access",
+      "audience": ["platform_staff"],
+      "allowedChannels": ["platform_admin"]
+    },
+    {
+      "id": "communication-service",
+      "name": "Communication package",
+      "rootPaths": ["communication-service"],
+      "runtime": "Internal Node.js package installed by backend",
+      "audience": ["system"],
+      "allowedChannels": []
+    },
+    {
+      "id": "shared-contracts",
+      "name": "Shared operational contracts",
+      "rootPaths": ["shared/operational-contract"],
+      "runtime": "Source contract consumed during builds",
+      "audience": ["system"],
+      "allowedChannels": []
+    },
+    {
+      "id": "infrastructure",
+      "name": "Build, deployment and environment controls",
+      "rootPaths": [".github", "scripts", "docker-compose.yml", "docker-compose.prod.yml"],
+      "runtime": "GitHub Actions, Docker, Cloudflare and Render configuration",
+      "audience": ["system"],
+      "allowedChannels": []
+    }
+  ],
+  "authorities": [
+    {
+      "id": "identity",
+      "decision": "Who the authenticated actor is and whether the session is valid",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/auth", "backend/src/modules/account-security"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 1
+    },
+    {
+      "id": "account-channel",
+      "decision": "Which product channel an authenticated account is allowed to use",
+      "owner": "backend",
+      "status": "partial",
+      "sourcePaths": [
+        "backend/src/modules/auth",
+        "ventas/src/utils/account-routing.ts",
+        "ventas/features/portal/utils/access.ts",
+        "mobile/src/utils/account-routing.ts"
+      ],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 1
+    },
+    {
+      "id": "tenant",
+      "decision": "Which organization owns and may access a resource",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/middlewares", "backend/src/data"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 2
+    },
+    {
+      "id": "capabilities",
+      "decision": "Which actions an actor may execute after authentication",
+      "owner": "backend",
+      "status": "partial",
+      "sourcePaths": [
+        "backend/src/middlewares",
+        "ventas/features/portal/utils/access.ts",
+        "admin-global/src/features/platform"
+      ],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 2
+    },
+    {
+      "id": "commercial-catalog",
+      "decision": "Available plans, prices, included capacity and commercial benefits",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/commercial", "ventas/features/commercial"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 4
+    },
+    {
+      "id": "subscription",
+      "decision": "Commercial account state, payment readiness and activation capacity",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/commercial", "backend/src/modules/activation-keys"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 4
+    },
+    {
+      "id": "fleet",
+      "decision": "Lifecycle and operational identity of vehicles, drivers and units",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/operational-units", "backend/src/modules/locations"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 5
+    },
+    {
+      "id": "navigation",
+      "decision": "Route definitions, assignments, activation and route-session state",
+      "owner": "backend",
+      "status": "transitional",
+      "sourcePaths": ["backend/src/modules/navigation", "shared/operational-contract"],
+      "consumers": ["sales-portal", "mobile"],
+      "targetPhase": 6
+    },
+    {
+      "id": "tracking",
+      "decision": "Accepted positions, operational movement, deviation and route progress",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/locations", "backend/src/domain"],
+      "consumers": ["sales-portal", "mobile"],
+      "targetPhase": 6
+    },
+    {
+      "id": "documents",
+      "decision": "Document ownership, review state, evidence and retention",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/documents"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 5
+    },
+    {
+      "id": "incidents",
+      "decision": "Incident lifecycle, severity, assignment and resolution",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/incidents"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 5
+    },
+    {
+      "id": "communication-events",
+      "decision": "Event names, payload contracts, retries, acknowledgements and providers",
+      "owner": "communication-service",
+      "status": "partial",
+      "sourcePaths": ["communication-service/src", "backend/src/sockets"],
+      "consumers": ["backend", "mobile", "sales-portal"],
+      "targetPhase": 7
+    },
+    {
+      "id": "platform-access",
+      "decision": "Private Admin Global origin access, Platform session, MFA and Platform RBAC",
+      "owner": "infrastructure",
+      "status": "external-configuration-pending",
+      "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md"],
+      "consumers": ["admin-global", "backend"],
+      "targetPhase": 9
+    },
+    {
+      "id": "mobile-version",
+      "decision": "Public application version and Android build number",
+      "owner": "mobile",
+      "status": "canonical",
+      "sourcePaths": ["mobile/app.json"],
+      "consumers": ["mobile", "sales-portal", "infrastructure"],
+      "targetPhase": 3
+    },
+    {
+      "id": "environment",
+      "decision": "Required environment variables, aliases, deployment URLs and provider ownership",
+      "owner": "infrastructure",
+      "status": "canonical",
+      "sourcePaths": ["scripts/validate-environment-contract.mjs", ".env.example", "backend/.env.example", "ventas/.env.example", "mobile/.env.example", "admin-global/.env.example"],
+      "consumers": ["backend", "sales-portal", "mobile", "admin-global", "communication-service"],
+      "targetPhase": 8
+    },
+    {
+      "id": "audit-log",
+      "decision": "Append-only security and business evidence for sensitive actions",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/audit-logs", "backend/src/modules/platform"],
+      "consumers": ["sales-portal", "admin-global"],
+      "targetPhase": 8
+    },
+    {
+      "id": "api-errors",
+      "decision": "Stable error codes, safe messages, recoverability and request correlation",
+      "owner": "backend",
+      "status": "partial",
+      "sourcePaths": ["backend/src/middlewares", "ventas/src", "mobile/src"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 3
+    }
+  ],
+  "knownDivergences": [
+    {
+      "id": "AUTH-CHANNEL-OR-AND",
+      "severity": "P0",
+      "phase": 1,
+      "summary": "Ventas redirects with accountType OR portal role, while Portal authorization requires accountType AND portal role.",
+      "sourcePaths": ["ventas/src/utils/account-routing.ts", "ventas/features/portal/utils/access.ts"]
+    },
+    {
+      "id": "PORTAL-GUARD-PARTIAL",
+      "severity": "P0",
+      "phase": 1,
+      "summary": "The global Portal guard checks for a user, but does not require the canonical Portal channel before mounting every Portal route.",
+      "sourcePaths": ["ventas/src/App.tsx", "ventas/features/portal/utils/access.ts"]
+    },
+    {
+      "id": "SALES-OPERATIONAL-HANDOFF-TEMPORARY",
+      "severity": "P1",
+      "phase": 1,
+      "summary": "Sales still exposes /mapa and /radio as temporary handoff routes. The target product boundary is to reject non-company accounts in Sales and keep operational runtime exclusively in Mobile.",
+      "sourcePaths": ["ventas/src/App.tsx", "ventas/src/utils/account-routing.ts"]
+    },
+    {
+      "id": "COMMUNICATION-HYBRID-BOUNDARY",
+      "severity": "P1",
+      "phase": 7,
+      "summary": "Communication Service is tested independently but installed by the backend, so its public package boundary must be made explicit.",
+      "sourcePaths": ["backend/package.json", "communication-service/package.json"]
+    },
+    {
+      "id": "BACKEND-TEST-CHAIN",
+      "severity": "P2",
+      "phase": 8,
+      "summary": "Backend tests are maintained as one long shell chain instead of stable domain suites.",
+      "sourcePaths": ["backend/package.json"]
+    },
+    {
+      "id": "MOBILE-VERSION-METADATA",
+      "severity": "P2",
+      "phase": 3,
+      "summary": "mobile/app.json is the runtime authority, while mobile/package.json retains independent package metadata and must never be treated as the release version.",
+      "sourcePaths": ["mobile/app.json", "mobile/package.json"]
+    },
+    {
+      "id": "DOCUMENTATION-SPRAWL",
+      "severity": "P2",
+      "phase": 10,
+      "summary": "Release-candidate and historical reports are distributed across the repository root and docs without a canonical index or archive policy.",
+      "sourcePaths": ["docs", "ADM-ARCH-01.md", "RC-PORTAL-UX-HARDENING-20260805.md"]
+    },
+    {
+      "id": "ADMIN-GLOBAL-EXTERNAL-CERTIFICATION",
+      "severity": "P0",
+      "phase": 9,
+      "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates.",
+      "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md"]
+    }
+  ]
+}
