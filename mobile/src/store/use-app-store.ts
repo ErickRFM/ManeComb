@@ -6,8 +6,14 @@ import {
 } from './root-store';
 import {
   SHARED_SOCKET_DISCOVERY_INTERVAL_MS,
+  shouldRequestColdStartRealtimeRecovery,
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
+
+const COLD_START_RECOVERY_RETRY_MS = 3000;
+let coldStartRecoveryKey: string | null = null;
+let coldStartRecoveryInFlight = false;
+let coldStartRecoveryAttemptedAt = 0;
 
 export { useAppStore };
 export type { AppState } from './root-store';
@@ -16,7 +22,36 @@ export function getSharedRealtimeSocket() {
   return readSharedRealtimeSocket();
 }
 
+function requestColdStartRealtimeRecovery(token: string, userId: string) {
+  const recoveryKey = `${userId}:${token}`;
+  const now = Date.now();
+
+  if (
+    coldStartRecoveryInFlight ||
+    (coldStartRecoveryKey === recoveryKey &&
+      now - coldStartRecoveryAttemptedAt < COLD_START_RECOVERY_RETRY_MS)
+  ) {
+    return;
+  }
+
+  coldStartRecoveryKey = recoveryKey;
+  coldStartRecoveryAttemptedAt = now;
+  coldStartRecoveryInFlight = true;
+
+  void useAppStore
+    .getState()
+    .refreshAll()
+    .catch(() => undefined)
+    .finally(() => {
+      coldStartRecoveryInFlight = false;
+    });
+}
+
 export function useSharedRealtimeSocket(): Socket | null {
+  const authContextReady = useAppStore((state) => Boolean(state.authContext));
+  const isBootstrapping = useAppStore((state) => state.isBootstrapping);
+  const isHydrated = useAppStore((state) => state.isHydrated);
+  const networkStatus = useAppStore((state) => state.networkStatus);
   const socketStatus = useAppStore((state) => state.socketStatus);
   const token = useAppStore((state) => state.token);
   const userId = useAppStore((state) => state.user?.id || null);
@@ -36,6 +71,22 @@ export function useSharedRealtimeSocket(): Socket | null {
       setSharedSocket((current) => (current === nextSocket ? current : nextSocket));
 
       if (
+        token &&
+        userId &&
+        shouldRequestColdStartRealtimeRecovery({
+          authContextReady,
+          hasSession: true,
+          hasSocket: Boolean(nextSocket),
+          isBootstrapping,
+          isHydrated,
+          networkStatus,
+          socketStatus,
+        })
+      ) {
+        requestColdStartRealtimeRecovery(token, userId);
+      }
+
+      if (
         shouldRetrySharedRealtimeSocket({
           attempt,
           hasSession: Boolean(token && userId),
@@ -49,6 +100,8 @@ export function useSharedRealtimeSocket(): Socket | null {
     };
 
     if (!token || !userId || socketStatus === 'unauthorized') {
+      coldStartRecoveryKey = null;
+      coldStartRecoveryAttemptedAt = 0;
       setSharedSocket(null);
       return () => undefined;
     }
@@ -59,7 +112,15 @@ export function useSharedRealtimeSocket(): Socket | null {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [socketStatus, token, userId]);
+  }, [
+    authContextReady,
+    isBootstrapping,
+    isHydrated,
+    networkStatus,
+    socketStatus,
+    token,
+    userId,
+  ]);
 
   return sharedSocket;
 }
