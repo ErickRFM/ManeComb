@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,8 +10,16 @@ function fail(message) {
   failures.push(message);
 }
 
+function pathFor(relativePath) {
+  return resolve(root, relativePath);
+}
+
+function exists(relativePath) {
+  return existsSync(pathFor(relativePath));
+}
+
 function read(relativePath) {
-  return readFileSync(resolve(root, relativePath), 'utf8');
+  return readFileSync(pathFor(relativePath), 'utf8');
 }
 
 function parseEnv(relativePath) {
@@ -37,6 +45,8 @@ const backendKeys = [
   'JWT_SECRET', 'CHAT_ENCRYPTION_SECRET', 'ACCESS_TOKEN_TTL', 'REFRESH_TOKEN_TTL_DAYS',
   'PLATFORM_JWT_SECRET', 'PLATFORM_ACCESS_TOKEN_TTL', 'PLATFORM_REFRESH_TOKEN_TTL_DAYS',
   'PLATFORM_MFA_ENCRYPTION_KEY', 'PLATFORM_MFA_CHALLENGE_TTL',
+  'PLATFORM_ACCESS_ENFORCEMENT_ENABLED', 'PLATFORM_ACCESS_ISSUER',
+  'PLATFORM_ACCESS_AUDIENCE', 'PLATFORM_ACCESS_JWKS_URL',
   'CLIENT_ORIGIN', 'APP_URL', 'PASSWORD_RESET_PUBLIC_URL', 'PORTAL_PUBLIC_URL',
   'APP_PUBLIC_URL', 'PUBLIC_WEBHOOK_BASE_URL',
   'MAPBOX_ACCESS_TOKEN', 'MAP_GEOCODING_PROVIDER', 'MAP_ROUTING_PROVIDER',
@@ -78,7 +88,9 @@ const mobile = requireKeys('mobile/.env.example', [
   'MANECOMB_API_TIMEOUT_MS', 'MANECOMB_GOOGLE_MAPS_API_KEY',
   'MANECOMB_ANDROID_CLEARTEXT'
 ]);
-const admin = requireKeys('admin-global/.env.example', ['API_PORT', 'VITE_API_URL']);
+const admin = requireKeys('admin-global/.env.example', [
+  'API_PORT', 'VITE_API_URL', 'VITE_PLATFORM_ACCESS_REQUIRED', 'VITE_PLATFORM_API_HOST'
+]);
 const mobileProduction = requireKeys('mobile/.env.production', [
   'MANECOMB_APP_ENV', 'MANECOMB_API_URL', 'MANECOMB_SOCKET_URL',
   'MANECOMB_API_TIMEOUT_MS', 'MANECOMB_ANDROID_CLEARTEXT'
@@ -90,6 +102,9 @@ if (backend.get('PAYMENT_PROVIDER') === 'test') {
 if (backend.get('EMAIL_DRY_RUN') !== 'true') {
   fail('backend/.env.example: EMAIL_DRY_RUN debe ser true por defecto');
 }
+if (backend.get('PLATFORM_ACCESS_ENFORCEMENT_ENABLED') !== 'false') {
+  fail('backend/.env.example: Platform Access debe permanecer apagado hasta aprovisionar Cloudflare');
+}
 if (backend.get('CLIENT_ORIGIN')?.includes('*') && !backend.get('CLIENT_ORIGIN')?.includes('*.manecomb1.pages.dev')) {
   fail('backend/.env.example: CLIENT_ORIGIN no debe usar wildcard global');
 }
@@ -97,6 +112,15 @@ for (const requiredOrigin of ['https://admin.manecomb.com', 'http://localhost:51
   if (!backend.get('CLIENT_ORIGIN')?.includes(requiredOrigin)) {
     fail(`backend/.env.example: CLIENT_ORIGIN debe incluir ${requiredOrigin}`);
   }
+}
+if (admin.get('VITE_API_URL') !== 'https://admin-api.manecomb.com') {
+  fail('admin-global/.env.example: VITE_API_URL debe usar la API privada');
+}
+if (admin.get('VITE_PLATFORM_ACCESS_REQUIRED') !== 'true') {
+  fail('admin-global/.env.example: Access debe ser obligatorio en el build privado');
+}
+if (admin.get('VITE_PLATFORM_API_HOST') !== 'admin-api.manecomb.com') {
+  fail('admin-global/.env.example: hostname privado inválido');
 }
 
 for (const [name, entries] of [
@@ -129,15 +153,27 @@ for (const file of tracked) {
   if (file.split('/').some((part) => part.startsWith('.tmp-'))) {
     fail(`Git contiene un temporal RC: ${file}`);
   }
+  if (file.startsWith('.github/workflows/_temporary-')) {
+    fail(`Git contiene un workflow temporal: ${file}`);
+  }
   if (basename(file).startsWith('.env') && !file.endsWith('.env.example') && !allowedRuntimeEnv.has(file)) {
     fail(`Git contiene un archivo de entorno no permitido: ${file}`);
   }
 }
 
-for (const file of ['ventas/public/_redirects', 'admin-global/public/_redirects']) {
-  if (read(file).trim() !== '/* /index.html 200') {
-    fail(`${file}: fallback SPA invalido`);
-  }
+if (read('ventas/public/_redirects').trim() !== '/* /index.html 200') {
+  fail('ventas/public/_redirects: fallback SPA invalido');
+}
+if (exists('admin-global/public/_redirects')) {
+  fail('Admin Worker no debe publicar _redirects; provoca un loop con static assets');
+}
+const wrangler = JSON.parse(read('admin-global/wrangler.jsonc'));
+if (wrangler.assets?.directory !== './dist') fail('wrangler.jsonc: assets.directory debe ser ./dist');
+if (wrangler.assets?.not_found_handling !== 'single-page-application') {
+  fail('wrangler.jsonc: falta fallback SPA nativo');
+}
+if (wrangler.workers_dev !== false || wrangler.preview_urls !== false) {
+  fail('wrangler.jsonc: workers.dev y previews deben permanecer desactivados');
 }
 
 const ci = read('.github/workflows/ci.yml');
@@ -147,7 +183,11 @@ if (ci.includes('VITE_API_URL: https://manecomb.onrender.com')) {
 
 const backendPackage = JSON.parse(read('backend/package.json'));
 const platformTestCommand = backendPackage.scripts?.['test:platform'] || '';
-for (const testFile of ['platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js', 'platform-security-config.test.js', 'platform-companies.test.js', 'platform-operations.test.js', 'platform-governance.test.js']) {
+for (const testFile of [
+  'platform-auth.test.js', 'platform-mfa.test.js', 'platform-api-base.test.js',
+  'platform-security-config.test.js', 'platform-companies.test.js',
+  'platform-operations.test.js', 'platform-governance.test.js', 'platform-access.test.js'
+]) {
   if (!platformTestCommand.includes(testFile)) fail(`backend/package.json: test:platform no ejecuta ${testFile}`);
 }
 if (!String(backendPackage.scripts?.test || '').includes('npm run test:platform')) {
@@ -156,8 +196,15 @@ if (!String(backendPackage.scripts?.test || '').includes('npm run test:platform'
 
 const adminPackage = JSON.parse(read('admin-global/package.json'));
 const adminTestCommand = adminPackage.scripts?.test || '';
-for (const testFile of ['p1-contract.test.mjs', 'p2-companies-contract.test.mjs', 'p3-operations-contract.test.mjs', 'p4-governance-contract.test.mjs']) {
+for (const testFile of [
+  'p1-contract.test.mjs', 'p2-companies-contract.test.mjs',
+  'p3-operations-contract.test.mjs', 'p4-governance-contract.test.mjs',
+  'p5-private-access-contract.test.mjs'
+]) {
   if (!adminTestCommand.includes(testFile)) fail(`admin-global/package.json: npm test no ejecuta ${testFile}`);
+}
+if (!String(adminPackage.scripts?.postbuild || '').includes('private-build-smoke.mjs')) {
+  fail('Admin Global debe validar el artefacto privado después del build');
 }
 if (!ci.includes('name: Test') || !ci.includes('run: npm test')) {
   fail('CI debe ejecutar las pruebas propias de Admin Global');
@@ -174,8 +221,31 @@ if (!platformAuthService.includes('mfaRequired && !isMfaOperational()')) {
 if (!platformAuthMiddleware.includes('mfaRequired && !isMfaOperational()')) {
   fail('Middleware Platform no niega acceso cuando MFA no está operativo');
 }
-if (!read('backend/src/server.js').includes('assertPlatformSecurityConfiguration')) {
+const app = read('backend/src/app.js');
+const server = read('backend/src/server.js');
+const accessMiddleware = read('backend/src/middlewares/platform-access.js');
+if (!server.includes('assertPlatformSecurityConfiguration')) {
   fail('Backend no valida la configuración Platform antes de escuchar tráfico');
+}
+if (!server.includes('assertPlatformAccessConfiguration')) {
+  fail('Backend no valida Cloudflare Access antes de escuchar tráfico');
+}
+if (!app.includes('app.use("/api/platform", platformAccess)')) {
+  fail('Cloudflare Access no protege todas las rutas Platform');
+}
+if (!accessMiddleware.includes('cf-access-jwt-assertion')) {
+  fail('Middleware Platform no valida Cf-Access-Jwt-Assertion');
+}
+if (!accessMiddleware.includes('createPlatformAccessVerifier')) {
+  fail('Middleware Platform no expone el verificador Access probado');
+}
+
+const adminClient = read('admin-global/src/lib/platform-api-client.ts');
+if (!adminClient.includes('withCredentials: true')) {
+  fail('Admin Global debe enviar la cookie de Cloudflare Access a la API privada');
+}
+if (!read('admin-global/src/main.tsx').includes('assertPrivateAdminRuntimeConfiguration()')) {
+  fail('Admin Global no valida el runtime privado antes de renderizar');
 }
 
 const dockerfile = read('backend/Dockerfile');
