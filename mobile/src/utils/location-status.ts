@@ -35,7 +35,7 @@ export function getLocationStatus({
   permission,
   servicesEnabled,
 }: LocationStatusInput): LocationStatus {
-  if (permission !== 'granted' || issue === 'permission_denied') {
+  if (permission === 'denied' || issue === 'permission_denied') {
     return {
       canRetry: true,
       hudLabel: 'OFF',
@@ -101,7 +101,18 @@ export function getLocationStatus({
     };
   }
 
-  if (loading && !coordinatesReady) {
+  if (coordinatesReady) {
+    return {
+      canRetry: false,
+      hudLabel: 'OK',
+      issue: null,
+      message: null,
+      title: null,
+      tone: 'ok',
+    };
+  }
+
+  if (loading) {
     return {
       canRetry: false,
       hudLabel: '...',
@@ -112,23 +123,23 @@ export function getLocationStatus({
     };
   }
 
-  if (!coordinatesReady) {
+  if (permission === 'undetermined') {
     return {
       canRetry: true,
       hudLabel: 'WAIT',
-      issue: 'unavailable',
-      message: 'Aun no hay una posicion confiable, pero puedes seguir operando.',
+      issue: null,
+      message: 'Estamos verificando el permiso y la disponibilidad del GPS.',
       title: 'GPS pendiente',
-      tone: 'warning',
+      tone: 'pending',
     };
   }
 
   return {
-    canRetry: false,
-    hudLabel: 'OK',
-    issue: null,
-    message: null,
-    title: null,
-    tone: 'ok',
+    canRetry: true,
+    hudLabel: 'WAIT',
+    issue: 'unavailable',
+    message: 'Aun no hay una posicion confiable, pero puedes seguir operando.',
+    title: 'GPS pendiente',
+    tone: 'warning',
   };
 }
