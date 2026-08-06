@@ -220,8 +220,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify static SPA fallback
-        run: test -f dist/_redirects && grep -Fxq '/* /index.html 200' dist/_redirects
+      - name: Verify Workers SPA fallback
+        run: |
+          test ! -f dist/_redirects
+          node -e "const fs=require('node:fs'); const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8')); if(config.name!=='manecomb-admin'||config.assets?.directory!=='./dist'||config.assets?.not_found_handling!=='single-page-application') process.exit(1)"
+
+      - name: Dry-run Workers deployment
+        run: npx --yes wrangler@4.119.0 deploy --dry-run
 
   infrastructure-validation:
     name: Infrastructure validation
