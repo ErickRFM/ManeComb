@@ -1,0 +1,80 @@
+name: Close mobile plan card scale
+
+on:
+  push:
+    branches:
+      - fix/ventas-mobile-plan-card-scale-20260805
+
+permissions:
+  contents: write
+
+jobs:
+  close-phase:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "1"
+      VITE_API_URL: https://api.example.invalid/api
+      VITE_SOCKET_URL: https://api.example.invalid
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/ventas-mobile-plan-card-scale-20260805
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ventas/package-lock.json
+            mobile/package-lock.json
+      - name: Apply mobile card scale correction
+        run: python scripts/close-ventas-mobile-plan-scale.py
+      - name: Install Ventas
+        working-directory: ventas
+        run: npm ci
+      - name: Typecheck and build Ventas
+        working-directory: ventas
+        run: npm run typecheck && npm run build
+      - name: Install certification dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Install Chromium
+        working-directory: mobile
+        run: npx playwright install --with-deps chromium
+      - name: Certify phone card dimensions and visual scale
+        working-directory: mobile
+        run: npx playwright test --config playwright.certification.config.ts --project phone-360 e2e/certification/public-responsive.spec.ts
+      - name: Validate clean scope
+        shell: bash
+        run: |
+          grep -q "const compactPlanCard = cardWidth < 288" ventas/screens/sales-screen.tsx
+          grep -q "compact={compactPlanCard}" ventas/screens/sales-screen.tsx
+          grep -q "const compactCard = compact;" ventas/screens/sales/components/plan-card.tsx
+          ! grep -q "compact={isPhone}" ventas/screens/sales-screen.tsx
+          ! grep -q "width <= 316" ventas/screens/sales/components/plan-card.tsx
+          test -f ventas/dist/index.html
+          test -f ventas/dist/_redirects
+          grep -Fxq '/* /index.html 200' ventas/dist/_redirects
+          git diff --check
+      - name: Upload mobile visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-plan-card-scale-${{ github.run_id }}
+          path: |
+            mobile/playwright-certification-report
+            mobile/playwright-certification-results.json
+            mobile/test-results/portal-certification
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Commit closed phase
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/close-ventas-mobile-plan-scale.yml scripts/close-ventas-mobile-plan-scale.py
+          git add ventas/screens/sales-screen.tsx ventas/screens/sales/components/plan-card.tsx ventas/scripts/verify-mobile-sales-layout.cjs mobile/e2e/certification/public-responsive.spec.ts
+          git commit -m "fix(ventas): preserve plan card scale on mobile"
+          git push origin HEAD:fix/ventas-mobile-plan-card-scale-20260805
