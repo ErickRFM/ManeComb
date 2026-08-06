@@ -4,6 +4,7 @@ const { platformAuth, requireMfa } = require("../../middlewares/platform-auth");
 const { requirePlatformPermission, requirePlatformRole } = require("../../middlewares/platform-access");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { serializePaginationMeta } = require("../../utils/platform-serializers");
+const { assertCanAssignPlatformRole } = require("./governance-policy");
 const {
   listGovernanceUsers,
   createGovernanceUser,
@@ -66,9 +67,7 @@ router.post(
   requirePlatformPermission("platform.users.manage"),
   async (req, res, next) => {
     try {
-      if (req.body?.role === "platform_owner" && req.platformUser.role !== "platform_owner") {
-        return res.status(403).json({ ok: false, message: "Solo platform_owner puede crear otro owner" });
-      }
+      assertCanAssignPlatformRole(req.platformUser.role, req.body?.role);
       const user = await createGovernanceUser(req.app.locals.store, req.platformUser.id, req.body || {});
       await recordPlatformAction(req, {
         action: "platform.team.user.created",
