@@ -20,6 +20,7 @@ const {
 const USER_STATUSES = ["active", "suspended", "disabled"];
 const USER_SORTS = ["createdAt", "updatedAt", "name", "email", "lastLoginAt"];
 const SESSION_SORTS = ["createdAt", "lastSeenAt", "expiresAt"];
+const ACTION_PROCESSING_TIMEOUT_MS = 5 * 60 * 1000;
 const ACTION_TYPES = [
   "platform.user.suspend",
   "platform.user.reactivate",
@@ -41,6 +42,7 @@ const actionSchema = new mongoose.Schema(
     reason: { type: String, required: true },
     status: { type: String, required: true, index: true },
     safeResponse: { type: mongoose.Schema.Types.Mixed, default: null },
+    processingStartedAt: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now },
     completedAt: { type: Date, default: null },
     failedAt: { type: Date, default: null }
@@ -249,13 +251,71 @@ function validateActionRequest(actorId, idempotencyKey, payload) {
   };
 }
 
+function isActionProcessingStale(record, now = Date.now()) {
+  if (record?.status !== "processing") return false;
+  const startedAt = new Date(record.processingStartedAt || record.createdAt || 0).getTime();
+  return Number.isFinite(startedAt) && startedAt > 0 && startedAt <= now - ACTION_PROCESSING_TIMEOUT_MS;
+}
+
+function getActionClaimDisposition(record, requestFingerprint, now = Date.now()) {
+  if (!record) return "missing";
+  if (record.requestFingerprint !== requestFingerprint) return "conflict";
+  if (record.status === "completed" && record.safeResponse) return "replay";
+  if (record.status === "failed" || isActionProcessingStale(record, now)) return "reclaim";
+  return "processing";
+}
+
+async function reclaimMongoAction(existing, request) {
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - ACTION_PROCESSING_TIMEOUT_MS);
+  const statusCondition = existing.status === "failed"
+    ? { status: "failed" }
+    : {
+        status: "processing",
+        $or: [
+          { processingStartedAt: { $lte: staleBefore } },
+          { processingStartedAt: null, createdAt: { $lte: staleBefore } }
+        ]
+      };
+
+  return PlatformActionModel.findOneAndUpdate(
+    {
+      _id: existing._id,
+      actorId: request.actorId,
+      idempotencyKeyHash: request.idempotencyKeyHash,
+      requestFingerprint: request.requestFingerprint,
+      ...statusCondition
+    },
+    {
+      $set: {
+        status: "processing",
+        processingStartedAt: now,
+        safeResponse: null,
+        completedAt: null,
+        failedAt: null
+      }
+    },
+    { returnDocument: "after" }
+  ).lean();
+}
+
 async function claimAction(request) {
   const memoryKey = `${request.actorId}:${request.idempotencyKeyHash}`;
   if (mongoose.connection.readyState !== 1) {
     const existing = actionMemory.get(memoryKey);
     if (existing) {
-      if (existing.requestFingerprint !== request.requestFingerprint) {
+      const disposition = getActionClaimDisposition(existing, request.requestFingerprint);
+      if (disposition === "conflict") {
         throw new PlatformConflictError("La clave de idempotencia ya fue usada para otra solicitud");
+      }
+      if (disposition === "reclaim") {
+        existing.status = "processing";
+        existing.processingStartedAt = new Date();
+        existing.safeResponse = null;
+        existing.completedAt = null;
+        existing.failedAt = null;
+        actionMemory.set(memoryKey, existing);
+        return { claimed: true, record: existing, memoryKey };
       }
       return { claimed: false, record: existing };
     }
@@ -265,6 +325,7 @@ async function claimAction(request) {
       targetType: request.action.startsWith("platform.user") ? "platform_user" : "platform_session",
       status: "processing",
       safeResponse: null,
+      processingStartedAt: new Date(),
       createdAt: new Date(),
       completedAt: null,
       failedAt: null
@@ -278,7 +339,8 @@ async function claimAction(request) {
       _id: crypto.randomUUID(),
       ...request,
       targetType: request.action.startsWith("platform.user") ? "platform_user" : "platform_session",
-      status: "processing"
+      status: "processing",
+      processingStartedAt: new Date()
     });
     return { claimed: true, record: record.toObject() };
   } catch (error) {
@@ -288,10 +350,18 @@ async function claimAction(request) {
       idempotencyKeyHash: request.idempotencyKeyHash
     }).lean();
     if (!existing) throw error;
-    if (existing.requestFingerprint !== request.requestFingerprint) {
+
+    const disposition = getActionClaimDisposition(existing, request.requestFingerprint);
+    if (disposition === "conflict") {
       throw new PlatformConflictError("La clave de idempotencia ya fue usada para otra solicitud");
     }
-    return { claimed: false, record: existing };
+    if (disposition === "reclaim") {
+      const reclaimed = await reclaimMongoAction(existing, request);
+      if (reclaimed) return { claimed: true, record: reclaimed };
+    }
+
+    const latest = await PlatformActionModel.findById(existing._id).lean();
+    return { claimed: false, record: latest || existing };
   }
 }
 
@@ -304,7 +374,7 @@ async function completeAction(claim, safeResponse) {
     return;
   }
   await PlatformActionModel.updateOne(
-    { _id: claim.record._id },
+    { _id: claim.record._id, status: "processing" },
     { $set: { status: "completed", safeResponse, completedAt: new Date() } }
   );
 }
@@ -315,7 +385,7 @@ async function failAction(claim) {
     return;
   }
   await PlatformActionModel.updateOne(
-    { _id: claim.record._id },
+    { _id: claim.record._id, status: "processing" },
     { $set: { status: "failed", failedAt: new Date() } }
   );
 }
@@ -413,6 +483,7 @@ async function executeGovernanceAction(store, actor, idempotencyKey, payload, cu
 }
 
 module.exports = {
+  ACTION_PROCESSING_TIMEOUT_MS,
   ACTION_TYPES,
   USER_STATUSES,
   serializePlatformUser,
@@ -421,5 +492,7 @@ module.exports = {
   createGovernanceUser,
   listGovernanceSessions,
   validateActionRequest,
+  isActionProcessingStale,
+  getActionClaimDisposition,
   executeGovernanceAction
 };
