@@ -78,6 +78,7 @@ export function SalesScreen() {
         )
       : 306;
   const cardStep = cardWidth + planCardGap;
+  const compactPlanCard = cardWidth < 288;
   const carouselRef = useRef<ScrollView>(null);
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
@@ -433,7 +434,7 @@ export function SalesScreen() {
                       index={index}
                       plan={plan}
                       width={cardWidth}
-                      compact={isPhone}
+                      compact={compactPlanCard}
                       active={activePlanIndex === index}
                       accent={getPlanAccent(plan, index)}
                       onPress={() => jumpToPlan(index)}

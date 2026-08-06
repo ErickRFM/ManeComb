@@ -60,6 +60,38 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await expect(page.getByText('Elige la capacidad de tu flotilla')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Elegir plan' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Usar demo \d+ días/i }).first()).toBeVisible();
+
+    const firstPlanCard = page.getByRole('button', { name: 'Seleccionar plan 2 combis' });
+    await firstPlanCard.scrollIntoViewIfNeeded();
+    await expect(firstPlanCard).toBeVisible();
+
+    const viewport = page.viewportSize();
+    if (viewport && viewport.width <= 640) {
+      const cardBox = await firstPlanCard.boundingBox();
+      expect(cardBox, 'La tarjeta móvil debe tener dimensiones medibles').not.toBeNull();
+      expect(
+        cardBox?.width ?? 0,
+        'La tarjeta móvil debe ocupar prácticamente todo el ancho útil'
+      ).toBeGreaterThanOrEqual(viewport.width - 36);
+
+      const planName = firstPlanCard.getByText('2 combis', { exact: true });
+      const titleFontSize = await planName.evaluate((node) =>
+        Number.parseFloat(window.getComputedStyle(node).fontSize)
+      );
+      expect(titleFontSize, 'El título del plan no debe usar escala compacta en 360 px').toBeGreaterThanOrEqual(27);
+
+      const cardPadding = await firstPlanCard.evaluate((node) =>
+        Number.parseFloat(window.getComputedStyle(node).paddingLeft)
+      );
+      expect(cardPadding, 'La tarjeta móvil debe conservar el padding completo').toBeGreaterThanOrEqual(19);
+
+      const screenshot = await page.screenshot({ fullPage: false });
+      await testInfo.attach(`${testInfo.project.name}-landing-plan-mobile-scale.png`, {
+        body: screenshot,
+        contentType: 'image/png',
+      });
+    }
+
     await assertNoDocumentOverflow(page);
     await attachFullPageScreenshot(page, testInfo, 'landing-planes');
   });
