@@ -4,7 +4,6 @@ import { Redirect, RouterProvider, usePathname } from '@/components/router';
 import { Typography } from '@/styles/theme';
 import { useAdminStore } from '@/features/auth/store';
 import { ScreenErrorBoundary } from '@/components/screen-error-boundary';
-import { findAdminNavigationItem } from '@/features/platform/navigation';
 
 const AdminLoginScreen = lazy(() => import('@/features/auth/screens/login-screen').then((module) => ({ default: module.AdminLoginScreen })));
 const AdminMfaSetupScreen = lazy(() => import('@/features/auth/screens/mfa-setup-screen').then((module) => ({ default: module.AdminMfaSetupScreen })));
@@ -16,7 +15,8 @@ const AdminCommercialScreen = lazy(() => import('@/features/platform/operations/
 const AdminCommercialDetailScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminCommercialDetailScreen })));
 const AdminSystemScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminSystemScreen })));
 const AdminAuditScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminAuditScreen })));
-const AdminPendingModuleScreen = lazy(() => import('@/features/platform/screens/pending-module-screen').then((module) => ({ default: module.AdminPendingModuleScreen })));
+const AdminTeamScreen = lazy(() => import('@/features/platform/governance/governance-screens').then((module) => ({ default: module.AdminTeamScreen })));
+const AdminSessionsScreen = lazy(() => import('@/features/platform/governance/governance-screens').then((module) => ({ default: module.AdminSessionsScreen })));
 
 function BootScreen() {
   return (
@@ -78,13 +78,12 @@ function Routes() {
       return <AdminProtectedRoute><ScreenErrorBoundary name="Admin System"><AdminSystemScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
     case '/admin/audit':
       return <AdminProtectedRoute><ScreenErrorBoundary name="Admin Audit"><AdminAuditScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
-    default: {
-      const item = findAdminNavigationItem(pathname);
-      if (item && item.phase === 'P4') {
-        return <AdminProtectedRoute><ScreenErrorBoundary name={`Admin ${item.label}`}><AdminPendingModuleScreen item={item} /></ScreenErrorBoundary></AdminProtectedRoute>;
-      }
+    case '/admin/team':
+      return <AdminProtectedRoute><ScreenErrorBoundary name="Admin Team"><AdminTeamScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
+    case '/admin/sessions':
+      return <AdminProtectedRoute><ScreenErrorBoundary name="Admin Sessions"><AdminSessionsScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
+    default:
       return <Redirect href={mode === 'authenticated' ? '/admin/overview' : '/admin/login'} />;
-    }
   }
 }
 
