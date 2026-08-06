@@ -1,9 +1,8 @@
 import {
   canAccessPortal,
   isPortalRole,
-  type AccountChannel,
 } from '@/features/portal/utils/access';
-import type { User } from '@/src/types/app';
+import type { AccountChannel, User } from '@/src/types/app';
 
 type RouteUser = Pick<User, 'accountType' | 'role'> & {
   accountChannel?: AccountChannel | string | null;
@@ -56,7 +55,7 @@ export function getAuthenticatedHome(user?: RouteUser | null) {
   const channel = getAccountChannel(user);
 
   if (channel === 'company_portal') return '/portal';
-  if (channel === 'mobile_operations') return '/mapa';
+  if (channel === 'mobile_operations') return '/acceso-operativo';
   if (channel === 'platform_admin') return '/acceso-admin';
   return '/acceso-restringido';
 }
