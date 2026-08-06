@@ -21,6 +21,7 @@ const REFRESH_TOKEN_KEY = 'manecomb-platform-refresh-token';
 const CHALLENGE_STORAGE_KEY = 'manecomb-platform-challenge';
 const SESSION_REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
 let renewalPromise: Promise<boolean> | null = null;
+let authEpoch = 0;
 
 function getStorageItem(key: string) {
   if (typeof window === 'undefined') return null;
@@ -89,7 +90,6 @@ export function shouldRenewPlatformSession(
 async function restoreSessionFromRefresh(refreshToken: string) {
   const refreshed = await platformRefreshRequest(refreshToken);
   const { user, session: info } = await platformSessionRequest(refreshed.token);
-  persistSession(refreshed.token, refreshed.refreshToken);
   return {
     session: {
       token: refreshed.token,
@@ -128,17 +128,22 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   isBootstrapping: true,
 
   bootstrap: async () => {
+    const epoch = ++authEpoch;
+    renewalPromise = null;
     const token = getStorageItem(ACCESS_TOKEN_KEY);
     const refreshToken = getStorageItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
       clearPersistedSession();
-      set({ mode: 'idle', session: null, sessionInfo: null, isBootstrapping: false });
+      if (epoch === authEpoch) {
+        set({ mode: 'idle', session: null, sessionInfo: null, isBootstrapping: false });
+      }
       return;
     }
 
     if (token) {
       try {
         const { user, session: info } = await platformSessionRequest(token);
+        if (epoch !== authEpoch) return;
         set({
           mode: 'authenticated',
           session: { token, refreshToken, user },
@@ -153,6 +158,8 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
 
     try {
       const restored = await restoreSessionFromRefresh(refreshToken);
+      if (epoch !== authEpoch) return;
+      persistSession(restored.session.token, restored.session.refreshToken);
       set({
         mode: 'authenticated',
         session: restored.session,
@@ -160,6 +167,7 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
         isBootstrapping: false,
       });
     } catch {
+      if (epoch !== authEpoch) return;
       clearPersistedSession();
       set({
         mode: 'idle',
@@ -172,9 +180,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   },
 
   login: async (email: string, password: string) => {
+    const epoch = ++authEpoch;
+    renewalPromise = null;
     set({ mode: 'loading', error: null });
     try {
       const result = await platformLoginRequest(email, password);
+      if (epoch !== authEpoch) return;
       if (result.mfaRequired && result.challengeToken) {
         const challengeData: AdminChallengeData = {
           token: result.challengeToken,
@@ -199,6 +210,7 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       }
       set({ mode: 'error', error: 'Respuesta del servidor inválida' });
     } catch (error) {
+      if (epoch !== authEpoch) return;
       set({ mode: 'error', error: error instanceof Error ? error.message : 'Error al iniciar sesión' });
     }
   },
@@ -222,9 +234,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   verifyMfa: async (totpToken: string) => {
     const challenge = get().challengeData || getSessionChallenge();
     if (!challenge) throw new Error('No hay challenge activo');
+    const epoch = ++authEpoch;
+    renewalPromise = null;
     const result = await platformMfaVerifyRequest(challenge.token, totpToken);
-    setSessionChallenge(null);
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
+    if (epoch !== authEpoch) return;
+    setSessionChallenge(null);
     persistSession(refreshResult.token, refreshResult.refreshToken);
     set({
       mode: 'authenticated',
@@ -242,9 +257,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   recoverMfa: async (recoveryCode: string) => {
     const challenge = get().challengeData || getSessionChallenge();
     if (!challenge) throw new Error('No hay challenge activo');
+    const epoch = ++authEpoch;
+    renewalPromise = null;
     const result = await platformMfaRecoveryRequest(challenge.token, recoveryCode);
-    setSessionChallenge(null);
     const refreshResult = await platformRefreshRequest(challenge.refreshToken);
+    if (epoch !== authEpoch) return;
+    setSessionChallenge(null);
     persistSession(refreshResult.token, refreshResult.refreshToken);
     set({
       mode: 'authenticated',
@@ -263,10 +281,20 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (renewalPromise) return renewalPromise;
     const current = get().session;
     if (!current?.refreshToken) return false;
+    const epoch = authEpoch;
 
-    renewalPromise = (async () => {
+    const request = (async () => {
       try {
         const restored = await restoreSessionFromRefresh(current.refreshToken);
+        const latest = get().session;
+        if (
+          epoch !== authEpoch
+          || !latest
+          || latest.refreshToken !== current.refreshToken
+        ) {
+          return false;
+        }
+        persistSession(restored.session.token, restored.session.refreshToken);
         set({
           mode: 'authenticated',
           session: restored.session,
@@ -278,31 +306,36 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
         return false;
       }
     })();
+    renewalPromise = request;
 
     try {
-      return await renewalPromise;
+      return await request;
     } finally {
-      renewalPromise = null;
+      if (renewalPromise === request) renewalPromise = null;
     }
   },
 
   refreshSession: async () => {
     const current = get().session;
     if (!current) return;
+    const epoch = authEpoch;
     try {
       const { user, session: info } = await platformSessionRequest(current.token);
+      if (epoch !== authEpoch || get().session?.token !== current.token) return;
       set({ session: { ...current, user }, sessionInfo: info });
     } catch {
-      await get().renewSession();
+      if (epoch === authEpoch) await get().renewSession();
     }
   },
 
   logout: async () => {
     const current = get().session;
-    if (current) await platformLogoutRequest(current.token).catch(() => {});
+    authEpoch += 1;
+    renewalPromise = null;
     clearPersistedSession();
     setSessionChallenge(null);
     set({ mode: 'idle', session: null, sessionInfo: null, challengeData: null, error: null });
+    if (current) await platformLogoutRequest(current.token).catch(() => {});
   },
 
   clearError: () => set({ error: null, mode: 'login' }),
