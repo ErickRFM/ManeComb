@@ -28,6 +28,14 @@ assert.match(api, /encodeURIComponent\(orderId\)/);
 for (const loader of ['loadOrders', 'loadOrder', 'loadReadiness', 'loadAudit']) {
   assert.ok(store.includes(loader), `El store debe incluir ${loader}.`);
 }
+for (const guard of [
+  'ordersRequestId',
+  'orderDetailRequestId',
+  'readinessRequestId',
+  'auditRequestId',
+]) {
+  assert.ok(store.includes(guard), `El store debe invalidar respuestas viejas con ${guard}.`);
+}
 assert.match(store, /auditPersistent/);
 
 assert.match(screens, /Solo lectura/);
@@ -42,4 +50,4 @@ assert.match(shell, /resetOperations\(\)/);
 assert.match(shell, /['"]P3['"]/);
 assert.match(shell, /styles\.phaseBadgeReady/);
 
-console.log('ok - ADM-GLOBAL-P3 commercial system and audit contracts');
+console.log('ok - ADM-GLOBAL-P3 operations, audit and request ordering contracts');
