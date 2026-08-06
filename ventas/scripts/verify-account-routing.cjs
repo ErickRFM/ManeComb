@@ -8,6 +8,8 @@ const routing = read('src/utils/account-routing.ts');
 const access = read('features/portal/utils/access.ts');
 const app = read('src/App.tsx');
 const authScreen = read('screens/sales-auth-screen.tsx');
+const salesScreen = read('screens/sales-screen.tsx');
+const planCard = read('screens/sales/components/plan-card.tsx');
 const recoveryScreen = read('screens/password-recovery/password-recovery-request-screen.tsx');
 
 const requiredPortalRoles = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
@@ -111,6 +113,31 @@ for (const contract of checkoutContracts) {
   }
 }
 
+const trialContracts = [
+  'onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}',
+  'isPublicDemoPlan(plan) && Number(plan.trialDays) > 0',
+  '`Usar demo ${plan.trialDays} días`',
+];
+
+for (const contract of trialContracts) {
+  if (!salesScreen.includes(contract)) {
+    throw new Error(`La landing no conserva la demo canónica y su intención: ${contract}`);
+  }
+}
+
+const trialButtonContracts = [
+  'const showTrialAction = Boolean(onTrial && trialLabel);',
+  'accessibilityLabel={`${trialLabel}: ${plan.name}`}',
+  'onPress={onTrial}',
+  '{trialLabel}',
+];
+
+for (const contract of trialButtonContracts) {
+  if (!planCard.includes(contract)) {
+    throw new Error(`La tarjeta no expone una acción de demo operativa: ${contract}`);
+  }
+}
+
 const recoveryContracts = [
   'resolveRecoveryCheckoutContext(params.planId, params.trial, readCheckoutContext())',
   "buildRecoveryRoute('/ventas/login', context)",
@@ -123,4 +150,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical account channels, Portal guard, checkout intent and product boundaries verified.');
+console.log('Canonical channels, product boundaries, checkout intent and trial action verified.');
