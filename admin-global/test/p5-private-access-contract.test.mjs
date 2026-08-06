@@ -19,6 +19,7 @@ const app = readRepo('backend/src/app.js');
 const accessMiddleware = readRepo('backend/src/middlewares/platform-access.js');
 const server = readRepo('backend/src/server.js');
 const backendEnv = readRepo('backend/.env.example');
+const backendPackage = JSON.parse(readRepo('backend/package.json'));
 const deployment = readRepo('docs/admin-global-private-deployment.md');
 
 assert.match(runtime, /VITE_PLATFORM_ACCESS_REQUIRED/);
@@ -65,6 +66,7 @@ for (const variable of [
 assert.match(app, /app\.use\("\/api\/platform", platformAccess\)/);
 assert.match(accessMiddleware, /cf-access-jwt-assertion/);
 assert.match(accessMiddleware, /createPlatformAccessVerifier/);
+assert.match(accessMiddleware, /forceRefresh/);
 assert.match(server, /assertPlatformAccessConfiguration/);
 for (const variable of [
   'PLATFORM_ACCESS_ENFORCEMENT_ENABLED=',
@@ -73,6 +75,17 @@ for (const variable of [
   'PLATFORM_ACCESS_JWKS_URL=',
 ]) {
   assert.ok(backendEnv.includes(variable), `Falta ${variable} en backend env example.`);
+}
+
+const platformTestCommand = backendPackage.scripts?.['test:platform'] || '';
+for (const testFile of [
+  'platform-governance-idempotency.test.js',
+  'platform-access-rotation.test.js',
+]) {
+  assert.ok(
+    platformTestCommand.includes(testFile),
+    `backend/package.json debe ejecutar permanentemente ${testFile}`
+  );
 }
 
 assert.match(deployment, /403.*sin Access/s);
