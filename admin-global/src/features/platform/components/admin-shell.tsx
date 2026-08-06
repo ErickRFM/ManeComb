@@ -14,6 +14,7 @@ import { getAdminNavigation } from '../navigation';
 import { usePlatformStore } from '../store';
 import { usePlatformCompanyStore } from '../companies/store';
 import { usePlatformOperationsStore } from '../operations/store';
+import { usePlatformGovernanceStore } from '../governance/store';
 
 type AdminShellProps = {
   title: string;
@@ -32,6 +33,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   const resetPlatform = usePlatformStore((state) => state.reset);
   const resetCompanies = usePlatformCompanyStore((state) => state.reset);
   const resetOperations = usePlatformOperationsStore((state) => state.reset);
+  const resetGovernance = usePlatformGovernanceStore((state) => state.reset);
   const isDesktop = width >= 900;
   const navigation = getAdminNavigation(capabilities);
 
@@ -40,6 +42,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   }, [load, session?.token]);
 
   const handleLogout = async () => {
+    resetGovernance();
     resetOperations();
     resetCompanies();
     resetPlatform();
@@ -76,7 +79,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
         </View>
         <Text style={[
           styles.phaseBadge,
-          (item.phase === 'P1' || item.phase === 'P2' || item.phase === 'P3') && styles.phaseBadgeReady,
+          ['P1', 'P2', 'P3', 'P4'].includes(item.phase) && styles.phaseBadgeReady,
         ]}>
           {item.phase}
         </Text>
