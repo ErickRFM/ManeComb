@@ -25,6 +25,7 @@ const commercialRoutes = require("./modules/commercial/routes");
 const dashboardRoutes = require("./modules/dashboard/routes");
 const documentRoutes = require("./modules/documents/routes");
 const incidentRoutes = require("./modules/incidents/routes");
+const journeyRoutes = require("./modules/journeys/routes");
 const locationRoutes = require("./modules/locations/routes");
 const navigationRoutes = require("./modules/navigation/routes");
 const notificationRoutes = require("./modules/notifications/routes");
@@ -242,6 +243,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/locations", locationRoutes);
   app.use("/api/navigation", navigationRoutes);
+  app.use("/api/journeys", journeyRoutes);
   app.use("/api/incidents", incidentRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/documents", documentRoutes);
