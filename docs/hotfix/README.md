@@ -1,0 +1,1 @@
+Hotfixes operativos documentados y acotados.
