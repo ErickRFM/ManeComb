@@ -7,8 +7,10 @@ const {
   assertPlatformAccessConfiguration
 } = require("../config/platform-access");
 
+const PLATFORM_ACCESS_HEADER = "cf-access-jwt-assertion";
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000;
 const jwksCache = new Map();
+const jwksRequests = new Map();
 
 class PlatformAccessUnavailableError extends Error {
   constructor(message = "Cloudflare Access no está disponible") {
@@ -23,11 +25,7 @@ function clearPlatformAccessJwksCache() {
   jwksCache.clear();
 }
 
-async function fetchJwks(config, options = {}) {
-  const now = Date.now();
-  const cached = jwksCache.get(config.jwksUrl);
-  if (cached && cached.expiresAt > now) return cached.keys;
-
+async function requestJwks(config, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") {
     throw new PlatformAccessUnavailableError("El runtime no dispone de fetch para consultar JWKS");
@@ -48,7 +46,7 @@ async function fetchJwks(config, options = {}) {
       throw new PlatformAccessUnavailableError("JWKS no contiene claves públicas");
     }
     jwksCache.set(config.jwksUrl, {
-      expiresAt: now + JWKS_CACHE_TTL_MS,
+      expiresAt: Date.now() + JWKS_CACHE_TTL_MS,
       keys: payload.keys
     });
     return payload.keys;
@@ -62,9 +60,34 @@ async function fetchJwks(config, options = {}) {
   }
 }
 
+async function fetchJwks(config, options = {}, forceRefresh = false) {
+  const now = Date.now();
+  const cached = jwksCache.get(config.jwksUrl);
+  if (!forceRefresh && cached && cached.expiresAt > now) return cached.keys;
+
+  const pending = jwksRequests.get(config.jwksUrl);
+  if (pending) return pending;
+
+  const request = requestJwks(config, options);
+  jwksRequests.set(config.jwksUrl, request);
+  try {
+    return await request;
+  } finally {
+    if (jwksRequests.get(config.jwksUrl) === request) {
+      jwksRequests.delete(config.jwksUrl);
+    }
+  }
+}
+
 function normalizeAudience(value) {
   if (Array.isArray(value)) return value.map(String);
   return value ? [String(value)] : [];
+}
+
+function findSigningKey(keys, kid) {
+  return keys.find(
+    (candidate) => candidate?.kid === kid && (!candidate.alg || candidate.alg === "RS256")
+  );
 }
 
 function createPlatformAccessVerifier(options = {}) {
@@ -79,8 +102,15 @@ function createPlatformAccessVerifier(options = {}) {
       throw new Error("Access JWT inválido");
     }
 
-    const keys = await fetchJwks(config, options);
-    const jwk = keys.find((candidate) => candidate?.kid === kid && (!candidate.alg || candidate.alg === "RS256"));
+    let keys = await fetchJwks(config, options);
+    let jwk = findSigningKey(keys, kid);
+
+    // Cloudflare puede rotar sus claves antes de que expire nuestro cache local.
+    // Ante un kid desconocido se fuerza una sola recarga del JWKS y se reintenta.
+    if (!jwk) {
+      keys = await fetchJwks(config, options, true);
+      jwk = findSigningKey(keys, kid);
+    }
     if (!jwk) throw new Error("La clave del Access JWT no existe en JWKS");
 
     let publicKey;
@@ -124,7 +154,11 @@ async function platformAccess(req, res, next) {
 
   if (!config.enabled) return next();
 
-  const token = String(req.headers?.[config.headerName] || "").trim();
+  if (String(config.headerName || "").toLowerCase() !== PLATFORM_ACCESS_HEADER) {
+    return res.status(503).json({ ok: false, message: "Acceso privado no disponible" });
+  }
+
+  const token = String(req.headers?.[PLATFORM_ACCESS_HEADER] || "").trim();
   if (!token) {
     return res.status(403).json({ ok: false, message: "Acceso privado requerido" });
   }
@@ -171,6 +205,7 @@ function requirePlatformStatus(...statuses) {
 }
 
 module.exports = {
+  PLATFORM_ACCESS_HEADER,
   PlatformAccessUnavailableError,
   clearPlatformAccessJwksCache,
   createPlatformAccessVerifier,
