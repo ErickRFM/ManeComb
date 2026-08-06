@@ -1,0 +1,94 @@
+name: Temporary Admin Platform Model Hotfix
+
+on:
+  push:
+    branches:
+      - fix/admin-global-platform-user-model-20260806
+
+permissions:
+  contents: write
+
+jobs:
+  apply-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/admin-global-platform-user-model-20260806
+          fetch-depth: 0
+
+      - name: Apply direct model import and regression guard
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const mongoStorePath = path.resolve('backend/src/data/mongo-store.js');
+          let mongoStore = fs.readFileSync(mongoStorePath, 'utf8');
+          const importNeedle = '  NotificationModel,\n  RtcSessionModel,';
+          const importReplacement = '  NotificationModel,\n  PlatformUserModel,\n  RtcSessionModel,';
+
+          if (!mongoStore.includes('  PlatformUserModel,')) {
+            if (!mongoStore.includes(importNeedle)) {
+              throw new Error('No se encontró el bloque esperado de modelos en mongo-store.js');
+            }
+            mongoStore = mongoStore.replace(importNeedle, importReplacement);
+            fs.writeFileSync(mongoStorePath, mongoStore);
+          }
+
+          const testPath = path.resolve('backend/test/platform-mongo-store-model-import.test.js');
+          fs.writeFileSync(testPath, `const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const source = fs.readFileSync(
+            path.resolve(__dirname, "../src/data/mongo-store.js"),
+            "utf8"
+          );
+          const modelsImport = source.match(
+            /const\\s*\\{([\\s\\S]*?)\\}\\s*=\\s*require\\("\\.\\/models"\\);/
+          );
+
+          assert.ok(modelsImport, "mongo-store debe importar sus modelos desde ./models");
+          assert.match(
+            modelsImport[1],
+            /\\bPlatformUserModel\\b/,
+            "mongo-store debe importar PlatformUserModel antes de usarlo"
+          );
+
+          console.log("platform mongo model import: PASS");
+          `);
+
+          const packagePath = path.resolve('backend/package.json');
+          let packageSource = fs.readFileSync(packagePath, 'utf8');
+          const testNeedle = '"test:platform": "node --require ./test/setup-env.js test/platform-auth.test.js';
+          const testReplacement = '"test:platform": "node --require ./test/setup-env.js test/platform-mongo-store-model-import.test.js && node --require ./test/setup-env.js test/platform-auth.test.js';
+          if (!packageSource.includes('test/platform-mongo-store-model-import.test.js')) {
+            if (!packageSource.includes(testNeedle)) {
+              throw new Error('No se encontró el inicio esperado de test:platform');
+            }
+            packageSource = packageSource.replace(testNeedle, testReplacement);
+            fs.writeFileSync(packagePath, packageSource);
+          }
+          NODE
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Run platform regression suite
+        run: npm run test:platform --prefix backend
+
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/data/mongo-store.js backend/test/platform-mongo-store-model-import.test.js backend/package.json
+          if git diff --cached --quiet; then
+            echo "Hotfix already applied"
+            exit 0
+          fi
+          git commit -m "fix(admin): import platform user model in mongo store"
+          git push origin HEAD:fix/admin-global-platform-user-model-20260806
