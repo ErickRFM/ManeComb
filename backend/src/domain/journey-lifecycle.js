@@ -24,6 +24,15 @@ function normalizeJourneyStatus(value) {
   return JOURNEY_STATUSES.includes(status) ? status : null;
 }
 
+function parseOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function isJourneyTerminal(value) {
   const status = normalizeJourneyStatus(value);
   return status ? TERMINAL_JOURNEY_STATUSES.has(status) : false;
@@ -146,13 +155,9 @@ function resolveJourneyTransitionPatch({
     patch.finishReason = String(
       finishReason || (decision.nextStatus === "FINISHED" ? "completed" : "cancelled")
     ).trim();
-    patch.finishedOdometer = Number.isFinite(Number(finishedOdometer))
-      ? Number(finishedOdometer)
-      : null;
-    patch.endBattery = Number.isFinite(Number(endBattery)) ? Number(endBattery) : null;
-    patch.endGpsAccuracy = Number.isFinite(Number(endGpsAccuracy))
-      ? Number(endGpsAccuracy)
-      : null;
+    patch.finishedOdometer = parseOptionalNumber(finishedOdometer);
+    patch.endBattery = parseOptionalNumber(endBattery);
+    patch.endGpsAccuracy = parseOptionalNumber(endGpsAccuracy);
   }
 
   return {
@@ -167,6 +172,7 @@ module.exports = {
   ACTIVE_JOURNEY_STATUSES,
   TERMINAL_JOURNEY_STATUSES,
   normalizeJourneyStatus,
+  parseOptionalNumber,
   isJourneyActive,
   isJourneyTerminal,
   canTransitionJourney,
