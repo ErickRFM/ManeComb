@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   UIManager,
   useWindowDimensions,
@@ -31,6 +32,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const PANEL_ANIMATION_MS = 220;
+const NARROW_PANEL_BREAKPOINT = 390;
 
 /** Etiquetas de estado de jornada. El estado operacional usa `stateLabel`. */
 const sessionStatusLabels: Record<string, string> = {
@@ -129,7 +131,8 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   lastSyncedAt,
 }: BottomTrackingPanelProps) {
   const { theme } = useAppTheme();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const isNarrow = screenWidth < NARROW_PANEL_BREAKPOINT;
   const [isExpanded, setIsExpanded] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -229,9 +232,16 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       : selectedUnit?.status === 'offline'
         ? 'neutral'
         : 'positive';
-  const compactHeight = Math.min(170, Math.max(128, Math.round(screenHeight * 0.2)));
-  const compactMaxHeight = Math.max(compactHeight, Math.round(screenHeight * 0.25));
-  const expandedMaxHeight = Math.max(320, Math.round(screenHeight * 0.7));
+  const compactHeight = Math.min(
+    isNarrow ? 150 : 170,
+    Math.max(isNarrow ? 120 : 128, Math.round(screenHeight * (isNarrow ? 0.18 : 0.2)))
+  );
+  const compactMaxHeight = Math.max(compactHeight, Math.round(screenHeight * (isNarrow ? 0.22 : 0.25)));
+  const availableExpandedHeight = Math.max(280, screenHeight - bottomPadding - 116);
+  const expandedMaxHeight = Math.min(
+    availableExpandedHeight,
+    Math.max(300, Math.round(screenHeight * (isNarrow ? 0.64 : 0.7)))
+  );
 
   const detailRows = useMemo<Array<[string, string]>>(
     () => {
@@ -351,10 +361,26 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     [activeTimeLabel, gpsLabel, kilometersLabel, selectedVehicle, statusLabel]
   );
 
+  const renderDetailRow = ([label, value]: [string, string]) => (
+    <View key={label} style={[styles.detailRow, isNarrow ? responsiveStyles.detailRowNarrow : undefined]}>
+      <Text style={[styles.detailLabel, isNarrow ? responsiveStyles.detailLabelNarrow : undefined, { color: theme.colors.muted }]}>
+        {label}
+      </Text>
+      <Text style={[styles.detailValue, isNarrow ? responsiveStyles.detailValueNarrow : undefined, { color: theme.colors.text }]}>
+        {value}
+      </Text>
+    </View>
+  );
+
   return (
     <View style={[styles.bottomOverlay, { paddingBottom: bottomPadding }]}>
       {locationStatus.canRetry && locationStatus.title ? (
-        <View style={[styles.locationNotice, { backgroundColor: theme.colors.surface, borderColor: locationStatusColor }]}>
+        <View
+          style={[
+            styles.locationNotice,
+            isNarrow ? responsiveStyles.locationNoticeNarrow : undefined,
+            { backgroundColor: theme.colors.surface, borderColor: locationStatusColor },
+          ]}>
           <MaterialCommunityIcons name="crosshairs-gps" size={20} color={locationStatusColor} />
           <View style={styles.locationNoticeCopy}>
             <Text style={[styles.locationNoticeTitle, { color: theme.colors.text }]}>{locationStatus.title}</Text>
@@ -377,6 +403,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         style={[
           styles.followCard,
           styles.trackingPanelCard,
+          isNarrow ? responsiveStyles.cardNarrow : undefined,
           { backgroundColor: theme.colors.surface, borderColor: theme.colors.line },
           isExpanded
             ? { maxHeight: expandedMaxHeight }
@@ -397,7 +424,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
           <StatusPill label={selectedUnit ? statusLabel : 'Sin unidad'} tone={selectedUnit ? statusTone : 'neutral'} />
         </View>
 
-        <View style={styles.compactStatusRow}>
+        <View style={[styles.compactStatusRow, isNarrow ? responsiveStyles.compactStatusRowNarrow : undefined]}>
           <View style={styles.compactGpsStatus}>
             <MaterialCommunityIcons name="crosshairs-gps" size={16} color={locationStatusColor} />
             <Text style={[styles.compactGpsText, { color: theme.colors.text }]} numberOfLines={1}>{gpsLabel}</Text>
@@ -452,17 +479,27 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             {selectedUnit ? (
               <View style={styles.metricGrid}>
                 {metricCards.map(({ label, value, icon }) => (
-                  <View key={label} style={[styles.metricCard, { backgroundColor: theme.colors.surfaceAlt }]}>
+                  <View
+                    key={label}
+                    style={[
+                      styles.metricCard,
+                      isNarrow ? responsiveStyles.metricCardNarrow : undefined,
+                      { backgroundColor: theme.colors.surfaceAlt },
+                    ]}>
                     <MaterialCommunityIcons name={icon as keyof typeof MaterialCommunityIcons.glyphMap} size={16} color={theme.colors.accent} />
                     <Text style={[styles.metricLabel, { color: theme.colors.muted }]}>{label}</Text>
-                    <Text style={[styles.metricValue, { color: theme.colors.text }]} numberOfLines={1}>{value}</Text>
+                    <Text
+                      style={[styles.metricValue, { color: theme.colors.text }]}
+                      numberOfLines={isNarrow ? 2 : 1}>
+                      {value}
+                    </Text>
                   </View>
                 ))}
               </View>
             ) : null}
 
             {selectedUnit ? (
-              <View style={styles.panelActionRow}>
+              <View style={[styles.panelActionRow, isNarrow ? responsiveStyles.panelActionRowNarrow : undefined]}>
                 <Pressable
                   onPress={() => {
                     setDetailsOpen((current) => !current);
@@ -490,12 +527,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
 
             {detailsOpen ? (
               <View style={[styles.detailsPanel, { borderColor: theme.colors.line }]}>
-                {detailRows.map(([label, value]) => (
-                  <View key={label} style={styles.detailRow}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.muted }]}>{label}</Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.text }]}>{value}</Text>
-                  </View>
-                ))}
+                {detailRows.map(renderDetailRow)}
               </View>
             ) : null}
 
@@ -507,12 +539,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                       <MaterialCommunityIcons name="chevron-left" size={20} color={theme.colors.accent} />
                       <Text style={[styles.detailsButtonText, { color: theme.colors.accent }]}>Jornadas</Text>
                     </Pressable>
-                    {historyRows.map(([label, value]) => (
-                      <View key={label} style={styles.detailRow}>
-                        <Text style={[styles.detailLabel, { color: theme.colors.muted }]}>{label}</Text>
-                        <Text style={[styles.detailValue, { color: theme.colors.text }]}>{value}</Text>
-                      </View>
-                    ))}
+                    {historyRows.map(renderDetailRow)}
                   </>
                 ) : history.length ? (
                   history.map((session) => {
@@ -586,4 +613,38 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       </View>
     </View>
   );
+});
+
+const responsiveStyles = StyleSheet.create({
+  cardNarrow: {
+    paddingHorizontal: 10,
+  },
+  compactStatusRowNarrow: {
+    gap: 6,
+  },
+  locationNoticeNarrow: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  metricCardNarrow: {
+    minHeight: 60,
+    width: '100%',
+  },
+  panelActionRowNarrow: {
+    flexWrap: 'wrap',
+  },
+  detailRowNarrow: {
+    alignItems: 'flex-start',
+    flexDirection: 'column',
+    gap: 3,
+  },
+  detailLabelNarrow: {
+    flex: 0,
+    width: '100%',
+  },
+  detailValueNarrow: {
+    flex: 0,
+    textAlign: 'left',
+    width: '100%',
+  },
 });
