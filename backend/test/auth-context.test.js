@@ -2,6 +2,10 @@ const assert = require("node:assert/strict");
 
 const { buildAuthContext } = require("../src/services/auth-context");
 const {
+  ACCOUNT_CHANNEL,
+  resolveAccountChannel
+} = require("../src/services/account-channel");
+const {
   canUseOperationalFeatures,
   getBlockLogPayload
 } = require("../src/middlewares/operational-access");
@@ -23,6 +27,16 @@ function createUser(overrides = {}) {
     },
     ...overrides
   };
+}
+
+function createDriver(overrides = {}) {
+  return createUser({
+    id: "driver-tenant-a",
+    accountType: "operations",
+    email: "driver@manecomb.test",
+    role: "driver",
+    ...overrides
+  });
 }
 
 function createOrder(overrides = {}) {
@@ -67,17 +81,22 @@ async function assertAccess(label, { expected, orders, user, users }) {
   return authContext;
 }
 
-async function testOwnerWithoutPlanIsBlocked() {
+async function testCompanyOwnerWithoutPlanUsesPortalChannel() {
   const user = createUser();
-  const authContext = await assertAccess("owner sin plan", {
+  const authContext = await assertAccess("empresa sin plan", {
     expected: {
+      accountChannel: "company_portal",
       canAccessMobile: false,
-      mobileBlockReason: "no_plan"
+      canAccessPortal: true,
+      destination: "PlanRequired",
+      mobileBlockReason: "wrong_channel",
+      route: "/portal/plan"
     },
     orders: [],
     user
   });
 
+  assert.equal(user.accountChannel, "company_portal");
   assert.equal(authContext.subscription.status, "inactive");
   assert.equal(authContext.canUseOperations, false);
   assert.equal(await canUseOperationalFeatures(createStore(), user), false);
@@ -85,40 +104,41 @@ async function testOwnerWithoutPlanIsBlocked() {
     userId: user.id,
     tenantId: "tenant-a",
     role: "owner",
-    reason: "no_plan",
+    reason: "wrong_channel",
     planStatus: "inactive",
     tenantStatus: "registered"
   });
-  console.log("ok - owner sin plan queda bloqueado con no_plan");
+  console.log("ok - empresa sin plan permanece en el Portal y no entra a Mobile");
 }
 
-async function testDriverWithoutPlanDoesNotRouteToMap() {
-  const driver = createUser({
-    id: "driver-no-plan-tenant-a",
-    accountType: "operations",
-    email: "driver-no-plan@manecomb.test",
-    role: "driver"
-  });
+async function testDriverWithoutPlanUsesMobileGate() {
+  const driver = createDriver({ id: "driver-no-plan-tenant-a" });
   const authContext = await assertAccess("conductor sin plan", {
     expected: {
+      accountChannel: "mobile_operations",
       canAccessMobile: false,
-      destination: "PlanRequired",
+      canAccessPortal: false,
+      destination: "PlanBlocked",
       mobileBlockReason: "no_plan",
-      route: "/portal/plan"
+      route: "/plan-blocked"
     },
     orders: [],
     user: driver
   });
 
   assert.equal(authContext.canUseOperations, false);
-  console.log("ok - conductor sin plan no recibe ruta operativa");
+  console.log("ok - conductor sin plan queda en el gate de Mobile");
 }
 
-async function testOwnerWithActivePlanCanAccess() {
-  const authContext = await assertAccess("owner con plan activo", {
+async function testCompanyOwnerWithActivePlanUsesPortal() {
+  const authContext = await assertAccess("empresa con plan activo", {
     expected: {
-      canAccessMobile: true,
-      mobileBlockReason: null
+      accountChannel: "company_portal",
+      canAccessMobile: false,
+      canAccessPortal: true,
+      destination: "CompanyPortal",
+      mobileBlockReason: "wrong_channel",
+      route: "/portal"
     },
     orders: [createOrder()],
     user: createUser()
@@ -128,30 +148,54 @@ async function testOwnerWithActivePlanCanAccess() {
   assert.equal(authContext.subscription.unitsLimit, 6);
   assert.equal(authContext.tenant.status, "active");
   assert.equal(authContext.canUseOperations, true);
-  console.log("ok - owner con plan activo entra a mobile y operaciones");
+  console.log("ok - empresa activa administra operaciones desde el Portal sin entrar a Mobile");
 }
 
-async function testSuspendedTenantIsBlocked() {
+async function testActiveDriverCanAccessMobile() {
+  const driver = createDriver({ id: "driver-active-tenant-a" });
+  const authContext = await assertAccess("conductor activo", {
+    expected: {
+      accountChannel: "mobile_operations",
+      canAccessMobile: true,
+      canAccessPortal: false,
+      destination: "HomeConductor",
+      mobileBlockReason: null,
+      route: "/mapa"
+    },
+    orders: [createOrder()],
+    user: driver
+  });
+
+  assert.equal(authContext.canUseOperations, true);
+  assert.equal(await canUseOperationalFeatures(createStore({ orders: [createOrder()] }), driver), true);
+  console.log("ok - conductor activo entra únicamente al canal Mobile");
+}
+
+async function testSuspendedTenantBlocksDriver() {
   const authContext = await assertAccess("tenant suspendido", {
     expected: {
+      accountChannel: "mobile_operations",
       canAccessMobile: false,
       mobileBlockReason: "missing_tenant"
     },
     orders: [createOrder()],
-    user: createUser({ organizationStatus: "suspended" })
+    user: createDriver({ organizationStatus: "suspended" })
   });
 
   assert.equal(authContext.subscription.status, "active");
   assert.equal(authContext.tenant.status, "suspended");
   assert.equal(authContext.canUseOperations, false);
-  console.log("ok - tenant suspendido bloquea acceso operativo");
+  console.log("ok - tenant suspendido bloquea el canal operativo");
 }
 
-async function testPaymentPendingIsBlocked() {
-  const authContext = await assertAccess("pago pendiente", {
+async function testPaymentPendingRoutesCompanyToPortalPayments() {
+  const authContext = await assertAccess("empresa con pago pendiente", {
     expected: {
+      accountChannel: "company_portal",
       canAccessMobile: false,
-      mobileBlockReason: "payment_pending"
+      destination: "PaymentPending",
+      mobileBlockReason: "wrong_channel",
+      route: "/portal/pagos"
     },
     orders: [
       createOrder({
@@ -164,13 +208,36 @@ async function testPaymentPendingIsBlocked() {
   });
 
   assert.equal(authContext.subscription.status, "pending");
-  assert.equal(authContext.tenant.status, "registered");
-  console.log("ok - pago pendiente bloquea con payment_pending");
+  console.log("ok - pago pendiente de empresa se resuelve dentro del Portal");
 }
 
-async function testExpiredPlanIsBlocked() {
+async function testPaymentPendingBlocksDriverInMobile() {
+  const authContext = await assertAccess("conductor con pago pendiente", {
+    expected: {
+      accountChannel: "mobile_operations",
+      canAccessMobile: false,
+      destination: "PlanBlocked",
+      mobileBlockReason: "payment_pending",
+      route: "/plan-blocked"
+    },
+    orders: [
+      createOrder({
+        activationStatus: "pending_payment",
+        paymentStatus: "pending",
+        status: "new"
+      })
+    ],
+    user: createDriver()
+  });
+
+  assert.equal(authContext.subscription.status, "pending");
+  console.log("ok - pago pendiente bloquea Mobile sin enviarlo al Portal interno");
+}
+
+async function testExpiredPlanBlocksDriver() {
   const authContext = await assertAccess("plan vencido", {
     expected: {
+      accountChannel: "mobile_operations",
       canAccessMobile: false,
       mobileBlockReason: "inactive_plan"
     },
@@ -180,25 +247,24 @@ async function testExpiredPlanIsBlocked() {
         paidUntil: pastDate
       })
     ],
-    user: createUser()
+    user: createDriver()
   });
 
   assert.equal(authContext.subscription.status, "expired");
   assert.equal(authContext.subscription.isActive, false);
   assert.equal(authContext.canUseOperations, false);
-  console.log("ok - plan vencido bloquea con inactive_plan");
+  console.log("ok - plan vencido bloquea el canal operativo");
 }
 
-async function testPendingInvitedUserDoesNotBlockActiveTenant() {
-  const pendingDriver = createUser({
+async function testPendingInvitedDriverDoesNotChangeChannel() {
+  const pendingDriver = createDriver({
     id: "driver-pending-tenant-a",
-    accountType: "operations",
     email: "driver-pending@manecomb.test",
-    role: "driver",
     userStatus: "pending"
   });
-  const authContext = await assertAccess("usuario invitado pendiente", {
+  const authContext = await assertAccess("conductor invitado pendiente", {
     expected: {
+      accountChannel: "mobile_operations",
       canAccessMobile: true,
       mobileBlockReason: null
     },
@@ -208,37 +274,17 @@ async function testPendingInvitedUserDoesNotBlockActiveTenant() {
   });
 
   assert.equal(authContext.tenant.status, "active");
-  assert.equal(authContext.canUseOperations, true);
-  console.log("ok - usuario invitado pendiente no bloquea si tenant y plan estan activos");
+  console.log("ok - invitacion pendiente no altera el canal operativo valido");
 }
 
-async function testActiveDriverCanAccess() {
-  const driver = createUser({
-    id: "driver-active-tenant-a",
-    accountType: "operations",
-    email: "driver-active@manecomb.test",
-    role: "driver"
-  });
-  const authContext = await assertAccess("conductor activo", {
-    expected: {
-      canAccessMobile: true,
-      mobileBlockReason: null
-    },
-    orders: [createOrder()],
-    user: driver
-  });
-
-  assert.equal(authContext.destination, "HomeConductor");
-  assert.equal(authContext.route, "/mapa");
-  assert.equal(await canUseOperationalFeatures(createStore({ orders: [createOrder()] }), driver), true);
-  console.log("ok - conductor con tenant activo entra a mobile");
-}
-
-async function testActiveTrialCanAccessMobile() {
+async function testActiveTrialKeepsCompanyInPortal() {
   const authContext = await assertAccess("trial vigente", {
     expected: {
-      canAccessMobile: true,
-      mobileBlockReason: null
+      accountChannel: "company_portal",
+      canAccessMobile: false,
+      destination: "CompanyPortal",
+      mobileBlockReason: "wrong_channel",
+      route: "/portal"
     },
     orders: [
       createOrder({
@@ -255,14 +301,16 @@ async function testActiveTrialCanAccessMobile() {
   assert.equal(authContext.subscription.status, "trial");
   assert.equal(authContext.subscription.isActive, true);
   assert.equal(authContext.canUseOperations, true);
-  console.log("ok - trial vigente usa la misma decision activa en portal y mobile");
+  console.log("ok - trial vigente habilita el Portal, no cambia el producto de la cuenta");
 }
 
-async function testPaidOrderUsesCanonicalActiveStatus() {
-  const authContext = await assertAccess("pago aprobado sin estado duplicado", {
+async function testPaidOrderUsesCanonicalPortalStatus() {
+  const authContext = await assertAccess("pago aprobado", {
     expected: {
-      canAccessMobile: true,
-      mobileBlockReason: null
+      accountChannel: "company_portal",
+      canAccessMobile: false,
+      destination: "CompanyPortal",
+      route: "/portal"
     },
     orders: [
       createOrder({
@@ -284,14 +332,16 @@ async function testPaidOrderUsesCanonicalActiveStatus() {
     authContext.onboarding.steps.find((step) => step.id === "payment").status,
     "completed"
   );
-  console.log("ok - pago aprobado se normaliza al estado canonico active");
+  console.log("ok - pago aprobado mantiene el canal company_portal");
 }
 
 async function testLegacyActivationFlagCannotBypassPayment() {
   const authContext = await assertAccess("flag activo sin pago", {
     expected: {
       canAccessMobile: false,
-      mobileBlockReason: "payment_pending"
+      destination: "PaymentPending",
+      mobileBlockReason: "wrong_channel",
+      route: "/portal/pagos"
     },
     orders: [
       createOrder({
@@ -310,51 +360,73 @@ async function testLegacyActivationFlagCannotBypassPayment() {
 
   assert.equal(authContext.subscription.status, "pending");
   assert.equal(authContext.subscription.isActive, false);
-  assert.equal(
-    authContext.onboarding.steps.find((step) => step.id === "plan-active").status,
-    "pending"
-  );
-  assert.equal(
-    authContext.onboarding.steps.find((step) => step.id === "payment").status,
-    "pending"
-  );
-  console.log("ok - flag heredado active y tarjeta guardada no sustituyen el pago confirmado");
+  console.log("ok - flags heredados no sustituyen el pago ni alteran el canal");
 }
 
-async function testSuspendedSubscriptionOverridesOldPaidFlag() {
-  const authContext = await assertAccess("suscripcion suspendida", {
-    expected: {
-      canAccessMobile: false,
-      mobileBlockReason: "inactive_plan"
-    },
-    orders: [
-      createOrder({
-        activationStatus: "suspended",
-        paymentStatus: "paid",
-        status: "suspended"
-      })
-    ],
-    user: createUser()
+async function testInvalidRoleAndAccountCombinationsAreBlocked() {
+  const companyDriver = createUser({ role: "driver" });
+  const operationsBilling = createUser({
+    accountType: "operations",
+    role: "billing_manager"
   });
 
-  assert.equal(authContext.subscription.status, "suspended");
-  assert.equal(authContext.subscription.isActive, false);
-  console.log("ok - suspension explicita domina flags de pago historicos");
+  const companyContext = await buildAuthContext(createStore({ orders: [createOrder()] }), companyDriver);
+  const operationsContext = await buildAuthContext(createStore({ orders: [createOrder()] }), operationsBilling);
+
+  assert.equal(companyContext.accountChannel, "blocked");
+  assert.equal(companyContext.accountChannelReason, "incompatible_company_role");
+  assert.equal(companyContext.destination, "AccessBlocked");
+  assert.equal(companyContext.route, "/access-blocked");
+  assert.equal(companyContext.canUseOperations, false);
+
+  assert.equal(operationsContext.accountChannel, "blocked");
+  assert.equal(operationsContext.accountChannelReason, "incompatible_operations_role");
+  assert.equal(operationsContext.canAccessMobile, false);
+  assert.equal(operationsContext.canAccessPortal, false);
+  console.log("ok - combinaciones incompatibles fallan cerradas");
+}
+
+async function testSuspendedAccountIsBlockedBeforeProductAccess() {
+  const suspended = createDriver({ userStatus: "suspended" });
+  const authContext = await buildAuthContext(createStore({ orders: [createOrder()] }), suspended);
+
+  assert.equal(authContext.accountChannel, "blocked");
+  assert.equal(authContext.accountChannelReason, "account_suspended");
+  assert.equal(authContext.destination, "AccessBlocked");
+  assert.equal(authContext.mobileBlockReason, "account_blocked");
+  assert.equal(authContext.canUseOperations, false);
+  console.log("ok - cuenta suspendida queda bloqueada antes de evaluar producto o plan");
+}
+
+function testPlatformIdentityHasDedicatedChannel() {
+  const resolution = resolveAccountChannel({
+    role: "platform_owner",
+    accountType: "operations",
+    userStatus: "active"
+  });
+
+  assert.equal(resolution.channel, ACCOUNT_CHANNEL.PLATFORM_ADMIN);
+  assert.equal(resolution.canAccessPortal, false);
+  assert.equal(resolution.canUseMobileProduct, false);
+  console.log("ok - identidad Platform usa un canal dedicado");
 }
 
 async function run() {
-  await testOwnerWithoutPlanIsBlocked();
-  await testDriverWithoutPlanDoesNotRouteToMap();
-  await testOwnerWithActivePlanCanAccess();
-  await testSuspendedTenantIsBlocked();
-  await testPaymentPendingIsBlocked();
-  await testExpiredPlanIsBlocked();
-  await testPendingInvitedUserDoesNotBlockActiveTenant();
-  await testActiveDriverCanAccess();
-  await testActiveTrialCanAccessMobile();
-  await testPaidOrderUsesCanonicalActiveStatus();
+  await testCompanyOwnerWithoutPlanUsesPortalChannel();
+  await testDriverWithoutPlanUsesMobileGate();
+  await testCompanyOwnerWithActivePlanUsesPortal();
+  await testActiveDriverCanAccessMobile();
+  await testSuspendedTenantBlocksDriver();
+  await testPaymentPendingRoutesCompanyToPortalPayments();
+  await testPaymentPendingBlocksDriverInMobile();
+  await testExpiredPlanBlocksDriver();
+  await testPendingInvitedDriverDoesNotChangeChannel();
+  await testActiveTrialKeepsCompanyInPortal();
+  await testPaidOrderUsesCanonicalPortalStatus();
   await testLegacyActivationFlagCannotBypassPayment();
-  await testSuspendedSubscriptionOverridesOldPaidFlag();
+  await testInvalidRoleAndAccountCombinationsAreBlocked();
+  await testSuspendedAccountIsBlockedBeforeProductAccess();
+  testPlatformIdentityHasDedicatedChannel();
 }
 
 run().catch((error) => {
