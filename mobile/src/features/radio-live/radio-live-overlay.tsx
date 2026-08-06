@@ -119,6 +119,9 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     };
   }, [conversations, eligible, ensureAttempt, openGeneralConversation, reset, user]);
 
+  // Claim the native service before stopping the global runtime. This makes the
+  // Mapa -> Radio handoff continuous and prevents startForegroundService/stopService
+  // from crossing during the first screen mount.
   useEffect(() => {
     if (!eligible || !screenOwnsRadio || callOwnsAudio) {
       releaseRadioForegroundService('screen').catch(() => undefined);
