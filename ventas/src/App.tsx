@@ -3,7 +3,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
-import { hasPortalPermission, type PortalPermission } from '@/features/portal/utils/access';
+import {
+  canAccessPortal,
+  hasPortalPermission,
+  type PortalPermission,
+} from '@/features/portal/utils/access';
+import {
+  getAccountChannel,
+  getAuthenticatedHome,
+} from '@/src/utils/account-routing';
 import { ScreenErrorBoundary } from '@/src/components/screen-error-boundary';
 
 const SalesScreen = lazy(() => import('@/screens/sales-screen').then((module) => ({ default: module.SalesScreen })));
@@ -52,6 +60,7 @@ function OperationalHandoff({ title }: { title: string }) {
   const signOut = useAppStore((state) => state.signOut);
   const role = user?.role || 'sin definir';
   const accountType = user?.accountType || 'sin definir';
+  const accountChannel = getAccountChannel(user);
 
   const handleSignOut = async () => {
     await signOut();
@@ -66,9 +75,11 @@ function OperationalHandoff({ title }: { title: string }) {
         <Text style={styles.staticBody}>
           Tu sesión inició correctamente. Esta cuenta pertenece al canal operativo y usa la app móvil de ManeComb para mapa, GPS, radio, chat y llamadas.
         </Text>
-        <Text style={styles.operationalMeta}>Rol: {role} · Tipo de cuenta: {accountType}</Text>
+        <Text style={styles.operationalMeta}>
+          Rol: {role} · Tipo de cuenta: {accountType} · Canal: {accountChannel}
+        </Text>
         <Text style={styles.operationalHint}>
-          El sitio web contiene Ventas y el Portal de empresa. Para entrar al Portal, la cuenta debe ser de empresa y tener un rol autorizado; las cuentas de conductor, supervisor o despacho continúan en la app móvil.
+          El sitio web contiene Ventas y el Portal de empresa. Para entrar al Portal, la cuenta debe tener el canal company_portal; las cuentas mobile_operations continúan en la app móvil.
         </Text>
         <View style={styles.operationalActions}>
           <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')} style={styles.primaryButton}>
@@ -102,12 +113,24 @@ function Routes() {
     '/portal/pagos': 'billing',
     '/portal/documentos': 'billing',
     '/portal/incidencias': 'billing',
-    '/portal/app-movil': null,
   };
   const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
+  const isOperationalHandoffRoute = pathname === '/mapa' || pathname === '/radio';
 
   if (isPortalRoute && !user) {
     return <Redirect href="/ventas/login" />;
+  }
+
+  if (isPortalRoute && !canAccessPortal(user)) {
+    return <Redirect href={getAuthenticatedHome(user) as never} />;
+  }
+
+  if (isOperationalHandoffRoute && !user) {
+    return <Redirect href="/ventas/login" />;
+  }
+
+  if (isOperationalHandoffRoute && getAccountChannel(user) !== 'mobile_operations') {
+    return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
   const requiredPermission = protectedPortalRoutes[pathname];
@@ -160,9 +183,22 @@ function Routes() {
     case '/portal/app-movil':
       return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
     case '/mapa':
-      return <OperationalHandoff title="Acceso operativo" />;
     case '/radio':
       return <OperationalHandoff title="Acceso operativo" />;
+    case '/acceso-admin':
+      return (
+        <StaticPage
+          title="Acceso administrativo separado"
+          body="Esta identidad pertenece al canal interno de plataforma y no puede operar desde Ventas ni desde el Portal de empresa."
+        />
+      );
+    case '/acceso-restringido':
+      return (
+        <StaticPage
+          title="Acceso restringido"
+          body="La combinación de tipo de cuenta y rol no corresponde a un producto válido de ManeComb. Cierra sesión y solicita la corrección de la cuenta."
+        />
+      );
     case '/terminos':
       return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
