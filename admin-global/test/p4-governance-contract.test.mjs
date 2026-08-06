@@ -32,6 +32,11 @@ assert.match(store, /current && current\.fingerprint === fingerprint/);
 assert.match(store, /retryAction/);
 assert.match(store, /pending\.idempotencyKey/);
 assert.doesNotMatch(store, /localStorage|sessionStorage/);
+for (const guard of ['teamRequestId', 'sessionsRequestId', 'createRequestId', 'actionRequestId']) {
+  assert.ok(store.includes(guard), `El store debe invalidar respuestas viejas con ${guard}.`);
+}
+assert.match(store, /requestId !== actionRequestId/);
+assert.match(store, /actionRequestId \+= 1/);
 
 assert.match(screens, /secureTextEntry/);
 assert.match(screens, /La contraseña es temporal, no se persiste en el navegador/);
@@ -47,4 +52,4 @@ assert.doesNotMatch(types, /passwordHash|mfaSecretEncrypted|mfaBackupCodes|refre
 assert.match(shell, /resetGovernance\(\)/);
 assert.match(shell, /\['P1', 'P2', 'P3', 'P4'\]/);
 
-console.log('ok - ADM-GLOBAL-P4 team sessions and controlled action contracts');
+console.log('ok - ADM-GLOBAL-P4 governance, idempotency and request ordering contracts');
