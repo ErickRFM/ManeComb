@@ -1,4 +1,5 @@
 const { ACTIVE_JOURNEY_STATUSES } = require("../domain/journey-lifecycle");
+const { ensureJourneyStoreCompatibility } = require("./journey-store-compatibility");
 
 class JourneyAssignmentError extends Error {
   constructor(code, message, details = null) {
@@ -73,6 +74,8 @@ async function createJourneyAssignment({
   notes = null,
   supervisorId = null
 }) {
+  ensureJourneyStoreCompatibility(store);
+
   if (!store || typeof store.listRouteSessions !== "function" || typeof store.createRouteSession !== "function" || typeof store.updateRouteSession !== "function") {
     throw new TypeError("journey-assignment-service requiere un store de jornadas valido");
   }
