@@ -31,6 +31,21 @@ if (!access.includes("explicitChannel === 'company_portal'")) {
   throw new Error('El Portal debe consumir el canal company_portal emitido por el backend.');
 }
 
+const capabilityContracts = [
+  "user.capabilities!.includes('portal.access')",
+  "users: 'users.manage'",
+  "billing: 'billing.manage'",
+  "vehicles: 'vehicles.manage'",
+  "routes: 'routes.manage'",
+  'user!.capabilities!.includes(PORTAL_CAPABILITIES[permission])',
+];
+
+for (const contract of capabilityContracts) {
+  if (!access.includes(contract)) {
+    throw new Error(`El Portal no consume la capacidad canónica: ${contract}`);
+  }
+}
+
 if (!access.includes("user.accountType === 'company_owner' && isPortalRole(user.role)")) {
   throw new Error('La compatibilidad heredada debe usar accountType AND role y fallar cerrada.');
 }
@@ -150,4 +165,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical channels, product boundaries, checkout intent and trial action verified.');
+console.log('Canonical channels, capabilities, product boundaries, checkout intent and trial action verified.');

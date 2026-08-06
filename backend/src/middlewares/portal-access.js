@@ -1,5 +1,10 @@
-const { getEffectiveRole, getOrganizationId } = require("./access-control");
+const {
+  ENTERPRISE_CAPABILITY,
+  getOrganizationId,
+  hasCapability
+} = require("./access-control");
 
+// Compatibilidad documental. La autorización real usa portal.access.
 const PORTAL_ROLES = new Set([
   "owner",
   "admin",
@@ -10,15 +15,15 @@ const PORTAL_ROLES = new Set([
 
 function requirePortalAccess(req, res, next) {
   if (
-    req.user?.accountType === "company_owner" &&
     getOrganizationId(req.user) &&
-    PORTAL_ROLES.has(getEffectiveRole(req.user))
+    hasCapability(req.user, ENTERPRISE_CAPABILITY.PORTAL_ACCESS)
   ) {
     return next();
   }
 
   return res.status(403).json({
     ok: false,
+    code: "PORTAL_ACCESS_DENIED",
     message: "No tienes acceso al portal administrativo"
   });
 }
