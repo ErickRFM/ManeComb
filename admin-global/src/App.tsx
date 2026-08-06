@@ -1,14 +1,16 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Redirect, RouterProvider, router, usePathname } from '@/components/router';
+import { Redirect, RouterProvider, usePathname } from '@/components/router';
 import { Typography } from '@/styles/theme';
 import { useAdminStore } from '@/features/auth/store';
 import { ScreenErrorBoundary } from '@/components/screen-error-boundary';
+import { findAdminNavigationItem } from '@/features/platform/navigation';
 
-const AdminLoginScreen = lazy(() => import('@/features/auth/screens/login-screen').then((m) => ({ default: m.AdminLoginScreen })));
-const AdminMfaSetupScreen = lazy(() => import('@/features/auth/screens/mfa-setup-screen').then((m) => ({ default: m.AdminMfaSetupScreen })));
-const AdminMfaVerifyScreen = lazy(() => import('@/features/auth/screens/mfa-verify-screen').then((m) => ({ default: m.AdminMfaVerifyScreen })));
-const AdminPlaceholderScreen = lazy(() => import('@/features/auth/screens/placeholder-screen').then((m) => ({ default: m.AdminPlaceholderScreen })));
+const AdminLoginScreen = lazy(() => import('@/features/auth/screens/login-screen').then((module) => ({ default: module.AdminLoginScreen })));
+const AdminMfaSetupScreen = lazy(() => import('@/features/auth/screens/mfa-setup-screen').then((module) => ({ default: module.AdminMfaSetupScreen })));
+const AdminMfaVerifyScreen = lazy(() => import('@/features/auth/screens/mfa-verify-screen').then((module) => ({ default: module.AdminMfaVerifyScreen })));
+const AdminOverviewScreen = lazy(() => import('@/features/platform/screens/overview-screen').then((module) => ({ default: module.AdminOverviewScreen })));
+const AdminPendingModuleScreen = lazy(() => import('@/features/platform/screens/pending-module-screen').then((module) => ({ default: module.AdminPendingModuleScreen })));
 
 function BootScreen() {
   return (
@@ -21,10 +23,11 @@ function BootScreen() {
 
 function Routes() {
   const pathname = usePathname().replace(/\/+$/, '') || '/';
-  const bootstrap = useAdminStore((s) => s.bootstrap);
-  const isBootstrapping = useAdminStore((s) => s.isBootstrapping);
+  const bootstrap = useAdminStore((state) => state.bootstrap);
+  const isBootstrapping = useAdminStore((state) => state.isBootstrapping);
+  const mode = useAdminStore((state) => state.mode);
 
-  useEffect(() => { bootstrap(); }, [bootstrap]);
+  useEffect(() => { void bootstrap(); }, [bootstrap]);
 
   if (isBootstrapping) return <BootScreen />;
 
@@ -37,14 +40,31 @@ function Routes() {
     case '/admin/mfa':
       return <ScreenErrorBoundary name="Admin MFA Verify"><AdminMfaVerifyScreen /></ScreenErrorBoundary>;
     case '/admin':
-      return <AdminProtectedRoute><ScreenErrorBoundary name="Admin Placeholder"><AdminPlaceholderScreen /></ScreenErrorBoundary></AdminProtectedRoute>;
-    default:
-      return <Redirect href="/admin/login" />;
+      return <AdminProtectedRoute><Redirect href="/admin/overview" /></AdminProtectedRoute>;
+    case '/admin/overview':
+      return (
+        <AdminProtectedRoute>
+          <ScreenErrorBoundary name="Admin Overview"><AdminOverviewScreen /></ScreenErrorBoundary>
+        </AdminProtectedRoute>
+      );
+    default: {
+      const item = findAdminNavigationItem(pathname);
+      if (item && item.phase !== 'P1') {
+        return (
+          <AdminProtectedRoute>
+            <ScreenErrorBoundary name={`Admin ${item.label}`}>
+              <AdminPendingModuleScreen item={item} />
+            </ScreenErrorBoundary>
+          </AdminProtectedRoute>
+        );
+      }
+      return <Redirect href={mode === 'authenticated' ? '/admin/overview' : '/admin/login'} />;
+    }
   }
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
-  const mode = useAdminStore((s) => s.mode);
+  const mode = useAdminStore((state) => state.mode);
   if (mode !== 'authenticated') return <Redirect href="/admin/login" />;
   return <>{children}</>;
 }
