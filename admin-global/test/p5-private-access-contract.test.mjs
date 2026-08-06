@@ -25,6 +25,10 @@ const deployment = readRepo('docs/admin-global-private-deployment.md');
 assert.match(runtime, /VITE_PLATFORM_ACCESS_REQUIRED/);
 assert.match(runtime, /parsed\.protocol !== 'https:'/);
 assert.match(runtime, /admin-api\.manecomb\.com/);
+assert.match(runtime, /admin\.manecomb\.com/);
+assert.match(runtime, /currentAdminHost !== expectedAdminHost/);
+assert.match(runtime, /globalThis\.location\?\.hostname/);
+assert.match(runtime, /VITE_PLATFORM_ADMIN_HOST/);
 assert.match(runtime, /validatePrivateAdminRuntime/);
 assert.match(main, /assertPrivateAdminRuntimeConfiguration\(\)/);
 assert.match(client, /withCredentials:\s*true/);
@@ -59,6 +63,7 @@ for (const variable of [
   'VITE_API_URL=https://admin-api.manecomb.com',
   'VITE_PLATFORM_ACCESS_REQUIRED=true',
   'VITE_PLATFORM_API_HOST=admin-api.manecomb.com',
+  'VITE_PLATFORM_ADMIN_HOST=admin.manecomb.com',
 ]) {
   assert.ok(adminEnv.includes(variable), `Falta ${variable} en Admin Global env example.`);
 }
@@ -93,4 +98,4 @@ assert.match(deployment, /401.*sin token Platform/s);
 assert.match(deployment, /200.*Access \+ Platform \+ MFA/s);
 assert.match(deployment, /no afirma que DNS, Cloudflare Access, Render o Producción ya estén configurados/);
 
-console.log('ok - ADM-GLOBAL-P5 private Access and Worker deployment contracts');
+console.log('ok - ADM-GLOBAL-P5 private hosts, Access and Worker deployment contracts');
