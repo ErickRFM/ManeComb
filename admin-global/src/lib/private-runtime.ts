@@ -3,6 +3,8 @@ export type PrivateAdminRuntimeInput = {
   accessRequired: string | boolean | undefined;
   apiUrl: string | undefined;
   expectedApiHost: string | undefined;
+  currentAdminHost?: string | undefined;
+  expectedAdminHost?: string | undefined;
 };
 
 export type PrivateAdminRuntimeStatus = {
@@ -10,6 +12,7 @@ export type PrivateAdminRuntimeStatus = {
   accessRequired: boolean;
   apiUrl: string;
   apiHost: string;
+  adminHost: string;
   ready: boolean;
 };
 
@@ -17,10 +20,16 @@ function parseBoolean(value: string | boolean | undefined) {
   return value === true || /^(1|true|yes|on)$/i.test(String(value || '').trim());
 }
 
+function normalizeHostname(value: string | undefined) {
+  return String(value || '').trim().toLowerCase().replace(/\.$/, '');
+}
+
 export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): PrivateAdminRuntimeStatus {
   const accessRequired = parseBoolean(input.accessRequired);
   const apiUrl = String(input.apiUrl || '').trim();
-  const expectedApiHost = String(input.expectedApiHost || 'admin-api.manecomb.com').trim().toLowerCase();
+  const expectedApiHost = normalizeHostname(input.expectedApiHost || 'admin-api.manecomb.com');
+  const expectedAdminHost = normalizeHostname(input.expectedAdminHost || 'admin.manecomb.com');
+  const currentAdminHost = normalizeHostname(input.currentAdminHost);
 
   if (!input.production) {
     return {
@@ -28,6 +37,7 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
       accessRequired,
       apiUrl,
       apiHost: apiUrl ? new URL(apiUrl).hostname : '',
+      adminHost: currentAdminHost,
       ready: true,
     };
   }
@@ -37,6 +47,9 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
   }
   if (!apiUrl) {
     throw new Error('Admin Global requiere VITE_API_URL en producción.');
+  }
+  if (!expectedAdminHost || currentAdminHost !== expectedAdminHost) {
+    throw new Error(`Admin Global solo puede ejecutarse en el hostname privado ${expectedAdminHost}.`);
   }
 
   let parsed: URL;
@@ -49,7 +62,7 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
   if (parsed.protocol !== 'https:') {
     throw new Error('VITE_API_URL debe usar HTTPS en producción.');
   }
-  if (!expectedApiHost || parsed.hostname.toLowerCase() !== expectedApiHost) {
+  if (!expectedApiHost || normalizeHostname(parsed.hostname) !== expectedApiHost) {
     throw new Error(`VITE_API_URL debe apuntar al hostname privado ${expectedApiHost}.`);
   }
 
@@ -57,7 +70,8 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
     production: true,
     accessRequired: true,
     apiUrl: parsed.toString().replace(/\/$/, ''),
-    apiHost: parsed.hostname.toLowerCase(),
+    apiHost: normalizeHostname(parsed.hostname),
+    adminHost: currentAdminHost,
     ready: true,
   };
 }
@@ -68,5 +82,7 @@ export function assertPrivateAdminRuntimeConfiguration() {
     accessRequired: import.meta.env.VITE_PLATFORM_ACCESS_REQUIRED,
     apiUrl: import.meta.env.VITE_API_URL,
     expectedApiHost: import.meta.env.VITE_PLATFORM_API_HOST,
+    currentAdminHost: globalThis.location?.hostname,
+    expectedAdminHost: import.meta.env.VITE_PLATFORM_ADMIN_HOST,
   });
 }
