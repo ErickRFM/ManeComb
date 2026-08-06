@@ -18,7 +18,7 @@
     "test:mongo-replset": "node --require ./test/setup-env.js test/mongo-activation-replset.test.js",
     "test:auto-route": "node --require ./test/setup-env.js test/auto-route-flags.test.js && node --require ./test/setup-env.js test/auto-route-learning.test.js",
     "verify:auto-route-indexes": "node scripts/verify-auto-route-indexes.js --dry-run",
-    "test:platform": "node --require ./test/setup-env.js test/platform-auth.test.js && node --require ./test/setup-env.js test/platform-mfa.test.js && node --require ./test/setup-env.js test/platform-api-base.test.js && node --require ./test/setup-env.js test/platform-security-config.test.js"
+    "test:platform": "node --require ./test/setup-env.js test/platform-auth.test.js && node --require ./test/setup-env.js test/platform-mfa.test.js && node --require ./test/setup-env.js test/platform-api-base.test.js && node --require ./test/setup-env.js test/platform-security-config.test.js && node --require ./test/setup-env.js test/platform-companies.test.js && node --require ./test/setup-env.js test/platform-operations.test.js && node --require ./test/setup-env.js test/platform-governance.test.js && node --require ./test/setup-env.js test/platform-governance-policy.test.js && node --require ./test/setup-env.js test/platform-governance-idempotency.test.js && node --require ./test/setup-env.js test/platform-access.test.js && node --require ./test/setup-env.js test/platform-access-rotation.test.js"
   },
   "keywords": [
     "backend",

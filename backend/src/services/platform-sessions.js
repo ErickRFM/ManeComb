@@ -136,6 +136,34 @@ async function getPlatformSessionById(sessionId) {
   return session || null;
 }
 
+async function listPlatformSessions(filters = {}) {
+  const activeOnly = filters.activeOnly === true;
+  const userId = String(filters.userId || "").trim();
+  const limit = Math.min(500, Math.max(1, Number(filters.limit) || 200));
+
+  if (!isMongoReady()) {
+    return [...memoryPlatformSessions.values()]
+      .filter((session) => !userId || session.userId === userId)
+      .filter((session) => !activeOnly || (session.isActive && !session.revokedAt && new Date(session.expiresAt).getTime() > Date.now()))
+      .sort((left, right) => new Date(right.lastSeenAt || right.createdAt).getTime() - new Date(left.lastSeenAt || left.createdAt).getTime())
+      .slice(0, limit)
+      .map((session) => serializePlatformSession(session, filters.currentSessionId));
+  }
+
+  const query = {};
+  if (userId) query.userId = userId;
+  if (activeOnly) {
+    query.isActive = true;
+    query.revokedAt = null;
+    query.expiresAt = { $gt: new Date() };
+  }
+  const sessions = await PlatformSessionModel.find(query)
+    .sort({ lastSeenAt: -1, createdAt: -1 })
+    .limit(limit)
+    .lean();
+  return sessions.map((session) => serializePlatformSession(session, filters.currentSessionId));
+}
+
 async function revokePlatformSession(userId, sessionId, reason) {
   if (!isMongoReady()) {
     const session = memoryPlatformSessions.get(sessionId);
@@ -214,6 +242,7 @@ module.exports = {
   serializePlatformSession,
   rotatePlatformRefreshToken,
   getPlatformSessionById,
+  listPlatformSessions,
   revokePlatformSession,
   revokeAllPlatformSessions,
   touchPlatformSession,

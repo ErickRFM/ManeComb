@@ -49,6 +49,7 @@ const {
 } = require("./services/metrics");
 const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
+const { platformAccess } = require("./middlewares/platform-access");
 
 function createApp({ store, getDbState }) {
   const app = express();
@@ -246,6 +247,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/documents", documentRoutes);
   app.use("/api/driver/activation", driverActivationRoutes);
   app.use("/api/notifications", notificationRoutes);
+  app.use("/api/platform", platformAccess);
   app.use("/api/platform/auth", platformAuthRoutes);
   app.use("/api/platform", platformBaseRoutes);
   app.use("/api/ops", opsRoutes);
