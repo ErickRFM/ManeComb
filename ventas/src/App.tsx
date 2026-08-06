@@ -47,12 +47,39 @@ function StaticPage({ title, body }: { title: string; body: string }) {
   );
 }
 
-function OperationalPlaceholder({ title }: { title: string }) {
+function OperationalHandoff({ title }: { title: string }) {
+  const user = useAppStore((state) => state.user);
+  const signOut = useAppStore((state) => state.signOut);
+  const role = user?.role || 'sin definir';
+  const accountType = user?.accountType || 'sin definir';
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace('/ventas/login');
+  };
+
   return (
-    <StaticPage
-      title={title}
-      body="Esta ruta pertenece al panel operativo de ManeComb. El despliegue web de ventas conserva el acceso, pero no incluye la app móvil ni las pantallas operativas."
-    />
+    <View style={styles.staticPage}>
+      <View style={styles.operationalPanel}>
+        <Text style={styles.operationalBadge}>SESIÓN VÁLIDA</Text>
+        <Text style={styles.staticTitle}>{title}</Text>
+        <Text style={styles.staticBody}>
+          Tu sesión inició correctamente. Esta cuenta pertenece al canal operativo y usa la app móvil de ManeComb para mapa, GPS, radio, chat y llamadas.
+        </Text>
+        <Text style={styles.operationalMeta}>Rol: {role} · Tipo de cuenta: {accountType}</Text>
+        <Text style={styles.operationalHint}>
+          El sitio web contiene Ventas y el Portal de empresa. Para entrar al Portal, la cuenta debe ser de empresa y tener un rol autorizado; las cuentas de conductor, supervisor o despacho continúan en la app móvil.
+        </Text>
+        <View style={styles.operationalActions}>
+          <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Volver a ventas</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => void handleSignOut()} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -133,9 +160,9 @@ function Routes() {
     case '/portal/app-movil':
       return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
     case '/mapa':
-      return <OperationalPlaceholder title="Panel operativo" />;
+      return <OperationalHandoff title="Acceso operativo" />;
     case '/radio':
-      return <OperationalPlaceholder title="Radio operativo" />;
+      return <OperationalHandoff title="Acceso operativo" />;
     case '/terminos':
       return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
     case '/privacidad':
@@ -183,6 +210,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   staticPage: {
+    alignItems: 'flex-start',
     backgroundColor: '#050816',
     flex: 1,
     gap: 12,
@@ -209,5 +237,80 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     marginTop: 12,
+  },
+  operationalPanel: {
+    alignSelf: 'center',
+    backgroundColor: '#0B1020',
+    borderColor: '#27324A',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 14,
+    maxWidth: 720,
+    padding: 28,
+    width: '100%',
+  },
+  operationalBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#073B4C',
+    borderColor: '#00C2FF',
+    borderRadius: 999,
+    borderWidth: 1,
+    color: '#63D9FF',
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  operationalMeta: {
+    color: '#F8FAFC',
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  operationalHint: {
+    color: '#7E8AA3',
+    fontFamily: Typography.body,
+    fontSize: 13,
+    lineHeight: 20,
+    maxWidth: 640,
+  },
+  operationalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 6,
+  },
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#FF2D73',
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 18,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    borderColor: '#334155',
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 18,
+  },
+  secondaryButtonText: {
+    color: '#E2E8F0',
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '800',
   },
 });
