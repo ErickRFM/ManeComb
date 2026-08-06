@@ -19,6 +19,9 @@ jobs:
           fetch-depth: 0
           ref: fix/auth-account-channel-authority
 
+      - name: Repair codemod workspace syntax
+        run: node scripts/fix-phase1-account-channel-codemod.cjs
+
       - name: Apply guarded codemod
         run: node scripts/phase1-account-channel-codemod.cjs
 
