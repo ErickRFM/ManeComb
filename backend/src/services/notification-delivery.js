@@ -1,4 +1,4 @@
-const { sendPushNotifications } = require("./push-notifier");
+const { sendExpoPushNotifications } = require("./push-notifier");
 
 function uniquePushSubscriptions(subscriptions) {
   const seen = new Set();
@@ -71,7 +71,7 @@ async function deliverOperationalNotification({ io, store, payload, persist = tr
       return notification;
     }
 
-    const pushResult = await sendPushNotifications(subscriptions, {
+    const pushResult = await sendExpoPushNotifications(subscriptions, {
       ...payload,
       category: safeCategory,
       data: safeData
@@ -85,8 +85,6 @@ async function deliverOperationalNotification({ io, store, payload, persist = tr
       metadata: {
         sent: pushResult.sent,
         failed: pushResult.failed,
-        skipped: pushResult.skipped || 0,
-        invalidTokenCount: pushResult.invalidTokens?.length || 0,
         targetRoles,
         targetUserIds,
         category: payload.category
@@ -111,6 +109,5 @@ async function deliverOperationalNotification({ io, store, payload, persist = tr
 }
 
 module.exports = {
-  deliverOperationalNotification,
-  uniquePushSubscriptions
+  deliverOperationalNotification
 };

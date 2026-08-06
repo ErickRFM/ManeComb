@@ -1,17 +1,13 @@
-const { sendFcmPushNotifications } = require("./fcm-notifier");
-
 const EXPO_PUSH_CHUNK_SIZE = 100;
-
-function isExpoPushToken(token) {
-  return /^ExponentPushToken\[.+\]$/.test(String(token || "").trim());
-}
 
 async function sendExpoPushNotifications(subscriptions, payload) {
   const safeSubscriptions = Array.isArray(subscriptions)
-    ? subscriptions.filter((entry) => entry?.token && isExpoPushToken(entry.token))
+    ? subscriptions.filter(
+        (entry) => entry?.token && /^ExponentPushToken\[.+\]$/.test(String(entry.token).trim())
+      )
     : [];
 
-  if (!safeSubscriptions.length || payload?.silent) {
+  if (!safeSubscriptions.length) {
     return {
       ok: true,
       sent: 0,
@@ -63,34 +59,6 @@ async function sendExpoPushNotifications(subscriptions, payload) {
   };
 }
 
-async function sendPushNotifications(subscriptions, payload) {
-  const safeSubscriptions = Array.isArray(subscriptions)
-    ? subscriptions.filter((entry) => String(entry?.token || "").trim())
-    : [];
-  const expoSubscriptions = safeSubscriptions.filter((entry) => isExpoPushToken(entry.token));
-  const fcmSubscriptions = safeSubscriptions.filter((entry) => !isExpoPushToken(entry.token));
-
-  const [expoResult, fcmResult] = await Promise.all([
-    sendExpoPushNotifications(expoSubscriptions, payload),
-    sendFcmPushNotifications(fcmSubscriptions, payload)
-  ]);
-
-  return {
-    ok: expoResult.ok && fcmResult.ok,
-    sent: expoResult.sent + fcmResult.sent,
-    failed: expoResult.failed + fcmResult.failed,
-    skipped: fcmResult.skipped || 0,
-    invalidTokens: fcmResult.invalidTokens || [],
-    providers: {
-      expo: expoResult,
-      fcm: fcmResult
-    },
-    tickets: expoResult.tickets || []
-  };
-}
-
 module.exports = {
-  isExpoPushToken,
-  sendExpoPushNotifications,
-  sendPushNotifications
+  sendExpoPushNotifications
 };
