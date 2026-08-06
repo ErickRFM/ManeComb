@@ -6,11 +6,11 @@ let source = fs.readFileSync(file, 'utf8');
 const replacements = [
   [
     '      message: `Cuenta company_owner con plan activo no obtuvo acceso movil (${authContext?.mobileBlockReason || "sin razon"}).`',
-    '      message: "Cuenta company_owner con plan activo no obtuvo acceso movil (" + (authContext?.mobileBlockReason || "sin razon") + ")."'
+    '      message: \\`Cuenta company_owner con plan activo no obtuvo acceso movil (\\${authContext?.mobileBlockReason || "sin razon"}).\\`'
   ],
   [
     '      message: `Cuenta company_owner con plan activo no obtuvo acceso operativo (${authContext?.operationalBlockReason || "sin razon"}).`',
-    '      message: "Cuenta company_owner con plan activo no obtuvo acceso operativo (" + (authContext?.operationalBlockReason || "sin razon") + ")."'
+    '      message: \\`Cuenta company_owner con plan activo no obtuvo acceso operativo (\\${authContext?.operationalBlockReason || "sin razon"}).\\`'
   ]
 ];
 
@@ -23,4 +23,4 @@ for (const [before, after] of replacements) {
 }
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('Codemod syntax repaired in workflow workspace.');
+console.log('Codemod syntax escaped without changing target contracts.');
