@@ -9,7 +9,7 @@ import {
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     unitId: 'veh-1',
     plates: 'FBZ-404',
     label: 'C-1',
@@ -33,6 +33,7 @@ function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnit
     lastEventAt: null,
     visibility: 'visible',
     ...overrides,
+    journey: overrides.journey ?? null,
   };
 }
 

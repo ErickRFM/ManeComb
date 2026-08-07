@@ -8,7 +8,6 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { StatusBar } from '@/src/native/status-bar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/root-store';
-import { useSyncWaitStage } from '@/src/hooks/use-sync-wait-stage';
 import { resolveMobilePostLoginRoute } from '@/src/utils/account-routing';
 import type { MobileBlockReason } from '@/src/types/app';
 import { getSalesPortalPathForBlockReason, openSalesPortal } from '@/src/utils/sales-portal';
@@ -110,7 +109,6 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
   );
   const copy = BLOCK_COPY[reason];
   const styles = useMemo(() => createStyles(), []);
-  const waitStage = useSyncWaitStage(reason === 'sync_error' && !isSigningOut && !error);
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -124,8 +122,8 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
     return <BrandSyncLoader message="Cerrando sesión..." />;
   }
 
-  if (reason === 'sync_error' && !error && waitStage !== 'expired') {
-    return <BrandSyncLoader stage={waitStage === 'slow' ? 'slow' : 'loading'} />;
+  if (reason === 'sync_error' && isRefreshing && !error) {
+    return <BrandSyncLoader />;
   }
 
   const handleSignOut = () => {

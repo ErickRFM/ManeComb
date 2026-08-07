@@ -1923,33 +1923,57 @@ export const useAppStore = create<AppState>((set, get) => ({
       let nextRefreshToken = rt;
       let s: SessionResult;
       try {
+        // `/auth/me` already owns 401 recovery through the Axios interceptor.
+        // A second manual refresh here could replay a rotating refresh token.
         s = await getSessionRequest({ coldStart: true, appVersion: APP_VERSION });
+        sessionToken = get().token || sessionToken;
+        nextRefreshToken = get().refreshToken || nextRefreshToken;
       } catch (error) {
         if (isSessionEpochStale(epoch)) return;
-        if (isProbablyNetworkError(error) && cached?.user) {
+        if (isProbablyNetworkError(error)) {
+          const startupError = getReadableErrorMessage(
+            error,
+            'No pudimos conectar con el servidor. Reintenta cuando responda.',
+            networkSnapshot
+          );
+
+          if (cached?.user) {
+            const cachedState = stateFromCache(cached);
+            const hasCachedAuthority = Boolean(cachedState.authContext);
+            set({
+              ...getEmptyOperationalState(),
+              ...cachedState,
+              connectionMode,
+              token: get().token || sessionToken,
+              refreshToken: get().refreshToken || nextRefreshToken,
+              themeMode: th === 'dark' ? 'dark' : 'light',
+              isHydrated: true,
+              isBootstrapping: false,
+              networkStatus: 'offline',
+              error: hasCachedAuthority ? null : startupError,
+            });
+            return;
+          }
+
+          // Keep persisted credentials for an explicit retry, without leaving a
+          // stale Authorization header active while recovery is shown.
+          setAuthToken(null);
           set({
             ...getEmptyOperationalState(),
             connectionMode,
-            token: sessionToken,
-            refreshToken: nextRefreshToken,
-            themeMode: th === 'dark' ? 'dark' : 'light',
-            user: cached.user,
+            token: null,
+            refreshToken: null,
             authContext: null,
-            lastCacheAt: cached.savedAt,
-            isHydrated: true,
+            user: null,
+            themeMode: th === 'dark' ? 'dark' : 'light',
+            isHydrated: false,
             isBootstrapping: false,
-            networkStatus: 'recovering',
-            error: 'No pudimos sincronizar tu cuenta. Reintenta cuando el servidor responda.',
+            networkStatus: 'offline',
+            error: startupError,
           });
           return;
         }
-        if (!rt) throw error;
-        const refreshed = await refreshSessionRequest(rt, APP_VERSION);
-        sessionToken = refreshed.token;
-        nextRefreshToken = refreshed.refreshToken || rt;
-        setAuthToken(sessionToken);
-        await persistSession(sessionToken, connectionMode, nextRefreshToken);
-        s = await getSessionRequest({ coldStart: true, appVersion: APP_VERSION });
+        throw error;
       }
       const cachedUser = cached?.user;
       const cachedIdentityChanged = Boolean(
@@ -2017,7 +2041,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       if (e2eeUser) set({ user: e2eeUser });
       if (shouldRefreshOperationalData(authContext, session.profile.user)) {
-        await get().refreshAll();
+        void get().refreshAll();
       }
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
@@ -2208,10 +2232,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (isProbablyNetworkError(error)) {
         const cached = await loadOfflineCache().catch(() => null);
         if (isSessionEpochStale(epoch)) return;
-        set({ ...stateFromCache(cached), isRefreshing: false, networkStatus: 'offline' });
+        const cachedState = stateFromCache(cached);
+        const hasAuthority = Boolean(cachedState.authContext || get().authContext);
+        set({
+          ...cachedState,
+          isRefreshing: false,
+          isHydrated: true,
+          isBootstrapping: false,
+          networkStatus: 'offline',
+          error: hasAuthority
+            ? null
+            : getReadableErrorMessage(
+                error,
+                'No pudimos validar tu sesion. Reintenta cuando el servidor responda.',
+                get().networkSnapshot
+              ),
+        });
         return;
       }
-      set({ isRefreshing: false });
+      set({
+        isRefreshing: false,
+        error: getReadableErrorMessage(
+          error,
+          'No pudimos sincronizar tu cuenta.',
+          get().networkSnapshot
+        ),
+      });
     }
   },
   flushPendingSync: async () => {

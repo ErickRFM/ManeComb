@@ -199,18 +199,14 @@ function OperationalBackgroundServices() {
 }
 
 function RecoverableAppState({
-  continueLabel,
   message,
-  onContinue,
   onResetSession,
   onRetry,
   styles,
   theme,
   title,
 }: {
-  continueLabel?: string;
   message: string;
-  onContinue?: () => void;
   onResetSession: () => void;
   onRetry: () => void;
   styles: AppStyles;
@@ -241,19 +237,6 @@ function RecoverableAppState({
         ]}>
           <Text style={styles.recoveryPrimaryText}>Reintentar</Text>
         </Pressable>
-        {onContinue ? (
-          <Pressable
-            onPress={onContinue}
-            style={({ pressed }) => [
-              styles.recoverySecondaryButton,
-              { borderColor: theme.colors.line, backgroundColor: theme.colors.surface },
-              pressed ? styles.recoveryPressed : undefined,
-            ]}>
-            <Text style={[styles.recoverySecondaryText, { color: theme.colors.text }]}>
-              {continueLabel || 'Continuar'}
-            </Text>
-          </Pressable>
-        ) : null}
         <Pressable
           onPress={onResetSession}
           style={({ pressed }) => [
@@ -613,9 +596,10 @@ export default function App() {
   const pushNavigationRequestRef = useRef(new LatestNavigationRequest());
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const [bootIsSlow, setBootIsSlow] = useState(false);
-  const { authContext, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
+  const { authContext, error: startupError, handlePushIntent, initialize, isHydrated, isBootstrapping, user } = useAppStore(
     useShallow((state) => ({
       authContext: state.authContext,
+      error: state.error,
       handlePushIntent: state.handlePushIntent,
       initialize: state.initialize,
       isHydrated: state.isHydrated,
@@ -628,6 +612,7 @@ export default function App() {
     splashHiddenRef.current = true;
   }, []);
   const isReady = isHydrated && !isBootstrapping;
+  const bootstrapFailed = !isReady && !isBootstrapping && Boolean(startupError);
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   const retryBootstrap = useCallback(() => {
@@ -648,19 +633,6 @@ export default function App() {
       });
   }, []);
 
-  const continueWithoutLocation = useCallback(() => {
-    if (!user) {
-      return;
-    }
-
-    setBootTimedOut(false);
-    useAppStore.setState({
-      isHydrated: true,
-      isBootstrapping: false,
-      error: 'Ubicacion pendiente. Puedes continuar y reintentar GPS desde el mapa.',
-    });
-    router.replace(getAuthenticatedHome(user, authContext));
-  }, [authContext, user]);
 
   useEffect(() => {
     initialize().catch(() => undefined);
@@ -766,12 +738,10 @@ export default function App() {
             {isReady && user && authContext?.canAccessMobile ? <OperationalBackgroundServices /> : null}
             <MobileErrorBoundary styles={styles} theme={theme}>
               {!isReady ? (
-                bootTimedOut ? (
+                bootTimedOut || bootstrapFailed ? (
                   <RecoverableAppState
                     title="No pudimos sincronizar"
-                    message="La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo."
-                    continueLabel="Continuar sin ubicacion"
-                    onContinue={user ? continueWithoutLocation : undefined}
+                    message={startupError || 'La sesion tardo demasiado en cargar. Reintenta la sincronizacion o inicia sesion de nuevo.'}
                     onRetry={retryBootstrap}
                     onResetSession={resetBootstrapSession}
                     styles={styles}

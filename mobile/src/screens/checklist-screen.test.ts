@@ -131,7 +131,7 @@ describe('ChecklistScreen', () => {
   // respaldo cuando el vehiculo carecia de `code`.
   it('toma la identidad, el conductor y el ETA del snapshot canonico', () => {
     const unit: OperationalUnitSnapshot = {
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       unitId: 'v-1',
       plates: 'FBZ-404',
       label: 'C-1',
@@ -149,6 +149,7 @@ describe('ChecklistScreen', () => {
         etaAt: '2026-07-18T10:17:00.000Z', deviationMeters: 12, currentCheckpoint: '1/4',
       },
       session: { id: 's-1', startedAt: '2026-07-18T09:38:00.000Z', elapsedSeconds: 1800 },
+      journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: '2026-07-18T10:08:00.000Z',
       visibility: 'visible',
@@ -169,12 +170,13 @@ describe('ChecklistScreen', () => {
   it('no inventa ruta ni conductor cuando la unidad no los tiene', () => {
     // Caso C-2: unidad recien dada de alta.
     const unit: OperationalUnitSnapshot = {
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       unitId: 'v-2', plates: 'GHT-771', label: 'C-2',
       status: 'idle', operationalState: 'no_route',
       gps: { lat: null, lng: null, speedKmh: null, heading: null, recordedAt: null, receivedAt: null,
         freshness: 'missing', connectionState: 'lost', ageSeconds: null },
       driver: null, route: null, session: null,
+      journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: null, visibility: 'visible',
     };

@@ -489,7 +489,11 @@ export async function getSessionRequest(options: { coldStart?: boolean; appVersi
   const response = await apiClient.get<SessionResult>(
     '/auth/me',
     options.coldStart
-      ? { params, timeout: COLD_START_SESSION_TIMEOUT_MS }
+      ? {
+          params,
+          timeout: COLD_START_SESSION_TIMEOUT_MS,
+          _skipNetworkRetry: true,
+        } as RetryableRequestConfig
       : { params }
   );
   return response.data;
@@ -500,8 +504,8 @@ export async function refreshSessionRequest(refreshToken: string, appVersion?: s
     refreshToken,
     appVersion,
   }, {
-    _allowRetry: true,
     _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
   } as RetryableRequestConfig);
 
   return response.data;
