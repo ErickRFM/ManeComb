@@ -48,6 +48,8 @@ import {
 } from './constants';
 import { getDeviceDisplayName, getTimeDomainVolume, withRadioTimeout } from './services/radio-audio-service';
 import { useRadioLifecycle } from './hooks/use-radio-lifecycle';
+import { useRadioAudioRoute } from './hooks/use-radio-audio-route';
+import { getNextRadioRoute, getRadioRouteIcon, getRadioRouteLabel } from './utils/radio-audio-route';
 import {
   deriveLiveConsole,
   deriveNoteConsole,
@@ -137,6 +139,8 @@ export function RadioScreen() {
       transmitter: state.operator,
     }))
   );
+
+  const { audioRoute, cycleRoute } = useRadioAudioRoute(LIVE_RADIO_SUPPORTED);
 
   const styles = useMemo(
     () => createStyles(theme, isDesktop, isPhone),
@@ -1263,6 +1267,24 @@ export function RadioScreen() {
                 </Text>
               </View>
               <View style={styles.heroPills}>
+                {audioRoute ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Salida de audio: ${getRadioRouteLabel(audioRoute.active)}`}
+                    accessibilityState={{ disabled: !getNextRadioRoute(audioRoute) }}
+                    disabled={!getNextRadioRoute(audioRoute)}
+                    onPress={() => { cycleRoute(); }}
+                    style={styles.deviceCompactChip}>
+                    <MaterialCommunityIcons
+                      name={getRadioRouteIcon(audioRoute.active) as any}
+                      size={16}
+                      color={theme.colors.info}
+                    />
+                    <Text style={styles.deviceCompactText} numberOfLines={1}>
+                      {getRadioRouteLabel(audioRoute.active)}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 {Platform.OS === 'web' && isDesktop ? (
                   <View style={styles.heroDeviceBar}>
                     <Pressable

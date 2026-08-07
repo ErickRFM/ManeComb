@@ -104,12 +104,53 @@ class ManeCombAudioModule(
     }
   }
 
+  // Autoridad unica de ruta de audio: captura, PTT en vivo e historial la
+  // consultan; no hay un segundo gestor de salida compitiendo con ella.
+  private val audioRoute = RadioAudioRoute(reactContext) { route ->
+    emitPttEvent("ManeCombRadioRoute", Arguments.createMap().apply { putString("route", route) })
+  }
+  private var audioRouteStarted = false
+
   private fun emitPttEvent(name: String, payload: com.facebook.react.bridge.WritableMap) {
     if (reactContext.hasActiveReactInstance()) {
       reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         .emit(name, payload)
     }
+  }
+
+  @Synchronized
+  private fun ensureAudioRouteWatcher() {
+    if (audioRouteStarted) return
+    audioRouteStarted = true
+    audioRoute.start()
+  }
+
+  private fun audioRouteStatusMap() = Arguments.createMap().apply {
+    putString("active", audioRoute.activeRoute())
+    putString("requested", audioRoute.requestedRoute())
+    putArray(
+      "available",
+      Arguments.createArray().apply { audioRoute.availableRoutes().forEach(::pushString) }
+    )
+  }
+
+  @ReactMethod
+  fun getRadioAudioRoute(promise: Promise) {
+    ensureAudioRouteWatcher()
+    promise.resolve(audioRouteStatusMap())
+  }
+
+  @ReactMethod
+  fun setRadioAudioRoute(route: String?, promise: Promise) {
+    ensureAudioRouteWatcher()
+    if (!audioRoute.select(route)) {
+      promise.reject("radio_audio_route_unavailable", "Esa salida de audio no esta conectada.")
+      return
+    }
+    pttTrack?.let(audioRoute::applyTo)
+    focusedRadioPlayerId?.let(radioPlayers::get)?.player?.let(audioRoute::applyTo)
+    promise.resolve(audioRouteStatusMap())
   }
 
   @ReactMethod
@@ -353,6 +394,8 @@ class ManeCombAudioModule(
       abandonPttPlaybackFocus()
       throw IllegalStateException("Android no inicializo AudioTrack para Radio PTT.")
     }
+    ensureAudioRouteWatcher()
+    audioRoute.applyTo(next)
     next.play()
     pttPlaybackTransmissionId = transmissionId
     pttPlaybackExpectedSequence = 0
@@ -670,6 +713,8 @@ class ManeCombAudioModule(
       nextPlayer.setDataSource(reactContext, Uri.parse(playbackSource.localUri))
       nextPlayer.setOnPreparedListener {
         session.prepared = true
+        ensureAudioRouteWatcher()
+        audioRoute.applyTo(it)
         session.visualizer = createRadioVisualizer(it.audioSessionId) { level -> session.level = level }
         session.phase = "READY"
         it.start()
@@ -760,6 +805,10 @@ class ManeCombAudioModule(
   }
 
   override fun invalidate() {
+    if (audioRouteStarted) {
+      audioRouteStarted = false
+      audioRoute.stop()
+    }
     stopPttCaptureInternal()
     stopPttPlaybackInternal()
     reactContext.stopService(Intent(reactContext, ManeCombRadioService::class.java))

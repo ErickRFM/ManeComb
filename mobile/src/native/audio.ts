@@ -14,6 +14,16 @@ type PermissionResult = {
 
 export type RadioForegroundServiceMode = 'listening' | 'transmitting';
 
+export type RadioAudioRoute = 'auto' | 'bluetooth' | 'wired' | 'speaker' | 'earpiece';
+
+export type RadioAudioRouteStatus = {
+  /** Salida por la que realmente esta sonando Radio ahora mismo. */
+  active: Exclude<RadioAudioRoute, 'auto'>;
+  /** Preferencia del operador; 'auto' delega en la prioridad del sistema. */
+  requested: RadioAudioRoute;
+  available: Exclude<RadioAudioRoute, 'auto'>[];
+};
+
 type RecorderStatus = {
   isRecording?: boolean;
   metering?: number;
@@ -82,6 +92,8 @@ type NativeAudioModule = {
   startRadioForegroundService: (mode: RadioForegroundServiceMode) => Promise<void>;
   setRadioForegroundServiceState: (mode: RadioForegroundServiceMode) => Promise<void>;
   stopRadioForegroundService: () => Promise<void>;
+  getRadioAudioRoute: () => Promise<RadioAudioRouteStatus>;
+  setRadioAudioRoute: (route: RadioAudioRoute) => Promise<RadioAudioRouteStatus>;
   startRadioHistoryPlayer: (playerId: string, source: { uri: string; headers?: Record<string, string> }) => Promise<PlayerStatus>;
   pauseRadioHistoryPlayer: (playerId: string) => Promise<PlayerStatus>;
   stopRadioHistoryPlayer: (playerId: string) => Promise<PlayerStatus>;
@@ -167,6 +179,30 @@ export async function setRadioForegroundServiceState(mode: RadioForegroundServic
 
 export async function stopRadioForegroundService() {
   await NativeAudio?.stopRadioForegroundService();
+}
+
+const IDLE_AUDIO_ROUTE: RadioAudioRouteStatus = {
+  active: 'speaker',
+  requested: 'auto',
+  available: [],
+};
+
+export function subscribeToRadioAudioRoute(listener: (route: string) => void) {
+  const subscription = pttEventEmitter?.addListener(
+    'ManeCombRadioRoute',
+    ({ route }: { route: string }) => listener(route)
+  );
+  return () => subscription?.remove();
+}
+
+export async function getRadioAudioRoute(): Promise<RadioAudioRouteStatus> {
+  if (!NativeAudio) return IDLE_AUDIO_ROUTE;
+  return NativeAudio.getRadioAudioRoute();
+}
+
+export async function setRadioAudioRoute(route: RadioAudioRoute): Promise<RadioAudioRouteStatus> {
+  if (!NativeAudio) return IDLE_AUDIO_ROUTE;
+  return NativeAudio.setRadioAudioRoute(route);
 }
 
 const idlePlayerStatus: PlayerStatus = {
