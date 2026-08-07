@@ -22,6 +22,7 @@ const auditLogRoutes = require("./modules/audit-logs/routes");
 const authRoutes = require("./modules/auth/routes");
 const chatRoutes = require("./modules/chat/routes");
 const commercialRoutes = require("./modules/commercial/routes");
+const manualPaymentRoutes = require("./modules/manual-payments/routes");
 const dashboardRoutes = require("./modules/dashboard/routes");
 const documentRoutes = require("./modules/documents/routes");
 const incidentRoutes = require("./modules/incidents/routes");
@@ -30,6 +31,7 @@ const locationRoutes = require("./modules/locations/routes");
 const navigationRoutes = require("./modules/navigation/routes");
 const notificationRoutes = require("./modules/notifications/routes");
 const platformAuthRoutes = require("./modules/platform/auth-routes");
+const platformManualPaymentRoutes = require("./modules/platform/manual-payment-routes");
 const platformBaseRoutes = require("./modules/platform");
 const opsRoutes = require("./modules/ops/routes");
 const operationalUnitRoutes = require("./modules/operational-units/routes");
@@ -50,7 +52,8 @@ const {
 } = require("./services/metrics");
 const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
-const { platformAccess } = require("./middlewares/platform-access");
+const { platformAuth } = require("./middlewares/platform-auth");
+const { platformAccess, requirePlatformPermission } = require("./middlewares/platform-access");
 
 function createApp({ store, getDbState }) {
   const app = express();
@@ -234,18 +237,25 @@ function createApp({ store, getDbState }) {
   app.get("/api/health", (req, res) => handleHealth(req, res));
   app.get("/api/health/live", (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
   app.get("/api/health/ready", (req, res) => handleHealth(req, res, true));
-  app.get("/api/metrics", (req, res) => {
-    setGauge("socket_clients", app.locals.io?.engine?.clientsCount || 0);
-    res.json({
-      ok: true,
-      data: getMetricsSnapshot()
-    });
-  });
+  app.get(
+    "/api/metrics",
+    platformAccess,
+    platformAuth,
+    requirePlatformPermission("platform.system.read"),
+    (req, res) => {
+      setGauge("socket_clients", app.locals.io?.engine?.clientsCount || 0);
+      res.json({
+        ok: true,
+        data: getMetricsSnapshot()
+      });
+    }
+  );
 
   app.use("/api/auth", authRoutes);
   app.use("/api/account", accountRoutes);
   app.use("/api/admin/activation-keys", adminActivationKeyRoutes);
   app.use("/api/audit-logs", auditLogRoutes);
+  app.use("/api/commercial/manual-payments", manualPaymentRoutes);
   app.use("/api/commercial", commercialRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/locations", locationRoutes);
@@ -257,6 +267,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/driver/activation", driverActivationRoutes);
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/platform", platformAccess);
+  app.use("/api/platform/manual-payments", platformManualPaymentRoutes);
   app.use("/api/platform/auth", platformAuthRoutes);
   app.use("/api/platform", platformBaseRoutes);
   app.use("/api/ops", opsRoutes);
