@@ -1,4 +1,5 @@
 import type { DocumentItem } from '@/src/types/app';
+import { canReplaceDocument, isDocumentExpired } from '@/src/screens/documents/documents.utils';
 
 export const getDocumentPresentation = (reviewStatus?: string) => {
   if (reviewStatus === 'rejected') return { icon: 'alert-outline' as const, label: 'Rechazado', tone: 'danger' as const };
@@ -17,11 +18,14 @@ export const DEFAULT_DRIVER_DOCUMENT = {
   name: 'Licencia tipo C',
 } as const;
 
-export const canReplaceDriverDocument = (document: DocumentItem) =>
-  document.reviewStatus === 'rejected' || document.status === 'vencido';
+// Perfil y Documentos hablan del mismo documento: comparten la regla, no la
+// reimplementan. Antes Perfil comparaba contra `status === 'vencido'`, un valor
+// que el backend nunca publica, asi que un documento aprobado y vencido se veia
+// como vigente aqui y como vencido en Documentos, sin boton de reemplazo.
+export const canReplaceDriverDocument = canReplaceDocument;
 
 export const getDriverDocumentPresentation = (document: DocumentItem) => {
-  if (document.status === 'vencido') {
+  if (isDocumentExpired(document)) {
     return { icon: 'calendar-alert' as const, label: 'Vencido', tone: 'danger' as const };
   }
 

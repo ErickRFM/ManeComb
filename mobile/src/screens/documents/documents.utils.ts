@@ -18,8 +18,16 @@ export function normalizeDocumentDate(value: string) {
   return parsed.toISOString();
 }
 
+/**
+ * Unica regla de vencimiento documental. El backend no publica ningun estado
+ * "vencido": la vigencia se deriva siempre de `expiresAt`, y toda pantalla que
+ * hable de documentos vencidos debe pasar por aqui.
+ */
+export const isDocumentExpired = (document: DocumentItem) =>
+  new Date(document.expiresAt).getTime() < Date.now();
+
 export function getDocumentStatus(document: DocumentItem) {
-  if (new Date(document.expiresAt).getTime() < Date.now()) return { label: 'Vencido', tone: 'danger' as const };
+  if (isDocumentExpired(document)) return { label: 'Vencido', tone: 'danger' as const };
   if (document.reviewStatus === 'approved') return { label: 'Aprobado', tone: 'positive' as const };
   if (document.reviewStatus === 'rejected') return { label: 'Rechazado', tone: 'danger' as const };
   return { label: 'En revisión', tone: 'warning' as const };
@@ -27,16 +35,16 @@ export function getDocumentStatus(document: DocumentItem) {
 
 export function getProfileDocumentSummary(documents: DocumentItem[]) {
   const current = documents.filter((document) => !document.deletedAt && !document.supersededByDocumentId);
-  const valid = current.filter((document) => document.reviewStatus === 'approved' && new Date(document.expiresAt).getTime() >= Date.now()).length;
+  const valid = current.filter((document) => document.reviewStatus === 'approved' && !isDocumentExpired(document)).length;
   const pending = current.filter((document) => document.reviewStatus === 'pending_review').length;
   return `${valid} vigente${valid === 1 ? '' : 's'} · ${pending} pendiente${pending === 1 ? '' : 's'}`;
 }
 
 export const canReplaceDocument = (document: DocumentItem) =>
-  document.reviewStatus === 'rejected' || new Date(document.expiresAt).getTime() < Date.now();
+  document.reviewStatus === 'rejected' || isDocumentExpired(document);
 
 export const canEditDocument = (document: DocumentItem) =>
-  document.reviewStatus !== 'approved' || new Date(document.expiresAt).getTime() < Date.now();
+  document.reviewStatus !== 'approved' || isDocumentExpired(document);
 
 export const canDeleteDocument = (document: DocumentItem) =>
   document.reviewStatus === 'pending_review' || document.reviewStatus === 'rejected';

@@ -35,10 +35,33 @@ Estado del árbol: rama `feat/radio-pro-evolution`.
 | llamada activa | `call-store` (máquina propia) | — | overlay, Radio (preempción) |
 | sesión de Radio | `ManeCombRadioService` (nativo) → proyectada a `radio-live-store` | — | pantalla Radio, overlay |
 | notificaciones | backend (`notification-delivery`) | backend | app |
-| documentos | backend | backend | driver, admin |
+| documentos | backend (`reviewStatus` + `expiresAt`) | backend | driver, admin |
+| vencimiento documental | `isDocumentExpired` (deriva de `expiresAt`) | — | Perfil, Documentos |
 | incidentes | backend (`incident:*`) → `root-store` | backend | control |
+| ruta dibujada en el mapa | `route.id` → una fuente Mapbox por ruta | caché de render | mapa |
 
 Ninguna fila tiene dos productores finales.
+
+---
+
+## 1.b Dominio operativo (jornadas, rutas, flota)
+
+| Hecho | Autoridad | Cómo se protege |
+|---|---|---|
+| transición de jornada | `journey-transition-service` sobre `domain/journey-lifecycle` | tabla de transiciones + `expectedStatus` (CAS) + actor/tenant |
+| jornada activa por vehículo | MongoDB | índice único parcial sobre `activeKey` (= `vehicleId`), `11000` manejado en la creación |
+| cierre de jornada | mismo servicio | `activeKey → null` sólo en `FINISHED`/`CANCELLED` |
+| métricas de jornada | `route-metrics-engine` | escribe `processingStatus`/`statisticsReady`, **nunca** `status` |
+| asignación jornada | `journey-assignment-service` | valida campos, organización y usa CAS |
+| identidad de vehículo | backend; `id ?? _id` normaliza store embebido vs Mongo | contrato dual deliberado, no compatibilidad muerta |
+
+`status` (ciclo de vida) y `processingStatus` (cálculo de métricas) son hechos
+distintos con campos distintos: no son duplicación.
+
+**Límite conocido**: el invariante "una jornada activa" está garantizado por
+vehículo a nivel de base de datos. Por conductor es transitivo (un conductor
+opera una unidad a la vez) y **no** tiene índice propio. No se añadió una
+restricción que el producto no exige.
 
 ---
 
