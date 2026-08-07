@@ -14,6 +14,12 @@ import type {
 
 let runtimeFactory: RadioLiveRuntimeFactory | null = null;
 
+// Un runtime en ERROR/UNAUTHORIZED conserva sus listeners y puede recuperarse
+// solo cuando el socket compartido reconecta. Sin esta ventana, cada re-render
+// del overlay lo derribaria y volveria a unirse, impidiendo justamente esa
+// recuperacion.
+const RESTART_BACKOFF_MS = 3000;
+
 export function setRadioLiveRuntimeFactory(factory: RadioLiveRuntimeFactory | null) {
   runtimeFactory = factory;
 }
@@ -30,6 +36,7 @@ type RadioLiveStore = RadioLiveState & {
   _socket: Socket | null;
   _userId: string | null;
   _epoch: number;
+  _lastActivateAt: number;
   activate: (input: ActivateInput) => void;
   pause: (reason: 'call') => void;
   requestTransmission: () => Promise<RadioLiveTransmissionResult>;
@@ -61,6 +68,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
     _socket: null,
     _userId: null,
     _epoch: 0,
+    _lastActivateAt: 0,
 
     activate: ({ channelId, socket, userId, userName }) => {
       const normalizedChannelId = String(channelId || '').trim();
@@ -71,19 +79,26 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
       }
 
       const current = get();
-      if (
-        current._runtime &&
+      const sameSession =
+        Boolean(current._runtime) &&
         current._socket === socket &&
         current._userId === normalizedUserId &&
-        current.channelId === normalizedChannelId &&
-        !['PAUSED_BY_CALL', 'ERROR', 'UNAUTHORIZED'].includes(current.phase)
-      ) {
-        return;
+        current.channelId === normalizedChannelId;
+
+      if (sameSession) {
+        const recoverable = current.phase === 'ERROR' || current.phase === 'UNAUTHORIZED';
+        if (!recoverable) return;
+        if (Date.now() - current._lastActivateAt < RESTART_BACKOFF_MS) return;
       }
 
       stopRuntime();
       const epoch = current._epoch + 1;
-      set({ _epoch: epoch, _socket: socket, _userId: normalizedUserId });
+      set({
+        _epoch: epoch,
+        _socket: socket,
+        _userId: normalizedUserId,
+        _lastActivateAt: Date.now(),
+      });
       dispatch({ type: 'CONFIGURE', channelId: normalizedChannelId });
 
       if (!runtimeFactory) {
@@ -212,6 +227,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
         _socket: null,
         _userId: null,
         _epoch: nextEpoch,
+        _lastActivateAt: 0,
       });
     },
   };

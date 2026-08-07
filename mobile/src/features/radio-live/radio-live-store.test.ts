@@ -232,6 +232,22 @@ describe('single radio runtime store', () => {
     expect(useRadioLiveStore.getState().channelId).toBe('radio-directo');
   });
 
+  it('does not tear down a recoverable runtime on every re-render', () => {
+    const harness = createHarness();
+    activate();
+    harness.params[0].onError('radio_realtime_error');
+    expect(useRadioLiveStore.getState().phase).toBe('ERROR');
+
+    // El runtime conserva sus listeners y puede recuperarse al reconectar el
+    // socket compartido: reactivarlo en cada render lo impediria.
+    activate();
+    activate();
+    expect(harness.factory).toHaveBeenCalledTimes(1);
+
+    harness.params[0].onTransportState('ready');
+    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
+  });
+
   it('pauses for a call and reactivates afterwards', () => {
     const harness = createHarness();
     activate();
