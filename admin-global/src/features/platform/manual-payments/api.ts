@@ -57,7 +57,11 @@ export async function platformManualPaymentRequest(token: string, orderId: strin
 export async function platformManualPaymentDecisionRequest(
   token: string,
   orderId: string,
-  payload: { decision: 'approve' | 'reject'; note?: string },
+  payload: {
+    decision: 'approve' | 'reject';
+    note?: string;
+    trackingKeyConfirmation?: string;
+  },
   idempotencyKey: string
 ) {
   const { data } = await platformApi.post(
