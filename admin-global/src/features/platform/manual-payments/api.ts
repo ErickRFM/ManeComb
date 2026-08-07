@@ -59,6 +59,7 @@ export async function platformManualPaymentDecisionRequest(
   orderId: string,
   payload: {
     decision: 'approve' | 'reject';
+    evidenceVersion: number;
     note?: string;
     trackingKeyConfirmation?: string;
   },
