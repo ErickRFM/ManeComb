@@ -89,6 +89,47 @@ describe('Radio transport ownership lives in Android', () => {
     ]);
   });
 
+  it('builds a fresh socket manager on every connect', () => {
+    // IO.socket() cachea el Manager por URI: sin forceNew, reconectar o cambiar
+    // de cuenta reutilizaria el handshake (y el token) anterior.
+    const transport = kotlinSources.find(({ file }) => file.endsWith('SocketIoRadioTransport.kt'));
+    expect(transport.source).toContain('forceNew = true');
+    expect(transport.source).toContain('multiplex = false');
+  });
+
+  it('authenticates exactly like the shared JavaScript socket', () => {
+    // Backend: socket.handshake.auth.token, JWT crudo sin prefijo Bearer.
+    const transport = kotlinSources.find(({ file }) => file.endsWith('SocketIoRadioTransport.kt'));
+    expect(transport.source).toContain('auth = mapOf("token" to credentials.token)');
+    expect(transport.source).not.toContain('Bearer');
+    expect(transport.source).not.toContain('Authorization');
+  });
+
+  it('confines the whole radio session to one thread', () => {
+    // El estado lo tocan el hilo de React, el de Socket.IO y el de captura.
+    const controller = kotlinSources.find(({ file }) => file.endsWith('RadioSessionController.kt'));
+    expect(controller.source).toContain('confine');
+    const service = kotlinSources.find(({ file }) => file.endsWith('ManeCombRadioService.kt'));
+    expect(service.source).toContain('HandlerThread("ManeCombRadioSession")');
+    expect(service.source).toContain('confine = { action -> sessionHandler.post(action) }');
+  });
+
+  it('takes the socket URL from the same configuration as the JavaScript socket', () => {
+    const overlay = fs.readFileSync(
+      path.join(MOBILE_ROOT, 'src/features/radio-live/radio-live-overlay.tsx'),
+      'utf8'
+    );
+    expect(overlay).toContain("import { SOCKET_URL } from '@/src/api/client'");
+    // Ninguna URL de desarrollo puede quedar fijada en el camino nativo.
+    for (const { file, source } of [
+      ...kotlinSources,
+      { file: 'overlay', source: overlay },
+    ]) {
+      expect({ file, hasHardcodedHost: /localhost|10\.0\.2\.2|127\.0\.0\.1/.test(source) })
+        .toEqual({ file, hasHardcodedHost: false });
+    }
+  });
+
   it('removes the substituted JavaScript transport and its foreground coordinator', () => {
     for (const removed of [
       'src/features/radio-live/radio-realtime-service.ts',

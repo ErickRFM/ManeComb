@@ -204,6 +204,13 @@ android {
     androidResources {
         ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
+    testOptions {
+        unitTests {
+            // Las pruebas JVM ejercitan logica pura de Radio; android.util.Log solo
+            // debe ser inerte, no hacer fallar el caso.
+            returnDefaultValues = true
+        }
+    }
 }
 
 gradle.taskGraph.whenReady { taskGraph ->
@@ -256,6 +263,9 @@ dependencies {
     }
 
     testImplementation 'junit:junit:4.13.2'
+    // android.jar solo trae stubs de org.json que lanzan al invocarse. El test
+    // contractual necesita el parseo real para validar payloads del backend.
+    testImplementation 'org.json:json:20240303'
 
     if (combisDetoxBundle) {
         androidTestImplementation(project(':detox'))

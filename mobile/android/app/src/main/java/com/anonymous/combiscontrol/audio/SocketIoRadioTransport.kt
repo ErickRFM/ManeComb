@@ -2,7 +2,6 @@ package com.anonymous.combiscontrol.audio
 
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
@@ -11,7 +10,11 @@ import java.net.URI
 /**
  * Transporte Socket.IO nativo de Radio. Habla los mismos contratos `radio:*` que
  * el backend ya expone; no introduce un segundo protocolo ni un segundo modelo de
- * autorizacion.
+ * autorizacion. La forma exacta de cada payload vive en RadioProtocol.
+ *
+ * Autenticacion: `auth.token` con el JWT crudo, identico a lo que envia el socket
+ * compartido de JavaScript (`io(SOCKET_URL, { auth: { token } })`) y a lo que lee
+ * el middleware del backend (`socket.handshake.auth.token`).
  *
  * La reconexion propia de Socket.IO queda deshabilitada a proposito: el unico
  * algoritmo de reconexion de Radio es RadioReconnectPolicy, gobernado por el
@@ -36,38 +39,65 @@ class SocketIoRadioTransport : RadioTransport {
       transports = arrayOf("websocket", "polling")
       reconnection = false
       timeout = CONNECT_TIMEOUT_MS
+      // IO.socket() cachea el Manager por URI. Sin forceNew, reconectar o cambiar
+      // de cuenta podria reutilizar un manager cerrado o con el token anterior en
+      // el handshake, y el backend rechazaria o autenticaria a quien no toca.
+      forceNew = true
+      multiplex = false
     }
 
     val next = try {
       IO.socket(URI.create(credentials.socketUrl), options)
     } catch (error: Exception) {
-      Log.e(TAG, "Invalid Radio socket URL", error)
+      RadioLog.error("socket_url_invalid", error)
       listener?.onDisconnected(RadioDisconnectReason.SERVER)
       return
     }
 
-    next.on(Socket.EVENT_CONNECT) { listener?.onConnected() }
+    next.on(Socket.EVENT_CONNECT) {
+      RadioLog.event("socket_connected")
+      listener?.onConnected()
+    }
     next.on(Socket.EVENT_DISCONNECT) { args ->
       if (manualDisconnect) return@on
-      listener?.onDisconnected(disconnectReasonOf(args.firstOrNull()?.toString()))
+      val reason = disconnectReasonOf(args.firstOrNull()?.toString())
+      RadioLog.event("socket_disconnected", "reason" to reason.name)
+      listener?.onDisconnected(reason)
     }
     next.on(Socket.EVENT_CONNECT_ERROR) { args ->
       if (manualDisconnect) return@on
-      val message = args.firstOrNull()?.toString().orEmpty()
-      listener?.onDisconnected(
-        if (isUnauthorized(message)) RadioDisconnectReason.UNAUTHORIZED
-        else RadioDisconnectReason.NETWORK
-      )
+      // El mensaje de error puede citar el motivo de auth; nunca el token.
+      val reason = if (isUnauthorized(args.firstOrNull()?.toString().orEmpty())) {
+        RadioDisconnectReason.UNAUTHORIZED
+      } else {
+        RadioDisconnectReason.NETWORK
+      }
+      RadioLog.event("socket_connect_error", "reason" to reason.name)
+      listener?.onDisconnected(reason)
     }
-    next.on(EVENT_START) { args -> handleRemoteStart(args.firstOrNull()) }
-    next.on(EVENT_FRAME) { args -> handleRemoteFrame(args.firstOrNull()) }
-    next.on(EVENT_END) { args -> handleRemoteEnd(args.firstOrNull()) }
+    next.on(EVENT_START) { args ->
+      RadioProtocol.parseRemoteStart(args.firstOrNull())?.let { start ->
+        listener?.onRemoteTransmissionStarted(start.transmissionId, start.operator)
+      }
+    }
+    next.on(EVENT_FRAME) { args ->
+      RadioProtocol.parseRemoteFrame(args.firstOrNull())?.let { frame ->
+        listener?.onRemoteFrame(frame.transmissionId, frame.sequence, frame.data)
+      }
+    }
+    next.on(EVENT_END) { args ->
+      RadioProtocol.parseRemoteEnd(args.firstOrNull())?.let { end ->
+        listener?.onRemoteTransmissionEnded(end.transmissionId, end.reason)
+      }
+    }
     next.on(EVENT_ERROR) { args ->
-      val payload = args.firstOrNull() as? JSONObject
-      listener?.onServerError(payload?.optString("message").orEmpty())
+      val message = RadioProtocol.parseServerError(args.firstOrNull())
+      RadioLog.warn("server_error")
+      listener?.onServerError(message)
     }
 
     socket = next
+    RadioLog.event("socket_connecting")
     next.connect()
   }
 
@@ -80,55 +110,44 @@ class SocketIoRadioTransport : RadioTransport {
       current.disconnect()
       current.close()
     } catch (error: Exception) {
-      Log.w(TAG, "Radio socket close failed", error)
+      RadioLog.error("socket_close_failed", error)
     }
   }
 
   override fun join(channelId: String, ack: (RadioAck) -> Unit) {
-    emitWithAck(EVENT_JOIN, JSONObject().put("channelId", channelId), ack)
+    emitWithAck(EVENT_JOIN, RadioProtocol.channelPayload(channelId), ack)
   }
 
   override fun leave(channelId: String) {
     val current = socket ?: return
     if (!current.connected()) return
-    current.emit(EVENT_LEAVE, JSONObject().put("channelId", channelId))
+    current.emit(EVENT_LEAVE, RadioProtocol.channelPayload(channelId))
   }
 
   override fun requestFloor(channelId: String, ack: (RadioAck) -> Unit) {
-    emitWithAck(EVENT_START, JSONObject().put("channelId", channelId), ack)
+    emitWithAck(EVENT_START, RadioProtocol.channelPayload(channelId), ack)
   }
 
   override fun endFloor(channelId: String, transmissionId: String, ack: (RadioAck) -> Unit) {
-    emitWithAck(
-      EVENT_END,
-      JSONObject().put("channelId", channelId).put("transmissionId", transmissionId),
-      ack
-    )
+    emitWithAck(EVENT_END, RadioProtocol.endPayload(channelId, transmissionId), ack)
   }
 
   override fun sendFrame(frame: RadioOutboundFrame): Boolean {
     val current = socket ?: return false
     if (!current.connected()) return false
     return try {
-      current.emit(
-        EVENT_FRAME,
-        JSONObject()
-          .put("channelId", frame.channelId)
-          .put("transmissionId", frame.transmissionId)
-          .put("sequence", frame.sequence)
-          .put("sentAt", frame.sentAt)
-          .put("data", frame.data)
-      )
+      current.emit(EVENT_FRAME, RadioProtocol.framePayload(frame))
       true
     } catch (error: Exception) {
-      Log.w(TAG, "Radio frame emit failed", error)
+      RadioLog.error("frame_emit_failed", error)
       false
     }
   }
 
   /**
    * Los ACK llevan timeout propio: un backend que nunca responde no puede dejar
-   * al operador esperando indefinidamente con el canal a medio pedir.
+   * al operador esperando indefinidamente con el canal a medio pedir. El mismo
+   * valor que usaba el transporte de JavaScript (`socket.timeout(5000)`).
    */
   private fun emitWithAck(event: String, payload: JSONObject, ack: (RadioAck) -> Unit) {
     val current = socket
@@ -137,6 +156,8 @@ class SocketIoRadioTransport : RadioTransport {
       return
     }
 
+    // `settled`, el timeout y la resolucion viven todos en el hilo principal:
+    // no hay carrera entre el vencimiento y la respuesta del backend.
     var settled = false
     val timeout = Runnable {
       if (settled) return@Runnable
@@ -151,58 +172,17 @@ class SocketIoRadioTransport : RadioTransport {
           if (settled) return@post
           settled = true
           mainHandler.removeCallbacks(timeout)
-          ack(parseAck(args.firstOrNull()))
+          ack(RadioProtocol.parseAck(args.firstOrNull()))
         }
       }
     } catch (error: Exception) {
       mainHandler.removeCallbacks(timeout)
       if (!settled) {
         settled = true
+        RadioLog.error("emit_failed", error, "event" to event)
         ack(RadioAck(ok = false, error = RadioAck.ERROR_DISCONNECTED))
       }
     }
-  }
-
-  private fun parseAck(raw: Any?): RadioAck {
-    val payload = raw as? JSONObject ?: return RadioAck(ok = false, error = "radio_invalid_ack")
-    return RadioAck(
-      ok = payload.optBoolean("ok", false),
-      error = payload.optString("error").takeIf { it.isNotBlank() },
-      transmissionId = payload.optString("transmissionId").takeIf { it.isNotBlank() },
-      transmitter = parseOperator(payload.optJSONObject("transmitter"))
-    )
-  }
-
-  private fun parseOperator(payload: JSONObject?): RadioOperator? {
-    val id = payload?.optString("id").orEmpty()
-    if (id.isBlank()) return null
-    return RadioOperator(id, payload?.optString("name").orEmpty().ifBlank { "Operador" })
-  }
-
-  private fun handleRemoteStart(raw: Any?) {
-    val payload = raw as? JSONObject ?: return
-    val transmissionId = payload.optString("transmissionId")
-    val operator = parseOperator(payload.optJSONObject("transmitter"))
-    if (transmissionId.isBlank() || operator == null) return
-    listener?.onRemoteTransmissionStarted(transmissionId, operator)
-  }
-
-  private fun handleRemoteFrame(raw: Any?) {
-    val payload = raw as? JSONObject ?: return
-    val transmissionId = payload.optString("transmissionId")
-    val data = payload.optString("data")
-    if (transmissionId.isBlank() || data.isBlank()) return
-    listener?.onRemoteFrame(transmissionId, payload.optInt("sequence", -1), data)
-  }
-
-  private fun handleRemoteEnd(raw: Any?) {
-    val payload = raw as? JSONObject ?: return
-    val transmissionId = payload.optString("transmissionId")
-    if (transmissionId.isBlank()) return
-    listener?.onRemoteTransmissionEnded(
-      transmissionId,
-      payload.optString("reason").takeIf { it.isNotBlank() }
-    )
   }
 
   private fun disconnectReasonOf(reason: String?): RadioDisconnectReason = when {
@@ -217,7 +197,6 @@ class SocketIoRadioTransport : RadioTransport {
   }
 
   companion object {
-    private const val TAG = "ManeCombRadioSocket"
     private const val ACK_TIMEOUT_MS = 5000L
     private const val CONNECT_TIMEOUT_MS = 15000L
 

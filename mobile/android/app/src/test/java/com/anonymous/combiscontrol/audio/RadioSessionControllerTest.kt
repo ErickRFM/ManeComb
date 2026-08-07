@@ -397,6 +397,50 @@ class RadioSessionControllerTest {
   }
 
   @Test
+  fun `si el backend dice que no estamos en la sala el cliente se reincorpora`() {
+    val harness = listeningHarness()
+    assertEquals(1, harness.transport.joined.size)
+
+    harness.controller.requestTransmission()
+    harness.transport.completeFloor(RadioAck(ok = false, error = "radio_not_joined"))
+
+    // Sin esto el operador quedaria en LISTENING sin poder transmitir nunca.
+    assertEquals(2, harness.transport.joined.size)
+    harness.transport.completeJoin(RadioAck(ok = true))
+    assertEquals(RadioPhase.LISTENING, harness.phase())
+  }
+
+  @Test
+  fun `todo punto de entrada pasa por el confinamiento de hilo`() {
+    // El estado se toca desde el hilo de React, el de Socket.IO y el de captura.
+    // Si algun punto de entrada no se confinara, habria carrera de datos.
+    val transport = FakeTransport()
+    val audio = FakeAudio()
+    val pending = ArrayDeque<() -> Unit>()
+    val controller = RadioSessionController(
+      transport = transport,
+      audio = audio,
+      scheduler = ManualScheduler(),
+      confine = { action -> pending.addLast(action) },
+      onStateChanged = {}
+    )
+
+    controller.activate(credentials, "canal-1")
+    assertEquals("nada se ejecuta fuera del hilo de sesion", 0, transport.connectCount)
+    assertEquals(RadioPhase.IDLE, controller.snapshot().phase)
+
+    while (pending.isNotEmpty()) pending.removeFirst().invoke()
+    assertEquals(1, transport.connectCount)
+    assertEquals(RadioPhase.JOINING, controller.snapshot().phase)
+
+    transport.events?.onConnected()
+    controller.onFrameCaptured("AAAA", 0, 1L)
+    controller.onAudioFailure("ptt_capture_read_failed")
+    transport.events?.onDisconnected(RadioDisconnectReason.NETWORK)
+    assertEquals("los eventos externos tampoco se ejecutan en su hilo", 4, pending.size)
+  }
+
+  @Test
   fun `un join fallido por red programa reconexion acotada`() {
     val harness = Harness()
     harness.controller.activate(credentials, "canal-1")

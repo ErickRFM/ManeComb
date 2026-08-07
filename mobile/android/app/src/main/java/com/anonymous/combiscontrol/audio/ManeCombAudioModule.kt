@@ -204,8 +204,7 @@ class ManeCombAudioModule(
     if (service != null) {
       service.deactivate()
     } else {
-      // Sin servicio vivo aun hay que borrar la identidad persistida.
-      RadioCredentials.clear(reactContext)
+      // Sin servicio vivo no hay identidad que borrar: nunca se persiste.
       reactContext.stopService(ManeCombRadioService.deactivationIntent(reactContext))
     }
     promise.resolve(null)

@@ -27,13 +27,36 @@ describe('Android background GPS session isolation', () => {
     expect(credentials).not.toMatch(/putString\(KEY_TOKEN_ENCRYPTED\s*,\s*token\)/);
   });
 
-  it('keeps the native Radio session token encrypted and separate from GPS', () => {
+  it('never puts the native Radio session token at rest', () => {
     const radioCredentials = source('../../android/app/src/main/java/com/anonymous/combiscontrol/audio/RadioCredentials.kt');
-    expect(radioCredentials).toContain('ManeCombSecureStore.encrypt');
-    expect(radioCredentials).toContain('manecomb-radio-credentials-v1');
-    // El token nunca se guarda en claro ni se escribe en logs.
-    expect(radioCredentials).not.toMatch(/putString\(KEY_TOKEN_ENCRYPTED\s*,\s*credentials\.token\)/);
-    expect(radioCredentials).not.toMatch(/Log\.[a-z]+\([^)]*token/i);
+    // El servicio es START_NOT_STICKY y React lo reactiva en cada arranque: un
+    // token en disco no tendria consumidor y solo seria superficie de ataque.
+    expect(radioCredentials).not.toContain('SharedPreferences');
+    expect(radioCredentials).not.toContain('getSharedPreferences');
+    expect(radioCredentials).not.toContain('ManeCombSecureStore');
+    // toString no puede filtrar el token en un log o en un crash report.
+    expect(radioCredentials).toContain('token=***');
+  });
+
+  it('keeps every Radio secret out of the logs', () => {
+    const radioLog = source('../../android/app/src/main/java/com/anonymous/combiscontrol/audio/RadioLog.kt');
+    expect(radioLog).toContain('FORBIDDEN_KEYS');
+    for (const forbidden of ['token', 'auth', 'data', 'audio', 'password', 'secret']) {
+      expect(radioLog).toContain(`"${forbidden}"`);
+    }
+
+    const radioSources = [
+      'RadioSessionController',
+      'SocketIoRadioTransport',
+      'ManeCombRadioService',
+      'RadioAudioSession',
+    ].map((name) => source(`../../android/app/src/main/java/com/anonymous/combiscontrol/audio/${name}.kt`));
+
+    for (const radioSource of radioSources) {
+      expect(radioSource).not.toMatch(/RadioLog\.[a-z]+\([^)]*\btoken\b/i);
+      expect(radioSource).not.toMatch(/RadioLog\.[a-z]+\([^)]*base64/i);
+      expect(radioSource).not.toMatch(/Log\.[a-z]\([^)]*\btoken\b/i);
+    }
   });
 
   it('has a non-flushing hard stop and isolates persisted queues by vehicle', () => {
