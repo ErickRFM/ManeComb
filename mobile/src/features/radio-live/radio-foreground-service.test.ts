@@ -9,6 +9,7 @@ import {
 } from '@/src/native/audio';
 import {
   acquireRadioForegroundService,
+  getRadioForegroundServiceOwnershipSnapshot,
   releaseRadioForegroundService,
   resetRadioForegroundService,
 } from './radio-foreground-service';
@@ -39,26 +40,41 @@ describe('Radio foreground service coordinator', () => {
     jest.useRealTimers();
   });
 
-  it('keeps one service while ownership moves from global runtime to Radio screen', async () => {
+  it('keeps exactly one native service through global -> screen -> global handoff', async () => {
     await acquireRadioForegroundService('global');
     await acquireRadioForegroundService('screen');
-
-    expect(startService).toHaveBeenCalledTimes(1);
-
     await releaseRadioForegroundService('global');
+    await acquireRadioForegroundService('global');
+    await releaseRadioForegroundService('screen');
+
     jest.advanceTimersByTime(1000);
     await flushPromises();
 
+    expect(startService).toHaveBeenCalledTimes(1);
     expect(stopService).not.toHaveBeenCalled();
-
-    const finalRelease = releaseRadioForegroundService('screen');
-    jest.advanceTimersByTime(350);
-    await finalRelease;
-
-    expect(stopService).toHaveBeenCalledTimes(1);
+    expect(getRadioForegroundServiceOwnershipSnapshot()).toEqual({
+      owners: ['global'],
+      serviceActive: true,
+    });
   });
 
-  it('cancels a pending stop when another owner acquires the service', async () => {
+  it('stops only after the last owner leaves for the grace window', async () => {
+    await acquireRadioForegroundService('global');
+
+    const pendingRelease = releaseRadioForegroundService('global');
+    jest.advanceTimersByTime(349);
+    await flushPromises();
+    expect(stopService).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await pendingRelease;
+
+    expect(stopService).toHaveBeenCalledTimes(1);
+    expect(getRadioForegroundServiceOwnershipSnapshot().owners).toEqual([]);
+    expect(getRadioForegroundServiceOwnershipSnapshot().serviceActive).toBe(false);
+  });
+
+  it('cancels a pending stop when another owner acquires before grace expires', async () => {
     await acquireRadioForegroundService('global');
 
     const pendingRelease = releaseRadioForegroundService('global');
@@ -66,26 +82,10 @@ describe('Radio foreground service coordinator', () => {
     await acquireRadioForegroundService('screen');
     jest.advanceTimersByTime(500);
     await flushPromises();
-
-    expect(startService).toHaveBeenCalledTimes(1);
-    expect(stopService).not.toHaveBeenCalled();
-
     await pendingRelease;
-  });
-
-  it('starts again after screen ownership ends while global ownership remains', async () => {
-    await acquireRadioForegroundService('global');
-    await acquireRadioForegroundService('screen');
-    await releaseRadioForegroundService('global');
-    await acquireRadioForegroundService('global');
 
     expect(startService).toHaveBeenCalledTimes(1);
-
-    const screenRelease = releaseRadioForegroundService('screen');
-    jest.advanceTimersByTime(120);
-    await screenRelease;
-
-    expect(startService).toHaveBeenCalledTimes(2);
     expect(stopService).not.toHaveBeenCalled();
+    expect(getRadioForegroundServiceOwnershipSnapshot().owners).toEqual(['screen']);
   });
 });

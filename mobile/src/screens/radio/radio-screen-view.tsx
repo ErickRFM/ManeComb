@@ -5,10 +5,8 @@ import {
   enqueuePttAudioFrame,
   startPttAudioCapture,
   startPttAudioPlayback,
-  startRadioForegroundService,
   stopPttAudioCapture,
   stopPttAudioPlayback,
-  stopRadioForegroundService,
   subscribeToPttAudioErrors,
   subscribeToPttAudioFrames,
   subscribeToPttAudioLevel,
@@ -508,14 +506,6 @@ export function RadioScreen() {
     if (!token || !activeChannel?.id) return;
     realtimeServiceRef.current?.connect(getSharedRealtimeSocket(), activeChannel.id);
   }, [activeChannel?.id, socketStatus, token]);
-
-  useEffect(() => {
-    if (!token || !activeChannel?.id) return;
-    startRadioForegroundService().catch(() => undefined);
-    return () => {
-      stopRadioForegroundService().catch(() => undefined);
-    };
-  }, [activeChannel?.id, token]);
 
   useEffect(() => {
     const removeFrames = subscribeToPttAudioFrames((frame) => {
