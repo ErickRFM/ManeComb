@@ -187,36 +187,48 @@ export function CheckoutPaymentSection({
     : null;
 
   useEffect(() => {
-    if (isManualPaymentMode && selectedMethod !== 'spei') {
+    if (!requestTrial && isManualPaymentMode && selectedMethod !== 'spei') {
       onSelectMethod('spei');
     }
-  }, [isManualPaymentMode, onSelectMethod, selectedMethod]);
+  }, [isManualPaymentMode, onSelectMethod, requestTrial, selectedMethod]);
 
   return (
     <View style={[s.leftPanel, isTwoColumn ? undefined : s.fullPanel]}>
       <View style={s.panelTitleRow}>
         <View style={s.panelTitleIcon}>
           <MaterialCommunityIcons
-            name={isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
+            name={requestTrial ? 'flask-outline' : isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
             size={24}
             color={palette.violet}
           />
         </View>
         <View style={s.panelTitleCopy}>
           <Text style={s.panelTitle}>
-            {isManualPaymentMode ? 'Transferencia SPEI' : 'Información de pago'}
+            {requestTrial ? 'Prueba ManeComb' : isManualPaymentMode ? 'Transferencia SPEI' : 'Información de pago'}
           </Text>
           <Text style={s.panelSubtitle}>
-            {isManualPaymentMode
-              ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
-              : 'Elige tu método y completa la transacción con el proveedor disponible.'}
+            {requestTrial
+              ? `Activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis sin realizar un cobro.`
+              : isManualPaymentMode
+                ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
+                : 'Elige tu método y completa la transacción con el proveedor disponible.'}
           </Text>
         </View>
       </View>
 
-      {isTestPaymentMode && !requestTrial ? (
+      {requestTrial ? (
+        <View style={s.speiPanel}>
+          <MaterialCommunityIcons name="shield-check-outline" size={32} color={palette.cyan} />
+          <View style={s.speiCopy}>
+            <Text style={s.speiTitle}>Acceso de prueba sin pago</Text>
+            <Text style={s.speiText}>
+              La activación de prueba se valida directamente con ManeComb. No depende de Mercado Pago, tarjeta ni SPEI y no genera un cargo al activarla.
+            </Text>
+          </View>
+        </View>
+      ) : isTestPaymentMode ? (
         <CardTestForm testCard={testCard} onTestCardChange={onTestCardChange} />
-      ) : isManualPaymentMode && !requestTrial ? (
+      ) : isManualPaymentMode ? (
         <View style={s.speiPanel}>
           <MaterialCommunityIcons name="bank-transfer" size={32} color={palette.cyan} />
           <View style={s.speiCopy}>
@@ -295,11 +307,13 @@ export function CheckoutPaymentSection({
       <View style={s.securityNote}>
         <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
         <Text style={s.securityText}>
-          {isTestPaymentMode && !requestTrial
-            ? 'Entorno de pruebas: no se realizan cargos y no se almacenan CVV ni números completos.'
-            : isManualPaymentMode && !requestTrial
-              ? 'La orden permanecerá pendiente hasta que ManeComb confirme la transferencia recibida.'
-              : 'Pago procesado por el proveedor disponible y estado confirmado por backend.'}
+          {requestTrial
+            ? 'La prueba se activa en tu cuenta sin cobro y sin depender del proveedor de pagos.'
+            : isTestPaymentMode
+              ? 'Entorno de pruebas: no se realizan cargos y no se almacenan CVV ni números completos.'
+              : isManualPaymentMode
+                ? 'La orden permanecerá pendiente hasta que ManeComb confirme la transferencia recibida.'
+                : 'Pago procesado por el proveedor disponible y estado confirmado por backend.'}
         </Text>
       </View>
 
@@ -309,7 +323,7 @@ export function CheckoutPaymentSection({
         </View>
       ) : null}
 
-      {providerMode === 'unavailable' ? (
+      {providerMode === 'unavailable' && !requestTrial ? (
         <View style={s.messageBox}>
           <Text style={s.messageText}>
             El servicio de pago no está disponible en este momento. Tu selección permanece guardada.

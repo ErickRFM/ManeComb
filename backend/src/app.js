@@ -215,7 +215,14 @@ function createApp({ store, getDbState }) {
       status: readiness.status,
       version: packageJson.version,
       uptimeSeconds: Math.round(process.uptime()),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      readiness: {
+        payments: {
+          mode: readiness.payments?.mode || "configuration_required",
+          provider: readiness.payments?.provider || "unknown",
+          ready: Boolean(readiness.payments?.ready)
+        }
+      }
     };
     if (detailed) {
       payload.communication = readiness.communication;

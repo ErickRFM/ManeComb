@@ -1,5 +1,4 @@
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import { makeOperationalUnitSnapshot } from '@/src/test-utils/operational-unit-snapshot';
 import {
   getActiveRouteCount,
   getMappableUnits,
@@ -9,12 +8,38 @@ import {
 } from './tracking';
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
-  return makeOperationalUnitSnapshot({
+  const snapshot: OperationalUnitSnapshot = {
+    snapshotVersion: 2,
     unitId: 'veh-1',
     plates: 'FBZ-404',
     label: 'C-1',
+    status: 'idle',
+    operationalState: 'no_route',
+    gps: {
+      lat: null,
+      lng: null,
+      speedKmh: null,
+      heading: null,
+      recordedAt: null,
+      receivedAt: null,
+      freshness: 'missing',
+      connectionState: 'lost',
+      ageSeconds: null,
+    },
+    driver: null,
+    route: null,
+    session: null,
+    journey: null,
+    incidents: { open: 0, inProgress: 0, lastAt: null },
+    lastEventAt: null,
+    visibility: 'visible',
+  };
+
+  return {
+    ...snapshot,
     ...overrides,
-  });
+    journey: overrides.journey ?? snapshot.journey,
+  };
 }
 
 describe('selectores del mapa de seguimiento', () => {
