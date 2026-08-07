@@ -71,6 +71,7 @@ async function main() {
   assert.equal(submitted.evidence.status, "pending_review");
   assert.equal(submitted.evidence.amountMinor, 15900);
   assert.equal(submitted.evidence.trackingKey, "SPEI-TRACK-001");
+  assert.equal(submitted.evidence.version, 1);
 
   const replayedSubmission = await submitManualPaymentEvidence({
     order: currentOrder,
@@ -110,6 +111,7 @@ async function main() {
     reviewNote: "No se localiza el depósito",
     reviewerId: "platform-finance-01",
     idempotencyKey: "manual-review-order-01-reject-0001",
+    expectedEvidenceVersion: 1,
     now
   });
   assert.equal(rejectClaim.claimed, true);
@@ -144,12 +146,26 @@ async function main() {
   assert.equal(resubmitted.evidence.version, 2);
   assert.equal(resubmitted.evidence.trackingKey, "SPEI-TRACK-002");
 
+  await expectCode(
+    claimManualPaymentDecision({
+      orderId: currentOrder.id,
+      decision: "reject",
+      reviewNote: "No se localiza el depósito",
+      reviewerId: "platform-finance-01",
+      idempotencyKey: "manual-review-order-01-reject-0001",
+      expectedEvidenceVersion: 1,
+      now: new Date("2026-08-07T17:11:00.000Z")
+    }),
+    "manual_payment_evidence_version_mismatch"
+  );
+
   const approveClaim = await claimManualPaymentDecision({
     orderId: currentOrder.id,
     decision: "approve",
     reviewNote: "Depósito conciliado",
     reviewerId: "platform-finance-01",
     idempotencyKey: "manual-review-order-01-approve-0002",
+    expectedEvidenceVersion: 2,
     now: new Date("2026-08-07T17:15:00.000Z")
   });
   assert.equal(approveClaim.claimed, true);
@@ -171,6 +187,7 @@ async function main() {
     reviewNote: "Depósito conciliado",
     reviewerId: "platform-finance-01",
     idempotencyKey: "manual-review-order-01-approve-0002",
+    expectedEvidenceVersion: 2,
     now: new Date("2026-08-07T17:16:00.000Z")
   });
   assert.equal(replayedDecision.claimed, false);
