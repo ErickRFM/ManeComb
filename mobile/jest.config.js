@@ -1,7 +1,16 @@
 module.exports = {
   preset: 'react-native',
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/src/**/*.test.ts'],
+  testMatch: [
+    '<rootDir>/src/**/*.test.ts',
+    '<rootDir>/src/**/*.test.tsx',
+    '<rootDir>/src/**/*.test.js',
+    '<rootDir>/src/**/*.test.jsx',
+    '<rootDir>/scripts/**/*.test.ts',
+    '<rootDir>/scripts/**/*.test.tsx',
+    '<rootDir>/scripts/**/*.test.js',
+    '<rootDir>/scripts/**/*.test.jsx',
+  ],
   moduleNameMapper: {
     // Debe preceder a '^@/': el contrato compartido vive fuera de rootDir.
     '^@shared/(.*)$': '<rootDir>/../shared/$1',
