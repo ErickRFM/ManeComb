@@ -20,6 +20,8 @@ const NativeNotification =
     ? (NativeModules.ManeCombNotification as ManeCombNotificationModule | undefined)
     : undefined;
 
+export type NotificationPermissionState = 'granted' | 'denied' | 'unavailable';
+
 export type PushRouteIntent = {
   target: 'chat' | 'radio' | 'sos' | 'incidents' | 'notifications' | 'unknown';
   conversationId?: string | null;
@@ -29,15 +31,32 @@ export type PushRouteIntent = {
   deepLink?: string | null;
 };
 
+/**
+ * Initializes the notification runtime without owning OS permission UX.
+ * Token registration and local notification rendering must never trigger the
+ * Android 13+ permission dialog implicitly.
+ */
 export async function configureAppNotifications() {
   if (notificationsConfigured) return;
   notificationsConfigured = true;
+}
 
-  if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
-    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(
-      () => undefined
-    );
-  }
+/**
+ * Single explicit authority for POST_NOTIFICATIONS. Callers decide when the
+ * user-facing permission prompt belongs in the session flow.
+ */
+export async function requestAppNotificationPermission(): Promise<NotificationPermissionState> {
+  await configureAppNotifications();
+
+  if (Platform.OS !== 'android') return 'unavailable';
+  if (Number(Platform.Version) < 33) return 'granted';
+
+  const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+  const alreadyGranted = await PermissionsAndroid.check(permission).catch(() => false);
+  if (alreadyGranted) return 'granted';
+
+  const result = await PermissionsAndroid.request(permission).catch(() => null);
+  return result === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'denied';
 }
 
 export async function requestNativePushToken() {

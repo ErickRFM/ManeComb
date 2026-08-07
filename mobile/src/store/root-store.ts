@@ -112,6 +112,7 @@ import {
 } from '@/src/utils/chat-e2ee';
 import {
   configureAppNotifications,
+  requestAppNotificationPermission,
   requestNativePushToken,
   showInAppNotification,
   type PushRouteIntent,
@@ -894,6 +895,10 @@ async function refreshPendingSyncCount(set: StoreSet) {
 async function registerCurrentPushToken() {
   try {
     await configureAppNotifications();
+    // Permission controls visible notifications only. FCM token registration
+    // must continue even when the user denies the Android 13+ prompt because
+    // data delivery is also used by realtime/call infrastructure.
+    await requestAppNotificationPermission().catch(() => 'unavailable');
     const pushToken = await requestNativePushToken();
 
     if (!pushToken) {
