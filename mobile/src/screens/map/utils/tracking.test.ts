@@ -9,7 +9,7 @@ import {
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     unitId: 'veh-1',
     plates: 'FBZ-404',
     label: 'C-1',
