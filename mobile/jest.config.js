@@ -1,7 +1,16 @@
 module.exports = {
   preset: 'react-native',
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/src/**/*.test.ts'],
+  // Mobile tests are discovered by convention. Keep this list about locations,
+  // never individual test files, so adding a regression test automatically
+  // makes it part of the default CI gate.
+  testMatch: [
+    '<rootDir>/src/**/*.test.ts',
+    '<rootDir>/src/**/*.test.tsx',
+    '<rootDir>/src/**/*.test.js',
+    '<rootDir>/src/**/*.test.jsx',
+    '<rootDir>/scripts/**/*.test.js',
+  ],
   moduleNameMapper: {
     // Debe preceder a '^@/': el contrato compartido vive fuera de rootDir.
     '^@shared/(.*)$': '<rootDir>/../shared/$1',
