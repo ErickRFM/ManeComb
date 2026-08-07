@@ -1,3 +1,4 @@
+process.env.NODE_ENV = "test";
 process.env.MONGO_URI = "";
 process.env.MONGODB_URI = "";
 process.env.PLATFORM_MFA_ENCRYPTION_KEY = "MinzFLmGlxqwGor12GdyXqZYsRea/r+QAWuVhEvPMRg=";
