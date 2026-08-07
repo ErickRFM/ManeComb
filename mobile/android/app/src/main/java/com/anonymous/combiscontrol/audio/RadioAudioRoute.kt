@@ -9,6 +9,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Autoridad unica de ruta de audio de Radio. No existe ningun otro punto que
@@ -20,26 +21,35 @@ import android.os.Looper
  * `auto` conserva la eleccion de Android con prioridad Bluetooth > cable >
  * altavoz, que es el comportamiento historico de ManeComb.
  */
-class RadioAudioRoute(
-  private val context: Context,
-  private val onChange: (String) -> Unit
-) {
+class RadioAudioRoute private constructor(private val context: Context) {
   private val audioManager: AudioManager? = context.getSystemService(AudioManager::class.java)
   private val handler = Handler(Looper.getMainLooper())
+  private val listeners = CopyOnWriteArraySet<(String) -> Unit>()
 
   @Volatile private var requestedRoute: String = ROUTE_AUTO
+  @Volatile private var watching = false
 
   private val deviceCallback = object : AudioDeviceCallback() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = notifyRoute()
     override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) = notifyRoute()
   }
 
-  fun start() {
-    audioManager?.registerAudioDeviceCallback(deviceCallback, handler)
+  @Synchronized
+  fun addListener(listener: (String) -> Unit) {
+    listeners.add(listener)
+    if (!watching) {
+      watching = true
+      audioManager?.registerAudioDeviceCallback(deviceCallback, handler)
+    }
   }
 
-  fun stop() {
-    audioManager?.unregisterAudioDeviceCallback(deviceCallback)
+  @Synchronized
+  fun removeListener(listener: (String) -> Unit) {
+    listeners.remove(listener)
+    if (listeners.isEmpty() && watching) {
+      watching = false
+      audioManager?.unregisterAudioDeviceCallback(deviceCallback)
+    }
   }
 
   /** Rutas realmente presentes en el dispositivo, no una lista fija. */
@@ -80,7 +90,8 @@ class RadioAudioRoute(
   }
 
   private fun notifyRoute() {
-    onChange(activeRoute())
+    val route = activeRoute()
+    listeners.forEach { listener -> listener(route) }
   }
 
   private fun resolveDevice(): AudioDeviceInfo? {
@@ -121,5 +132,13 @@ class RadioAudioRoute(
       ROUTE_BLUETOOTH, ROUTE_WIRED, ROUTE_SPEAKER, ROUTE_EARPIECE -> route
       else -> ROUTE_AUTO
     }
+
+    @Volatile private var instance: RadioAudioRoute? = null
+
+    /** Una sola autoridad de ruta por proceso: la comparten Radio en vivo e historial. */
+    fun shared(context: Context): RadioAudioRoute =
+      instance ?: synchronized(this) {
+        instance ?: RadioAudioRoute(context.applicationContext).also { instance = it }
+      }
   }
 }

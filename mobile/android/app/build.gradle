@@ -246,6 +246,17 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:34.16.0')
     implementation 'com.google.firebase:firebase-messaging'
 
+    // Cliente Socket.IO nativo de Radio. Android no tenia ninguno: el socket
+    // compartido de la app vive en JavaScript y no es alcanzable desde Kotlin.
+    // Habla el mismo protocolo y los mismos contratos radio:* que el backend ya
+    // expone, por lo que no introduce un segundo protocolo. org.json se excluye
+    // porque la plataforma ya lo provee.
+    implementation('io.socket:socket.io-client:2.1.2') {
+        exclude group: 'org.json', module: 'json'
+    }
+
+    testImplementation 'junit:junit:4.13.2'
+
     if (combisDetoxBundle) {
         androidTestImplementation(project(':detox'))
         androidTestImplementation('junit:junit:4.13.2')

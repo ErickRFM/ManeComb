@@ -13,10 +13,27 @@ describe('Android background GPS session isolation', () => {
   });
 
   it('encrypts restorable credentials with Android Keystore AES-GCM', () => {
+    // La cripto vive en el almacen seguro compartido; GPS la consume con su
+    // propio alias, de modo que borrar Radio no invalida las credenciales de GPS.
+    const secureStore = source('../../android/app/src/main/java/com/anonymous/combiscontrol/security/ManeCombSecureStore.kt');
+    expect(secureStore).toContain('AndroidKeyStore');
+    expect(secureStore).toContain('AES/GCM/NoPadding');
+    expect(secureStore).toContain('KeyGenParameterSpec');
+
     const credentials = source('../../android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationCredentials.kt');
-    expect(credentials).toContain('AndroidKeyStore');
-    expect(credentials).toContain('AES/GCM/NoPadding');
-    expect(credentials).toContain('KeyGenParameterSpec');
+    expect(credentials).toContain('ManeCombSecureStore.encrypt');
+    expect(credentials).toContain('ManeCombSecureStore.decrypt');
+    expect(credentials).toContain('manecomb-location-credentials-v1');
+    expect(credentials).not.toMatch(/putString\(KEY_TOKEN_ENCRYPTED\s*,\s*token\)/);
+  });
+
+  it('keeps the native Radio session token encrypted and separate from GPS', () => {
+    const radioCredentials = source('../../android/app/src/main/java/com/anonymous/combiscontrol/audio/RadioCredentials.kt');
+    expect(radioCredentials).toContain('ManeCombSecureStore.encrypt');
+    expect(radioCredentials).toContain('manecomb-radio-credentials-v1');
+    // El token nunca se guarda en claro ni se escribe en logs.
+    expect(radioCredentials).not.toMatch(/putString\(KEY_TOKEN_ENCRYPTED\s*,\s*credentials\.token\)/);
+    expect(radioCredentials).not.toMatch(/Log\.[a-z]+\([^)]*token/i);
   });
 
   it('has a non-flushing hard stop and isolates persisted queues by vehicle', () => {

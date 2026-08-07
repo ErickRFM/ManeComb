@@ -9,98 +9,255 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.anonymous.combiscontrol.MainActivity
 import com.anonymous.combiscontrol.R
 
 /**
- * Contenedor foreground de Radio. No posee transporte ni audio: refleja el estado
- * real publicado por el runtime y declara el tipo de foreground service que
- * corresponde a ese estado (microfono solo mientras se transmite).
+ * Duenio del subsistema Radio en Android. Posee el transporte Socket.IO, el
+ * pipeline de audio PTT, la maquina de estados y la reconexion. React Native le
+ * envia comandos y observa instantaneas: no participa del camino critico del
+ * audio ni de la sesion.
+ *
+ * Por eso el servicio sobrevive a que la pantalla de Radio se desmonte, a que la
+ * app pase a segundo plano y a que el runtime JS quede suspendido.
  */
 class ManeCombRadioService : Service() {
-  private var currentMode: String = MODE_LISTENING
+
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private lateinit var audioSession: RadioAudioSession
+  private lateinit var controller: RadioSessionController
+  private var currentState = RadioSessionState()
+  private var foregroundType = FOREGROUND_TYPE_LISTENING
+
+  private val scheduler = object : RadioScheduler {
+    override fun postDelayed(delayMs: Long, action: () -> Unit): RadioCancellable {
+      val runnable = Runnable { action() }
+      mainHandler.postDelayed(runnable, delayMs)
+      return object : RadioCancellable {
+        override fun cancel() = mainHandler.removeCallbacks(runnable)
+      }
+    }
+  }
+
+  private val audioListener = object : RadioAudioSession.Listener {
+    override fun onFrameCaptured(base64Data: String, sequence: Int, capturedAt: Long) {
+      controller.onFrameCaptured(base64Data, sequence, capturedAt)
+    }
+
+    override fun onAudioLevel(level: Double) {
+      audioLevelListener?.invoke(level)
+    }
+
+    override fun onAudioFailure(code: String) {
+      mainHandler.post { controller.onAudioFailure(code) }
+    }
+  }
 
   override fun onCreate() {
     super.onCreate()
-    val manager = getSystemService(NotificationManager::class.java)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      manager.createNotificationChannel(
-        NotificationChannel(CHANNEL_ID, "Radio en vivo", NotificationManager.IMPORTANCE_LOW)
-      )
-    }
-    promoteToForeground(MODE_LISTENING)
+    createNotificationChannel()
+    promoteToForeground(FOREGROUND_TYPE_LISTENING)
+
+    audioSession = RadioAudioSession.shared(this)
+    audioSession.setListener(audioListener)
+    controller = RadioSessionController(
+      transport = SocketIoRadioTransport(),
+      audio = audioSession,
+      scheduler = scheduler,
+      onStateChanged = { state -> mainHandler.post { publishState(state) } }
+    )
+    activeService = this
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    val requestedMode = intent?.getStringExtra(EXTRA_MODE)
-    promoteToForeground(normalizeMode(requestedMode))
-    // El servicio no puede reconstruir la sesion de Radio por si mismo: si el
-    // proceso muere, el runtime lo vuelve a levantar al reactivarse. START_STICKY
-    // solo dejaria una notificacion sin canal detras.
+    when (intent?.action) {
+      ACTION_ACTIVATE -> handleActivate(intent)
+      ACTION_DEACTIVATE -> handleDeactivate()
+    }
+    // El servicio no puede reconstruir la sesion por si mismo si el proceso muere:
+    // seria una notificacion sin canal detras. La app lo reactiva al volver.
     return START_NOT_STICKY
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
-  private fun promoteToForeground(mode: String) {
-    val effectiveMode = if (mode == MODE_TRANSMITTING && !hasMicrophonePermission()) {
-      MODE_LISTENING
-    } else {
-      mode
+  override fun onDestroy() {
+    if (activeService === this) activeService = null
+    controller.deactivate()
+    audioSession.setListener(null)
+    mainHandler.removeCallbacksAndMessages(null)
+    super.onDestroy()
+  }
+
+  // ---------------- Comandos ----------------
+
+  private fun handleActivate(intent: Intent) {
+    val credentials = RadioSessionCredentials(
+      token = intent.getStringExtra(EXTRA_TOKEN).orEmpty(),
+      userId = intent.getStringExtra(EXTRA_USER_ID).orEmpty(),
+      userName = intent.getStringExtra(EXTRA_USER_NAME).orEmpty(),
+      socketUrl = intent.getStringExtra(EXTRA_SOCKET_URL).orEmpty()
+    )
+    val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID).orEmpty()
+    if (!credentials.isUsable || channelId.isBlank()) {
+      handleDeactivate()
+      return
     }
-    currentMode = effectiveMode
-    val notification = buildNotification(effectiveMode)
+
+    RadioCredentials.write(this, credentials)
+    controller.activate(credentials, channelId)
+  }
+
+  private fun handleDeactivate() {
+    // Logout: no puede quedar socket, canal, captura, identidad ni notificacion.
+    controller.deactivate()
+    RadioCredentials.clear(this)
+    stopSelf()
+  }
+
+  /** Activacion directa cuando el servicio ya esta vivo: evita reiniciar el foreground. */
+  fun startCommandFromModule(credentials: RadioSessionCredentials, channelId: String) {
+    RadioCredentials.write(this, credentials)
+    controller.activate(credentials, channelId)
+  }
+
+  fun selectChannel(channelId: String) = controller.selectChannel(channelId)
+
+  fun requestTransmission() = controller.requestTransmission()
+
+  fun endTransmission() = controller.endTransmission()
+
+  fun notifyCallStarted() = controller.onCallStarted()
+
+  fun notifyCallEnded() = controller.onCallEnded()
+
+  fun deactivate() = handleDeactivate()
+
+  fun currentSnapshot(): RadioSessionState = currentState
+
+  // ---------------- Estado y notificacion ----------------
+
+  private fun publishState(state: RadioSessionState) {
+    currentState = state
+    lastSnapshot = state
+    // El tipo de foreground service refleja el estado real: microphone solo
+    // mientras se transmite, que es lo unico que Android 14+ acepta.
+    val requiredType = if (state.capturing) FOREGROUND_TYPE_TRANSMITTING else FOREGROUND_TYPE_LISTENING
+    promoteToForeground(requiredType)
+    snapshotListener?.invoke(state)
+  }
+
+  private fun promoteToForeground(type: Int) {
+    val effectiveType = if (type == FOREGROUND_TYPE_TRANSMITTING && !hasMicrophonePermission()) {
+      FOREGROUND_TYPE_LISTENING
+    } else {
+      type
+    }
+    foregroundType = effectiveType
+    val notification = buildNotification()
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      startForeground(NOTIFICATION_ID, notification, foregroundServiceType(effectiveMode))
+      val serviceType = if (effectiveType == FOREGROUND_TYPE_TRANSMITTING) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+          ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+      } else {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+      }
+      startForeground(NOTIFICATION_ID, notification, serviceType)
     } else {
       startForeground(NOTIFICATION_ID, notification)
     }
   }
 
-  private fun foregroundServiceType(mode: String): Int {
-    if (mode != MODE_TRANSMITTING) return ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-    return ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-      ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    getSystemService(NotificationManager::class.java).createNotificationChannel(
+      NotificationChannel(CHANNEL_ID, "Radio en vivo", NotificationManager.IMPORTANCE_LOW)
+    )
   }
+
+  private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
+    .setSmallIcon(R.drawable.notification_icon)
+    .setContentTitle("ManeComb Radio")
+    .setContentText(notificationTextFor(currentState))
+    .setContentIntent(
+      PendingIntent.getActivity(
+        this,
+        0,
+        Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+    )
+    .setOngoing(true)
+    .setOnlyAlertOnce(true)
+    .build()
 
   private fun hasMicrophonePermission(): Boolean =
     ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) ==
       PackageManager.PERMISSION_GRANTED
 
-  private fun buildNotification(mode: String) =
-    NotificationCompat.Builder(this, CHANNEL_ID)
-      .setSmallIcon(R.drawable.notification_icon)
-      .setContentTitle("ManeComb Radio")
-      .setContentText(
-        if (mode == MODE_TRANSMITTING) "Transmitiendo en el canal" else "Escuchando el canal"
-      )
-      .setContentIntent(
-        PendingIntent.getActivity(
-          this,
-          0,
-          Intent(this, MainActivity::class.java),
-          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-      )
-      .setOngoing(true)
-      .setOnlyAlertOnce(true)
-      .build()
-
   companion object {
     private const val CHANNEL_ID = "manecomb-radio-live"
     private const val NOTIFICATION_ID = 2402
-    const val EXTRA_MODE = "com.anonymous.combiscontrol.audio.RADIO_MODE"
-    const val MODE_LISTENING = "listening"
-    const val MODE_TRANSMITTING = "transmitting"
+    private const val FOREGROUND_TYPE_LISTENING = 0
+    private const val FOREGROUND_TYPE_TRANSMITTING = 1
 
-    fun normalizeMode(mode: String?): String =
-      if (mode == MODE_TRANSMITTING) MODE_TRANSMITTING else MODE_LISTENING
+    const val ACTION_ACTIVATE = "com.anonymous.combiscontrol.audio.RADIO_ACTIVATE"
+    const val ACTION_DEACTIVATE = "com.anonymous.combiscontrol.audio.RADIO_DEACTIVATE"
+    const val EXTRA_TOKEN = "token"
+    const val EXTRA_USER_ID = "userId"
+    const val EXTRA_USER_NAME = "userName"
+    const val EXTRA_SOCKET_URL = "socketUrl"
+    const val EXTRA_CHANNEL_ID = "channelId"
 
-    fun intentFor(context: Context, mode: String?): Intent =
-      Intent(context, ManeCombRadioService::class.java).putExtra(EXTRA_MODE, normalizeMode(mode))
+    @Volatile var activeService: ManeCombRadioService? = null
+      private set
+
+    @Volatile var lastSnapshot: RadioSessionState = RadioSessionState()
+      private set
+
+    /** Puente hacia React Native. Solo transporta instantaneas, nunca frames. */
+    @Volatile var snapshotListener: ((RadioSessionState) -> Unit)? = null
+
+    @Volatile var audioLevelListener: ((Double) -> Unit)? = null
+
+    /**
+     * La notificacion dice lo que Radio hace de verdad. Nunca afirma que el canal
+     * esta preparado cuando el transporte esta caido.
+     */
+    fun notificationTextFor(state: RadioSessionState): String = when (state.phase) {
+      RadioPhase.TRANSMITTING -> "Transmitiendo en el canal"
+      RadioPhase.RECEIVING -> "Recibiendo de ${state.operator?.name ?: "un operador"}"
+      RadioPhase.REQUESTING -> "Solicitando el canal"
+      RadioPhase.CHANNEL_BUSY -> "Canal ocupado"
+      RadioPhase.LISTENING -> "Escuchando el canal"
+      RadioPhase.JOINING -> "Conectando al canal"
+      RadioPhase.RECONNECTING -> "Reconectando"
+      RadioPhase.PAUSED_BY_CALL -> "En pausa durante la llamada"
+      RadioPhase.UNAUTHORIZED -> "Sesion expirada"
+      RadioPhase.ERROR -> "Radio no disponible"
+      RadioPhase.IDLE -> "Radio inactiva"
+    }
+
+    fun activationIntent(
+      context: Context,
+      credentials: RadioSessionCredentials,
+      channelId: String
+    ): Intent = Intent(context, ManeCombRadioService::class.java).apply {
+      action = ACTION_ACTIVATE
+      putExtra(EXTRA_TOKEN, credentials.token)
+      putExtra(EXTRA_USER_ID, credentials.userId)
+      putExtra(EXTRA_USER_NAME, credentials.userName)
+      putExtra(EXTRA_SOCKET_URL, credentials.socketUrl)
+      putExtra(EXTRA_CHANNEL_ID, channelId)
+    }
+
+    fun deactivationIntent(context: Context): Intent =
+      Intent(context, ManeCombRadioService::class.java).apply { action = ACTION_DEACTIVATE }
   }
 }
