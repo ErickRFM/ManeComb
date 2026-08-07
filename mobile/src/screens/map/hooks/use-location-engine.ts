@@ -36,6 +36,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
     activeRouteSession,
     apiUrl,
     authContext,
+    isSigningOut,
     refreshToken,
     token,
     user,
@@ -44,14 +45,15 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       activeRouteSession: store.activeRouteSession,
       apiUrl: store.apiUrl,
       authContext: store.authContext,
+      isSigningOut: store.isSigningOut,
       refreshToken: store.refreshToken,
       token: store.token,
       user: store.user,
     }))
   );
   const localCaptureEligible = canCaptureLocalLocation(user, authContext);
-  const operationallyEligible = canOwnVehicleTracking(user, authContext);
-  const trackingEnabled = enabled && localCaptureEligible;
+  const operationallyEligible = canOwnVehicleTracking(user, authContext) && !isSigningOut;
+  const trackingEnabled = enabled && localCaptureEligible && !isSigningOut;
   const trackingEnabledRef = useRef(trackingEnabled);
   trackingEnabledRef.current = trackingEnabled;
 

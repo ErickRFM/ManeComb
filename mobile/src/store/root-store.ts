@@ -71,7 +71,7 @@ import {
   subscribeMobileNetwork,
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
-import { stopBackgroundLocationServiceAsync } from '@/src/native/background-location';
+import { hardResetBackgroundLocationServiceAsync } from '@/src/native/background-location';
 import type {
   ChatMessage,
   ChatDirectoryContact,
@@ -349,7 +349,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
   beginSessionEpoch();
   socketAuthRetries = 0;
   cleanupSessionRuntime();
-  await stopBackgroundLocationServiceAsync().catch(() => undefined);
+  await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
   setAuthToken(null);
   await persistSession(null, null);
   await clearTenantCache();
@@ -837,7 +837,7 @@ async function replaceSessionFromBackend(
   // reiniciar la app dejaria al ConnectionBanner sin quien lo recupere: se
   // quedaria en "Servidor no disponible" hasta cerrar la app. Es idempotente.
   configureMobileRuntime(set, get);
-  await stopBackgroundLocationServiceAsync().catch(() => undefined);
+  await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
   await clearTenantCache();
   setAuthToken(token);
 
@@ -2034,7 +2034,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     beginSessionEpoch();
     set({ isSigningOut: true, error: null });
     disconnectSocket();
-    await stopBackgroundLocationServiceAsync().catch(() => undefined);
+    await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
     const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
     await logoutRequest(rt).catch(() => {});
     const pt = await getStoredItem(PUSH_TOKEN_KEY);

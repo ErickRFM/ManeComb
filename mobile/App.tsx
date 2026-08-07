@@ -29,12 +29,6 @@ import {
 import { RadioScreen } from '@/src/screens/radio-screen';
 import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import { API_URL } from '@/src/api/client';
-import * as Location from '@/src/native/location';
-import {
-  startBackgroundLocationServiceAsync,
-  stopBackgroundLocationServiceAsync,
-} from '@/src/native/background-location';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
 import { MODULE_ROUTE_NAMES, canRoleAccessRoute } from '@/src/navigation/route-registry';
 import { linking } from '@/src/navigation/linking';
@@ -70,14 +64,12 @@ function OperationalBackgroundServices() {
   const [applicationState, setApplicationState] = useState(AppState.currentState);
   const foregroundOwnsCapture = applicationState === 'active';
   const location = useLocationEngine({ enabled: foregroundOwnsCapture });
-  const { activeRouteSession, authContext, connectionMode, refreshToken, sendVehicleLocation, token, user } = useAppStore(
+  const { activeRouteSession, authContext, connectionMode, sendVehicleLocation, user } = useAppStore(
     useShallow((state) => ({
       activeRouteSession: state.activeRouteSession,
       authContext: state.authContext,
       connectionMode: state.connectionMode,
-      refreshToken: state.refreshToken,
       sendVehicleLocation: state.sendVehicleLocation,
-      token: state.token,
       user: state.user,
     }))
   );
@@ -114,86 +106,6 @@ function OperationalBackgroundServices() {
     sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : null,
     vehicleId: user?.vehicleId,
   });
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const syncService = async () => {
-      if (foregroundOwnsCapture) {
-        const foregroundCaptureReady = location.watcherActive;
-        const foregroundCaptureUnavailable =
-          location.permission === 'denied' || location.servicesEnabled === false;
-
-        // The native service remains owner until React either starts its watcher
-        // or proves that foreground capture cannot run. This prevents a capture gap.
-        if (foregroundCaptureReady || foregroundCaptureUnavailable) {
-          await stopBackgroundLocationServiceAsync().catch(() => undefined);
-        }
-        return;
-      }
-
-      const canTryStart =
-        user?.role === 'driver' &&
-        Boolean(token && user.vehicleId) &&
-        authContext?.canAccessMobile === true;
-
-      if (!canTryStart) {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
-        return;
-      }
-
-      // Wait until useLocationEngine confirms that the React watcher released
-      // ownership before starting the Android foreground service.
-      if (location.watcherActive) {
-        return;
-      }
-
-      const [foreground, background] = await Promise.all([
-        Location.getForegroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
-        Location.requestBackgroundPermissionsAsync().catch(() => ({ status: Location.PermissionStatus.DENIED })),
-      ]);
-
-      if (
-        cancelled ||
-        foreground.status !== Location.PermissionStatus.GRANTED ||
-        background.status !== Location.PermissionStatus.GRANTED
-      ) {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
-        return;
-      }
-
-      await startBackgroundLocationServiceAsync({
-        apiUrl: API_URL,
-        schedule: user?.operationalSchedule || null,
-        token: token || '',
-        refreshToken: refreshToken || '',
-        vehicleId: user?.vehicleId || '',
-        sessionId: activeRouteSession?.status === 'RUNNING' ? activeRouteSession.id : '',
-      }).catch(() => undefined);
-    };
-
-    syncService();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeRouteSession?.id,
-    activeRouteSession?.status,
-    authContext?.canAccessMobile,
-    foregroundOwnsCapture,
-    location.permission,
-    location.servicesEnabled,
-    location.watcherActive,
-    token,
-    refreshToken,
-    user?.operationalSchedule,
-    user?.role,
-    user?.vehicleId,
-  ]);
 
   return null;
 }

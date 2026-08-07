@@ -7,6 +7,7 @@ const mockStoreState: {
   activeRouteSession: { id: string; status: string } | null;
   apiUrl: string;
   authContext: { canAccessMobile: boolean } | null;
+  isSigningOut: boolean;
   refreshToken: string | null;
   token: string | null;
   user: {
@@ -19,6 +20,7 @@ const mockStoreState: {
   activeRouteSession: null,
   apiUrl: 'https://manecomb.test/api',
   authContext: { canAccessMobile: true },
+  isSigningOut: false,
   refreshToken: 'refresh-token',
   token: 'access-token',
   user: {
@@ -106,6 +108,7 @@ describe('useLocationEngine capture ownership', () => {
     mockStoreState.activeRouteSession = null;
     mockStoreState.apiUrl = 'https://manecomb.test/api';
     mockStoreState.authContext = { canAccessMobile: true };
+    mockStoreState.isSigningOut = false;
     mockStoreState.refreshToken = 'refresh-token';
     mockStoreState.token = 'access-token';
     mockStoreState.user = {
@@ -215,6 +218,25 @@ describe('useLocationEngine capture ownership', () => {
     expect(mockGetBackgroundPermission).not.toHaveBeenCalled();
     expect(mockGetCurrentLocation).not.toHaveBeenCalled();
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
+  });
+
+  it('releases foreground and native ownership as soon as logout starts', async () => {
+    const onChange = () => undefined;
+    let renderer: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Probe, { enabled: true, onChange }));
+    });
+    expect(mockWatchNativeLocation).toHaveBeenCalledTimes(1);
+
+    mockStoreState.isSigningOut = true;
+    await act(async () => {
+      renderer.update(React.createElement(Probe, { enabled: true, onChange }));
+      await flushPromises();
+    });
+
+    expect(removeWatcher).toHaveBeenCalledTimes(1);
+    expect(mockReleaseBackground).toHaveBeenCalledWith('operational-runtime');
   });
 
   it('uses the running journey id in the background lease', async () => {

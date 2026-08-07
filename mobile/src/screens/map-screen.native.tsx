@@ -10,11 +10,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
 import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
-import {
-  getBackgroundLocationServiceStatusAsync,
-  startBackgroundLocationServiceAsync,
-  stopBackgroundLocationServiceAsync,
-} from '@/src/native/background-location';
+import { getBackgroundLocationServiceStatusAsync } from '@/src/native/background-location';
 import { requestBackgroundPermission } from './map/services/location-service';
 import * as Location from '@/src/native/location';
 import type { RouteShape, User, Vehicle } from '@/src/types/app';
@@ -198,9 +194,6 @@ export function MapScreen() {
     deviceLocation,
     refreshDeviceLocation,
     signOut,
-    apiUrl,
-    token,
-    refreshToken,
     user,
   } = useAppStore(
     useShallow((state) => ({
@@ -217,9 +210,6 @@ export function MapScreen() {
       deviceLocation: state.deviceLocation,
       refreshDeviceLocation: state.refreshDeviceLocation,
       signOut: state.signOut,
-      apiUrl: state.apiUrl,
-      token: state.token,
-      refreshToken: state.refreshToken,
       user: state.user,
     }))
   );
@@ -246,7 +236,10 @@ export function MapScreen() {
       const status = await getBackgroundLocationServiceStatusAsync();
       const currentVehicleId = user?.vehicleId || null;
       if (status.active && status.vehicleId && status.vehicleId !== currentVehicleId) {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
+        console.warn('[mobile:gps] native service is reconciling a stale vehicle', {
+          currentVehicleId,
+          nativeVehicleId: status.vehicleId,
+        });
       }
       if (status.reason === 'auth_failed') {
         Alert.alert(
@@ -576,9 +569,7 @@ export function MapScreen() {
         driverId: driverJourney?.driverId || vehicle.driverId,
       });
       useAppStore.setState({ activeRouteSession: result.session });
-      if (action === 'finish') {
-        await stopBackgroundLocationServiceAsync().catch(() => undefined);
-      } else if (
+      if (
         (action === 'start' || action === 'resume') &&
         result.session?.status === 'RUNNING'
       ) {
@@ -588,23 +579,6 @@ export function MapScreen() {
             'Ubicacion en segundo plano desactivada',
             'ManeComb continuara rastreando mientras la app este visible. Habilita "Permitir siempre" en Ajustes para mantener el rastreo con la pantalla bloqueada.'
           );
-        } else if (!token || !refreshToken) {
-          Alert.alert('No se pudo activar el rastreo', 'Faltan credenciales de sesion. Inicia sesion nuevamente.');
-        } else {
-          const started = await startBackgroundLocationServiceAsync({
-            apiUrl,
-            refreshToken,
-            schedule: user.operationalSchedule,
-            sessionId: result.session.id,
-            token,
-            vehicleId: vehicle.id,
-          }).catch(() => false);
-          if (!started) {
-            Alert.alert(
-              'Rastreo en segundo plano no disponible',
-              'La jornada inicio, pero el GPS en segundo plano no pudo activarse. El rastreo en primer plano continuara.'
-            );
-          }
         }
       }
       setPendingJourneyAction(null);

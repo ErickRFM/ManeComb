@@ -60,6 +60,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private var retryDelayMs = RETRY_BASE_MS
   private var stopAfterFlush = false
   private var trackingActive = false
+  @Volatile private var hardStopped = false
 
   private val scheduleMonitor = object : Runnable {
     override fun run() {
@@ -73,6 +74,7 @@ class ManeCombLocationService : Service(), LocationListener {
     locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
     connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     ensureNotificationChannel()
+    activeService = this
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,6 +93,7 @@ class ManeCombLocationService : Service(), LocationListener {
       return START_NOT_STICKY
     }
 
+    hardStopped = false
     val startIntent = intent ?: buildIntentFromPrefs(this)
     stopAfterFlush = false
     apiUrl = startIntent?.getStringExtra(EXTRA_API_URL).orEmpty().trimEnd('/')
@@ -126,10 +129,12 @@ class ManeCombLocationService : Service(), LocationListener {
     scheduleHandler.removeCallbacks(scheduleMonitor)
     stopTracking()
     unregisterNetworkCallback()
+    if (activeService === this) activeService = null
     super.onDestroy()
   }
 
   override fun onLocationChanged(location: Location) {
+    if (hardStopped) return
     val now = System.currentTimeMillis()
     val distanceFromLast = lastSentLocation?.distanceTo(location) ?: Float.MAX_VALUE
 
@@ -274,6 +279,7 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   private fun flushPendingLocations() {
+    if (hardStopped) return
     synchronized(queueLock) {
       if (flushInProgress) {
         return
@@ -361,6 +367,7 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   private fun postLocation(body: JSONObject, authRetry: Boolean = true): Boolean {
+    if (hardStopped) return false
     val safeApiUrl = apiUrl
     val safeToken = token
     var connection: HttpURLConnection? = null
@@ -409,6 +416,7 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   private fun refreshAccessToken(): Boolean {
+    if (hardStopped) return false
     val safeRefreshToken = refreshToken
     if (safeRefreshToken.isBlank()) return false
     var connection: HttpURLConnection? = null
@@ -433,7 +441,7 @@ class ManeCombLocationService : Service(), LocationListener {
         if (nextToken.isBlank()) false else {
           token = nextToken
           refreshToken = nextRefreshToken
-          prefs().edit().putString(KEY_TOKEN, token).putString(KEY_REFRESH_TOKEN, refreshToken).apply()
+          ManeCombLocationCredentials.write(prefs(), token, refreshToken)
           true
         }
       }
@@ -443,6 +451,24 @@ class ManeCombLocationService : Service(), LocationListener {
     } finally {
       connection?.disconnect()
     }
+  }
+
+  private fun hardStopImmediately() {
+    hardStopped = true
+    scheduleHandler.removeCallbacks(scheduleMonitor)
+    stopTracking()
+    unregisterNetworkCallback()
+    synchronized(queueLock) {
+      pendingLocations.clear()
+      retryScheduled = false
+    }
+    apiUrl = ""
+    token = ""
+    refreshToken = ""
+    vehicleId = ""
+    sessionId = ""
+    stopAfterFlush = false
+    stopSelf()
   }
 
   private fun stopForAuthFailure(responseCode: Int): Boolean {
@@ -493,6 +519,7 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   private fun scheduleRetry() {
+    if (hardStopped) return
     synchronized(queueLock) {
       if (retryScheduled || pendingLocations.isEmpty()) {
         return
@@ -632,12 +659,16 @@ class ManeCombLocationService : Service(), LocationListener {
     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
   private fun persistServiceConfig(intent: Intent) {
-    prefs()
+    val preferences = prefs()
+    ManeCombLocationCredentials.write(
+      preferences,
+      intent.getStringExtra(EXTRA_TOKEN).orEmpty(),
+      intent.getStringExtra(EXTRA_REFRESH_TOKEN).orEmpty()
+    )
+    preferences
       .edit()
       .putBoolean(KEY_SERVICE_ENABLED, true)
       .putString(KEY_API_URL, intent.getStringExtra(EXTRA_API_URL).orEmpty())
-      .putString(KEY_TOKEN, intent.getStringExtra(EXTRA_TOKEN).orEmpty())
-      .putString(KEY_REFRESH_TOKEN, intent.getStringExtra(EXTRA_REFRESH_TOKEN).orEmpty())
       .putString(KEY_VEHICLE_ID, intent.getStringExtra(EXTRA_VEHICLE_ID).orEmpty())
       .putString(KEY_SESSION_ID, intent.getStringExtra(EXTRA_SESSION_ID).orEmpty())
       .putBoolean(KEY_SCHEDULE_ENABLED, intent.getBooleanExtra(EXTRA_SCHEDULE_ENABLED, true))
@@ -648,13 +679,13 @@ class ManeCombLocationService : Service(), LocationListener {
   }
 
   private fun clearServiceConfig() {
-    prefs()
+    val preferences = prefs()
+    ManeCombLocationCredentials.clear(preferences)
+    preferences
       .edit()
       .putBoolean(KEY_SERVICE_ENABLED, false)
       .putBoolean(KEY_TRACKING_ACTIVE, false)
       .remove(KEY_API_URL)
-      .remove(KEY_TOKEN)
-      .remove(KEY_REFRESH_TOKEN)
       .remove(KEY_VEHICLE_ID)
       .remove(KEY_SESSION_ID)
       .remove(KEY_SCHEDULE_ENABLED)
@@ -662,11 +693,24 @@ class ManeCombLocationService : Service(), LocationListener {
       .remove(KEY_SCHEDULE_END)
       .remove(KEY_ACTIVE_DAYS)
       .remove(KEY_PENDING_LOCATIONS)
+      .remove(KEY_PENDING_OWNER_VEHICLE_ID)
       .putInt(KEY_PENDING_COUNT, 0)
       .apply()
   }
 
   private fun loadPendingLocations() {
+    val queueOwnerVehicleId = prefs().getString(KEY_PENDING_OWNER_VEHICLE_ID, "").orEmpty()
+    if (queueOwnerVehicleId.isNotBlank() && queueOwnerVehicleId != vehicleId) {
+      synchronized(queueLock) { pendingLocations.clear() }
+      prefs().edit()
+        .remove(KEY_PENDING_LOCATIONS)
+        .remove(KEY_PENDING_OWNER_VEHICLE_ID)
+        .putInt(KEY_PENDING_COUNT, 0)
+        .apply()
+      Log.w(TAG, "Discarded GPS queue from a different vehicle owner.")
+      return
+    }
+
     val rawQueue = prefs().getString(KEY_PENDING_LOCATIONS, "").orEmpty()
     if (rawQueue.isBlank()) {
       prefs().edit().putInt(KEY_PENDING_COUNT, 0).apply()
@@ -720,10 +764,15 @@ class ManeCombLocationService : Service(), LocationListener {
   private fun savePendingLocationsLocked() {
     val entries = JSONArray()
     pendingLocations.forEach { entries.put(it) }
-    prefs().edit()
+    val editor = prefs().edit()
       .putString(KEY_PENDING_LOCATIONS, entries.toString())
       .putInt(KEY_PENDING_COUNT, pendingLocations.size)
-      .apply()
+    if (pendingLocations.isEmpty()) {
+      editor.remove(KEY_PENDING_OWNER_VEHICLE_ID)
+    } else {
+      editor.putString(KEY_PENDING_OWNER_VEHICLE_ID, vehicleId)
+    }
+    editor.apply()
   }
 
   private fun ensureNotificationChannel() {
@@ -801,6 +850,34 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val KEY_SCHEDULE_END = "scheduleEnd"
     private const val KEY_ACTIVE_DAYS = "activeDays"
     private const val KEY_PENDING_LOCATIONS = "pendingLocations"
+    private const val KEY_PENDING_OWNER_VEHICLE_ID = "pendingOwnerVehicleId"
+    @Volatile private var activeService: ManeCombLocationService? = null
+
+    fun hardResetPersistedState(context: Context) {
+      activeService?.hardStopImmediately()
+      val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      ManeCombLocationCredentials.clear(preferences)
+      preferences.edit()
+        .putBoolean(KEY_SERVICE_ENABLED, false)
+        .putBoolean(KEY_TRACKING_ACTIVE, false)
+        .remove(KEY_API_URL)
+        .remove(KEY_VEHICLE_ID)
+        .remove(KEY_SESSION_ID)
+        .remove(KEY_STATUS_REASON)
+        .remove(KEY_SCHEDULE_ENABLED)
+        .remove(KEY_SCHEDULE_START)
+        .remove(KEY_SCHEDULE_END)
+        .remove(KEY_ACTIVE_DAYS)
+        .remove(KEY_PENDING_LOCATIONS)
+        .remove(KEY_PENDING_OWNER_VEHICLE_ID)
+        .remove(KEY_LAST_CAPTURED_AT)
+        .remove(KEY_LAST_SENT_AT)
+        .remove(KEY_LAST_CONFIRMED_AT)
+        .putInt(KEY_PENDING_COUNT, 0)
+        .putInt(KEY_DROPPED_COUNT, 0)
+        .apply()
+      context.stopService(Intent(context, ManeCombLocationService::class.java))
+    }
 
     fun buildIntentFromPrefs(context: Context): Intent? {
       val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -809,10 +886,12 @@ class ManeCombLocationService : Service(), LocationListener {
       }
 
       val apiUrl = prefs.getString(KEY_API_URL, "").orEmpty()
-      val token = prefs.getString(KEY_TOKEN, "").orEmpty()
-      val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, "").orEmpty()
+      val credentials = ManeCombLocationCredentials.read(prefs)
+      val token = credentials?.token.orEmpty()
+      val refreshToken = credentials?.refreshToken.orEmpty()
       val vehicleId = prefs.getString(KEY_VEHICLE_ID, "").orEmpty()
       if (apiUrl.isBlank() || token.isBlank() || vehicleId.isBlank()) {
+        hardResetPersistedState(context)
         return null
       }
 

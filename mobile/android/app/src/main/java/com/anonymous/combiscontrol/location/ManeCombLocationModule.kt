@@ -82,21 +82,9 @@ class ManeCombLocationModule(
       putBoolean("trackingActive", prefs.getBoolean(ManeCombLocationService.KEY_TRACKING_ACTIVE, false))
       putInt("pendingPackets", prefs.getInt(ManeCombLocationService.KEY_PENDING_COUNT, 0))
       putInt("droppedPackets", prefs.getInt(ManeCombLocationService.KEY_DROPPED_COUNT, 0))
-      putNullableTimestamp(
-        this,
-        "lastCapturedAt",
-        prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L)
-      )
-      putNullableTimestamp(
-        this,
-        "lastSentAt",
-        prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L)
-      )
-      putNullableTimestamp(
-        this,
-        "lastConfirmedAt",
-        prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L)
-      )
+      putNullableTimestamp(this, "lastCapturedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L))
+      putNullableTimestamp(this, "lastSentAt", prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L))
+      putNullableTimestamp(this, "lastConfirmedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L))
     })
 
     if (reason != null) {
@@ -122,6 +110,16 @@ class ManeCombLocationModule(
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("location_service_stop_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun hardStopService(promise: Promise) {
+    try {
+      ManeCombLocationService.hardResetPersistedState(reactContext)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("location_service_hard_stop_failed", error.message, error)
     }
   }
 
