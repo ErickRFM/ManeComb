@@ -12,7 +12,7 @@ const AdminOverviewScreen = lazy(() => import('@/features/platform/screens/overv
 const AdminCompaniesScreen = lazy(() => import('@/features/platform/companies/companies-screen').then((module) => ({ default: module.AdminCompaniesScreen })));
 const AdminCompanyDetailScreen = lazy(() => import('@/features/platform/companies/companies-screen').then((module) => ({ default: module.AdminCompanyDetailScreen })));
 const AdminCommercialScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminCommercialScreen })));
-const AdminCommercialDetailScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminCommercialDetailScreen })));
+const AdminCommercialDetailScreen = lazy(() => import('@/features/platform/manual-payments/manual-payment-detail-screen').then((module) => ({ default: module.AdminCommercialDetailScreen })));
 const AdminSystemScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminSystemScreen })));
 const AdminAuditScreen = lazy(() => import('@/features/platform/operations/operations-screens').then((module) => ({ default: module.AdminAuditScreen })));
 const AdminTeamScreen = lazy(() => import('@/features/platform/governance/governance-screens').then((module) => ({ default: module.AdminTeamScreen })));
