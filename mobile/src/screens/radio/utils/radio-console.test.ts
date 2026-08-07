@@ -28,10 +28,29 @@ describe('live radio console', () => {
   });
 
   it('marks the channel as switching until the runtime joined the selected channel', () => {
-    const console = deriveLiveConsole({ ...baseLive, channelSynced: false, phase: 'LISTENING' });
-    expect(console.pttDisabled).toBe(true);
-    expect(console.pending).toBe(true);
-    expect(console.detail).toContain('General operacion');
+    // Ningun estado del canal anterior puede presentarse como si fuera del
+    // canal recien elegido: ni escucha, ni recepcion, ni canal ocupado.
+    for (const phase of ['LISTENING', 'REQUESTING', 'TRANSMITTING', 'RECEIVING', 'CHANNEL_BUSY'] as const) {
+      const console = deriveLiveConsole({
+        ...baseLive,
+        channelSynced: false,
+        operator: { id: 'user-2', name: 'C-03' },
+        phase,
+      });
+      expect(console.pttDisabled).toBe(true);
+      expect(console.pending).toBe(true);
+      expect(console.capturing).toBe(false);
+      expect(console.detail).toContain('General operacion');
+    }
+  });
+
+  it('still reports terminal states even before the channel is synced', () => {
+    expect(
+      deriveLiveConsole({ ...baseLive, channelSynced: false, phase: 'UNAUTHORIZED' }).label
+    ).toBe('Sesion expirada');
+    expect(
+      deriveLiveConsole({ ...baseLive, channelSynced: false, phase: 'PAUSED_BY_CALL' }).label
+    ).toBe('En llamada');
   });
 
   it('names the operator that holds the channel', () => {

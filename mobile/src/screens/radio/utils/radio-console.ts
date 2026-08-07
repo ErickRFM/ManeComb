@@ -77,6 +77,30 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
     };
   }
 
+  // Mientras el runtime no confirme el canal seleccionado, ningun estado
+  // operativo del canal anterior puede presentarse como si fuera de este.
+  const OWN_CHANNEL_PHASES: RadioLivePhase[] = [
+    'LISTENING',
+    'REQUESTING',
+    'TRANSMITTING',
+    'RECEIVING',
+    'CHANNEL_BUSY',
+  ];
+  if (!channelSynced && OWN_CHANNEL_PHASES.includes(phase)) {
+    return {
+      label: 'Cambiando de canal',
+      detail: `Uniendose a ${selectedChannelTitle}`,
+      icon: 'sync',
+      tone: 'info',
+      variant: 'pending',
+      pttTitle: 'Cambiando',
+      pttSubtitle: 'Uniendose al canal',
+      pttDisabled: true,
+      capturing: false,
+      pending: true,
+    };
+  }
+
   switch (phase) {
     case 'TRANSMITTING':
       return {
@@ -183,20 +207,6 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
         pending: false,
       };
     case 'LISTENING':
-      if (!channelSynced) {
-        return {
-          label: 'Cambiando de canal',
-          detail: `Uniendose a ${selectedChannelTitle}`,
-          icon: 'sync',
-          tone: 'info',
-          variant: 'pending',
-          pttTitle: 'Cambiando',
-          pttSubtitle: 'Uniendose al canal',
-          pttDisabled: true,
-          capturing: false,
-          pending: true,
-        };
-      }
       return {
         label: 'En linea',
         detail: selectedChannelTitle,
