@@ -1,16 +1,11 @@
+const { unitTestExtensions, unitTestRoots } = require('./test/unit-test-policy.cjs');
+
 module.exports = {
   preset: 'react-native',
   testEnvironment: 'node',
-  testMatch: [
-    '<rootDir>/src/**/*.test.ts',
-    '<rootDir>/src/**/*.test.tsx',
-    '<rootDir>/src/**/*.test.js',
-    '<rootDir>/src/**/*.test.jsx',
-    '<rootDir>/scripts/**/*.test.ts',
-    '<rootDir>/scripts/**/*.test.tsx',
-    '<rootDir>/scripts/**/*.test.js',
-    '<rootDir>/scripts/**/*.test.jsx',
-  ],
+  testMatch: unitTestRoots.flatMap((root) =>
+    unitTestExtensions.map((extension) => `<rootDir>/${root}/**/*.test.${extension}`)
+  ),
   moduleNameMapper: {
     // Debe preceder a '^@/': el contrato compartido vive fuera de rootDir.
     '^@shared/(.*)$': '<rootDir>/../shared/$1',
