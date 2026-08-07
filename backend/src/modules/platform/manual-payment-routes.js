@@ -1,5 +1,6 @@
 const { Router } = require("express");
 const rateLimit = require("express-rate-limit");
+const { getRolesWithPermission } = require("../../middlewares/access-control");
 const { platformAuth, requireMfa } = require("../../middlewares/platform-auth");
 const { requirePlatformPermission } = require("../../middlewares/platform-access");
 const { buildCommercialActivationUpdate } = require("../../services/commercial-activation");
@@ -67,24 +68,27 @@ function serializeOrder(order) {
 function emitManualPaymentUpdate(req, order, evidence) {
   const organizationId = String(order?.organizationId || "").trim();
   const ownerUserId = String(order?.ownerUserId || "").trim();
-  const payload = {
+  const updatedAt = new Date().toISOString();
+  const paymentPayload = {
     organizationId,
     orderId: order.id,
     evidence,
     order: serializeOrder(order),
-    updatedAt: new Date().toISOString()
+    updatedAt
   };
 
   if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit("manual-payment:updated", payload);
+    getRolesWithPermission("canManageBilling").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("manual-payment:updated", paymentPayload);
+    });
     req.app.locals.io?.to(`org:${organizationId}`).emit("subscription:updated", {
       organizationId,
       subscription: buildSubscription(order),
-      updatedAt: payload.updatedAt
+      updatedAt
     });
   }
-  if (ownerUserId) req.app.locals.io?.to(`user:${ownerUserId}`).emit("manual-payment:updated", payload);
-  req.app.locals.io?.to("platform:admin").emit("manual-payment:updated", payload);
+  if (ownerUserId) req.app.locals.io?.to(`user:${ownerUserId}`).emit("manual-payment:updated", paymentPayload);
+  req.app.locals.io?.to("platform:admin").emit("manual-payment:updated", paymentPayload);
 }
 
 router.get(
