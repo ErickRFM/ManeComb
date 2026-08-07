@@ -55,6 +55,7 @@ function EvidencePanel({ evidence }: { evidence: PlatformManualPaymentEvidence }
         <Fact label="Banco de origen" value={evidence.originBank || 'No informado'} />
         <Fact label="Fecha transferencia" value={formatDate(evidence.transferDate)} />
         <Fact label="Recibida" value={formatDate(evidence.submittedAt)} />
+        <Fact label="Versión" value={String(evidence.version)} />
       </View>
       {evidence.note ? <View style={styles.noteBox}><Text style={styles.factLabel}>Nota del cliente</Text><Text style={styles.bodyText}>{evidence.note}</Text></View> : null}
       {evidence.reviewNote ? <View style={styles.noteBox}><Text style={styles.factLabel}>Nota de revisión</Text><Text style={styles.bodyText}>{evidence.reviewNote}</Text></View> : null}
@@ -136,6 +137,7 @@ export function AdminCommercialDetailScreen({ orderId }: { orderId: string }) {
         orderId,
         {
           decision,
+          evidenceVersion: evidence.version,
           note: reviewNote,
           trackingKeyConfirmation: decision === 'approve' ? trackingConfirmation.trim() : undefined,
         },
@@ -158,7 +160,7 @@ export function AdminCommercialDetailScreen({ orderId }: { orderId: string }) {
     <AdminShell
       actions={<Pressable onPress={() => router.push('/admin/commercial')} style={styles.secondaryButton}><Text style={styles.secondaryText}>Volver</Text></Pressable>}
       title={order?.companyName || manualData?.order.companyName || 'Orden comercial'}
-      subtitle="Detalle comercial y validación controlada de transferencias SPEI. La aprobación exige MFA, permiso financiero e idempotencia.">
+      subtitle="Detalle comercial y validación controlada de transferencias SPEI. La aprobación exige MFA, permiso financiero, versión vigente e idempotencia.">
       {orderState === 'loading' || orderState === 'idle' ? (
         <View style={styles.stateCard}><ActivityIndicator color={palette.info} /><Text style={styles.bodyText}>Cargando orden…</Text></View>
       ) : null}
@@ -198,7 +200,7 @@ export function AdminCommercialDetailScreen({ orderId }: { orderId: string }) {
         <View style={styles.headerRow}>
           <View style={styles.flex}>
             <Text style={styles.sectionTitle}>Validación de transferencia</Text>
-            <Text style={styles.bodyText}>La clave de rastreo y el importe se contrastan con la orden antes de activar el servicio.</Text>
+            <Text style={styles.bodyText}>La clave de rastreo, el importe y la versión visible se contrastan con la orden antes de activar el servicio.</Text>
           </View>
           <Pressable onPress={() => void loadManual()} style={styles.secondaryButton}><Text style={styles.secondaryText}>Actualizar</Text></Pressable>
         </View>
@@ -280,7 +282,7 @@ export function AdminCommercialDetailScreen({ orderId }: { orderId: string }) {
         {evidence && ['approved', 'rejected'].includes(evidence.status) ? (
           <View style={styles.stateCard}>
             <Text style={styles.stateTitle}>Revisión cerrada</Text>
-            <Text style={styles.bodyText}>La decisión quedó registrada y no puede repetirse con otra intención.</Text>
+            <Text style={styles.bodyText}>La decisión quedó registrada y no puede repetirse sobre otra versión de evidencia.</Text>
           </View>
         ) : null}
       </View>
