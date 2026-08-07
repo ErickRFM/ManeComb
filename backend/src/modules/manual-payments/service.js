@@ -127,6 +127,18 @@ function normalizeDecision(value) {
   return decision;
 }
 
+function normalizeEvidenceVersion(value) {
+  const version = Number(value);
+  if (!Number.isInteger(version) || version <= 0) {
+    throw domainError(
+      "invalid_manual_payment_evidence_version",
+      "La versión de evidencia es obligatoria para revisar la transferencia.",
+      400
+    );
+  }
+  return version;
+}
+
 function getEvidenceFingerprint(payload) {
   return hash(JSON.stringify({
     amountMinor: payload.amountMinor,
@@ -138,8 +150,8 @@ function getEvidenceFingerprint(payload) {
   }));
 }
 
-function getDecisionFingerprint(decision, reviewNote) {
-  return hash(JSON.stringify({ decision, reviewNote }));
+function getDecisionFingerprint(decision, reviewNote, evidenceVersion) {
+  return hash(JSON.stringify({ decision, reviewNote, evidenceVersion }));
 }
 
 function isManualTransferOrder(order) {
@@ -340,18 +352,34 @@ async function submitManualPaymentEvidence({ order, userId, payload = {}, idempo
   }
 }
 
-async function claimManualPaymentDecision({ orderId, decision, reviewNote = "", reviewerId, idempotencyKey, now = new Date() }) {
+async function claimManualPaymentDecision({
+  orderId,
+  decision,
+  reviewNote = "",
+  reviewerId,
+  idempotencyKey,
+  expectedEvidenceVersion,
+  now = new Date()
+}) {
   const normalizedDecision = normalizeDecision(decision);
   const normalizedNote = sanitizeText(reviewNote, 500);
   if (normalizedDecision === "reject" && normalizedNote.length < 4) {
     throw domainError("manual_payment_rejection_note_required", "Indica el motivo del rechazo.", 400);
   }
+  const expectedVersion = normalizeEvidenceVersion(expectedEvidenceVersion);
   const keyHash = hash(normalizeIdempotencyKey(idempotencyKey));
-  const fingerprint = getDecisionFingerprint(normalizedDecision, normalizedNote);
   const current = await findRawEvidence(orderId);
   if (!current) {
     throw domainError("manual_payment_evidence_not_found", "No existe evidencia de transferencia para esta orden.", 404);
   }
+  if (Number(current.version || 0) !== expectedVersion) {
+    throw domainError(
+      "manual_payment_evidence_version_mismatch",
+      "La evidencia cambió desde que abriste la revisión. Actualiza antes de decidir.",
+      409
+    );
+  }
+  const fingerprint = getDecisionFingerprint(normalizedDecision, normalizedNote, expectedVersion);
 
   if (["approved", "rejected"].includes(String(current.status))) {
     if (current.decisionKeyHash === keyHash && current.decisionFingerprint === fingerprint) {
@@ -370,6 +398,13 @@ async function claimManualPaymentDecision({ orderId, decision, reviewNote = "", 
   if (!isMongoReady()) {
     const memoryCurrent = memoryEvidence.get(String(orderId));
     if (!memoryCurrent) throw domainError("manual_payment_evidence_not_found", "No existe evidencia de transferencia para esta orden.", 404);
+    if (Number(memoryCurrent.version || 0) !== expectedVersion) {
+      throw domainError(
+        "manual_payment_evidence_version_mismatch",
+        "La evidencia cambió desde que abriste la revisión. Actualiza antes de decidir.",
+        409
+      );
+    }
     const leaseActive = memoryCurrent.status === "reviewing" && new Date(memoryCurrent.reviewLeaseUntil || 0).getTime() > now.getTime();
     if (leaseActive) {
       throw domainError("manual_payment_review_in_progress", "La transferencia ya está siendo revisada.", 409);
@@ -398,6 +433,7 @@ async function claimManualPaymentDecision({ orderId, decision, reviewNote = "", 
   const claimed = await ManualPaymentEvidenceModel.findOneAndUpdate(
     {
       orderId: String(orderId),
+      version: expectedVersion,
       $or: [
         { status: "pending_review" },
         { status: "reviewing", reviewLeaseUntil: { $lte: now } }
@@ -420,6 +456,13 @@ async function claimManualPaymentDecision({ orderId, decision, reviewNote = "", 
 
   if (!claimed) {
     const latest = await findRawEvidence(orderId);
+    if (Number(latest?.version || 0) !== expectedVersion) {
+      throw domainError(
+        "manual_payment_evidence_version_mismatch",
+        "La evidencia cambió desde que abriste la revisión. Actualiza antes de decidir.",
+        409
+      );
+    }
     if (
       ["approved", "rejected"].includes(String(latest?.status)) &&
       latest?.decisionKeyHash === keyHash &&
