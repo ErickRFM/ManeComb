@@ -149,6 +149,7 @@ describe('ChecklistScreen', () => {
         etaAt: '2026-07-18T10:17:00.000Z', deviationMeters: 12, currentCheckpoint: '1/4',
       },
       session: { id: 's-1', startedAt: '2026-07-18T09:38:00.000Z', elapsedSeconds: 1800 },
+      journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: '2026-07-18T10:08:00.000Z',
       visibility: 'visible',
@@ -174,7 +175,7 @@ describe('ChecklistScreen', () => {
       status: 'idle', operationalState: 'no_route',
       gps: { lat: null, lng: null, speedKmh: null, heading: null, recordedAt: null, receivedAt: null,
         freshness: 'missing', connectionState: 'lost', ageSeconds: null },
-      driver: null, route: null, session: null,
+      driver: null, route: null, session: null, journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: null, visibility: 'visible',
     };
