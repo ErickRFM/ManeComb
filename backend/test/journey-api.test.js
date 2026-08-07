@@ -35,10 +35,28 @@ async function main() {
   const driver = store.getUserById("user-driver-01");
   const driverToken = signToken(driver);
   const vehicle = store.getVehicleById("vehicle-101");
-  const route = store.listRoutes(admin)[0];
+  const origin = { latitude: 19.4326, longitude: -99.1332 };
+  const destination = { latitude: 19.4426, longitude: -99.1232 };
+  const route = store.createRoute({
+    id: "route-journey-api",
+    organizationId: admin.organizationId,
+    name: "Ruta Journey API",
+    code: "JAPI",
+    color: "#1473E6",
+    origin,
+    destination,
+    originLabel: "Origen Journey API",
+    destinationLabel: "Destino Journey API",
+    stops: [],
+    distanceMeters: 1800,
+    durationSeconds: 720,
+    durationInTrafficSeconds: 780,
+    polyline: [origin, destination],
+    createdBy: admin.id
+  });
 
   try {
-    assert.ok(route?.id, "El tenant de prueba debe tener una ruta disponible");
+    assert.ok(route?.id, "El fixture debe crear una ruta disponible para la jornada");
 
     if (String(vehicle.routeId || vehicle.assignedRoute?.routeId || "") !== String(route.id)) {
       store.assignRouteToVehicle({
