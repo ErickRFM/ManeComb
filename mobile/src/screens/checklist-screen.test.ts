@@ -125,10 +125,6 @@ describe('ChecklistScreen', () => {
     expect(getLatestLog(logs, 'v-1')?.id).toBe('cancelled');
   });
 
-  // Regresion del defecto observado el 2026-07-18: en "Registros operativos"
-  // C-1 y C-3 aparecian sin nombre mientras C-2 si se leia, porque la pantalla
-  // construia la identidad en tres lugares y el camino de historial no tenia
-  // respaldo cuando el vehiculo carecia de `code`.
   it('toma la identidad, el conductor y el ETA del snapshot canonico', () => {
     const unit: OperationalUnitSnapshot = {
       snapshotVersion: 2,
@@ -149,13 +145,12 @@ describe('ChecklistScreen', () => {
         etaAt: '2026-07-18T10:17:00.000Z', deviationMeters: 12, currentCheckpoint: '1/4',
       },
       session: { id: 's-1', startedAt: '2026-07-18T09:38:00.000Z', elapsedSeconds: 1800 },
+      journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: '2026-07-18T10:08:00.000Z',
       visibility: 'visible',
     };
 
-    // El vehiculo llega sin `code` ni `driverName`: es el caso que producia la
-    // fila en blanco. El registro debe seguir teniendo identidad.
     const vehicle = { id: 'v-1', code: '', delayMinutes: 0 } as never;
     const record = buildOperationalRecord(unit, vehicle, []);
 
@@ -167,14 +162,13 @@ describe('ChecklistScreen', () => {
   });
 
   it('no inventa ruta ni conductor cuando la unidad no los tiene', () => {
-    // Caso C-2: unidad recien dada de alta.
     const unit: OperationalUnitSnapshot = {
       snapshotVersion: 2,
       unitId: 'v-2', plates: 'GHT-771', label: 'C-2',
       status: 'idle', operationalState: 'no_route',
       gps: { lat: null, lng: null, speedKmh: null, heading: null, recordedAt: null, receivedAt: null,
         freshness: 'missing', connectionState: 'lost', ageSeconds: null },
-      driver: null, route: null, session: null,
+      driver: null, route: null, session: null, journey: null,
       incidents: { open: 0, inProgress: 0, lastAt: null },
       lastEventAt: null, visibility: 'visible',
     };
@@ -184,14 +178,9 @@ describe('ChecklistScreen', () => {
     expect(record.vehicleCode).toBe('C-2');
     expect(record.driverName).toBe('Sin conductor asignado');
     expect(record.routeName).toBe('Sin ruta asignada');
-    // Nunca `salida + minutos`: sin ETA del backend, no hay ETA.
     expect(record.etaAt).toBeNull();
   });
 
-  // Regresion del defecto observado el 2026-07-18: las filas con dos pastillas
-  // ("Disponible" + "Ultima ruta: Finalizado") perdian el nombre de la unidad.
-  // El bloque de pastillas no acotaba su ancho, absorbia la fila completa y
-  // `recordCopy` —con minWidth: 0— se comprimia hasta cero.
   it('acota el ancho de las pastillas para que la identidad nunca se comprima a cero', () => {
     const { theme } = require('@/constants/theme');
     const styles = createStyles(
@@ -200,19 +189,12 @@ describe('ChecklistScreen', () => {
       true
     );
 
-    // El techo de ancho debe dejar de verdad mas de la mitad de la fila a la
-    // identidad. Un `maxWidth: '100%'` cumpliria "esta definido" y reintroduciria
-    // el bug, asi que se verifica el valor.
     expect(styles.recordPills).toBeDefined();
     const maxWidth = styles.recordPills.maxWidth as string;
     expect(typeof maxWidth).toBe('string');
     expect(maxWidth.endsWith('%')).toBe(true);
     expect(Number.parseFloat(maxWidth)).toBeLessThanOrEqual(60);
-
-    // Y debe poder envolver antes que aplastar el texto.
     expect(styles.recordPills.flexWrap).toBe('wrap');
-
-    // La identidad debe conservar un piso de ancho mayor que el icono (44px).
     expect(styles.recordLead.minWidth).toBeGreaterThan(44);
   });
 
