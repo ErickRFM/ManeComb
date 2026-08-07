@@ -40,6 +40,10 @@ function routeError(code, message, statusCode) {
   return error;
 }
 
+function normalizeTrackingKey(value) {
+  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+}
+
 function serializeOrder(order) {
   if (!order) return null;
   return {
@@ -123,6 +127,21 @@ router.post(
 
       const decision = String(req.body?.decision || "").trim().toLowerCase();
       const reviewNote = String(req.body?.note || "").trim();
+      if (decision === "approve") {
+        const currentEvidence = await getManualPaymentEvidence(order.id);
+        if (!currentEvidence) {
+          throw routeError("manual_payment_evidence_not_found", "No existe evidencia SPEI para esta orden.", 404);
+        }
+        const suppliedTrackingKey = normalizeTrackingKey(req.body?.trackingKeyConfirmation);
+        if (!suppliedTrackingKey || suppliedTrackingKey !== normalizeTrackingKey(currentEvidence.trackingKey)) {
+          throw routeError(
+            "manual_payment_tracking_confirmation_mismatch",
+            "Confirma exactamente la clave de rastreo SPEI antes de aprobar.",
+            409
+          );
+        }
+      }
+
       claim = await claimManualPaymentDecision({
         orderId: order.id,
         decision,
