@@ -260,6 +260,16 @@ class ManeCombAudioModule(
         return
       }
 
+      // El microfono es exclusivo: no se puede grabar una nota de voz mientras
+      // Radio transmite o reproduce el canal.
+      if (!RadioAudioSession.shared(reactContext).beginExternalCapture()) {
+        promise.reject(
+          "radio_channel_active",
+          "Finaliza la transmision de Radio antes de grabar una nota de voz."
+        )
+        return
+      }
+
       stopPlayerInternal()
 
       val audioDir = File(reactContext.cacheDir, "manecomb-audio")
@@ -925,6 +935,9 @@ class ManeCombAudioModule(
   }
 
   private fun releaseRecorder(keepFile: Boolean = false) {
+    // Devolver el microfono al arbitro pase lo que pase con el recorder.
+    RadioAudioSession.shared(reactContext).endExternalCapture()
+
     try {
       recorder?.release()
     } catch (_: Exception) {

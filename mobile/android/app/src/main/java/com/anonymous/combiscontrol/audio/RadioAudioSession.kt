@@ -80,11 +80,45 @@ class RadioAudioSession private constructor(
   /** True cuando el canal esta ocupando el audio y el historial no debe sonar. */
   fun ownsAudio(): Boolean = capturing || track != null
 
+  // ---------------- Arbitraje del microfono ----------------
+  //
+  // El microfono es un recurso exclusivo del proceso: la grabacion de notas de
+  // voz de Chat (MediaRecorder) y la captura PTT (AudioRecord) no pueden
+  // coexistir. Esta sesion es la autoridad, porque ya sabe quien posee el audio.
+
+  @Volatile private var externalCaptureActive = false
+
+  /**
+   * Reserva el microfono para un consumidor ajeno a Radio (notas de voz).
+   * @return false si Radio ya posee el audio.
+   */
+  @Synchronized
+  fun beginExternalCapture(): Boolean {
+    if (ownsAudio()) return false
+    externalCaptureActive = true
+    return true
+  }
+
+  @Synchronized
+  fun endExternalCapture() {
+    externalCaptureActive = false
+  }
+
+  fun isExternalCaptureActive(): Boolean = externalCaptureActive
+
   // ---------------- Transmision ----------------
 
   @Synchronized
   override fun startCapture(): Boolean {
     if (capturing) return true
+
+    // Otro consumidor tiene el microfono: transmitir ahora produciria un fallo
+    // de AudioRecord o robaria la grabacion en curso.
+    if (externalCaptureActive) {
+      RadioLog.warn("capture_blocked", "reason" to "microphone_busy")
+      listener?.onAudioFailure("microphone_busy")
+      return false
+    }
 
     val minBuffer = AudioRecord.getMinBufferSize(
       SAMPLE_RATE,
