@@ -18,7 +18,7 @@ function hasIndex(indexes, expectedFields) {
 
 async function run() {
   const mongoStoreSource = fs.readFileSync(
-    path.join(__dirname, "../src/data/mongo-store.js"),
+    path.join(__dirname, "../src/data/mongo-store-core.js"),
     "utf8"
   );
   const chatMessageIndexes = ChatMessageModel.schema.indexes();
