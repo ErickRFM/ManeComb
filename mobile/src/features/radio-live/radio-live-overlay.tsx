@@ -1,33 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
+import { SOCKET_URL } from '@/src/api/client';
 import { useCallStore } from '@/src/features/calls/call-store';
-import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
-import { createNativeRadioLiveRuntime } from './radio-live-runtime';
-import {
-  setRadioLiveRuntimeFactory,
-  useRadioLiveStore,
-} from './radio-live-store';
-
-setRadioLiveRuntimeFactory(createNativeRadioLiveRuntime);
-
-// El PTT en vivo depende de la captura/reproduccion PCM nativa. Web usa notas de
-// voz (MediaRecorder + subida) y no debe levantar este runtime.
-const SUPPORTS_LIVE_RADIO = Platform.OS !== 'web';
+import { useAppStore } from '@/src/store/use-app-store';
+import { RADIO_LIVE_SUPPORTED } from './radio-live-runtime';
+import { useRadioLiveStore } from './radio-live-store';
 
 /**
- * Ancla del runtime unico de Radio. No renderiza UI: solo reconcilia sesion,
- * canal y preempcion por llamada contra `useRadioLiveStore`. La pantalla /radio
- * es un consumidor mas y nunca detiene este runtime.
+ * Ancla de la sesion de Radio. No renderiza UI y ya no usa el socket compartido
+ * de JavaScript: su unico trabajo es decirle al servicio nativo quien es el
+ * operador, que canal quiere y cuando una llamada toma el audio.
+ *
+ * Que este componente se re-renderice o se desmonte no afecta a la sesion: el
+ * canal vive en el servicio.
  */
 export function RadioLiveOverlay(): React.ReactElement | null {
-  const socket = useSharedRealtimeSocket();
   const callPhase = useCallStore((state) => state.phase);
-  const { activate, pause, reset } = useRadioLiveStore(
+  const { activate, reset, setCallActive } = useRadioLiveStore(
     useShallow((state) => ({
       activate: state.activate,
-      pause: state.pause,
       reset: state.reset,
+      setCallActive: state.setCallActive,
     }))
   );
   const {
@@ -49,13 +42,13 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   );
   const [generalChannelId, setGeneralChannelId] = useState<string | null>(null);
   const [ensureAttempt, setEnsureAttempt] = useState(0);
-  const channelOwnerRef = useRef<string | null>(null);
+  const sessionOwnerRef = useRef<string | null>(null);
 
   const eligible = Boolean(user && token && authContext?.canAccessMobile === true);
   const callOwnsAudio = ['CONNECTING', 'CONNECTED', 'RECONNECTING', 'ENDING'].includes(callPhase);
 
   // Un unico productor del canal activo: la seleccion operativa del store. Si el
-  // usuario no esta sobre un canal de radio, se escucha el canal general.
+  // operador no esta sobre un canal de radio, se escucha el canal general.
   const selectedRadioChannelId =
     conversations.find(
       (conversation) =>
@@ -63,10 +56,11 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     )?.id || null;
   const channelId = selectedRadioChannelId || generalChannelId;
 
+  // Cambiar de cuenta debe destruir la sesion nativa antes de abrir otra.
   useEffect(() => {
     const nextOwner = user?.id || null;
-    if (channelOwnerRef.current === nextOwner) return;
-    channelOwnerRef.current = nextOwner;
+    if (sessionOwnerRef.current === nextOwner) return;
+    sessionOwnerRef.current = nextOwner;
     setGeneralChannelId(null);
     setEnsureAttempt(0);
     reset();
@@ -111,19 +105,21 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   }, [conversations, eligible, ensureAttempt, openGeneralConversation, reset, user]);
 
   useEffect(() => {
-    if (!SUPPORTS_LIVE_RADIO || !eligible || !user || !channelId || !socket) return;
+    if (!RADIO_LIVE_SUPPORTED || !eligible || !user || !token || !channelId) return;
+    activate({
+      channelId,
+      token,
+      userId: user.id,
+      userName: user.name || 'Operador',
+      socketUrl: SOCKET_URL,
+    });
+  }, [activate, channelId, eligible, token, user]);
 
-    // Llamadas y Radio no pueden poseer el microfono a la vez: la llamada gana y
-    // Radio queda en PAUSED_BY_CALL hasta que el runtime se reactive.
-    if (callOwnsAudio) {
-      pause('call');
-      return;
-    }
-
-    activate({ channelId, socket, userId: user.id, userName: user.name });
-  }, [activate, callOwnsAudio, channelId, eligible, pause, socket, user]);
-
-  useEffect(() => () => reset(), [reset]);
+  // Llamadas y Radio no pueden poseer el microfono a la vez: la llamada gana.
+  useEffect(() => {
+    if (!RADIO_LIVE_SUPPORTED) return;
+    setCallActive(callOwnsAudio);
+  }, [callOwnsAudio, setCallActive]);
 
   return null;
 }

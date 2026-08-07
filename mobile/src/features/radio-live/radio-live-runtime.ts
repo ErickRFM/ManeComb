@@ -1,273 +1,105 @@
-﻿import {
-  enqueuePttAudioFrame,
-  startPttAudioCapture,
-  startPttAudioPlayback,
-  stopActiveAudioPlaybackAsync,
-  stopPttAudioCapture,
-  stopPttAudioPlayback,
-  subscribeToPttAudioErrors,
-  subscribeToPttAudioFrames,
-} from '@/src/native/audio';
-import { RadioRealtimeService } from './radio-realtime-service';
+import { Platform } from 'react-native';
 import {
-  acquireRadioForegroundService,
-  releaseRadioForegroundService,
-  setRadioForegroundServiceMode,
-} from './radio-foreground-service';
-import type {
-  RadioLiveRuntimeFactory,
-  RadioLiveRuntimeTransportState,
-  RadioLiveTransmissionResult,
+  RADIO_NATIVE_AVAILABLE,
+  activateRadio,
+  deactivateRadio,
+  endRadioTransmission,
+  getRadioSnapshot,
+  requestRadioTransmission,
+  selectRadioChannel,
+  setRadioCallActive,
+  subscribeToRadioState,
+} from '@/src/native/audio';
+import {
+  initialRadioLiveState,
+  projectNativeSnapshot,
+  type RadioLiveRuntime,
 } from './radio-live-types';
 
-const PTT_FRAME_BYTES = 640;
-
-export const createNativeRadioLiveRuntime: RadioLiveRuntimeFactory = (params) => {
-  const {
-    channelId,
-    socket,
-    userId,
-    userName,
-    onCaptureLost,
-    onError,
-    onForegroundServiceChange,
-    onFrame,
-    onReceiving,
-    onTransmissionEnd,
-    onTransportState,
-  } = params;
-
-  let stopped = false;
-  let foregroundServiceActive = false;
-  let currentTransmissionId: string | null = null;
-  let generation = 0;
-  // Transmision propia en curso. Es independiente de currentTransmissionId
-  // (recepcion) porque el canal nunca tiene ambos a la vez, pero mantenerlos
-  // separados evita que un radio:end ajeno corte la captura local.
-  let txTransmissionId: string | null = null;
-
-  const setForegroundService = async (active: boolean) => {
-    if (foregroundServiceActive === active) return;
-
-    if (active) {
-      try {
-        await acquireRadioForegroundService();
-        if (stopped) {
-          await releaseRadioForegroundService().catch(() => undefined);
-          return;
-        }
-        foregroundServiceActive = true;
-        onForegroundServiceChange(true);
-      } catch {
-        onError('radio_foreground_service_start_failed');
-      }
-      return;
-    }
-
-    foregroundServiceActive = false;
-    onForegroundServiceChange(false);
-    await releaseRadioForegroundService().catch(() => undefined);
-  };
-
-  const finishCurrentTransmission = (reason?: string | null) => {
-    const transmissionId = currentTransmissionId;
-    if (!transmissionId) return;
-    currentTransmissionId = null;
-    generation += 1;
-    stopPttAudioPlayback().catch(() => undefined);
-    onTransmissionEnd({ transmissionId, reason });
-  };
-
-  const setForegroundServiceMode = async (mode: 'listening' | 'transmitting') => {
-    if (!foregroundServiceActive) return;
-    await setRadioForegroundServiceMode(mode).catch(() => undefined);
-  };
-
-  // Corta la captura local sin depender de la pantalla: el micro nunca puede
-  // quedar abierto porque un consumidor de React se desmonto.
-  const abortLocalCapture = (code: string) => {
-    const transmissionId = txTransmissionId;
-    if (!transmissionId) return;
-    txTransmissionId = null;
-    void setForegroundServiceMode('listening');
-    stopPttAudioCapture().catch(() => undefined);
-    void service.endTransmission(transmissionId).catch(() => undefined);
-    onCaptureLost(code);
-  };
-
-  const handleTransportState = (state: RadioLiveRuntimeTransportState) => {
-    if (stopped) return;
-
-    if (state === 'ready') {
-      onTransportState(state, null);
-      void setForegroundService(true);
-      return;
-    }
-
-    if (state === 'offline' || state === 'reconnecting' || state === 'unauthorized' || state === 'error') {
-      finishCurrentTransmission(`transport_${state}`);
-      abortLocalCapture(`transport_${state}`);
-    }
-
-    // Once LISTENING was confirmed, keep the foreground service through transient
-    // reconnects. It is stopped only for terminal auth/runtime errors or an
-    // explicit owner handoff.
-    if (state === 'unauthorized' || state === 'error') {
-      void setForegroundService(false);
-    }
-
-    onTransportState(state, state === 'unauthorized' ? 'radio_unauthorized' : null);
-  };
-
-  const service = new RadioRealtimeService({
-    onStateChange: handleTransportState,
-    onStart: ({ transmissionId, transmitter }) => {
-      // La autoridad de la transmision propia es el ACK de radio:start, no el
-      // broadcast: ignorar el eco evita entrar en RECEIVING sobre uno mismo.
-      if (stopped || transmitter.id === userId) return;
-
-      if (currentTransmissionId && currentTransmissionId !== transmissionId) {
-        finishCurrentTransmission('replaced');
-      }
-
-      currentTransmissionId = transmissionId;
-      const playbackGeneration = ++generation;
-      onReceiving({ transmissionId, operator: transmitter });
-
-      void stopActiveAudioPlaybackAsync()
-        .then(async () => {
-          if (stopped || playbackGeneration !== generation || currentTransmissionId !== transmissionId) return;
-          await startPttAudioPlayback(transmissionId);
-          if (stopped || playbackGeneration !== generation || currentTransmissionId !== transmissionId) {
-            await stopPttAudioPlayback().catch(() => undefined);
-          }
-        })
-        .catch(() => {
-          if (stopped || currentTransmissionId !== transmissionId) return;
-          onError('radio_playback_start_failed');
-          finishCurrentTransmission('playback_failed');
-        });
-    },
-    onFrame: (frame) => {
-      if (stopped || frame.transmissionId !== currentTransmissionId) return;
-      const receivedAt = Date.now();
-      onFrame({ transmissionId: frame.transmissionId, receivedAt });
-      void enqueuePttAudioFrame(frame.data, frame.sequence, frame.transmissionId).catch(() => {
-        if (stopped || frame.transmissionId !== currentTransmissionId) return;
-        onError('radio_frame_playback_failed');
-        finishCurrentTransmission('frame_playback_failed');
-      });
-    },
-    onEnd: ({ transmissionId, reason }) => {
-      if (stopped) return;
-      // El backend puede cerrar la transmision propia (timeout, cadencia,
-      // perdida de arbitraje): la captura local debe seguir esa autoridad.
-      if (transmissionId === txTransmissionId) {
-        txTransmissionId = null;
-        void setForegroundServiceMode('listening');
-        stopPttAudioCapture().catch(() => undefined);
-        onCaptureLost(reason || 'transmission_closed');
-        return;
-      }
-      if (transmissionId !== currentTransmissionId) return;
-      finishCurrentTransmission(reason || null);
-    },
-    onError: () => {
-      if (stopped) return;
-      onError('radio_realtime_error');
-      finishCurrentTransmission('realtime_error');
-      abortLocalCapture('radio_realtime_error');
-    },
-  });
-
-  const removeCaptureFrames = subscribeToPttAudioFrames((frame) => {
-    const transmissionId = txTransmissionId;
-    if (stopped || !transmissionId || frame.bytes !== PTT_FRAME_BYTES) return;
-    const sent = service.sendFrame({
-      data: frame.data,
-      sequence: frame.sequence,
-      sentAt: frame.capturedAt,
-      transmissionId,
+/**
+ * Adaptador Android: traduce comandos de React a comandos del servicio nativo y
+ * proyecta sus instantaneas. No posee transporte, socket, captura ni
+ * reproduccion; todo eso vive en ManeCombRadioService.
+ *
+ * Por eso desmontar la pantalla de Radio, mandar la app a segundo plano o
+ * suspender el runtime JS no interrumpe la sesion.
+ */
+const nativeRadioLiveRuntime: RadioLiveRuntime = {
+  async activate(input) {
+    await activateRadio({
+      token: input.token,
+      userId: input.userId,
+      userName: input.userName,
+      socketUrl: input.socketUrl,
+      channelId: input.channelId,
     });
-    if (!sent) abortLocalCapture('radio_frame_transport_lost');
-  });
-
-  const removeCaptureErrors = subscribeToPttAudioErrors(() => {
-    if (stopped) return;
-    abortLocalCapture('radio_capture_failed');
-  });
-
-  service.connect(socket, channelId);
-
-  const requestTransmission = async (): Promise<RadioLiveTransmissionResult> => {
-    if (stopped) return { ok: false, error: 'radio_runtime_stopped' };
-    if (txTransmissionId) return { ok: true, transmissionId: txTransmissionId };
-
-    const ack = await service.requestTransmission();
-    if (!ack.ok || !ack.transmissionId) {
-      return { ok: false, error: ack.error || 'radio_unavailable', transmitter: ack.transmitter };
-    }
-
-    if (stopped) {
-      await service.endTransmission(ack.transmissionId).catch(() => undefined);
-      return { ok: false, error: 'radio_runtime_stopped' };
-    }
-
-    txTransmissionId = ack.transmissionId;
+  },
+  async selectChannel(channelId) {
+    await selectRadioChannel(channelId);
+  },
+  async requestTransmission() {
     try {
-      await setForegroundServiceMode('transmitting');
-      await startPttAudioCapture(ack.transmissionId);
-    } catch {
-      txTransmissionId = null;
-      await setForegroundServiceMode('listening');
-      await service.endTransmission(ack.transmissionId).catch(() => undefined);
-      return { ok: false, error: 'radio_capture_start_failed' };
+      await requestRadioTransmission();
+      // El resultado real (concedido, ocupado, sin permisos) llega como
+      // instantanea: la autoridad es el backend a traves del servicio.
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: readErrorCode(error) };
     }
-
-    // Un stop() o un radio:end del backend durante el arranque de la captura
-    // deja txTransmissionId en null: en ese caso el micro ya se cerro.
-    if (stopped || txTransmissionId !== ack.transmissionId) {
-      await stopPttAudioCapture().catch(() => undefined);
-      await service.endTransmission(ack.transmissionId).catch(() => undefined);
-      return { ok: false, error: 'radio_request_stale' };
+  },
+  async endTransmission() {
+    try {
+      await endRadioTransmission();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: readErrorCode(error) };
     }
-
-    return {
-      ok: true,
-      transmissionId: ack.transmissionId,
-      transmitter: { id: userId, name: userName },
-    };
-  };
-
-  const endTransmission = async (transmissionId: string): Promise<RadioLiveTransmissionResult> => {
-    if (txTransmissionId === transmissionId) txTransmissionId = null;
-    await setForegroundServiceMode('listening');
-    await stopPttAudioCapture().catch(() => undefined);
-    const ack = await service.endTransmission(transmissionId);
-    return { ok: Boolean(ack.ok), error: ack.error };
-  };
-
-  return {
-    requestTransmission,
-    endTransmission,
-    stop() {
-      if (stopped) return;
-      stopped = true;
-      generation += 1;
-      currentTransmissionId = null;
-      const pendingTransmissionId = txTransmissionId;
-      txTransmissionId = null;
-      removeCaptureFrames();
-      removeCaptureErrors();
-      stopPttAudioCapture().catch(() => undefined);
-      if (pendingTransmissionId) {
-        service.endTransmission(pendingTransmissionId).catch(() => undefined);
-      }
-      service.disconnect();
-      stopPttAudioPlayback().catch(() => undefined);
-      foregroundServiceActive = false;
-      onForegroundServiceChange(false);
-      releaseRadioForegroundService().catch(() => undefined);
-    },
-  };
+  },
+  async setCallActive(active) {
+    await setRadioCallActive(active);
+  },
+  async deactivate() {
+    await deactivateRadio();
+  },
+  subscribe(listener) {
+    return subscribeToRadioState((snapshot) => listener(projectNativeSnapshot(snapshot)));
+  },
+  async readSnapshot() {
+    return projectNativeSnapshot(await getRadioSnapshot());
+  },
 };
+
+/**
+ * Plataformas sin PTT en vivo. Web envia notas de voz completas y no levanta
+ * ninguna sesion de canal; declararlo explicitamente evita que la UI simule un
+ * canal que no existe.
+ */
+const unsupportedRadioLiveRuntime: RadioLiveRuntime = {
+  async activate() {},
+  async selectChannel() {},
+  async requestTransmission() {
+    return { ok: false, error: 'radio_unsupported_platform' };
+  },
+  async endTransmission() {
+    return { ok: false, error: 'radio_unsupported_platform' };
+  },
+  async setCallActive() {},
+  async deactivate() {},
+  subscribe() {
+    return () => undefined;
+  },
+  async readSnapshot() {
+    return initialRadioLiveState();
+  },
+};
+
+export const RADIO_LIVE_SUPPORTED = Platform.OS === 'android' && RADIO_NATIVE_AVAILABLE;
+
+export function createRadioLiveRuntime(): RadioLiveRuntime {
+  return RADIO_LIVE_SUPPORTED ? nativeRadioLiveRuntime : unsupportedRadioLiveRuntime;
+}
+
+function readErrorCode(error: unknown) {
+  const code = (error as { code?: string })?.code;
+  return typeof code === 'string' && code ? code : 'radio_command_failed';
+}

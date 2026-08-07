@@ -1,309 +1,236 @@
-import './radio-foreground-service.test';
-import type { Socket } from 'socket.io-client';
 import {
   setRadioLiveRuntimeFactory,
   useRadioLiveStore,
 } from './radio-live-store';
-import type {
-  RadioLiveRuntimeParams,
-  RadioLiveTransmissionResult,
+import {
+  initialRadioLiveState,
+  projectNativeSnapshot,
+  type RadioLiveRuntime,
+  type RadioLiveState,
 } from './radio-live-types';
 
-const socketA = {} as Socket;
-const socketB = {} as Socket;
-
 type Harness = {
-  factory: jest.Mock;
-  params: RadioLiveRuntimeParams[];
-  stops: jest.Mock[];
-  requests: jest.Mock[];
-  ends: jest.Mock[];
-  nextRequestResult: RadioLiveTransmissionResult;
+  runtime: RadioLiveRuntime;
+  activations: unknown[];
+  channels: string[];
+  requests: number;
+  ends: number;
+  calls: boolean[];
+  deactivations: number;
+  emit: (state: Partial<RadioLiveState>) => void;
+  subscribers: number;
 };
 
 function createHarness(): Harness {
-  const harness: Harness = {
-    factory: jest.fn(),
-    params: [],
-    stops: [],
-    requests: [],
-    ends: [],
-    nextRequestResult: {
-      ok: true,
-      transmissionId: 'tx-local',
-      transmitter: { id: 'user-1', name: 'Operador' },
+  const listeners = new Set<(state: RadioLiveState) => void>();
+  const harness: Partial<Harness> = {
+    activations: [],
+    channels: [],
+    requests: 0,
+    ends: 0,
+    calls: [],
+    deactivations: 0,
+    subscribers: 0,
+  };
+
+  const runtime: RadioLiveRuntime = {
+    async activate(input) {
+      harness.activations!.push(input);
+    },
+    async selectChannel(channelId) {
+      harness.channels!.push(channelId);
+    },
+    async requestTransmission() {
+      harness.requests! += 1;
+      return { ok: true };
+    },
+    async endTransmission() {
+      harness.ends! += 1;
+      return { ok: true };
+    },
+    async setCallActive(active) {
+      harness.calls!.push(active);
+    },
+    async deactivate() {
+      harness.deactivations! += 1;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      harness.subscribers! += 1;
+      return () => {
+        listeners.delete(listener);
+        harness.subscribers! -= 1;
+      };
+    },
+    async readSnapshot() {
+      return initialRadioLiveState();
     },
   };
 
-  harness.factory = jest.fn((input: RadioLiveRuntimeParams) => {
-    harness.params.push(input);
-    const stop = jest.fn();
-    const requestTransmission = jest.fn(async () => harness.nextRequestResult);
-    const endTransmission = jest.fn(async () => ({ ok: true }));
-    harness.stops.push(stop);
-    harness.requests.push(requestTransmission);
-    harness.ends.push(endTransmission);
-    return { stop, requestTransmission, endTransmission };
-  });
+  harness.runtime = runtime;
+  harness.emit = (state) => {
+    const next = { ...initialRadioLiveState(), ...state };
+    listeners.forEach((listener) => listener(next));
+  };
 
-  setRadioLiveRuntimeFactory(harness.factory);
-  return harness;
+  setRadioLiveRuntimeFactory(() => runtime);
+  return harness as Harness;
 }
 
-function activate(userId = 'user-1') {
-  useRadioLiveStore.getState().activate({
-    channelId: 'radio-general',
-    socket: socketA,
-    userId,
-    userName: 'Operador',
-  });
-}
+const session = {
+  channelId: 'radio-general',
+  token: 'token-1',
+  userId: 'user-1',
+  userName: 'Operador',
+  socketUrl: 'https://backend.test',
+};
 
-describe('single radio runtime store', () => {
-  beforeEach(() => {
+describe('radio live store projects the native session', () => {
+  afterEach(() => {
     useRadioLiveStore.getState().reset();
     setRadioLiveRuntimeFactory(null);
   });
 
-  afterAll(() => {
-    useRadioLiveStore.getState().reset();
-    setRadioLiveRuntimeFactory(null);
+  it('activates the native session once per identity', () => {
+    const harness = createHarness();
+    useRadioLiveStore.getState().activate(session);
+    useRadioLiveStore.getState().activate(session);
+
+    expect(harness.activations).toHaveLength(1);
+    expect(harness.subscribers).toBe(1);
   });
 
-  it('starts one runtime for the authenticated channel', () => {
+  it('treats a channel change as a command, not a reconnection', () => {
     const harness = createHarness();
-    activate();
+    useRadioLiveStore.getState().activate(session);
+    harness.emit({ phase: 'LISTENING', channelId: 'radio-general', connected: true });
 
-    expect(harness.factory).toHaveBeenCalledTimes(1);
-    expect(useRadioLiveStore.getState().phase).toBe('JOINING');
-    expect(useRadioLiveStore.getState().channelId).toBe('radio-general');
+    useRadioLiveStore.getState().activate({ ...session, channelId: 'radio-directo' });
 
-    activate();
-    expect(harness.factory).toHaveBeenCalledTimes(1);
+    expect(harness.activations).toHaveLength(1);
+    expect(harness.channels).toEqual(['radio-directo']);
   });
 
-  it('becomes LISTENING only after radio join is ready', () => {
+  it('reactivates when the operator identity changes', () => {
     const harness = createHarness();
-    activate();
+    useRadioLiveStore.getState().activate(session);
+    useRadioLiveStore.getState().activate({ ...session, userId: 'user-2', token: 'token-2' });
 
-    harness.params[0].onTransportState('join_sent');
-    expect(useRadioLiveStore.getState().phase).toBe('JOINING');
-
-    harness.params[0].onTransportState('ready');
-    harness.params[0].onForegroundServiceChange(true);
-    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
-    expect(useRadioLiveStore.getState().foregroundServiceActive).toBe(true);
+    expect(harness.activations).toHaveLength(2);
   });
 
-  it('tracks an incoming transmission and returns to LISTENING', () => {
+  it('never derives a phase of its own: it mirrors the native snapshot', () => {
     const harness = createHarness();
-    activate();
-    harness.params[0].onTransportState('ready');
-    harness.params[0].onReceiving({
-      transmissionId: 'tx-1',
-      operator: { id: 'user-2', name: 'Chofer C-3' },
+    useRadioLiveStore.getState().activate(session);
+
+    harness.emit({
+      phase: 'RECEIVING',
+      channelId: 'radio-general',
+      transmissionId: 'tx-remote',
+      operator: { id: 'user-2', name: 'C-03' },
+      connected: true,
     });
-    harness.params[0].onFrame({ transmissionId: 'tx-1', receivedAt: 1234 });
 
     expect(useRadioLiveStore.getState()).toMatchObject({
       phase: 'RECEIVING',
-      currentTransmissionId: 'tx-1',
-      lastFrameAt: 1234,
+      transmissionId: 'tx-remote',
+      operator: { id: 'user-2', name: 'C-03' },
     });
 
-    harness.params[0].onTransmissionEnd({ transmissionId: 'tx-1' });
-    expect(useRadioLiveStore.getState()).toMatchObject({
-      phase: 'LISTENING',
-      currentTransmissionId: null,
-      operator: null,
-    });
+    harness.emit({ phase: 'CHANNEL_BUSY', channelId: 'radio-general', connected: true });
+    expect(useRadioLiveStore.getState().phase).toBe('CHANNEL_BUSY');
   });
 
-  it('runs REQUESTING -> TRANSMITTING -> LISTENING on the same authority', async () => {
+  it('forwards PTT commands without inventing a local phase', async () => {
     const harness = createHarness();
-    activate();
-    harness.params[0].onTransportState('ready');
+    useRadioLiveStore.getState().activate(session);
+    harness.emit({ phase: 'LISTENING', channelId: 'radio-general', connected: true });
 
-    const request = useRadioLiveStore.getState().requestTransmission();
-    expect(useRadioLiveStore.getState().phase).toBe('REQUESTING');
+    await useRadioLiveStore.getState().requestTransmission();
+    expect(harness.requests).toBe(1);
+    expect(
+      'la fase sigue siendo la del canal hasta que el backend concede el turno'
+    ).toBeTruthy();
+    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
 
-    await request;
-    expect(useRadioLiveStore.getState()).toMatchObject({
+    harness.emit({
       phase: 'TRANSMITTING',
-      currentTransmissionId: 'tx-local',
-      operator: { id: 'user-1' },
+      channelId: 'radio-general',
+      transmissionId: 'tx-1',
+      transmissionStartedAt: 1234,
+      connected: true,
     });
-    expect(useRadioLiveStore.getState().transmissionStartedAt).toEqual(expect.any(Number));
+    expect(useRadioLiveStore.getState().transmissionStartedAt).toBe(1234);
 
     await useRadioLiveStore.getState().endTransmission();
-    expect(harness.ends[0]).toHaveBeenCalledWith('tx-local');
-    expect(useRadioLiveStore.getState()).toMatchObject({
-      phase: 'LISTENING',
-      currentTransmissionId: null,
-      transmissionStartedAt: null,
-    });
+    expect(harness.ends).toBe(1);
   });
 
-  it('refuses to transmit while the channel has another owner', async () => {
+  it('hands the microphone to calls and takes it back', () => {
     const harness = createHarness();
-    activate();
-    harness.params[0].onTransportState('ready');
-    harness.params[0].onReceiving({
-      transmissionId: 'tx-remote',
-      operator: { id: 'user-2', name: 'C-3' },
-    });
+    useRadioLiveStore.getState().activate(session);
 
-    await expect(useRadioLiveStore.getState().requestTransmission()).resolves.toEqual({
-      ok: false,
-      error: 'radio_not_ready',
-    });
-    expect(harness.requests[0]).not.toHaveBeenCalled();
-    expect(useRadioLiveStore.getState().phase).toBe('RECEIVING');
+    useRadioLiveStore.getState().setCallActive(true);
+    useRadioLiveStore.getState().setCallActive(false);
+
+    expect(harness.calls).toEqual([true, false]);
   });
 
-  it('lands on CHANNEL_BUSY when the backend denies the floor', async () => {
+  it('deactivates the native session and stops listening on logout', () => {
     const harness = createHarness();
-    harness.nextRequestResult = {
-      ok: false,
-      error: 'channel_busy',
-      transmitter: { id: 'user-9', name: 'Supervisor' },
-    };
-    activate();
-    harness.params[0].onTransportState('ready');
-
-    await useRadioLiveStore.getState().requestTransmission();
-    expect(useRadioLiveStore.getState()).toMatchObject({
-      phase: 'CHANNEL_BUSY',
-      operator: { id: 'user-9' },
-    });
-
-    // Solo el backend libera el canal ocupado.
-    harness.params[0].onTransmissionEnd({ transmissionId: 'tx-remote' });
-    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
-  });
-
-  it('closes the local transmission when the backend revokes it', async () => {
-    const harness = createHarness();
-    activate();
-    harness.params[0].onTransportState('ready');
-    await useRadioLiveStore.getState().requestTransmission();
-
-    harness.params[0].onCaptureLost('authority_lost');
-
-    expect(useRadioLiveStore.getState()).toMatchObject({
-      phase: 'LISTENING',
-      currentTransmissionId: null,
-      lastErrorCode: 'authority_lost',
-    });
-  });
-
-  it('discards a floor grant that arrives after the channel changed', async () => {
-    const harness = createHarness();
-    let resolveRequest!: (value: RadioLiveTransmissionResult) => void;
-    harness.factory.mockImplementationOnce((input: RadioLiveRuntimeParams) => {
-      harness.params.push(input);
-      const stop = jest.fn();
-      harness.stops.push(stop);
-      return {
-        stop,
-        endTransmission: jest.fn(async () => ({ ok: true })),
-        requestTransmission: jest.fn(
-          () => new Promise<RadioLiveTransmissionResult>((resolve) => {
-            resolveRequest = resolve;
-          })
-        ),
-      };
-    });
-
-    activate();
-    harness.params[0].onTransportState('ready');
-    const request = useRadioLiveStore.getState().requestTransmission();
-
-    useRadioLiveStore.getState().activate({
-      channelId: 'radio-directo',
-      socket: socketA,
-      userId: 'user-1',
-      userName: 'Operador',
-    });
-    resolveRequest({ ok: true, transmissionId: 'late-tx' });
-
-    await expect(request).resolves.toEqual({ ok: false, error: 'radio_request_stale' });
-    expect(useRadioLiveStore.getState().phase).not.toBe('TRANSMITTING');
-    expect(useRadioLiveStore.getState().channelId).toBe('radio-directo');
-  });
-
-  it('does not tear down a recoverable runtime on every re-render', () => {
-    const harness = createHarness();
-    activate();
-    harness.params[0].onError('radio_realtime_error');
-    expect(useRadioLiveStore.getState().phase).toBe('ERROR');
-
-    // El runtime conserva sus listeners y puede recuperarse al reconectar el
-    // socket compartido: reactivarlo en cada render lo impediria.
-    activate();
-    activate();
-    expect(harness.factory).toHaveBeenCalledTimes(1);
-
-    harness.params[0].onTransportState('ready');
-    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
-  });
-
-  it('pauses for a call and reactivates afterwards', () => {
-    const harness = createHarness();
-    activate();
-    useRadioLiveStore.getState().pause('call');
-    expect(harness.stops[0]).toHaveBeenCalledTimes(1);
-    expect(useRadioLiveStore.getState().phase).toBe('PAUSED_BY_CALL');
-
-    activate();
-    expect(harness.factory).toHaveBeenCalledTimes(2);
-    expect(useRadioLiveStore.getState().phase).toBe('JOINING');
-  });
-
-  it('replaces the runtime when the shared socket instance changes', () => {
-    const harness = createHarness();
-    activate();
-    useRadioLiveStore.getState().activate({
-      channelId: 'radio-general',
-      socket: socketB,
-      userId: 'user-1',
-      userName: 'Operador',
-    });
-
-    expect(harness.stops[0]).toHaveBeenCalledTimes(1);
-    expect(harness.factory).toHaveBeenCalledTimes(2);
-  });
-
-  it('ignores callbacks from a replaced runtime', () => {
-    const harness = createHarness();
-    activate();
-    const stale = harness.params[0];
-    useRadioLiveStore.getState().activate({
-      channelId: 'radio-general',
-      socket: socketB,
-      userId: 'user-1',
-      userName: 'Operador',
-    });
-
-    stale.onReceiving({
-      transmissionId: 'stale-tx',
-      operator: { id: 'old-user', name: 'Viejo' },
-    });
-    expect(useRadioLiveStore.getState().currentTransmissionId).toBeNull();
-  });
-
-  it('cleans the runtime and diagnostics on logout/reset', () => {
-    const harness = createHarness();
-    activate();
-    harness.params[0].onTransportState('ready');
-    harness.params[0].onForegroundServiceChange(true);
+    useRadioLiveStore.getState().activate(session);
+    harness.emit({ phase: 'LISTENING', channelId: 'radio-general', connected: true });
 
     useRadioLiveStore.getState().reset();
-    expect(harness.stops[0]).toHaveBeenCalledTimes(1);
-    expect(useRadioLiveStore.getState()).toMatchObject({
-      phase: 'IDLE',
-      channelId: null,
-      foregroundServiceActive: false,
+
+    expect(harness.deactivations).toBe(1);
+    expect(harness.subscribers).toBe(0);
+    expect(useRadioLiveStore.getState()).toMatchObject(initialRadioLiveState());
+  });
+
+  it('refuses to activate an incomplete session', () => {
+    const harness = createHarness();
+    useRadioLiveStore.getState().activate({ ...session, token: '' });
+    expect(harness.activations).toHaveLength(0);
+  });
+});
+
+describe('native snapshot projection', () => {
+  it('maps every field without reinterpreting it', () => {
+    expect(
+      projectNativeSnapshot({
+        phase: 'TRANSMITTING',
+        channelId: 'radio-general',
+        transmissionId: 'tx-1',
+        operatorId: 'user-1',
+        operatorName: 'Operador',
+        connected: true,
+        errorCode: null,
+        transmissionStartedAt: 42,
+      })
+    ).toEqual({
+      phase: 'TRANSMITTING',
+      channelId: 'radio-general',
+      transmissionId: 'tx-1',
+      operator: { id: 'user-1', name: 'Operador' },
+      transmissionStartedAt: 42,
+      connected: true,
+      lastErrorCode: null,
     });
+  });
+
+  it('treats an absent operator as no operator', () => {
+    const projected = projectNativeSnapshot({
+      phase: 'LISTENING',
+      channelId: 'radio-general',
+      transmissionId: null,
+      operatorId: null,
+      operatorName: null,
+      connected: true,
+      errorCode: null,
+    });
+
+    expect(projected.operator).toBeNull();
+    expect(projected.transmissionStartedAt).toBeNull();
   });
 });

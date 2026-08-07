@@ -12,7 +12,39 @@ type PermissionResult = {
   status: 'granted' | 'denied' | 'undetermined';
 };
 
-export type RadioForegroundServiceMode = 'listening' | 'transmitting';
+// Vocabulario de fases compartido con la maquina nativa
+// (RadioSessionState.kt). React proyecta estos valores sin traducirlos.
+export type RadioNativePhase =
+  | 'IDLE'
+  | 'JOINING'
+  | 'LISTENING'
+  | 'REQUESTING'
+  | 'TRANSMITTING'
+  | 'RECEIVING'
+  | 'CHANNEL_BUSY'
+  | 'RECONNECTING'
+  | 'PAUSED_BY_CALL'
+  | 'UNAUTHORIZED'
+  | 'ERROR';
+
+export type RadioNativeSnapshot = {
+  phase: RadioNativePhase;
+  channelId: string | null;
+  transmissionId: string | null;
+  operatorId: string | null;
+  operatorName: string | null;
+  connected: boolean;
+  errorCode: string | null;
+  transmissionStartedAt?: number;
+};
+
+export type RadioActivationConfig = {
+  token: string;
+  userId: string;
+  userName: string;
+  socketUrl: string;
+  channelId: string;
+};
 
 export type RadioAudioRoute = 'auto' | 'bluetooth' | 'wired' | 'speaker' | 'earpiece';
 
@@ -84,14 +116,13 @@ type NativeAudioModule = {
   stopPlayer: () => Promise<PlayerStatus>;
   seekTo: (positionMillis: number) => Promise<PlayerStatus>;
   getPlayerStatus: () => Promise<PlayerStatus>;
-  startPttCapture: (transmissionId: string) => Promise<{ frameDurationMs: number; sampleRate: number }>;
-  stopPttCapture: () => Promise<void>;
-  startPttPlayback: (transmissionId: string) => Promise<void>;
-  enqueuePttFrame: (base64Data: string, sequence: number, transmissionId: string) => Promise<number>;
-  stopPttPlayback: () => Promise<void>;
-  startRadioForegroundService: (mode: RadioForegroundServiceMode) => Promise<void>;
-  setRadioForegroundServiceState: (mode: RadioForegroundServiceMode) => Promise<void>;
-  stopRadioForegroundService: () => Promise<void>;
+  activateRadio: (config: RadioActivationConfig) => Promise<RadioNativeSnapshot>;
+  deactivateRadio: () => Promise<void>;
+  selectRadioChannel: (channelId: string) => Promise<void>;
+  requestRadioTransmission: () => Promise<void>;
+  endRadioTransmission: () => Promise<void>;
+  setRadioCallActive: (active: boolean) => Promise<void>;
+  getRadioSnapshot: () => Promise<RadioNativeSnapshot>;
   getRadioAudioRoute: () => Promise<RadioAudioRouteStatus>;
   setRadioAudioRoute: (route: RadioAudioRoute) => Promise<RadioAudioRouteStatus>;
   startRadioHistoryPlayer: (playerId: string, source: { uri: string; headers?: Record<string, string> }) => Promise<PlayerStatus>;
@@ -113,72 +144,62 @@ const NativeAudio =
     : undefined;
 const pttEventEmitter = NativeAudio ? new NativeEventEmitter(NativeModules.ManeCombAudio) : null;
 
-export type PttAudioFrame = {
-  bytes: number;
-  capturedAt: number;
-  data: string;
-  sequence: number;
+export const RADIO_NATIVE_AVAILABLE = Boolean(NativeAudio);
+
+const IDLE_RADIO_SNAPSHOT: RadioNativeSnapshot = {
+  phase: 'IDLE',
+  channelId: null,
+  transmissionId: null,
+  operatorId: null,
+  operatorName: null,
+  connected: false,
+  errorCode: null,
 };
 
-export function subscribeToPttAudioFrames(listener: (frame: PttAudioFrame) => void) {
-  const subscription = pttEventEmitter?.addListener('ManeCombPttFrame', listener);
+/**
+ * Instantaneas de la sesion nativa de Radio. Es lo unico que el servicio publica
+ * hacia React: estado de baja frecuencia, jamas frames PCM.
+ */
+export function subscribeToRadioState(listener: (snapshot: RadioNativeSnapshot) => void) {
+  const subscription = pttEventEmitter?.addListener('ManeCombRadioState', listener);
   return () => subscription?.remove();
 }
 
-export function subscribeToPttAudioErrors(
-  listener: (error: { code?: string; nativeCode?: number }) => void
-) {
-  const subscription = pttEventEmitter?.addListener('ManeCombPttError', listener);
-  return () => subscription?.remove();
-}
-
+/** Nivel de audio suavizado por el nativo (~12 Hz) para la waveform. */
 export function subscribeToPttAudioLevel(listener: (event: { level: number }) => void) {
   const subscription = pttEventEmitter?.addListener('ManeCombPttLevel', listener);
   return () => subscription?.remove();
 }
 
-export async function startPttAudioCapture(transmissionId: string) {
-  if (!NativeAudio) throw new Error('PTT nativo no disponible.');
-  return NativeAudio.startPttCapture(transmissionId);
+export async function activateRadio(config: RadioActivationConfig) {
+  if (!NativeAudio) return IDLE_RADIO_SNAPSHOT;
+  return NativeAudio.activateRadio(config);
 }
 
-export async function stopPttAudioCapture() {
-  await NativeAudio?.stopPttCapture();
+export async function deactivateRadio() {
+  await NativeAudio?.deactivateRadio();
 }
 
-export async function startPttAudioPlayback(transmissionId: string) {
-  if (!NativeAudio) throw new Error('PTT nativo no disponible.');
-  await NativeAudio.startPttPlayback(transmissionId);
+export async function selectRadioChannel(channelId: string) {
+  await NativeAudio?.selectRadioChannel(channelId);
 }
 
-export async function enqueuePttAudioFrame(
-  base64Data: string,
-  sequence: number,
-  transmissionId: string
-) {
-  if (!NativeAudio) return 0;
-  return NativeAudio.enqueuePttFrame(base64Data, sequence, transmissionId);
+export async function requestRadioTransmission() {
+  if (!NativeAudio) throw new Error('Radio nativo no disponible.');
+  await NativeAudio.requestRadioTransmission();
 }
 
-export async function stopPttAudioPlayback() {
-  await NativeAudio?.stopPttPlayback();
+export async function endRadioTransmission() {
+  await NativeAudio?.endRadioTransmission();
 }
 
-// El tipo de foreground service depende del estado real: escuchar solo necesita
-// mediaPlayback, transmitir necesita microphone. Android 14+ rechaza capturar en
-// segundo plano sin el tipo declarado, por eso el modo viaja al nativo.
-export async function startRadioForegroundService(
-  mode: RadioForegroundServiceMode = 'listening'
-) {
-  await NativeAudio?.startRadioForegroundService(mode);
+export async function setRadioCallActive(active: boolean) {
+  await NativeAudio?.setRadioCallActive(active);
 }
 
-export async function setRadioForegroundServiceState(mode: RadioForegroundServiceMode) {
-  await NativeAudio?.setRadioForegroundServiceState(mode);
-}
-
-export async function stopRadioForegroundService() {
-  await NativeAudio?.stopRadioForegroundService();
+export async function getRadioSnapshot(): Promise<RadioNativeSnapshot> {
+  if (!NativeAudio) return IDLE_RADIO_SNAPSHOT;
+  return NativeAudio.getRadioSnapshot();
 }
 
 const IDLE_AUDIO_ROUTE: RadioAudioRouteStatus = {

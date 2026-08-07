@@ -1,7 +1,10 @@
-import type { Socket } from 'socket.io-client';
+import type { RadioNativeSnapshot } from '@/src/native/audio';
 
-// Fase operativa unica de Radio. La consume tanto el overlay global como la
-// pantalla /radio: no existe una segunda maquina de estados por consumidor.
+/**
+ * Fase operativa unica de Radio. El vocabulario es exactamente el de la maquina
+ * nativa (`RadioSessionState.kt`): React proyecta ese estado sin traducirlo, de
+ * modo que no existe una segunda interpretacion del mismo hecho.
+ */
 export type RadioLivePhase =
   | 'IDLE'
   | 'JOINING'
@@ -23,57 +26,66 @@ export type RadioLiveOperator = {
 export type RadioLiveState = {
   phase: RadioLivePhase;
   channelId: string | null;
-  currentTransmissionId: string | null;
-  /** Quien posee el canal: el receptor remoto en RECEIVING, uno mismo en TRANSMITTING. */
+  transmissionId: string | null;
+  /** Quien posee el canal: el operador remoto en RECEIVING, uno mismo en TRANSMITTING. */
   operator: RadioLiveOperator | null;
-  foregroundServiceActive: boolean;
-  lastFrameAt: number | null;
   transmissionStartedAt: number | null;
+  /** Transporte de Radio conectado, segun el servicio nativo. */
+  connected: boolean;
   lastErrorCode: string | null;
 };
 
-export type RadioLiveRuntimeTransportState =
-  | 'connecting'
-  | 'join_sent'
-  | 'ready'
-  | 'reconnecting'
-  | 'offline'
-  | 'unauthorized'
-  | 'error';
+export type RadioLiveActivation = {
+  channelId: string;
+  token: string;
+  userId: string;
+  userName: string;
+  socketUrl: string;
+};
 
 export type RadioLiveTransmissionResult = {
   ok: boolean;
   error?: string;
-  transmissionId?: string;
-  transmitter?: RadioLiveOperator;
 };
 
-export type RadioLiveRuntimeParams = {
-  channelId: string;
-  socket: Socket;
-  userId: string;
-  userName: string;
-  onTransportState: (state: RadioLiveRuntimeTransportState, errorCode?: string | null) => void;
-  onReceiving: (payload: {
-    transmissionId: string;
-    operator: RadioLiveOperator;
-  }) => void;
-  onFrame: (payload: { transmissionId: string; receivedAt: number }) => void;
-  onTransmissionEnd: (payload: { transmissionId: string; reason?: string | null }) => void;
-  onForegroundServiceChange: (active: boolean) => void;
-  onError: (code: string) => void;
-  /** La captura local termino sin que la pantalla lo pidiera (error nativo/transporte). */
-  onCaptureLost: (code: string) => void;
-};
-
+/**
+ * Adaptador de plataforma. Android lo implementa contra el servicio nativo; el
+ * resto de plataformas no tienen PTT en vivo y usan el adaptador inactivo.
+ */
 export type RadioLiveRuntime = {
-  /** Pide el canal al backend y arranca la captura nativa si lo concede. */
+  activate: (input: RadioLiveActivation) => Promise<void>;
+  selectChannel: (channelId: string) => Promise<void>;
   requestTransmission: () => Promise<RadioLiveTransmissionResult>;
-  /** Detiene la captura nativa y libera el canal. Idempotente. */
-  endTransmission: (transmissionId: string) => Promise<RadioLiveTransmissionResult>;
-  stop: () => void;
+  endTransmission: () => Promise<RadioLiveTransmissionResult>;
+  setCallActive: (active: boolean) => Promise<void>;
+  deactivate: () => Promise<void>;
+  subscribe: (listener: (state: RadioLiveState) => void) => () => void;
+  readSnapshot: () => Promise<RadioLiveState>;
 };
 
-export type RadioLiveRuntimeFactory = (
-  params: RadioLiveRuntimeParams
-) => RadioLiveRuntime;
+export function initialRadioLiveState(): RadioLiveState {
+  return {
+    phase: 'IDLE',
+    channelId: null,
+    transmissionId: null,
+    operator: null,
+    transmissionStartedAt: null,
+    connected: false,
+    lastErrorCode: null,
+  };
+}
+
+/** Proyeccion 1:1 de la instantanea nativa. No reinterpreta ningun hecho. */
+export function projectNativeSnapshot(snapshot: RadioNativeSnapshot): RadioLiveState {
+  return {
+    phase: snapshot.phase,
+    channelId: snapshot.channelId || null,
+    transmissionId: snapshot.transmissionId || null,
+    operator: snapshot.operatorId
+      ? { id: snapshot.operatorId, name: snapshot.operatorName || 'Operador' }
+      : null,
+    transmissionStartedAt: snapshot.transmissionStartedAt ?? null,
+    connected: Boolean(snapshot.connected),
+    lastErrorCode: snapshot.errorCode || null,
+  };
+}

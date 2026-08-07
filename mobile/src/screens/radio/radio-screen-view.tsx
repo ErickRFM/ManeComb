@@ -34,6 +34,7 @@ import { StatusPill } from '@/src/components/status-pill';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getRadioLiveErrorMessage } from '@/src/features/radio-live/radio-live-errors';
+import { RADIO_LIVE_SUPPORTED } from '@/src/features/radio-live/radio-live-runtime';
 import { useRadioLiveStore } from '@/src/features/radio-live/radio-live-store';
 import { formatRelativeTime } from '@/src/utils/format';
 import { createStyles } from './radio-screen.styles';
@@ -74,8 +75,9 @@ const RADIO_MOTION = {
   easing: Easing.out(Easing.cubic),
 };
 
-// Android/iOS operan el PTT en vivo; Web envia notas de voz completas.
-const LIVE_RADIO_SUPPORTED = Platform.OS !== 'web';
+// El PTT en vivo lo sirve el servicio nativo de Android. El resto de plataformas
+// envian notas de voz completas y la consola lo dice explicitamente.
+const LIVE_RADIO_SUPPORTED = RADIO_LIVE_SUPPORTED;
 const WAVEFORM_BARS = 18;
 
 export function RadioScreen() {
