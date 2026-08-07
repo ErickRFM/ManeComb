@@ -11,74 +11,86 @@ haya ejecutado.
 | Gate | Comando | Resultado |
 |---|---|---|
 | TypeScript mobile | `npm run typecheck` (mobile) | PASS |
-| ESLint mobile | `npx eslint src/screens/radio src/features/radio-live` | PASS (0 errores) |
-| Suites mobile | `npx jest --runInBand` | PASS — 58 suites / 325 tests |
+| ESLint mobile | `npx eslint .` | PASS (0 errores) |
+| Suites mobile | `npx jest --runInBand` | PASS — 56 suites / 308 tests |
+| Kotlin | `gradlew :app:testDebugUnitTest` | PASS — 39 tests |
 | Suite backend | `npm test` (backend) | PASS — exit 0 |
-| Build Android | `gradlew.bat assembleDebug` | PASS — ver seccion 2 |
-| Higiene de diff | `git diff --check` | PASS (solo avisos CRLF) |
+| Build Android | `gradlew assembleDebug` | PASS — ver seccion 2 |
+| Higiene de diff | `git diff --check` | PASS |
 
-Linea base antes del trabajo: 56 suites / 295 tests mobile.
+El total de suites mobile baja respecto a la tanda anterior porque las pruebas
+del transporte de JavaScript desaparecieron con el transporte: su cobertura se
+movio a Kotlin, donde ahora hay 39 pruebas.
 
-### Cobertura de regresion agregada
+### Cobertura del nucleo nativo
 
-`features/radio-live/radio-live-store.test.ts`
+`RadioSessionReducerTest` (12)
 
-- `REQUESTING -> TRANSMITTING -> LISTENING` sobre la misma autoridad
-- rechazo de transmision con el canal en manos de otro operador
-- `CHANNEL_BUSY` y su liberacion exclusiva por el backend
-- cierre local cuando el backend revoca la transmision (`authority_lost`)
-- concesion de canal que llega tarde despues de cambiar de canal
-- preempcion por llamada y reactivacion posterior
-- reemplazo de runtime al cambiar el socket compartido
-- callbacks de un runtime reemplazado ignorados
-- limpieza en logout/reset
+- `LISTENING` solo tras el ACK de `radio:join`; conectar no es estar unido
+- el canal no se pide si lo tiene otro operador
+- un `FloorGranted` sin peticion previa no abre el microfono
+- `CHANNEL_BUSY` sin `transmissionId` ajeno, liberado por cualquier `radio:end`
+- revocacion de la transmision propia por el backend
+- perdida de transporte durante TX
+- prioridad de llamada y reingreso posterior
+- eco del propio `radio:start` ignorado
+- frame de otra transmision descartado
+- join rechazado por permisos
+- desactivacion y cambio de canal
 
-`features/radio-live/radio-realtime-service.test.ts`
+`RadioSessionControllerTest` (17)
 
-- `LISTENING` solo tras ACK de `radio:join`, con reintento unico por timeout
-- eventos de otro canal descartados
-- `radio:leave` al desconectar sin cerrar el socket global compartido
-- ACK tardio de `radio:start` liberado tras cambiar de canal
-- `radio:end` idempotente ante `transmission_not_active`
-- rechazo de frames que no son PCM16 canonico de 20 ms
+- activar conecta y se une solo tras el ACK
+- join sin permisos no entra en bucle de reconexion
+- turno concedido abre el microfono y los frames salen por el socket nativo
+- canal ocupado no abre el microfono
+- fallo de microfono libera el canal ya concedido
+- **el backend revoca la transmision con React congelado**
+- **perder el socket durante TX cierra captura y programa reconexion acotada**
+- socket caido sin frames entregables corta la captura
+- token invalido no reintenta
+- **la recepcion reproduce sin pasar por React**
+- eco de la propia transmision no se reproduce
+- cambio de canal durante TX libera el canal anterior
+- turno concedido tarde tras cambiar de canal se devuelve
+- llamada suspende Radio y despues vuelve a unirse
+- logout destruye socket, canal, captura e identidad
+- activar el mismo canal dos veces no duplica la sesion
+- join fallido por red programa reconexion acotada
 
-`features/radio-live/radio-foreground-service.test.ts`
+`RadioPolicyTest` (10)
 
-- arranque unico y modo `listening` inicial
-- parada solo tras la ventana de gracia
-- cancelacion de la parada si el runtime reinicia dentro de la gracia
-- promocion a `microphone` solo mientras se transmite
-- ningun cambio de modo con el servicio detenido
+- backoff exponencial acotado, con jitter dentro del limite y reset
+- fallo de autenticacion y desactivacion explicita no se reintentan
+- cola RX: secuencia contigua, repetidos descartados, resincronizacion tras
+  hueco, frames ajenos ignorados y **profundidad acotada** (sin memoria infinita)
 
-`features/radio-live/radio-foreground-authority.test.js`
+### Cobertura de la frontera en JavaScript
 
-- transporte, captura y reproduccion fuera de la pantalla
-- **un unico** `new RadioRealtimeService(` en todo `src/`
-- ausencia de la bandera global de suspension
-- el overlay no pausa el runtime por estar en la pantalla de Radio
+`radio-transport-ownership.test.js`
 
-`screens/radio/utils/radio-console.test.ts`
+- **ningun productor ni consumidor de `radio:*` en JavaScript**
+- ningun simbolo del camino PTT (`startPttCapture`, `enqueuePttFrame`,
+  `ManeCombPttFrame`, …) en el bridge
+- **un solo cliente Socket.IO**, en `SocketIoRadioTransport.kt`
+- **una sola `AudioRecord` y una sola `AudioTrack`**, en `RadioAudioSession.kt`
+- un solo algoritmo de reconexion, con el del transporte desactivado
+- los archivos sustituidos ya no existen
+- la pantalla no posee transporte ni audio
+- el overlay ya no consume el socket compartido de JavaScript
 
-- el PTT solo se habilita en `LISTENING` sobre el canal seleccionado
-- canal en transicion marcado como tal, no como listo
-- operador real nombrado en `RECEIVING` / `CHANNEL_BUSY`
-- microfono bloqueado ofrece reintento en vez de un control muerto
-- la consola web se anuncia como nota de voz, nunca como canal en vivo
+`radio-live-store.test.ts`
 
-`screens/radio/utils/radio-audio-route.test.ts`
+- activacion unica por identidad; cambio de canal como comando, no reconexion
+- reactivacion al cambiar de operador
+- el store **no deriva fases**: proyecta la instantanea nativa
+- comandos PTT sin inventar fase local
+- preempcion por llamada
+- logout desactiva la sesion nativa y deja de escuchar
+- proyeccion 1:1 de la instantanea, incluido operador ausente
 
-- ciclo limitado a salidas realmente conectadas
-- recuperacion cuando la salida elegida se desconecta
-
-`backend/test/radio-floor-control.test.js`
-
-- instancia unica sin Redis y multi-instancia con lock
-- `refresh`/`release` incapaces de operar sobre un lock ajeno
-- `authority_lost` al expirar el lock y cambiar de dueno
-- Redis habilitado pero caido: fallo explicito, sin split-brain
-- adaptador Redis no listo: la transmision pierde autoridad
-- lock corrupto que no bloquea el canal
-- cadencia, orden, tamanio y duracion maxima de frames
+`radio-console.test.ts` y `radio-audio-route.test.ts` siguen vigentes sin
+cambios: el vocabulario de fases es el mismo en ambos lados.
 
 ---
 
@@ -86,18 +98,14 @@ Linea base antes del trabajo: 56 suites / 295 tests mobile.
 
 ```text
 cd mobile/android && gradlew.bat assembleDebug
-BUILD SUCCESSFUL in 19m 29s
-656 actionable tasks: 634 executed, 22 up-to-date
+BUILD SUCCESSFUL
 ```
 
-APK: `mobile/android/app/build/outputs/apk/debug/app-debug.apk` (156 MB).
+APK: `mobile/android/app/build/outputs/apk/debug/app-debug.apk` (~161 MB; crece
+respecto al anterior por el cliente Socket.IO nativo).
 
 Se usa `assembleDebug` porque `assembleRelease` requiere ademas el bundle de
 Metro y la firma de release, que no forman parte de este cambio.
-
-El build cubre la totalidad de los cambios nativos (`RadioAudioRoute`,
-`ManeCombRadioService`, `ManeCombAudioModule`, manifest). Los commits
-posteriores al build son solo TypeScript y no alteran el artefacto nativo.
 
 Compilar no demuestra comportamiento: ver seccion 3.
 
@@ -117,64 +125,54 @@ No se ejecuto ninguna prueba con dispositivos reales. Los siguientes casos
 - interrupcion por llamada telefonica del sistema
 - soak de 30-60 minutos
 
+Riesgos concretos que solo el hardware puede resolver:
+
+1. **Promocion del tipo de foreground service.** El servicio arranca como
+   `mediaPlayback` y agrega `microphone` al transmitir. Falta confirmar en
+   Android 14/15 reales que la promocion se acepta con la app en segundo plano y
+   que la captura efectivamente produce audio, no silencio.
+2. **Comportamiento de Doze sobre el socket.** El backoff de reconexion es
+   correcto por construccion, pero la frecuencia real de despertares bajo Doze
+   solo se mide en dispositivo.
+3. **Latencia extremo a extremo** del camino nativo frente al anterior.
+4. **Consumo de bateria** de la sesion nativa en jornada completa.
+
 Estado: `CODE COMPLETE` + `AUTOMATED CERTIFIED` + `PHYSICAL CERTIFICATION PENDING`.
 
 ---
 
-## 4. Riesgo abierto: el transporte sigue en JavaScript
+## 4. Riesgo cerrado: el transporte ya no vive en JavaScript
 
-Este es el limite mas importante y **no** se cerro en este trabajo.
+En la tanda anterior este documento decia que `ManeCombRadioService` era un
+contenedor de notificacion y que cada frame TX/RX cruzaba el bridge de React.
+**Eso ya no es cierto.**
 
-`ManeCombRadioService` es contenedor foreground y notificacion. No posee socket,
-autenticacion, join, reconexion, framing TX ni cola RX. Cada frame sigue cruzando
-el bridge nativo -> JS -> Socket.IO. Con el proceso React suspendido en
-background profundo o Doze, los frames dejan de fluir.
+- el socket Radio, la autenticacion, el join, el arbitraje y la reconexion viven
+  en el servicio
+- `AudioRecord` entrega frames al controlador nativo, que los emite por el socket
+  nativo
+- `radio:frame` recibido se escribe en `AudioTrack` sin pasar por React
+- React recibe instantaneas de baja frecuencia y niveles de audio suavizados
+- el transporte de Radio en JavaScript fue **eliminado**, no desactivado
 
-Lo que si se corrigio en esta rama, y que reduce el dano real:
-
-- el tipo de foreground service ya declara `microphone` al transmitir; antes
-  Android 14+ podia silenciar la captura en segundo plano
-- la notificacion refleja el estado real en vez de afirmar "Canal preparado"
-- `START_NOT_STICKY` evita que el sistema relance una notificacion sin canal
-- el runtime corta la captura por si mismo ante cualquier perdida de autoridad,
-  transporte o audio, sin depender de React
-
-Lo que falta para cerrarlo, en orden:
-
-1. Cliente Socket.IO (o transporte equivalente) dentro de `ManeCombRadioService`.
-2. Puente seguro de credenciales de sesion al servicio, con destruccion en
-   logout junto al resto del estado de Radio.
-3. Framing TX y cola RX nativos, con buffer de jitter acotado.
-4. React Native reducido a comandos y snapshots de baja frecuencia.
-5. Retirada del transporte JS de Radio: durante la migracion no pueden existir
-   ambos activos para el mismo usuario y canal.
-6. Certificacion fisica de los casos de la seccion 3.
-
-Es una iniciativa propia, no un parche de lifecycle. Implementarla a ciegas, sin
-dos dispositivos para validarla, produciria un segundo transporte a medio
-conectar: exactamente la duplicacion de autoridad que este trabajo elimino.
+Desmontar la pantalla de Radio, mandar la app a segundo plano o suspender el
+runtime JS ya no rompe arquitectonicamente el camino critico del PTT. Queda
+demostrarlo en campo (seccion 3).
 
 ---
 
-## 5. No implementado (fuera del alcance seguro de esta ejecucion)
+## 5. No implementado (fuera del alcance de esta tanda)
 
-- **Protocolo v2 (Opus / frames binarios / jitter buffer).** Condicionado a
-  estabilizar antes runtime, background y backend. El protocolo v1 (PCM16
-  16 kHz mono, 20 ms, 640 bytes, base64) queda intacto y medido por los limites
-  del backend.
-- **PTT por hardware / Bluetooth / tecla fisica.** El comando unico ya existe
-  (`requestTransmission` / `endTransmission`), asi que una fuente adicional se
-  conecta ahi sin crear otro flujo; falta el enlace de eventos y hardware para
-  probarlo.
+- **Protocolo v2 (Opus / frames binarios / jitter buffer).** Ahora desbloqueado:
+  el transporte y el pipeline de audio son nativos, que era el requisito previo.
+- **PTT por hardware / Bluetooth / tecla fisica.** El comando unico ya existe;
+  falta el enlace de eventos y hardware para probarlo.
 - **VOX / manos libres.** Requiere VAD, umbral, hangover y proteccion de falso
-  disparo verificados con audio real. No se deja un VOX simulado.
-- **Emergencia / prioridad operativa.** Debe consumir usuario, vehiculo,
-  jornada y GPS existentes y decidir prioridad en backend; es diseno de producto
-  ademas de codigo.
+  disparo verificados con audio real.
+- **Emergencia / prioridad operativa.** Diseno de producto ademas de codigo.
 - **Transcripcion / analytics.** Depende de infraestructura de jobs y
-  credenciales externas no disponibles aqui.
-- **PTT web en vivo.** Web permanece en notas de voz, declarado como tal en la
-  UI.
+  credenciales externas.
+- **PTT web en vivo.** Web permanece en notas de voz, declarado en la UI.
 
 ---
 
@@ -183,6 +181,6 @@ conectar: exactamente la duplicacion de autoridad que este trabajo elimino.
 ```text
 CODE COMPLETE
 AUTOMATED CERTIFIED
+ANDROID BUILD PASS
 PHYSICAL CERTIFICATION PENDING
-NATIVE BACKGROUND TRANSPORT NOT IMPLEMENTED
 ```

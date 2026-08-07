@@ -1,16 +1,17 @@
 # ManeComb Radio — Arquitectura de referencia
 
 Documento unico de arquitectura de Radio/PTT. Sustituye a los informes parciales
-previos de esta carpeta (`01_STATE_GRAPH`, `06_SINGLE_SOURCE_REPORT`,
-`11_BACKGROUND_JS_AUDIT`, `RADIO_COHERENCE_REPORT` y el resto): describian un
-diseno con dos autoridades operativas que ya no existe. El historico queda en
-git; esta pagina es la referencia vigente.
+previos de esta carpeta; el historico queda en git.
 
 Estado del arbol al que corresponde: rama `feat/radio-pro-evolution`.
 
 ---
 
 ## 1. Autoridad unica
+
+En Android, el duenio del subsistema Radio es el servicio nativo. React Native
+envia comandos y observa instantaneas: no participa del camino critico del audio
+ni de la sesion.
 
 ```text
                        MANECOMB APP
@@ -21,34 +22,37 @@ Estado del arbol al que corresponde: rama `feat/radio-pro-evolution`.
               |                           |
             Calls                       Radio
                                           |
-                                 radio-live-store        <- estado + comandos
+                                 radio-live-store        <- proyeccion + comandos
                                           |
-                                 radio-live-machine      <- transiciones puras
+                                 radio-live-runtime      <- adaptador de plataforma
                                           |
-                                 radio-live-runtime      <- unico duenio operativo
+                            comandos | instantaneas
                                           |
-                    +---------------------+---------------------+
-                    |                                           |
-          RadioRealtimeService                          ManeCombAudioModule
-          (socket global compartido)                    AudioRecord / AudioTrack
-                    |                                   RadioAudioRoute
-                    |                                   ManeCombRadioService (FGS)
-                 Backend
-                    |
-          Redis floor authority (lock NX/PX + Lua)
-                    |
-              Persistencia WAV
-                    |
-             Message store (historial)
+                             ManeCombRadioService        <- DUENIO de la sesion
+                                          |
+          +------------------+------------+------------------+
+          |                  |                               |
+   RadioCredentials   RadioSessionController          RadioAudioSession
+   (Keystore)          + RadioSessionState             AudioRecord / AudioTrack
+                       + RadioReconnectPolicy          RadioRxQueuePolicy
+                       + RadioAudioRoute
+                                          |
+                             SocketIoRadioTransport
+                                          |
+                                       Backend
+                                          |
+                       Redis floor authority (NX/PX + Lua)
+                                          |
+                                 Persistencia WAV
+                                          |
+                            Message store (historial)
 ```
 
-Consumidores del runtime, todos por observacion o comando:
+Consumidores del estado, todos por observacion o comando:
 
 - pantalla de Radio (`radio-screen-view.tsx`)
 - `RadioLiveOverlay` (ancla de sesion/canal/preempcion, no renderiza UI)
 - notificacion del foreground service
-
-No existe un "runtime de pantalla" ni un "runtime global" separados.
 
 ---
 
@@ -56,67 +60,74 @@ No existe un "runtime de pantalla" ni un "runtime global" separados.
 
 | Hecho | Productor unico | Consumidores |
 |---|---|---|
-| canal activo | `activeConversationId` (app store) | overlay -> runtime, pantalla |
-| conexion / join | `RadioRealtimeService` dentro del runtime | `radio-live-machine` |
-| autorizacion | ACK de `radio:join` | machine (`UNAUTHORIZED`) |
-| floor ownership | backend + lock Redis | runtime (ACK `radio:start`) |
-| transmitting | machine (`TX_START` tras ACK) | UI, captura nativa |
-| receiving | machine (`RECEIVING` por broadcast) | UI, reproduccion nativa |
+| canal seleccionado | `activeConversationId` (app store) | overlay -> comando `selectChannel` |
+| identidad de sesion | app store (auth) -> `RadioCredentials` | servicio nativo |
+| transporte conectado | `SocketIoRadioTransport` | `RadioSessionController` |
+| unido al canal | ACK de `radio:join` | controlador nativo |
+| autorizacion | ACK del backend | controlador nativo |
+| floor ownership | backend + lock Redis | controlador nativo (ACK `radio:start`) |
+| transmitting | `RadioSessionController` (tras ACK) | audio nativo, UI |
+| receiving | `RadioSessionController` (broadcast) | audio nativo, UI |
 | operador actual | payload del backend | UI |
-| frames TX | `ManeCombAudioModule` -> runtime -> socket | backend |
-| frames RX | socket -> runtime -> `AudioTrack` | audio |
-| audio route | `RadioAudioRoute` (nativo) | AudioTrack, MediaPlayer, UI |
-| foreground state | `radio-foreground-service` (coordinador) | `ManeCombRadioService` |
-| call preemption | `useRadioLiveStore.pause('call')` | runtime |
+| frames TX | `RadioAudioSession` -> controlador -> socket nativo | backend |
+| frames RX | socket nativo -> controlador -> `AudioTrack` | audio |
+| admision de frames RX | `RadioRxQueuePolicy` | audio |
+| audio route | `RadioAudioRoute` | AudioTrack, MediaPlayer, UI |
+| reconnect | `RadioReconnectPolicy` (nativo) | transporte |
+| foreground state | `ManeCombRadioService` | Android, UI |
+| call preemption | `setRadioCallActive` -> controlador | audio, transporte |
 | historial | store global deduplicado por `message.id` | pagina Audios |
 | player de historial | manager serial de `native/audio.ts` | tarjetas |
-| reconnect | `RadioRealtimeService` | machine |
 
-Ninguna fila tiene dos productores finales.
+Ninguna fila tiene dos productores finales. React no produce ninguno de los
+hechos operativos: los proyecta.
 
 ---
 
 ## 3. Maquina de estados
 
-`RadioLivePhase` (`radio-live-types.ts`):
+Definida en `RadioSessionState.kt` y proyectada tal cual a TypeScript
+(`RadioLivePhase`). Mismo vocabulario en ambos lados, sin traduccion.
 
 ```text
 IDLE
-  -> JOINING            activate()
+  -> JOINING            activate(channelId)
 JOINING
-  -> LISTENING          ACK radio:join
+  -> LISTENING          ACK de radio:join
   -> UNAUTHORIZED       forbidden / unauthorized
-  -> ERROR              fallo de transporte
+  -> ERROR              join fallido por red
 LISTENING
   -> REQUESTING         requestTransmission()
   -> RECEIVING          radio:start de otro operador
 REQUESTING
-  -> TRANSMITTING       ACK radio:start + captura iniciada
+  -> TRANSMITTING       ACK de radio:start + captura abierta
   -> CHANNEL_BUSY       channel_busy
-  -> RECONNECTING       radio_disconnected / radio_ack_timeout
+  -> UNAUTHORIZED       forbidden
 TRANSMITTING
-  -> LISTENING          endTransmission() o radio:end del backend
+  -> LISTENING          endTransmission(), radio:end del backend,
+                        perdida de transporte o fallo de audio
 RECEIVING
   -> LISTENING          radio:end
 CHANNEL_BUSY
   -> LISTENING          radio:end del canal (solo el backend lo libera)
 *
-  -> RECONNECTING       transporte offline/reconnecting
-  -> PAUSED_BY_CALL     pause('call')
-  -> ERROR              fallo de runtime/audio
-  -> IDLE               reset() (logout / cambio de usuario)
+  -> RECONNECTING       transporte caido, con backoff acotado
+  -> PAUSED_BY_CALL     setRadioCallActive(true)
+  -> IDLE               deactivate() (logout / cambio de cuenta)
 ```
 
-Invariantes:
+Invariantes certificadas en `RadioSessionReducerTest`:
 
-- `LISTENING` solo procede del ACK de `radio:join`. Nunca de un temporizador.
-- `REQUESTING` solo se alcanza desde `LISTENING`: el canal con dueno no se pide.
-- `TRANSMITTING` solo desde `REQUESTING`: la autoridad es el ACK, no el eco del
-  broadcast `radio:start` (el emisor ignora su propio broadcast).
-- `CHANNEL_BUSY` no guarda el `transmissionId` ajeno y termina con cualquier
+- `LISTENING` solo procede del ACK de `radio:join`. Conectar el socket no
+  equivale a estar en el canal.
+- `REQUESTING` solo desde `LISTENING`: un canal con dueno ajeno no se pide.
+- `TRANSMITTING` solo desde `REQUESTING`: un `FloorGranted` sin peticion previa
+  no abre el microfono.
+- El emisor ignora el eco de su propio `radio:start`; su autoridad es el ACK.
+- `CHANNEL_BUSY` no guarda el `transmissionId` ajeno y lo libera cualquier
   `radio:end` del canal.
-- El cronometro y la animacion de TX dependen de `transmissionStartedAt`, que
-  publica el runtime; la pantalla no lo inventa.
+- Durante `PAUSED_BY_CALL` nada del canal reactiva audio.
+- Al terminar la llamada se vuelve a `JOINING`, nunca a `TRANSMITTING`.
 
 ---
 
@@ -126,23 +137,40 @@ Invariantes:
 
 ```text
 PTT (pantalla) -> store.requestTransmission()
-              -> runtime.requestTransmission()
-              -> radio:start (ACK)
-              -> setForegroundServiceMode('transmitting')   [tipo microphone]
-              -> startPttAudioCapture(transmissionId)
-AudioRecord (hilo nativo, PCM16 16 kHz mono, frames de 20 ms / 640 bytes)
-              -> evento ManeCombPttFrame
-              -> runtime (suscripcion propia, no de React)
-              -> RadioRealtimeService.sendFrame -> radio:frame
+              -> runtime adapter -> ManeCombAudio.requestRadioTransmission()
+              -> RadioSessionController.requestTransmission()
+              -> radio:start (ACK, socket NATIVO)
+              -> RadioAudioSession.startCapture()
+              -> foreground service pasa a tipo microphone
+
+AudioRecord (hilo nativo, PCM16 16 kHz mono, 20 ms / 640 bytes)
+              -> RadioSessionController.onFrameCaptured
+              -> SocketIoRadioTransport.sendFrame -> radio:frame
 ```
+
+Ni un frame PCM cruza el bridge de React Native.
 
 ### Recepcion
 
 ```text
-radio:start -> runtime -> machine RECEIVING -> UI
-radio:frame -> runtime -> enqueuePttAudioFrame -> AudioTrack (RadioAudioRoute)
-radio:end   -> runtime -> machine LISTENING
+radio:start (socket nativo) -> controlador -> RadioAudioSession.startPlayback
+radio:frame                 -> RadioRxQueuePolicy.admit -> AudioTrack
+radio:end                   -> stopPlayback -> LISTENING
 ```
+
+### Estado hacia React
+
+```text
+RadioSessionController -> ManeCombRadioService.publishState
+                       -> evento ManeCombRadioState (baja frecuencia)
+                       -> radio-live-runtime.subscribe
+                       -> radio-live-store (proyeccion)
+                       -> consola / overlay
+```
+
+El nivel de audio para la waveform se publica aparte, suavizado a ~12 Hz
+(`LEVEL_INTERVAL_MS`), muy por debajo de los 50 Hz del audio: el metering es
+informacion de UI y no marca el ritmo de React.
 
 ### Historial
 
@@ -162,37 +190,30 @@ Autoridad unica en `native/audio.ts`: cola serial `serializeRadioPlayerOperation
 para play/pause/stop/seek, un solo `activeRadioPlayerId`, y el modulo Android
 libera cualquier otra sesion antes de iniciar una nueva.
 
-```text
-tarjeta -> useAudioPlayer -> cola serial -> bridge -> RadioPlayerSession
-        -> MediaPlayer / Visualizer / AudioFocus -> PlayerStatus -> tarjeta
-```
-
 - Fases publicadas por el nativo: `PREPARING`, `READY`, `PLAYING`, `PAUSED`,
-  `SEEKING`, `FINISHED`, `ERROR`, `RELEASED`. `FINISHED` es estable tras
-  completion; el hook nunca calcula posicion, duracion ni completion.
+  `SEEKING`, `FINISHED`, `ERROR`, `RELEASED`.
 - Polling recursivo con `setTimeout` y numero de generacion: como maximo un
   timeout activo y las respuestas tardias se descartan.
-- El historial no puede reproducirse durante una transmision PTT
-  (`radio_channel_active`); iniciar captura libera cualquier player activo.
-- Riesgo residual: no hay prueba automatizada que inyecte respuestas nativas
-  fuera de orden; la cola y la generacion lo previenen por construccion.
+- El historial no puede sonar mientras el canal en vivo posee el audio: el
+  modulo consulta `RadioAudioSession.ownsAudio()` y rechaza con
+  `radio_channel_active`.
 
 ---
 
 ## 5. Corte de captura sin React
 
-El runtime cierra la captura por si mismo, sin depender de que un componente
-siga montado, ante:
+El controlador nativo cierra el microfono por si mismo, sin depender de que
+exista un componente montado ni de que el runtime JS este despierto, ante:
 
 - `radio:end` del backend para la transmision propia (timeout, cadencia,
   `authority_lost`, `max_duration`)
-- transporte `offline` / `reconnecting` / `unauthorized` / `error`
-- `ManeCombPttError` nativo
-- `sendFrame` rechazado (socket caido)
-- `stop()` del runtime (cambio de canal, llamada, logout)
+- transporte caido o `radio:error` del servidor
+- fallo de `AudioRecord` o perdida de audio focus
+- `sendFrame` rechazado por el socket
+- llamada entrante, cambio de canal, logout
 
-En todos los casos emite `onCaptureLost`, el store publica `TX_END` y guarda el
-codigo real del fallo.
+En todos los casos se libera tambien el canal en el backend (`radio:end`), de
+modo que no queda ocupado por una sesion que ya no transmite.
 
 ---
 
@@ -200,88 +221,123 @@ codigo real del fallo.
 
 | Pieza | Responsabilidad |
 |---|---|
-| `ManeCombAudioModule` | captura/reproduccion PTT, grabacion y player de historial, audio focus |
-| `RadioAudioRoute` | autoridad unica de salida (`auto`/`bluetooth`/`wired`/`speaker`/`earpiece`) |
-| `ManeCombRadioService` | contenedor foreground + notificacion de estado real |
+| `ManeCombRadioService` | duenio de la sesion: compone controlador, audio y transporte; foreground y notificacion |
+| `RadioSessionController` | orquesta maquina, transporte, audio y reconexion |
+| `RadioSessionState` | maquina de estados pura (certificada en JVM) |
+| `SocketIoRadioTransport` | cliente Socket.IO nativo de los contratos `radio:*` |
+| `RadioAudioSession` | unica `AudioRecord` y unica `AudioTrack` del proceso |
+| `RadioRxQueuePolicy` | admision acotada de frames recibidos |
+| `RadioReconnectPolicy` | unico backoff de reconexion de Radio |
+| `RadioAudioRoute` | unica autoridad de salida de audio |
+| `RadioCredentials` | identidad de sesion cifrada (AndroidKeystore) |
+| `ManeCombAudioModule` | puente RN: comandos e instantaneas; grabacion e historial |
 
-Foreground service:
+### Transporte
 
-- tipo `mediaPlayback` mientras se escucha, `mediaPlayback|microphone` mientras
+`io.socket:socket.io-client`, reutilizando el OkHttp que React Native ya trae.
+Habla los contratos existentes: `radio:join`, `radio:leave`, `radio:start`,
+`radio:frame`, `radio:end`, `radio:error`. **No hay protocolo nuevo.**
+
+La reconexion propia de Socket.IO esta **deshabilitada**
+(`reconnection = false`): el unico algoritmo de reconexion de Radio es
+`RadioReconnectPolicy`, con backoff exponencial acotado y jitter. Dos algoritmos
+compitiendo producirian rejoins cruzados.
+
+Los ACK llevan timeout propio (5 s): un backend que no responde no puede dejar al
+operador esperando con el canal a medio pedir.
+
+### Foreground service
+
+- tipo `mediaPlayback` mientras se escucha; `mediaPlayback|microphone` mientras
   se transmite. Android 14+ rechaza capturar en segundo plano sin el tipo
   `microphone` declarado y concedido.
-- si falta el permiso `RECORD_AUDIO`, el servicio degrada a `listening` en vez
-  de arrancar con un tipo que el sistema rechazaria.
+- si falta `RECORD_AUDIO`, degrada a `listening` en vez de arrancar con un tipo
+  que el sistema rechazaria.
 - `START_NOT_STICKY`: el servicio no puede reconstruir la sesion por si mismo,
   asi que no se relanza dejando una notificacion sin canal detras.
-- la notificacion dice "Escuchando el canal" o "Transmitiendo en el canal"; ya
-  no afirma "Canal preparado" cuando el runtime esta caido.
+- la notificacion se deriva del estado real (`notificationTextFor`): "Escuchando
+  el canal", "Transmitiendo en el canal", "Recibiendo de X", "Reconectando".
 
-Ruta de audio: `RadioAudioRoute` expresa preferencia con `setPreferredDevice`
-sobre `AudioTrack` y `MediaPlayer`. No cambia el modo global de audio ni el
-speakerphone, para no competir con Llamadas. Sin seleccion explicita conserva la
-prioridad Bluetooth > cable > altavoz.
+### Ruta de audio
+
+`RadioAudioRoute` expresa preferencia con `setPreferredDevice` sobre `AudioTrack`
+y `MediaPlayer`. No toca el modo global de audio ni el speakerphone, para no
+competir con Llamadas. Sin seleccion explicita conserva la prioridad
+Bluetooth > cable > altavoz.
+
+### Credenciales
+
+`ManeCombSecureStore` (AES/GCM sobre AndroidKeystore) es la unica cripto de
+credenciales nativas; la comparten GPS y Radio con **alias distintos**, de modo
+que limpiar uno no invalida al otro. El token de Radio nunca se guarda en claro
+ni se escribe en logs.
+
+`deactivate()` destruye socket, canal, floor, captura, reproduccion,
+notificacion, foreground e identidad persistida. No queda sesion fantasma tras
+logout ni tras cambio de cuenta.
 
 ---
 
 ## 7. Integracion con Llamadas
 
 Llamadas y Radio no pueden poseer el microfono a la vez. La unica autoridad de
-preempcion es `useRadioLiveStore.pause('call')`, disparada por el overlay a
-partir de `call-store.phase`:
+preempcion es `setRadioCallActive`, disparada por el overlay a partir de
+`call-store.phase`:
 
 ```text
-CONNECTING | CONNECTED | RECONNECTING | ENDING -> pause('call') -> PAUSED_BY_CALL
-fin de llamada -> activate() -> JOINING -> LISTENING
+CONNECTING | CONNECTED | RECONNECTING | ENDING
+    -> setRadioCallActive(true) -> controlador libera audio y floor
+    -> PAUSED_BY_CALL
+fin de llamada
+    -> setRadioCallActive(false) -> JOINING -> LISTENING
 ```
 
-`pause('call')` detiene el runtime completo: cierra transporte, captura,
-reproduccion y foreground service. Se elimino la bandera global
-`setRadioRealtimeSuspended`, que existia solo porque la pantalla mantenia un
-transporte propio que el overlay no podia detener.
+Al terminar la llamada **nunca** se restaura la transmision perdida: el operador
+vuelve a pulsar PTT. Reanudar solo produciria audio que nadie sabe que se esta
+enviando.
 
 ---
 
 ## 8. Backend
 
-Contratos (sin cambios): `radio:join`, `radio:start`, `radio:frame`,
-`radio:end`, `radio:leave`. `radio:leave` esta vigente y se usa para abandonar
-la sala al cambiar de canal o al detener el runtime; documentacion previa que lo
-daba por eliminado era incorrecta.
+Sin cambios en esta tanda. Contratos vigentes: `radio:join`, `radio:leave`,
+`radio:start`, `radio:frame`, `radio:end`, `radio:error`, `radio:message:new`.
 
 - `modules/radio/floor-control.js`: unica implementacion del arbitraje. Lock
   Redis `SET NX PX`, refresco y liberacion con Lua condicionadas al valor propio.
   Con Redis habilitado pero no disponible **falla** en vez de degradar a memoria
-  local: Radio indisponible es preferible a dos transmisores creyendose duenos.
+  local.
 - `modules/radio/live-stream.js`: `evaluateFrame` concentra orden, cadencia y
   tamanio. `duplicate` descarta el frame; `rate_exceeded`, `max_duration` e
   `invalid_frame` terminan la transmision.
 - Limites: 640 bytes por frame, 20 ms, maximo 60 s por transmision, timeout de
   abandono a 65 s, ACL por conversacion y aislamiento por organizacion.
-- Cada `radio:frame` renueva el TTL del lock; si el refresco falla se emite
-  `radio:end` con `authority_lost`.
 
 ---
 
-## 9. Web
+## 9. Plataformas
 
-Web no tiene PTT en vivo: graba una nota de voz completa con `MediaRecorder` y
-la sube. La consola lo dice explicitamente ("Nota de voz", "Manten presionado
-para grabar") en lugar de simular un canal en vivo, y el runtime PCM no se
-levanta en esa plataforma.
+| Plataforma | PTT en vivo | Implementacion |
+|---|---|---|
+| Android | si | servicio nativo (este documento) |
+| Web | no | notas de voz completas (`MediaRecorder` + subida) |
+| iOS | no | sin modulo nativo; adaptador inactivo |
+
+`radio-live-runtime` elige el adaptador por plataforma. Es un adaptador debajo
+del mismo dominio, no un segundo dominio de Radio. La consola declara
+explicitamente el modo de notas de voz en lugar de simular un canal en vivo.
 
 ---
 
 ## 10. Limites conocidos
 
-1. **El transporte de Radio sigue viviendo en JavaScript.**
-   `ManeCombRadioService` es contenedor foreground y notificacion; no posee
-   socket, autenticacion, join, framing TX ni cola RX. Con el proceso React
-   suspendido en background profundo o Doze, los frames dejan de fluir. El
-   trabajo de esta rama reduce el riesgo (tipo de servicio correcto,
-   notificacion veraz, corte de captura autonomo, sin `START_STICKY` enganoso)
-   pero **no** convierte al servicio en propietario del transporte. Ver
+1. **Sin certificacion fisica.** El codigo esta completo y validado de forma
+   automatizada, pero no se ejecuto en dispositivos reales. Ver
    `RADIO_PRO_VALIDATION.md`.
-2. Sin certificacion fisica entre dos dispositivos.
-3. Protocolo v1 (PCM16 + base64 + Socket.IO). Opus/binario no se evaluo: §14 del
-   encargo lo condiciona a estabilizar antes runtime, background y backend.
-4. Sin PTT por hardware/Bluetooth ni VOX.
+2. Protocolo v1 (PCM16 + base64 + Socket.IO). Opus, frames binarios y jitter
+   buffer no se abordaron: son la siguiente fase, ahora desbloqueada.
+3. Sin PTT por hardware/Bluetooth ni VOX. El comando unico ya existe
+   (`requestTransmission` / `endTransmission`), asi que una fuente adicional se
+   conecta ahi sin crear otro flujo.
+4. El servicio usa `START_NOT_STICKY`: si Android mata el proceso, la sesion se
+   reactiva cuando la app vuelve, no antes.
