@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const routes = fs.readFileSync(path.resolve(__dirname, '../src/modules/chat/routes.js'), 'utf8');
-const mongo = fs.readFileSync(path.resolve(__dirname, '../src/data/mongo-store.js'), 'utf8');
+const mongo = fs.readFileSync(path.resolve(__dirname, '../src/data/mongo-store-core.js'), 'utf8');
 const embedded = fs.readFileSync(path.resolve(__dirname, '../src/data/store.js'), 'utf8');
 
 assert.match(routes, /clientMessageId/);
