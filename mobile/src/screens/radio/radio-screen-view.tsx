@@ -940,6 +940,14 @@ export function RadioScreen() {
     }
   };
 
+  // Los gestos deben leer el estado vivo, no el del ultimo render: soltar el
+  // boton entre la concesion del canal y el re-render no puede dejar el
+  // microfono abierto.
+  const isCapturingNow = () =>
+    LIVE_RADIO_SUPPORTED
+      ? useRadioLiveStore.getState().phase === 'TRANSMITTING'
+      : Boolean(webRecorderRef.current);
+
   // Un unico comando de PTT, sin importar el origen del gesto.
   const handleTapToTalk = async () => {
     if (!activeChannel || pttBusyRef.current) {
@@ -949,7 +957,7 @@ export function RadioScreen() {
     pttBusyRef.current = true;
 
     try {
-      if (isCapturing) {
+      if (isCapturingNow()) {
         if (LIVE_RADIO_SUPPORTED) {
           await stopLiveTransmission();
         } else {
@@ -990,11 +998,7 @@ export function RadioScreen() {
       // transmision en cuanto existe, sin dejar el microfono abierto.
       if (pendingStopAfterStartRef.current) {
         pendingStopAfterStartRef.current = false;
-        if (LIVE_RADIO_SUPPORTED
-          ? useRadioLiveStore.getState().phase === 'TRANSMITTING'
-          : Boolean(webRecorderRef.current)) {
-          handleTapToTalk();
-        }
+        if (isCapturingNow()) handleTapToTalk();
       }
     }
   };
@@ -1002,7 +1006,7 @@ export function RadioScreen() {
   tapToTalkRef.current = handleTapToTalk;
 
   const handlePttPressIn = () => {
-    if (consoleState.pttDisabled || isCapturing) {
+    if (consoleState.pttDisabled || isCapturingNow()) {
       return;
     }
 
@@ -1034,7 +1038,7 @@ export function RadioScreen() {
       return;
     }
 
-    if (isCapturing) {
+    if (isCapturingNow()) {
       handleTapToTalk();
     }
   };
