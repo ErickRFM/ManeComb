@@ -12,11 +12,15 @@ haya ejecutado.
 |---|---|---|
 | TypeScript mobile | `npm run typecheck` (mobile) | PASS |
 | ESLint mobile | `npx eslint .` | PASS (0 errores) |
-| Suites mobile | `npx jest --runInBand` | PASS — 56 suites / 308 tests |
-| Kotlin | `gradlew :app:testDebugUnitTest` | PASS — 39 tests |
+| Suites mobile | `npx jest --runInBand` | PASS — 56 suites / 313 tests |
+| Kotlin | `gradlew :app:testDebugUnitTest` | PASS — 58 tests |
+| Contrato Android/backend | `RadioProtocolContractTest` | PASS — 17 tests con fixtures del backend |
 | Suite backend | `npm test` (backend) | PASS — exit 0 |
 | Build Android | `gradlew assembleDebug` | PASS — ver seccion 2 |
 | Higiene de diff | `git diff --check` | PASS |
+
+El procedimiento de prueba con telefono, los comandos ADB y los eventos de log
+esperados estan en `RADIO_PRO_FIELD_TEST.md`.
 
 El total de suites mobile baja respecto a la tanda anterior porque las pruebas
 del transporte de JavaScript desaparecieron con el transporte: su cobertura se
@@ -130,12 +134,21 @@ Riesgos concretos que solo el hardware puede resolver:
 1. **Promocion del tipo de foreground service.** El servicio arranca como
    `mediaPlayback` y agrega `microphone` al transmitir. Falta confirmar en
    Android 14/15 reales que la promocion se acepta con la app en segundo plano y
-   que la captura efectivamente produce audio, no silencio.
-2. **Comportamiento de Doze sobre el socket.** El backoff de reconexion es
+   que la captura efectivamente produce audio, no silencio. El codigo ya no muere
+   si Android la rechaza: lo registra (`foreground_microphone_denied`) y corta la
+   transmision en vez de emitir silencio.
+2. **Inicio del servicio desde segundo plano.** `startForegroundService` es
+   ilegal en segundo plano desde Android 12. La activacion ocurre cuando React
+   esta vivo, normalmente con la app visible; la excepcion se captura, pero el
+   caso real depende del OS.
+3. **Handshake efectivo contra el backend.** El contrato esta verificado codigo
+   contra codigo y con fixtures reales, pero el apreton de manos Engine.IO del
+   cliente Kotlin contra este servidor solo se prueba conectando.
+4. **Comportamiento de Doze sobre el socket.** El backoff de reconexion es
    correcto por construccion, pero la frecuencia real de despertares bajo Doze
    solo se mide en dispositivo.
-3. **Latencia extremo a extremo** del camino nativo frente al anterior.
-4. **Consumo de bateria** de la sesion nativa en jornada completa.
+5. **Latencia extremo a extremo** del camino nativo frente al anterior.
+6. **Consumo de bateria** de la sesion nativa en jornada completa.
 
 Estado: `CODE COMPLETE` + `AUTOMATED CERTIFIED` + `PHYSICAL CERTIFICATION PENDING`.
 
