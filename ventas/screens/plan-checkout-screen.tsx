@@ -99,6 +99,7 @@ export function PlanCheckoutScreen() {
   const paymentInFlight = useRef(false);
 
   const {
+    effectiveRequestTrial,
     isCompleted: receiptIsActive,
     isPending: receiptIsPending,
     message,
@@ -114,10 +115,16 @@ export function PlanCheckoutScreen() {
   const addonPrice = includeRadioAddon ? Number(selectedPlan?.radioAddonPrice || 0) : 0;
   const totalAmount = Number(selectedPlan?.price || 0) + addonPrice;
   const buttonAmount = `${formatCurrency(totalAmount)} MXN`;
-  const canSubmit = Boolean(selectedPlan && user && !processing && !cardSaving && providerMode !== 'unavailable');
+  const canSubmit = Boolean(
+    selectedPlan
+      && user
+      && !processing
+      && !cardSaving
+      && (effectiveRequestTrial || providerMode !== 'unavailable')
+  );
   const isTestPaymentMode = providerMode === 'test';
   const isManualPaymentMode = providerMode === 'manual';
-  const isManualCardDemo = isManualPaymentMode && selectedMethod === 'card' && !requestTrial;
+  const isManualCardDemo = isManualPaymentMode && selectedMethod === 'card' && !effectiveRequestTrial;
 
   useEffect(() => {
     if (planId) {
@@ -295,7 +302,7 @@ export function PlanCheckoutScreen() {
                 <CheckoutPaymentSection
                   isTwoColumn={isTwoColumn}
                   isTestPaymentMode={isTestPaymentMode}
-                  requestTrial={requestTrial}
+                  requestTrial={effectiveRequestTrial}
                   selectedMethod={selectedMethod}
                   onSelectMethod={selectPaymentMethod}
                   testCard={testCard}
@@ -317,7 +324,7 @@ export function PlanCheckoutScreen() {
                 <OrderSummary
                   includeRadioAddon={includeRadioAddon}
                   plan={selectedPlan}
-                  requestTrial={requestTrial}
+                  requestTrial={effectiveRequestTrial}
                   totalAmount={totalAmount}
                 />
               </View>

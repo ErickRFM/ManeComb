@@ -53,9 +53,24 @@ async function main() {
     assert.equal(typeof health.status, "string");
     assert.equal(typeof health.uptimeSeconds, "number");
     assert.equal(typeof health.timestamp, "string");
-    assert.equal("readiness" in health, false);
+    assert.deepEqual(Object.keys(health.readiness || {}).sort(), ["payments"]);
+    assert.equal(typeof health.readiness.payments.provider, "string");
+    assert.equal(typeof health.readiness.payments.mode, "string");
+    assert.equal(typeof health.readiness.payments.ready, "boolean");
     assert.equal("communication" in health, false);
     assert.equal("auth" in health, false);
+    const serializedHealth = JSON.stringify(health);
+    for (const secretName of [
+      "BANK_TRANSFER_ACCOUNT_NAME",
+      "BANK_TRANSFER_CLABE",
+      "MERCADO_PAGO_ACCESS_TOKEN",
+      "MERCADOPAGO_ACCESS_TOKEN",
+      "accountName",
+      "clabe",
+      "accessToken"
+    ]) {
+      assert.equal(serializedHealth.includes(secretName), false);
+    }
 
     const liveResponse = await fetch(`${baseUrl}/api/health/live`);
     const live = await liveResponse.json();

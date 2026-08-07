@@ -8,8 +8,8 @@ import {
 } from './tracking';
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
-  return {
-    snapshotVersion: 1,
+  const snapshot: OperationalUnitSnapshot = {
+    snapshotVersion: 2,
     unitId: 'veh-1',
     plates: 'FBZ-404',
     label: 'C-1',
@@ -29,10 +29,16 @@ function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnit
     driver: null,
     route: null,
     session: null,
+    journey: null,
     incidents: { open: 0, inProgress: 0, lastAt: null },
     lastEventAt: null,
     visibility: 'visible',
+  };
+
+  return {
+    ...snapshot,
     ...overrides,
+    journey: overrides.journey ?? snapshot.journey,
   };
 }
 
