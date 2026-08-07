@@ -131,7 +131,7 @@ describe('ChecklistScreen', () => {
   // respaldo cuando el vehiculo carecia de `code`.
   it('toma la identidad, el conductor y el ETA del snapshot canonico', () => {
     const unit: OperationalUnitSnapshot = {
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       unitId: 'v-1',
       plates: 'FBZ-404',
       label: 'C-1',
@@ -169,7 +169,7 @@ describe('ChecklistScreen', () => {
   it('no inventa ruta ni conductor cuando la unidad no los tiene', () => {
     // Caso C-2: unidad recien dada de alta.
     const unit: OperationalUnitSnapshot = {
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       unitId: 'v-2', plates: 'GHT-771', label: 'C-2',
       status: 'idle', operationalState: 'no_route',
       gps: { lat: null, lng: null, speedKmh: null, heading: null, recordedAt: null, receivedAt: null,
