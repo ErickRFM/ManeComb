@@ -364,15 +364,31 @@ class ManeCombAudioModule(
   @ReactMethod fun removeListeners(count: Int) = Unit
 
   @ReactMethod
-  fun startRadioForegroundService(promise: Promise) {
+  fun startRadioForegroundService(mode: String?, promise: Promise) {
     try {
-      val intent = Intent(reactContext, ManeCombRadioService::class.java)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) reactContext.startForegroundService(intent)
-      else reactContext.startService(intent)
+      startRadioServiceWithMode(mode)
       promise.resolve(null)
     } catch (error: Exception) {
       promise.reject("radio_service_start_failed", error.message, error)
     }
+  }
+
+  // Reenviar el modo al mismo servicio actualiza tipo y notificacion sin crear
+  // una segunda instancia: sigue existiendo un unico foreground service de Radio.
+  @ReactMethod
+  fun setRadioForegroundServiceState(mode: String?, promise: Promise) {
+    try {
+      startRadioServiceWithMode(mode)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("radio_service_state_failed", error.message, error)
+    }
+  }
+
+  private fun startRadioServiceWithMode(mode: String?) {
+    val intent = ManeCombRadioService.intentFor(reactContext, mode)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) reactContext.startForegroundService(intent)
+    else reactContext.startService(intent)
   }
 
   @ReactMethod

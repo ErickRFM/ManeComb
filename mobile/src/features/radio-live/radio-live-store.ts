@@ -9,6 +9,7 @@ import type {
   RadioLiveRuntime,
   RadioLiveRuntimeFactory,
   RadioLiveState,
+  RadioLiveTransmissionResult,
 } from './radio-live-types';
 
 let runtimeFactory: RadioLiveRuntimeFactory | null = null;
@@ -21,6 +22,7 @@ type ActivateInput = {
   channelId: string;
   socket: Socket;
   userId: string;
+  userName?: string;
 };
 
 type RadioLiveStore = RadioLiveState & {
@@ -29,10 +31,15 @@ type RadioLiveStore = RadioLiveState & {
   _userId: string | null;
   _epoch: number;
   activate: (input: ActivateInput) => void;
-  pause: (reason: 'call' | 'screen') => void;
+  pause: (reason: 'call') => void;
+  requestTransmission: () => Promise<RadioLiveTransmissionResult>;
+  endTransmission: () => Promise<RadioLiveTransmissionResult>;
   reset: () => void;
 };
 
+// Autoridad operativa unica de Radio. La pantalla /radio y el overlay global son
+// consumidores: observan este estado y envian comandos, nunca poseen transporte
+// ni una segunda maquina de estados.
 export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
   const dispatch = (event: RadioLiveEvent) => {
     set((state) => reduceRadioLiveState(state, event));
@@ -55,7 +62,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
     _userId: null,
     _epoch: 0,
 
-    activate: ({ channelId, socket, userId }) => {
+    activate: ({ channelId, socket, userId, userName }) => {
       const normalizedChannelId = String(channelId || '').trim();
       const normalizedUserId = String(userId || '').trim();
       if (!normalizedChannelId || !normalizedUserId) {
@@ -69,7 +76,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
         current._socket === socket &&
         current._userId === normalizedUserId &&
         current.channelId === normalizedChannelId &&
-        !['PAUSED_BY_CALL', 'PAUSED_BY_SCREEN', 'ERROR', 'UNAUTHORIZED'].includes(current.phase)
+        !['PAUSED_BY_CALL', 'ERROR', 'UNAUTHORIZED'].includes(current.phase)
       ) {
         return;
       }
@@ -88,6 +95,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
         channelId: normalizedChannelId,
         socket,
         userId: normalizedUserId,
+        userName: String(userName || '').trim() || 'Operador',
         onTransportState: (state, errorCode) => {
           if (!isCurrentEpoch(epoch, normalizedChannelId)) return;
           dispatch({ type: 'TRANSPORT', state, errorCode });
@@ -103,6 +111,12 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
         onTransmissionEnd: ({ transmissionId }) => {
           if (!isCurrentEpoch(epoch, normalizedChannelId)) return;
           dispatch({ type: 'TRANSMISSION_END', transmissionId });
+        },
+        onCaptureLost: (code) => {
+          if (!isCurrentEpoch(epoch, normalizedChannelId)) return;
+          const transmissionId = get().currentTransmissionId;
+          if (transmissionId) dispatch({ type: 'TX_END', transmissionId });
+          if (code !== 'completed') set({ lastErrorCode: code });
         },
         onForegroundServiceChange: (active) => {
           if (!isCurrentEpoch(epoch, normalizedChannelId)) return;
@@ -121,10 +135,69 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
       set({ _runtime: runtime });
     },
 
+    requestTransmission: async () => {
+      const current = get();
+      const runtime = current._runtime;
+      const channelId = current.channelId;
+      if (!runtime || !channelId) return { ok: false, error: 'radio_not_ready' };
+      if (current.phase === 'TRANSMITTING' && current.currentTransmissionId) {
+        return { ok: true, transmissionId: current.currentTransmissionId };
+      }
+      if (current.phase !== 'LISTENING') return { ok: false, error: 'radio_not_ready' };
+
+      const epoch = current._epoch;
+      dispatch({ type: 'REQUEST' });
+
+      const result = await runtime.requestTransmission();
+
+      // Un cambio de canal, una llamada o un logout durante el arbitraje dejan
+      // el ACK obsoleto: el runtime ya libero el canal, aqui solo se descarta.
+      if (!isCurrentEpoch(epoch, channelId)) {
+        return { ok: false, error: 'radio_request_stale' };
+      }
+
+      if (result.ok && result.transmissionId) {
+        dispatch({
+          type: 'TX_START',
+          transmissionId: result.transmissionId,
+          operator: result.transmitter || { id: current._userId || '', name: 'Operador' },
+          startedAt: Date.now(),
+        });
+        return result;
+      }
+
+      if (result.error === 'channel_busy') {
+        dispatch({ type: 'BUSY', operator: result.transmitter || null });
+      } else if (result.error === 'forbidden' || result.error === 'unauthorized') {
+        dispatch({ type: 'TRANSPORT', state: 'unauthorized', errorCode: 'radio_unauthorized' });
+      } else if (result.error === 'radio_disconnected' || result.error === 'radio_ack_timeout') {
+        dispatch({ type: 'TRANSPORT', state: 'reconnecting' });
+      } else if (get().phase === 'REQUESTING') {
+        dispatch({ type: 'FAIL', code: result.error || 'radio_unavailable' });
+      }
+
+      return result;
+    },
+
+    endTransmission: async () => {
+      const current = get();
+      const runtime = current._runtime;
+      const transmissionId = current.currentTransmissionId;
+      if (current.phase !== 'TRANSMITTING' || !runtime || !transmissionId) {
+        return { ok: false, error: 'transmission_not_active' };
+      }
+
+      const result = await runtime.endTransmission(transmissionId);
+      dispatch({ type: 'TX_END', transmissionId });
+      if (!result.ok && result.error && result.error !== 'transmission_not_active') {
+        set({ lastErrorCode: result.error });
+      }
+      return result;
+    },
+
     pause: (reason) => {
       const current = get();
-      const expectedPhase = reason === 'call' ? 'PAUSED_BY_CALL' : 'PAUSED_BY_SCREEN';
-      if (!current._runtime && current.phase === expectedPhase) return;
+      if (!current._runtime && current.phase === 'PAUSED_BY_CALL') return;
       stopRuntime();
       set({ _epoch: current._epoch + 1, _socket: null });
       dispatch({ type: 'PAUSE', reason });

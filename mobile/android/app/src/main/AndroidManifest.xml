@@ -42,7 +42,7 @@
     <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_icon_color"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/notification_icon"/>
     <service android:name=".location.ManeCombLocationService" android:exported="false" android:foregroundServiceType="location"/>
-    <service android:name=".audio.ManeCombRadioService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>
+    <service android:name=".audio.ManeCombRadioService" android:exported="false" android:foregroundServiceType="mediaPlayback|microphone"/>
     <service android:name=".calls.ManeCombCallService" android:exported="false" android:foregroundServiceType="microphone|camera"/>
     <service android:name=".notifications.ManeCombFirebaseMessagingService" android:exported="false">
       <intent-filter>

@@ -1,14 +1,20 @@
 import {
+  setRadioForegroundServiceState,
   startRadioForegroundService,
   stopRadioForegroundService,
 } from '@/src/native/audio';
 
-export type RadioForegroundServiceOwner = 'global' | 'screen';
+export type RadioForegroundServiceMode = 'listening' | 'transmitting';
 
-const owners = new Set<RadioForegroundServiceOwner>();
+// Unico coordinador del foreground service de Radio. Existe un solo duenio real
+// (el runtime de radio-live); este modulo solo serializa las llamadas nativas y
+// aplica una ventana de gracia para que un reinicio de runtime (cambio de canal,
+// reconexion) no produzca stopService/startForegroundService cruzados.
 const STOP_GRACE_MS = 350;
 
+let wanted = false;
 let serviceActive = false;
+let serviceMode: RadioForegroundServiceMode = 'listening';
 let pendingStop: ReturnType<typeof setTimeout> | null = null;
 let pendingStopResolve: (() => void) | null = null;
 let operationQueue: Promise<void> = Promise.resolve();
@@ -30,16 +36,16 @@ function cancelPendingStop() {
   resolve?.();
 }
 
-export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner) {
-  owners.add(owner);
+export function acquireRadioForegroundService() {
+  wanted = true;
   cancelPendingStop();
 
   return enqueue(async () => {
-    if (!owners.has(owner) || serviceActive) return;
+    if (!wanted || serviceActive) return;
 
-    await startRadioForegroundService();
+    await startRadioForegroundService(serviceMode);
 
-    if (owners.size === 0) {
+    if (!wanted) {
       await stopRadioForegroundService().catch(() => undefined);
       return;
     }
@@ -48,11 +54,8 @@ export function acquireRadioForegroundService(owner: RadioForegroundServiceOwner
   });
 }
 
-export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner) {
-  owners.delete(owner);
-
-  if (owners.size > 0) return Promise.resolve();
-
+export function releaseRadioForegroundService() {
+  wanted = false;
   cancelPendingStop();
 
   return new Promise<void>((resolve) => {
@@ -61,16 +64,29 @@ export function releaseRadioForegroundService(owner: RadioForegroundServiceOwner
       pendingStop = null;
       pendingStopResolve = null;
       enqueue(async () => {
-        if (owners.size > 0 || !serviceActive) return;
+        if (wanted || !serviceActive) return;
         serviceActive = false;
+        serviceMode = 'listening';
         await stopRadioForegroundService().catch(() => undefined);
       }).finally(resolve);
     }, STOP_GRACE_MS);
   });
 }
 
+// El tipo de foreground service y el texto de la notificacion deben reflejar el
+// estado real: microfono solo mientras se transmite.
+export function setRadioForegroundServiceMode(mode: RadioForegroundServiceMode) {
+  serviceMode = mode;
+
+  return enqueue(async () => {
+    if (!serviceActive || serviceMode !== mode) return;
+    await setRadioForegroundServiceState(mode);
+  });
+}
+
 export function resetRadioForegroundService() {
-  owners.clear();
+  wanted = false;
+  serviceMode = 'listening';
   cancelPendingStop();
 
   return enqueue(async () => {
@@ -80,8 +96,5 @@ export function resetRadioForegroundService() {
 }
 
 export function getRadioForegroundServiceOwnershipSnapshot() {
-  return {
-    owners: [...owners],
-    serviceActive,
-  };
+  return { wanted, serviceActive, serviceMode };
 }

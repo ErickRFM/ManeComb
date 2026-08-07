@@ -1,9 +1,11 @@
 jest.mock('@/src/native/audio', () => ({
+  setRadioForegroundServiceState: jest.fn(() => Promise.resolve()),
   startRadioForegroundService: jest.fn(() => Promise.resolve()),
   stopRadioForegroundService: jest.fn(() => Promise.resolve()),
 }));
 
 import {
+  setRadioForegroundServiceState,
   startRadioForegroundService,
   stopRadioForegroundService,
 } from '@/src/native/audio';
@@ -12,6 +14,7 @@ import {
   getRadioForegroundServiceOwnershipSnapshot,
   releaseRadioForegroundService,
   resetRadioForegroundService,
+  setRadioForegroundServiceMode,
 } from './radio-foreground-service';
 
 const startService = startRadioForegroundService as jest.MockedFunction<
@@ -19,6 +22,9 @@ const startService = startRadioForegroundService as jest.MockedFunction<
 >;
 const stopService = stopRadioForegroundService as jest.MockedFunction<
   typeof stopRadioForegroundService
+>;
+const setServiceState = setRadioForegroundServiceState as jest.MockedFunction<
+  typeof setRadioForegroundServiceState
 >;
 
 async function flushPromises() {
@@ -40,28 +46,23 @@ describe('Radio foreground service coordinator', () => {
     jest.useRealTimers();
   });
 
-  it('keeps exactly one native service through global -> screen -> global handoff', async () => {
-    await acquireRadioForegroundService('global');
-    await acquireRadioForegroundService('screen');
-    await releaseRadioForegroundService('global');
-    await acquireRadioForegroundService('global');
-    await releaseRadioForegroundService('screen');
-
-    jest.advanceTimersByTime(1000);
-    await flushPromises();
+  it('starts the native service once and in listening mode', async () => {
+    await acquireRadioForegroundService();
+    await acquireRadioForegroundService();
 
     expect(startService).toHaveBeenCalledTimes(1);
-    expect(stopService).not.toHaveBeenCalled();
+    expect(startService).toHaveBeenCalledWith('listening');
     expect(getRadioForegroundServiceOwnershipSnapshot()).toEqual({
-      owners: ['global'],
+      wanted: true,
       serviceActive: true,
+      serviceMode: 'listening',
     });
   });
 
-  it('stops only after the last owner leaves for the grace window', async () => {
-    await acquireRadioForegroundService('global');
+  it('stops only after the grace window expires', async () => {
+    await acquireRadioForegroundService();
 
-    const pendingRelease = releaseRadioForegroundService('global');
+    const pendingRelease = releaseRadioForegroundService();
     jest.advanceTimersByTime(349);
     await flushPromises();
     expect(stopService).not.toHaveBeenCalled();
@@ -70,22 +71,40 @@ describe('Radio foreground service coordinator', () => {
     await pendingRelease;
 
     expect(stopService).toHaveBeenCalledTimes(1);
-    expect(getRadioForegroundServiceOwnershipSnapshot().owners).toEqual([]);
-    expect(getRadioForegroundServiceOwnershipSnapshot().serviceActive).toBe(false);
+    expect(getRadioForegroundServiceOwnershipSnapshot()).toMatchObject({
+      wanted: false,
+      serviceActive: false,
+    });
   });
 
-  it('cancels a pending stop when another owner acquires before grace expires', async () => {
-    await acquireRadioForegroundService('global');
+  it('cancels a pending stop when the runtime restarts inside the grace window', async () => {
+    await acquireRadioForegroundService();
 
-    const pendingRelease = releaseRadioForegroundService('global');
+    const pendingRelease = releaseRadioForegroundService();
     jest.advanceTimersByTime(200);
-    await acquireRadioForegroundService('screen');
+    await acquireRadioForegroundService();
     jest.advanceTimersByTime(500);
     await flushPromises();
     await pendingRelease;
 
     expect(startService).toHaveBeenCalledTimes(1);
     expect(stopService).not.toHaveBeenCalled();
-    expect(getRadioForegroundServiceOwnershipSnapshot().owners).toEqual(['screen']);
+    expect(getRadioForegroundServiceOwnershipSnapshot().serviceActive).toBe(true);
+  });
+
+  it('promotes the service to microphone only while transmitting', async () => {
+    await acquireRadioForegroundService();
+
+    await setRadioForegroundServiceMode('transmitting');
+    expect(setServiceState).toHaveBeenCalledWith('transmitting');
+
+    await setRadioForegroundServiceMode('listening');
+    expect(setServiceState).toHaveBeenLastCalledWith('listening');
+    expect(getRadioForegroundServiceOwnershipSnapshot().serviceMode).toBe('listening');
+  });
+
+  it('never touches the native service mode while it is stopped', async () => {
+    await setRadioForegroundServiceMode('transmitting');
+    expect(setServiceState).not.toHaveBeenCalled();
   });
 });

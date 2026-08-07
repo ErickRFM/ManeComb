@@ -21,16 +21,6 @@ export async function withRadioTimeout<T>(
   }
 }
 
-export function getRadioRealtimeErrorMessage(error?: string) {
-  const value = String(error || '').toLowerCase();
-  if (value.includes('unauthorized') || value.includes('invalid token') || value.includes('jwt')) {
-    return 'Sesion expirada';
-  }
-  if (value.includes('forbidden')) return 'Sin permisos para transmitir';
-  if (value.includes('timeout')) return 'Servidor no disponible';
-  return 'Error de conexion';
-}
-
 export function getTimeDomainVolume(samples: Uint8Array) {
   if (!samples.length) {
     return 0;

@@ -1,14 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { navigationRef } from '@/src/navigation/router';
-import { MODULE_ROUTE_NAMES } from '@/src/navigation/route-registry';
 import { useCallStore } from '@/src/features/calls/call-store';
 import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
-import { setRadioRealtimeSuspended } from '@/src/screens/radio/services/radio-realtime-service';
-import {
-  acquireRadioForegroundService,
-  releaseRadioForegroundService,
-} from './radio-foreground-service';
 import { createNativeRadioLiveRuntime } from './radio-live-runtime';
 import {
   setRadioLiveRuntimeFactory,
@@ -17,24 +11,16 @@ import {
 
 setRadioLiveRuntimeFactory(createNativeRadioLiveRuntime);
 
-function useCurrentRouteName() {
-  const [routeName, setRouteName] = useState<string | null>(null);
+// El PTT en vivo depende de la captura/reproduccion PCM nativa. Web usa notas de
+// voz (MediaRecorder + subida) y no debe levantar este runtime.
+const SUPPORTS_LIVE_RADIO = Platform.OS !== 'web';
 
-  useEffect(() => {
-    const update = () => {
-      setRouteName(navigationRef.getCurrentRoute()?.name || null);
-    };
-
-    update();
-    const unsubscribe = navigationRef.addListener('state', update);
-    return unsubscribe;
-  }, []);
-
-  return routeName;
-}
-
+/**
+ * Ancla del runtime unico de Radio. No renderiza UI: solo reconcilia sesion,
+ * canal y preempcion por llamada contra `useRadioLiveStore`. La pantalla /radio
+ * es un consumidor mas y nunca detiene este runtime.
+ */
 export function RadioLiveOverlay(): React.ReactElement | null {
-  const routeName = useCurrentRouteName();
   const socket = useSharedRealtimeSocket();
   const callPhase = useCallStore((state) => state.phase);
   const { activate, pause, reset } = useRadioLiveStore(
@@ -45,6 +31,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     }))
   );
   const {
+    activeConversationId,
     authContext,
     conversations,
     openGeneralConversation,
@@ -52,6 +39,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     user,
   } = useAppStore(
     useShallow((state) => ({
+      activeConversationId: state.activeConversationId,
       authContext: state.authContext,
       conversations: state.conversations,
       openGeneralConversation: state.openGeneralConversation,
@@ -59,31 +47,34 @@ export function RadioLiveOverlay(): React.ReactElement | null {
       user: state.user,
     }))
   );
-  const [channelId, setChannelId] = useState<string | null>(null);
+  const [generalChannelId, setGeneralChannelId] = useState<string | null>(null);
   const [ensureAttempt, setEnsureAttempt] = useState(0);
   const channelOwnerRef = useRef<string | null>(null);
 
   const eligible = Boolean(user && token && authContext?.canAccessMobile === true);
-  const screenOwnsRadio = routeName === '/radio' || routeName === MODULE_ROUTE_NAMES.radio;
   const callOwnsAudio = ['CONNECTING', 'CONNECTED', 'RECONNECTING', 'ENDING'].includes(callPhase);
 
-  useEffect(() => {
-    setRadioRealtimeSuspended(callOwnsAudio);
-    return () => setRadioRealtimeSuspended(false);
-  }, [callOwnsAudio]);
+  // Un unico productor del canal activo: la seleccion operativa del store. Si el
+  // usuario no esta sobre un canal de radio, se escucha el canal general.
+  const selectedRadioChannelId =
+    conversations.find(
+      (conversation) =>
+        conversation.channelMode === 'radio' && conversation.id === activeConversationId
+    )?.id || null;
+  const channelId = selectedRadioChannelId || generalChannelId;
 
   useEffect(() => {
     const nextOwner = user?.id || null;
     if (channelOwnerRef.current === nextOwner) return;
     channelOwnerRef.current = nextOwner;
-    setChannelId(null);
+    setGeneralChannelId(null);
     setEnsureAttempt(0);
     reset();
   }, [reset, user?.id]);
 
   useEffect(() => {
     if (!eligible || !user) {
-      setChannelId(null);
+      setGeneralChannelId(null);
       reset();
       return undefined;
     }
@@ -94,7 +85,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     );
 
     if (existingGeneral?.id) {
-      setChannelId(existingGeneral.id);
+      setGeneralChannelId(existingGeneral.id);
       return undefined;
     }
 
@@ -104,7 +95,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     openGeneralConversation('radio', { setActive: false })
       .then((conversation) => {
         if (!cancelled && conversation?.id) {
-          setChannelId(conversation.id);
+          setGeneralChannelId(conversation.id);
         }
       })
       .catch(() => {
@@ -119,54 +110,20 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     };
   }, [conversations, eligible, ensureAttempt, openGeneralConversation, reset, user]);
 
-  // Claim the native service before stopping the global runtime. This makes the
-  // Mapa -> Radio handoff continuous and prevents startForegroundService/stopService
-  // from crossing during the first screen mount.
   useEffect(() => {
-    if (!eligible || !screenOwnsRadio || callOwnsAudio) {
-      releaseRadioForegroundService('screen').catch(() => undefined);
-      return undefined;
-    }
+    if (!SUPPORTS_LIVE_RADIO || !eligible || !user || !channelId || !socket) return;
 
-    acquireRadioForegroundService('screen').catch(() => undefined);
-    return () => {
-      releaseRadioForegroundService('screen').catch(() => undefined);
-    };
-  }, [callOwnsAudio, eligible, screenOwnsRadio]);
-
-  useEffect(() => {
-    if (!eligible || !user || !channelId || !socket) return;
-
+    // Llamadas y Radio no pueden poseer el microfono a la vez: la llamada gana y
+    // Radio queda en PAUSED_BY_CALL hasta que el runtime se reactive.
     if (callOwnsAudio) {
       pause('call');
       return;
     }
 
-    if (screenOwnsRadio) {
-      pause('screen');
-      return;
-    }
+    activate({ channelId, socket, userId: user.id, userName: user.name });
+  }, [activate, callOwnsAudio, channelId, eligible, pause, socket, user]);
 
-    activate({ channelId, socket, userId: user.id });
-  }, [
-    activate,
-    callOwnsAudio,
-    channelId,
-    eligible,
-    pause,
-    screenOwnsRadio,
-    socket,
-    user,
-  ]);
-
-  useEffect(
-    () => () => {
-      setRadioRealtimeSuspended(false);
-      releaseRadioForegroundService('screen').catch(() => undefined);
-      reset();
-    },
-    [reset]
-  );
+  useEffect(() => () => reset(), [reset]);
 
   return null;
 }

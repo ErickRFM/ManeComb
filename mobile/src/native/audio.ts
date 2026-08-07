@@ -12,6 +12,8 @@ type PermissionResult = {
   status: 'granted' | 'denied' | 'undetermined';
 };
 
+export type RadioForegroundServiceMode = 'listening' | 'transmitting';
+
 type RecorderStatus = {
   isRecording?: boolean;
   metering?: number;
@@ -77,7 +79,8 @@ type NativeAudioModule = {
   startPttPlayback: (transmissionId: string) => Promise<void>;
   enqueuePttFrame: (base64Data: string, sequence: number, transmissionId: string) => Promise<number>;
   stopPttPlayback: () => Promise<void>;
-  startRadioForegroundService: () => Promise<void>;
+  startRadioForegroundService: (mode: RadioForegroundServiceMode) => Promise<void>;
+  setRadioForegroundServiceState: (mode: RadioForegroundServiceMode) => Promise<void>;
   stopRadioForegroundService: () => Promise<void>;
   startRadioHistoryPlayer: (playerId: string, source: { uri: string; headers?: Record<string, string> }) => Promise<PlayerStatus>;
   pauseRadioHistoryPlayer: (playerId: string) => Promise<PlayerStatus>;
@@ -149,8 +152,17 @@ export async function stopPttAudioPlayback() {
   await NativeAudio?.stopPttPlayback();
 }
 
-export async function startRadioForegroundService() {
-  await NativeAudio?.startRadioForegroundService();
+// El tipo de foreground service depende del estado real: escuchar solo necesita
+// mediaPlayback, transmitir necesita microphone. Android 14+ rechaza capturar en
+// segundo plano sin el tipo declarado, por eso el modo viaja al nativo.
+export async function startRadioForegroundService(
+  mode: RadioForegroundServiceMode = 'listening'
+) {
+  await NativeAudio?.startRadioForegroundService(mode);
+}
+
+export async function setRadioForegroundServiceState(mode: RadioForegroundServiceMode) {
+  await NativeAudio?.setRadioForegroundServiceState(mode);
 }
 
 export async function stopRadioForegroundService() {
