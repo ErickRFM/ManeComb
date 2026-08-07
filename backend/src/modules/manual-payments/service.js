@@ -30,7 +30,7 @@ const manualPaymentEvidenceSchema = new mongoose.Schema(
     submittedAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     version: { type: Number, default: 1 },
-    pendingDecision: { type: String, enum: ["approve", "reject", null], default: null },
+    pendingDecision: { type: String, enum: ["approve", "reject"], default: null },
     decisionKeyHash: { type: String, default: null },
     decisionFingerprint: { type: String, default: null },
     reviewLeaseUntil: { type: Date, default: null },
@@ -301,13 +301,17 @@ async function submitManualPaymentEvidence({ order, userId, payload = {}, idempo
   }
 
   try {
-    const persisted = existing
-      ? await ManualPaymentEvidenceModel.findOneAndUpdate(
-          { orderId: submission.orderId, status: "rejected" },
-          { $set: next },
-          { new: true }
-        ).lean()
-      : await ManualPaymentEvidenceModel.create(next);
+    let persisted;
+    if (existing) {
+      const { _id, ...mutableFields } = next;
+      persisted = await ManualPaymentEvidenceModel.findOneAndUpdate(
+        { orderId: submission.orderId, status: "rejected" },
+        { $set: mutableFields },
+        { new: true, runValidators: true }
+      ).lean();
+    } else {
+      persisted = await ManualPaymentEvidenceModel.create(next);
+    }
 
     if (!persisted) {
       throw domainError(
@@ -411,7 +415,7 @@ async function claimManualPaymentDecision({ orderId, decision, reviewNote = "", 
         updatedAt: now
       }
     },
-    { new: true }
+    { new: true, runValidators: true }
   ).lean();
 
   if (!claimed) {
@@ -466,7 +470,7 @@ async function completeManualPaymentDecision({ orderId, decision, keyHash, revie
   const completed = await ManualPaymentEvidenceModel.findOneAndUpdate(
     { orderId: String(orderId), status: "reviewing", decisionKeyHash: keyHash },
     { $set: updates },
-    { new: true }
+    { new: true, runValidators: true }
   ).lean();
   if (!completed) {
     throw domainError("manual_payment_review_claim_lost", "La revisión perdió su bloqueo de seguridad.", 409);
@@ -495,7 +499,8 @@ async function releaseManualPaymentDecision({ orderId, keyHash, now = new Date()
   }
   await ManualPaymentEvidenceModel.updateOne(
     { orderId: String(orderId), status: "reviewing", decisionKeyHash: keyHash },
-    { $set: updates }
+    { $set: updates },
+    { runValidators: true }
   );
 }
 
