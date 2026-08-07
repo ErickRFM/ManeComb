@@ -85,7 +85,7 @@ async function main() {
     assert.equal(checkout.status, 201);
     assert.equal(checkout.body.data.paymentProvider, "trial_access");
     assert.equal(checkout.body.data.paymentStatus, "trial_active");
-    assert.equal(checkout.body.data.activationStatus, "trial");
+    assert.equal(checkout.body.data.activationStatus, "active");
     assert.equal(checkout.body.data.checkoutUrl, null);
 
     const subscription = await requestJson(`${api}/account/subscription`, {
@@ -106,7 +106,7 @@ async function main() {
     assert.equal(portal.status, 200);
     assert.equal(portal.body.ok, true);
 
-    console.log("ok - trial de 7 dias activa suscripcion y acceso Portal sin proveedor de pagos");
+    console.log("ok - trial de 7 dias activa cuenta, suscripcion trial y acceso Portal sin proveedor de pagos");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
