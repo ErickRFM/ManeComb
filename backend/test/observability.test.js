@@ -90,18 +90,15 @@ async function main() {
     for (const secretName of ["REDIS_URL", "MONGO_URI", "RESEND_API_KEY", "redisUrl", "apiKey"]) {
       assert.equal(serializedReady.includes(secretName), false);
     }
+
     const metricsResponse = await fetch(`${baseUrl}/api/metrics`);
     const metrics = await metricsResponse.json();
-
-    assert.equal(metrics.ok, true);
-    assert.ok(Array.isArray(metrics.data.counters));
-    assert.ok(
-      metrics.data.counters.some((entry) => entry.name === "http_requests_total")
-    );
-    assert.ok(Array.isArray(metrics.data.timers));
+    assert.equal(metricsResponse.status, 401);
+    assert.equal(metrics.ok, false);
+    assert.equal("data" in metrics, false);
   });
 
-  console.log("ok - observabilidad health, trace y metricas");
+  console.log("ok - observabilidad pública segura y métricas protegidas");
 }
 
 main().catch((error) => {
