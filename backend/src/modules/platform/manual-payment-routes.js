@@ -131,6 +131,7 @@ router.post(
 
       const decision = String(req.body?.decision || "").trim().toLowerCase();
       const reviewNote = String(req.body?.note || "").trim();
+      const evidenceVersion = Number(req.body?.evidenceVersion);
       if (decision === "approve") {
         const currentEvidence = await getManualPaymentEvidence(order.id);
         if (!currentEvidence) {
@@ -151,7 +152,8 @@ router.post(
         decision,
         reviewNote,
         reviewerId: req.platformUser.id,
-        idempotencyKey: req.get("Idempotency-Key")
+        idempotencyKey: req.get("Idempotency-Key"),
+        expectedEvidenceVersion: evidenceVersion
       });
 
       if (claim.replayed) {
