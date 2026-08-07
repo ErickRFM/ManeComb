@@ -1,7 +1,10 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const require = createRequire(import.meta.url);
+const { unitTestExtensions, unitTestRoots } = require('../test/unit-test-policy.cjs');
 const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const excludedDirectories = new Set([
   '.git',
@@ -13,8 +16,11 @@ const excludedDirectories = new Set([
   'node_modules',
   'web-build',
 ]);
-const unitTestPattern = /\.test\.(?:js|jsx|ts|tsx)$/i;
-const jestRoots = ['src/', 'scripts/'];
+const unitTestPattern = new RegExp(
+  `\\.test\\.(?:${unitTestExtensions.join('|')})$`,
+  'i'
+);
+const jestRoots = unitTestRoots.map((root) => `${root.replace(/\/$/, '')}/`);
 
 function normalizeRelativePath(filePath) {
   return path.relative(mobileRoot, filePath).split(path.sep).join('/');
