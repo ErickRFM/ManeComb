@@ -76,10 +76,24 @@ assert.match(
 const activeSocketGuardIndex = socketSource.indexOf(
   "const activeForSocket = [...activeRadioTransmissions.values()].find"
 );
-const radioLockAcquireIndex = socketSource.indexOf("const lock = await acquireRadioChannel");
+const radioLockAcquireIndex = socketSource.indexOf("const lock = await radioFloor.acquire");
 assert.ok(
   activeSocketGuardIndex > 0 && activeSocketGuardIndex < radioLockAcquireIndex,
   "radio:start must reject sockets that already transmit before acquiring a channel lock"
 );
+
+// El arbitraje distribuido tiene una sola implementacion: el handler de sockets
+// consume la autoridad extraida y no vuelve a hablar con Redis por su cuenta.
+assert.ok(
+  socketSource.includes('require("../modules/radio/floor-control")'),
+  "radio floor control must come from its dedicated module"
+);
+for (const inlined of ["manecomb:radio:channel:", "redis.call('get'", "NX: true"]) {
+  assert.equal(
+    socketSource.includes(inlined),
+    false,
+    `socket handler must not re-implement the radio lock (${inlined})`
+  );
+}
 
 console.log("backend architecture tests passed");

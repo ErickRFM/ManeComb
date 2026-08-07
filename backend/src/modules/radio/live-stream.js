@@ -38,6 +38,47 @@ function appendFrame(transmission, base64Data) {
   return true;
 }
 
+const FRAME_DURATION_MS = 20;
+const FRAME_BURST_ALLOWANCE = 50;
+
+/**
+ * Unica validacion de cadencia/orden/tamanio de un frame PTT. Se extrajo del
+ * handler de socket para poder certificarla sin levantar transporte.
+ *
+ * @returns {{ ok: true } | { ok: false, reason: string, fatal: boolean }}
+ *   `fatal` indica que la transmision debe terminarse, no solo descartar el frame.
+ */
+function evaluateFrame(transmission, { sequence, sentAt, base64Length, now = Date.now() }) {
+  if (!Number.isInteger(sequence)) {
+    return { ok: false, reason: "invalid_owner", fatal: false };
+  }
+
+  if (sequence <= transmission.lastSequence) {
+    return { ok: false, reason: "duplicate", fatal: false };
+  }
+
+  const maxSequenceForElapsedTime =
+    Math.floor((now - transmission.startedAt) / FRAME_DURATION_MS) + FRAME_BURST_ALLOWANCE;
+  if (sequence > maxSequenceForElapsedTime) {
+    return { ok: false, reason: "rate_exceeded", fatal: true };
+  }
+
+  if (transmission.byteLength + FRAME_BYTES > MAX_TRANSMISSION_BYTES) {
+    return { ok: false, reason: "max_duration", fatal: true };
+  }
+
+  if (
+    sequence !== transmission.lastSequence + 1 ||
+    !Number.isFinite(sentAt) ||
+    sentAt <= 0 ||
+    base64Length !== FRAME_BASE64_LENGTH
+  ) {
+    return { ok: false, reason: "invalid_frame", fatal: true };
+  }
+
+  return { ok: true };
+}
+
 async function persistTransmission(store, transmission) {
   if (!transmission.byteLength) return null;
   const pcm = Buffer.concat(transmission.frames, transmission.byteLength);
@@ -61,10 +102,13 @@ async function persistTransmission(store, transmission) {
 }
 
 module.exports = {
+  FRAME_BURST_ALLOWANCE,
   FRAME_BYTES,
   FRAME_BASE64_LENGTH,
+  FRAME_DURATION_MS,
   MAX_TRANSMISSION_BYTES,
   appendFrame,
   createWavBuffer,
+  evaluateFrame,
   persistTransmission
 };
