@@ -10,6 +10,7 @@ import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
+import { ManualTransferEvidenceCard } from '../payments/manual-transfer-evidence-card';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 
@@ -26,8 +27,13 @@ const PAYMENT_STEPS = [
   },
   {
     icon: 'shield-check-outline' as const,
-    title: '3. Espera la confirmación',
-    description: 'ManeComb activa o renueva el plan únicamente después de validar el depósito.',
+    title: '3. Envía la evidencia',
+    description: 'Registra la clave de rastreo SPEI para que ManeComb pueda validar el depósito.',
+  },
+  {
+    icon: 'check-decagram-outline' as const,
+    title: '4. Espera la confirmación',
+    description: 'El plan se activa únicamente después de la validación administrativa.',
   },
 ];
 
@@ -42,8 +48,9 @@ export function PortalPaymentsScreen() {
 
   const status = subscription?.status || '';
   const normalizedStatus = status.toLowerCase();
-  const canRetry = ['failed', 'payment_failed', 'pending', 'pending_payment', 'payment_pending'].includes(normalizedStatus);
-  const isPending = ['pending', 'pending_payment', 'payment_pending'].includes(normalizedStatus);
+  const pendingStatuses = ['pending', 'pending_payment', 'payment_pending', 'pending_manual_confirmation'];
+  const canRetry = ['failed', 'payment_failed', ...pendingStatuses].includes(normalizedStatus);
+  const isPending = pendingStatuses.includes(normalizedStatus);
   const nextChargeDate = subscription?.currentPeriodEnd;
   const nextChargeAmount = subscription?.monthlyPrice;
   const [message, setMessage] = useState<string | null>(null);
@@ -139,6 +146,8 @@ export function PortalPaymentsScreen() {
           </View>
         </PortalSectionCard>
       )}
+
+      {subscription?.id ? <ManualTransferEvidenceCard orderId={subscription.id} /> : null}
 
       <PortalSectionCard title="Cómo se confirma una transferencia" subtitle="El estado del plan siempre proviene del backend; una captura o referencia por sí sola no activa el servicio.">
         <View style={styles.stepGrid}>
