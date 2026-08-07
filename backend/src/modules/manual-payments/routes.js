@@ -1,7 +1,7 @@
 const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
-const { requirePermission } = require("../../middlewares/access-control");
+const { getRolesWithPermission, requirePermission } = require("../../middlewares/access-control");
 const { requirePortalAccess } = require("../../middlewares/portal-access");
 const {
   getManualPaymentEligibility,
@@ -33,6 +33,25 @@ function buildPortalPayload(order, evidence) {
     },
     evidence
   };
+}
+
+function emitEvidenceUpdate(req, order, evidence) {
+  const organizationId = String(order.organizationId || "").trim();
+  const ownerUserId = String(order.ownerUserId || "").trim();
+  const event = {
+    organizationId,
+    orderId: order.id,
+    evidence,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (organizationId) {
+    getRolesWithPermission("canManageBilling").forEach((role) => {
+      req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("manual-payment:updated", event);
+    });
+  }
+  if (ownerUserId) req.app.locals.io?.to(`user:${ownerUserId}`).emit("manual-payment:updated", event);
+  req.app.locals.io?.to("platform:admin").emit("manual-payment:updated", event);
 }
 
 router.get(
@@ -87,18 +106,7 @@ router.post(
       });
 
       const payload = buildPortalPayload(order, result.evidence);
-      req.app.locals.io?.to(`org:${order.organizationId}`).emit("manual-payment:updated", {
-        organizationId: order.organizationId,
-        orderId: order.id,
-        evidence: result.evidence,
-        updatedAt: new Date().toISOString()
-      });
-      req.app.locals.io?.to("platform:admin").emit("manual-payment:updated", {
-        organizationId: order.organizationId,
-        orderId: order.id,
-        evidence: result.evidence,
-        updatedAt: new Date().toISOString()
-      });
+      emitEvidenceUpdate(req, order, result.evidence);
 
       return res.status(result.replayed ? 200 : 201).json({
         ok: true,
