@@ -29,10 +29,12 @@ function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnit
     driver: null,
     route: null,
     session: null,
+    journey: null,
     incidents: { open: 0, inProgress: 0, lastAt: null },
     lastEventAt: null,
     visibility: 'visible',
     ...overrides,
+    journey: overrides.journey ?? null,
   };
 }
 
