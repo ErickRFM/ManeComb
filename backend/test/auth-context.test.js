@@ -90,7 +90,7 @@ async function testCompanyOwnerWithoutPlanUsesPortalChannel() {
       canAccessPortal: true,
       canUseOperations: false,
       destination: "PlanRequired",
-      mobileBlockReason: "wrong_channel",
+      mobileBlockReason: "no_plan",
       operationalBlockReason: "no_plan",
       productRoute: "/portal/plan",
       route: "/portal/plan"
@@ -111,7 +111,7 @@ async function testCompanyOwnerWithoutPlanUsesPortalChannel() {
     planStatus: "inactive",
     tenantStatus: "registered"
   });
-  console.log("ok - empresa sin plan permanece en Portal y reporta no_plan para operaciones");
+  console.log("ok - empresa sin plan permanece en Portal y Mobile reporta no_plan");
 }
 
 async function testDriverWithoutPlanUsesMobileGate() {
@@ -134,16 +134,16 @@ async function testDriverWithoutPlanUsesMobileGate() {
   console.log("ok - conductor sin plan queda en el gate de Mobile");
 }
 
-async function testCompanyOwnerWithActivePlanUsesPortal() {
+async function testCompanyOwnerWithActivePlanUsesPortalAndMobile() {
   const user = createUser();
   const authContext = await assertAccess("empresa con plan activo", {
     expected: {
       accountChannel: "company_portal",
-      canAccessMobile: false,
+      canAccessMobile: true,
       canAccessPortal: true,
       canUseOperations: true,
       destination: "CompanyPortal",
-      mobileBlockReason: "wrong_channel",
+      mobileBlockReason: null,
       operationalBlockReason: null,
       productDestination: "CompanyPortal",
       productRoute: "/portal",
@@ -157,7 +157,32 @@ async function testCompanyOwnerWithActivePlanUsesPortal() {
   assert.equal(authContext.subscription.unitsLimit, 6);
   assert.equal(authContext.tenant.status, "active");
   assert.equal(await canUseOperationalFeatures(createStore({ orders: [createOrder()] }), user), true);
-  console.log("ok - empresa activa opera desde Portal sin acceso a Mobile");
+  console.log("ok - owner de empresa conserva Portal y también accede a Mobile");
+}
+
+async function testCompanyAdminWithActivePlanUsesPortalAndMobile() {
+  const admin = createUser({
+    id: "company-admin-tenant-a",
+    email: "admin-a@manecomb.test",
+    role: "admin"
+  });
+  const authContext = await assertAccess("admin de empresa con plan activo", {
+    expected: {
+      accountChannel: "company_portal",
+      canAccessMobile: true,
+      canAccessPortal: true,
+      canUseOperations: true,
+      destination: "CompanyPortal",
+      mobileBlockReason: null,
+      operationalBlockReason: null,
+      route: "/portal"
+    },
+    orders: [createOrder()],
+    user: admin
+  });
+
+  assert.equal(authContext.subscription.isActive, true);
+  console.log("ok - admin de empresa usa Portal y panel administrativo de Mobile");
 }
 
 async function testActiveDriverCanAccessMobile() {
@@ -178,7 +203,7 @@ async function testActiveDriverCanAccessMobile() {
   });
 
   assert.equal(await canUseOperationalFeatures(createStore({ orders: [createOrder()] }), driver), true);
-  console.log("ok - conductor activo entra únicamente al canal Mobile");
+  console.log("ok - conductor activo entra al canal Mobile");
 }
 
 async function testSuspendedTenantBlocksDriver() {
@@ -206,7 +231,7 @@ async function testPaymentPendingRoutesCompanyToPortalPayments() {
       canAccessMobile: false,
       canUseOperations: false,
       destination: "PaymentPending",
-      mobileBlockReason: "wrong_channel",
+      mobileBlockReason: "payment_pending",
       operationalBlockReason: "payment_pending",
       route: "/portal/pagos"
     },
@@ -221,7 +246,7 @@ async function testPaymentPendingRoutesCompanyToPortalPayments() {
   });
 
   assert.equal(authContext.subscription.status, "pending");
-  console.log("ok - pago pendiente de empresa se resuelve dentro del Portal");
+  console.log("ok - pago pendiente mantiene Portal y bloquea Mobile por payment_pending");
 }
 
 async function testPaymentPendingBlocksDriverInMobile() {
@@ -294,14 +319,14 @@ async function testPendingInvitedDriverDoesNotChangeChannel() {
   console.log("ok - invitación pendiente no altera el canal operativo válido");
 }
 
-async function testActiveTrialKeepsCompanyInPortal() {
+async function testActiveTrialKeepsCompanyInPortalAndMobile() {
   const authContext = await assertAccess("trial vigente", {
     expected: {
       accountChannel: "company_portal",
-      canAccessMobile: false,
+      canAccessMobile: true,
       canUseOperations: true,
       destination: "CompanyPortal",
-      mobileBlockReason: "wrong_channel",
+      mobileBlockReason: null,
       operationalBlockReason: null,
       route: "/portal"
     },
@@ -319,16 +344,17 @@ async function testActiveTrialKeepsCompanyInPortal() {
 
   assert.equal(authContext.subscription.status, "trial");
   assert.equal(authContext.subscription.isActive, true);
-  console.log("ok - trial vigente habilita Portal sin cambiar el producto de la cuenta");
+  console.log("ok - trial vigente habilita Portal y Mobile para la administración de empresa");
 }
 
 async function testPaidOrderUsesCanonicalPortalStatus() {
   const authContext = await assertAccess("pago aprobado", {
     expected: {
       accountChannel: "company_portal",
-      canAccessMobile: false,
+      canAccessMobile: true,
       canUseOperations: true,
       destination: "CompanyPortal",
+      mobileBlockReason: null,
       operationalBlockReason: null,
       route: "/portal"
     },
@@ -352,7 +378,7 @@ async function testPaidOrderUsesCanonicalPortalStatus() {
     authContext.onboarding.steps.find((step) => step.id === "payment").status,
     "completed"
   );
-  console.log("ok - pago aprobado mantiene el canal company_portal");
+  console.log("ok - pago aprobado mantiene Portal y habilita Mobile");
 }
 
 async function testLegacyActivationFlagCannotBypassPayment() {
@@ -361,7 +387,7 @@ async function testLegacyActivationFlagCannotBypassPayment() {
       canAccessMobile: false,
       canUseOperations: false,
       destination: "PaymentPending",
-      mobileBlockReason: "wrong_channel",
+      mobileBlockReason: "payment_pending",
       operationalBlockReason: "payment_pending",
       route: "/portal/pagos"
     },
@@ -382,7 +408,7 @@ async function testLegacyActivationFlagCannotBypassPayment() {
 
   assert.equal(authContext.subscription.status, "pending");
   assert.equal(authContext.subscription.isActive, false);
-  console.log("ok - flags heredados no sustituyen el pago ni alteran el canal");
+  console.log("ok - flags heredados no sustituyen el pago ni habilitan Mobile");
 }
 
 async function testInvalidRoleAndAccountCombinationsAreBlocked() {
@@ -441,14 +467,15 @@ function testPlatformIdentityHasDedicatedChannel() {
 async function run() {
   await testCompanyOwnerWithoutPlanUsesPortalChannel();
   await testDriverWithoutPlanUsesMobileGate();
-  await testCompanyOwnerWithActivePlanUsesPortal();
+  await testCompanyOwnerWithActivePlanUsesPortalAndMobile();
+  await testCompanyAdminWithActivePlanUsesPortalAndMobile();
   await testActiveDriverCanAccessMobile();
   await testSuspendedTenantBlocksDriver();
   await testPaymentPendingRoutesCompanyToPortalPayments();
   await testPaymentPendingBlocksDriverInMobile();
   await testExpiredPlanBlocksDriver();
   await testPendingInvitedDriverDoesNotChangeChannel();
-  await testActiveTrialKeepsCompanyInPortal();
+  await testActiveTrialKeepsCompanyInPortalAndMobile();
   await testPaidOrderUsesCanonicalPortalStatus();
   await testLegacyActivationFlagCannotBypassPayment();
   await testInvalidRoleAndAccountCombinationsAreBlocked();
@@ -458,5 +485,5 @@ async function run() {
 
 run().catch((error) => {
   console.error(error);
-  process.exit(1);
+  process.exitCode = 1;
 });
