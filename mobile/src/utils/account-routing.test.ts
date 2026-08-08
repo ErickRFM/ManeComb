@@ -74,7 +74,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/mapa');
   });
 
-  it.each(['owner', 'admin'])('abre Mobile para company_portal con rol %s cuando backend lo autoriza', (role) => {
+  it.each(['owner', 'admin'] as const)('abre Mobile para company_portal con rol %s cuando backend lo autoriza', (role) => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext({
         accountChannel: 'company_portal',
@@ -156,7 +156,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/mapa');
   });
 
-  it.each(['owner', 'admin'])('acepta el contrato plano heredado para company_owner %s autorizado', (role) => {
+  it.each(['owner', 'admin'] as const)('acepta el contrato plano heredado para company_owner %s autorizado', (role) => {
     const result = resolveMobilePostLoginRoute({
       canAccessMobile: true,
       user: user({
