@@ -58,10 +58,44 @@ Ninguna fila tiene dos productores finales.
 `status` (ciclo de vida) y `processingStatus` (cálculo de métricas) son hechos
 distintos con campos distintos: no son duplicación.
 
-**Límite conocido**: el invariante "una jornada activa" está garantizado por
-vehículo a nivel de base de datos. Por conductor es transitivo (un conductor
-opera una unidad a la vez) y **no** tiene índice propio. No se añadió una
-restricción que el producto no exige.
+### Una jornada activa por conductor — GARANTIZADO
+
+No hay índice único por conductor: la garantía nace de encadenar tres reglas,
+fijadas por `backend/test/driver-journey-exclusivity.test.js`.
+
+1. **Un conductor, una unidad.** `changeDriverVehicle` (store embebido) y
+   `syncDriverVehicleAssignment` (Mongo, `updateMany`) liberan el emparejamiento
+   con cualquier otra unidad al asignar una nueva.
+2. **No se puede cambiar de unidad con jornada viva.** `changeDriverVehicle`
+   devuelve `active_session` si la unidad actual tiene jornada activa. Mongo
+   replica esta guarda en cuatro puntos.
+3. **La jornada toma el conductor de la unidad.** `POST /navigation/sessions/start`
+   deriva `driverId` de `vehicle.driverId`, nunca del cuerpo de la petición, y
+   sólo el conductor emparejado puede iniciarla.
+
+Compuestas: un conductor no puede estar en dos unidades, luego no puede abrir
+dos jornadas. La asignación administrativa añade `driver_vehicle_mismatch` y
+`schedule_conflict` (conductor **o** unidad, con solape de intervalos) bajo
+`withAssignmentLock`.
+
+---
+
+## 1.c Dominio de incidencias y comercial
+
+| Hecho | Autoridad | Cómo se protege |
+|---|---|---|
+| estado de incidencia | `updateIncidentStatus`, único writer | ruta valida `open\|in_progress\|resolved`, `requirePermission("canManageIncidents")` y pre-chequeo de tenant vía `listIncidents(req.user)` |
+| ubicación de incidencia | `resolveIncidentLocation(vehicle, location)` | snapshot en la creación, derivado de la autoridad GPS; no es ubicación viva |
+| onboarding | `order.onboardingStatus` | único productor (`commercial-activation`); admin-global, portal y mobile sólo lo leen |
+| suscripción | backend (`authContext.subscription`) | el cliente sólo proyecta `status` y `unitsLimit` |
+| límite de flota | store, no la UI | `createActivationKeyWithinCapacity` / `reactivateDriverWithinCapacity` rechazan por `maxDrivers` en ambos stores |
+| frontera Admin Global | `PLATFORM_ROLES` + `requirePlatformRole` | espacio de roles disjunto del tenant; las rutas platform no usan `requirePermission` de tenant |
+
+**Radio Emergency — READY TO EXTEND.** El modelo de incidencia ya transporta
+creador, vehículo, ruta, snapshot de ubicación, severidad `critical`, `media` y
+estado, y el backend ya emite `incident:sos` con categoría de notificación `sos`
+y deep link. Una emergencia de Radio puede representarse aquí sin crear un
+segundo modelo operacional; sólo faltaría referenciar el audio en `media`.
 
 ---
 
