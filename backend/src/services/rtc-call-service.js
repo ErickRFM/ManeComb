@@ -1,4 +1,6 @@
 // RC-MOBILE-CALLS-PRODUCTION-01 — signaling global autoritativo + push de llamada.
+// RC-RTC-RECONNECT-LIFECYCLE-20260808 — reconcilia participantes activos sin binding de socket
+// despues de una reconexion para que una segunda caida vuelva a liberar call/userState.
 //
 // Estado de llamadas EN MEMORIA (una sola instancia de backend). Si en el futuro hay varias
 // replicas, esta reserva debe centralizarse (p.ej. Redis). Push nunca reemplaza al socket:
@@ -276,20 +278,44 @@ function createRtcCallService({
     pendingDisconnects.set(key, handle);
   }
 
+  function collectDisconnectCandidates(call, socketId) {
+    const candidates = new Set();
+    const isCaller = call.callerSocketId === socketId;
+    const calleeEntry = Array.from(call.calleeSockets.entries()).find(([, sid]) => sid === socketId);
+
+    if (isCaller) {
+      call.callerSocketId = null;
+      candidates.add(call.callerId);
+    }
+    if (calleeEntry) {
+      call.calleeSockets.delete(calleeEntry[0]);
+      candidates.add(calleeEntry[0]);
+    }
+
+    // Tras una reconexion el socket de presence/rtc puede cambiar. callService no debe
+    // depender para siempre del socket inicial: si una llamada activa ya perdio ese binding,
+    // reconciliamos el participante contra la presencia real en cada disconnect posterior.
+    // No se hace durante ringing para no matar antes de tiempo a un callee que aun solo tiene push.
+    if (call.status === "active") {
+      if (!call.callerSocketId) candidates.add(call.callerId);
+      for (const calleeId of call.calleeIds) {
+        if (!call.calleeSockets.has(calleeId)) candidates.add(calleeId);
+      }
+    }
+
+    return candidates;
+  }
+
   async function handleDisconnect(socketId, { isUserConnected } = {}) {
     for (const call of Array.from(callsById.values())) {
-      const isCaller = call.callerSocketId === socketId;
-      const calleeEntry = Array.from(call.calleeSockets.entries()).find(([, sid]) => sid === socketId);
-      if (!isCaller && !calleeEntry) continue;
+      const candidates = collectDisconnectCandidates(call, socketId);
+      if (!candidates.size) continue;
 
-      const goneUserId = isCaller ? call.callerId : calleeEntry[0];
-      if (isCaller) call.callerSocketId = null;
-      else call.calleeSockets.delete(goneUserId);
-
-      const stillConnected = isUserConnected ? await isUserConnected(goneUserId) : false;
-      if (stillConnected) continue;
-
-      scheduleDisconnectCleanup(call, goneUserId);
+      for (const goneUserId of candidates) {
+        const stillConnected = isUserConnected ? await isUserConnected(goneUserId) : false;
+        if (stillConnected) continue;
+        scheduleDisconnectCleanup(call, goneUserId);
+      }
     }
   }
 
