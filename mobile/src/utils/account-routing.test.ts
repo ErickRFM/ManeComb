@@ -63,7 +63,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(resolveMobilePostLoginRoute(null).route).toBe('/login');
   });
 
-  it('abre HomeOperativo solo para mobile_operations autorizado', () => {
+  it('abre HomeOperativo para mobile_operations autorizado', () => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext(),
       user: user(),
@@ -74,7 +74,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/mapa');
   });
 
-  it('bloquea company_portal aunque una bandera heredada diga canAccessMobile true', () => {
+  it.each(['owner', 'admin'])('abre Mobile para company_portal con rol %s cuando backend lo autoriza', (role) => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext({
         accountChannel: 'company_portal',
@@ -83,7 +83,25 @@ describe('resolveMobilePostLoginRoute', () => {
       user: user({
         accountChannel: 'company_portal',
         accountType: 'company_owner',
-        role: 'owner',
+        role,
+      }),
+    });
+
+    expect(result.destination).toBe('HomeOperativo');
+    expect(result.reason).toBe('active_mobile_access');
+    expect(result.route).toBe('/mapa');
+  });
+
+  it('no concede Mobile a un rol de Portal sin capacidad administrativa de app', () => {
+    const result = resolveMobilePostLoginRoute({
+      authContext: authContext({
+        accountChannel: 'company_portal',
+        canAccessMobile: true,
+      }),
+      user: user({
+        accountChannel: 'company_portal',
+        accountType: 'company_owner',
+        role: 'billing_manager',
       }),
     });
 
@@ -112,7 +130,7 @@ describe('resolveMobilePostLoginRoute', () => {
     'inactive_plan',
     'missing_tenant',
     'sync_error',
-  ])('bloquea mobile_operations cuando backend devuelve %s', (reason) => {
+  ])('bloquea una identidad elegible cuando backend devuelve %s', (reason) => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext({
         canAccessMobile: false,
@@ -128,7 +146,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/plan-blocked');
   });
 
-  it('acepta el contrato plano heredado solo para una identidad operational valida', () => {
+  it('acepta el contrato plano heredado para una identidad operational valida', () => {
     const result = resolveMobilePostLoginRoute({
       canAccessMobile: true,
       user: user({ accountChannel: undefined }),
@@ -138,18 +156,19 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/mapa');
   });
 
-  it('rechaza una identidad company_owner heredada aunque falte accountChannel', () => {
+  it.each(['owner', 'admin'])('acepta el contrato plano heredado para company_owner %s autorizado', (role) => {
     const result = resolveMobilePostLoginRoute({
       canAccessMobile: true,
       user: user({
         accountChannel: undefined,
         accountType: 'company_owner',
-        role: 'owner',
+        role,
       }),
     });
 
-    expect(result.destination).toBe('PlanBlocked');
-    expect(result.reason).toBe('wrong_channel');
+    expect(result.destination).toBe('HomeOperativo');
+    expect(result.reason).toBe('active_mobile_access');
+    expect(result.route).toBe('/mapa');
   });
 
   it('no concede acceso usando plan y tenant locales sin decision vigente del backend', () => {
@@ -162,7 +181,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/sync-error');
   });
 
-  it('el canal del authContext tiene prioridad sobre el usuario cacheado', () => {
+  it('mantiene Platform Admin fuera del producto Mobile aunque una bandera sea inconsistente', () => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext({
         accountChannel: 'platform_admin',
