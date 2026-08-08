@@ -12,6 +12,7 @@ const PLATFORM_PERMISSIONS = {
     "platform.sessions.manage",
     "platform.companies.read",
     "platform.commercial.read",
+    "platform.commercial.manage",
     "platform.system.read",
     "platform.audit.read",
     "platform.actions.execute"
@@ -21,6 +22,7 @@ const PLATFORM_PERMISSIONS = {
     "platform.sessions.manage",
     "platform.companies.read",
     "platform.commercial.read",
+    "platform.commercial.manage",
     "platform.system.read",
     "platform.audit.read"
   ],
@@ -32,6 +34,7 @@ const PLATFORM_PERMISSIONS = {
   platform_finance: [
     "platform.companies.read",
     "platform.commercial.read",
+    "platform.commercial.manage",
     "platform.audit.read"
   ],
   platform_viewer: [
