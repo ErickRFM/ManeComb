@@ -129,4 +129,39 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await assertNoDocumentOverflow(page);
     await attachFullPageScreenshot(page, testInfo, 'landing-planes');
   });
+
+  test('landing ejecuta movimiento público visible cuando el sistema permite animaciones', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto('/ventas', { waitUntil: 'domcontentloaded' });
+
+    const ambientWash = page.getByTestId('sales-ambient-wash');
+    await expect(ambientWash).toBeAttached();
+    const ambientAnimation = await ambientWash.evaluate((node) => window.getComputedStyle(node).animationName);
+    expect(ambientAnimation, 'El fondo público debe conservar su keyframe ambiental').toContain('manecombGradientShift');
+
+    const firstPlanCard = page.getByRole('button', { name: 'Seleccionar plan 2 combis' });
+    await firstPlanCard.scrollIntoViewIfNeeded();
+    await expect(firstPlanCard).toBeVisible();
+
+    // Espera a que termine el reveal escalonado; después el hover debe seguir teniendo
+    // movimiento propio. Así certificamos ambos estados sin depender de una captura estática.
+    await page.waitForTimeout(1_050);
+    const beforeHover = await firstPlanCard.evaluate((node) => ({
+      opacity: window.getComputedStyle(node).opacity,
+      transform: window.getComputedStyle(node).transform,
+      transitionDuration: window.getComputedStyle(node).transitionDuration,
+    }));
+
+    expect(Number.parseFloat(beforeHover.opacity)).toBeGreaterThanOrEqual(0.99);
+    expect(beforeHover.transitionDuration).not.toBe('0s');
+
+    await firstPlanCard.hover();
+    await page.waitForTimeout(360);
+    const afterHoverTransform = await firstPlanCard.evaluate((node) => window.getComputedStyle(node).transform);
+
+    expect(
+      afterHoverTransform,
+      'La tarjeta debe cambiar físicamente de transform al hover; no basta declarar transition'
+    ).not.toBe(beforeHover.transform);
+  });
 });
