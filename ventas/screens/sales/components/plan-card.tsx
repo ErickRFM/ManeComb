@@ -32,14 +32,25 @@ export function PlanCard({
 }) {
   const visual = getPlanVisualTone(index);
   const cardEdge = active ? visual.edge : accent;
-  const compactCard = compact;
+  const showTrialAction = Boolean(onTrial && trialLabel);
+  // En desktop de cuatro columnas las tarjetas rondan los 295 px. Ese ancho ya necesita
+  // la escala compacta aunque no sea un teléfono; en móvil de 360 px la tarjeta conserva
+  // la escala completa porque sigue teniendo ~328 px útiles.
+  const compactCard = compact || width < 312;
+  const planListMinHeight = compactCard ? 96 : 106;
+  const cardMinHeight = showTrialAction
+    ? compactCard
+      ? 468
+      : 500
+    : compactCard
+      ? 410
+      : 442;
   const features = [
     `${plan.units} unidades incluidas`,
     `${formatCurrency(plan.pricePerVehicle)} por unidad`,
     plan.includesRadioModule ? 'Radio incluido' : 'Radio opcional',
     'Activación directa',
   ];
-  const showTrialAction = Boolean(onTrial && trialLabel);
 
   return (
     <Pressable
@@ -53,13 +64,14 @@ export function PlanCard({
         return [
           styles.planCard,
           {
-            // Todas las tarjetas comparten la altura de la fila: el contenedor las estira y el
-            // listado de features absorbe la diferencia, así los botones quedan alineados.
+            // El listado de beneficios no puede colapsar por debajo de su contenido. La altura
+            // mínima contempla también la segunda acción del plan demo para que ningún CTA se
+            // monte sobre los textos al cambiar viewport, zoom o métrica tipográfica.
             alignSelf: 'stretch',
             flexShrink: 0,
             gap: compactCard ? 12 : 15,
             maxWidth: width,
-            minHeight: compactCard ? 0 : 382,
+            minHeight: cardMinHeight,
             padding: compactCard ? 18 : 20,
             width,
             borderColor: active ? visual.edge : hovered ? `${visual.secondary}CC` : `${visual.edge}44`,
@@ -141,7 +153,7 @@ export function PlanCard({
       <Text
         style={[
           styles.planSubtitle,
-          compactCard ? { fontSize: 13, lineHeight: 19, minHeight: 0 } : undefined,
+          compactCard ? { fontSize: 13, lineHeight: 19, minHeight: 38 } : undefined,
         ]}>
         {plan.subtitle}
       </Text>
@@ -157,7 +169,12 @@ export function PlanCard({
         </Text>
         <Text style={styles.planPeriod}>/mes</Text>
       </View>
-      <View style={[styles.planList, compactCard ? { flex: 0, gap: 8 } : undefined]}>
+      <View
+        style={[
+          styles.planList,
+          { minHeight: planListMinHeight, flexShrink: 0 },
+          compactCard ? { gap: 8 } : undefined,
+        ]}>
         {features.map((entry) => (
           <View key={entry} style={styles.planListRow}>
             <MaterialCommunityIcons name="check-circle-outline" size={17} color={cardEdge} />
@@ -165,7 +182,7 @@ export function PlanCard({
           </View>
         ))}
       </View>
-      <View style={[styles.planActions, { gap: 9 }]}>
+      <View style={[styles.planActions, { gap: 9, flexShrink: 0, width: '100%' }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${userLabel}: ${plan.name}`}
