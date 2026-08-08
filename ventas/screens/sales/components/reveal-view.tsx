@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, Platform, View } from 'react-native';
-import { styles } from '../styles';
+import { Animated, Easing, Platform } from 'react-native';
 import { getStaticRevealStyle, usePrefersReducedMotion } from '../utils';
+
+const WEB_REVEAL_VIEWPORT_RATIO = 0.78;
+const NATIVE_REVEAL_VIEWPORT_RATIO = 0.82;
+const REVEAL_DURATION_MS = 580;
+const REVEAL_OFFSET_PX = 32;
 
 export function RevealView({
   children,
@@ -19,7 +23,7 @@ export function RevealView({
   viewportHeight: number;
 }) {
   const opacity = useRef(new Animated.Value(immediate ? 1 : 0)).current;
-  const translateY = useRef(new Animated.Value(immediate ? 0 : 22)).current;
+  const translateY = useRef(new Animated.Value(immediate ? 0 : REVEAL_OFFSET_PX)).current;
   const nodeRef = useRef<unknown>(null);
   const [layoutY, setLayoutY] = useState(0);
   const [measured, setMeasured] = useState(immediate);
@@ -40,7 +44,8 @@ export function RevealView({
       return;
     }
 
-    if (node.getBoundingClientRect().top < window.innerHeight * 0.9) {
+    const rect = node.getBoundingClientRect();
+    if (rect.top < window.innerHeight * WEB_REVEAL_VIEWPORT_RATIO && rect.bottom > 0) {
       setRevealed(true);
       return;
     }
@@ -52,7 +57,7 @@ export function RevealView({
           observer.disconnect();
         }
       },
-      { rootMargin: '0px 0px -10% 0px' }
+      { rootMargin: '0px 0px -22% 0px', threshold: 0.06 }
     );
 
     observer.observe(node);
@@ -65,36 +70,36 @@ export function RevealView({
       return;
     }
 
-    if (scrollY + viewportHeight * 0.9 >= layoutY) {
+    if (scrollY + viewportHeight * NATIVE_REVEAL_VIEWPORT_RATIO >= layoutY) {
       setRevealed(true);
     }
   }, [isWeb, layoutY, measured, revealed, scrollY, viewportHeight]);
 
   useEffect(() => {
-    if (!revealed) {
+    if (!revealed || reducedMotion) {
       return;
     }
 
-    if (reducedMotion) {
-      return;
-    }
-
-    Animated.parallel([
+    const delay = Math.min(index * 45, 270);
+    const animation = Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
-        duration: 420,
-        delay: Math.min(index * 55, 360),
+        duration: REVEAL_DURATION_MS,
+        delay,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
         toValue: 0,
-        duration: 420,
-        delay: Math.min(index * 55, 360),
+        duration: REVEAL_DURATION_MS,
+        delay,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+
+    animation.start();
+    return () => animation.stop();
   }, [index, opacity, reducedMotion, revealed, translateY]);
 
   return (
