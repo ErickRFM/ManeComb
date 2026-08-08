@@ -3,6 +3,13 @@ import groovy.json.JsonSlurper
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+
+// Gradle directo debe respetar el mismo contrato de entorno que el builder oficial.
+// Así `gradlew assembleRelease` nunca cae silenciosamente en `.env` de desarrollo.
+project.ext.envConfigFiles = [
+    debug: ".env",
+    release: ".env.production",
+]
 apply from: "../../node_modules/react-native-config/android/dotenv.gradle"
 
 // CI sigue compilando sin credenciales. En release real, google-services.json o las variables
