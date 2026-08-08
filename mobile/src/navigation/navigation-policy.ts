@@ -60,6 +60,29 @@ export class NavigationRequestGuard {
   }
 }
 
+/**
+ * Conserva una única intención de navegación cuando React Navigation todavía
+ * no está listo. La más reciente reemplaza a la anterior para que un arranque
+ * frío nunca pierda el redirect ni reproduzca navegaciones obsoletas.
+ */
+export class DeferredNavigationRequest<T> {
+  private pending: T | null = null;
+
+  defer(request: T) {
+    this.pending = request;
+  }
+
+  take() {
+    const request = this.pending;
+    this.pending = null;
+    return request;
+  }
+
+  clear() {
+    this.pending = null;
+  }
+}
+
 export class LatestNavigationRequest {
   private sequence = 0;
 
