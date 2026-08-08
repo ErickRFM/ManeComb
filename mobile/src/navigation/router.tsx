@@ -13,7 +13,10 @@ import {
   getRouteDefinition,
   isModuleRoot,
 } from '@/src/navigation/route-registry';
-import { NavigationRequestGuard } from '@/src/navigation/navigation-policy';
+import {
+  DeferredNavigationRequest,
+  NavigationRequestGuard,
+} from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
 
 type RouteParamValue = string | string[] | number | boolean | null | undefined;
@@ -23,9 +26,15 @@ type HrefObject = {
   params?: RouteParams;
 };
 type Href = string | HrefObject;
+type NavigationMethod = 'push' | 'replace';
+type DeferredNavigation = {
+  href: Href;
+  method: NavigationMethod;
+};
 
 export const navigationRef = createNavigationContainerRef<ParamListBase>();
 const navigationGuard = new NavigationRequestGuard();
+const deferredNavigation = new DeferredNavigationRequest<DeferredNavigation>();
 
 function decodeQueryParams(search: string) {
   const params: RouteParams = {};
@@ -77,13 +86,13 @@ export function resolveHref(href: Href) {
   };
 }
 
-function navigateWith(method: 'push' | 'replace', href: Href) {
-  const { name, params } = resolveHref(href);
-
+function navigateWith(method: NavigationMethod, href: Href) {
   if (!navigationRef.isReady()) {
-    return;
+    deferredNavigation.defer({ href, method });
+    return false;
   }
 
+  const { name, params } = resolveHref(href);
   const currentRoute = navigationRef.getCurrentRoute();
 
   if (
@@ -94,7 +103,7 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
       destinationParams: params,
     })
   ) {
-    return;
+    return true;
   }
 
   const destination = getRouteDefinition(name);
@@ -105,8 +114,7 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
     const user = useAppStore.getState().user;
 
     if (user && !canRoleAccessRoute(name, user.role)) {
-      navigateWith('replace', '/mapa');
-      return;
+      return navigateWith('replace', '/mapa');
     }
 
     const moduleRouteName = getModuleRouteName(destination.module);
@@ -120,19 +128,34 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
           routes: [{ name: moduleRouteName, params: nestedRoute }],
         })
       );
-      return;
+      return true;
     }
 
     navigationRef.navigate(moduleRouteName, nestedRoute as never);
-    return;
+    return true;
   }
 
   if (method === 'replace') {
     navigationRef.dispatch(StackActions.replace(name, params));
-    return;
+    return true;
   }
 
   navigationRef.navigate(name, params);
+  return true;
+}
+
+function flushPendingNavigation() {
+  if (!navigationRef.isReady()) {
+    return false;
+  }
+
+  const pending = deferredNavigation.take();
+
+  if (!pending) {
+    return true;
+  }
+
+  return navigateWith(pending.method, pending.href);
 }
 
 export const router = {
@@ -150,7 +173,11 @@ export const router = {
 
     navigateWith('replace', '/mapa');
   },
-  clearPendingNavigation: () => navigationGuard.clear(),
+  flushPendingNavigation,
+  clearPendingNavigation: () => {
+    deferredNavigation.clear();
+    navigationGuard.clear();
+  },
 };
 
 export function usePathname() {
