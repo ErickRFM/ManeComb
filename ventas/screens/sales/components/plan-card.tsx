@@ -1,9 +1,14 @@
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
 import { neonPalette } from '../constants';
 import { styles } from '../styles';
-import { formatCurrency, getPlanVisualTone } from '../utils';
+import { formatCurrency, getPlanVisualTone, usePrefersReducedMotion } from '../utils';
+
+const PLAN_REVEAL_DURATION_MS = 620;
+const PLAN_REVEAL_STAGGER_MS = 75;
+const PLAN_REVEAL_MAX_DELAY_MS = 300;
 
 export function PlanCard({
   index,
@@ -33,6 +38,11 @@ export function PlanCard({
   const visual = getPlanVisualTone(index);
   const cardEdge = active ? visual.edge : accent;
   const showTrialAction = Boolean(onTrial && trialLabel);
+  const reducedMotion = usePrefersReducedMotion();
+  const cardRef = useRef<unknown>(null);
+  const [entered, setEntered] = useState(Platform.OS !== 'web');
+  const [entrySettled, setEntrySettled] = useState(Platform.OS !== 'web');
+
   // En desktop de cuatro columnas las tarjetas rondan los 295 px. Ese ancho ya necesita
   // la escala compacta aunque no sea un teléfono; en móvil de 360 px la tarjeta conserva
   // la escala completa porque sigue teniendo ~328 px útiles.
@@ -51,9 +61,69 @@ export function PlanCard({
     plan.includesRadioModule ? 'Radio incluido' : 'Radio opcional',
     'Activación directa',
   ];
+  const revealDelay = Math.min(index * PLAN_REVEAL_STAGGER_MS, PLAN_REVEAL_MAX_DELAY_MS);
+  const motionReady = Platform.OS !== 'web' || reducedMotion || entered;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || entered) {
+      return;
+    }
+
+    if (reducedMotion) {
+      setEntered(true);
+      setEntrySettled(true);
+      return;
+    }
+
+    const node = cardRef.current as HTMLElement | null;
+    if (!node || typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+      setEntered(true);
+      return;
+    }
+
+    const rect = node.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.82 && rect.bottom > 0) {
+      setEntered(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setEntered(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin: '0px 0px -18% 0px',
+        threshold: 0.08,
+      }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [entered, reducedMotion]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !entered || entrySettled) {
+      return;
+    }
+
+    if (reducedMotion) {
+      setEntrySettled(true);
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setEntrySettled(true),
+      PLAN_REVEAL_DURATION_MS + revealDelay + 40
+    );
+    return () => window.clearTimeout(timer);
+  }, [entered, entrySettled, reducedMotion, revealDelay]);
 
   return (
     <Pressable
+      ref={cardRef as never}
       accessibilityRole="button"
       accessibilityLabel={`Seleccionar plan ${plan.name}`}
       onPress={onPress}
@@ -63,6 +133,8 @@ export function PlanCard({
         const hoverLift = compactCard ? -2 : -3;
         const selectedLift = compactCard ? -2 : -6;
         const hoverScale = compactCard ? 1.008 : 1.015;
+        const restingTranslateY = active ? selectedLift : hovered ? hoverLift : 0;
+        const restingScale = hovered ? hoverScale : 1;
 
         return [
           styles.planCard,
@@ -75,6 +147,7 @@ export function PlanCard({
             gap: compactCard ? 12 : 15,
             maxWidth: width,
             minHeight: cardMinHeight,
+            opacity: motionReady ? 1 : 0,
             padding: compactCard ? 18 : 20,
             width,
             borderColor: active ? visual.edge : hovered ? `${visual.secondary}CC` : `${visual.edge}44`,
@@ -85,8 +158,8 @@ export function PlanCard({
                   shadowOpacity: active ? 0.5 : hovered ? 0.3 : 0.15,
                 }),
             transform: [
-              { translateY: active ? selectedLift : hovered ? hoverLift : 0 },
-              { scale: hovered ? hoverScale : 1 },
+              { translateY: motionReady ? restingTranslateY : 28 },
+              { scale: motionReady ? restingScale : 0.985 },
             ],
             ...(Platform.OS === 'web'
               ? ({
@@ -97,11 +170,22 @@ export function PlanCard({
                     active || hovered
                       ? `0 0 0 1px ${visual.edge}88, 0 0 26px ${visual.edge}38, 0 22px 58px rgba(0, 0, 0, 0.38)`
                       : `0 0 0 1px ${visual.edge}22, 0 16px 38px rgba(0, 0, 0, 0.24)`,
-                  transitionDuration: compactCard ? '220ms' : '300ms',
-                  transitionTimingFunction: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
-                  transitionProperty: 'transform, box-shadow, border-color, background-image, opacity',
+                  filter: motionReady ? 'blur(0px)' : 'blur(3px)',
+                  transitionDelay: reducedMotion || entrySettled ? '0ms' : `${revealDelay}ms`,
+                  transitionDuration: reducedMotion
+                    ? '0ms'
+                    : entrySettled
+                      ? compactCard
+                        ? '220ms'
+                        : '300ms'
+                      : `${PLAN_REVEAL_DURATION_MS}ms`,
+                  transitionTimingFunction: entrySettled
+                    ? 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+                    : 'cubic-bezier(0.16, 1, 0.3, 1)',
+                  transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
                   backdropFilter: 'blur(18px)',
                   cursor: 'pointer',
+                  willChange: entrySettled ? 'transform' : 'transform, opacity, filter',
                 } as any)
               : null),
           },
