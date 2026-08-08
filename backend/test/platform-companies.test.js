@@ -100,7 +100,9 @@ async function main() {
       planId: "value-4",
       planName: "4 combis",
       paymentStatus: "paid",
-      onboardingStatus: "completed",
+      // Estado canonico que buildCommercialActivationUpdate persiste al activar
+      // una orden sin onboarding guiado.
+      onboardingStatus: "self_service_ready",
       activationStatus: "active",
       totalPrice: 209,
       paymentMethod: "card",
@@ -154,11 +156,57 @@ async function main() {
       search: "alpha",
       planId: "value-4",
       paymentStatus: "paid",
-      onboardingStatus: "completed"
+      onboardingStatus: "self_service_ready"
     });
     assert.equal(result.pagination.total, 1);
     assert.equal(result.items[0].companyName, "Transportes Alpha");
     assert.equal(result.items[0].plan.id, "value-4");
+  });
+
+  // El filtro compara literalmente contra lo que el writer persistio. Antes
+  // aceptaba un vocabulario propio (in_progress/ready/completed/blocked) que
+  // buildCommercialActivationUpdate nunca escribe, de modo que filtrar por
+  // onboarding no podia devolver ninguna empresa ya activada.
+  const onboardingStore = {
+    listUsers: () => [
+      { id: "owner-kickoff", organizationId: "org-kickoff", name: "Kickoff Owner", email: "owner@kickoff.test", role: "owner", accountType: "company_owner", userStatus: "active", companyProfile: { companyName: "Guiada" } },
+      { id: "owner-self", organizationId: "org-self", name: "Self Owner", email: "owner@self.test", role: "owner", accountType: "company_owner", userStatus: "active", companyProfile: { companyName: "Autoservicio" } },
+      { id: "owner-new", organizationId: "org-new", name: "New Owner", email: "owner@new.test", role: "owner", accountType: "company_owner", userStatus: "active", companyProfile: { companyName: "Sin activar" } }
+    ],
+    listCommercialOrders: () => [
+      { id: "order-kickoff", organizationId: "org-kickoff", ownerUserId: "owner-kickoff", companyName: "Guiada", planId: "value-4", paymentStatus: "paid", activationStatus: "active", onboardingStatus: "kickoff_pending", createdAt: "2026-08-03T10:00:00.000Z" },
+      { id: "order-self", organizationId: "org-self", ownerUserId: "owner-self", companyName: "Autoservicio", planId: "starter-2", paymentStatus: "paid", activationStatus: "active", onboardingStatus: "self_service_ready", createdAt: "2026-08-03T11:00:00.000Z" },
+      { id: "order-new", organizationId: "org-new", ownerUserId: "owner-new", companyName: "Sin activar", planId: "starter-2", paymentStatus: "pending", activationStatus: "pending_payment", onboardingStatus: "pending", createdAt: "2026-08-03T12:00:00.000Z" }
+    ],
+    listVehiclesForOrganization: () => []
+  };
+
+  await test("filtrar por kickoff_pending devuelve la empresa con onboarding guiado", async () => {
+    const result = await listPlatformCompanies(onboardingStore, { onboardingStatus: "kickoff_pending" });
+    assert.equal(result.pagination.total, 1);
+    assert.equal(result.items[0].organizationId, "org-kickoff");
+    assert.equal(result.items[0].commercial.onboardingStatus, "kickoff_pending");
+  });
+
+  await test("filtrar por self_service_ready devuelve la empresa autoservicio", async () => {
+    const result = await listPlatformCompanies(onboardingStore, { onboardingStatus: "self_service_ready" });
+    assert.equal(result.pagination.total, 1);
+    assert.equal(result.items[0].organizationId, "org-self");
+    assert.equal(result.items[0].commercial.onboardingStatus, "self_service_ready");
+  });
+
+  await test("filtrar por pending devuelve la orden aun no activada", async () => {
+    const result = await listPlatformCompanies(onboardingStore, { onboardingStatus: "pending" });
+    assert.equal(result.pagination.total, 1);
+    assert.equal(result.items[0].organizationId, "org-new");
+  });
+
+  await test("un estado fuera del vocabulario del writer se sanea y no filtra", async () => {
+    // sanitizeEnum devuelve null para valores no permitidos y el filtro se omite:
+    // se conserva el comportamiento existente, sin compatibilidad inventada.
+    const result = await listPlatformCompanies(onboardingStore, { onboardingStatus: "completed" });
+    assert.equal(result.pagination.total, 3);
+    assert.equal(result.filters.onboardingStatus, null);
   });
 
   await test("DTO de empresa no expone secretos comerciales ni GPS", async () => {

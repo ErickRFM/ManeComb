@@ -15,7 +15,14 @@ const PAYMENT_STATUSES = [
   "failed",
   "expired"
 ];
-const ONBOARDING_STATUSES = ["pending", "in_progress", "ready", "completed", "blocked"];
+// Estados que CommercialOrder.onboardingStatus puede realmente persistir. La
+// autoridad del vocabulario es el writer, no este filtro:
+//   - "pending" es el default del modelo y de la creacion de la orden.
+//   - buildCommercialActivationUpdate escribe "kickoff_pending" o
+//     "self_service_ready" al activar.
+// El filtro compara literalmente, asi que aceptar cualquier otro valor solo
+// producia consultas que nunca podian coincidir.
+const ONBOARDING_STATUSES = ["pending", "kickoff_pending", "self_service_ready"];
 
 function asTimestamp(value) {
   const timestamp = value ? new Date(value).getTime() : 0;

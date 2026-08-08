@@ -70,7 +70,7 @@ async function main() {
     totalPrice: 179,
     paymentStatus: "paid",
     activationStatus: "active",
-    onboardingStatus: "completed",
+    onboardingStatus: "self_service_ready",
     paymentMethod: "card",
     paymentProvider: "mercado_pago",
     paymentProviderReference: "secret-provider-reference",
