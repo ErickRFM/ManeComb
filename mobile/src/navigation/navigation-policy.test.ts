@@ -1,5 +1,6 @@
 import {
   createNavigationSignature,
+  DeferredNavigationRequest,
   LatestNavigationRequest,
   NAVIGATION_DEDUP_WINDOW_MS,
   NavigationRequestGuard,
@@ -44,6 +45,25 @@ describe('central navigation request guard', () => {
     expect(createNavigationSignature('/mapa', { follow: true, vehicleId: '1' })).toBe(
       createNavigationSignature('/mapa', { vehicleId: '1', follow: true })
     );
+  });
+
+  it('keeps the latest redirect until the navigation container can consume it', () => {
+    const deferred = new DeferredNavigationRequest<{ href: string; method: 'push' | 'replace' }>();
+
+    deferred.defer({ href: '/plan-blocked', method: 'replace' });
+    deferred.defer({ href: '/sync-error', method: 'replace' });
+
+    expect(deferred.take()).toEqual({ href: '/sync-error', method: 'replace' });
+    expect(deferred.take()).toBeNull();
+  });
+
+  it('can clear a deferred redirect when a newer navigation authority takes over', () => {
+    const deferred = new DeferredNavigationRequest<string>();
+
+    deferred.defer('/radio');
+    deferred.clear();
+
+    expect(deferred.take()).toBeNull();
   });
 
   it('allows only the latest asynchronous notification request to navigate', () => {
