@@ -64,6 +64,8 @@ function testCompanyPortalRoleMatrix() {
       "company_identity"
     );
     assert.equal(resolution.canAccessPortal, true);
+    // Este flag pertenece únicamente al clasificador de canal. La autorización
+    // Mobile real se resuelve por mobile.access en enterprise-capabilities.
     assert.equal(resolution.canUseMobileProduct, false);
   });
 
@@ -201,7 +203,7 @@ async function testActivePlanWithoutTenantKeepsChannelAndBlocksOperations() {
   assert.equal(companyContext.route, "/portal/onboarding");
   assert.equal(companyContext.canAccessMobile, false);
   assert.equal(companyContext.canUseOperations, false);
-  assert.equal(companyContext.mobileBlockReason, "wrong_channel");
+  assert.equal(companyContext.mobileBlockReason, "missing_tenant");
   assert.equal(companyContext.operationalBlockReason, "missing_tenant");
   assert.equal(companyContext.tenant, null);
 
