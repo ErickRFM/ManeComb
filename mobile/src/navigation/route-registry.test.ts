@@ -15,11 +15,11 @@ describe('navigation route registry', () => {
     expect(roots.every(isModuleRoot)).toBe(true);
   });
 
-  it('restringe el directorio operativo a administradores y supervisores', () => {
+  it('restringe el directorio operativo a propietario, administradores y supervisores', () => {
+    expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'supervisor')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'driver')).toBe(false);
-    expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(false);
   });
 
   it('restringe Control a propietario, administrador y supervisor', () => {

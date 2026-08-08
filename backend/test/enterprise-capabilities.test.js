@@ -53,6 +53,13 @@ function main() {
     organizationId: "tenant-a",
     userStatus: "active"
   };
+  const companyAdmin = {
+    id: "company-admin",
+    role: "admin",
+    accountType: "company_owner",
+    organizationId: "tenant-a",
+    userStatus: "active"
+  };
   const billingManager = {
     id: "billing",
     role: "billing_manager",
@@ -90,8 +97,17 @@ function main() {
 
   const ownerCapabilities = getCapabilitiesForUser(companyOwner);
   assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
-  assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), false);
+  assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
   assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.TENANT_ACCESS), true);
+
+  const companyAdminCapabilities = getCapabilitiesForUser(companyAdmin);
+  assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
+  assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.USERS_MANAGE), true);
+
+  const billingCapabilities = getCapabilitiesForUser(billingManager);
+  assert.equal(billingCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
+  assert.equal(billingCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), false);
 
   const driverCapabilities = getCapabilitiesForUser(driver);
   assert.equal(driverCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
@@ -168,6 +184,7 @@ function main() {
   assert.equal(Object.hasOwn(sanitized, "passwordHash"), false);
   assert.equal(sanitized.accountChannel, "company_portal");
   assert.equal(sanitized.capabilities.includes("portal.access"), true);
+  assert.equal(sanitized.capabilities.includes("mobile.access"), true);
   assert.equal(sanitized.capabilities.includes("users.manage"), true);
 
   console.log("ok - tenant estricto y capacidades canónicas fallan cerradas");

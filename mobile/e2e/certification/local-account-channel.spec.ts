@@ -275,7 +275,7 @@ const cases: Array<{
   expectedText: RegExp;
 }> = [
   {
-    name: 'empresa permanece en Portal',
+    name: 'empresa conserva Portal web y acceso administrativo Mobile',
     identity: {
       accountChannel: 'company_portal',
       accountType: 'company_owner',
@@ -283,9 +283,9 @@ const cases: Array<{
       destination: 'CompanyPortal',
       productRoute: '/portal',
       canAccessPortal: true,
-      canAccessMobile: false,
+      canAccessMobile: true,
       canUseOperations: true,
-      mobileBlockReason: 'wrong_channel',
+      mobileBlockReason: null,
       operationalBlockReason: null,
     },
     expectedPath: /\/portal(?:\/|$)/,

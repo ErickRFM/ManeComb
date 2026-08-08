@@ -37,19 +37,31 @@ const ALL_DOMAIN_CAPABILITIES = Object.freeze([
   ENTERPRISE_CAPABILITY.INCIDENTS_MANAGE
 ]);
 
-function withProduct(productCapability, domainCapabilities) {
+function withProducts(productCapabilities, domainCapabilities) {
   return Object.freeze([
-    productCapability,
+    ...productCapabilities,
     ENTERPRISE_CAPABILITY.OPERATIONS_USE,
     ENTERPRISE_CAPABILITY.TENANT_ACCESS,
     ...domainCapabilities
   ]);
 }
 
+function withProduct(productCapability, domainCapabilities) {
+  return withProducts([productCapability], domainCapabilities);
+}
+
 const CHANNEL_ROLE_CAPABILITIES = Object.freeze({
   [ACCOUNT_CHANNEL.COMPANY_PORTAL]: Object.freeze({
-    owner: withProduct(ENTERPRISE_CAPABILITY.PORTAL_ACCESS, ALL_DOMAIN_CAPABILITIES),
-    admin: withProduct(ENTERPRISE_CAPABILITY.PORTAL_ACCESS, ALL_DOMAIN_CAPABILITIES),
+    // Owner/admin are company administrators. Portal remains their web destination,
+    // but the same identity is also allowed to operate the Mobile product.
+    owner: withProducts(
+      [ENTERPRISE_CAPABILITY.PORTAL_ACCESS, ENTERPRISE_CAPABILITY.MOBILE_ACCESS],
+      ALL_DOMAIN_CAPABILITIES
+    ),
+    admin: withProducts(
+      [ENTERPRISE_CAPABILITY.PORTAL_ACCESS, ENTERPRISE_CAPABILITY.MOBILE_ACCESS],
+      ALL_DOMAIN_CAPABILITIES
+    ),
     billing_manager: withProduct(ENTERPRISE_CAPABILITY.PORTAL_ACCESS, [
       ENTERPRISE_CAPABILITY.BILLING_MANAGE,
       ENTERPRISE_CAPABILITY.ANALYTICS_VIEW

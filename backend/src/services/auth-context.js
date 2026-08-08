@@ -5,6 +5,10 @@ const {
   resolveAccountChannel
 } = require("./account-channel");
 const {
+  ENTERPRISE_CAPABILITY,
+  hasCapability
+} = require("./enterprise-capabilities");
+const {
   buildOnboarding,
   buildSubscription,
   pickActiveOrder
@@ -117,14 +121,16 @@ function getSubscriptionBlockReason(subscription, tenant) {
   return "sync_error";
 }
 
-function getMobileBlockReason(subscription, tenant, accountChannel = null) {
+function getMobileBlockReason(subscription, tenant, accountChannel = null, options = {}) {
   const channel = accountChannel?.channel || accountChannel;
+  const canUseMobileProduct =
+    options.canUseMobileProduct ?? channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
 
   if (channel === ACCOUNT_CHANNEL.BLOCKED) {
     return "account_blocked";
   }
 
-  if (channel !== ACCOUNT_CHANNEL.MOBILE_OPERATIONS) {
+  if (channel === ACCOUNT_CHANNEL.PLATFORM_ADMIN || !canUseMobileProduct) {
     return "wrong_channel";
   }
 
@@ -147,17 +153,18 @@ function getOperationalBlockReason(subscription, tenant, accountChannel = null) 
 
 function resolveMobileAccess(subscription, tenant, accountChannel, options = {}) {
   const channel = accountChannel?.channel || accountChannel;
-  const mobileProduct = channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
+  const canUseMobileProduct =
+    options.canUseMobileProduct ?? channel === ACCOUNT_CHANNEL.MOBILE_OPERATIONS;
   const operationalOverride = options.allowOperationalOverride === true;
   const canAccessMobile =
-    mobileProduct &&
+    canUseMobileProduct &&
     (operationalOverride || (isActiveSubscription(subscription) && isActiveTenant(tenant)));
 
   return {
     canAccessMobile,
     mobileBlockReason: canAccessMobile
       ? null
-      : getMobileBlockReason(subscription, tenant, accountChannel)
+      : getMobileBlockReason(subscription, tenant, accountChannel, { canUseMobileProduct })
   };
 }
 
@@ -286,7 +293,9 @@ async function buildAuthContext(store, user, options = {}) {
     const accountChannel = resolveAccountChannel(null);
     const resolution = resolvePostLoginRoute(null, null, null, null, { accountChannel });
     const subscription = buildSubscription(null);
-    const mobileAccess = resolveMobileAccess(subscription, null, accountChannel);
+    const mobileAccess = resolveMobileAccess(subscription, null, accountChannel, {
+      canUseMobileProduct: false
+    });
 
     return {
       ...resolution,
@@ -330,8 +339,10 @@ async function buildAuthContext(store, user, options = {}) {
     : null;
   const operationalOverride =
     canAccessAllTenants(user) || Boolean(options.allowPlatformAdmin === true);
+  const canUseMobileProduct = hasCapability(user, ENTERPRISE_CAPABILITY.MOBILE_ACCESS);
   const mobileAccess = resolveMobileAccess(subscription, tenant, accountChannel, {
-    allowOperationalOverride: operationalOverride
+    allowOperationalOverride: operationalOverride,
+    canUseMobileProduct
   });
   const activeTenantAccess =
     isActiveSubscription(subscription) &&

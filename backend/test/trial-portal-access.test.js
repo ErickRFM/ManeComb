@@ -63,6 +63,10 @@ async function main() {
 
     assert.equal(registration.status, 201);
     assert.ok(registration.body.token);
+    assert.equal(registration.body.accountChannel, "company_portal");
+    assert.equal(registration.body.canAccessPortal, true);
+    assert.equal(registration.body.canAccessMobile, false);
+    assert.equal(registration.body.mobileBlockReason, "no_plan");
 
     const checkout = await requestJson(`${api}/commercial/checkout`, {
       method: "POST",
@@ -99,6 +103,21 @@ async function main() {
     assert.equal(subscription.body.data.unitsLimit, 2);
     assert.ok(subscription.body.data.expiresAt);
 
+    const session = await requestJson(`${api}/auth/me`, {
+      headers: { Authorization: `Bearer ${registration.body.token}` }
+    });
+
+    assert.equal(session.status, 200);
+    assert.equal(session.body.accountChannel, "company_portal");
+    assert.equal(session.body.canAccessPortal, true);
+    assert.equal(session.body.canAccessMobile, true);
+    assert.equal(session.body.canUseOperations, true);
+    assert.equal(session.body.mobileBlockReason, null);
+    assert.equal(session.body.operationalBlockReason, null);
+    assert.equal(session.body.postLoginRoute, "/portal");
+    assert.equal(session.body.subscription.status, "trial");
+    assert.equal(session.body.tenant.status, "active");
+
     const portal = await requestJson(`${api}/portal/overview`, {
       headers: { Authorization: `Bearer ${registration.body.token}` }
     });
@@ -106,7 +125,7 @@ async function main() {
     assert.equal(portal.status, 200);
     assert.equal(portal.body.ok, true);
 
-    console.log("ok - trial de 7 dias activa cuenta, suscripcion trial y acceso Portal sin proveedor de pagos");
+    console.log("ok - trial activa Portal y Mobile para owner empresarial sin proveedor de pagos");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
