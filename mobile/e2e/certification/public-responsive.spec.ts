@@ -65,12 +65,46 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await firstPlanCard.scrollIntoViewIfNeeded();
     await expect(firstPlanCard).toBeVisible();
 
+    const finalFeature = firstPlanCard.getByText('Activación directa', { exact: true });
+    const buyAction = firstPlanCard.getByRole('button', { name: 'Elegir plan: 2 combis' });
+    const trialAction = firstPlanCard.getByRole('button', { name: /Usar demo \d+ días: 2 combis/i });
+    await expect(finalFeature).toBeVisible();
+    await expect(buyAction).toBeVisible();
+    await expect(trialAction).toBeVisible();
+
+    const [cardBox, finalFeatureBox, buyActionBox, trialActionBox] = await Promise.all([
+      firstPlanCard.boundingBox(),
+      finalFeature.boundingBox(),
+      buyAction.boundingBox(),
+      trialAction.boundingBox(),
+    ]);
+
+    expect(cardBox, 'La tarjeta de plan debe tener dimensiones medibles').not.toBeNull();
+    expect(finalFeatureBox, 'La última característica debe tener dimensiones medibles').not.toBeNull();
+    expect(buyActionBox, 'El CTA principal debe tener dimensiones medibles').not.toBeNull();
+    expect(trialActionBox, 'El CTA de demo debe tener dimensiones medibles').not.toBeNull();
+
+    if (cardBox && finalFeatureBox && buyActionBox && trialActionBox) {
+      expect(
+        buyActionBox.y - (finalFeatureBox.y + finalFeatureBox.height),
+        'El CTA principal no debe montarse sobre las características del plan'
+      ).toBeGreaterThanOrEqual(6);
+      expect(
+        trialActionBox.y - (buyActionBox.y + buyActionBox.height),
+        'La acción de demo debe conservar separación respecto al CTA principal'
+      ).toBeGreaterThanOrEqual(6);
+      expect(
+        cardBox.y + cardBox.height - (trialActionBox.y + trialActionBox.height),
+        'Las acciones deben permanecer dentro de la tarjeta'
+      ).toBeGreaterThanOrEqual(12);
+    }
+
     const viewport = page.viewportSize();
     if (viewport && viewport.width <= 640) {
-      const cardBox = await firstPlanCard.boundingBox();
-      expect(cardBox, 'La tarjeta móvil debe tener dimensiones medibles').not.toBeNull();
+      const cardBoxMobile = await firstPlanCard.boundingBox();
+      expect(cardBoxMobile, 'La tarjeta móvil debe tener dimensiones medibles').not.toBeNull();
       expect(
-        cardBox?.width ?? 0,
+        cardBoxMobile?.width ?? 0,
         'La tarjeta móvil debe ocupar prácticamente todo el ancho útil'
       ).toBeGreaterThanOrEqual(viewport.width - 36);
 
