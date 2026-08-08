@@ -60,6 +60,9 @@ export function PlanCard({
       style={(state) => {
         const pressed = state.pressed;
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
+        const hoverLift = compactCard ? -2 : -3;
+        const selectedLift = compactCard ? -2 : -6;
+        const hoverScale = compactCard ? 1.008 : 1.015;
 
         return [
           styles.planCard,
@@ -82,8 +85,8 @@ export function PlanCard({
                   shadowOpacity: active ? 0.5 : hovered ? 0.3 : 0.15,
                 }),
             transform: [
-              { translateY: active && !compactCard ? -6 : hovered && !compactCard ? -3 : 0 },
-              { scale: hovered && !compactCard ? 1.015 : 1 },
+              { translateY: active ? selectedLift : hovered ? hoverLift : 0 },
+              { scale: hovered ? hoverScale : 1 },
             ],
             ...(Platform.OS === 'web'
               ? ({
@@ -94,8 +97,8 @@ export function PlanCard({
                     active || hovered
                       ? `0 0 0 1px ${visual.edge}88, 0 0 26px ${visual.edge}38, 0 22px 58px rgba(0, 0, 0, 0.38)`
                       : `0 0 0 1px ${visual.edge}22, 0 16px 38px rgba(0, 0, 0, 0.24)`,
-                  transitionDelay: `${index * 35}ms`,
-                  transitionDuration: '300ms',
+                  transitionDuration: compactCard ? '220ms' : '300ms',
+                  transitionTimingFunction: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
                   transitionProperty: 'transform, box-shadow, border-color, background-image, opacity',
                   backdropFilter: 'blur(18px)',
                   cursor: 'pointer',
