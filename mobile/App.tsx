@@ -644,7 +644,11 @@ export default function App() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <KeyboardProvider preload={false}>
         <SafeAreaProvider>
-          <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
+          <NavigationContainer
+            ref={navigationRef}
+            theme={navigationTheme}
+            linking={linking}
+            onReady={router.flushPendingNavigation}>
           <ThemeProvider value={navigationTheme}>
             {isReady && user && authContext?.canAccessMobile ? <OperationalBackgroundServices /> : null}
             <MobileErrorBoundary styles={styles} theme={theme}>
