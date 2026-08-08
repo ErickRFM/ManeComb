@@ -25,6 +25,7 @@ export type PostLoginResolution = {
 };
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
+const COMPANY_MOBILE_ROLES = new Set(['owner', 'admin']);
 const OPERATIONAL_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor', 'driver', 'conductor']);
 
 function isAccountChannel(value: unknown): value is AccountChannel {
@@ -67,6 +68,21 @@ function resolveAccountChannel(
   return 'blocked';
 }
 
+function canChannelRoleUseMobile(accountChannel: AccountChannel, user: RouteUser) {
+  if (accountChannel === 'mobile_operations') {
+    return OPERATIONAL_ROLES.has(String(user.role || ''));
+  }
+
+  if (accountChannel === 'company_portal') {
+    return (
+      user.accountType === 'company_owner' &&
+      COMPANY_MOBILE_ROLES.has(String(user.role || ''))
+    );
+  }
+
+  return false;
+}
+
 function normalizeBlockReason(value: unknown): MobileBlockReason {
   if (
     value === 'account_blocked' ||
@@ -104,7 +120,7 @@ export function resolveMobilePostLoginRoute(
     };
   }
 
-  if (accountChannel !== 'mobile_operations') {
+  if (accountChannel === 'platform_admin') {
     return {
       destination: 'PlanBlocked',
       reason: 'wrong_channel',
@@ -115,6 +131,14 @@ export function resolveMobilePostLoginRoute(
   const canAccessMobile = session.authContext?.canAccessMobile ?? session.canAccessMobile;
 
   if (canAccessMobile === true) {
+    if (!canChannelRoleUseMobile(accountChannel, session.user)) {
+      return {
+        destination: 'PlanBlocked',
+        reason: 'wrong_channel',
+        route: '/plan-blocked',
+      };
+    }
+
     return {
       destination: 'HomeOperativo',
       reason: 'active_mobile_access',
