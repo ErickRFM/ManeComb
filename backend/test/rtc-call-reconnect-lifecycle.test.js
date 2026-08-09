@@ -1,5 +1,6 @@
 // RC-RTC-RECONNECT-LIFECYCLE-20260809
-// Regression: an active call must remain cleanable after reconnecting with a new socket.
+// Regression: an active call must remain cleanable after repeated reconnect/disconnect cycles,
+// even though live authority is no longer bound to a process-local socket id.
 
 const assert = require("node:assert/strict");
 const { createRtcCallService } = require("../src/services/rtc-call-service");
@@ -27,11 +28,14 @@ function harness(store) {
   return {
     service,
     emits,
-    runTimers() {
+    async runTimers() {
       for (const timer of timers) {
         if (timer.cleared) continue;
         timer.cleared = true;
         timer.fn();
+      }
+      for (let index = 0; index < 4; index += 1) {
+        await new Promise((resolve) => setImmediate(resolve));
       }
     },
     payloads(eventName) {
@@ -45,31 +49,31 @@ function harness(store) {
   const admin = store.getUserById("user-admin-01");
   const driver = store.getUserById("user-driver-01");
 
+  // Caller disconnects, reconnects, then disconnects again: second grace window must still clean.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
-      callerSocketId: "sock-a",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
     assert.equal(call.ok, true);
-    assert.equal(h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId }).ok, true);
+    assert.equal((await h.service.accept({ user: driver, callId: call.callId })).ok, true);
 
-    await h.service.handleDisconnect("sock-a", {
+    await h.service.handleDisconnect(admin.id, {
       isUserConnected: (userId) => userId === driver.id
     });
     assert.equal(h.service._state.pendingDisconnects.size, 1);
 
-    h.service.noteUserReconnected(admin.id);
+    await h.service.noteUserReconnected(admin.id);
     assert.equal(h.service._state.pendingDisconnects.size, 0);
 
-    await h.service.handleDisconnect("sock-a2", {
+    await h.service.handleDisconnect(admin.id, {
       isUserConnected: (userId) => userId === driver.id
     });
     assert.equal(h.service._state.pendingDisconnects.size, 1);
 
-    h.runTimers();
+    await h.runTimers();
     assert.equal(h.service._state.callsById.size, 0);
     assert.equal(h.service._state.userState.size, 0);
     const end = h.payloads("rtc:end");
@@ -79,28 +83,28 @@ function harness(store) {
     assert.equal(end[0].payload.endedBy, admin.id);
   }
 
+  // Same regression from the callee side.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
-      callerSocketId: "sock-a",
       conversationId: CONV_DIRECT,
       mode: "video"
     });
     assert.equal(call.ok, true);
-    assert.equal(h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId }).ok, true);
+    assert.equal((await h.service.accept({ user: driver, callId: call.callId })).ok, true);
 
-    await h.service.handleDisconnect("sock-b", {
+    await h.service.handleDisconnect(driver.id, {
       isUserConnected: (userId) => userId === admin.id
     });
-    h.service.noteUserReconnected(driver.id);
+    await h.service.noteUserReconnected(driver.id);
 
-    await h.service.handleDisconnect("sock-b2", {
+    await h.service.handleDisconnect(driver.id, {
       isUserConnected: (userId) => userId === admin.id
     });
     assert.equal(h.service._state.pendingDisconnects.size, 1);
 
-    h.runTimers();
+    await h.runTimers();
     assert.equal(h.service._state.callsById.size, 0);
     assert.equal(h.service._state.userState.size, 0);
     const end = h.payloads("rtc:end");
@@ -109,22 +113,22 @@ function harness(store) {
     assert.equal(end[0].payload.endedBy, driver.id);
   }
 
+  // A recovered live presence must prevent cleanup from a stale disconnect observation.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
-      callerSocketId: "sock-a",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
-    h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
+    await h.service.accept({ user: driver, callId: call.callId });
 
-    await h.service.handleDisconnect("sock-a", {
+    await h.service.handleDisconnect(admin.id, {
       isUserConnected: (userId) => userId === driver.id
     });
-    h.service.noteUserReconnected(admin.id);
+    await h.service.noteUserReconnected(admin.id);
 
-    await h.service.handleDisconnect("unrelated-socket", {
+    await h.service.handleDisconnect(admin.id, {
       isUserConnected: () => true
     });
     assert.equal(h.service._state.pendingDisconnects.size, 0);
@@ -132,24 +136,24 @@ function harness(store) {
     assert.equal(h.service._state.userState.size, 2);
   }
 
+  // Ringing calls are governed by their ring lease/timeout, not disconnect grace cleanup.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
-      callerSocketId: "sock-a",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
     assert.equal(call.ok, true);
 
-    await h.service.handleDisconnect("unrelated-socket", {
+    await h.service.handleDisconnect(admin.id, {
       isUserConnected: () => false
     });
     assert.equal(h.service._state.pendingDisconnects.size, 0);
     assert.equal(h.service._state.callsById.size, 1);
   }
 
-  console.log("ok - repeated RTC reconnect/disconnect lifecycle is reconciled without ghost busy state");
+  console.log("ok - repeated RTC reconnect/disconnect lifecycle has no ghost busy state");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
