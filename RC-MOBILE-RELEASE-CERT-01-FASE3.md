@@ -53,19 +53,26 @@ canOwnVehicleTracking = vehicleId && canAccessMobile && isOperationalDriverRole(
 Foreground y background discrepaban sobre quién puede publicar la posición de una
 unidad.
 
-**REPRO**
-Las coordenadas se producen bajo `canCaptureLocalLocation` (cualquier sesión móvil
-autenticada, correcto: el mapa debe mostrar "estás aquí"), así que llegan al
-publicador para cualquier rol.
+**REPRO — CORREGIDO A LA BAJA**
 
-1. Supervisor o dispatcher con `vehicleId` asignado, sesión móvil activa: publica
-   en cada tick. Backend responde `403 forbidden_vehicle`
-   (`vehicle-location-ingestion.js:99`). El rechazo sólo va a `mobileLog`, y cada
-   intento consume `gpsLimiter`.
-2. **Admin con `vehicleId` asignado: backend lo acepta.** La comprobación de
-   propiedad es `actor.role !== "admin" && actor.vehicleId !== vehicleId`, es
-   decir, el rol admin queda exento. La posición personal del admin se ingesta y
-   se emite como posición de la unidad.
+> La primera versión de este expediente afirmaba que un supervisor o un admin con
+> `vehicleId` asignado publicaría desde Mobile. **Eso era incorrecto.** El cierre
+> extremo a extremo demostró que el modelo de datos nunca asigna `vehicleId` a un
+> no-conductor: `data/store.js:997` y `data/mongo-store.js:1931` fuerzan
+> `role === "driver" ? payload.vehicleId : null`, y `changeDriverVehicle` filtra
+> por `role: "driver"`. Con `user.vehicleId` siempre nulo para un no-conductor, la
+> condición vieja `Boolean(user?.vehicleId && canAccessMobile)` ya evaluaba a
+> `false`. El impacto práctico en Mobile era **nulo**.
+
+Lo que sí era real y queda corregido: una **divergencia de autoridad latente**.
+Foreground rederivaba la condición y background usaba `canOwnVehicleTracking`, de
+modo que ambos publicadores discrepaban sobre su propio criterio. Cualquier
+cambio futuro en el modelo que permitiera `vehicleId` a otro rol —o un payload de
+sesión restaurado de caché con esa forma— habría abierto el camino sólo en
+foreground.
+
+La comprobación de propiedad de backend citada aquí resultó ser un hallazgo
+independiente y sí explotable: ver **F-13** en §3.7.
 
 **AUTHORITY**
 `canOwnVehicleTracking` en `screens/map/utils/location-eligibility.ts`. Ya
@@ -114,6 +121,95 @@ token en el APK de producción.
 
 ---
 
+## 3.7 Hallazgo F-13 — bypass de propiedad para el rol admin en la ingesta GPS
+
+**Frontera:** backend. Fase y commit propios, separados de la UI de Mobile.
+
+### Decisión de producto
+
+Hipótesis a demostrar: *admin/dispatcher/supervisor pueden VER y administrar
+tracking; sólo el actor que posee operacionalmente la unidad puede PUBLICAR
+telemetría GPS.*
+
+**CONFIRMADA.** Evidencia:
+
+1. **El modelo de datos no admite un admin dueño de unidad.** `data/store.js:997`
+   y `data/mongo-store.js:1931` asignan `vehicleId` únicamente si
+   `role === "driver"`; `changeDriverVehicle` filtra por `role: "driver"`. Un
+   admin siempre tiene `vehicleId === null`.
+2. **Por tanto la excepción no era "el admin publica su unidad".** Con
+   `actor.role !== "admin" && actor.vehicleId !== vehicleId`, el admin quedaba
+   exento de toda comprobación de propiedad: podía publicar la posición de
+   **cualquier unidad de su organización**. No es un permiso más amplio de lo
+   necesario, es un permiso que el modelo nunca previó.
+3. **Ningún flujo del producto lo necesita.** No hay cliente, script, seed ni
+   simulador que publique GPS como admin. Los únicos productores son Mobile por
+   REST (`POST /locations/update`) y por socket (`location:update`).
+4. **Ver y administrar ya están cubiertos por otras autoridades**, y ninguna
+   requiere publicar: lectura por `/locations/live` con `canViewAnalytics`,
+   administración de rutas y asignaciones por `canManageRoutes`.
+
+### CAUSE
+
+`vehicle-location-ingestion.js` eximía al rol admin de la comprobación de
+propiedad antes de aceptar el paquete.
+
+### REPRO
+
+Admin autenticado de la organización, por cualquiera de los dos transportes:
+
+```
+POST /api/locations/update  { vehicleId: "<cualquier unidad del tenant>", coordinates: {...} }
+socket.emit("location:update", { vehicleId: "<cualquier unidad del tenant>", ... })
+```
+
+Aceptado, persistido en la unidad y difundido como `location:updated` a toda la
+organización. La posición del teléfono del admin se convierte en la posición
+oficial de una unidad que no opera.
+
+### AUTHORITY
+
+Un único predicado en el propio módulo de ingesta:
+`canPublishVehicleTelemetry(actor, vehicleId)`.
+
+Expresado como **identidad de asignación**, no como tabla de roles: el modelo ya
+garantiza que sólo un conductor recibe `vehicleId`, así que la propiedad implica
+el rol sin enumerarlo. Esto evita introducir una segunda tabla RBAC en backend.
+
+### MINIMAL FIX
+
+- Se elimina la excepción de admin.
+- **Sin `if` nuevos en otros archivos**: un solo predicado, en el módulo que ya
+  era la autoridad.
+- **REST y Socket ya compartían `ingestVehicleLocation`** —
+  `modules/locations/routes.js:79` y `sockets/index.js:996`, invariante que
+  `rbac-integration.test.js:64` ya vigilaba—, así que ambos quedan protegidos por
+  la misma comprobación sin tocar los transportes.
+- **No se cambió** quién puede VER `/locations/live`, ni `routes.manage`, ni
+  `analytics.view`.
+
+### REGRESSION
+
+`backend/test/vehicle-location-ingestion.test.js`:
+
+| Caso | Esperado |
+|---|---|
+| driver + su propia unidad | acepta |
+| driver + otra unidad | `403 forbidden_vehicle` |
+| **admin + unidad** | `403 forbidden_vehicle` |
+| supervisor + unidad (socket) | `403 forbidden_vehicle` |
+| cross-tenant declarando esa unidad | `403 cross_tenant_vehicle` |
+| ningún rechazo movió la posición | posición intacta |
+
+Más el predicado probado en aislamiento. El caso admin falla contra el código
+anterior, que lo aceptaba.
+
+### RESULT
+
+Corregido en backend, en commit propio.
+
+---
+
 ## 3.4 Auditoría de los 20 casos
 
 | # | Caso | Veredicto | Evidencia |
@@ -127,7 +223,7 @@ token en el APK de producción.
 | 7 | Background → foreground | **OK** | `AppState 'active'` → snapshot, flush, socket, `refreshAll`; el engine reconcilia la propiedad nativa |
 | 8 | Socket disconnect/reconnect | **OK** | `connectSocket` con backoff y heartbeat; sin polling paralelo |
 | 9 | Doble publicación GPS | **OK** | throttle `shouldSyncVehicleLocation` + decisión temporal backend (`duplicate`/`out_of_order`) |
-| 10 | Ubicación de una unidad ajena | **F-11 — CORREGIDO** | ver 3.2 |
+| 10 | Ubicación de una unidad ajena | **F-11 + F-13 — CORREGIDOS** | Mobile §3.2, backend §3.7 |
 | 11 | Driver viendo ruta ajena | **OK** | `filterLiveLocationsForTenant` restringe rutas a los `routeIds` de sus propias unidades |
 | 12 | Admin/dispatcher/supervisor ven lo permitido | **OK** | emisión a `org:{orgId}:role:{rol con canViewAnalytics}`, por capability |
 | 13 | Dos unidades con rutas simultáneas | **OK** | `routes` y `vehicles` son colecciones independientes; sin estado global de "ruta activa" |
@@ -149,9 +245,9 @@ token en el APK de producción.
 - **`canCaptureLocalLocation` acepta `!authContext && accountType === 'operations'`.**
   Ventana deliberada para una sesión restaurada de caché mientras `/auth/me`
   reconcilia. No concede publicación ni datos empresariales.
-- **El rol admin exento de la comprobación de propiedad en backend.** Es una
-  decisión de backend fuera de la frontera de esta fase. Tras F-11, Mobile ya no
-  la ejerce. No se modifica backend.
+- ~~**El rol admin exento de la comprobación de propiedad en backend.**~~
+  Reclasificado: **no** era una decisión de producto sino un agujero de
+  autoridad. Ver **F-13** en §3.7.
 - **`communication.rtc.access` declarada y no aplicada.** Consistente en ambos
   lados; se revisa en Fase 8.
 
@@ -163,8 +259,15 @@ token en el APK de producción.
 MAP_GPS_CODE_CERTIFIED: PASS
 ```
 
-Con una salvedad explícita: es certificación **de código**. F-12 no bloquea el
-código pero **bloquea la build de release**.
+Dos salvedades explícitas:
+
+1. Es certificación **de código**. F-12 no bloquea el código pero **bloquea la
+   build de release**.
+2. El cierre extremo a extremo de F-11 obligó a **corregir a la baja el repro
+   original** (§3.2) y produjo **F-13**, un cambio en backend con commit propio
+   (§3.7). La declaración anterior de `PASS` fue prematura: se emitía mientras
+   Mobile y backend aplicaban políticas distintas sobre quién publica telemetría.
+   Ahora aplican la misma.
 
 **Gates exactos**, sobre `e2a2a27`, en `mobile/`:
 
