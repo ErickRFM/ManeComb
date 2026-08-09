@@ -184,6 +184,32 @@
       "targetPhase": 7
     },
     {
+      "id": "rtc-live-call",
+      "decision": "Which RTC call is live, which users are busy and which lifecycle transition owns the current call state",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": [
+        "backend/src/modules/rtc/live-authority.js",
+        "backend/src/services/rtc-call-service.js",
+        "backend/src/sockets/index.js"
+      ],
+      "consumers": ["backend", "mobile"],
+      "targetPhase": 7
+    },
+    {
+      "id": "rtc-cdr",
+      "decision": "Durable RTC session history, participants, relay usage, completion reason and duration",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": [
+        "backend/src/modules/rtc/session-coordinator.js",
+        "backend/src/data/repositories/session-repository.js",
+        "backend/src/data/models"
+      ],
+      "consumers": ["backend", "mobile", "admin-global"],
+      "targetPhase": 7
+    },
+    {
       "id": "platform-access",
       "decision": "Private Admin Global origin access, Platform session, MFA and Platform RBAC",
       "owner": "infrastructure",
