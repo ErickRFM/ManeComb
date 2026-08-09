@@ -1,3 +1,5 @@
+const { hasCapability } = require("./enterprise-capabilities");
+
 const PERSONAL_PROFILE_FIELDS = Object.freeze([
   "name",
   "email",
@@ -34,8 +36,12 @@ function pickAllowedFields(payload, allowedFields) {
   );
 }
 
+function canManageOwnCompanyProfile(user) {
+  return user?.accountType === "company_owner" && hasCapability(user, "users.manage");
+}
+
 function getSelfProfileFields(user) {
-  return user?.accountType === "company_owner"
+  return canManageOwnCompanyProfile(user)
     ? COMPANY_PROFILE_FIELDS
     : PERSONAL_PROFILE_FIELDS;
 }
@@ -47,6 +53,7 @@ function pickSelfProfileFields(user, payload) {
 module.exports = {
   COMPANY_PROFILE_FIELDS,
   PERSONAL_PROFILE_FIELDS,
+  canManageOwnCompanyProfile,
   getSelfProfileFields,
   pickSelfProfileFields
 };
