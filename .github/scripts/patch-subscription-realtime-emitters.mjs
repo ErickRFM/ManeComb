@@ -1,40 +1,65 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
+function replaceExactlyOnce(source, filePath, label, before, after) {
+  const first = source.indexOf(before);
+  if (first < 0) throw new Error(`${filePath} ${label}: source snippet not found`);
+  if (source.indexOf(before, first + before.length) >= 0) {
+    throw new Error(`${filePath} ${label}: source snippet appears more than once`);
+  }
+  return source.slice(0, first) + after + source.slice(first + before.length);
+}
+
 function patchFile(filePath, replacements) {
   let source = readFileSync(filePath, 'utf8');
   for (const [label, before, after] of replacements) {
-    const first = source.indexOf(before);
-    if (first < 0) throw new Error(`${filePath} ${label}: source snippet not found`);
-    if (source.indexOf(before, first + before.length) >= 0) {
-      throw new Error(`${filePath} ${label}: source snippet appears more than once`);
-    }
-    source = source.slice(0, first) + after + source.slice(first + before.length);
+    source = replaceExactlyOnce(source, filePath, label, before, after);
   }
   writeFileSync(filePath, source);
 }
 
-patchFile('backend/src/modules/account/routes.js', [
-  [
-    'subscription realtime import',
-    `const {\n  buildInvoices,\n  buildSubscription,\n  enrichOrdersForUser,\n  getOrganizationId,\n  pickActiveOrder\n} = require("../../services/portal-account");\n`,
-    `const {\n  buildInvoices,\n  buildSubscription,\n  enrichOrdersForUser,\n  getOrganizationId,\n  pickActiveOrder\n} = require("../../services/portal-account");\nconst {\n  SUBSCRIPTION_UPDATE_REASONS,\n  emitSubscriptionUpdated\n} = require("../../services/subscription-realtime");\n`
-  ],
-  [
-    'remove duplicate account emitter',
-    `function emitAccountEvent(req, eventName, payload) {\n  const organizationId = getOrganizationId(req.user);\n\n  if (organizationId) {\n    req.app.locals.io?.to(\`org:\${organizationId}\`).emit(eventName, payload);\n  }\n\n  req.app.locals.io?.to(\`user:\${req.user.id}\`).emit(eventName, payload);\n}\n\n`,
-    ``
-  ],
-  [
-    'plan change invalidation',
-    `  emitAccountEvent(req, "subscription:updated", {\n    subscription,\n    organizationId: getOrganizationId(req.user),\n    updatedAt: new Date().toISOString()\n  });`,
-    `  emitSubscriptionUpdated({\n    io: req.app.locals.io,\n    organizationId: getOrganizationId(req.user),\n    reason: SUBSCRIPTION_UPDATE_REASONS.PLAN_CHANGED\n  });`
-  ],
-  [
-    'cancellation invalidation',
-    `  emitAccountEvent(req, "subscription:updated", {\n    subscription,\n    organizationId: getOrganizationId(req.user),\n    updatedAt: new Date().toISOString()\n  });`,
-    `  emitSubscriptionUpdated({\n    io: req.app.locals.io,\n    organizationId: getOrganizationId(req.user),\n    reason: SUBSCRIPTION_UPDATE_REASONS.SUBSCRIPTION_CANCELLED\n  });`
-  ]
-]);
+const accountPath = 'backend/src/modules/account/routes.js';
+let accountSource = readFileSync(accountPath, 'utf8');
+accountSource = replaceExactlyOnce(
+  accountSource,
+  accountPath,
+  'subscription realtime import',
+  `const {\n  buildInvoices,\n  buildSubscription,\n  enrichOrdersForUser,\n  getOrganizationId,\n  pickActiveOrder\n} = require("../../services/portal-account");\n`,
+  `const {\n  buildInvoices,\n  buildSubscription,\n  enrichOrdersForUser,\n  getOrganizationId,\n  pickActiveOrder\n} = require("../../services/portal-account");\nconst {\n  SUBSCRIPTION_UPDATE_REASONS,\n  emitSubscriptionUpdated\n} = require("../../services/subscription-realtime");\n`
+);
+accountSource = replaceExactlyOnce(
+  accountSource,
+  accountPath,
+  'remove duplicate account emitter',
+  `function emitAccountEvent(req, eventName, payload) {\n  const organizationId = getOrganizationId(req.user);\n\n  if (organizationId) {\n    req.app.locals.io?.to(\`org:\${organizationId}\`).emit(eventName, payload);\n  }\n\n  req.app.locals.io?.to(\`user:\${req.user.id}\`).emit(eventName, payload);\n}\n\n`,
+  ``
+);
+const accountSubscriptionBlock = `  emitAccountEvent(req, "subscription:updated", {\n    subscription,\n    organizationId: getOrganizationId(req.user),\n    updatedAt: new Date().toISOString()\n  });`;
+const firstAccountEvent = accountSource.indexOf(accountSubscriptionBlock);
+const secondAccountEvent = accountSource.indexOf(
+  accountSubscriptionBlock,
+  firstAccountEvent + accountSubscriptionBlock.length
+);
+const thirdAccountEvent = secondAccountEvent >= 0
+  ? accountSource.indexOf(accountSubscriptionBlock, secondAccountEvent + accountSubscriptionBlock.length)
+  : -1;
+if (firstAccountEvent < 0 || secondAccountEvent < 0 || thirdAccountEvent >= 0) {
+  throw new Error(`${accountPath} expected exactly two account subscription updates`);
+}
+const planChangeReplacement = `  emitSubscriptionUpdated({\n    io: req.app.locals.io,\n    organizationId: getOrganizationId(req.user),\n    reason: SUBSCRIPTION_UPDATE_REASONS.PLAN_CHANGED\n  });`;
+accountSource =
+  accountSource.slice(0, firstAccountEvent) +
+  planChangeReplacement +
+  accountSource.slice(firstAccountEvent + accountSubscriptionBlock.length);
+const cancellationIndex = accountSource.indexOf(accountSubscriptionBlock);
+if (cancellationIndex < 0 || accountSource.indexOf(accountSubscriptionBlock, cancellationIndex + accountSubscriptionBlock.length) >= 0) {
+  throw new Error(`${accountPath} cancellation subscription update is not unique after plan replacement`);
+}
+const cancellationReplacement = `  emitSubscriptionUpdated({\n    io: req.app.locals.io,\n    organizationId: getOrganizationId(req.user),\n    reason: SUBSCRIPTION_UPDATE_REASONS.SUBSCRIPTION_CANCELLED\n  });`;
+accountSource =
+  accountSource.slice(0, cancellationIndex) +
+  cancellationReplacement +
+  accountSource.slice(cancellationIndex + accountSubscriptionBlock.length);
+writeFileSync(accountPath, accountSource);
 
 patchFile('backend/src/modules/commercial/routes.js', [
   [
