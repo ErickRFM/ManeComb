@@ -32,6 +32,16 @@ describe('Mobile startup stability contract', () => {
     expect(request).not.toContain('_allowRetry: true');
   });
 
+  it('applies the same no-replay policy to the interceptor refresh path', () => {
+    // La recuperacion de 401 del interceptor golpea el mismo POST /auth/refresh
+    // rotatorio. Si aqui se permite reintento, un 502/504/429 replaya un token
+    // ya consumido y tira una sesion valida.
+    const refresh = section(client, 'async function refreshAccessToken', 'export const API_URL');
+    expect(refresh).toContain('_skipAuthRefresh: true');
+    expect(refresh).toContain('_skipNetworkRetry: true');
+    expect(refresh).not.toContain('_allowRetry: true');
+  });
+
   it('shows synchronization loading only while refreshAll is active', () => {
     expect(gate).toContain("reason === 'sync_error' && isRefreshing && !error");
     expect(gate).not.toContain('useSyncWaitStage');
