@@ -121,7 +121,7 @@ export function DriverProfileEditScreen() {
   if (!user) return null;
 
   const roleLabel = formatRole(user.role);
-  const isDriver = user.role === 'driver' || user.role === 'conductor';
+  const isDriver = user.role === 'driver';
 
   return (
     <AppShell
