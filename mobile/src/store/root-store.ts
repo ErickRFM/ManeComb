@@ -124,6 +124,7 @@ import {
   canLoadDirectoryUsers,
   canRefreshOperationalData,
 } from '@/src/utils/mobile-authority';
+import { shouldAdoptRouteSessionUpdate } from '@/src/store/route-session-reconciliation';
 import {
   resolveWebStorage,
   safeWebStorageGetItem,
@@ -1502,6 +1503,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('route-session:updated', (session: RouteSession) => {
+    if (
+      !shouldAdoptRouteSessionUpdate({
+        sessionVehicleId: session?.vehicleId,
+        userVehicleId: get().user?.vehicleId,
+      })
+    ) {
+      return;
+    }
+
     set({ activeRouteSession: ['RUNNING', 'PAUSED'].includes(session.status) ? session : null });
     persistOfflineSnapshot(get);
   });
