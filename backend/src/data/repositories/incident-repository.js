@@ -1,14 +1,11 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
+const { getEnterpriseOrganizationId, mapMaybePromise } = require("./tenant-repository-utils");
 
 const INCIDENT_METHODS = [
   "createIncident",
   "listIncidents",
   "updateIncidentStatus"
 ];
-
-function getEnterpriseOrganizationId(user) {
-  return String(user?.organizationId || user?.companyId || "").trim();
-}
 
 function scopeIncidentsToEnterpriseActor(incidents, actor) {
   const items = Array.isArray(incidents) ? incidents : [];
@@ -38,15 +35,16 @@ class IncidentRepository extends StoreDomainRepository {
     super(store, INCIDENT_METHODS);
   }
 
-  async listIncidents(actor = null) {
-    const incidents = await Promise.resolve(this.store.listIncidents(actor));
-    return scopeIncidentsToEnterpriseActor(incidents, actor);
+  listIncidents(actor = null) {
+    return mapMaybePromise(
+      this.store.listIncidents(actor),
+      (incidents) => scopeIncidentsToEnterpriseActor(incidents, actor)
+    );
   }
 }
 
 module.exports = {
   INCIDENT_METHODS,
   IncidentRepository,
-  getEnterpriseOrganizationId,
   scopeIncidentsToEnterpriseActor
 };
