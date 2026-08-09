@@ -17,7 +17,7 @@ import { StatusPill } from '@/src/components/status-pill';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { formatEta, formatFreshness, formatSpeed, routeLabel as formatRoute, stateLabel } from '@shared/operational-contract';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
-import type { Incident, RouteSession, User, Vehicle } from '@/src/types/app';
+import type { Incident, RouteSession, Vehicle } from '@/src/types/app';
 import type { LocationStatusSnapshot } from '../types';
 import { mapStyles as styles } from '../map-styles';
 import {
@@ -105,7 +105,7 @@ type BottomTrackingPanelProps = {
    */
   selectedVehicle: Vehicle | null;
   trackingUnits: OperationalUnitSnapshot[];
-  userRole: User['role'];
+  canViewVehicleDetails: boolean;
   activeSession: RouteSession | null;
   sessionHistory: RouteSession[];
   incidents: Incident[];
@@ -124,7 +124,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   selectedUnit,
   selectedVehicle,
   trackingUnits,
-  userRole,
+  canViewVehicleDetails,
   activeSession,
   sessionHistory,
   incidents,
@@ -224,7 +224,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     () => formatLastUpdate(selectedUnit?.lastEventAt || lastSyncedAt),
     [lastSyncedAt, selectedUnit?.lastEventAt]
   );
-  const canViewVehicleDetails = userRole === 'admin' || userRole === 'supervisor';
   const statusTone = selectedUnit?.operationalState === 'stopped'
     ? 'warning'
     : selectedUnit?.status === 'maintenance'
