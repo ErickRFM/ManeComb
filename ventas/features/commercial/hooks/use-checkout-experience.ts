@@ -65,12 +65,16 @@ export function useCheckoutExperience({
     [planId, plans]
   );
 
-  const effectiveRequestTrial = Boolean(
+  const canUseDemoCard = Boolean(
     selectedPlan
-    && normalizeTrialIntent(selectedPlan.id, requestTrial)
     && selectedPlan.trialEligible === true
     && Number(selectedPlan.units) === 2
     && Number(selectedPlan.trialDays) === 7
+  );
+  const effectiveRequestTrial = Boolean(
+    selectedPlan
+    && canUseDemoCard
+    && normalizeTrialIntent(selectedPlan.id, requestTrial)
   );
 
   useEffect(() => {
@@ -83,10 +87,12 @@ export function useCheckoutExperience({
     method,
     selectedAddOns = [],
     testCard,
+    demoTrial = false,
   }: {
     method: Exclude<CheckoutPaymentMethod, 'trial'>;
     selectedAddOns?: string[];
     testCard: TestCardInput;
+    demoTrial?: boolean;
   }) => {
     if (!selectedPlan || !user || submitInFlight.current) return null;
 
@@ -95,7 +101,13 @@ export function useCheckoutExperience({
       return null;
     }
 
-    if (!effectiveRequestTrial && providerMode === 'test') {
+    if (demoTrial && !canUseDemoCard) {
+      setMessage('La tarjeta demo solo puede activar la prueba de 7 días del plan de 2 combis.');
+      return null;
+    }
+
+    const trialForSubmit = effectiveRequestTrial || demoTrial;
+    if (!trialForSubmit && providerMode === 'test') {
       const validationMessage = service.validateTestCard(testCard);
       if (validationMessage) {
         setMessage(validationMessage);
@@ -108,14 +120,15 @@ export function useCheckoutExperience({
     setMessage(null);
     try {
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
-      const paymentMethod = effectiveRequestTrial ? 'trial' : method;
+      const paymentMethod = trialForSubmit ? 'trial' : method;
+      const safeAddOns = trialForSubmit ? [] : selectedAddOns;
       const nextResult = await service.createPaymentSession({
         idempotencyKey: getOrCreateCheckoutIdempotencyKey({
           userId: user.id,
           planId: selectedPlan.id,
           paymentMethod,
-          requestTrial: effectiveRequestTrial,
-          selectedAddOns,
+          requestTrial: trialForSubmit,
+          selectedAddOns: safeAddOns,
         }),
         companyName,
         contactName: user.name || companyName,
@@ -123,8 +136,8 @@ export function useCheckoutExperience({
         phone: getContactPhone(user.phone),
         planId: selectedPlan.id,
         paymentMethod,
-        requestTrial: effectiveRequestTrial,
-        selectedAddOns,
+        requestTrial: trialForSubmit,
+        selectedAddOns: safeAddOns,
       });
       setResult(nextResult);
       setMessage(nextResult.message);
@@ -136,9 +149,10 @@ export function useCheckoutExperience({
       submitInFlight.current = false;
       setProcessing(false);
     }
-  }, [effectiveRequestTrial, providerMode, requestTrial, selectedPlan, service, user]);
+  }, [canUseDemoCard, effectiveRequestTrial, providerMode, requestTrial, selectedPlan, service, user]);
 
   return {
+    canUseDemoCard,
     clearMessage: () => setMessage(null),
     effectiveRequestTrial,
     isCompleted: result?.status === PAYMENT_SESSION_STATUSES.COMPLETED,
