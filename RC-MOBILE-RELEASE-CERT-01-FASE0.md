@@ -1,6 +1,9 @@
 # RC-MOBILE-RELEASE-CERT-01 — FASE 0: Reconstrucción del sistema Mobile
 
-**Estado:** hallazgos, sin cambios de código.
+**Estado:** CLOSED. Hallazgos, sin cambios de código.
+**Resolución de cada hallazgo:** ver `RC-MOBILE-RELEASE-CERT-01-FASE1.md` §1.1.
+F-04 quedó **REFUTADO** tras la revisión transversal: `/checklist` conserva
+`routes.manage`.
 **Base:** `af46bfa840e19f39605f437f870be15786d7d630`
 **Rama:** `claude/mobile-release-cert-20260809`
 **Worktree:** `C:/proyectos/manecomb-claude-mobile` (limpio, exactamente en la base)
@@ -172,8 +175,11 @@ realmente los endpoints de checklist/control. Si no es `routes.manage`, un
 conductor con jornada activa puede estar viendo un redirect a `/mapa` al abrir
 Control.
 
-- Clasificación: **pendiente de verificación contra backend** (Fase 2). No
-  modificar hasta tener la evidencia del endpoint.
+- Clasificación final: **REFUTADO COMO INCONGRUENCIA**. Control y el
+  self-service de jornada del conductor son dos superficies deliberadamente
+  distintas; compartir router de Express no las une. Backend protege las
+  mutaciones administrativas con `canManageRoutes`. `/checklist` conserva
+  `routes.manage`. Detalle en `RC-MOBILE-RELEASE-CERT-01-FASE1.md` §1.1.
 
 ### F-05 — El socket se descubre por polling en vez de ser estado reactivo
 
