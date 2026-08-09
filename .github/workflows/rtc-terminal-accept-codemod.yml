@@ -1,0 +1,45 @@
+name: RTC terminal accept convergence codemod
+
+on:
+  push:
+    branches:
+      - fix/rtc-ringing-deadline-authority
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rtc-terminal-accept-codemod-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  codemod:
+    if: ${{ !contains(github.event.head_commit.message, '[rtc-terminal-accept-codemod]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/rtc-ringing-deadline-authority
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Apply deterministic terminal accept migration
+        run: node mobile/scripts/apply-rtc-terminal-accept-codemod.js
+
+      - name: Commit generated store migration
+        shell: bash
+        run: |
+          if git diff --quiet -- mobile/src/features/calls/call-store.ts; then
+            echo "No mobile diff to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/src/features/calls/call-store.ts
+          git commit -m "fix(rtc): converge missing accept to no-answer [rtc-terminal-accept-codemod]"
+          git push origin HEAD:fix/rtc-ringing-deadline-authority
