@@ -82,6 +82,7 @@ function main() {
   assert.equal(restricted.organizationId, "org-alpha");
   assert.equal(restricted.plan.id, "value-4");
   assert.equal(restricted.plan.units, 4);
+  assert.equal(restricted.plan.price, 0);
   assert.equal(restricted.commercial.orderId, null);
   assert.equal(restricted.commercial.paymentStatus, null);
   assert.equal(restricted.commercial.activationStatus, null);
@@ -98,6 +99,7 @@ function main() {
     "self_service_ready",
     "converted",
     "20900",
+    '"price":209',
     "2026-09-01T00:00:00.000Z"
   ]) {
     assert.equal(restrictedJson.includes(secret), false, `restricted DTO leaked ${secret}`);
@@ -107,6 +109,7 @@ function main() {
   assert.equal(full.commercialAccess, true);
   assert.equal(full.commercial.orderId, "order-secret");
   assert.equal(full.commercial.paymentStatus, "paid");
+  assert.equal(full.plan.price, 209);
   assert.equal(full.billing.paymentMethod, "card");
   assert.equal(full.billing.totalPrice, 209);
   assert.equal(full.commercialHistory.totalOrders, 3);
