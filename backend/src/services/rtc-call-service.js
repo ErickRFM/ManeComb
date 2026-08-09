@@ -276,20 +276,43 @@ function createRtcCallService({
     pendingDisconnects.set(key, handle);
   }
 
+  function collectDisconnectCandidates(call, socketId) {
+    const candidates = new Set();
+    const isCaller = call.callerSocketId === socketId;
+    const calleeEntry = Array.from(call.calleeSockets.entries()).find(([, sid]) => sid === socketId);
+
+    if (isCaller) {
+      call.callerSocketId = null;
+      candidates.add(call.callerId);
+    }
+    if (calleeEntry) {
+      call.calleeSockets.delete(calleeEntry[0]);
+      candidates.add(calleeEntry[0]);
+    }
+
+    // After reconnect, presence/RTC may use a different socket. During active calls,
+    // reconcile participants whose original RTC binding disappeared against live presence.
+    // Ringing is intentionally excluded so an unaccepted callee is not treated as disconnected.
+    if (call.status === "active") {
+      if (!call.callerSocketId) candidates.add(call.callerId);
+      for (const calleeId of call.calleeIds) {
+        if (!call.calleeSockets.has(calleeId)) candidates.add(calleeId);
+      }
+    }
+
+    return candidates;
+  }
+
   async function handleDisconnect(socketId, { isUserConnected } = {}) {
     for (const call of Array.from(callsById.values())) {
-      const isCaller = call.callerSocketId === socketId;
-      const calleeEntry = Array.from(call.calleeSockets.entries()).find(([, sid]) => sid === socketId);
-      if (!isCaller && !calleeEntry) continue;
+      const candidates = collectDisconnectCandidates(call, socketId);
+      if (!candidates.size) continue;
 
-      const goneUserId = isCaller ? call.callerId : calleeEntry[0];
-      if (isCaller) call.callerSocketId = null;
-      else call.calleeSockets.delete(goneUserId);
-
-      const stillConnected = isUserConnected ? await isUserConnected(goneUserId) : false;
-      if (stillConnected) continue;
-
-      scheduleDisconnectCleanup(call, goneUserId);
+      for (const goneUserId of candidates) {
+        const stillConnected = isUserConnected ? await isUserConnected(goneUserId) : false;
+        if (stillConnected) continue;
+        scheduleDisconnectCleanup(call, goneUserId);
+      }
     }
   }
 
