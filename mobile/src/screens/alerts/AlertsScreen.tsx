@@ -17,6 +17,7 @@ import { AppShell } from '@/src/components/app-shell';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { IncidentSeverity } from '@/src/types/app';
+import { canManageMobileIncidents } from '@/src/utils/mobile-authority';
 import {
   INCIDENT_TYPES,
   INITIAL_VISIBLE_EVENTS,
@@ -116,6 +117,7 @@ export function AlertsScreen() {
     ? filteredIncidents
     : filteredIncidents.slice(0, INITIAL_VISIBLE_EVENTS);
   const hiddenEventsCount = Math.max(filteredIncidents.length - visibleIncidents.length, 0);
+  const canManageIncidents = canManageMobileIncidents(user as typeof user & { capabilities?: string[] });
 
   const handleCreate = async () => {
     if (!title.trim() || !description.trim()) return;
@@ -243,7 +245,7 @@ export function AlertsScreen() {
                 showsVerticalScrollIndicator={false}
                 style={screenStyles.timelineScroll}>
                 {visibleIncidents.map((incident, index) => {
-                  const canResolve = (user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'owner') && isIncidentActive(incident);
+                  const canResolve = canManageIncidents && isIncidentActive(incident);
 
                   return (
                     <AlertCard
