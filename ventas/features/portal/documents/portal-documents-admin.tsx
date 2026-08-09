@@ -20,6 +20,7 @@ import {
 import { PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
+import { hasPortalPermission } from '../utils/access';
 import { styles } from './documents.styles';
 import { getDocumentSummary, getStatusMeta, isDocumentExpired, matchesDocumentFilter } from './documents.utils';
 
@@ -48,7 +49,7 @@ export function DocumentsAdminScreen() {
   const [name, setName] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [history, setHistory] = useState<DocumentItem[]>([]);
-  const canManage = Boolean(user && ['owner', 'admin', 'supervisor'].includes(user.role));
+  const canManage = hasPortalPermission(user, 'documents');
 
   const refresh = async (showDeleted = includeDeleted) => {
     setLoading(true);
@@ -99,6 +100,10 @@ export function DocumentsAdminScreen() {
   const submit = async () => {
     if (!target || !dialog) return;
     if (dialog === 'detail' || dialog === 'history') return closeDialog();
+    if (!canManage) {
+      setMessage('No tienes permiso para modificar documentos.');
+      return;
+    }
     if (dialog === 'review' && reviewStatus === 'rejected' && !notes.trim()) {
       setMessage('Las notas son obligatorias al rechazar un documento.');
       return;
@@ -130,6 +135,7 @@ export function DocumentsAdminScreen() {
   };
 
   const toggleDeleted = async () => {
+    if (!canManage) return;
     const next = !includeDeleted;
     setIncludeDeleted(next);
     setFilter(next ? 'deleted' : '');
