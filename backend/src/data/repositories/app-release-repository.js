@@ -70,7 +70,6 @@ class AppReleaseRepository extends StoreDomainRepository {
         { _id: APP_CONFIG_ID },
         {
           $setOnInsert: {
-            _id: APP_CONFIG_ID,
             ...seed,
             createdAt: now,
             updatedAt: now
@@ -106,22 +105,50 @@ class AppReleaseRepository extends StoreDomainRepository {
         : null;
     }
 
-    await this.ensureAppConfig();
     const patch = pickAppConfig(data);
     if (!Object.keys(patch).length) return this.getAppConfig();
 
-    const doc = await this.AppConfigModel.findOneAndUpdate(
-      { _id: APP_CONFIG_ID },
-      {
-        $set: {
-          ...patch,
-          updatedAt: new Date()
-        }
-      },
-      { returnDocument: "after" }
-    ).lean();
+    const seed = await this.getSeedConfig();
+    const seedForInsert = {};
+    for (const [field, value] of Object.entries(seed)) {
+      if (patch[field] === undefined) seedForInsert[field] = value;
+    }
+    const now = new Date();
 
-    return serializeAppConfig(doc);
+    try {
+      const doc = await this.AppConfigModel.findOneAndUpdate(
+        { _id: APP_CONFIG_ID },
+        {
+          $set: {
+            ...patch,
+            updatedAt: now
+          },
+          $setOnInsert: {
+            ...seedForInsert,
+            createdAt: now
+          }
+        },
+        {
+          upsert: true,
+          returnDocument: "after",
+          setDefaultsOnInsert: true
+        }
+      ).lean();
+      return serializeAppConfig(doc);
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const doc = await this.AppConfigModel.findOneAndUpdate(
+        { _id: APP_CONFIG_ID },
+        {
+          $set: {
+            ...patch,
+            updatedAt: now
+          }
+        },
+        { returnDocument: "after" }
+      ).lean();
+      return serializeAppConfig(doc);
+    }
   }
 
   async recordDeviceVersion(userId, versionInfo = {}) {
@@ -147,7 +174,6 @@ class AppReleaseRepository extends StoreDomainRepository {
           updatedAt: now
         },
         $setOnInsert: {
-          _id: normalizedUserId,
           createdAt: now
         }
       },
