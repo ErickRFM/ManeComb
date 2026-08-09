@@ -2,6 +2,7 @@ import type { Role } from '@/src/types/app';
 
 export const DIRECTORY_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'supervisor'];
 export const CONTROL_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'supervisor'];
+export const DRIVER_DOCUMENT_ALLOWED_ROLES: Role[] = ['driver'];
 
 export const MODULE_ROUTE_NAMES = {
   map: '__module/map',
@@ -31,7 +32,7 @@ const moduleRoutes: Record<string, RouteDefinition> = {
   '/checklist': { module: 'checklist', root: '/checklist', allowedRoles: CONTROL_ALLOWED_ROLES },
   '/perfil': { module: 'profile', root: '/perfil' },
   '/perfil-editar': { module: 'profile', root: '/perfil' },
-  '/mis-documentos': { module: 'profile', root: '/perfil' },
+  '/mis-documentos': { module: 'profile', root: '/perfil', allowedRoles: DRIVER_DOCUMENT_ALLOWED_ROLES },
 };
 
 export function getRouteDefinition(routeName: string | undefined | null) {
