@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Animated, Easing, Platform, Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
 import { neonPalette } from '../constants';
@@ -9,6 +9,7 @@ import { formatCurrency, getPlanVisualTone, usePrefersReducedMotion } from '../u
 const PLAN_REVEAL_DURATION_MS = 620;
 const PLAN_REVEAL_STAGGER_MS = 75;
 const PLAN_REVEAL_MAX_DELAY_MS = 300;
+const ACTIVE_PULSE_DURATION_MS = 1450;
 
 export function PlanCard({
   index,
@@ -40,6 +41,7 @@ export function PlanCard({
   const showTrialAction = Boolean(onTrial && trialLabel);
   const reducedMotion = usePrefersReducedMotion();
   const cardRef = useRef<unknown>(null);
+  const activePulse = useRef(new Animated.Value(0)).current;
   const [entered, setEntered] = useState(Platform.OS !== 'web');
   const [entrySettled, setEntrySettled] = useState(Platform.OS !== 'web');
 
@@ -47,6 +49,11 @@ export function PlanCard({
   // la escala compacta aunque no sea un teléfono; en móvil de 360 px la tarjeta conserva
   // la escala completa porque sigue teniendo ~328 px útiles.
   const compactCard = compact || width < 312;
+  // El carrusel desktop recorta por diseño el contenido horizontal. Dejamos respiración
+  // dentro del mismo footprint de la tarjeta para que hover, halo y glow no choquen con
+  // los bordes laterales del viewport ni alteren snapToInterval.
+  const cardOuterInset = Platform.OS === 'web' && compactCard ? 12 : 0;
+  const renderedCardWidth = Math.max(0, width - cardOuterInset * 2);
   const planListMinHeight = compactCard ? 96 : 106;
   const cardMinHeight = showTrialAction
     ? compactCard
@@ -121,6 +128,53 @@ export function PlanCard({
     return () => window.clearTimeout(timer);
   }, [entered, entrySettled, reducedMotion, revealDelay]);
 
+  useEffect(() => {
+    activePulse.stopAnimation();
+
+    if (!active) {
+      activePulse.setValue(0);
+      return;
+    }
+
+    if (reducedMotion) {
+      activePulse.setValue(0.55);
+      return;
+    }
+
+    activePulse.setValue(0);
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(activePulse, {
+          toValue: 1,
+          duration: ACTIVE_PULSE_DURATION_MS,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+        Animated.timing(activePulse, {
+          toValue: 0,
+          duration: ACTIVE_PULSE_DURATION_MS,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    pulse.start();
+    return () => {
+      pulse.stop();
+      activePulse.setValue(0);
+    };
+  }, [active, activePulse, reducedMotion]);
+
+  const haloOpacity = activePulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.52, 0.94],
+  });
+  const haloScale = activePulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.014],
+  });
+
   return (
     <Pressable
       ref={cardRef as never}
@@ -130,9 +184,9 @@ export function PlanCard({
       style={(state) => {
         const pressed = state.pressed;
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
-        const hoverLift = compactCard ? -2 : -3;
-        const selectedLift = compactCard ? -2 : -6;
-        const hoverScale = compactCard ? 1.008 : 1.015;
+        const hoverLift = compactCard ? -6 : -7;
+        const selectedLift = compactCard ? -4 : -6;
+        const hoverScale = compactCard ? 1.018 : 1.022;
         const restingTranslateY = active ? selectedLift : hovered ? hoverLift : 0;
         const restingScale = hovered ? hoverScale : 1;
 
@@ -145,17 +199,18 @@ export function PlanCard({
             alignSelf: 'stretch',
             flexShrink: 0,
             gap: compactCard ? 12 : 15,
-            maxWidth: width,
+            marginHorizontal: cardOuterInset,
+            maxWidth: renderedCardWidth,
             minHeight: cardMinHeight,
             opacity: motionReady ? 1 : 0,
             padding: compactCard ? 18 : 20,
-            width,
-            borderColor: active ? visual.edge : hovered ? `${visual.secondary}CC` : `${visual.edge}44`,
+            width: renderedCardWidth,
+            borderColor: active ? visual.edge : hovered ? `${visual.secondary}E6` : `${visual.edge}44`,
             ...(Platform.OS === 'web'
               ? null
               : {
                   shadowColor: cardEdge,
-                  shadowOpacity: active ? 0.5 : hovered ? 0.3 : 0.15,
+                  shadowOpacity: active ? 0.5 : hovered ? 0.34 : 0.15,
                 }),
             transform: [
               { translateY: motionReady ? restingTranslateY : 28 },
@@ -164,28 +219,30 @@ export function PlanCard({
             ...(Platform.OS === 'web'
               ? ({
                   backgroundImage: active
-                    ? 'linear-gradient(145deg, rgba(11, 18, 36, 0.98) 0%, rgba(19, 27, 51, 0.94) 58%, rgba(11, 18, 36, 0.98) 100%)'
-                    : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
+                    ? 'linear-gradient(145deg, rgba(11, 18, 36, 0.99) 0%, rgba(19, 27, 51, 0.96) 58%, rgba(11, 18, 36, 0.99) 100%)'
+                    : hovered
+                      ? 'linear-gradient(145deg, rgba(13, 22, 43, 0.98) 0%, rgba(20, 31, 57, 0.94) 100%)'
+                      : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
                   boxShadow:
                     active || hovered
-                      ? `0 0 0 1px ${visual.edge}88, 0 0 26px ${visual.edge}38, 0 22px 58px rgba(0, 0, 0, 0.38)`
-                      : `0 0 0 1px ${visual.edge}22, 0 16px 38px rgba(0, 0, 0, 0.24)`,
+                      ? `0 0 0 1px ${visual.edge}A8, 0 0 22px ${visual.edge}4A, 0 18px 34px rgba(0, 0, 0, 0.38)`
+                      : `0 0 0 1px ${visual.edge}22, 0 12px 26px rgba(0, 0, 0, 0.24)`,
                   filter: motionReady ? 'blur(0px)' : 'blur(3px)',
                   transitionDelay: reducedMotion || entrySettled ? '0ms' : `${revealDelay}ms`,
                   transitionDuration: reducedMotion
                     ? '0ms'
                     : entrySettled
                       ? compactCard
-                        ? '220ms'
+                        ? '260ms'
                         : '300ms'
                       : `${PLAN_REVEAL_DURATION_MS}ms`,
                   transitionTimingFunction: entrySettled
-                    ? 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+                    ? 'cubic-bezier(0.16, 1, 0.3, 1)'
                     : 'cubic-bezier(0.16, 1, 0.3, 1)',
                   transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
                   backdropFilter: 'blur(18px)',
                   cursor: 'pointer',
-                  willChange: entrySettled ? 'transform' : 'transform, opacity, filter',
+                  willChange: entrySettled ? 'transform, box-shadow' : 'transform, opacity, filter',
                 } as any)
               : null),
           },
@@ -193,13 +250,15 @@ export function PlanCard({
         ];
       }}>
       {active ? (
-        <View
+        <Animated.View
           pointerEvents="none"
           style={[
             styles.planSelectedHalo,
             {
-              borderColor: `${visual.edge}B8`,
+              borderColor: `${visual.edge}D0`,
               backgroundColor: 'transparent',
+              opacity: haloOpacity,
+              transform: [{ scale: haloScale }],
             },
           ]}
         />
