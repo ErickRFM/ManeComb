@@ -1,7 +1,10 @@
-import type { Role } from '@/src/types/app';
+import type { Role, User } from '@/src/types/app';
+import {
+  ENTERPRISE_CAPABILITY,
+  hasEnterpriseCapability,
+  type EnterpriseCapability,
+} from '@/src/store/mobile-capability-authority';
 
-export const DIRECTORY_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'supervisor'];
-export const CONTROL_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'supervisor'];
 export const DRIVER_DOCUMENT_ALLOWED_ROLES: Role[] = ['driver'];
 
 export const MODULE_ROUTE_NAMES = {
@@ -21,15 +24,24 @@ export type RouteDefinition = {
   module: ModuleKey;
   root: string;
   allowedRoles?: Role[];
+  requiredCapability?: EnterpriseCapability;
 };
 
 const moduleRoutes: Record<string, RouteDefinition> = {
   '/mapa': { module: 'map', root: '/mapa' },
   '/incidencias': { module: 'incidents', root: '/incidencias' },
-  '/usuarios': { module: 'users', root: '/usuarios', allowedRoles: DIRECTORY_ALLOWED_ROLES },
+  '/usuarios': {
+    module: 'users',
+    root: '/usuarios',
+    requiredCapability: ENTERPRISE_CAPABILITY.analyticsView,
+  },
   '/chat': { module: 'chat', root: '/chat' },
   '/radio': { module: 'radio', root: '/radio' },
-  '/checklist': { module: 'checklist', root: '/checklist', allowedRoles: CONTROL_ALLOWED_ROLES },
+  '/checklist': {
+    module: 'checklist',
+    root: '/checklist',
+    requiredCapability: ENTERPRISE_CAPABILITY.routesManage,
+  },
   '/perfil': { module: 'profile', root: '/perfil' },
   '/perfil-editar': { module: 'profile', root: '/perfil' },
   '/mis-documentos': { module: 'profile', root: '/perfil', allowedRoles: DRIVER_DOCUMENT_ALLOWED_ROLES },
@@ -48,7 +60,25 @@ export function isModuleRoot(routeName: string) {
   return definition?.root === routeName;
 }
 
+export function canUserAccessRoute(routeName: string, user: User) {
+  const definition = getRouteDefinition(routeName);
+  if (!definition) return false;
+
+  if (definition.requiredCapability) {
+    return hasEnterpriseCapability(user, definition.requiredCapability);
+  }
+
+  return !definition.allowedRoles || definition.allowedRoles.includes(user.role);
+}
+
+// Kept only for genuinely role-scoped routes such as driver self-service.
+// Capability-scoped modules must use canUserAccessRoute so role tables cannot
+// become a second authorization system.
 export function canRoleAccessRoute(routeName: string, role: Role) {
   const definition = getRouteDefinition(routeName);
-  return Boolean(definition && (!definition.allowedRoles || definition.allowedRoles.includes(role)));
+  return Boolean(
+    definition &&
+    !definition.requiredCapability &&
+    (!definition.allowedRoles || definition.allowedRoles.includes(role))
+  );
 }
