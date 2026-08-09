@@ -11,10 +11,11 @@ import { PrimaryButton } from '@/src/components/primary-button';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
+import { formatRole } from '@/src/utils/format';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { Field } from './profile-edit/components/field';
 
-type DriverProfileForm = {
+type PersonalProfileForm = {
   name: string;
   email: string;
   phone: string;
@@ -22,7 +23,7 @@ type DriverProfileForm = {
   avatarUrl: string | null;
 };
 
-function createDriverProfileForm(): DriverProfileForm {
+function createPersonalProfileForm(): PersonalProfileForm {
   return {
     name: '',
     email: '',
@@ -41,7 +42,7 @@ export function DriverProfileEditScreen() {
       user: state.user,
     }))
   );
-  const [form, setForm] = useState<DriverProfileForm>(createDriverProfileForm);
+  const [form, setForm] = useState<PersonalProfileForm>(createPersonalProfileForm);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(form.password), [form.password]);
@@ -58,7 +59,7 @@ export function DriverProfileEditScreen() {
     });
   }, [user]);
 
-  const updateField = <K extends keyof DriverProfileForm>(field: K, value: DriverProfileForm[K]) => {
+  const updateField = <K extends keyof PersonalProfileForm>(field: K, value: PersonalProfileForm[K]) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -117,9 +118,10 @@ export function DriverProfileEditScreen() {
     setMessage('Perfil actualizado. Los administradores verán estos datos en el directorio.');
   };
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
+
+  const roleLabel = formatRole(user.role);
+  const isDriver = user.role === 'driver' || user.role === 'conductor';
 
   return (
     <AppShell
@@ -134,7 +136,7 @@ export function DriverProfileEditScreen() {
             <MaterialCommunityIcons name="arrow-left" size={18} color={theme.colors.text} />
             <Text style={[styles.backButtonText, { color: theme.colors.text }]}>Volver</Text>
           </Pressable>
-          <Text style={[styles.title, { color: theme.colors.text }]}>Tu perfil de conductor</Text>
+          <Text style={[styles.title, { color: theme.colors.text }]}>{isDriver ? 'Tu perfil de conductor' : 'Tu perfil operativo'}</Text>
           <Text style={[styles.subtitle, { color: theme.colors.muted }]}>Estos datos identifican tu cuenta dentro de la empresa, Chat, Radio y Directorio.</Text>
         </View>
       }>
@@ -150,7 +152,7 @@ export function DriverProfileEditScreen() {
           />
           <View style={styles.identityCopy}>
             <Text style={[styles.name, { color: theme.colors.text }]}>{form.name || user.name}</Text>
-            <Text style={[styles.meta, { color: theme.colors.muted }]}>Conductor · {user.vehicleId ? 'Unidad asignada' : 'Sin unidad asignada'}</Text>
+            <Text style={[styles.meta, { color: theme.colors.muted }]}>{roleLabel}{isDriver ? ` · ${user.vehicleId ? 'Unidad asignada' : 'Sin unidad asignada'}` : ''}</Text>
             <PrimaryButton label="Cambiar foto" variant="ghost" onPress={() => void handlePhotoUpload()} />
           </View>
         </View>
@@ -159,8 +161,8 @@ export function DriverProfileEditScreen() {
       <AppCard>
         <View style={styles.form}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Información personal</Text>
-          <Field label="Nombre completo" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Nombre del conductor" />
-          <Field label="Correo" value={form.email} onChangeText={(value) => updateField('email', value)} placeholder="conductor@correo.com" keyboardType="email-address" autoCapitalize="none" />
+          <Field label="Nombre completo" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Nombre del usuario" />
+          <Field label="Correo" value={form.email} onChangeText={(value) => updateField('email', value)} placeholder="usuario@correo.com" keyboardType="email-address" autoCapitalize="none" />
           <Field label="Teléfono" value={form.phone} onChangeText={(value) => updateField('phone', value)} placeholder="+52 55 0000 0000" keyboardType="phone-pad" />
           <Field label="Nueva contraseña" value={form.password} onChangeText={(value) => updateField('password', value)} placeholder="Déjala vacía para conservar la actual" secureTextEntry />
           {form.password.trim() ? (
@@ -168,10 +170,8 @@ export function DriverProfileEditScreen() {
               Seguridad: {passwordStrength.label}
             </Text>
           ) : null}
-          <Text style={[styles.scopeNote, { color: theme.colors.muted, borderColor: theme.colors.line }]}>La empresa, facturación, método de pago, rol, turno y asignación de unidad los administra tu empresa. Tus documentos se gestionan desde “Mis documentos”.</Text>
-          {message ? (
-            <Text style={[styles.message, { color: success ? theme.colors.success : theme.colors.danger }]}>{message}</Text>
-          ) : null}
+          <Text style={[styles.scopeNote, { color: theme.colors.muted, borderColor: theme.colors.line }]}>{isDriver ? 'La unidad, turno, horario operativo y rol los administra tu empresa. Tus documentos se gestionan desde “Mis documentos”.' : 'El rol, asignaciones y configuración de la empresa se administran con las herramientas de la cuenta empresarial.'}</Text>
+          {message ? <Text style={[styles.message, { color: success ? theme.colors.success : theme.colors.danger }]}>{message}</Text> : null}
           <PrimaryButton label={isSubmitting ? 'Guardando...' : 'Guardar cambios'} disabled={isSubmitting} onPress={() => void handleSave()} />
         </View>
       </AppCard>
@@ -181,10 +181,7 @@ export function DriverProfileEditScreen() {
 
 function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
   return StyleSheet.create({
-    header: {
-      gap: 8,
-      paddingTop: AppTheme.spacing.sm,
-    },
+    header: { gap: 8, paddingTop: AppTheme.spacing.sm },
     backButton: {
       alignItems: 'center',
       alignSelf: 'flex-start',
@@ -195,67 +192,17 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       paddingHorizontal: 12,
       paddingVertical: 9,
     },
-    backButtonText: {
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '800',
-    },
-    title: {
-      fontFamily: Typography.display,
-      fontSize: 26,
-      fontWeight: '900',
-    },
-    subtitle: {
-      fontFamily: Typography.body,
-      fontSize: 14,
-      lineHeight: 21,
-    },
-    identityRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 16,
-    },
-    identityCopy: {
-      flex: 1,
-      gap: 8,
-      minWidth: 190,
-    },
-    name: {
-      fontFamily: Typography.display,
-      fontSize: 22,
-      fontWeight: '900',
-    },
-    meta: {
-      fontFamily: Typography.body,
-      fontSize: 13,
-      lineHeight: 19,
-    },
-    form: {
-      gap: 14,
-    },
-    sectionTitle: {
-      fontFamily: Typography.display,
-      fontSize: 18,
-      fontWeight: '900',
-    },
-    passwordHint: {
-      fontFamily: Typography.body,
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    scopeNote: {
-      borderTopWidth: 1,
-      fontFamily: Typography.body,
-      fontSize: 12,
-      lineHeight: 19,
-      paddingTop: 12,
-    },
-    message: {
-      fontFamily: Typography.body,
-      fontSize: 13,
-      fontWeight: '800',
-      lineHeight: 19,
-    },
+    backButtonText: { fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
+    title: { fontFamily: Typography.display, fontSize: 26, fontWeight: '900' },
+    subtitle: { fontFamily: Typography.body, fontSize: 14, lineHeight: 21 },
+    identityRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+    identityCopy: { flex: 1, gap: 8, minWidth: 190 },
+    name: { fontFamily: Typography.display, fontSize: 22, fontWeight: '900' },
+    meta: { fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
+    form: { gap: 14 },
+    sectionTitle: { fontFamily: Typography.display, fontSize: 18, fontWeight: '900' },
+    passwordHint: { fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
+    scopeNote: { borderTopWidth: 1, fontFamily: Typography.body, fontSize: 12, lineHeight: 19, paddingTop: 12 },
+    message: { fontFamily: Typography.body, fontSize: 13, fontWeight: '800', lineHeight: 19 },
   });
 }
