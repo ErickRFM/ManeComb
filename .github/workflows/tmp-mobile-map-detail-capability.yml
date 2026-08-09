@@ -1,0 +1,40 @@
+name: Temporary Mobile Map Detail Capability Codemod
+
+on:
+  push:
+    branches:
+      - agent/mobile-capability-authority-20260808
+    paths:
+      - .github/workflows/tmp-mobile-map-detail-capability.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-map-detail-authority:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: agent/mobile-capability-authority-20260808
+          fetch-depth: 0
+
+      - name: Apply exact codemod
+        run: node .github/scripts/patch-mobile-map-detail-capability.mjs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = $'mobile/src/screens/map-screen.native.tsx\nmobile/src/screens/map/components/BottomTrackingPanel.tsx'
+          git diff -- mobile/src/screens/map-screen.native.tsx mobile/src/screens/map/components/BottomTrackingPanel.tsx
+
+      - name: Commit capability patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/src/screens/map-screen.native.tsx mobile/src/screens/map/components/BottomTrackingPanel.tsx
+          git commit -m "refactor(mobile): gate map vehicle detail by analytics capability"
+          git push origin HEAD:agent/mobile-capability-authority-20260808
