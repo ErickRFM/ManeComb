@@ -14,6 +14,7 @@ const LEGACY_OPERATIONAL_ROLES = new Set([
 
 const LEGACY_DIRECTORY_ROLES = new Set(['owner', 'admin', 'supervisor']);
 const LEGACY_INCIDENT_MANAGER_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor']);
+const LEGACY_DOCUMENT_MANAGER_ROLES = new Set(['owner', 'admin', 'supervisor']);
 
 function hasExplicitCapabilities(user: CapabilityAwareUser | null | undefined) {
   return Array.isArray(user?.capabilities);
@@ -81,4 +82,18 @@ export function canManageMobileIncidents(user: CapabilityAwareUser | null | unde
   // legado solo incluye roles operativos. Si backend lo habilita en el futuro,
   // su capability explícita prevalecerá sobre esta tabla de compatibilidad.
   return LEGACY_INCIDENT_MANAGER_ROLES.has(String(user.role || ''));
+}
+
+/**
+ * Autoridad para abrir administración documental desde Mobile hacia Portal.
+ * Backend protege las rutas administrativas con canManageDocuments.
+ */
+export function canManageMobileDocuments(user: CapabilityAwareUser | null | undefined) {
+  if (!user) return false;
+
+  if (hasExplicitCapabilities(user)) {
+    return hasCapability(user, 'documents.manage');
+  }
+
+  return LEGACY_DOCUMENT_MANAGER_ROLES.has(String(user.role || ''));
 }
