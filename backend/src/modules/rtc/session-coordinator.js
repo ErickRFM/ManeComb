@@ -29,6 +29,7 @@ function createRtcSessionCoordinator({
   setTimeoutFn = setTimeout
 } = {}) {
   const localPointers = new Map();
+  const localCreateLocks = new Map();
   const distributed = Boolean(redisReadiness?.enabled);
 
   function assertAvailable() {
@@ -89,18 +90,38 @@ function createRtcSessionCoordinator({
     return updated;
   }
 
+  async function ensureLocal(roomId, payload) {
+    const inFlight = localCreateLocks.get(roomId);
+    if (inFlight) return await inFlight;
+
+    const work = (async () => {
+      const existingId = await resolveSessionId(roomId, payload.organizationId);
+      if (existingId) {
+        const updated = await store.updateRtcSession(existingId, payload.update || payload.create);
+        if (updated) await writePointer(roomId, existingId);
+        return updated;
+      }
+      const created = await store.createRtcSession(payload.create);
+      localPointers.set(roomId, created.id);
+      return created;
+    })();
+
+    localCreateLocks.set(roomId, work);
+    try {
+      return await work;
+    } finally {
+      if (localCreateLocks.get(roomId) === work) localCreateLocks.delete(roomId);
+    }
+  }
+
   async function ensure(roomId, payload) {
+    if (!distributed) return await ensureLocal(roomId, payload);
+
     const existingId = await resolveSessionId(roomId, payload.organizationId);
     if (existingId) {
       const updated = await store.updateRtcSession(existingId, payload.update || payload.create);
       if (updated) await writePointer(roomId, existingId);
       return updated;
-    }
-
-    if (!distributed) {
-      const created = await store.createRtcSession(payload.create);
-      localPointers.set(roomId, created.id);
-      return created;
     }
 
     assertAvailable();
@@ -152,7 +173,10 @@ function createRtcSessionCoordinator({
     ensure,
     sync,
     finish,
-    _state: { activeRtcSessions: localPointers }
+    _state: {
+      sessionPointers: localPointers,
+      createLocks: localCreateLocks
+    }
   };
 }
 
