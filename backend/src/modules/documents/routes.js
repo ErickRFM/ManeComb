@@ -214,6 +214,9 @@ router.post("/", authenticate, requireOrganization, requireOperationalAccess, up
   let createdDocument = null;
   try {
     if (!storedFile) return res.status(400).json({ ok: false, message: "Debes adjuntar un archivo" });
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageDocuments")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para realizar esta accion" });
+    }
     const { ownerId, ownerType } = resolveUploadOwner(req.user, req.body);
     if (!ownerId) return res.status(400).json({ ok: false, message: "No se encontro el propietario del documento" });
     if (!(await getAccessibleOwner(req, ownerType, ownerId))) {
