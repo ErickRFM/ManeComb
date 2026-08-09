@@ -504,7 +504,6 @@ function AppStack() {
 
 export default function App() {
   const { navigationTheme, theme } = useAppTheme();
-  const splashHiddenRef = useRef(false);
   const pushNavigationRequestRef = useRef(new LatestNavigationRequest());
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const [bootIsSlow, setBootIsSlow] = useState(false);
@@ -520,9 +519,6 @@ export default function App() {
     }))
   );
 
-  const hideSplash = useCallback(() => {
-    splashHiddenRef.current = true;
-  }, []);
   const isReady = isHydrated && !isBootstrapping;
   const bootstrapFailed = !isReady && !isBootstrapping && Boolean(startupError);
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -551,11 +547,10 @@ export default function App() {
 
   useEffect(() => {
     if (isReady) {
-      hideSplash();
       setBootTimedOut(false);
       setBootIsSlow(false);
     }
-  }, [hideSplash, isReady]);
+  }, [isReady]);
 
   useEffect(() => {
     if (isReady) {
@@ -563,21 +558,13 @@ export default function App() {
     }
 
     const slowNotice = setTimeout(() => setBootIsSlow(true), BOOT_SLOW_NOTICE_MS);
-    const timeout = setTimeout(() => {
-      setBootTimedOut(true);
-      hideSplash();
-    }, BOOT_SYNC_TIMEOUT_MS);
+    const timeout = setTimeout(() => setBootTimedOut(true), BOOT_SYNC_TIMEOUT_MS);
 
     return () => {
       clearTimeout(slowNotice);
       clearTimeout(timeout);
     };
-  }, [hideSplash, isReady]);
-
-  useEffect(() => {
-    const timeout = setTimeout(hideSplash, 2500);
-    return () => clearTimeout(timeout);
-  }, [hideSplash]);
+  }, [isReady]);
 
   useEffect(() => {
     return addPushResponseListener(async (intent) => {
@@ -636,11 +623,6 @@ export default function App() {
 
   return (
     <GestureHandlerRootView
-      onLayout={() => {
-        if (isReady) {
-          hideSplash();
-        }
-      }}
       style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <KeyboardProvider preload={false}>
         <SafeAreaProvider>
