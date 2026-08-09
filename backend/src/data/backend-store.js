@@ -55,11 +55,14 @@ function buildBackendStore(baseStore, dependencies = {}) {
       }, {})
     : {};
 
-  // listUsers is an enterprise security boundary, not a persistence detail.
-  // Keep it behind UserRepository in embedded/test too, while preserving all
-  // other legacy embedded methods until their domains migrate deliberately.
+  // These methods enforce enterprise tenant boundaries independently of the
+  // persistence adapter. Keep them behind repositories in embedded/test too,
+  // while other legacy embedded domains migrate deliberately.
   const invariantMethods = {
-    listUsers: services.users.listUsers.bind(services.users)
+    deleteRoute: services.fleet.deleteRoute.bind(services.fleet),
+    listRoutes: services.fleet.listRoutes.bind(services.fleet),
+    listUsers: services.users.listUsers.bind(services.users),
+    updateRoute: services.fleet.updateRoute.bind(services.fleet)
   };
 
   return {
