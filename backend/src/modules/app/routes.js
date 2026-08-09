@@ -4,7 +4,9 @@ const router = Router();
 
 router.get("/info", async (req, res) => {
   const store = req.app.locals.store;
-  const appConfig = store?.getAppConfig ? store.getAppConfig() : null;
+  const appConfig = store?.getAppConfig
+    ? await Promise.resolve(store.getAppConfig())
+    : null;
 
   if (appConfig) {
     return res.json({ ok: true, data: appConfig });
