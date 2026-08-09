@@ -35,6 +35,10 @@ export type PortalNavSection = {
   items: PortalNavItem[];
 };
 
+function getRouteDefinition(href: PortalRoutePath): PortalRouteDefinition {
+  return PORTAL_ROUTE_REGISTRY[href] as PortalRouteDefinition;
+}
+
 function navItem(
   href: PortalRoutePath,
   label: string,
@@ -46,7 +50,7 @@ function navItem(
     href,
     icon,
     section,
-    permission: PORTAL_ROUTE_REGISTRY[href].permission,
+    permission: getRouteDefinition(href).permission,
   };
 }
 
@@ -82,8 +86,9 @@ export const PORTAL_NAV_SECTIONS: PortalNavSection[] = [
   },
 ];
 
-export function getPortalRouteDefinition(pathname: string) {
-  return PORTAL_ROUTE_REGISTRY[pathname as PortalRoutePath] || null;
+export function getPortalRouteDefinition(pathname: string): PortalRouteDefinition | null {
+  const definition = PORTAL_ROUTE_REGISTRY[pathname as PortalRoutePath];
+  return definition ? (definition as PortalRouteDefinition) : null;
 }
 
 export function getPortalRoutePermission(pathname: string): PortalPermission | undefined {
