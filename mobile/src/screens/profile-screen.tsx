@@ -47,6 +47,7 @@ export function ProfileScreen() {
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
   const documentSummary = getProfileDocumentSummary(documents);
+  const isDriver = user.role === 'driver' || user.role === 'conductor';
 
   return (
     <AppShell
@@ -83,6 +84,14 @@ export function ProfileScreen() {
               <InfoTile icon="clock-outline" label="Turno" value={user.shift || 'Control de flota'} styles={styles} theme={theme} />
               <InfoTile icon="calendar-clock" label="Horario" value={`${scheduleLabel} - ${scheduleState.label}`} styles={styles} theme={theme} />
             </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/perfil-editar')}
+              style={styles.documentUploadButton}>
+              <MaterialCommunityIcons name="account-edit-outline" size={18} color={theme.colors.accent} />
+              <Text style={styles.documentUploadText}>{isDriver ? 'Editar mi perfil' : 'Editar perfil y cuenta'}</Text>
+            </Pressable>
           </View>
         </AppCard>
 
@@ -90,12 +99,13 @@ export function ProfileScreen() {
           <AppCard>
             <View style={styles.pillsRow}>
               <Text style={styles.cardTitle}>Documentos</Text>
-              {user.role === 'driver' ? <StatusPill label={documentSummary} tone="info" /> : null}
+              {isDriver ? <StatusPill label={documentSummary} tone="info" /> : null}
             </View>
-            {user.role === 'driver' ? (
+            {isDriver ? (
               <View style={styles.notificationList}>
                 <Text style={styles.emptyNotifications}>Gestiona archivos, vigencias, reemplazos e historial desde una pantalla dedicada.</Text>
                 <Pressable accessibilityRole="button" onPress={() => router.push('/mis-documentos')} style={styles.documentUploadButton}>
+                  <MaterialCommunityIcons name="file-document-multiple-outline" size={18} color={theme.colors.accent} />
                   <Text style={styles.documentUploadText}>Administrar mis documentos</Text>
                 </Pressable>
               </View>
@@ -103,137 +113,6 @@ export function ProfileScreen() {
               <Text style={styles.emptyNotifications}>La revisión administrativa de documentos se realiza en el portal web.</Text>
             )}
           </AppCard>
-          {/* Implementación documental anterior retirada de la interfaz durante RC-DOCUMENTS-DRIVER-ADMIN-02.
-          <AppCard>
-            <View style={styles.pillsRow}>
-              <Text style={styles.cardTitle}>{getDocumentSectionTitle(user.role)}</Text>
-              {user.role !== 'driver' && drivers.length ? <StatusPill label={`${drivers.length} conductores`} tone="info" /> : null}
-            </View>
-            {user.role === 'driver' ? (
-              <View style={styles.notificationList}>
-                {getDriverDocumentEmptyMessage(ownDocuments) ? (
-                  <Text style={styles.emptyNotifications}>{getDriverDocumentEmptyMessage(ownDocuments)}</Text>
-                ) : null}
-                {ownDocuments.map((document) => {
-                  const presentation = getDriverDocumentPresentation(document);
-                  const color = presentation.tone === 'positive'
-                    ? theme.colors.success
-                    : presentation.tone === 'danger' ? theme.colors.danger : theme.colors.warning;
-                  const documentUrl = resolveAssetUrl(document.fileUrl);
-                  const canReplace = canReplaceDriverDocument(document);
-
-                  return (
-                    <View key={document.id} style={styles.driverDocumentBlock}>
-                      <View style={styles.driverRow}>
-                        <MaterialCommunityIcons name={presentation.icon} size={20} color={color} />
-                        <View style={styles.driverCopy}>
-                          <Text style={styles.notificationTitle}>{document.name}</Text>
-                          <Text style={styles.notificationBody}>{document.category} · {document.status}</Text>
-                        </View>
-                        <StatusPill label={presentation.label} tone={presentation.tone} />
-                      </View>
-                      {document.reviewStatus === 'rejected' && document.reviewNotes ? (
-                        <Text style={styles.documentReviewNote}>{document.reviewNotes}</Text>
-                      ) : null}
-                      {documentUrl || canReplace ? (
-                        <View style={styles.documentActions}>
-                          {documentUrl ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() => Linking.openURL(documentUrl).catch(() => setDocumentMessage('No fue posible abrir el archivo.'))}
-                              style={styles.documentActionButton}>
-                              <Text style={styles.documentActionText}>Ver archivo</Text>
-                            </Pressable>
-                          ) : null}
-                          {canReplace ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              disabled={Boolean(uploadingDocumentId)}
-                              onPress={() => handleDriverDocumentUpload(document)}
-                              style={styles.documentActionButton}>
-                              {uploadingDocumentId === document.id
-                                ? <ActivityIndicator size="small" color={theme.colors.accent} />
-                                : <Text style={styles.documentActionText}>Reemplazar</Text>}
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-                <TextInput
-                  accessibilityLabel="Fecha de vencimiento del documento"
-                  value={documentExpiresAt}
-                  onChangeText={setDocumentExpiresAt}
-                  placeholder="Vigencia AAAA-MM-DD"
-                  placeholderTextColor={theme.colors.muted}
-                  style={styles.documentExpiryInput}
-                />
-                {!ownDocuments.length ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={Boolean(uploadingDocumentId)}
-                    onPress={() => handleDriverDocumentUpload()}
-                    style={styles.documentUploadButton}>
-                    {uploadingDocumentId === 'new'
-                      ? <ActivityIndicator size="small" color={AppTheme.colors.text} />
-                      : <Text style={styles.documentUploadText}>Subir documento</Text>}
-                  </Pressable>
-                ) : null}
-                {documentMessage ? <Text style={styles.documentMessage}>{documentMessage}</Text> : null}
-              </View>
-            ) : drivers.length ? (
-              <View style={styles.notificationList}>
-                {drivers.map((driver) => {
-                  const vehicle = vehicles.find((entry) => entry.id === driver.vehicleId);
-                  const driverDocuments = getDriverDocuments(driver.id, driver.vehicleId);
-                  const driverStatus = getDriverPresentation(driverDocuments);
-                  const isSelected = selectedDriverId === driver.id;
-                  return (
-                    <View key={driver.id} style={styles.notificationList}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Ver documentos de ${driver.name}`}
-                        accessibilityState={{ expanded: isSelected }}
-                        onPress={() => setSelectedDriverId(isSelected ? null : driver.id)}
-                        style={styles.driverRow}>
-                        <UserAvatar user={driver} size={38} />
-                        <View style={styles.driverCopy}>
-                          <Text style={styles.notificationTitle}>{driver.name}</Text>
-                          <Text style={styles.notificationBody}>Unidad: {vehicle?.code || 'Sin unidad asignada'}</Text>
-                        </View>
-                        <StatusPill label={driverStatus.label} tone={driverStatus.tone} />
-                        <MaterialCommunityIcons name={isSelected ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.muted} />
-                      </Pressable>
-                      {isSelected ? (
-                        <View style={styles.documentDetail}>
-                          {driverDocuments.length ? driverDocuments.map((document) => {
-                            const presentation = getDocumentPresentation(document.reviewStatus);
-                            const color = presentation.tone === 'positive'
-                              ? theme.colors.success
-                              : presentation.tone === 'danger' ? theme.colors.danger : theme.colors.warning;
-                            return (
-                              <View key={document.id} style={styles.driverRow}>
-                                <MaterialCommunityIcons name={presentation.icon} size={20} color={color} />
-                                <View style={styles.driverCopy}>
-                                  <Text style={styles.notificationTitle}>{document.name}</Text>
-                                  <Text style={styles.notificationBody}>{document.category} · {document.status}</Text>
-                                </View>
-                                <StatusPill label={presentation.label} tone={presentation.tone} />
-                              </View>
-                            );
-                          }) : <Text style={styles.emptyNotifications}>No hay documentos cargados para este conductor o su unidad.</Text>}
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={styles.emptyNotifications}>No hay conductores registrados en la empresa.</Text>
-            )}
-          </AppCard>
-          */}
 
           <AppCard>
             <Text style={styles.cardTitle}>Apariencia</Text>
