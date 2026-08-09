@@ -60,6 +60,13 @@ function main() {
     organizationId: "tenant-a",
     userStatus: "active"
   };
+  const dispatcher = {
+    id: "dispatcher-a",
+    role: "dispatcher",
+    accountType: "operations",
+    organizationId: "tenant-a",
+    userStatus: "active"
+  };
   const billingManager = {
     id: "billing",
     role: "billing_manager",
@@ -98,12 +105,22 @@ function main() {
   const ownerCapabilities = getCapabilitiesForUser(companyOwner);
   assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
   assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.OPERATIONS_USE), true);
   assert.equal(ownerCapabilities.includes(ENTERPRISE_CAPABILITY.TENANT_ACCESS), true);
 
   const companyAdminCapabilities = getCapabilitiesForUser(companyAdmin);
   assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
   assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.OPERATIONS_USE), true);
   assert.equal(companyAdminCapabilities.includes(ENTERPRISE_CAPABILITY.USERS_MANAGE), true);
+
+  const dispatcherCapabilities = getCapabilitiesForUser(dispatcher);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.OPERATIONS_USE), true);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.ANALYTICS_VIEW), true);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.ROUTES_MANAGE), true);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.INCIDENTS_MANAGE), true);
+  assert.equal(dispatcherCapabilities.includes(ENTERPRISE_CAPABILITY.DOCUMENTS_MANAGE), false);
 
   const billingCapabilities = getCapabilitiesForUser(billingManager);
   assert.equal(billingCapabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
@@ -183,9 +200,19 @@ function main() {
   });
   assert.equal(Object.hasOwn(sanitized, "passwordHash"), false);
   assert.equal(sanitized.accountChannel, "company_portal");
-  assert.equal(sanitized.capabilities.includes("portal.access"), true);
-  assert.equal(sanitized.capabilities.includes("mobile.access"), true);
-  assert.equal(sanitized.capabilities.includes("users.manage"), true);
+  assert.equal(sanitized.capabilities.includes(ENTERPRISE_CAPABILITY.PORTAL_ACCESS), true);
+  assert.equal(sanitized.capabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(sanitized.capabilities.includes(ENTERPRISE_CAPABILITY.OPERATIONS_USE), true);
+  assert.equal(sanitized.capabilities.includes(ENTERPRISE_CAPABILITY.USERS_MANAGE), true);
+
+  const sanitizedDispatcher = sanitizeUser(dispatcher);
+  assert.equal(sanitizedDispatcher.accountChannel, "mobile_operations");
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.MOBILE_ACCESS), true);
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.OPERATIONS_USE), true);
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.ANALYTICS_VIEW), true);
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.ROUTES_MANAGE), true);
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.INCIDENTS_MANAGE), true);
+  assert.equal(sanitizedDispatcher.capabilities.includes(ENTERPRISE_CAPABILITY.DOCUMENTS_MANAGE), false);
 
   console.log("ok - tenant estricto y capacidades canónicas fallan cerradas");
 }
