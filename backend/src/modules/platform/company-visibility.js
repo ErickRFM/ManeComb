@@ -21,6 +21,12 @@ function redactCommercialSnapshot(company) {
 
   return {
     ...safeCompany,
+    plan: safeCompany.plan
+      ? {
+          ...safeCompany.plan,
+          price: 0
+        }
+      : null,
     commercialAccess: false,
     commercial: {
       orderId: null,
