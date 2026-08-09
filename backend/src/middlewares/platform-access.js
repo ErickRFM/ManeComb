@@ -152,7 +152,12 @@ async function platformAccess(req, res, next) {
     return next(error);
   }
 
-  if (!config.enabled) return next();
+  if (!config.enabled) {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(503).json({ ok: false, message: "Acceso privado no disponible" });
+    }
+    return next();
+  }
 
   if (String(config.headerName || "").toLowerCase() !== PLATFORM_ACCESS_HEADER) {
     return res.status(503).json({ ok: false, message: "Acceso privado no disponible" });
