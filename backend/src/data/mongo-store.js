@@ -23,6 +23,7 @@ const {
   IncidentModel,
   LearnedRouteCandidateModel,
   NotificationModel,
+  PlatformUserModel,
   RtcSessionModel,
   RouteEventModel,
   RouteModel,
