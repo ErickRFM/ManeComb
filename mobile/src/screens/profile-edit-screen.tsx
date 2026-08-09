@@ -1,5 +1,5 @@
 import { useAppStore } from '@/src/store/use-app-store';
-import { CompanyProfileEditScreen } from './company-profile-edit-screen';
+import { ProfileEditScreen as CompanyProfileEditScreen } from './company-profile-edit-screen';
 import { DriverProfileEditScreen } from './driver-profile-edit-screen';
 
 export function ProfileEditScreen() {
