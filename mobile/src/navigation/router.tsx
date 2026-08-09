@@ -8,7 +8,7 @@ import {
   type ParamListBase,
 } from '@react-navigation/native';
 import {
-  canRoleAccessRoute,
+  canUserAccessRoute,
   getModuleRouteName,
   getRouteDefinition,
   isModuleRoot,
@@ -104,7 +104,7 @@ function navigateWith(method: 'push' | 'replace', href: Href) {
     const currentModule = getRouteDefinition(currentName)?.module;
     const user = useAppStore.getState().user;
 
-    if (user && !canRoleAccessRoute(name, user.role)) {
+    if (user && !canUserAccessRoute(name, user)) {
       navigateWith('replace', '/mapa');
       return;
     }
