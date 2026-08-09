@@ -82,7 +82,7 @@ async function testDriverCannotEscalateSelfProfile() {
     assert.equal(response.payload.data.vehicleId || null, null);
     assert.equal(response.payload.data.shift, "Matutino");
     assert.equal(response.payload.data.companyProfile?.companyName || null, null);
-    assert.equal(response.payload.data.paymentProfile?.preferredMethod || null, null);
+    assert.equal(response.payload.data.paymentProfile?.preferredMethod, "spei");
     assert.equal(response.payload.data.operationalSchedule || null, null);
 
     const stored = await context.store.getUserById(driver.id);
@@ -90,6 +90,7 @@ async function testDriverCannotEscalateSelfProfile() {
     assert.equal(stored.accountType, "operations");
     assert.equal(stored.vehicleId || null, null);
     assert.equal(stored.shift, "Matutino");
+    assert.equal(stored.paymentProfile?.preferredMethod, "spei");
   } finally {
     await context.close();
   }
