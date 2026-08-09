@@ -3,7 +3,7 @@ const SUBSCRIPTION_UPDATED_VERSION = 1;
 
 const SUBSCRIPTION_UPDATE_REASONS = Object.freeze({
   PLAN_CHANGED: "plan_changed",
-  CANCELLATION_SCHEDULED: "cancellation_scheduled",
+  SUBSCRIPTION_CANCELLED: "subscription_cancelled",
   PAYMENT_CONFIRMED: "payment_confirmed",
   MANUAL_PAYMENT_APPROVED: "manual_payment_approved"
 });
