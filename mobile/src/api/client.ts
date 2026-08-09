@@ -301,12 +301,18 @@ async function refreshAccessToken() {
           return null;
         }
 
+        // Backend rota el refresh token (`rotateRefreshToken`): reintentar este
+        // POST replaya un token ya consumido y el segundo intento vuelve como
+        // 401 "Sesion expirada o revocada", cerrando una sesion que era valida.
+        // Pasa con un 502/504 del tier gratuito, con un 429 del refreshLimiter
+        // o con una respuesta perdida en red movil. La politica es la misma que
+        // en `refreshSessionRequest`: este token no se reintenta nunca.
         const response = await apiClient.post<LoginResult>(
           '/auth/refresh',
           { refreshToken },
           {
-            _allowRetry: true,
             _skipAuthRefresh: true,
+            _skipNetworkRetry: true,
           } as RetryableRequestConfig
         );
 
