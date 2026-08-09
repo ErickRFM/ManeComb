@@ -1,10 +1,29 @@
+import type { User } from '@/src/types/app';
+import { ENTERPRISE_CAPABILITY } from '@/src/store/mobile-capability-authority';
 import {
   canRoleAccessRoute,
+  canUserAccessRoute,
   getModuleRouteName,
   getRouteDefinition,
   isModuleRoot,
   MODULE_ROUTE_NAMES,
 } from './route-registry';
+
+function user(role: User['role'], capabilities: string[] = []) {
+  return {
+    id: `user-${role}`,
+    name: role,
+    email: `${role}@manecomb.test`,
+    role,
+    accountType: 'operations',
+    phone: '',
+    shift: '',
+    status: 'online',
+    avatar: role.slice(0, 1).toUpperCase(),
+    vehicleId: null,
+    capabilities,
+  } as User;
+}
 
 describe('navigation route registry', () => {
   it('keeps every operational root in an independent module', () => {
@@ -15,20 +34,19 @@ describe('navigation route registry', () => {
     expect(roots.every(isModuleRoot)).toBe(true);
   });
 
-  it('no expone Directorio a dispatcher hasta que el store consuma analytics.view', () => {
-    expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(true);
-    expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(true);
-    expect(canRoleAccessRoute('/usuarios', 'dispatcher')).toBe(false);
-    expect(canRoleAccessRoute('/usuarios', 'supervisor')).toBe(true);
-    expect(canRoleAccessRoute('/usuarios', 'driver')).toBe(false);
+  it('gates Directorio with analytics.view instead of role tables', () => {
+    expect(canUserAccessRoute('/usuarios', user('dispatcher', [ENTERPRISE_CAPABILITY.analyticsView]))).toBe(true);
+    expect(canUserAccessRoute('/usuarios', user('supervisor', [ENTERPRISE_CAPABILITY.analyticsView]))).toBe(true);
+    expect(canUserAccessRoute('/usuarios', user('admin', []))).toBe(false);
+    expect(canUserAccessRoute('/usuarios', user('driver', []))).toBe(false);
+    expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(false);
   });
 
-  it('alinea Control con los roles que backend autoriza a gestionar rutas', () => {
-    expect(canRoleAccessRoute('/checklist', 'owner')).toBe(true);
-    expect(canRoleAccessRoute('/checklist', 'admin')).toBe(true);
-    expect(canRoleAccessRoute('/checklist', 'dispatcher')).toBe(true);
-    expect(canRoleAccessRoute('/checklist', 'supervisor')).toBe(true);
-    expect(canRoleAccessRoute('/checklist', 'driver')).toBe(false);
+  it('gates Control with routes.manage instead of a duplicated role matrix', () => {
+    expect(canUserAccessRoute('/checklist', user('owner', [ENTERPRISE_CAPABILITY.routesManage]))).toBe(true);
+    expect(canUserAccessRoute('/checklist', user('dispatcher', [ENTERPRISE_CAPABILITY.routesManage]))).toBe(true);
+    expect(canUserAccessRoute('/checklist', user('supervisor', [ENTERPRISE_CAPABILITY.routesManage]))).toBe(true);
+    expect(canUserAccessRoute('/checklist', user('driver', []))).toBe(false);
   });
 
   it('keeps profile editing inside the profile stack', () => {
@@ -43,6 +61,7 @@ describe('navigation route registry', () => {
     expect(canRoleAccessRoute('/mis-documentos', 'dispatcher')).toBe(false);
     expect(canRoleAccessRoute('/mis-documentos', 'supervisor')).toBe(false);
     expect(canRoleAccessRoute('/mis-documentos', 'admin')).toBe(false);
+    expect(canUserAccessRoute('/mis-documentos', user('driver'))).toBe(true);
   });
 
   it('does not classify public routes as operational modules', () => {
