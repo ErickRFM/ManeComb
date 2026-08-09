@@ -4,6 +4,7 @@ jest.mock('@/src/config/api_config', () => ({
 
 import {
   canLoadMobileDirectory,
+  canManageMobileDocuments,
   canManageMobileIncidents,
   canRefreshMobileOperations,
 } from './mobile-authority';
@@ -122,5 +123,26 @@ describe('canManageMobileIncidents', () => {
     }
     expect(canManageMobileIncidents(user({ role: 'driver' }))).toBe(false);
     expect(canManageMobileIncidents(user({ role: 'support', accountType: 'company_owner' }))).toBe(false);
+  });
+});
+
+describe('canManageMobileDocuments', () => {
+  it('permite supervisor cuando backend serializa documents.manage', () => {
+    expect(canManageMobileDocuments(
+      user({ role: 'supervisor', capabilities: ['documents.manage', 'analytics.view'] })
+    )).toBe(true);
+  });
+
+  it('rechaza dispatcher sin documents.manage', () => {
+    expect(canManageMobileDocuments(
+      user({ role: 'dispatcher', capabilities: ['analytics.view', 'routes.manage'] })
+    )).toBe(false);
+  });
+
+  it('conserva owner/admin/supervisor como fallback legado', () => {
+    expect(canManageMobileDocuments(user({ role: 'owner' }))).toBe(true);
+    expect(canManageMobileDocuments(user({ role: 'admin' }))).toBe(true);
+    expect(canManageMobileDocuments(user({ role: 'supervisor' }))).toBe(true);
+    expect(canManageMobileDocuments(user({ role: 'dispatcher' }))).toBe(false);
   });
 });
