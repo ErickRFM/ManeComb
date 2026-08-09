@@ -12,7 +12,7 @@ import { useAppStore } from '@/src/store/use-app-store';
 import {
   ENTERPRISE_CAPABILITY,
   hasEnterpriseCapability,
-} from '@/src/store/mobile-capability-authority';
+} from '@/src/utils/mobile-authority';
 import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
 import { getBackgroundLocationServiceStatusAsync } from '@/src/native/background-location';
 import { requestBackgroundPermission } from './map/services/location-service';

@@ -1,5 +1,5 @@
 import type { User } from '@/src/types/app';
-import { ENTERPRISE_CAPABILITY } from '@/src/store/mobile-capability-authority';
+import { ENTERPRISE_CAPABILITY } from '@/src/utils/mobile-authority';
 import {
   canRoleAccessRoute,
   canUserAccessRoute,

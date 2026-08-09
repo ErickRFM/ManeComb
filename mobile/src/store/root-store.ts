@@ -125,7 +125,7 @@ import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/cha
 import {
   canLoadDirectoryUsers,
   canRefreshOperationalData,
-} from '@/src/store/mobile-capability-authority';
+} from '@/src/utils/mobile-authority';
 import {
   resolveWebStorage,
   safeWebStorageGetItem,

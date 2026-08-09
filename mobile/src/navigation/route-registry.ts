@@ -3,7 +3,7 @@ import {
   ENTERPRISE_CAPABILITY,
   hasEnterpriseCapability,
   type EnterpriseCapability,
-} from '@/src/store/mobile-capability-authority';
+} from '@/src/utils/mobile-authority';
 
 export const DRIVER_DOCUMENT_ALLOWED_ROLES: Role[] = ['driver'];
 
