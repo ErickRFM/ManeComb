@@ -97,6 +97,33 @@ Cierre aplicado:
 - Una sesión sin refresh token elimina cualquier refresh token persistido anterior.
 - `verify-session-storage.cjs` forma parte de `verify:contracts`, por lo que el build congela estas reglas.
 
+### 3.6 Incidencias: notificación alineada a capability
+
+Realtime y mutaciones ya consumían `canManageIncidents`, pero el push de una incidencia nueva tenía `targetRoles: ["admin", "supervisor"]` hardcodeado. Esto excluía roles que sí tienen la capability, especialmente `dispatcher` y `support`, además de no derivar `owner` de la autoridad real.
+
+Cierre aplicado:
+
+- `incidentManagerRoles = getRolesWithPermission("canManageIncidents")` se usa para realtime, SOS y notificación operacional.
+- `incident-notification-authority.test.js` congela que owner/admin/dispatcher/supervisor/support pertenecen al conjunto y viewer/driver no.
+
+### 3.7 Realtime, App Center global y RTC CDR
+
+Se auditó Socket.IO buscando vías que saltaran REST/tenant guards.
+
+Hallazgos refutados/confirmados:
+
+- Chat delivered/read delega la pertenencia al store; ambos stores validan `canUserAccessConversation()` antes de modificar recibos.
+- `chat:send` exige `senderId === authenticatedUser.id` y pertenencia a conversación.
+- Radio join/start exige operación + pertenencia a conversación/canal.
+- RTC join usa `callId` autoritativo, `canUseOperations`, organización y `callService.canJoinCall`; la room no se acepta libremente desde el cliente.
+- GPS realtime pasa por `ingestVehicleLocation()`, que valida tenant y, para no-admin, `actor.vehicleId === payload.vehicleId`.
+- Las emisiones operativas revisadas usan rooms `org:<tenant>:...`/`user:<id>`; no se encontró un emisor tenant-scoped que use las rooms globales `role:<rol>` o `account:<tipo>`.
+
+Se encontraron dos fallos adicionales:
+
+1. `GET /app/device-stats` exponía estadísticas globales de versiones/dispositivos a cualquier usuario autenticado. Se endureció con `requireAdmin` y `app-global-authority.test.js` prueba driver=403/admin operativo=200. Esto es un hardening temporal: la autoridad definitiva de App Center global sigue pendiente de migración a Platform.
+2. `GET /rtc/sessions` listaba CDR mediante `listRtcSessions()` sin `organizationId`. Un admin operativo podía recibir metadatos de llamadas de otros tenants. Se añadió scope Mongo por organización y filtro defensivo en la ruta para stores embebidos/legado. `rtc-session-tenant-authority.test.js` crea sesiones de dos empresas y comprueba que solo se responda la propia.
+
 ## 4. Incongruencias confirmadas que NO deben parchearse a ciegas
 
 ### P0/P1 — Mobile ignora parcialmente la autoridad que backend ya entrega
@@ -125,6 +152,12 @@ Por eso la ruta `/usuarios` permanece cerrada a dispatcher temporalmente. La sol
 
 Debe decidirse si Observabilidad es realmente una función interna/operativa exclusiva o si debe pertenecer a una capability explícita. No ampliar acceso sin definir el producto y el dato sensible.
 
+### P1 — App Center global sigue bajo autoridad legado
+
+`PATCH /app/info` modifica `appConfig` global, pero su autoridad es `requireAdmin` (admin operativo) y no Platform/Admin Global. El Portal empresarial ya no expone esa mutación y `device-stats` ya no es público a cualquier autenticado, pero la publicación global aún vive en una frontera heredada.
+
+La corrección final debe definir primero el hogar de release management y después mover la mutación; no duplicar `updateAppConfig` en otro módulo.
+
 ### P1 — Storage web Mobile
 
 `mobile/src/store/root-store.ts` protege SecureStore con `try/catch`, pero el branch web de `window.localStorage` todavía puede lanzar. `clearSessionState()` depende de esa limpieza. Debe endurecerse en un refactor focalizado con prueba, igual que Ventas.
@@ -141,7 +174,7 @@ Ya está cerrado quién puede modificar los campos empresariales, pero sigue exi
 
 ### 5.2 Metadata y publicación global del APK
 
-`appConfig` es global, no organization-scoped. El Portal empresarial ya no puede editarlo. Falta decidir el hogar definitivo de publicación/versionado: Admin Global/Platform, pipeline de release o combinación controlada.
+`appConfig` es global, no organization-scoped. El Portal empresarial ya no puede editarlo y las estadísticas globales ya no se exponen a cualquier autenticado, pero `PATCH /app/info` sigue siendo legado. Falta decidir el hogar definitivo de publicación/versionado: Admin Global/Platform, pipeline de release o combinación controlada.
 
 ### 5.3 Rutas Portal
 
