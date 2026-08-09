@@ -9,6 +9,7 @@ const documents = read('features/portal/documents/portal-documents-admin.tsx');
 const users = read('features/portal/screens/portal-users-screen.tsx');
 const units = read('features/portal/screens/portal-units-screen.tsx');
 const profile = read('features/portal/screens/portal-profile-screen.tsx');
+const vehiclePanel = read('features/portal/dashboard/components/dashboard-vehicle-side-panel.tsx');
 const appMobile = read('features/portal/screens/portal-app-movil-screen.tsx');
 const appTabs = read('features/portal/app-mobile/components/app-mobile-tab-bar.tsx');
 const routing = read('src/utils/account-routing.ts');
@@ -23,6 +24,8 @@ const required = [
   [profile, 'const savePersonalProfile = async () =>', 'Perfil personal debe tener guardado independiente.'],
   [profile, 'const saveCompanyProfile = async () =>', 'Datos de empresa deben tener guardado independiente.'],
   [profile, "updateProfile({ name, email, phone })", 'Guardar perfil personal no debe arrastrar datos de empresa.'],
+  [vehiclePanel, "hasPortalPermission(currentUser, 'users')", 'Dashboard debe autorizar Cambiar chofer con users.manage.'],
+  [vehiclePanel, "{canChangeDriver ? <QuickAction icon=\"account-switch-outline\" label=\"Cambiar chofer\"", 'Dashboard debe ocultar Cambiar chofer sin users.manage.'],
   [appMobile, "hasPortalPermission(user, 'users')", 'App Móvil debe mostrar activación de conductores según users.manage.'],
   [appMobile, "router.push('/portal/onboarding'", 'App Móvil debe enlazar a la autoridad existente de keys.'],
   [routing, 'if (canAccessPortal(user)) return \'/portal\';', 'El destino web debe preferir portal.access sobre accountChannel.'],
@@ -53,4 +56,4 @@ if (portalIndex < 0 || mobileIndex < 0 || portalIndex > mobileIndex) {
   throw new Error('portal.access debe resolverse antes del canal móvil en getAuthenticatedHome().');
 }
 
-console.log('Portal capability-driven UI, profile authority, vehicle authority, app-center boundary and scoped reload contracts verified.');
+console.log('Portal capability-driven UI, profile authority, dashboard mutations, vehicle authority, app-center boundary and scoped reload contracts verified.');
