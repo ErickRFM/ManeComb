@@ -1,14 +1,11 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
+const { getEnterpriseOrganizationId, mapMaybePromise } = require("./tenant-repository-utils");
 
 const NOTIFICATION_METHODS = [
   "createNotification",
   "getNotificationsForUser",
   "markNotificationAsRead"
 ];
-
-function getEnterpriseOrganizationId(user) {
-  return String(user?.organizationId || user?.companyId || "").trim();
-}
 
 function isNotificationVisibleToUser(notification, user) {
   if (!notification || !user) return false;
@@ -38,28 +35,31 @@ class NotificationRepository extends StoreDomainRepository {
     super(store, NOTIFICATION_METHODS);
   }
 
-  async getNotificationsForUser(user) {
-    const notifications = await Promise.resolve(this.store.getNotificationsForUser(user));
-    return scopeNotificationsToEnterpriseUser(notifications, user);
+  getNotificationsForUser(user) {
+    return mapMaybePromise(
+      this.store.getNotificationsForUser(user),
+      (notifications) => scopeNotificationsToEnterpriseUser(notifications, user)
+    );
   }
 
-  async markNotificationAsRead(notificationId, userId) {
-    const user = await Promise.resolve(this.store.getUserById?.(userId));
-    if (!user) return null;
+  markNotificationAsRead(notificationId, userId) {
+    return mapMaybePromise(this.store.getUserById?.(userId), (user) => {
+      if (!user) return null;
 
-    const allowed = await this.getNotificationsForUser(user);
-    if (!allowed.some((notification) => String(notification.id) === String(notificationId))) {
-      return null;
-    }
+      return mapMaybePromise(this.getNotificationsForUser(user), (allowed) => {
+        if (!allowed.some((notification) => String(notification.id) === String(notificationId))) {
+          return null;
+        }
 
-    return Promise.resolve(this.store.markNotificationAsRead(notificationId, userId));
+        return this.store.markNotificationAsRead(notificationId, userId);
+      });
+    });
   }
 }
 
 module.exports = {
   NOTIFICATION_METHODS,
   NotificationRepository,
-  getEnterpriseOrganizationId,
   isNotificationVisibleToUser,
   scopeNotificationsToEnterpriseUser
 };
