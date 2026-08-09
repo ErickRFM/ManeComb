@@ -1,0 +1,41 @@
+name: Temporary Mobile Authority Import Consolidation
+
+on:
+  push:
+    branches:
+      - agent/mobile-capability-authority-20260808
+    paths:
+      - .github/workflows/tmp-mobile-authority-imports.yml
+
+permissions:
+  contents: write
+
+jobs:
+  consolidate-authority-imports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: agent/mobile-capability-authority-20260808
+          fetch-depth: 0
+
+      - name: Apply exact codemod
+        run: node .github/scripts/patch-mobile-authority-imports.mjs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          changed="$(git diff --name-only)"
+          expected=$'mobile/src/desktop/desktop-navigation.test.ts\nmobile/src/navigation/route-registry.test.ts\nmobile/src/navigation/route-registry.ts\nmobile/src/screens/map-screen.native.tsx\nmobile/src/store/root-store.ts'
+          test "$changed" = "$expected"
+          git diff -- $changed
+
+      - name: Commit authority import consolidation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/src/desktop/desktop-navigation.test.ts mobile/src/navigation/route-registry.test.ts mobile/src/navigation/route-registry.ts mobile/src/screens/map-screen.native.tsx mobile/src/store/root-store.ts
+          git commit -m "refactor(mobile): consolidate capability authority imports"
+          git push origin HEAD:agent/mobile-capability-authority-20260808
