@@ -47,7 +47,7 @@ export function ProfileScreen() {
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
   const documentSummary = getProfileDocumentSummary(documents);
-  const isDriver = user.role === 'driver' || user.role === 'conductor';
+  const isDriver = user.role === 'driver';
 
   return (
     <AppShell
