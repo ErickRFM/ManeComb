@@ -353,7 +353,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const current = get();
       if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
       if (!ack.ok) {
-        if (ack.code === 'call_expired') {
+        if (ack.code === 'call_expired' || ack.code === 'unknown_call') {
           endWith('no_answer');
           return;
         }
