@@ -13,6 +13,7 @@ import {
   ENTERPRISE_CAPABILITY,
   hasEnterpriseCapability,
 } from '@/src/utils/mobile-authority';
+import { getApiErrorMessage } from '@/src/api/client';
 import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
 import { getBackgroundLocationServiceStatusAsync } from '@/src/native/background-location';
 import { requestBackgroundPermission } from './map/services/location-service';
@@ -591,8 +592,14 @@ export function MapScreen() {
       }
       setPendingJourneyAction(null);
       if (!result.offline) await refreshAll();
-    } catch {
-      useAppStore.setState({ error: 'No fue posible actualizar la jornada.' });
+    } catch (journeyError) {
+      // Backend ya explica por que rechazo la transicion: 403 "Solo el chofer
+      // asignado puede iniciar la jornada", 409 "La unidad no tiene chofer
+      // asignado", 409 por transicion invalida. Descartar el error y mostrar una
+      // frase generica escondia esas causas detras de un fallo indistinguible.
+      useAppStore.setState({
+        error: getApiErrorMessage(journeyError, 'No fue posible actualizar la jornada.'),
+      });
     } finally {
       setIsChangingJourney(false);
     }
