@@ -3,14 +3,17 @@ jest.mock('@/src/config/api_config', () => ({
 }));
 
 import {
+  ENTERPRISE_CAPABILITY,
   canLoadMobileDirectory,
   canManageMobileDocuments,
   canManageMobileIncidents,
   canRefreshMobileOperations,
+  getEnterpriseCapabilities,
+  hasEnterpriseCapability,
 } from './mobile-authority';
 import type { AuthRoutingContext, User } from '@/src/types/app';
 
-type CapabilityUser = User & { capabilities?: string[] };
+type CapabilityUser = User & { capabilities?: unknown };
 
 function user(overrides: Partial<CapabilityUser> = {}): CapabilityUser {
   return {
@@ -25,7 +28,7 @@ function user(overrides: Partial<CapabilityUser> = {}): CapabilityUser {
     avatar: 'MC',
     vehicleId: null,
     ...overrides,
-  };
+  } as CapabilityUser;
 }
 
 function auth(overrides: Partial<AuthRoutingContext> = {}): AuthRoutingContext {
@@ -38,6 +41,29 @@ function auth(overrides: Partial<AuthRoutingContext> = {}): AuthRoutingContext {
     ...overrides,
   };
 }
+
+describe('enterprise capability helpers', () => {
+  it('normaliza capabilities explícitas y descarta valores inválidos', () => {
+    const currentUser = user({
+      capabilities: [ENTERPRISE_CAPABILITY.analyticsView, 123, null, ''],
+    });
+
+    expect(getEnterpriseCapabilities(currentUser)).toEqual([
+      ENTERPRISE_CAPABILITY.analyticsView,
+    ]);
+    expect(
+      hasEnterpriseCapability(currentUser, ENTERPRISE_CAPABILITY.analyticsView)
+    ).toBe(true);
+    expect(
+      hasEnterpriseCapability(currentUser, ENTERPRISE_CAPABILITY.documentsManage)
+    ).toBe(false);
+  });
+
+  it('falla cerrado cuando capabilities no existen o no son arreglo', () => {
+    expect(getEnterpriseCapabilities(user())).toEqual([]);
+    expect(getEnterpriseCapabilities(user({ capabilities: 'analytics.view' }))).toEqual([]);
+  });
+});
 
 describe('canRefreshMobileOperations', () => {
   it('obedece canAccessMobile + canUseOperations aunque el canal principal sea Portal', () => {
@@ -71,11 +97,11 @@ describe('canRefreshMobileOperations', () => {
   it('usa capabilities explícitas cuando no existe authContext', () => {
     expect(canRefreshMobileOperations(
       null,
-      user({ capabilities: ['mobile.access', 'operations.use'] })
+      user({ capabilities: [ENTERPRISE_CAPABILITY.mobileAccess, ENTERPRISE_CAPABILITY.operationsUse] })
     )).toBe(true);
     expect(canRefreshMobileOperations(
       null,
-      user({ capabilities: ['mobile.access'] })
+      user({ capabilities: [ENTERPRISE_CAPABILITY.mobileAccess] })
     )).toBe(false);
   });
 
@@ -88,13 +114,13 @@ describe('canRefreshMobileOperations', () => {
 describe('canLoadMobileDirectory', () => {
   it('permite dispatcher cuando backend serializa analytics.view', () => {
     expect(canLoadMobileDirectory(
-      user({ role: 'dispatcher', capabilities: ['analytics.view', 'routes.manage'] })
+      user({ role: 'dispatcher', capabilities: [ENTERPRISE_CAPABILITY.analyticsView, ENTERPRISE_CAPABILITY.routesManage] })
     )).toBe(true);
   });
 
   it('rechaza capabilities explícitas sin analytics.view aunque el rol heredado antes entrara', () => {
     expect(canLoadMobileDirectory(
-      user({ role: 'supervisor', capabilities: ['documents.manage'] })
+      user({ role: 'supervisor', capabilities: [ENTERPRISE_CAPABILITY.documentsManage] })
     )).toBe(false);
   });
 
@@ -107,13 +133,13 @@ describe('canLoadMobileDirectory', () => {
 describe('canManageMobileIncidents', () => {
   it('permite dispatcher cuando backend serializa incidents.manage', () => {
     expect(canManageMobileIncidents(
-      user({ role: 'dispatcher', capabilities: ['incidents.manage', 'analytics.view'] })
+      user({ role: 'dispatcher', capabilities: [ENTERPRISE_CAPABILITY.incidentsManage, ENTERPRISE_CAPABILITY.analyticsView] })
     )).toBe(true);
   });
 
   it('respeta capabilities explícitas antes que el fallback de rol', () => {
     expect(canManageMobileIncidents(
-      user({ role: 'supervisor', capabilities: ['documents.manage'] })
+      user({ role: 'supervisor', capabilities: [ENTERPRISE_CAPABILITY.documentsManage] })
     )).toBe(false);
   });
 
@@ -129,13 +155,13 @@ describe('canManageMobileIncidents', () => {
 describe('canManageMobileDocuments', () => {
   it('permite supervisor cuando backend serializa documents.manage', () => {
     expect(canManageMobileDocuments(
-      user({ role: 'supervisor', capabilities: ['documents.manage', 'analytics.view'] })
+      user({ role: 'supervisor', capabilities: [ENTERPRISE_CAPABILITY.documentsManage, ENTERPRISE_CAPABILITY.analyticsView] })
     )).toBe(true);
   });
 
   it('rechaza dispatcher sin documents.manage', () => {
     expect(canManageMobileDocuments(
-      user({ role: 'dispatcher', capabilities: ['analytics.view', 'routes.manage'] })
+      user({ role: 'dispatcher', capabilities: [ENTERPRISE_CAPABILITY.analyticsView, ENTERPRISE_CAPABILITY.routesManage] })
     )).toBe(false);
   });
 
