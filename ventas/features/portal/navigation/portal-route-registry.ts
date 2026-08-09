@@ -14,7 +14,7 @@ export const PORTAL_ROUTE_REGISTRY = {
   '/portal/facturacion': { title: 'Facturación', permission: 'billing' },
   '/portal/pagos': { title: 'Pagos', permission: 'billing' },
   '/portal/perfil': { title: 'Perfil' },
-  '/portal/onboarding': { title: 'Activación' },
+  '/portal/onboarding': { title: 'Activación', permission: 'users' },
   '/portal/documentos': { title: 'Documentos', permission: 'documents' },
   '/portal/incidencias': { title: 'Incidencias', permission: 'incidents' },
   '/portal/app-movil': { title: 'App Móvil' },
