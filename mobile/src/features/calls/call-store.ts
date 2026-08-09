@@ -353,6 +353,10 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const current = get();
       if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
       if (!ack.ok) {
+        if (ack.code === 'call_expired') {
+          endWith('no_answer');
+          return;
+        }
         onRuntimeFailed(
           activeCallId,
           ack.code === 'ack_timeout' ? 'accept_timeout' : 'accept_failed'
