@@ -60,6 +60,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
   // while other legacy embedded domains migrate deliberately.
   const invariantMethods = {
     deleteRoute: services.fleet.deleteRoute.bind(services.fleet),
+    getDashboardOverview: services.fleet.getDashboardOverview.bind(services.fleet),
     getNotificationsForUser: services.notifications.getNotificationsForUser.bind(services.notifications),
     listIncidents: services.incidents.listIncidents.bind(services.incidents),
     listRoutes: services.fleet.listRoutes.bind(services.fleet),
