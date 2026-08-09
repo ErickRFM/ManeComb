@@ -23,7 +23,10 @@ const {
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { enrichCommercialOrder } = require("../../services/commercial-profile");
 const { sendChargebackUpdatedEmail } = require("../../services/domain-email-events");
-const { buildSubscription } = require("../../services/portal-account");
+const {
+  SUBSCRIPTION_UPDATE_REASONS,
+  emitSubscriptionUpdated
+} = require("../../services/subscription-realtime");
 const {
   buildCommercialDownloadResponse,
   isCommercialDownloadAuthorized,
@@ -94,10 +97,10 @@ function emitSubscriptionUpdate(req, order) {
     return;
   }
 
-  req.app.locals.io?.to(`org:${organizationId}`).emit("subscription:updated", {
+  emitSubscriptionUpdated({
+    io: req.app.locals.io,
     organizationId,
-    subscription: buildSubscription(order),
-    updatedAt: new Date().toISOString()
+    reason: SUBSCRIPTION_UPDATE_REASONS.PAYMENT_CONFIRMED
   });
 }
 

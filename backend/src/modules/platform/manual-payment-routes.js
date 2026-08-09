@@ -7,7 +7,10 @@ const { buildCommercialActivationUpdate } = require("../../services/commercial-a
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
 const { enrichCommercialOrder } = require("../../services/commercial-profile");
 const { toMinorUnits } = require("../../services/commercial-payment");
-const { buildSubscription } = require("../../services/portal-account");
+const {
+  SUBSCRIPTION_UPDATE_REASONS,
+  emitSubscriptionUpdated
+} = require("../../services/subscription-realtime");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const {
   claimManualPaymentDecision,
@@ -80,11 +83,6 @@ function emitManualPaymentUpdate(req, order, evidence) {
   if (organizationId) {
     getRolesWithPermission("canManageBilling").forEach((role) => {
       req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("manual-payment:updated", paymentPayload);
-    });
-    req.app.locals.io?.to(`org:${organizationId}`).emit("subscription:updated", {
-      organizationId,
-      subscription: buildSubscription(order),
-      updatedAt
     });
   }
   if (ownerUserId) req.app.locals.io?.to(`user:${ownerUserId}`).emit("manual-payment:updated", paymentPayload);
@@ -274,6 +272,13 @@ router.post(
       });
 
       emitManualPaymentUpdate(req, order, evidence);
+      if (decision === "approve") {
+        emitSubscriptionUpdated({
+          io: req.app.locals.io,
+          organizationId: order.organizationId,
+          reason: SUBSCRIPTION_UPDATE_REASONS.MANUAL_PAYMENT_APPROVED
+        });
+      }
       return res.json({
         ok: true,
         replayed: false,
