@@ -113,13 +113,19 @@ jobs:
         run: npm test
 
   android-debug-apk:
-    name: Android debug APK
+    # A compile gate only proves sources compile. This job certifies the produced
+    # artifact is standalone and contains the required runtime Mapbox configuration.
+    name: Android debug APK certification
     needs: mobile-quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
+    env:
+      MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+      ENVFILE: .env.ci
+      MANECOMB_CERTIFY_ANDROID_DEBUG: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -141,11 +147,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build debug APK
+      - name: Test Mapbox configuration gate
+        run: node scripts/test-android-mapbox-ci-gate.js
+
+      - name: Prepare Mapbox CI configuration
+        run: node scripts/android-mapbox-artifact-gate.js prepare .env.ci
+
+      - name: Build standalone debug APK
         run: |
           chmod +x android/gradlew
-          cd android
-          ./gradlew assembleDebug --no-daemon
+          node scripts/build-android-debug-bundled.js
+
+      - name: Certify standalone APK
+        run: node scripts/android-mapbox-artifact-gate.js certify android/app/build/outputs/apk/debug/app-debug.apk .env.ci
+
+      - name: Remove temporary CI configuration
+        run: rm -f .env.ci
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

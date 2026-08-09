@@ -185,16 +185,17 @@ function run(command, args, options = {}) {
   }
 }
 
+const envFileName = process.env.ENVFILE || '.env.production';
 const fileEnv = {
   ...productionDefaults,
-  ...readEnvFile('.env.production'),
+  ...readEnvFile(envFileName),
 };
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   ...process.env,
   ...fileEnv,
   CI: '1',
   NODE_ENV: 'production',
-  ENVFILE: '.env.production',
+  ENVFILE: envFileName,
   GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
 });
 
@@ -202,7 +203,7 @@ const reactNativeCli = path.join(projectRoot, 'node_modules', 'react-native', 'c
 const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
 
 console.log('[debug-apk] Modo: debug bundled React Native CLI');
-console.log('[debug-apk] Envfile: .env.production');
+console.log(`[debug-apk] Envfile: ${envFileName}`);
 console.log(`[debug-apk] API: ${env.MANECOMB_API_URL}`);
 console.log(`[debug-apk] Socket: ${env.MANECOMB_SOCKET_URL}`);
 console.log(`[debug-apk] Android SDK: ${sdkRoot}`);
