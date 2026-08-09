@@ -1213,7 +1213,14 @@ function registerSocketServer(server, store) {
       }
       const result = await callService.startCall({ caller: user, callerSocketId: socket.id, conversationId, mode });
       acknowledge(ack, result.ok
-        ? { ok: true, callId: result.callId, roomId: result.roomId, status: result.status }
+        ? {
+            ok: true,
+            callId: result.callId,
+            roomId: result.roomId,
+            status: result.status,
+            expiresAt: result.expiresAt,
+            ringTimeoutMs: result.ringTimeoutMs
+          }
         : { ok: false, code: result.code });
       observeSocketEvent(socket, "rtc:call", startedAt, result.ok ? "success" : "rejected", { callId: result.callId || null, code: result.code || null });
     });
