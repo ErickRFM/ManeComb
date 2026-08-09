@@ -77,7 +77,20 @@ async function requestJson(url, token, options = {}) {
 function testProfileVisibilityPolicy(context) {
   const sampleProfile = {
     user: context.dispatcher,
-    documents: [{ id: "doc-private" }],
+    documents: [
+      {
+        id: "doc-private",
+        organizationId: "manecomb-demo",
+        ownerType: "driver",
+        ownerId: context.dispatcher.id
+      },
+      {
+        id: "doc-foreign",
+        organizationId: "tenant-foreign",
+        ownerType: "driver",
+        ownerId: "driver-foreign"
+      }
+    ],
     vehicles: []
   };
   const dispatcherProfile = sanitizeProfileForViewer(context.dispatcher, sampleProfile);
@@ -88,8 +101,8 @@ function testProfileVisibilityPolicy(context) {
   );
 
   assert.deepEqual(dispatcherProfile.documents, []);
-  assert.equal(supervisorProfile.documents.length, 1);
-  assert.equal(driverProfile.documents.length, 1);
+  assert.deepEqual(supervisorProfile.documents.map((document) => document.id), ["doc-private"]);
+  assert.deepEqual(driverProfile.documents.map((document) => document.id), ["doc-private"]);
 }
 
 async function testDispatcherCannotReadDocumentCollection(context) {
