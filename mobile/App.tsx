@@ -38,6 +38,7 @@ import {
 } from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
 import { CallOverlay } from '@/src/features/calls/call-overlay';
+import { canOwnVehicleTracking } from '@/src/screens/map/utils/location-eligibility';
 import { useLocationEngine } from '@/src/screens/map/hooks/use-location-engine';
 import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
 import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
@@ -97,7 +98,12 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: Boolean(user?.vehicleId && authContext?.canAccessMobile === true),
+    // Publicar la posicion de una unidad es propiedad, no solo acceso movil.
+    // canOwnVehicleTracking es la autoridad; el servicio de background ya la usa
+    // (use-location-engine). Rederivarla aqui dejaba fuera la comprobacion de rol
+    // operativo y hacia que foreground y background discreparan sobre quien
+    // puede publicar.
+    enabled: canOwnVehicleTracking(user, authContext),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,
