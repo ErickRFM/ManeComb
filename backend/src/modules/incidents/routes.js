@@ -60,7 +60,8 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
 
   const organizationId = String(incident.organizationId || getOrganizationId(req.user)).trim();
-  getRolesWithPermission("canManageIncidents").forEach((role) => {
+  const incidentManagerRoles = getRolesWithPermission("canManageIncidents");
+  incidentManagerRoles.forEach((role) => {
     req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("incident:created", incident);
   });
   req.app.locals.io?.to("platform:admin").emit("incident:created", incident);
@@ -75,7 +76,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
       level: isSos ? "critical" : incident.severity === "high" ? "warning" : "info",
       category: isSos ? "sos" : "incident",
       organizationId,
-      targetRoles: ["admin", "supervisor"],
+      targetRoles: incidentManagerRoles,
       data: {
         incidentId: incident.id,
         severity: incident.severity,
@@ -88,7 +89,7 @@ router.post("/", authenticate, requireOperationalAccess, async (req, res) => {
   });
 
   if (isSos) {
-    getRolesWithPermission("canManageIncidents").forEach((role) => {
+    incidentManagerRoles.forEach((role) => {
       req.app.locals.io?.to(`org:${organizationId}:role:${role}`).emit("incident:sos", {
         incident,
         notification
