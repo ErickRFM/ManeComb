@@ -46,7 +46,7 @@ export function DriverProfileEditScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(form.password), [form.password]);
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const styles = useMemo(createStyles, []);
 
   useEffect(() => {
     if (!user) return;
@@ -179,7 +179,7 @@ export function DriverProfileEditScreen() {
   );
 }
 
-function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
+function createStyles() {
   return StyleSheet.create({
     header: { gap: 8, paddingTop: AppTheme.spacing.sm },
     backButton: {
