@@ -6,6 +6,10 @@ const {
   getSelfProfileFields,
   pickSelfProfileFields
 } = require("../src/services/profile-authority");
+const {
+  filterProfileDocumentsForViewer,
+  sanitizeProfileForViewer
+} = require("../src/services/profile-visibility");
 
 function testOperationalSelfServiceIsPersonalOnly() {
   const payload = pickSelfProfileFields(
@@ -93,12 +97,72 @@ function testFieldCatalogsRemainExplicit() {
   assert.deepEqual(getSelfProfileFields({ accountType: "company_owner", role: "viewer" }), PERSONAL_PROFILE_FIELDS);
 }
 
+function testProfileDocumentsRemainTenantScoped() {
+  const documents = [
+    {
+      id: "doc-own",
+      organizationId: "tenant-a",
+      ownerType: "driver",
+      ownerId: "driver-a"
+    },
+    {
+      id: "doc-same-tenant-other-driver",
+      organizationId: "tenant-a",
+      ownerType: "driver",
+      ownerId: "driver-b"
+    },
+    {
+      id: "doc-foreign",
+      organizationId: "tenant-b",
+      ownerType: "driver",
+      ownerId: "driver-c"
+    }
+  ];
+
+  const adminDocuments = filterProfileDocumentsForViewer(
+    {
+      id: "admin-a",
+      role: "admin",
+      accountType: "operations",
+      organizationId: "tenant-a"
+    },
+    documents
+  );
+  assert.deepEqual(
+    adminDocuments.map((document) => document.id),
+    ["doc-own", "doc-same-tenant-other-driver"]
+  );
+
+  const driverDocuments = filterProfileDocumentsForViewer(
+    {
+      id: "driver-a",
+      role: "driver",
+      accountType: "operations",
+      organizationId: "tenant-a"
+    },
+    documents
+  );
+  assert.deepEqual(driverDocuments.map((document) => document.id), ["doc-own"]);
+
+  const hiddenForViewer = sanitizeProfileForViewer(
+    {
+      id: "viewer-a",
+      role: "viewer",
+      accountType: "company_owner",
+      organizationId: "tenant-a"
+    },
+    { user: { id: "viewer-a" }, documents }
+  );
+  assert.deepEqual(hiddenForViewer.documents, []);
+}
+
 function main() {
   testOperationalSelfServiceIsPersonalOnly();
   testCompanyAdministratorKeepsCommercialSelfService();
   testLimitedPortalRolesRemainPersonalOnly();
   testOperationalAdminDoesNotBecomeCompanyEditor();
   testFieldCatalogsRemainExplicit();
+  testProfileDocumentsRemainTenantScoped();
   console.log("ok - profile self-service authority");
 }
 
