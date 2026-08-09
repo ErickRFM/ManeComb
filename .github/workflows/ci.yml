@@ -123,7 +123,6 @@ jobs:
       run:
         working-directory: mobile
     env:
-      MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
       ENVFILE: .env.ci
       MANECOMB_CERTIFY_ANDROID_DEBUG: "1"
     steps:
@@ -151,6 +150,8 @@ jobs:
         run: node scripts/test-android-mapbox-ci-gate.js
 
       - name: Prepare Mapbox CI configuration
+        env:
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
         run: node scripts/android-mapbox-artifact-gate.js prepare .env.ci
 
       - name: Build standalone debug APK
@@ -162,6 +163,7 @@ jobs:
         run: node scripts/android-mapbox-artifact-gate.js certify android/app/build/outputs/apk/debug/app-debug.apk .env.ci
 
       - name: Remove temporary CI configuration
+        if: always()
         run: rm -f .env.ci
 
       - name: Upload debug APK
