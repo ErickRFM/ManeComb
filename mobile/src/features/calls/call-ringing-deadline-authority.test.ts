@@ -49,38 +49,42 @@ afterEach(() => {
 });
 
 describe('backend ringing deadline authority', () => {
-  it('mapea accept vencido a no_answer sin arrancar media ni emitir otro lifecycle', async () => {
-    const socket = fakeSocket();
-    let runtimeStarts = 0;
-    setCallRuntimeFactory(() => {
-      runtimeStarts += 1;
-      return {
-        stop() {},
-        setMicEnabled() {},
-        setCameraEnabled() {},
-      };
-    });
-    state().bindSocket(socket as any);
+  it.each(['call_expired', 'unknown_call'])(
+    'mapea accept terminal %s a no_answer sin arrancar media ni emitir otro lifecycle',
+    async (code) => {
+      const socket = fakeSocket();
+      socket.setAcceptAck({ ok: false, code });
+      let runtimeStarts = 0;
+      setCallRuntimeFactory(() => {
+        runtimeStarts += 1;
+        return {
+          stop() {},
+          setMicEnabled() {},
+          setCameraEnabled() {},
+        };
+      });
+      state().bindSocket(socket as any);
 
-    socket.server('rtc:incoming-call', {
-      callId: 'expired-on-server',
-      conversationId: 'conv-1',
-      mode: 'audio',
-      caller: { id: 'user-a', name: 'Ana' },
-      ringTimeoutMs: 60000,
-    });
-    expect(state().phase).toBe('INCOMING_RINGING');
+      socket.server('rtc:incoming-call', {
+        callId: `terminal-${code}`,
+        conversationId: 'conv-1',
+        mode: 'audio',
+        caller: { id: 'user-a', name: 'Ana' },
+        ringTimeoutMs: 60000,
+      });
+      expect(state().phase).toBe('INCOMING_RINGING');
 
-    await state().acceptIncomingCall();
+      await state().acceptIncomingCall();
 
-    expect(state().phase).toBe('ENDING');
-    expect(state().endResult).toBe('no_answer');
-    expect(state().failureCode).toBeNull();
-    expect(runtimeStarts).toBe(0);
-    expect(socket.emitted.filter((entry) => entry.event === 'rtc:accept')).toHaveLength(1);
-    expect(socket.emitted.some((entry) => entry.event === 'rtc:end')).toBe(false);
-    expect(socket.emitted.some((entry) => entry.event === 'rtc:reject')).toBe(false);
-  });
+      expect(state().phase).toBe('ENDING');
+      expect(state().endResult).toBe('no_answer');
+      expect(state().failureCode).toBeNull();
+      expect(runtimeStarts).toBe(0);
+      expect(socket.emitted.filter((entry) => entry.event === 'rtc:accept')).toHaveLength(1);
+      expect(socket.emitted.some((entry) => entry.event === 'rtc:end')).toBe(false);
+      expect(socket.emitted.some((entry) => entry.event === 'rtc:reject')).toBe(false);
+    }
+  );
 
   it('mantiene accept valido como CONNECTING', async () => {
     const socket = fakeSocket();
