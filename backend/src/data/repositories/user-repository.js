@@ -35,6 +35,30 @@ function sanitizeProfile(profile) {
   };
 }
 
+function getEnterpriseOrganizationId(user) {
+  return String(user?.organizationId || user?.companyId || "").trim();
+}
+
+function scopeUsersToEnterpriseActor(users, actor) {
+  const sanitizedUsers = Array.isArray(users) ? users.map(sanitizeUser).filter(Boolean) : [];
+
+  // Platform is the only product allowed to request a global user inventory and
+  // does so explicitly with listUsers(null). Any enterprise actor must remain
+  // inside its own organization regardless of role/accountType legacy values.
+  if (!actor) {
+    return sanitizedUsers;
+  }
+
+  const organizationId = getEnterpriseOrganizationId(actor);
+  if (!organizationId) {
+    return [];
+  }
+
+  return sanitizedUsers.filter(
+    (entry) => String(entry.organizationId || "").trim() === organizationId
+  );
+}
+
 class UserRepository extends StoreDomainRepository {
   constructor(store, { UserModel } = {}) {
     super(store, USER_METHODS);
@@ -63,7 +87,7 @@ class UserRepository extends StoreDomainRepository {
 
   async listUsers(user) {
     const users = await Promise.resolve(this.store.listUsers(user));
-    return Array.isArray(users) ? users.map(sanitizeUser) : [];
+    return scopeUsersToEnterpriseActor(users, user);
   }
 
   async getUserProfile(userId) {
@@ -99,5 +123,7 @@ class UserRepository extends StoreDomainRepository {
 module.exports = {
   USER_METHODS,
   UserRepository,
-  sanitizeProfile
+  getEnterpriseOrganizationId,
+  sanitizeProfile,
+  scopeUsersToEnterpriseActor
 };
