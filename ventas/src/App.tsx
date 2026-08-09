@@ -1,7 +1,9 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useShallow } from 'zustand/react/shallow';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
+import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { Typography } from '@/constants/theme';
 import {
   canAccessPortal,
@@ -53,6 +55,35 @@ function StaticPage({ title, body }: { title: string; body: string }) {
       </Pressable>
     </View>
   );
+}
+
+function OperationalPortalGate({ children }: { children: ReactNode }) {
+  const { error, isLoading, loadOverview, overview, subscription } = usePortalStore(
+    useShallow((state) => ({
+      error: state.error,
+      isLoading: state.isLoading,
+      loadOverview: state.loadOverview,
+      overview: state.overview,
+      subscription: state.subscription,
+    }))
+  );
+  const resolvedSubscription = subscription || overview?.subscription || null;
+
+  useEffect(() => {
+    if (!resolvedSubscription && !isLoading && !error) {
+      void loadOverview();
+    }
+  }, [error, isLoading, loadOverview, resolvedSubscription]);
+
+  if (!resolvedSubscription && !error) {
+    return <BootScreen />;
+  }
+
+  if (!resolvedSubscription?.isActive) {
+    return <Redirect href="/portal/plan" />;
+  }
+
+  return <>{children}</>;
 }
 
 function OperationalAccountNotice() {
@@ -159,13 +190,13 @@ function Routes() {
     case '/ventas/pago':
       return <PlanCheckoutScreen />;
     case '/portal':
-      return <ScreenErrorBoundary name="Operaciones"><PortalDashboardScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Operaciones"><PortalDashboardScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/usuarios':
-      return <ScreenErrorBoundary name="Equipo"><PortalUsersScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Equipo"><PortalUsersScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/unidades':
-      return <ScreenErrorBoundary name="Unidades"><PortalUnitsScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Unidades"><PortalUnitsScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/rutas':
-      return <ScreenErrorBoundary name="Rutas"><PortalRoutesScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Rutas"><PortalRoutesScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/plan':
       return <ScreenErrorBoundary name="Plan"><PortalPlanScreen /></ScreenErrorBoundary>;
     case '/portal/facturacion':
@@ -175,13 +206,13 @@ function Routes() {
     case '/portal/perfil':
       return <ScreenErrorBoundary name="Perfil"><PortalProfileScreen /></ScreenErrorBoundary>;
     case '/portal/onboarding':
-      return <ScreenErrorBoundary name="Activación"><PortalOnboardingScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Activación"><PortalOnboardingScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/documentos':
-      return <ScreenErrorBoundary name="Documentos"><PortalDocumentsScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Documentos"><PortalDocumentsScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/incidencias':
-      return <ScreenErrorBoundary name="Incidencias"><PortalIncidentsScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Incidencias"><PortalIncidentsScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/app-movil':
-      return <ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="App Móvil"><PortalAppMovilScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/acceso-operativo':
       return <OperationalAccountNotice />;
     case '/acceso-admin':
