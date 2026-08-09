@@ -126,6 +126,12 @@ import {
   canLoadDirectoryUsers,
   canRefreshOperationalData,
 } from '@/src/store/mobile-capability-authority';
+import {
+  resolveWebStorage,
+  safeWebStorageGetItem,
+  safeWebStorageRemoveItem,
+  safeWebStorageSetItem,
+} from '@/src/store/safe-web-storage';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -416,7 +422,7 @@ function logStoreError(scope: string, error: unknown) {
 }
 
 function getWebStorage() {
-  return (Platform.OS === 'web' && typeof window !== 'undefined') ? window.localStorage : null;
+  return resolveWebStorage(Platform.OS === 'web');
 }
 
 async function withStorageTimeout<T>(task: Promise<T>, fallbackValue: T) {
@@ -425,19 +431,19 @@ async function withStorageTimeout<T>(task: Promise<T>, fallbackValue: T) {
 
 async function getStoredItem(key: string) {
   const web = getWebStorage();
-  if (web) return web.getItem(key);
+  if (web) return safeWebStorageGetItem(web, key);
   try { return await withStorageTimeout(SecureStore.getItemAsync(key), null); } catch { return null; }
 }
 
 async function setStoredItem(key: string, value: string) {
   const web = getWebStorage();
-  if (web) { web.setItem(key, value); return; }
+  if (web) { safeWebStorageSetItem(web, key, value); return; }
   try { await withStorageTimeout(SecureStore.setItemAsync(key, value), undefined); } catch { }
 }
 
 async function deleteStoredItem(key: string) {
   const web = getWebStorage();
-  if (web) { web.removeItem(key); return; }
+  if (web) { safeWebStorageRemoveItem(web, key); return; }
   try { await withStorageTimeout(SecureStore.deleteItemAsync(key), undefined); } catch { }
 }
 
