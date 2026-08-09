@@ -3,6 +3,7 @@ const { authenticate } = require("../../middlewares/authenticate");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 const { buildAuthContext } = require("../../services/auth-context");
 const { recordAuditLog } = require("../../services/audit");
+const { sanitizeProfileForViewer } = require("../../services/profile-visibility");
 const {
   createSessionForRequest,
   revokeAllSessions,
@@ -590,10 +591,14 @@ async function sendSessionResponse(req, res) {
 
   const { appVersion } = req.query || {};
   const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};
+  const profile = sanitizeProfileForViewer(
+    req.user,
+    await store.getUserProfile(req.user.id)
+  );
 
   return res.json({
     ok: true,
-    profile: await store.getUserProfile(req.user.id),
+    profile,
     ...buildAuthContextPayload(authContext),
     ...updateInfo,
     dashboard: authContext.canUseOperations
