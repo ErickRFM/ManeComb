@@ -10,7 +10,6 @@ const { deliverOperationalNotification } = require("./notification-delivery");
 
 const RING_TIMEOUT_MS = 35000;
 const DISCONNECT_GRACE_MS = 15000;
-const RING_LEASE_SAFETY_MS = 10000;
 const MUTATION_RETRIES = 4;
 
 function callRoom(callId) {
@@ -123,6 +122,12 @@ function createRtcCallService({
     }
   }
 
+  function isRingingExpired(call) {
+    if (call?.status !== "ringing") return false;
+    const expiresAtMs = Date.parse(String(call.expiresAt || ""));
+    return Number.isFinite(expiresAtMs) && expiresAtMs <= now();
+  }
+
   async function releaseCurrent(callId, validate) {
     for (let attempt = 0; attempt < MUTATION_RETRIES; attempt += 1) {
       const current = await authority.getCall(callId);
@@ -143,7 +148,17 @@ function createRtcCallService({
       const current = await authority.getCall(callId);
       if (!current) return { updated: false, call: null, missing: true };
       const decision = buildNext(current);
-      if (!decision?.ok) return { updated: false, call: current, ...decision };
+      if (!decision?.ok) {
+        if (decision?.release) {
+          if (await authority.release(current)) {
+            clearLocalRingTimer(callId);
+            clearPendingDisconnectsForCall(callId);
+            return { updated: false, call: current, released: true, ...decision };
+          }
+          continue;
+        }
+        return { updated: false, call: current, ...decision };
+      }
       if (decision.idempotent) return { updated: false, call: current, ...decision };
       if (await authority.compareAndSet(current, decision.next, { ttlMs })) {
         return { updated: true, call: decision.next, previous: current, ...decision };
@@ -213,7 +228,7 @@ function createRtcCallService({
     let reservation;
     try {
       reservation = await authority.reserve(call, {
-        ttlMs: ringTimeoutMs + RING_LEASE_SAFETY_MS
+        ttlMs: Math.max(1, Date.parse(call.expiresAt) - now())
       });
     } catch {
       return { ok: false, code: "rtc_unavailable" };
@@ -262,6 +277,9 @@ function createRtcCallService({
             : { ok: false, code: "already_active" };
         }
         if (call.status !== "ringing") return { ok: false, code: "unknown_call" };
+        if (isRingingExpired(call)) {
+          return { ok: false, code: "call_expired", release: true };
+        }
         return {
           ok: true,
           next: {
