@@ -20,7 +20,8 @@ import { Toast } from '@/src/components/ui/toast';
 import { portalGlass, portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
-import { canAccessPortal, hasPortalPermission, type PortalPermission } from '../utils/access';
+import { canAccessPortal, hasPortalPermission } from '../utils/access';
+import { PORTAL_NAV_SECTIONS, type PortalNavItem } from '../navigation/portal-route-registry';
 
 type PortalLayoutProps = PropsWithChildren<{
   title: string;
@@ -29,58 +30,6 @@ type PortalLayoutProps = PropsWithChildren<{
   compact?: boolean;
   wide?: boolean;
 }>;
-
-type PortalNavItem = {
-  label: string;
-  href:
-    | '/portal'
-    | '/portal/usuarios'
-    | '/portal/unidades'
-    | '/portal/rutas'
-    | '/portal/plan'
-    | '/portal/facturacion'
-    | '/portal/pagos'
-    | '/portal/perfil'
-    | '/portal/onboarding'
-    | '/portal/documentos'
-    | '/portal/incidencias'
-    | '/portal/app-movil';
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  section?: string;
-  permission?: PortalPermission;
-};
-
-const navSections: { title: string; items: PortalNavItem[] }[] = [
-  {
-    title: 'Cuenta',
-    items: [
-      { label: 'Operaciones', href: '/portal', icon: 'view-dashboard-outline' },
-      { label: 'Mi plan', href: '/portal/plan', icon: 'clipboard-list-outline', permission: 'billing' },
-      { label: 'Facturación', href: '/portal/facturacion', icon: 'file-document-outline', permission: 'billing' },
-      { label: 'Pagos', href: '/portal/pagos', icon: 'credit-card-outline', permission: 'billing' },
-    ],
-  },
-  {
-    title: 'Administración',
-    items: [
-      { label: 'Empresa', href: '/portal/perfil', icon: 'domain', section: 'empresa' },
-      { label: 'Equipo', href: '/portal/usuarios', icon: 'account-key-outline', section: 'administracion', permission: 'users' },
-      { label: 'Unidades', href: '/portal/unidades', icon: 'bus-multiple', permission: 'vehicles' },
-      { label: 'Rutas', href: '/portal/rutas', icon: 'routes', permission: 'routes' },
-      { label: 'Seguridad', href: '/portal/perfil', icon: 'shield-lock-outline', section: 'seguridad' },
-      { label: 'Documentos', href: '/portal/documentos', icon: 'file-document-multiple-outline', permission: 'billing' },
-      { label: 'Incidencias', href: '/portal/incidencias', icon: 'alert-circle-outline', permission: 'billing' },
-    ],
-  },
-  {
-    title: 'Ayuda',
-    items: [
-      { label: 'Activación', href: '/portal/onboarding', icon: 'flag-checkered' },
-      { label: 'App Móvil', href: '/portal/app-movil', icon: 'cellphone-arrow-down' },
-      { label: 'Soporte', href: '/portal/perfil', icon: 'lifebuoy', section: 'soporte' },
-    ],
-  },
-];
 
 function getParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -125,12 +74,13 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   // Depende del id y no del objeto: el usuario se reemplaza en cada refresh de
   // sesion y volvia a disparar la carga completa del portal.
   const userId = user?.id;
+  const canManageBilling = hasPortalPermission(user, 'billing');
 
   useEffect(() => {
     if (userId) {
-      void loadAll();
+      void loadAll({ includeBilling: canManageBilling });
     }
-  }, [loadAll, userId]);
+  }, [canManageBilling, loadAll, userId]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -179,7 +129,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
           pressed ? styles.navItemPressed : undefined,
         ]}>
         <MaterialCommunityIcons
-          name={item.icon}
+          name={item.icon as keyof typeof MaterialCommunityIcons.glyphMap}
           size={variant === 'desktop' ? 19 : 18}
           color={active ? portalPalette.accent : portalPalette.muted}
         />
@@ -265,7 +215,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               contentContainerStyle={styles.sidebarScrollContent}
               showsVerticalScrollIndicator={false}>
               <View style={styles.navList}>
-                {navSections.map((section) => (
+                {PORTAL_NAV_SECTIONS.map((section) => (
                   <View key={section.title} style={styles.navSection}>
                     <Text style={styles.navSectionTitle}>{section.title}</Text>
                     {section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item))}
@@ -315,7 +265,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
             style={styles.mobileMenuScrim}
           />
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-mobile-menu" style={[styles.mobileMenuPanel, { maxHeight: height - mobileMenuTop - AppTheme.spacing.lg }, portalGlass()]}>
-            {navSections.map((section) => (
+            {PORTAL_NAV_SECTIONS.map((section) => (
               <View key={section.title} style={styles.mobileNavSection}>
                 <Text style={styles.navSectionTitle}>{section.title}</Text>
                 <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
