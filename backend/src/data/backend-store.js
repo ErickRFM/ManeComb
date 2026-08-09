@@ -22,10 +22,13 @@ const { UserService } = require("../services/user-service");
 
 function buildBackendStore(baseStore, dependencies = {}) {
   const models = dependencies.models || {};
+  const useDefaultAppReleaseModels = Boolean(models.AppEventModel);
   const appReleaseModels = dependencies.models
     ? {
-        AppConfigModel: models.AppConfigModel || AppConfigModel,
-        AppClientVersionModel: models.AppClientVersionModel || AppClientVersionModel
+        AppConfigModel:
+          models.AppConfigModel || (useDefaultAppReleaseModels ? AppConfigModel : null),
+        AppClientVersionModel:
+          models.AppClientVersionModel || (useDefaultAppReleaseModels ? AppClientVersionModel : null)
       }
     : {};
   const repositories = {
