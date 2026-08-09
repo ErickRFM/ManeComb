@@ -42,8 +42,7 @@ export function ProfileScreen() {
 
   if (!user) return null;
 
-  const isCompanyAccount = user.accountType === 'company_owner';
-  const roleLabel = isCompanyAccount ? 'Propietario' : formatRole(user.role);
+  const roleLabel = formatRole(user.role);
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
@@ -91,7 +90,7 @@ export function ProfileScreen() {
               onPress={() => router.push('/perfil-editar')}
               style={styles.documentUploadButton}>
               <MaterialCommunityIcons name="account-edit-outline" size={18} color={theme.colors.accent} />
-              <Text style={styles.documentUploadText}>{isCompanyAccount ? 'Editar perfil y cuenta' : 'Editar mi perfil'}</Text>
+              <Text style={styles.documentUploadText}>Editar mi perfil</Text>
             </Pressable>
           </View>
         </AppCard>
