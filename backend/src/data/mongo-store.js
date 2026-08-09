@@ -1795,7 +1795,10 @@ async function createMongoStore() {
       {
         _id: activationKeyId,
         ...(filter.companyId ? { companyId: filter.companyId } : {}),
-        ...(filter.status ? { status: filter.status } : {})
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(Object.prototype.hasOwnProperty.call(filter, "usedByDriverId")
+          ? { usedByDriverId: filter.usedByDriverId }
+          : {})
       },
       {
         $set: update

@@ -2543,6 +2543,13 @@ function createEmbeddedStore() {
       return null;
     }
 
+    if (
+      Object.prototype.hasOwnProperty.call(filter, "usedByDriverId") &&
+      activationKey.usedByDriverId !== filter.usedByDriverId
+    ) {
+      return null;
+    }
+
     Object.entries(payload || {}).forEach(([key, value]) => {
       if (typeof value !== "undefined") {
         activationKey[key] = value;
