@@ -1,3 +1,5 @@
+process.env.PLATFORM_MFA_ENCRYPTION_KEY = "MinzFLmGlxqwGor12GdyXqZYsRea/r+QAWuVhEvPMRg=";
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
