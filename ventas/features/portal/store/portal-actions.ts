@@ -151,7 +151,9 @@ export function createPortalActions(
       }
     },
     loadAll: async (options) => {
-      const includeBilling = Boolean(options?.includeBilling);
+      const includeBilling = typeof options?.includeBilling === 'boolean'
+        ? options.includeBilling
+        : lastFullLoadIncludedBilling;
       const billingScopeChanged = includeBilling !== lastFullLoadIncludedBilling;
 
       if (fullLoadPromise) return fullLoadPromise;
