@@ -24,7 +24,9 @@ function buildIncomingCallDeepLink(call, caller) {
     callerId: call.callerId,
     callerName: String(caller?.name || "Contacto operativo"),
     mode: call.mode,
-    action: "incoming"
+    action: "incoming",
+    expiresAt: String(call.expiresAt || ""),
+    ringTimeoutMs: String(call.ringTimeoutMs || RING_TIMEOUT_MS)
   });
   return `manecomb:///call?${params.toString()}`;
 }
@@ -72,7 +74,8 @@ function createRtcCallService({
         callerName: String(input.callerName || ""),
         mode: call.mode,
         reason: String(input.reason || ""),
-        expiresAt: String(input.expiresAt || "")
+        expiresAt: String(input.expiresAt || ""),
+        ringTimeoutMs: String(input.ringTimeoutMs || call.ringTimeoutMs || "")
       },
       deepLink: input.deepLink || ""
     };
@@ -88,7 +91,8 @@ function createRtcCallService({
       title: caller?.name ? `${caller.name} te está llamando` : "Llamada entrante",
       body: call.mode === "video" ? "Videollamada de ManeComb" : "Llamada de audio de ManeComb",
       callerName: caller?.name || "Contacto operativo",
-      expiresAt: new Date(call.createdAt + ringTimeoutMs).toISOString(),
+      expiresAt: call.expiresAt,
+      ringTimeoutMs: call.ringTimeoutMs,
       deepLink: buildIncomingCallDeepLink(call, caller)
     });
   }
@@ -188,6 +192,7 @@ function createRtcCallService({
       return { ok: false, code: "direct_call_required" };
     }
 
+    const createdAt = now();
     const callId = randomUUID();
     const call = {
       callId,
@@ -198,9 +203,11 @@ function createRtcCallService({
       calleeIds: [calleeIds[0]],
       status: "ringing",
       acceptedBy: null,
-      createdAt: now(),
+      createdAt,
       connectedAt: null,
-      endedAt: null
+      endedAt: null,
+      ringTimeoutMs,
+      expiresAt: new Date(createdAt + ringTimeoutMs).toISOString()
     };
 
     let reservation;
@@ -223,7 +230,9 @@ function createRtcCallService({
       callId,
       conversationId: safeConversationId,
       mode: rawMode,
-      caller: { id: callerId, name: (caller && caller.name) || null }
+      caller: { id: callerId, name: (caller && caller.name) || null },
+      expiresAt: call.expiresAt,
+      ringTimeoutMs: call.ringTimeoutMs
     });
     queueIncomingPush(call, caller);
 
@@ -231,7 +240,15 @@ function createRtcCallService({
       void onRingTimeout(callId).catch(() => undefined);
     }, ringTimeoutMs);
     ringTimers.set(callId, handle);
-    return { ok: true, callId, roomId: callRoom(callId), status: "ringing", calleeId };
+    return {
+      ok: true,
+      callId,
+      roomId: callRoom(callId),
+      status: "ringing",
+      calleeId,
+      expiresAt: call.expiresAt,
+      ringTimeoutMs: call.ringTimeoutMs
+    };
   }
 
   async function accept({ user, callId }) {
