@@ -1,0 +1,41 @@
+name: Temporary Subscription Realtime Emitter Codemod
+
+on:
+  push:
+    branches:
+      - agent/subscription-realtime-redaction-20260809
+    paths:
+      - .github/workflows/tmp-subscription-realtime-emitters.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-subscription-emitters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: agent/subscription-realtime-redaction-20260809
+          fetch-depth: 0
+
+      - name: Apply exact codemod
+        run: node .github/scripts/patch-subscription-realtime-emitters.mjs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          changed="$(git diff --name-only)"
+          expected=$'backend/src/modules/account/routes.js\nbackend/src/modules/commercial/routes.js\nbackend/src/modules/platform/manual-payment-routes.js'
+          test "$changed" = "$expected"
+          git diff -- $changed
+
+      - name: Commit realtime migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/modules/account/routes.js backend/src/modules/commercial/routes.js backend/src/modules/platform/manual-payment-routes.js
+          git commit -m "security(realtime): emit minimal subscription invalidations"
+          git push origin HEAD:agent/subscription-realtime-redaction-20260809
