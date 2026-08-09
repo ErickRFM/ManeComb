@@ -106,7 +106,7 @@ router.patch("/info", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-router.get("/device-stats", authenticate, async (req, res) => {
+router.get("/device-stats", authenticate, requireAdmin, async (req, res) => {
   const store = req.app.locals.store;
   if (!store?.getDeviceVersionStats) {
     return res.json({ ok: true, data: { total: 0, versions: {}, mostUsedVersion: null, lastPublication: null } });
