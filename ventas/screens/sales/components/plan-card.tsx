@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
 import { neonPalette } from '../constants';
@@ -9,7 +9,6 @@ import { formatCurrency, getPlanVisualTone, usePrefersReducedMotion } from '../u
 const PLAN_REVEAL_DURATION_MS = 620;
 const PLAN_REVEAL_STAGGER_MS = 75;
 const PLAN_REVEAL_MAX_DELAY_MS = 300;
-const ACTIVE_PULSE_DURATION_MS = 1450;
 
 export function PlanCard({
   index,
@@ -41,7 +40,6 @@ export function PlanCard({
   const showTrialAction = Boolean(onTrial && trialLabel);
   const reducedMotion = usePrefersReducedMotion();
   const cardRef = useRef<unknown>(null);
-  const activePulse = useRef(new Animated.Value(0)).current;
   const [entered, setEntered] = useState(Platform.OS !== 'web');
   const [entrySettled, setEntrySettled] = useState(Platform.OS !== 'web');
 
@@ -128,53 +126,6 @@ export function PlanCard({
     return () => window.clearTimeout(timer);
   }, [entered, entrySettled, reducedMotion, revealDelay]);
 
-  useEffect(() => {
-    activePulse.stopAnimation();
-
-    if (!active) {
-      activePulse.setValue(0);
-      return;
-    }
-
-    if (reducedMotion) {
-      activePulse.setValue(0.55);
-      return;
-    }
-
-    activePulse.setValue(0);
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(activePulse, {
-          toValue: 1,
-          duration: ACTIVE_PULSE_DURATION_MS,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false,
-        }),
-        Animated.timing(activePulse, {
-          toValue: 0,
-          duration: ACTIVE_PULSE_DURATION_MS,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false,
-        }),
-      ])
-    );
-
-    pulse.start();
-    return () => {
-      pulse.stop();
-      activePulse.setValue(0);
-    };
-  }, [active, activePulse, reducedMotion]);
-
-  const haloOpacity = activePulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.52, 0.94],
-  });
-  const haloScale = activePulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.014],
-  });
-
   return (
     <Pressable
       ref={cardRef as never}
@@ -236,9 +187,7 @@ export function PlanCard({
                         ? '260ms'
                         : '300ms'
                       : `${PLAN_REVEAL_DURATION_MS}ms`,
-                  transitionTimingFunction: entrySettled
-                    ? 'cubic-bezier(0.16, 1, 0.3, 1)'
-                    : 'cubic-bezier(0.16, 1, 0.3, 1)',
+                  transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
                   transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
                   backdropFilter: 'blur(18px)',
                   cursor: 'pointer',
@@ -250,16 +199,22 @@ export function PlanCard({
         ];
       }}>
       {active ? (
-        <Animated.View
+        <View
           pointerEvents="none"
           style={[
             styles.planSelectedHalo,
             {
               borderColor: `${visual.edge}D0`,
               backgroundColor: 'transparent',
-              opacity: haloOpacity,
-              transform: [{ scale: haloScale }],
+              opacity: 0.72,
             },
+            Platform.OS === 'web'
+              ? ({
+                  animation: reducedMotion ? undefined : 'manecombPlanHaloPulse 2.9s ease-in-out infinite',
+                  transformOrigin: 'center',
+                  willChange: reducedMotion ? undefined : 'transform, opacity, box-shadow',
+                } as any)
+              : null,
           ]}
         />
       ) : null}

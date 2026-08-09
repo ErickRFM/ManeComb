@@ -13,6 +13,7 @@ const planCard = read('screens/sales/components/plan-card.tsx');
 const recoveryScreen = read('screens/password-recovery/password-recovery-request-screen.tsx');
 const checkoutScreen = read('screens/plan-checkout-screen.tsx');
 const checkoutPaymentSection = read('screens/checkout/components/checkout-payment-section.tsx');
+const checkoutExperience = read('features/commercial/hooks/use-checkout-experience.ts');
 
 const requiredPortalRoles = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
 const requiredChannels = ['company_portal', 'mobile_operations', 'platform_admin', 'blocked'];
@@ -158,14 +159,32 @@ for (const contract of trialButtonContracts) {
 const trialCheckoutContracts = [
   "effectiveRequestTrial || providerMode !== 'unavailable'",
   'requestTrial={effectiveRequestTrial}',
-  "paymentMethod = effectiveRequestTrial ? 'trial' : method",
+  'const trialForSubmit = effectiveRequestTrial || demoTrial;',
+  "const paymentMethod = trialForSubmit ? 'trial' : method;",
+  'const safeAddOns = trialForSubmit ? [] : selectedAddOns;',
   "router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never)",
 ];
 
-const checkoutSources = `${checkoutScreen}\n${read('features/commercial/hooks/use-checkout-experience.ts')}`;
+const checkoutSources = `${checkoutScreen}\n${checkoutExperience}`;
 for (const contract of trialCheckoutContracts) {
   if (!checkoutSources.includes(contract)) {
     throw new Error(`El checkout no conserva el contrato trial → Portal: ${contract}`);
+  }
+}
+
+const demoCardContracts = [
+  "selectedPlan.trialEligible === true",
+  "Number(selectedPlan.units) === 2",
+  "Number(selectedPlan.trialDays) === 7",
+  "demoTrial: true",
+  "selectedAddOns: []",
+  'Tarjeta demo',
+  'Activar demo ${selectedPlan.trialDays || 7} días · sin cargo',
+];
+
+for (const contract of demoCardContracts) {
+  if (!checkoutSources.includes(contract) && !checkoutPaymentSection.includes(contract)) {
+    throw new Error(`La tarjeta demo dejó de reutilizar la autoridad de trial segura: ${contract}`);
   }
 }
 
@@ -182,6 +201,18 @@ for (const contract of trialPaymentUiContracts) {
   }
 }
 
+const operationalGateContracts = [
+  'function OperationalPortalGate',
+  'resolvedSubscription?.isActive',
+  '<Redirect href="/portal/plan" />',
+];
+
+for (const contract of operationalGateContracts) {
+  if (!app.includes(contract)) {
+    throw new Error(`El Portal no conserva el gate de suscripción activa: ${contract}`);
+  }
+}
+
 const recoveryContracts = [
   'resolveRecoveryCheckoutContext(params.planId, params.trial, readCheckoutContext())',
   "buildRecoveryRoute('/ventas/login', context)",
@@ -194,4 +225,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical channels, capabilities, product boundaries, checkout intent, provider readiness and trial → Portal verified.');
+console.log('Canonical channels, capabilities, product boundaries, checkout intent, provider readiness and trial/demo → Portal verified.');

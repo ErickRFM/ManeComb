@@ -151,6 +151,19 @@ function clearPortalState() {
   usePortalStore.getState().reset();
 }
 
+async function hasActivePortalSubscription() {
+  let portalState = usePortalStore.getState();
+  const knownSubscription = portalState.subscription || portalState.overview?.subscription || null;
+
+  if (knownSubscription) {
+    return knownSubscription.isActive === true;
+  }
+
+  await portalState.loadOverview();
+  portalState = usePortalStore.getState();
+  return Boolean((portalState.subscription || portalState.overview?.subscription)?.isActive);
+}
+
 function normalizeLoginPayload(payload: any) {
   const user = payload?.user || payload?.profile?.user || null;
 
@@ -510,6 +523,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    const operationalAccess = await hasActivePortalSubscription();
+    if (!operationalAccess) {
+      set({ users: [], vehicles: [], operationalUnits: [], error: null });
+      connectSocket(get);
+      return;
+    }
+
     if (hasPortalPermission(user, 'users')) {
       await get().loadUsers().catch(() => undefined);
     }
@@ -526,6 +546,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    if (!(await hasActivePortalSubscription())) {
+      set({ users: [] });
+      return;
+    }
+
     try {
       const users = await getUsersRequest();
       set({ users, error: null });
@@ -537,6 +562,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const user = get().user;
 
     if (!hasPortalPermission(user, 'vehicles') && !hasPortalPermission(user, 'routes')) {
+      return;
+    }
+
+    if (!(await hasActivePortalSubscription())) {
+      set({ vehicles: [], operationalUnits: [] });
       return;
     }
 

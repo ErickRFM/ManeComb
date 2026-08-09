@@ -41,6 +41,7 @@ export function PortalPlanScreen() {
   const currentPlan = workspace?.currentPlan || null;
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
   const canCancel = workspace?.state.state === 'ACTIVE' || workspace?.state.state === 'TRIAL';
+  const hasOperationalPlan = subscription?.isActive === true;
 
   const runPrimaryAction = () => {
     if (!comparisonAction) return;
@@ -105,12 +106,15 @@ export function PortalPlanScreen() {
             </Pressable>
           </View>
         ) : plans.length ? (
-          <View style={styles.planGridWrapper}>
+          <View
+            {...({ className: 'portal-scrollbar portal-plan-scrollbar' } as any)}
+            nativeID="portal-plan-comparison-scroll"
+            style={styles.planGridWrapper}>
             <View style={styles.planGrid}>
               {plans.map((plan, index) => (
                 <PlanComparisonCard
                   key={plan.id}
-                  active={plan.id === currentPlan?.id}
+                  active={hasOperationalPlan && plan.id === currentPlan?.id}
                   index={index}
                   plan={plan}
                   selected={plan.id === selectedPlanId}
