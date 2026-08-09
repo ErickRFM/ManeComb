@@ -44,13 +44,14 @@ function navItem(
   label: string,
   icon: string,
   section?: string,
+  permission?: PortalPermission,
 ): PortalNavItem {
   return {
     label,
     href,
     icon,
     section,
-    permission: getRouteDefinition(href).permission,
+    permission: permission ?? getRouteDefinition(href).permission,
   };
 }
 
@@ -67,7 +68,7 @@ export const PORTAL_NAV_SECTIONS: PortalNavSection[] = [
   {
     title: 'Administración',
     items: [
-      navItem('/portal/perfil', 'Empresa', 'domain', 'empresa'),
+      navItem('/portal/perfil', 'Empresa', 'domain', 'empresa', 'users'),
       navItem('/portal/usuarios', 'Equipo', 'account-key-outline', 'administracion'),
       navItem('/portal/unidades', 'Unidades', 'bus-multiple'),
       navItem('/portal/rutas', 'Rutas', 'routes'),
