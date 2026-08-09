@@ -1,4 +1,9 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
+const {
+  getEnterpriseOrganizationId,
+  isSameEnterpriseOrganization,
+  mapMaybePromise
+} = require("./tenant-repository-utils");
 
 const FLEET_METHODS = [
   "createVehicle",
@@ -14,15 +19,8 @@ const FLEET_METHODS = [
   "updateRoute"
 ];
 
-function getEnterpriseOrganizationId(user) {
-  return String(user?.organizationId || user?.companyId || "").trim();
-}
-
 function canActorAccessRoute(actor, route) {
-  if (!actor) return true;
-  const organizationId = getEnterpriseOrganizationId(actor);
-  if (!organizationId || !route) return false;
-  return String(route.organizationId || "").trim() === organizationId;
+  return !actor || isSameEnterpriseOrganization(actor, route);
 }
 
 class FleetRepository extends StoreDomainRepository {
@@ -30,40 +28,44 @@ class FleetRepository extends StoreDomainRepository {
     super(store, FLEET_METHODS);
   }
 
-  async listRoutes(actor = null) {
-    const routes = await Promise.resolve(this.store.listRoutes(actor));
-    if (!Array.isArray(routes)) return [];
-    if (!actor) return routes;
+  listRoutes(actor = null) {
+    return mapMaybePromise(this.store.listRoutes(actor), (routes) => {
+      if (!Array.isArray(routes)) return [];
+      if (!actor) return routes;
 
-    const organizationId = getEnterpriseOrganizationId(actor);
-    if (!organizationId) return [];
-    return routes.filter(
-      (route) => String(route?.organizationId || "").trim() === organizationId
-    );
+      const organizationId = getEnterpriseOrganizationId(actor);
+      if (!organizationId) return [];
+      return routes.filter(
+        (route) => String(route?.organizationId || "").trim() === organizationId
+      );
+    });
   }
 
-  async updateRoute(routeId, payload, actor = null) {
-    if (actor) {
-      const current = await Promise.resolve(this.store.getRouteById(routeId));
-      if (!canActorAccessRoute(actor, current)) return null;
+  updateRoute(routeId, payload, actor = null) {
+    if (!actor) {
+      return this.store.updateRoute(routeId, payload, actor);
     }
 
-    return Promise.resolve(this.store.updateRoute(routeId, payload, actor));
+    return mapMaybePromise(this.store.getRouteById(routeId), (current) => {
+      if (!canActorAccessRoute(actor, current)) return null;
+      return this.store.updateRoute(routeId, payload, actor);
+    });
   }
 
-  async deleteRoute(routeId, actor = null) {
-    if (actor) {
-      const current = await Promise.resolve(this.store.getRouteById(routeId));
-      if (!canActorAccessRoute(actor, current)) return null;
+  deleteRoute(routeId, actor = null) {
+    if (!actor) {
+      return this.store.deleteRoute(routeId, actor);
     }
 
-    return Promise.resolve(this.store.deleteRoute(routeId, actor));
+    return mapMaybePromise(this.store.getRouteById(routeId), (current) => {
+      if (!canActorAccessRoute(actor, current)) return null;
+      return this.store.deleteRoute(routeId, actor);
+    });
   }
 }
 
 module.exports = {
   FLEET_METHODS,
   FleetRepository,
-  canActorAccessRoute,
-  getEnterpriseOrganizationId
+  canActorAccessRoute
 };
