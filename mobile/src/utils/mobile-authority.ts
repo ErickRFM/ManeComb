@@ -1,8 +1,27 @@
 import type { AuthRoutingContext, User } from '@/src/types/app';
 
-type CapabilityAwareUser = Pick<User, 'accountType' | 'role'> & {
-  capabilities?: string[] | null;
-};
+export const ENTERPRISE_CAPABILITY = {
+  portalAccess: 'portal.access',
+  mobileAccess: 'mobile.access',
+  operationsUse: 'operations.use',
+  tenantAccess: 'tenant.access',
+  usersManage: 'users.manage',
+  billingManage: 'billing.manage',
+  vehiclesManage: 'vehicles.manage',
+  analyticsView: 'analytics.view',
+  rtcAccess: 'communication.rtc.access',
+  routesManage: 'routes.manage',
+  documentsManage: 'documents.manage',
+  incidentsManage: 'incidents.manage',
+} as const;
+
+export type EnterpriseCapability =
+  (typeof ENTERPRISE_CAPABILITY)[keyof typeof ENTERPRISE_CAPABILITY];
+
+type CapabilityAwareUser = Pick<User, 'accountType' | 'role'> &
+  Partial<Pick<User, 'id' | 'organizationId'>> & {
+    capabilities?: unknown;
+  };
 
 const LEGACY_OPERATIONAL_ROLES = new Set([
   'owner',
@@ -16,15 +35,24 @@ const LEGACY_DIRECTORY_ROLES = new Set(['owner', 'admin', 'supervisor']);
 const LEGACY_INCIDENT_MANAGER_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor']);
 const LEGACY_DOCUMENT_MANAGER_ROLES = new Set(['owner', 'admin', 'supervisor']);
 
+export function getEnterpriseCapabilities(
+  user: CapabilityAwareUser | null | undefined
+): string[] {
+  if (!Array.isArray(user?.capabilities)) return [];
+  return user.capabilities.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.length > 0
+  );
+}
+
 function hasExplicitCapabilities(user: CapabilityAwareUser | null | undefined) {
   return Array.isArray(user?.capabilities);
 }
 
-function hasCapability(
+export function hasEnterpriseCapability(
   user: CapabilityAwareUser | null | undefined,
-  capability: string
+  capability: EnterpriseCapability
 ) {
-  return Array.isArray(user?.capabilities) && user.capabilities.includes(capability);
+  return getEnterpriseCapabilities(user).includes(capability);
 }
 
 /**
@@ -45,7 +73,10 @@ export function canRefreshMobileOperations(
   }
 
   if (hasExplicitCapabilities(user)) {
-    return hasCapability(user, 'mobile.access') && hasCapability(user, 'operations.use');
+    return (
+      hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.mobileAccess) &&
+      hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.operationsUse)
+    );
   }
 
   // Compatibilidad únicamente para sesiones antiguas sin authContext/capabilities.
@@ -60,7 +91,7 @@ export function canLoadMobileDirectory(user: CapabilityAwareUser | null | undefi
   if (!user) return false;
 
   if (hasExplicitCapabilities(user)) {
-    return hasCapability(user, 'analytics.view');
+    return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.analyticsView);
   }
 
   // Compatibilidad con sesiones anteriores al contrato de capabilities.
@@ -75,7 +106,7 @@ export function canManageMobileIncidents(user: CapabilityAwareUser | null | unde
   if (!user) return false;
 
   if (hasExplicitCapabilities(user)) {
-    return hasCapability(user, 'incidents.manage');
+    return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.incidentsManage);
   }
 
   // Support no tiene acceso Mobile en el contrato actual, por eso el fallback
@@ -92,8 +123,13 @@ export function canManageMobileDocuments(user: CapabilityAwareUser | null | unde
   if (!user) return false;
 
   if (hasExplicitCapabilities(user)) {
-    return hasCapability(user, 'documents.manage');
+    return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.documentsManage);
   }
 
   return LEGACY_DOCUMENT_MANAGER_ROLES.has(String(user.role || ''));
 }
+
+// Aliases usados por el store y la navegación. Mantienen una sola implementación
+// canónica en este módulo, sin repetir reglas de autoridad.
+export const canRefreshOperationalData = canRefreshMobileOperations;
+export const canLoadDirectoryUsers = canLoadMobileDirectory;
