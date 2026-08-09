@@ -116,6 +116,24 @@ export function canManageMobileIncidents(user: CapabilityAwareUser | null | unde
 }
 
 /**
+ * Autoridad de la superficie Control/Checklist. Backend protege las mutaciones
+ * administrativas de rutas y asignaciones con canManageRoutes -> routes.manage.
+ *
+ * A diferencia del Directorio, Control NO tiene tabla legada de compatibilidad:
+ * es una superficie administrativa, y conceder acceso administrativo adivinando
+ * por rol cuando la sesión no trae el contrato explícito sería inventar una
+ * segunda autorización. Sin contrato, se niega.
+ *
+ * Que el driver pueda operar su propia jornada contra el mismo router de backend
+ * no lo habilita aquí: su plano self-service vive en Mapa, no en Control.
+ */
+export function canUseMobileControl(user: CapabilityAwareUser | null | undefined) {
+  if (!user) return false;
+
+  return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.routesManage);
+}
+
+/**
  * Autoridad para abrir administración documental desde Mobile hacia Portal.
  * Backend protege las rutas administrativas con canManageDocuments.
  */

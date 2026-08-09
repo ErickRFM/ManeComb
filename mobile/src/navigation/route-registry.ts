@@ -1,9 +1,5 @@
 import type { Role, User } from '@/src/types/app';
-import {
-  ENTERPRISE_CAPABILITY,
-  hasEnterpriseCapability,
-  type EnterpriseCapability,
-} from '@/src/utils/mobile-authority';
+import { canLoadMobileDirectory, canUseMobileControl } from '@/src/utils/mobile-authority';
 
 export const DRIVER_DOCUMENT_ALLOWED_ROLES: Role[] = ['driver'];
 
@@ -20,11 +16,18 @@ export const MODULE_ROUTE_NAMES = {
 export type ModuleKey = keyof typeof MODULE_ROUTE_NAMES;
 export type ModuleRouteName = (typeof MODULE_ROUTE_NAMES)[ModuleKey];
 
+/**
+ * `authority` es una referencia a la decisión canónica que ya vive en
+ * `mobile-authority.ts`. El registry no reconstruye reglas ni conoce
+ * capabilities: solo declara qué autoridad gobierna cada ruta. Así la
+ * compatibilidad con sesiones legadas existe en un único lugar y el router no
+ * puede divergir de lo que el store considera permitido.
+ */
 export type RouteDefinition = {
   module: ModuleKey;
   root: string;
   allowedRoles?: Role[];
-  requiredCapability?: EnterpriseCapability;
+  authority?: (user: User) => boolean;
 };
 
 const moduleRoutes: Record<string, RouteDefinition> = {
@@ -33,14 +36,14 @@ const moduleRoutes: Record<string, RouteDefinition> = {
   '/usuarios': {
     module: 'users',
     root: '/usuarios',
-    requiredCapability: ENTERPRISE_CAPABILITY.analyticsView,
+    authority: canLoadMobileDirectory,
   },
   '/chat': { module: 'chat', root: '/chat' },
   '/radio': { module: 'radio', root: '/radio' },
   '/checklist': {
     module: 'checklist',
     root: '/checklist',
-    requiredCapability: ENTERPRISE_CAPABILITY.routesManage,
+    authority: canUseMobileControl,
   },
   '/perfil': { module: 'profile', root: '/perfil' },
   '/perfil-editar': { module: 'profile', root: '/perfil' },
@@ -64,21 +67,22 @@ export function canUserAccessRoute(routeName: string, user: User) {
   const definition = getRouteDefinition(routeName);
   if (!definition) return false;
 
-  if (definition.requiredCapability) {
-    return hasEnterpriseCapability(user, definition.requiredCapability);
+  if (definition.authority) {
+    return definition.authority(user);
   }
 
   return !definition.allowedRoles || definition.allowedRoles.includes(user.role);
 }
 
 // Kept only for genuinely role-scoped routes such as driver self-service.
-// Capability-scoped modules must use canUserAccessRoute so role tables cannot
-// become a second authorization system.
+// Rutas gobernadas por una autoridad deben pasar por canUserAccessRoute: un rol
+// suelto no alcanza para decidirlas y responder aquí crearía un segundo sistema
+// de autorización.
 export function canRoleAccessRoute(routeName: string, role: Role) {
   const definition = getRouteDefinition(routeName);
   return Boolean(
     definition &&
-    !definition.requiredCapability &&
+    !definition.authority &&
     (!definition.allowedRoles || definition.allowedRoles.includes(role))
   );
 }
