@@ -15,10 +15,11 @@ import { PortalProfileSupportSection } from '../profile/components/portal-profil
 import type { ProfileForm } from '../profile/profile.types';
 import { getProfileSection } from '../profile/profile.utils';
 import { usePortalStore } from '../store/use-portal-store';
+import { hasPortalPermission } from '../utils/access';
 
 export function PortalProfileScreen() {
   const params = useLocalSearchParams<{ section?: string | string[] }>();
-  const activeSection = getProfileSection(params.section);
+  const requestedSection = getProfileSection(params.section);
   const { isSubmitting: isProfileSubmitting, updateProfile, user } = useAppStore(
     useShallow((state) => ({
       isSubmitting: state.isSubmitting,
@@ -39,6 +40,8 @@ export function PortalProfileScreen() {
       sessions: state.sessions,
     }))
   );
+  const canManageCompany = hasPortalPermission(user, 'users');
+  const activeSection = requestedSection === 'empresa' && !canManageCompany ? 'resumen' : requestedSection;
   const [form, setForm] = useState<ProfileForm>({
     name: '',
     email: '',
@@ -74,15 +77,10 @@ export function PortalProfileScreen() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const saveProfile = async () => {
+  const savePersonalProfile = async () => {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
     const phone = form.phone.trim();
-    const companyName = form.companyName.trim();
-    const legalName = form.legalName.trim();
-    const taxId = form.taxId.trim().toUpperCase();
-    const billingEmail = form.billingEmail.trim().toLowerCase();
-    const billingAddress = form.billingAddress.trim();
 
     if (!name) {
       setMessage('El nombre es obligatorio.');
@@ -96,6 +94,23 @@ export function PortalProfileScreen() {
       setMessage('El correo electrónico no tiene un formato válido.');
       return;
     }
+
+    const result = await updateProfile({ name, email, phone });
+    setMessage(result.ok ? 'Perfil personal actualizado correctamente.' : result.message || 'No fue posible actualizar el perfil.');
+  };
+
+  const saveCompanyProfile = async () => {
+    if (!canManageCompany) {
+      setMessage('No tienes permiso para modificar los datos de empresa.');
+      return;
+    }
+
+    const companyName = form.companyName.trim();
+    const legalName = form.legalName.trim();
+    const taxId = form.taxId.trim().toUpperCase();
+    const billingEmail = form.billingEmail.trim().toLowerCase();
+    const billingAddress = form.billingAddress.trim();
+
     if (billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingEmail)) {
       setMessage('El correo fiscal no tiene un formato válido.');
       return;
@@ -110,17 +125,13 @@ export function PortalProfileScreen() {
     }
 
     const result = await updateProfile({
-      name,
-      email,
-      phone,
       companyName,
       legalName,
       taxId,
       billingEmail,
       billingAddress,
     });
-
-    setMessage(result.ok ? 'Perfil actualizado correctamente.' : result.message || 'No fue posible actualizar el perfil.');
+    setMessage(result.ok ? 'Datos de empresa actualizados correctamente.' : result.message || 'No fue posible actualizar los datos de empresa.');
   };
 
   const revokeAllOtherSessions = async () => {
@@ -154,23 +165,29 @@ export function PortalProfileScreen() {
               ? 'Soporte'
               : 'Perfil'
       }
-      subtitle="Configuración de cuenta, empresa y acceso administrativo.">
+      subtitle={activeSection === 'empresa'
+        ? 'Información comercial y fiscal de la empresa.'
+        : activeSection === 'seguridad'
+          ? 'Sesiones y seguridad de tu cuenta.'
+          : activeSection === 'soporte'
+            ? 'Canales de ayuda y soporte ManeComb.'
+            : 'Información personal y seguridad de tu cuenta.'}>
       {activeSection === 'resumen' ? (
         <PortalProfilePersonalSection
           form={form}
           isSubmitting={isProfileSubmitting}
           message={message}
           onFieldChange={setField}
-          onSave={() => void saveProfile()}
+          onSave={() => void savePersonalProfile()}
         />
       ) : null}
 
-      {activeSection === 'resumen' || activeSection === 'empresa' ? (
+      {canManageCompany && (activeSection === 'resumen' || activeSection === 'empresa') ? (
         <PortalProfileCompanySection
           form={form}
           isSubmitting={isProfileSubmitting}
           onFieldChange={setField}
-          onSave={() => void saveProfile()}
+          onSave={() => void saveCompanyProfile()}
         />
       ) : null}
 
