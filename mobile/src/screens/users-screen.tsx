@@ -19,7 +19,7 @@ import { openSalesPortal } from '@/src/utils/sales-portal';
 function roleTone(role: Role): Tone {
   if (role === 'admin') return 'danger';
   if (role === 'supervisor') return 'info';
-  return role === 'driver' || role === 'conductor' ? 'positive' : 'neutral';
+  return role === 'driver' ? 'positive' : 'neutral';
 }
 
 function accountStatusTone(status?: string): Tone {
@@ -161,7 +161,7 @@ export function UsersScreen() {
                       <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'account-details-outline'} size={18} color={theme.colors.text} />
                       <Text style={styles.actionText}>{isExpanded ? 'Ocultar perfil' : 'Ver perfil'}</Text>
                     </Pressable>
-                    {canOpenDocuments && (entry.role === 'driver' || entry.role === 'conductor') ? (
+                    {canOpenDocuments && entry.role === 'driver' ? (
                       <Pressable
                         accessibilityRole="button"
                         onPress={() => void openSalesPortal('/portal/documentos')}
@@ -185,7 +185,7 @@ export function UsersScreen() {
                         <DetailItem label="Último acceso" value={formatDateTime(entry.lastAccessAt)} />
                         {entry.suspendedAt ? <DetailItem label="Suspendida desde" value={formatDateTime(entry.suspendedAt)} /> : null}
                       </View>
-                      {(entry.role === 'driver' || entry.role === 'conductor') ? (
+                      {entry.role === 'driver' ? (
                         <Text style={styles.profileNote}>El conductor actualiza foto, nombre, correo y teléfono desde su perfil. La unidad, turno, horario operativo y revisión documental permanecen bajo control administrativo.</Text>
                       ) : null}
                     </View>
