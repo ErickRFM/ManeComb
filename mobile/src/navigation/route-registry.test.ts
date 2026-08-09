@@ -15,10 +15,10 @@ describe('navigation route registry', () => {
     expect(roots.every(isModuleRoot)).toBe(true);
   });
 
-  it('alinea el directorio con los roles que backend autoriza a ver analitica', () => {
+  it('no expone Directorio a dispatcher hasta que el store consuma analytics.view', () => {
     expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(true);
-    expect(canRoleAccessRoute('/usuarios', 'dispatcher')).toBe(true);
+    expect(canRoleAccessRoute('/usuarios', 'dispatcher')).toBe(false);
     expect(canRoleAccessRoute('/usuarios', 'supervisor')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'driver')).toBe(false);
   });
