@@ -99,6 +99,7 @@ export function PlanCheckoutScreen() {
   const paymentInFlight = useRef(false);
 
   const {
+    canUseDemoCard,
     effectiveRequestTrial,
     isCompleted: receiptIsActive,
     isPending: receiptIsPending,
@@ -124,7 +125,7 @@ export function PlanCheckoutScreen() {
   );
   const isTestPaymentMode = providerMode === 'test';
   const isManualPaymentMode = providerMode === 'manual';
-  const isManualCardDemo = isManualPaymentMode && selectedMethod === 'card' && !effectiveRequestTrial;
+  const isManualCardDemo = isManualPaymentMode && canUseDemoCard && selectedMethod === 'card' && !effectiveRequestTrial;
 
   useEffect(() => {
     if (planId) {
@@ -171,7 +172,7 @@ export function PlanCheckoutScreen() {
     const validationMessage = validateTestCard(testCard);
     if (validationMessage) {
       setCardDemoMessage(validationMessage);
-      return;
+      return false;
     }
 
     const digits = onlyDigits(testCard.cardNumber);
@@ -195,13 +196,14 @@ export function PlanCheckoutScreen() {
 
       if (!result.ok) {
         setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta demo.');
-        return;
+        return false;
       }
 
       setCardDemoMessage(
-        `${brand} terminada en ${last4} guardada como método demo. El número completo y el CVV fueron descartados.`
+        `${brand} terminada en ${last4} validada para la demostración. El número completo y el CVV fueron descartados.`
       );
       setTestCard(EMPTY_TEST_CARD);
+      return true;
     } finally {
       setCardSaving(false);
     }
@@ -210,20 +212,31 @@ export function PlanCheckoutScreen() {
   const submitPayment = async () => {
     if (!canSubmit || paymentInFlight.current) return;
 
-    if (isManualCardDemo) {
-      paymentInFlight.current = true;
-      try {
-        await saveDemoCard();
-      } finally {
-        paymentInFlight.current = false;
-      }
-      return;
-    }
-
     paymentInFlight.current = true;
-    setStep('confirmation');
     setCardDemoMessage(null);
     try {
+      if (isManualCardDemo) {
+        const cardSaved = await saveDemoCard();
+        if (!cardSaved) return;
+
+        setStep('confirmation');
+        const nextResult = await submit({
+          method: 'card',
+          selectedAddOns: [],
+          testCard: EMPTY_TEST_CARD,
+          demoTrial: true,
+        });
+        if (!nextResult?.ok) {
+          setStep('payment');
+          return;
+        }
+        await loadAll({ force: true });
+        clearCheckoutContext();
+        setStep('done');
+        return;
+      }
+
+      setStep('confirmation');
       const nextResult = await submit({
         method: selectedMethod,
         selectedAddOns: includeRadioAddon ? ['radio_dispatch'] : [],
@@ -251,6 +264,9 @@ export function PlanCheckoutScreen() {
 
   const selectPaymentMethod = (method: PaymentMethod) => {
     setSelectedMethod(method);
+    if (method === 'card' && canUseDemoCard) {
+      setIncludeRadioAddon(false);
+    }
     setCardDemoMessage(null);
   };
 
@@ -324,12 +340,12 @@ export function PlanCheckoutScreen() {
                 <OrderSummary
                   includeRadioAddon={includeRadioAddon}
                   plan={selectedPlan}
-                  requestTrial={effectiveRequestTrial}
+                  requestTrial={effectiveRequestTrial || isManualCardDemo}
                   totalAmount={totalAmount}
                 />
               </View>
 
-              <CheckoutTrustStrip buttonAmount={buttonAmount} />
+              <CheckoutTrustStrip buttonAmount={isManualCardDemo ? 'Demo 7 días · sin cargo' : buttonAmount} />
             </>
           )}
         </View>
