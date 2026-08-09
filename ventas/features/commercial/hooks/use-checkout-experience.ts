@@ -122,6 +122,10 @@ export function useCheckoutExperience({
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
       const paymentMethod = trialForSubmit ? 'trial' : method;
       const safeAddOns = trialForSubmit ? [] : selectedAddOns;
+      const expectedAmount = trialForSubmit
+        ? 0
+        : Number(selectedPlan.price || 0)
+          + (safeAddOns.includes('radio_dispatch') ? Number(selectedPlan.radioAddonPrice || 0) : 0);
       const nextResult = await service.createPaymentSession({
         idempotencyKey: getOrCreateCheckoutIdempotencyKey({
           userId: user.id,
@@ -139,6 +143,18 @@ export function useCheckoutExperience({
         requestTrial: trialForSubmit,
         selectedAddOns: safeAddOns,
       });
+
+      if (
+        !trialForSubmit
+        && nextResult.session
+        && Math.abs(Number(nextResult.session.amount || 0) - expectedAmount) > 0.001
+      ) {
+        setMessage(
+          `Bloqueamos la orden porque el backend devolvió ${Number(nextResult.session.amount || 0).toFixed(2)} MXN y tu selección corresponde a ${expectedAmount.toFixed(2)} MXN. No realices la transferencia; vuelve a elegir el plan o contacta soporte.`
+        );
+        return null;
+      }
+
       setResult(nextResult);
       setMessage(nextResult.message);
       return nextResult;
