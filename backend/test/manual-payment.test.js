@@ -1,5 +1,9 @@
 const assert = require("node:assert/strict");
 const {
+  getCommercialPlanById,
+  getCommercialPlanPricing
+} = require("../src/config/commercial-plans");
+const {
   claimManualPaymentDecision,
   completeManualPaymentDecision,
   getManualPaymentEvidence,
@@ -31,6 +35,21 @@ async function expectCode(promise, code) {
 }
 
 async function main() {
+  const starterPlan = getCommercialPlanById("starter-2");
+  assert.ok(starterPlan, "starter-2 debe existir en el catálogo canónico");
+
+  const starterWithoutRadio = getCommercialPlanPricing(starterPlan, []);
+  assert.equal(starterWithoutRadio.basePlanPrice, 149);
+  assert.equal(starterWithoutRadio.addOnsTotal, 0);
+  assert.equal(starterWithoutRadio.totalPrice, 149);
+  assert.equal(starterWithoutRadio.radioFeatureEnabled, false);
+
+  const starterWithRadio = getCommercialPlanPricing(starterPlan, ["radio_dispatch"]);
+  assert.equal(starterWithRadio.basePlanPrice, 149);
+  assert.equal(starterWithRadio.addOnsTotal, 20);
+  assert.equal(starterWithRadio.totalPrice, 169);
+  assert.equal(starterWithRadio.radioFeatureEnabled, true);
+
   resetManualPaymentEvidenceForTests();
   const now = new Date("2026-08-07T17:00:00.000Z");
   const currentOrder = order();
