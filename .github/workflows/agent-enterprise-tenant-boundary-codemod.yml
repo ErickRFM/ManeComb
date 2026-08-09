@@ -1,0 +1,126 @@
+name: Agent enterprise tenant boundary codemod
+
+on:
+  push:
+    branches:
+      - agent/enterprise-tenant-boundary-20260809
+    paths:
+      - .github/workflows/agent-enterprise-tenant-boundary-codemod.yml
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/enterprise-tenant-boundary-20260809
+          fetch-depth: 0
+
+      - name: Remove legacy global enterprise admin bypass
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          function replaceOnce(source, before, after, label) {
+            const first = source.indexOf(before);
+            if (first < 0) throw new Error(`Missing expected snippet: ${label}`);
+            if (source.indexOf(before, first + before.length) >= 0) {
+              throw new Error(`Expected one occurrence but found multiple: ${label}`);
+            }
+            return source.slice(0, first) + after + source.slice(first + before.length);
+          }
+
+          const embeddedPath = 'backend/src/data/store.js';
+          let embedded = fs.readFileSync(embeddedPath, 'utf8');
+
+          embedded = replaceOnce(
+            embedded,
+            `  function canAccessAllOrganizations(user) {\n    return user?.role === "admin" && user?.accountType !== "company_owner";\n  }\n\n  function canAccessOrganizationResource(user, resource) {\n    if (canAccessAllOrganizations(user)) {\n      return true;\n    }\n\n    const organizationId = getUserOrganizationId(user);`,
+            `  function canAccessOrganizationResource(user, resource) {\n    const organizationId = getUserOrganizationId(user);`,
+            'embedded global admin helper'
+          );
+
+          embedded = replaceOnce(
+            embedded,
+            `    const organizationId = getUserOrganizationId(currentUser);\n    const canSeeAll = canAccessAllOrganizations(currentUser);\n\n    return clone(\n      state.users\n        .filter((user) => !user.deletedAt)\n        .filter((user) => canSeeAll || !organizationId || getUserOrganizationId(user) === organizationId)`,
+            `    const organizationId = getUserOrganizationId(currentUser);\n    const isGlobalInventory = !currentUser;\n\n    return clone(\n      state.users\n        .filter((user) => !user.deletedAt)\n        .filter((user) =>\n          isGlobalInventory ||\n          (organizationId && getUserOrganizationId(user) === organizationId)\n        )`,
+            'embedded user inventory scope'
+          );
+
+          embedded = replaceOnce(
+            embedded,
+            `      if (\n        !canAccessAllOrganizations(user) &&\n        (!documentOrganizationId || documentOrganizationId !== userOrganizationId)\n      ) {\n        return false;\n      }`,
+            `      if (\n        !userOrganizationId ||\n        !documentOrganizationId ||\n        documentOrganizationId !== userOrganizationId\n      ) {\n        return false;\n      }`,
+            'embedded document scope'
+          );
+
+          if (embedded.includes('canAccessAllOrganizations')) {
+            throw new Error('embedded store still contains canAccessAllOrganizations');
+          }
+          fs.writeFileSync(embeddedPath, embedded);
+
+          const mongoPath = 'backend/src/data/mongo-store.js';
+          let mongo = fs.readFileSync(mongoPath, 'utf8');
+
+          mongo = replaceOnce(
+            mongo,
+            `function canAccessAllOrganizations(user) {\n  return user?.role === "admin" && user?.accountType !== "company_owner";\n}\n\nfunction getOrganizationQuery(user) {\n  if (!user || canAccessAllOrganizations(user)) {\n    return {};\n  }`,
+            `function getOrganizationQuery(user) {\n  if (!user) {\n    return {};\n  }`,
+            'mongo global admin helper'
+          );
+
+          mongo = replaceOnce(
+            mongo,
+            `    const organizationId = getUserOrganizationId(currentUser);\n    const filter = {\n      ...(canAccessAllOrganizations(currentUser) || !organizationId ? {} : { organizationId }),\n      deletedAt: null\n    };`,
+            `    const organizationId = getUserOrganizationId(currentUser);\n    const filter = {\n      ...(!currentUser\n        ? {}\n        : organizationId\n          ? { organizationId }\n          : { organizationId: "__missing__" }),\n      deletedAt: null\n    };`,
+            'mongo user inventory scope'
+          );
+
+          mongo = replaceOnce(
+            mongo,
+            `    const organizationId = getUserOrganizationId(user);\n    const organizationQuery = getOrganizationQuery(user);\n    const roleAudience = canAccessAllOrganizations(user)\n      ? { targetRoles: user.role }\n      : { organizationId, targetRoles: user.role };`,
+            `    const organizationId = getUserOrganizationId(user);\n    const organizationQuery = getOrganizationQuery(user);\n    const roleAudience = {\n      organizationId: organizationId || "__missing__",\n      targetRoles: user.role\n    };`,
+            'mongo notification audience scope'
+          );
+
+          if (mongo.includes('canAccessAllOrganizations')) {
+            throw new Error('mongo store still contains canAccessAllOrganizations');
+          }
+          fs.writeFileSync(mongoPath, mongo);
+
+          const packagePath = 'backend/package.json';
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          const command = 'node --require ./test/setup-env.js test/enterprise-tenant-boundary.test.js';
+          if (!pkg.scripts.test.includes(command)) {
+            const anchor = 'node --require ./test/setup-env.js test/tenant-isolation.test.js';
+            if (!pkg.scripts.test.includes(anchor)) throw new Error('Missing tenant-isolation test anchor');
+            pkg.scripts.test = pkg.scripts.test.replace(anchor, `${anchor} && ${command}`);
+          }
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run enterprise tenant boundary regression
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/enterprise-tenant-boundary.test.js
+
+      - name: Commit codemod
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes produced"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/data/store.js backend/src/data/mongo-store.js backend/package.json
+          git commit -m "security(tenant): remove legacy global admin bypass"
+          git push origin HEAD:agent/enterprise-tenant-boundary-20260809
