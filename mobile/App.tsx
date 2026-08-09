@@ -30,7 +30,7 @@ import { RadioScreen } from '@/src/screens/radio-screen';
 import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
-import { MODULE_ROUTE_NAMES, canRoleAccessRoute } from '@/src/navigation/route-registry';
+import { MODULE_ROUTE_NAMES, canUserAccessRoute } from '@/src/navigation/route-registry';
 import { linking } from '@/src/navigation/linking';
 import {
   LatestNavigationRequest,
@@ -350,9 +350,9 @@ function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
 
-function RoleProtectedOperationalRoute({ children, route }: { children: React.ReactNode; route: '/usuarios' | '/checklist' }) {
+function CapabilityProtectedOperationalRoute({ children, route }: { children: React.ReactNode; route: '/usuarios' | '/checklist' }) {
   const user = useAppStore((state) => state.user);
-  const allowed = Boolean(user && canRoleAccessRoute(route, user.role));
+  const allowed = Boolean(user && canUserAccessRoute(route, user));
 
   useEffect(() => {
     if (user && !allowed) {
@@ -376,11 +376,11 @@ function RoleProtectedOperationalRoute({ children, route }: { children: React.Re
 }
 
 function DirectoryRoute({ children }: { children: React.ReactNode }) {
-  return <RoleProtectedOperationalRoute route="/usuarios">{children}</RoleProtectedOperationalRoute>;
+  return <CapabilityProtectedOperationalRoute route="/usuarios">{children}</CapabilityProtectedOperationalRoute>;
 }
 
 function ControlRoute({ children }: { children: React.ReactNode }) {
-  return <RoleProtectedOperationalRoute route="/checklist">{children}</RoleProtectedOperationalRoute>;
+  return <CapabilityProtectedOperationalRoute route="/checklist">{children}</CapabilityProtectedOperationalRoute>;
 }
 
 const moduleScreenOptions = {
