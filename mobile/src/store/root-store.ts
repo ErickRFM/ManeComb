@@ -39,7 +39,6 @@ import {
   getMessagesPageRequest,
   getMessagesRequest,
   getNotificationsRequest,
-  getOperationalObservabilityRequest,
   getApiErrorMessage,
   getSessionRequest,
   getUsersRequest,
@@ -87,7 +86,6 @@ import type {
   LoginResult,
   LiveLocationsData,
   NotificationItem,
-  OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   DriverActivationRegisterPayload,
   RegisterPayload,
@@ -245,7 +243,6 @@ export type AppState = {
   isLoadingOlderChatByConversation: Record<string, boolean>;
   documents: DocumentItem[];
   notifications: NotificationItem[];
-  observability: OperationalObservabilitySnapshot | null;
   users: User[];
   activeRouteSession: RouteSession | null;
   routeSessionHistory: RouteSession[];
@@ -337,7 +334,6 @@ function getEmptyOperationalState(): Partial<AppState> {
     isLoadingOlderChatByConversation: {},
     documents: [],
     notifications: [],
-    observability: null,
     users: [],
     activeRouteSession: null,
     routeSessionHistory: [],
@@ -695,7 +691,6 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
     messagesByConversation: state.messagesByConversation,
     documents: state.documents,
     notifications: state.notifications,
-    observability: state.observability,
     users: state.users,
     activeRouteSession: state.activeRouteSession,
     routeSessionHistory: state.routeSessionHistory,
@@ -717,7 +712,6 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     messagesByConversation: snapshot.messagesByConversation || {},
     documents: snapshot.documents || [],
     notifications: snapshot.notifications || [],
-    observability: snapshot.observability || null,
     users: snapshot.users || [],
     activeRouteSession: snapshot.activeRouteSession || null,
     routeSessionHistory: snapshot.routeSessionHistory || [],
@@ -1857,7 +1851,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
+  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2113,13 +2107,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (isSessionEpochStale(epoch)) return;
       const res = await Promise.allSettled([
         getLocationsRequest(), getOperationalUnitsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
-        getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
+        getDocumentsRequest(), getNotificationsRequest(),
         canLoadDirectoryUsers(user) ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
       const data: any = {};
-      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
+      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'users', 'activeRouteSession', 'routeSessionHistory'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {

@@ -27,10 +27,9 @@ export function ProfileScreen() {
   const isCompact = width < DesignSystem.breakpoints.compact;
   const isPhone = width < DesignSystem.breakpoints.phone;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { documents, observability, presenceByUser, signOut, user } = useAppStore(
+  const { documents, presenceByUser, signOut, user } = useAppStore(
     useShallow((state) => ({
       documents: state.documents,
-      observability: state.observability,
       presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
@@ -145,38 +144,6 @@ export function ProfileScreen() {
               </Pressable>
             </View>
           </AppCard>
-
-          {observability ? (
-            <AppCard>
-              <Text style={styles.cardTitle}>Estado operativo</Text>
-              <View style={styles.infoGrid}>
-                <InfoTile icon="alert-circle-outline" label="Errores API" value={String(observability.apiErrors)} styles={styles} theme={theme} />
-                <InfoTile icon="timer-alert-outline" label="Solicitudes lentas" value={String(observability.slowRequests)} styles={styles} theme={theme} />
-                <InfoTile icon="bell-check-outline" label="Push entregados" value={String(observability.pushDelivered)} styles={styles} theme={theme} />
-                <InfoTile icon="bell-alert-outline" label="Push fallidos" value={String(observability.pushFailed)} styles={styles} theme={theme} />
-                <InfoTile icon="alert-decagram-outline" label="Incidencias críticas" value={String(observability.activeCriticalIncidents)} styles={styles} theme={theme} />
-                <InfoTile icon="cart-check" label="Eventos checkout" value={String(observability.checkoutEvents)} styles={styles} theme={theme} />
-                <InfoTile icon="phone-in-talk-outline" label="Sesiones RTC" value={String(observability.rtc.recentSessions)} styles={styles} theme={theme} />
-                <InfoTile icon="phone-check-outline" label="RTC completadas" value={String(observability.rtc.completedSessions)} styles={styles} theme={theme} />
-                <InfoTile icon="timer-outline" label="Promedio RTC" value={`${Math.round(observability.rtc.averageDurationSeconds)} s`} styles={styles} theme={theme} />
-              </View>
-              {observability.recentEvents.length ? (
-                <View style={styles.notificationList}>
-                  {observability.recentEvents.map((event) => (
-                    <View key={event.id} style={[styles.notificationRow, { borderColor: theme.colors.line, backgroundColor: theme.colors.surfaceAlt }]}>
-                      <View style={[styles.notificationIcon, { backgroundColor: event.level === 'error' ? theme.colors.dangerSoft : theme.colors.infoSoft }]}>
-                        <MaterialCommunityIcons name="pulse" size={19} color={event.level === 'error' ? theme.colors.danger : theme.colors.info} />
-                      </View>
-                      <View style={styles.notificationCopy}>
-                        <Text style={styles.notificationTitle}>{event.message || event.type}</Text>
-                        <Text style={styles.notificationBody}>{event.scope} · {new Date(event.createdAt).toLocaleString('es-MX')}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </AppCard>
-          ) : null}
 
           <AppCard style={styles.sessionCard}>
             <Text style={styles.cardTitle}>Sesion</Text>

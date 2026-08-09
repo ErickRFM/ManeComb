@@ -990,22 +990,6 @@ export type OperationalEventRecord = {
   createdAt: string;
 };
 
-export type OperationalObservabilitySnapshot = {
-  windowHours: number;
-  apiErrors: number;
-  slowRequests: number;
-  pushDelivered: number;
-  pushFailed: number;
-  checkoutEvents: number;
-  activeCriticalIncidents: number;
-  rtc: {
-    recentSessions: number;
-    completedSessions: number;
-    averageDurationSeconds: number;
-  };
-  recentEvents: OperationalEventRecord[];
-};
-
 export type LiveLocationsData = {
   updatedAt: string;
   center: {

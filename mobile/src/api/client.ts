@@ -29,7 +29,6 @@ import type {
   NavigationStop,
   VehicleTripRecord,
   NotificationItem,
-  OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   RegisterPayload,
   RtcIceConfig,
@@ -1088,16 +1087,5 @@ export async function updateProfileRequest(payload: ProfileMutationPayload) {
   return response.data.data;
 }
 
-export async function getOperationalObservabilityRequest(params?: {
-  hours?: number;
-  limit?: number;
-}) {
-  const response = await apiClient.get<{ ok: boolean; data: OperationalObservabilitySnapshot }>(
-    '/ops/observability',
-    {
-      params,
-    }
-  );
-
-  return response.data.data;
-}
+// /api/ops fue retirado del plano operativo: el router responde 410 a todo.
+// La observabilidad vive ahora en la autoridad de plataforma, no en Mobile.
