@@ -98,7 +98,53 @@ async function main() {
   assert.equal(consumedKey.status, "used", "the restored key can be consumed by the successful retry");
   assert.equal(consumedKey.usedByDriverId, successful.user.id);
 
-  console.log("ok - activation registration failure restores key and unit for a safe retry");
+  const thirdVehicle = await store.createVehicle({
+    organizationId,
+    code: "RB-03",
+    plate: "RBK-003-A",
+    status: "available"
+  });
+  const secondKey = await store.createActivationKey({
+    key: `MNCB-STARTER-SYNC-${stamp}`,
+    companyId: organizationId,
+    adminId: "owner-rollback",
+    planId: "starter-2",
+    orderId: order.id,
+    status: "available",
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    createdAt: new Date().toISOString()
+  });
+
+  const originalUpdateCommercialOrder = store.updateCommercialOrder;
+  store.updateCommercialOrder = async () => {
+    throw new Error("simulated starter fleet sync failure");
+  };
+
+  const committedDespiteStarterSync = await registerDriverWithActivationKey(store, {
+    key: secondKey.key,
+    name: "Chofer Sync Degradado",
+    email: `driver-sync-${stamp}@manecomb.test`,
+    phone: "+52 55 2222 2222",
+    password: "Ruta123!",
+    unit: { vehicleId: thirdVehicle.id }
+  });
+
+  store.updateCommercialOrder = originalUpdateCommercialOrder;
+
+  assert.equal(committedDespiteStarterSync.user.role, "driver");
+  assert.equal(committedDespiteStarterSync.vehicle.id, thirdVehicle.id);
+
+  const committedKey = await store.findActivationKeyByKey(secondKey.key);
+  assert.equal(committedKey.status, "used", "starter fleet sync failure must not roll back a persisted driver");
+  assert.equal(committedKey.usedByDriverId, committedDespiteStarterSync.user.id);
+
+  const committedVehicle = await store.getVehicleById(thirdVehicle.id);
+  assert.equal(committedVehicle.driverId, committedDespiteStarterSync.user.id);
+
+  const persistedUser = await store.getUserById(committedDespiteStarterSync.user.id);
+  assert.equal(persistedUser.email, committedDespiteStarterSync.user.email);
+
+  console.log("ok - activation rollback is safe before commit and starter fleet sync is best-effort after commit");
 }
 
 main().catch((error) => {
