@@ -1,0 +1,90 @@
+name: Agent app release persistence codemod
+
+on:
+  push:
+    branches:
+      - agent/app-release-persistence-20260809
+    paths:
+      - .github/workflows/agent-app-release-persistence-codemod.yml
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/app-release-persistence-20260809
+          fetch-depth: 0
+
+      - name: Apply exact async persistence edits
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          function replaceOnce(source, before, after, label) {
+            const first = source.indexOf(before);
+            if (first < 0) throw new Error(`Missing expected snippet: ${label}`);
+            if (source.indexOf(before, first + before.length) >= 0) {
+              throw new Error(`Expected one occurrence but found multiple: ${label}`);
+            }
+            return source.slice(0, first) + after + source.slice(first + before.length);
+          }
+
+          const authPath = 'backend/src/modules/auth/routes.js';
+          let auth = fs.readFileSync(authPath, 'utf8');
+
+          auth = replaceOnce(
+            auth,
+            'function getAppUpdateInfo(store, currentVersion) {\n  try {\n    const appConfig = store?.getAppConfig ? store.getAppConfig() : null;',
+            'async function getAppUpdateInfo(store, currentVersion) {\n  try {\n    const appConfig = store?.getAppConfig\n      ? await Promise.resolve(store.getAppConfig())\n      : null;',
+            'getAppUpdateInfo async read'
+          );
+
+          const helperAnchor = `}\n\nconst router = Router();`;
+          const helper = `}\n\nasync function recordDeviceVersionBestEffort(store, userId, versionInfo) {\n  if (!store?.recordDeviceVersion) return;\n\n  try {\n    await Promise.resolve(store.recordDeviceVersion(userId, versionInfo));\n  } catch (error) {\n    logger.warn({\n      action: "RecordAppClientVersion",\n      module: "Auth",\n      userId,\n      status: "degraded",\n      message: "No fue posible persistir telemetria de version del cliente",\n      metadata: {\n        error: communication.security.sanitizeProviderError(error)\n      }\n    });\n  }\n}\n\nconst router = Router();`;
+          auth = replaceOnce(auth, helperAnchor, helper, 'best-effort telemetry helper');
+
+          auth = replaceOnce(
+            auth,
+            '  const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};\n\n  if (appVersion && store?.recordDeviceVersion) {\n    store.recordDeviceVersion(user.id, { version: appVersion, buildNumber, platform, deviceModel });\n  }',
+            '  const updateInfo = appVersion ? await getAppUpdateInfo(store, appVersion) : {};\n\n  if (appVersion) {\n    await recordDeviceVersionBestEffort(store, user.id, {\n      version: appVersion,\n      buildNumber,\n      platform,\n      deviceModel\n    });\n  }',
+            'login async update info + best-effort telemetry'
+          );
+
+          auth = replaceOnce(
+            auth,
+            '  const refreshUpdateInfo = appVersion ? getAppUpdateInfo(refreshStore, appVersion) : {};',
+            '  const refreshUpdateInfo = appVersion ? await getAppUpdateInfo(refreshStore, appVersion) : {};',
+            'refresh async update info'
+          );
+
+          fs.writeFileSync(authPath, auth);
+
+          const packagePath = 'backend/package.json';
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          const command = 'node --require ./test/setup-env.js test/app-release-persistence.test.js';
+          if (!pkg.scripts.test.includes(command)) {
+            const anchor = 'node --require ./test/setup-env.js test/app-global-authority.test.js';
+            if (!pkg.scripts.test.includes(anchor)) throw new Error('Missing package test anchor');
+            pkg.scripts.test = pkg.scripts.test.replace(anchor, `${anchor} && ${command}`);
+          }
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Commit codemod
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes produced"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/modules/auth/routes.js backend/package.json
+          git commit -m "fix(app-release): await durable config and isolate telemetry"
+          git push origin HEAD:agent/app-release-persistence-20260809
