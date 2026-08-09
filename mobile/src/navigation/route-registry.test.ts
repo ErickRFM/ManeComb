@@ -15,16 +15,18 @@ describe('navigation route registry', () => {
     expect(roots.every(isModuleRoot)).toBe(true);
   });
 
-  it('restringe el directorio operativo a propietario, administradores y supervisores', () => {
+  it('alinea el directorio con los roles que backend autoriza a ver analitica', () => {
     expect(canRoleAccessRoute('/usuarios', 'owner')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'admin')).toBe(true);
+    expect(canRoleAccessRoute('/usuarios', 'dispatcher')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'supervisor')).toBe(true);
     expect(canRoleAccessRoute('/usuarios', 'driver')).toBe(false);
   });
 
-  it('restringe Control a propietario, administrador y supervisor', () => {
+  it('alinea Control con los roles que backend autoriza a gestionar rutas', () => {
     expect(canRoleAccessRoute('/checklist', 'owner')).toBe(true);
     expect(canRoleAccessRoute('/checklist', 'admin')).toBe(true);
+    expect(canRoleAccessRoute('/checklist', 'dispatcher')).toBe(true);
     expect(canRoleAccessRoute('/checklist', 'supervisor')).toBe(true);
     expect(canRoleAccessRoute('/checklist', 'driver')).toBe(false);
   });
