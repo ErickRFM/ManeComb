@@ -13,7 +13,7 @@ import {
 } from './mobile-authority';
 import type { AuthRoutingContext, User } from '@/src/types/app';
 
-type CapabilityUser = User & { capabilities?: unknown };
+type CapabilityUser = Omit<User, 'capabilities'> & { capabilities?: unknown };
 
 function user(overrides: Partial<CapabilityUser> = {}): CapabilityUser {
   return {
