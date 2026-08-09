@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
+const http = require("node:http");
+const createApp = require("../src/app");
 const { AppReleaseRepository } = require("../src/data/repositories/app-release-repository");
 const { buildBackendStore } = require("../src/data/backend-store");
+const { createEmbeddedStore } = require("../src/data/store");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -97,6 +100,87 @@ function createBaseStore(version = "1.0.2") {
   };
 }
 
+async function requestJson(baseUrl, route, { method = "GET", body, headers = {} } = {}) {
+  const response = await fetch(`${baseUrl}${route}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...headers
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  return { response, payload: await response.json() };
+}
+
+async function assertAsyncConfigAndBestEffortTelemetry() {
+  const store = createEmbeddedStore();
+  store.getAppConfig = async () => ({
+    name: "ManeComb",
+    version: "9.9.9",
+    status: "disponible",
+    apkUrl: "https://example.test/manecomb-9.9.9.apk",
+    androidMin: "8.0",
+    size: "42 MB",
+    releaseDate: "2026-08-09",
+    releaseNotes: ["Durable release"],
+    versionHistory: [{
+      version: "9.9.9",
+      date: "2026-08-09",
+      current: true,
+      mandatory: true
+    }]
+  });
+  store.recordDeviceVersion = async () => {
+    throw new Error("simulated telemetry persistence outage");
+  };
+
+  const app = createApp({
+    store,
+    getDbState: () => ({ connected: false, mode: "embedded", message: "app-release-persistence-test" })
+  });
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+
+  try {
+    const publicInfo = await requestJson(baseUrl, "/app/info");
+    assert.equal(publicInfo.response.status, 200);
+    assert.equal(publicInfo.payload.data.version, "9.9.9", "public app info awaits async durable config");
+
+    const login = await requestJson(baseUrl, "/auth/login", {
+      method: "POST",
+      headers: { "x-device-model": "Test device" },
+      body: {
+        email: "admin@combis.app",
+        password: "Ruta123!",
+        appVersion: "1.0.0",
+        buildNumber: "1",
+        platform: "android"
+      }
+    });
+    assert.equal(login.response.status, 200, "telemetry persistence failure must never block login");
+    assert.equal(login.payload.ok, true);
+    assert.equal(login.payload.updateAvailable, true);
+    assert.equal(login.payload.latestVersion, "9.9.9");
+    assert.equal(login.payload.mandatory, true);
+
+    const refresh = await requestJson(baseUrl, "/auth/refresh", {
+      method: "POST",
+      body: {
+        refreshToken: login.payload.refreshToken,
+        appVersion: "1.0.0"
+      }
+    });
+    assert.equal(refresh.response.status, 200, "refresh awaits async durable config");
+    assert.equal(refresh.payload.updateAvailable, true);
+    assert.equal(refresh.payload.latestVersion, "9.9.9");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
 async function main() {
   const harness = createHarness();
   const models = {
@@ -165,7 +249,9 @@ async function main() {
   assert.equal(storeStats.total, 3);
   assert.deepEqual(storeStats.versions, { "1.0.3": 2, "1.0.2": 1 });
 
-  console.log("ok - app release config and latest-per-user client versions are durable through the Mongo store service");
+  await assertAsyncConfigAndBestEffortTelemetry();
+
+  console.log("ok - app release config and latest-per-user client versions are durable and auth-safe");
 }
 
 main().catch((error) => {
