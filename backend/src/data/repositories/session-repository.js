@@ -77,12 +77,14 @@ class SessionRepository extends StoreDomainRepository {
     return toPlain(session);
   }
 
-  async listRtcSessions({ roomId, limit = 20 } = {}) {
+  async listRtcSessions({ organizationId, roomId, limit = 20 } = {}) {
     if (!this.RtcSessionModel) {
       return this.store.listRtcSessions({ roomId, limit });
     }
 
-    const query = roomId ? { roomId } : {};
+    const query = {};
+    if (organizationId) query.organizationId = String(organizationId).trim();
+    if (roomId) query.roomId = roomId;
     const sessions = await this.RtcSessionModel.find(query)
       .sort({ startedAt: -1 })
       .limit(Math.max(1, Number(limit) || 20))
