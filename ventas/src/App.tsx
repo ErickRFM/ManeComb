@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { Typography } from '@/constants/theme';
 import {
   canAccessPortal,
   hasPortalPermission,
-  type PortalPermission,
 } from '@/features/portal/utils/access';
+import { getPortalRoutePermission } from '@/features/portal/navigation/portal-route-registry';
 import {
   getAccountChannel,
   getAuthenticatedHome,
@@ -36,9 +36,10 @@ const PortalAppMovilScreen = lazy(() => import('@/features/portal/screens/portal
 
 function BootScreen() {
   return (
-    <View style={styles.bootScreen}>
+    <View style={styles.bootScreen} accessibilityRole="progressbar" accessibilityLabel="Cargando ManeComb">
       <Text style={styles.bootTitle}>ManeComb</Text>
-      <Text style={styles.bootText}>Preparando Ventas y Portal...</Text>
+      <ActivityIndicator size="small" color="#FF4D7D" style={styles.bootIndicator} />
+      <Text style={styles.bootText}>Sincronizando sesión y permisos...</Text>
     </View>
   );
 }
@@ -73,13 +74,13 @@ function OperationalAccountNotice() {
         <Text style={styles.operationalBadge}>CUENTA OPERATIVA</Text>
         <Text style={styles.staticTitle}>Continúa en la app móvil</Text>
         <Text style={styles.staticBody}>
-          Esta cuenta pertenece a Mobile. Abre la app ManeComb en tu teléfono para usar mapa, GPS, rutas, Radio, Chat y llamadas.
+          Esta identidad tiene acceso a la operación móvil de ManeComb. Abre la app en tu teléfono para usar mapa, GPS, rutas, Radio, Chat y llamadas.
         </Text>
         <Text style={styles.operationalMeta}>
-          Rol: {role} · Tipo: {accountType} · Canal: {accountChannel}
+          Rol: {role} · Tipo: {accountType} · Canal principal: {accountChannel}
         </Text>
         <Text style={styles.operationalHint}>
-          Ventas permite conocer y contratar planes. El Portal web es exclusivo de cuentas company_portal. Esta cuenta mobile_operations no puede entrar al Portal empresarial.
+          El canal principal orienta el destino inicial; los permisos de la cuenta determinan los productos y funciones disponibles. Esta identidad no tiene acceso autorizado al Portal empresarial.
         </Text>
         <View style={styles.operationalActions}>
           <Pressable accessibilityRole="button" onPress={() => router.push('/ventas')} style={styles.primaryButton}>
@@ -97,23 +98,14 @@ function OperationalAccountNotice() {
 function Routes() {
   const pathname = usePathname().replace(/\/+$/, '') || '/';
   const isHydrated = useAppStore((state) => state.isHydrated);
-  const isBootstrapping = useAppStore((state) => state.isBootstrapping);
   const user = useAppStore((state) => state.user);
 
-  if (!isHydrated && isBootstrapping) {
+  // Never resolve protected routing before session hydration is complete. This
+  // avoids transient redirects and blank/incorrect states if bootstrap flags drift.
+  if (!isHydrated) {
     return <BootScreen />;
   }
 
-  const protectedPortalRoutes: Partial<Record<string, PortalPermission>> = {
-    '/portal/usuarios': 'users',
-    '/portal/unidades': 'vehicles',
-    '/portal/rutas': 'routes',
-    '/portal/plan': 'billing',
-    '/portal/facturacion': 'billing',
-    '/portal/pagos': 'billing',
-    '/portal/documentos': 'billing',
-    '/portal/incidencias': 'billing',
-  };
   const isPortalRoute = pathname === '/portal' || pathname.startsWith('/portal/');
   const isOperationalNoticeRoute = pathname === '/acceso-operativo';
 
@@ -129,11 +121,14 @@ function Routes() {
     return <Redirect href="/ventas/login" />;
   }
 
-  if (isOperationalNoticeRoute && getAccountChannel(user) !== 'mobile_operations') {
+  if (
+    isOperationalNoticeRoute &&
+    (getAccountChannel(user) !== 'mobile_operations' || canAccessPortal(user))
+  ) {
     return <Redirect href={getAuthenticatedHome(user) as never} />;
   }
 
-  const requiredPermission = protectedPortalRoutes[pathname];
+  const requiredPermission = getPortalRoutePermission(pathname);
   if (requiredPermission && !hasPortalPermission(user, requiredPermission)) {
     return <Redirect href="/portal" />;
   }
@@ -238,11 +233,14 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '900',
   },
+  bootIndicator: {
+    marginTop: 16,
+  },
   bootText: {
     color: '#A8B1C2',
     fontFamily: Typography.body,
     fontSize: 14,
-    marginTop: 8,
+    marginTop: 10,
   },
   staticPage: {
     alignItems: 'flex-start',
