@@ -13,6 +13,7 @@ import { PortalDriverAssignments } from '../users/components/portal-driver-assig
 import { PortalAdministrativeUsers } from '../users/components/portal-administrative-users';
 import { PortalButton } from '../components/portal-button';
 import { PortalUserStatusSelector } from '../users/components/portal-user-status-selector';
+import { hasPortalPermission } from '../utils/access';
 import { styles } from '../users/users.styles';
 
 type DriverAction = 'assign' | 'offboard' | 'reactivate' | 'delete';
@@ -33,7 +34,7 @@ export function PortalUsersScreen() {
       vehicles: state.vehicles,
     }))
   );
-  const canManageUsers = Boolean(user && ['owner', 'admin'].includes(user.role));
+  const canManageUsers = hasPortalPermission(user, 'users');
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [driverTarget, setDriverTarget] = useState<User | null>(null);
@@ -64,20 +65,21 @@ export function PortalUsersScreen() {
   );
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canManageUsers) return;
     const result = await deleteUser(deleteTarget.id);
     setMessage(result.ok ? 'Usuario eliminado.' : result.message || 'No fue posible eliminar el usuario.');
     if (result.ok) setDeleteTarget(null);
   };
 
   const confirmEdit = async () => {
-    if (!editTarget) return;
+    if (!editTarget || !canManageUsers) return;
     const result = await updateUser(editTarget.id, { userStatus: editStatus, status: editStatus === 'suspended' ? 'offline' : 'online' });
     setMessage(result.ok ? 'Estado actualizado.' : result.message || 'No fue posible actualizar.');
     if (result.ok) setEditTarget(null);
   };
 
   const openDriverManager = async (driver: User) => {
+    if (!canManageUsers) return;
     setDriverTarget(driver);
     setDriverAction(driver.userStatus === 'suspended' ? 'reactivate' : 'assign');
     setSelectedVehicleId(driver.vehicleId || null);
@@ -92,7 +94,7 @@ export function PortalUsersScreen() {
   };
 
   const confirmDriverAction = async () => {
-    if (!driverTarget) return;
+    if (!driverTarget || !canManageUsers) return;
     const currentVehicle = vehicles.find((entry) => entry.id === driverTarget.vehicleId);
     let result;
     if (driverAction === 'assign') result = await updateUser(driverTarget.id, { vehicleId: selectedVehicleId });
@@ -142,6 +144,7 @@ export function PortalUsersScreen() {
         canManageUsers={canManageUsers}
         onDelete={setDeleteTarget}
         onEdit={(item) => {
+          if (!canManageUsers) return;
           setEditTarget(item);
           setEditStatus(item.userStatus || 'active');
         }}
@@ -149,7 +152,7 @@ export function PortalUsersScreen() {
       />
 
       <ConfirmModal
-        visible={Boolean(deleteTarget)}
+        visible={Boolean(canManageUsers && deleteTarget)}
         destructive
         title={
           deleteTarget?.role === 'driver'
@@ -168,7 +171,7 @@ export function PortalUsersScreen() {
       />
 
       <ConfirmModal
-        visible={Boolean(editTarget)}
+        visible={Boolean(canManageUsers && editTarget)}
         title="Cambiar estado"
         description={`Actualiza el estado de ${editTarget?.name || 'este usuario'}.`}
         confirmLabel="Guardar"
@@ -179,7 +182,7 @@ export function PortalUsersScreen() {
       </ConfirmModal>
 
       <ConfirmModal
-        visible={Boolean(driverTarget)}
+        visible={Boolean(canManageUsers && driverTarget)}
         destructive={driverAction === 'offboard' || driverAction === 'delete'}
         title={`Administrar a ${driverTarget?.name || 'conductor'}`}
         description={driverImpact?.blockers.length
