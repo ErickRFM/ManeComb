@@ -32,9 +32,11 @@ function compareVersions(a, b) {
   return 0;
 }
 
-function getAppUpdateInfo(store, currentVersion) {
+async function getAppUpdateInfo(store, currentVersion) {
   try {
-    const appConfig = store?.getAppConfig ? store.getAppConfig() : null;
+    const appConfig = store?.getAppConfig
+      ? await Promise.resolve(store.getAppConfig())
+      : null;
     if (!appConfig) return {};
 
     const publishedVersion = appConfig.version;
@@ -59,6 +61,25 @@ function getAppUpdateInfo(store, currentVersion) {
     };
   } catch (e) {
     return {};
+  }
+}
+
+async function recordDeviceVersionBestEffort(store, userId, versionInfo) {
+  if (!store?.recordDeviceVersion) return;
+
+  try {
+    await Promise.resolve(store.recordDeviceVersion(userId, versionInfo));
+  } catch (error) {
+    logger.warn({
+      action: "RecordAppClientVersion",
+      module: "Auth",
+      userId,
+      status: "degraded",
+      message: "No fue posible persistir telemetria de version del cliente",
+      metadata: {
+        error: communication.security.sanitizeProviderError(error)
+      }
+    });
   }
 }
 
@@ -145,10 +166,15 @@ async function buildLoginResponse(req, res, user, statusCode = 200, action = "au
   const store = req.app.locals.store;
   const { appVersion, buildNumber, platform } = req.body || {};
   const deviceModel = req.headers["x-device-model"] || "";
-  const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};
+  const updateInfo = appVersion ? await getAppUpdateInfo(store, appVersion) : {};
 
-  if (appVersion && store?.recordDeviceVersion) {
-    store.recordDeviceVersion(user.id, { version: appVersion, buildNumber, platform, deviceModel });
+  if (appVersion) {
+    await recordDeviceVersionBestEffort(store, user.id, {
+      version: appVersion,
+      buildNumber,
+      platform,
+      deviceModel
+    });
   }
 
   return res.status(statusCode).json({
@@ -317,7 +343,7 @@ router.post("/refresh", refreshLimiter, async (req, res) => {
 
   const refreshStore = req.app.locals.store;
   const { appVersion } = req.body || {};
-  const refreshUpdateInfo = appVersion ? getAppUpdateInfo(refreshStore, appVersion) : {};
+  const refreshUpdateInfo = appVersion ? await getAppUpdateInfo(refreshStore, appVersion) : {};
 
   return res.json({
     ok: true,
