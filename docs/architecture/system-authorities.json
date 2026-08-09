@@ -204,7 +204,7 @@
       "sourcePaths": [
         "backend/src/modules/rtc/session-coordinator.js",
         "backend/src/data/repositories/session-repository.js",
-        "backend/src/data/models"
+        "backend/src/data/models.js"
       ],
       "consumers": ["backend", "mobile", "admin-global"],
       "targetPhase": 7
