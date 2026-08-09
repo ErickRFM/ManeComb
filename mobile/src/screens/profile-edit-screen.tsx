@@ -4,7 +4,7 @@ import { DriverProfileEditScreen } from './driver-profile-edit-screen';
 
 export function ProfileEditScreen() {
   const user = useAppStore((state) => state.user);
-  const isDriverProfile = user?.role === 'driver' || user?.role === 'conductor';
+  const isCompanyAccount = user?.accountType === 'company_owner';
 
-  return isDriverProfile ? <DriverProfileEditScreen /> : <CompanyProfileEditScreen />;
+  return isCompanyAccount ? <CompanyProfileEditScreen /> : <DriverProfileEditScreen />;
 }
