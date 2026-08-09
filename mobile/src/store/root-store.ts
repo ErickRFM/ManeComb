@@ -122,6 +122,10 @@ import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from 
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
 import { isRealtimeAuthError } from '@/src/utils/realtime-state';
 import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/chat-message-id';
+import {
+  canLoadDirectoryUsers,
+  canRefreshOperationalData,
+} from '@/src/store/mobile-capability-authority';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -792,17 +796,7 @@ function shouldRefreshOperationalData(
   authContext: AuthRoutingContext | null | undefined,
   user: User | null | undefined
 ) {
-  if (!user || !authContext) {
-    return false;
-  }
-
-  const accountChannel = authContext.accountChannel ?? user.accountChannel;
-
-  if (accountChannel) {
-    return accountChannel === 'mobile_operations' && authContext.canAccessMobile === true;
-  }
-
-  return user.accountType === 'operations' && authContext.canAccessMobile === true;
+  return canRefreshOperationalData(authContext, user);
 }
 
 async function refreshAuthSession(set: StoreSet, epoch?: number) {
@@ -2104,7 +2098,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await Promise.allSettled([
         getLocationsRequest(), getOperationalUnitsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
         getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
-        user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
+        canLoadDirectoryUsers(user) ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
@@ -2522,7 +2516,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   loadUsers: async () => {
     const currentUser = get().user;
-    if (!currentUser || !['owner', 'admin', 'supervisor'].includes(currentUser.role)) return;
+    if (!canLoadDirectoryUsers(currentUser)) return;
 
     try {
       set({ users: await getUsersRequest() });
