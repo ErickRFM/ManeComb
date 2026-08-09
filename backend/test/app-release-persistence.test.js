@@ -29,7 +29,10 @@ function createHarness() {
     findOneAndUpdate(filter, update, options = {}) {
       return query(() => {
         if (!state.appConfig && options.upsert) {
-          state.appConfig = clone(update.$setOnInsert || { _id: filter._id });
+          state.appConfig = {
+            _id: filter._id,
+            ...clone(update.$setOnInsert || {})
+          };
         }
         if (!state.appConfig) return null;
         if (update.$set) Object.assign(state.appConfig, clone(update.$set));
@@ -46,7 +49,10 @@ function createHarness() {
     findOneAndUpdate(filter, update) {
       return query(() => {
         const id = filter._id;
-        const existing = state.clients.get(id) || clone(update.$setOnInsert || { _id: id });
+        const existing = state.clients.get(id) || {
+          _id: id,
+          ...clone(update.$setOnInsert || {})
+        };
         Object.assign(existing, clone(update.$set || {}));
         state.clients.set(id, existing);
         state.clientWrites += 1;
@@ -203,6 +209,20 @@ async function main() {
   assert.equal(updated.releaseDate, "2026-08-09");
   assert.equal(Object.hasOwn(updated, "internalField"), false);
 
+  const firstWriteHarness = createHarness();
+  const firstWriteRepository = new AppReleaseRepository(createBaseStore("1.0.2"), {
+    AppConfigModel: firstWriteHarness.AppConfigModel,
+    AppClientVersionModel: firstWriteHarness.AppClientVersionModel
+  });
+  const firstWrite = await firstWriteRepository.updateAppConfig({
+    version: "1.0.4",
+    releaseDate: "2026-08-10"
+  });
+  assert.equal(firstWrite.version, "1.0.4");
+  assert.equal(firstWrite.name, "ManeComb", "first atomic patch keeps non-overlapping seed fields");
+  assert.deepEqual(firstWrite.releaseNotes, ["seed"]);
+  assert.equal(firstWriteHarness.state.appConfigWrites, 1, "first patch creates and updates singleton in one upsert");
+
   const afterRestart = new AppReleaseRepository(createBaseStore("0.0.1"), models);
   const persisted = await afterRestart.getAppConfig();
   assert.equal(persisted.version, "1.0.3", "a new repository instance reads the shared persisted singleton");
@@ -241,6 +261,16 @@ async function main() {
   const embeddedRepository = new AppReleaseRepository(embeddedBase);
   assert.equal((await embeddedRepository.getAppConfig()).version, "2.0.0");
   assert.equal((await embeddedRepository.updateAppConfig({ version: "2.0.1" })).version, "2.0.1");
+
+  const partialModelStore = buildBackendStore(createBaseStore("3.0.0"), {
+    models: { UnrelatedModel: {} }
+  });
+  assert.equal(
+    (await partialModelStore.getAppConfig()).version,
+    "3.0.0",
+    "partial test dependencies must not activate real Mongo app-release models"
+  );
+  assert.equal((await partialModelStore.updateAppConfig({ version: "3.0.1" })).version, "3.0.1");
 
   const mongoStore = buildBackendStore(createBaseStore("1.0.0"), { models });
   assert.equal((await mongoStore.getAppConfig()).version, "1.0.3", "Mongo build overrides legacy memory methods with durable service");
