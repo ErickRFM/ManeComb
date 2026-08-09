@@ -6,6 +6,9 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 
 const routing = read('src/utils/account-routing.ts');
 const access = read('features/portal/utils/access.ts');
+const registry = read('features/portal/navigation/portal-route-registry.ts');
+const portalLayout = read('features/portal/components/portal-layout.tsx');
+const portalActions = read('features/portal/store/portal-actions.ts');
 const app = read('src/App.tsx');
 const authScreen = read('screens/sales-auth-screen.tsx');
 const salesScreen = read('screens/sales-screen.tsx');
@@ -29,16 +32,15 @@ for (const channel of requiredChannels) {
   }
 }
 
-if (!access.includes("explicitChannel === 'company_portal'")) {
-  throw new Error('El Portal debe consumir el canal company_portal emitido por el backend.');
-}
-
 const capabilityContracts = [
-  "user.capabilities!.includes('portal.access')",
+  "return user.capabilities!.includes('portal.access')",
   "users: 'users.manage'",
   "billing: 'billing.manage'",
   "vehicles: 'vehicles.manage'",
   "routes: 'routes.manage'",
+  "documents: 'documents.manage'",
+  "incidents: 'incidents.manage'",
+  "analytics: 'analytics.view'",
   'user!.capabilities!.includes(PORTAL_CAPABILITIES[permission])',
 ];
 
@@ -52,12 +54,65 @@ if (!access.includes("user.accountType === 'company_owner' && isPortalRole(user.
   throw new Error('La compatibilidad heredada debe usar accountType AND role y fallar cerrada.');
 }
 
+if (access.includes("explicitChannel === 'company_portal' && user.capabilities")) {
+  throw new Error('accountChannel volvió a limitar una identidad que ya trae capabilities explícitas.');
+}
+
 if (routing.includes("accountType === 'company_owner' ||") || routing.includes('accountType === "company_owner" ||')) {
   throw new Error('Regresó la clasificación permisiva accountType OR role.');
 }
 
 if (!routing.includes("channel === 'mobile_operations') return '/acceso-operativo'")) {
   throw new Error('La cuenta operativa debe ir al aviso de frontera, no a una ruta operativa web.');
+}
+
+const portalRouteContracts = [
+  "'/portal/usuarios': { title: 'Equipo', permission: 'users' }",
+  "'/portal/unidades': { title: 'Unidades', permission: 'vehicles' }",
+  "'/portal/rutas': { title: 'Rutas', permission: 'routes' }",
+  "'/portal/plan': { title: 'Mi plan', permission: 'billing' }",
+  "'/portal/documentos': { title: 'Documentos', permission: 'documents' }",
+  "'/portal/incidencias': { title: 'Incidencias', permission: 'incidents' }",
+];
+
+for (const contract of portalRouteContracts) {
+  if (!registry.includes(contract)) {
+    throw new Error(`El registro de rutas del Portal perdió el contrato: ${contract}`);
+  }
+}
+
+if (registry.includes("'/portal/documentos': { title: 'Documentos', permission: 'billing' }") ||
+    registry.includes("'/portal/incidencias': { title: 'Incidencias', permission: 'billing' }")) {
+  throw new Error('Documentos o Incidencias volvieron a depender incorrectamente de billing.manage.');
+}
+
+if (!app.includes('getPortalRoutePermission(pathname)')) {
+  throw new Error('El router debe resolver permisos desde PORTAL_ROUTE_REGISTRY.');
+}
+
+if (app.includes('const protectedPortalRoutes')) {
+  throw new Error('Regresó una segunda tabla de permisos dentro de App.tsx.');
+}
+
+if (!portalLayout.includes('PORTAL_NAV_SECTIONS.map')) {
+  throw new Error('El menú desktop/mobile no consume el mismo registro de navegación.');
+}
+
+if (portalLayout.includes('const navSections')) {
+  throw new Error('Regresó una segunda autoridad local de navegación en PortalLayout.');
+}
+
+const portalBootContracts = [
+  "loadAll({ includeBilling: canManageBilling })",
+  "includeBilling ? getAccountInvoicesRequest() : Promise.resolve([])",
+  'lastFullLoadIncludedBilling',
+];
+
+for (const contract of portalBootContracts) {
+  const source = contract.startsWith('loadAll(') ? portalLayout : portalActions;
+  if (!source.includes(contract)) {
+    throw new Error(`El arranque del Portal perdió el alcance por capabilities: ${contract}`);
+  }
 }
 
 const forbiddenSalesOperationalRoutes = [
@@ -75,18 +130,22 @@ for (const forbidden of forbiddenSalesOperationalRoutes) {
 }
 
 if (!app.includes('isPortalRoute && !canAccessPortal(user)')) {
-  throw new Error('El guard global del Portal no exige el canal canónico.');
+  throw new Error('El guard global del Portal no exige portal.access/capability compatible.');
 }
 
-if (!app.includes("isOperationalNoticeRoute && getAccountChannel(user) !== 'mobile_operations'")) {
-  throw new Error('El aviso de frontera no está protegido por mobile_operations.');
+if (!app.includes("getAccountChannel(user) !== 'mobile_operations'") || !app.includes('|| canAccessPortal(user)')) {
+  throw new Error('El aviso operativo debe respetar mobile_operations sin bloquear identidades con Portal autorizado.');
+}
+
+if (!app.includes('if (!isHydrated)')) {
+  throw new Error('El router debe fallar cerrado hasta completar la hidratación de sesión.');
 }
 
 const noticeContracts = [
   'CUENTA OPERATIVA',
   'Continúa en la app móvil',
-  'Esta cuenta pertenece a Mobile.',
-  'Esta cuenta mobile_operations no puede entrar al Portal empresarial.',
+  'Esta identidad tiene acceso a la operación móvil de ManeComb.',
+  'El canal principal orienta el destino inicial; los permisos de la cuenta determinan los productos y funciones disponibles.',
   'Cerrar sesión',
   '<OperationalAccountNotice />',
 ];
@@ -194,4 +253,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical channels, capabilities, product boundaries, checkout intent, provider readiness and trial → Portal verified.');
+console.log('Portal capabilities, route registry, scoped boot, product boundaries, checkout intent and trial → Portal verified.');
