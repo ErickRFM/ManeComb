@@ -373,6 +373,13 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     isSigningOut: false,
     error,
     updateInfo: null,
+    // Cerrar la sesion tambien cierra el arranque. `beginSessionEpoch` de arriba
+    // invalida cualquier `initialize`/`refreshAll` en vuelo, y esas tareas
+    // retornan sin tocar los flags para no pisar esta autoridad; si no los
+    // declaramos aqui, `isBootstrapping` se queda en true y la app se cuelga en
+    // el loader de arranque sin ninguna operacion real detras.
+    isBootstrapping: false,
+    isHydrated: true,
   });
 }
 
@@ -1934,6 +1941,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionToken = get().token || sessionToken;
         nextRefreshToken = get().refreshToken || nextRefreshToken;
       } catch (error) {
+        // Sesion invalidada mientras `/auth/me` estaba en vuelo. `clearSessionState`
+        // es dueño del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
         if (isSessionEpochStale(epoch)) return;
         if (isProbablyNetworkError(error)) {
           const startupError = getReadableErrorMessage(
@@ -1995,6 +2004,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const authContext = getAuthContextFromPayload(s);
+      // Idem: la sesion ya fue cerrada, no reescribimos nada sobre `clearSessionState`.
       if (isSessionEpochStale(epoch)) return;
       if (s.updateAvailable !== undefined) {
         const updateInfoPayload = {
