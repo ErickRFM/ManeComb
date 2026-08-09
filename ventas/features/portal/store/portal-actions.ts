@@ -32,6 +32,7 @@ import type {
 
 let fullLoadPromise: Promise<void> | null = null;
 let lastFullLoadAt = 0;
+let lastFullLoadIncludedBilling = false;
 
 export function createPortalActions(
   set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
@@ -52,6 +53,7 @@ export function createPortalActions(
     reset: () => {
       fullLoadPromise = null;
       lastFullLoadAt = 0;
+      lastFullLoadIncludedBilling = false;
       set(emptyPortalState);
     },
     clearError: () => set({ error: null }),
@@ -149,8 +151,16 @@ export function createPortalActions(
       }
     },
     loadAll: async (options) => {
+      const includeBilling = Boolean(options?.includeBilling);
+      const billingScopeChanged = includeBilling !== lastFullLoadIncludedBilling;
+
       if (fullLoadPromise) return fullLoadPromise;
-      if (!options?.force && lastFullLoadAt && Date.now() - lastFullLoadAt < PORTAL_LOAD_TTL_MS) return;
+      if (
+        !options?.force &&
+        !billingScopeChanged &&
+        lastFullLoadAt &&
+        Date.now() - lastFullLoadAt < PORTAL_LOAD_TTL_MS
+      ) return;
 
       fullLoadPromise = (async () => {
         set({ isLoading: true, error: null });
@@ -161,11 +171,12 @@ export function createPortalActions(
               getAccountSubscriptionRequest(),
               getPortalOnboardingRequest(),
               getOptionalActivationKeys(),
-              getAccountInvoicesRequest(),
+              includeBilling ? getAccountInvoicesRequest() : Promise.resolve([]),
               getAccountSessionsRequest(),
             ]);
 
           lastFullLoadAt = Date.now();
+          lastFullLoadIncludedBilling = includeBilling;
           set({
             overview,
             subscription,
@@ -378,7 +389,7 @@ export function createPortalActions(
         }
 
         if (needsFullCommercialReload(eventName)) {
-          void get().loadAll({ force: true });
+          void get().loadAll({ force: true, includeBilling: lastFullLoadIncludedBilling });
           return;
         }
 
