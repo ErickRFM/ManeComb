@@ -33,9 +33,16 @@ describe('navigation route registry', () => {
 
   it('keeps profile editing inside the profile stack', () => {
     expect(getRouteDefinition('/perfil-editar')).toEqual({ module: 'profile', root: '/perfil' });
-    expect(getRouteDefinition('/mis-documentos')).toEqual({ module: 'profile', root: '/perfil' });
+    expect(getRouteDefinition('/mis-documentos')).toEqual({ module: 'profile', root: '/perfil', allowedRoles: ['driver'] });
     expect(isModuleRoot('/perfil-editar')).toBe(false);
     expect(getModuleRouteName('profile')).toBe(MODULE_ROUTE_NAMES.profile);
+  });
+
+  it('reserva el self-service documental al conductor incluso por deep link', () => {
+    expect(canRoleAccessRoute('/mis-documentos', 'driver')).toBe(true);
+    expect(canRoleAccessRoute('/mis-documentos', 'dispatcher')).toBe(false);
+    expect(canRoleAccessRoute('/mis-documentos', 'supervisor')).toBe(false);
+    expect(canRoleAccessRoute('/mis-documentos', 'admin')).toBe(false);
   });
 
   it('does not classify public routes as operational modules', () => {
