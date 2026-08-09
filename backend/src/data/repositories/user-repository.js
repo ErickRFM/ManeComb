@@ -1,4 +1,5 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
+const { getEnterpriseOrganizationId, mapMaybePromise } = require("./tenant-repository-utils");
 const { sanitizeUser } = require("../serializers");
 
 const USER_METHODS = [
@@ -33,10 +34,6 @@ function sanitizeProfile(profile) {
     ...profile,
     user: sanitizeUser(profile.user)
   };
-}
-
-function getEnterpriseOrganizationId(user) {
-  return String(user?.organizationId || user?.companyId || "").trim();
 }
 
 function scopeUsersToEnterpriseActor(users, actor) {
@@ -85,9 +82,11 @@ class UserRepository extends StoreDomainRepository {
     return sanitizeUser(user);
   }
 
-  async listUsers(user) {
-    const users = await Promise.resolve(this.store.listUsers(user));
-    return scopeUsersToEnterpriseActor(users, user);
+  listUsers(user) {
+    return mapMaybePromise(
+      this.store.listUsers(user),
+      (users) => scopeUsersToEnterpriseActor(users, user)
+    );
   }
 
   async getUserProfile(userId) {
@@ -123,7 +122,6 @@ class UserRepository extends StoreDomainRepository {
 module.exports = {
   USER_METHODS,
   UserRepository,
-  getEnterpriseOrganizationId,
   sanitizeProfile,
   scopeUsersToEnterpriseActor
 };
