@@ -23,6 +23,7 @@ const {
   sendSecurityChangeEmail,
   sendWelcomeEmail
 } = require("../../services/domain-email-events");
+const { pickSelfProfileFields } = require("../../services/profile-authority");
 
 const router = Router();
 const ACCOUNT_ADMIN_ROLES = new Set(["owner", "admin", "billing_manager", "support", "viewer"]);
@@ -135,7 +136,7 @@ router.patch("/me", authenticate, async (req, res, next) => {
   try {
     const previousProfile = await req.app.locals.store.getUserProfile(req.user.id);
     const previousUser = previousProfile?.user || previousProfile;
-    const payload = pickFields(req.body, PROFILE_FIELDS);
+    const payload = pickSelfProfileFields(req.user, req.body);
     const user = await req.app.locals.store.updateUser(
       req.user.id,
       payload
@@ -152,6 +153,21 @@ router.patch("/me", authenticate, async (req, res, next) => {
     if (emailChanged) {
       await sendSecurityChangeEmail(user, "EMAIL_CHANGED");
     }
+
+    await recordAudit(req, {
+      type: "profile_updated",
+      entityId: user.id,
+      message: `Perfil ${user.email} actualizado`,
+      metadata: {
+        targetRole: user.role,
+        updatedFields: Object.keys(payload).filter((field) => field !== "password")
+      }
+    });
+    emitOrganizationEvent(req, "user:updated", {
+      user,
+      organizationId: getOrganizationId(user),
+      updatedAt: new Date().toISOString()
+    });
 
     return res.json({
       ok: true,

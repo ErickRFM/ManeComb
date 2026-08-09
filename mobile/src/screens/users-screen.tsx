@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, DesignSystem, Typography, type DesignTone as Tone } from '@/constants/theme';
 import { AppCard } from '@/src/components/app-card';
@@ -13,6 +13,8 @@ import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, Vehicle } from '@/src/types/app';
 import { formatRole } from '@/src/utils/format';
 import { getPresenceStatus } from '@/src/utils/presence';
+import { formatOperationalSchedule, getOperationalScheduleState } from '@/src/utils/operational-schedule';
+import { openSalesPortal } from '@/src/utils/sales-portal';
 
 function roleTone(role: Role): Tone {
   if (role === 'admin') return 'danger';
@@ -31,7 +33,7 @@ function formatAccountStatus(status?: string) {
   if (status === 'active') return 'Cuenta activa';
   if (status === 'suspended') return 'Cuenta suspendida';
   if (status === 'blocked') return 'Cuenta bloqueada';
-  if (status === 'invited') return 'Invitacion pendiente';
+  if (status === 'invited') return 'Invitación pendiente';
   if (status === 'pending') return 'Cuenta pendiente';
   return 'Estado no disponible';
 }
@@ -39,6 +41,12 @@ function formatAccountStatus(status?: string) {
 function getVehicleRoute(vehicle?: Vehicle) {
   if (!vehicle) return 'Sin ruta asignada';
   return vehicle.assignedRoute?.route?.label || vehicle.assignedRoute?.destinationLabel || vehicle.routeName || 'Sin ruta asignada';
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'Sin acceso registrado';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Sin acceso registrado' : date.toLocaleString('es-MX');
 }
 
 export function UsersScreen() {
@@ -57,6 +65,7 @@ export function UsersScreen() {
   );
   const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const operationalUsers = useMemo(
     () => users.filter((entry) => entry.accountType !== 'company_owner'),
     [users]
@@ -66,6 +75,7 @@ export function UsersScreen() {
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
     [vehicles]
   );
+  const canOpenDocuments = user?.role === 'owner' || user?.role === 'admin';
 
   const refreshDirectory = useCallback(async () => {
     setIsRefreshing(true);
@@ -102,6 +112,7 @@ export function UsersScreen() {
       header={
         <View style={styles.header}>
           <Text style={styles.title}>Directorio</Text>
+          <Text style={styles.subtitle}>Perfiles operativos de la empresa, unidad asignada, presencia y datos de contacto.</Text>
         </View>
       }>
       <AppCard style={styles.directoryCard}>
@@ -117,6 +128,9 @@ export function UsersScreen() {
             operationalUsers.map((entry) => {
               const vehicle = entry.vehicleId ? vehicleById.get(entry.vehicleId) : undefined;
               const presence = getPresenceStatus(presenceByUser, entry.id);
+              const isExpanded = expandedUserId === entry.id;
+              const scheduleState = getOperationalScheduleState(entry.operationalSchedule);
+              const scheduleLabel = formatOperationalSchedule(entry.operationalSchedule);
 
               return (
                 <View key={entry.id} style={styles.userRow}>
@@ -133,14 +147,49 @@ export function UsersScreen() {
                     </View>
                   </View>
 
-                  <View style={styles.detailsGrid}>
-                    <DetailItem label="Teléfono" value={entry.phone || 'Sin teléfono'} />
-                    <DetailItem label="Turno" value={entry.shift || 'Sin turno'} />
-                    <DetailItem label="Unidad" value={vehicle?.code || 'Sin unidad asignada'} />
-                    <DetailItem label="Ruta" value={getVehicleRoute(vehicle)} />
-                    <DetailItem label="Ultimo acceso" value={entry.lastAccessAt ? new Date(entry.lastAccessAt).toLocaleString('es-MX') : 'Sin acceso registrado'} />
-                    {entry.suspendedAt ? <DetailItem label="Suspendida desde" value={new Date(entry.suspendedAt).toLocaleString('es-MX')} /> : null}
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryText}>Unidad: {vehicle?.code || 'Sin unidad'}</Text>
+                    <Text style={styles.summaryText}>Tel: {entry.phone || 'Sin teléfono'}</Text>
                   </View>
+
+                  <View style={styles.actionRow}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: isExpanded }}
+                      onPress={() => setExpandedUserId(isExpanded ? null : entry.id)}
+                      style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>
+                      <MaterialCommunityIcons name={isExpanded ? 'chevron-up' : 'account-details-outline'} size={18} color={theme.colors.text} />
+                      <Text style={styles.actionText}>{isExpanded ? 'Ocultar perfil' : 'Ver perfil'}</Text>
+                    </Pressable>
+                    {canOpenDocuments && entry.role === 'driver' ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void openSalesPortal('/portal/documentos')}
+                        style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>
+                        <MaterialCommunityIcons name="file-document-multiple-outline" size={18} color={theme.colors.accent} />
+                        <Text style={[styles.actionText, { color: theme.colors.accent }]}>Documentos</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  {isExpanded ? (
+                    <View style={styles.profileDetail}>
+                      <View style={styles.detailsGrid}>
+                        <DetailItem label="Correo" value={entry.email || 'Sin correo'} />
+                        <DetailItem label="Teléfono" value={entry.phone || 'Sin teléfono'} />
+                        <DetailItem label="Turno" value={entry.shift || 'Sin turno'} />
+                        <DetailItem label="Horario" value={`${scheduleLabel} · ${scheduleState.label}`} />
+                        <DetailItem label="Unidad" value={vehicle?.code || 'Sin unidad asignada'} />
+                        <DetailItem label="Placas" value={vehicle?.plate || 'Sin placas'} />
+                        <DetailItem label="Ruta" value={getVehicleRoute(vehicle)} />
+                        <DetailItem label="Último acceso" value={formatDateTime(entry.lastAccessAt)} />
+                        {entry.suspendedAt ? <DetailItem label="Suspendida desde" value={formatDateTime(entry.suspendedAt)} /> : null}
+                      </View>
+                      {entry.role === 'driver' ? (
+                        <Text style={styles.profileNote}>El conductor actualiza foto, nombre, correo y teléfono desde su perfil. La unidad, turno, horario operativo y revisión documental permanecen bajo control administrativo.</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               );
             })
@@ -248,6 +297,49 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
       flexWrap: 'wrap',
       gap: 8,
     },
+    summaryRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    summaryText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    actionRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    actionButton: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.card,
+      borderColor: theme.colors.line,
+      borderRadius: AppTheme.radius.md,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: 7,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    actionButtonPressed: {
+      opacity: 0.76,
+      transform: [{ scale: 0.99 }],
+    },
+    actionText: {
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    profileDetail: {
+      borderTopColor: theme.colors.line,
+      borderTopWidth: 1,
+      gap: 10,
+      paddingTop: 12,
+    },
     detailsGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -272,6 +364,12 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
       fontFamily: Typography.body,
       fontSize: isPhone ? 13 : 14,
       fontWeight: '800',
+    },
+    profileNote: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      lineHeight: 18,
     },
     emptyState: {
       alignItems: 'center',

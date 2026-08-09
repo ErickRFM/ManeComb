@@ -1,0 +1,52 @@
+const PERSONAL_PROFILE_FIELDS = Object.freeze([
+  "name",
+  "email",
+  "password",
+  "phone",
+  "avatarUrl",
+  "e2eePublicKey",
+  "e2eeKeyRotatedAt"
+]);
+
+const COMPANY_PROFILE_FIELDS = Object.freeze([
+  ...PERSONAL_PROFILE_FIELDS,
+  "companyName",
+  "legalName",
+  "taxId",
+  "billingEmail",
+  "billingAddress",
+  "preferredMethod",
+  "cardholderName",
+  "cardBrand",
+  "cardLast4",
+  "cardExpMonth",
+  "cardExpYear",
+  "customerReference",
+  "companyProfile",
+  "paymentProfile",
+  "operationalSchedule"
+]);
+
+function pickAllowedFields(payload, allowedFields) {
+  const allowed = new Set(allowedFields);
+  return Object.fromEntries(
+    Object.entries(payload || {}).filter(([key]) => allowed.has(key))
+  );
+}
+
+function getSelfProfileFields(user) {
+  return user?.accountType === "company_owner"
+    ? COMPANY_PROFILE_FIELDS
+    : PERSONAL_PROFILE_FIELDS;
+}
+
+function pickSelfProfileFields(user, payload) {
+  return pickAllowedFields(payload, getSelfProfileFields(user));
+}
+
+module.exports = {
+  COMPANY_PROFILE_FIELDS,
+  PERSONAL_PROFILE_FIELDS,
+  getSelfProfileFields,
+  pickSelfProfileFields
+};
