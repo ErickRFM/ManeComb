@@ -96,6 +96,7 @@ export type User = {
   accountType: AccountType;
   accountChannel?: AccountChannel;
   accountChannelReason?: string | null;
+  capabilities?: string[];
   organizationId?: string;
   userStatus?: UserAccountStatus;
   lastAccessAt?: string | null;

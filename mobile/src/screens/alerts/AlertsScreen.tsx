@@ -117,7 +117,7 @@ export function AlertsScreen() {
     ? filteredIncidents
     : filteredIncidents.slice(0, INITIAL_VISIBLE_EVENTS);
   const hiddenEventsCount = Math.max(filteredIncidents.length - visibleIncidents.length, 0);
-  const canManageIncidents = canManageMobileIncidents(user as typeof user & { capabilities?: string[] });
+  const canManageIncidents = canManageMobileIncidents(user);
 
   const handleCreate = async () => {
     if (!title.trim() || !description.trim()) return;
