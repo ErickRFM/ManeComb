@@ -24,6 +24,7 @@ export function PlanCurrentSummary({
     return null;
   }
 
+  const isOperational = subscription.isActive === true;
   const totalUnits = Number(subscription.totalUnits || currentPlan?.units || 0);
   const activeUnits = Number(subscription.activeUnits || 0);
   const usagePercent = totalUnits ? Math.min(100, Math.round((activeUnits / totalUnits) * 100)) : 0;
@@ -34,36 +35,60 @@ export function PlanCurrentSummary({
     <View style={[styles.currentPlanCard, portalGlass()]}>
       <View style={styles.currentPlanHeader}>
         <View style={styles.currentPlanIdentity}>
-          <Text style={styles.eyebrow}>Plan actual</Text>
+          <Text style={styles.eyebrow}>{isOperational ? 'Plan actual' : 'Plan solicitado'}</Text>
           <Text style={styles.currentPlanName}>{currentPlan?.displayName || subscription.planName || 'Plan ManeComb'}</Text>
           <Text style={styles.currentPlanDescription}>{description}</Text>
         </View>
-        <StatusBadge
-          label={state.label}
-          tone={state.tone}
-        />
+        <StatusBadge label={state.label} tone={state.tone} />
       </View>
 
       <View style={styles.currentMetrics}>
-        <PlanFact label="Precio mensual" value={formatCurrency(monthlyPrice, subscription.currency || 'MXN')} />
-        <PlanFact label="Unidades incluidas" value={String(totalUnits)} />
-        <PlanFact label="Unidades utilizadas" value={`${activeUnits} de ${totalUnits}`} />
         <PlanFact
-          label="Fin del periodo"
-          value={formatDate(subscription.currentPeriodEnd, { fallback: 'Por confirmar' })}
+          label={isOperational ? 'Precio mensual' : 'Importe solicitado'}
+          value={formatCurrency(monthlyPrice, subscription.currency || 'MXN')}
         />
+        <PlanFact
+          label={isOperational ? 'Unidades incluidas' : 'Capacidad solicitada'}
+          value={String(totalUnits)}
+        />
+        {isOperational ? (
+          <>
+            <PlanFact label="Unidades utilizadas" value={`${activeUnits} de ${totalUnits}`} />
+            <PlanFact
+              label="Fin del periodo"
+              value={formatDate(subscription.currentPeriodEnd, { fallback: 'Por confirmar' })}
+            />
+          </>
+        ) : (
+          <>
+            <PlanFact label="Acceso operativo" value="Bloqueado" />
+            <PlanFact label="Activación" value="Pendiente de pago" />
+          </>
+        )}
       </View>
 
-      <View style={styles.usageBlock}>
-        <View style={styles.usageHeader}>
-          <Text style={styles.usageLabel}>Uso del plan</Text>
-          <Text style={styles.usageValue}>{usagePercent}%</Text>
+      {isOperational ? (
+        <View style={styles.usageBlock}>
+          <View style={styles.usageHeader}>
+            <Text style={styles.usageLabel}>Uso del plan</Text>
+            <Text style={styles.usageValue}>{usagePercent}%</Text>
+          </View>
+          <View style={styles.usageTrack}>
+            <View style={[styles.usageFill, { width: `${usagePercent}%` }]} />
+          </View>
+          <Text style={styles.usageHint}>{state.message}</Text>
         </View>
-        <View style={styles.usageTrack}>
-          <View style={[styles.usageFill, { width: `${usagePercent}%` }]} />
+      ) : (
+        <View style={styles.usageBlock}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <MaterialCommunityIcons name="lock-clock" size={18} color={portalPalette.warning} />
+            <Text style={[styles.usageHint, { flex: 1 }]}>
+              {state.message} El mapa, las unidades, las rutas y las herramientas operativas se habilitan únicamente cuando el backend confirma el pago o activa una prueba válida.
+            </Text>
+          </View>
         </View>
-        <Text style={styles.usageHint}>{state.message}</Text>
-      </View>
+      )}
+
       {canCancel && onCancel ? (
         <Pressable
           accessibilityRole="button"
