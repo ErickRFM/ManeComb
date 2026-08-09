@@ -96,4 +96,6 @@ for (const inlined of ["manecomb:radio:channel:", "redis.call('get'", "NX: true"
   );
 }
 
+require("./subscription-realtime.test");
+
 console.log("backend architecture tests passed");
