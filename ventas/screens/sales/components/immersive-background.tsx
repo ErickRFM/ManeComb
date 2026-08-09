@@ -22,13 +22,13 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
           toValue: 1,
           duration: 6500,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
         Animated.timing(pulse, {
           toValue: 0,
           duration: 6500,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
       ])
     );
@@ -119,8 +119,8 @@ const ImmersiveBackground = memo(function ImmersiveBackground({ isPhone }: { isP
                   boxShadow: `0 0 18px ${color}`,
                   animation: reducedMotion ? undefined : `manecombParticleDrift ${10 + (index % 7) * 1.5}s ease-in-out ${index * -0.7}s infinite`,
                 }),
-              ]}
-            />
+              ]}>
+            </View>
           );
         })}
       </View>
