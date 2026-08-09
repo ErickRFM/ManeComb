@@ -3,13 +3,12 @@ import { Pressable, Text, View } from 'react-native';
 import { portalPalette } from '../../portal-theme';
 import { styles } from '../app-mobile.styles';
 
-export type TabKey = 'info' | 'history' | 'admin';
+export type TabKey = 'info' | 'history';
 
 export function AppMobileTabBar({ activeTab, onTabChange }: { activeTab: TabKey; onTabChange: (tab: TabKey) => void }) {
   const tabs: { key: TabKey; icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }[] = [
     { key: 'info', icon: 'information-outline', label: 'Información' },
     { key: 'history', icon: 'history', label: 'Historial' },
-    { key: 'admin', icon: 'cog-outline', label: 'Administración' },
   ];
 
   return (
@@ -18,6 +17,7 @@ export function AppMobileTabBar({ activeTab, onTabChange }: { activeTab: TabKey;
         <Pressable
           key={tab.key}
           accessibilityRole="button"
+          accessibilityState={{ selected: activeTab === tab.key }}
           onPress={() => onTabChange(tab.key)}
           style={[styles.tabItem, activeTab === tab.key && styles.tabItemActive]}>
           <MaterialCommunityIcons
