@@ -1,3 +1,4 @@
+const { AppReleaseRepository } = require("./repositories/app-release-repository");
 const { DocumentRepository } = require("./repositories/document-repository");
 const { FleetRepository } = require("./repositories/fleet-repository");
 const { IncidentRepository } = require("./repositories/incident-repository");
@@ -7,6 +8,8 @@ const { PaymentRepository } = require("./repositories/payment-repository");
 const { SessionRepository } = require("./repositories/session-repository");
 const { TrackingRepository } = require("./repositories/tracking-repository");
 const { UserRepository } = require("./repositories/user-repository");
+const { AppConfigModel, AppClientVersionModel } = require("./models");
+const { AppReleaseStoreService } = require("../services/app-release-store-service");
 const { DocumentService } = require("../services/document-service");
 const { FleetService } = require("../services/fleet-service");
 const { IncidentService } = require("../services/incident-service");
@@ -19,7 +22,14 @@ const { UserService } = require("../services/user-service");
 
 function buildBackendStore(baseStore, dependencies = {}) {
   const models = dependencies.models || {};
+  const appReleaseModels = dependencies.models
+    ? {
+        AppConfigModel: models.AppConfigModel || AppConfigModel,
+        AppClientVersionModel: models.AppClientVersionModel || AppClientVersionModel
+      }
+    : {};
   const repositories = {
+    appRelease: new AppReleaseRepository(baseStore, appReleaseModels),
     documents: new DocumentRepository(baseStore, models),
     fleet: new FleetRepository(baseStore),
     incidents: new IncidentRepository(baseStore),
@@ -32,6 +42,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
   };
 
   const services = {
+    appRelease: new AppReleaseStoreService(repositories.appRelease),
     documents: new DocumentService(repositories.documents),
     fleet: new FleetService(repositories.fleet),
     incidents: new IncidentService(repositories.incidents),
