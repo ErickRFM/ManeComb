@@ -3,6 +3,7 @@ const http = require("node:http");
 
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const { filterLiveLocationsForTenant } = require("../src/modules/locations/routes");
 
 async function createTestServer() {
   const store = createEmbeddedStore();
@@ -54,7 +55,71 @@ async function requestJson(url, init = {}) {
   };
 }
 
+function runLiveLocationRouteScopeContract() {
+  const live = {
+    updatedAt: new Date().toISOString(),
+    center: { latitude: 19.4, longitude: -99.1 },
+    vehicles: [
+      {
+        id: "vehicle-own",
+        organizationId: "tenant-a",
+        routeId: "route-own",
+        locationTimestamp: new Date().toISOString()
+      },
+      {
+        id: "vehicle-other",
+        organizationId: "tenant-a",
+        routeId: "route-other",
+        locationTimestamp: new Date().toISOString()
+      },
+      {
+        id: "vehicle-foreign",
+        organizationId: "tenant-b",
+        routeId: "route-foreign",
+        locationTimestamp: new Date().toISOString()
+      }
+    ],
+    routes: [
+      { id: "route-own", organizationId: "tenant-a", name: "Ruta propia" },
+      { id: "route-other", organizationId: "tenant-a", name: "Ruta ajena del tenant" },
+      { id: "route-foreign", organizationId: "tenant-b", name: "Ruta de otro tenant" }
+    ],
+    incidents: []
+  };
+
+  const driverView = filterLiveLocationsForTenant(
+    {
+      id: "driver-own",
+      role: "driver",
+      accountType: "operations",
+      organizationId: "tenant-a",
+      vehicleId: "vehicle-own",
+      userStatus: "active"
+    },
+    live
+  );
+
+  assert.deepEqual(driverView.vehicles.map((vehicle) => vehicle.id), ["vehicle-own"]);
+  assert.deepEqual(driverView.routes.map((route) => route.id), ["route-own"]);
+
+  const adminView = filterLiveLocationsForTenant(
+    {
+      id: "admin-a",
+      role: "admin",
+      accountType: "operations",
+      organizationId: "tenant-a",
+      userStatus: "active"
+    },
+    live
+  );
+
+  assert.deepEqual(adminView.vehicles.map((vehicle) => vehicle.id), ["vehicle-own", "vehicle-other"]);
+  assert.deepEqual(adminView.routes.map((route) => route.id), ["route-own", "route-other"]);
+}
+
 async function runTenantIsolationFlow() {
+  runLiveLocationRouteScopeContract();
+
   const context = await createTestServer();
   const stamp = Date.now();
   const companyName = `Aislamiento ${stamp}`;
