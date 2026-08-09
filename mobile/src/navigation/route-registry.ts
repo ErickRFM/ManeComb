@@ -1,6 +1,6 @@
 import type { Role } from '@/src/types/app';
 
-export const DIRECTORY_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'supervisor'];
+export const DIRECTORY_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'supervisor'];
 export const CONTROL_ALLOWED_ROLES: Role[] = ['owner', 'admin', 'dispatcher', 'supervisor'];
 export const DRIVER_DOCUMENT_ALLOWED_ROLES: Role[] = ['driver'];
 
