@@ -30,9 +30,12 @@ async function createEvidenceSession(store, {
   accuracy = 12, intervalMs = 30000, gapAfter = null
 }) {
   const start = new Date(Date.UTC(2026, 6, 1 + index, 12, 0, 0));
+  // Auto-route learning tests synthesize historical vehicle evidence. They do
+  // not model a live authenticated driver's journey, so they must not invent a
+  // driverId that violates the canonical route-session lifecycle guard.
   const created = await store.createRouteSession({
     organizationId, routeId: `recording:${vehicleId}`, vehicleId,
-    driverId: `driver:${vehicleId}`, startedAt: start.toISOString()
+    startedAt: start.toISOString()
   });
   for (let pointIndex = 0; pointIndex < path.length; pointIndex += 1) {
     const gapMs = gapAfter !== null && pointIndex > gapAfter ? 600000 : 0;
