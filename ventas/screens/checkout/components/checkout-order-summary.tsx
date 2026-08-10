@@ -1,5 +1,6 @@
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import type { CommercialPlan } from '@/src/types/app';
 import { palette } from '../checkout.constants';
 import { checkoutBenefits } from '../checkout.constants';
@@ -33,6 +34,22 @@ export function OrderSummary({ includeRadioAddon, plan, requestTrial, totalAmoun
           <Text style={s.panelTitle}>Resumen de tu pedido</Text>
           <Text style={s.panelSubtitle}>Plan seleccionado para la cuenta.</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cambiar el plan seleccionado"
+          onPress={() => router.push('/ventas' as never)}
+          style={({ pressed }) => ({
+            alignItems: 'center',
+            borderColor: palette.line,
+            borderRadius: 9,
+            borderWidth: 1,
+            justifyContent: 'center',
+            minHeight: 40,
+            opacity: pressed ? 0.75 : 1,
+            paddingHorizontal: 11,
+          })}>
+          <Text style={{ color: palette.violet, fontSize: 12, fontWeight: '900' }}>Cambiar plan</Text>
+        </Pressable>
       </View>
 
       <View style={s.summaryHero}>
@@ -67,12 +84,12 @@ export function OrderSummary({ includeRadioAddon, plan, requestTrial, totalAmoun
       </View>
 
       <View style={s.cancelBox}>
-        <MaterialCommunityIcons name={requestTrial ? 'shield-check-outline' : 'shield-check-outline'} size={28} color={palette.violet} />
+        <MaterialCommunityIcons name="shield-check-outline" size={28} color={palette.violet} />
         <View style={s.cancelCopy}>
-          <Text style={s.cancelTitle}>{requestTrial ? 'Prueba 7 días' : 'Control de tu suscripción'}</Text>
+          <Text style={s.cancelTitle}>{requestTrial ? `Prueba ${plan.trialDays || 7} días` : 'Control de tu suscripción'}</Text>
           <Text style={s.cancelText}>
             {requestTrial
-              ? 'Prueba primero y conserva el plan seleccionado.'
+              ? 'Prueba primero y conserva el plan seleccionado. Durante la demo no se realiza ningún cargo.'
               : 'Puedes cambiar o cancelar la suscripción desde tu portal.'}
           </Text>
         </View>

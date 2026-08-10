@@ -27,7 +27,9 @@ export function SectionHeading({
         webStyle({ scrollMarginTop: 120 }),
       ]}>
       <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
-      <Text style={[styles.sectionTitle, centered ? styles.sectionTitleCentered : undefined]}>{title}</Text>
+      <Text accessibilityRole="header" style={[styles.sectionTitle, centered ? styles.sectionTitleCentered : undefined]}>
+        {title}
+      </Text>
       {intro ? (
         <Text style={[styles.sectionIntro, centered ? styles.sectionIntroCentered : undefined]}>{intro}</Text>
       ) : null}
@@ -65,9 +67,9 @@ export function ActionButton({
           hovered ? styles.hoverLift : undefined,
           webStyle({
             cursor: 'pointer',
-            transitionDuration: '260ms',
+            transitionDuration: '240ms',
             transitionProperty: 'transform, box-shadow, background-color, border-color',
-            boxShadow: solid && hovered ? `0 0 26px ${neonPalette.accentGlow}` : undefined,
+            boxShadow: solid && hovered ? `0 0 24px ${neonPalette.accentGlow}` : undefined,
           }),
           pressed ? styles.buttonPressed : undefined,
         ];
@@ -94,33 +96,18 @@ export function BenefitCard({
   isPhone: boolean;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      style={(state) => {
-        const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
-        const pressed = state.pressed;
-
-        return [
-          styles.benefitCard,
-          isPhone ? styles.benefitCardPhone : undefined,
-          { borderColor: hovered ? `${benefit.color}AA` : `${benefit.color}42` },
-          hovered ? styles.benefitCardHover : undefined,
-          pressed ? styles.buttonPressed : undefined,
-          webStyle({
-            backgroundImage: hovered
-              ? `linear-gradient(145deg, rgba(11, 18, 42, 0.95), ${benefit.color}13)`
-              : 'linear-gradient(145deg, rgba(10, 17, 39, 0.74), rgba(8, 13, 30, 0.82))',
-            boxShadow: hovered
-              ? `0 0 0 1px ${benefit.color}44, 0 0 28px ${benefit.color}24, 0 18px 44px rgba(0, 0, 0, 0.28)`
-              : `0 0 0 1px ${benefit.color}16, 0 14px 36px rgba(0, 0, 0, 0.16)`,
-            transitionDelay: `${index * 24}ms`,
-            transitionDuration: '300ms',
-            transitionProperty: 'transform, box-shadow, border-color, background-image',
-            backdropFilter: 'blur(14px)',
-            cursor: 'default',
-          }),
-        ];
-      }}>
+    <View
+      style={[
+        styles.benefitCard,
+        isPhone ? styles.benefitCardPhone : undefined,
+        { borderColor: `${benefit.color}42` },
+        webStyle({
+          backgroundImage: 'linear-gradient(145deg, rgba(10, 17, 39, 0.74), rgba(8, 13, 30, 0.82))',
+          boxShadow: `0 0 0 1px ${benefit.color}16, 0 14px 36px rgba(0, 0, 0, 0.16)`,
+          transitionDelay: `${index * 24}ms`,
+          backdropFilter: 'blur(14px)',
+        }),
+      ]}>
       <View
         style={[
           styles.benefitIcon,
@@ -131,7 +118,7 @@ export function BenefitCard({
       </View>
       <Text style={styles.benefitTitle}>{benefit.title}</Text>
       <Text style={styles.benefitBody}>{benefit.body}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -207,7 +194,7 @@ export function RoundIconButton({
           disabled ? styles.roundButtonDisabled : undefined,
           webStyle({
             cursor: disabled ? 'default' : 'pointer',
-            transitionDuration: '240ms',
+            transitionDuration: '220ms',
             transitionProperty: 'transform, box-shadow, border-color, background-color',
             boxShadow: hovered && !disabled ? `0 0 18px ${neonPalette.cyan}33` : undefined,
           }),
