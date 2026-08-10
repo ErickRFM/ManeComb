@@ -462,6 +462,10 @@ function createRtcCallService({
         const current = await authority.getCallForUser(goneUserId);
         if (!current || current.callId !== call.callId || current.status !== "active") return;
         if (socketOwnerId(current, goneUserId) !== safeSocketId) return;
+        if (current.disconnectingUserId !== goneUserId) return;
+        if (String(current.disconnectingSocketId || "").trim() !== safeSocketId) return;
+        const deadline = disconnectDeadlineMs(current);
+        if (deadline != null && deadline > now()) return;
         await finishDisconnectedCall(current, goneUserId);
       })().catch(() => undefined);
     }, delayMs);
@@ -518,6 +522,11 @@ function createRtcCallService({
 
         const markedUserId = call.disconnectingUserId || null;
         if (markedUserId && call.disconnectDeadlineAt) {
+          const deadline = disconnectDeadlineMs(call);
+          if (deadline != null && deadline <= now()) {
+            await finishDisconnectedCall(call, markedUserId);
+            return false;
+          }
           const markedOwner = socketOwnerId(call, markedUserId) || String(call.disconnectingSocketId || "").trim() || null;
           const markedIsLive = Boolean(
             markedOwner &&
@@ -535,11 +544,6 @@ function createRtcCallService({
             continue;
           }
 
-          const deadline = disconnectDeadlineMs(call);
-          if (deadline != null && deadline <= now()) {
-            await finishDisconnectedCall(call, markedUserId);
-            return false;
-          }
           if (markedOwner) scheduleDisconnectCleanup(call, markedUserId, markedOwner);
           if (await authority.refresh(call, { ttlMs: leaseTtlForCall(call) })) return false;
           continue;
@@ -616,6 +620,11 @@ function createRtcCallService({
         }
         const field = socketOwnerField(call, userId);
         if (!field) return { ok: false, reason: "forbidden" };
+        const deadline = disconnectDeadlineMs(call);
+        if (call.disconnectingUserId && deadline != null && deadline <= now()) {
+          await finishDisconnectedCall(call, call.disconnectingUserId);
+          return { ok: false, reason: "call_ended" };
+        }
 
         if (!safeSocketId) {
           if (await authority.refresh(call, { ttlMs: leaseTtlForCall(call) })) {

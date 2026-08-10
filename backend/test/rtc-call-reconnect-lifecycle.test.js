@@ -129,6 +129,44 @@ function harness(store) {
     assert.equal(await h.service.getCall(call.callId), null);
   }
 
+  // A reconnect/heartbeat after the grace deadline cannot resurrect the call, even with the same socket id.
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-same-id",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-same-id" }), true);
+    h.advance(15001);
+
+    assert.equal(await h.service.refreshForSocket(admin.id, "admin-same-id", {
+      isSocketConnected: async () => true
+    }), false);
+    assert.equal(await h.service.getCall(call.callId), null);
+
+    const next = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-late-join",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-next", callId: next.callId });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-late-join" }), true);
+    h.advance(15001);
+    const lateJoin = await h.service.canJoinCall({
+      callId: next.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-late-join",
+      isSocketConnected: async () => true
+    });
+    assert.equal(lateJoin.reason, "call_ended");
+    assert.equal(await h.service.getCall(next.callId), null);
+  }
+
   // Ringing remains governed only by its ringing deadline, not active-call disconnect ownership.
   {
     const h = harness(store);
