@@ -153,8 +153,7 @@ class ManeCombDocumentViewerActivity : Activity() {
 
   private fun renderImage(file: File, content: LinearLayout) {
     closePdfRenderer()
-    val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-      ?: throw IllegalStateException("image_decode_failed")
+    val bitmap = decodeImageForDisplay(file)
     replaceRenderedBitmap(bitmap)
 
     val image = ImageView(this).apply {
@@ -168,6 +167,42 @@ class ManeCombDocumentViewerActivity : Activity() {
       )
     }
     content.addView(image)
+  }
+
+  /**
+   * El tamaño comprimido del archivo no limita el heap requerido al decodificar
+   * una imagen. Primero leemos solo dimensiones y elegimos un inSampleSize que
+   * acota ancho, alto y píxeles totales antes de materializar el bitmap.
+   */
+  private fun decodeImageForDisplay(file: File): Bitmap {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+      throw IllegalStateException("image_bounds_failed")
+    }
+
+    val display = resources.displayMetrics
+    val maxWidth = (display.widthPixels * 2).coerceAtLeast(1)
+    val maxHeight = (display.heightPixels * 4).coerceAtLeast(1)
+    var sampleSize = 1
+
+    while (sampleSize < MAX_IMAGE_SAMPLE_SIZE) {
+      val sampledWidth = (bounds.outWidth / sampleSize).coerceAtLeast(1)
+      val sampledHeight = (bounds.outHeight / sampleSize).coerceAtLeast(1)
+      val sampledPixels = sampledWidth.toLong() * sampledHeight.toLong()
+      if (sampledWidth <= maxWidth && sampledHeight <= maxHeight && sampledPixels <= MAX_IMAGE_PIXELS) {
+        break
+      }
+      sampleSize *= 2
+    }
+
+    return BitmapFactory.decodeFile(
+      file.absolutePath,
+      BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+      }
+    ) ?: throw IllegalStateException("image_decode_failed")
   }
 
   private fun renderPdf(file: File, content: LinearLayout) {
@@ -249,22 +284,25 @@ class ManeCombDocumentViewerActivity : Activity() {
       )
     }
 
-    previousPageButton = buildPageButton("Anterior") {
+    val previous = buildPageButton("Anterior") {
       renderPdfPage(currentPageIndex - 1)
     }
-    pageIndicator = TextView(this).apply {
+    val indicator = TextView(this).apply {
       textSize = 13f
       setTextColor(Color.LTGRAY)
       gravity = Gravity.CENTER
       layoutParams = LinearLayout.LayoutParams(dp(96), dp(44))
     }
-    nextPageButton = buildPageButton("Siguiente") {
+    val next = buildPageButton("Siguiente") {
       renderPdfPage(currentPageIndex + 1)
     }
+    previousPageButton = previous
+    pageIndicator = indicator
+    nextPageButton = next
 
-    controls.addView(previousPageButton)
-    controls.addView(pageIndicator)
-    controls.addView(nextPageButton)
+    controls.addView(previous)
+    controls.addView(indicator)
+    controls.addView(next)
     return controls
   }
 
@@ -353,6 +391,8 @@ class ManeCombDocumentViewerActivity : Activity() {
     const val EXTRA_MIME_TYPE = "mimeType"
     const val EXTRA_DISPLAY_NAME = "displayName"
 
+    private const val MAX_IMAGE_PIXELS = 8_000_000L
+    private const val MAX_IMAGE_SAMPLE_SIZE = 1024
     private val BACKGROUND = Color.rgb(9, 11, 16)
     private val SURFACE = Color.rgb(19, 23, 31)
     private val ACCENT = Color.rgb(227, 30, 36)
