@@ -89,4 +89,80 @@ describe('Android runtime hardening', () => {
     expect(service).toContain('data["fcmTtlSeconds"] = message.ttl.toString()');
     expect(renderer).not.toContain('.setTimeoutAfter(40_000L)');
   });
+
+  it('delivers foreground incoming-call FCM through the existing deep-link runtime', () => {
+    const renderer = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombPushNotificationRenderer.kt'
+      ),
+      'utf8'
+    );
+
+    expect(renderer).toContain('"incoming_call" -> renderIncomingCall(context, data)');
+    expect(renderer).toContain('deliverIncomingCallToForeground(context, data, deadline)');
+    expect(renderer).toContain('context.startActivity(intent)');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_NEW_TASK');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_SINGLE_TOP');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_CLEAR_TOP');
+    expect(renderer).toContain('this.data = callDeepLink(data, "incoming", deadline)');
+    expect(renderer).not.toContain('if (!isAppInForeground(context)) showIncomingCall(context, data)');
+  });
+
+  it('bounds lockscreen visibility and exposes an explicit lifecycle close', () => {
+    const mainActivity = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'MainActivity.kt'
+      ),
+      'utf8'
+    );
+    const callModule = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'calls',
+        'ManeCombCallModule.kt'
+      ),
+      'utf8'
+    );
+    const overlay = fs.readFileSync(
+      path.join(mobileRoot, 'src', 'features', 'calls', 'call-overlay.tsx'),
+      'utf8'
+    );
+
+    expect(mainActivity).toContain('fun setIncomingCallWindowActive(active: Boolean)');
+    expect(mainActivity).toContain('INCOMING_CALL_WINDOW_MAX_MS = 45_000L');
+    expect(mainActivity).toContain('mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)');
+    expect(mainActivity).toContain('applyIncomingCallWindow(false)');
+    expect(callModule).toContain('fun setIncomingCallWindowActive(active: Boolean, promise: Promise)');
+    expect(callModule).toContain('activity.setIncomingCallWindowActive(active)');
+    expect(overlay).toContain('setIncomingCallWindowActive(false).catch(() => undefined)');
+    expect(overlay).toContain("direction === 'incoming'");
+    expect(overlay).toContain('callWindowManaged.current = true');
+  });
 });
