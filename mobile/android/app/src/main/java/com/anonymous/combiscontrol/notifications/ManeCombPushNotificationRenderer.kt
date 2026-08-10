@@ -40,7 +40,7 @@ object ManeCombPushNotificationRenderer {
   fun render(context: Context, data: Map<String, String>) {
     when (data["type"]?.trim()?.lowercase()) {
       "call_dismiss", "call_ended", "call_cancelled", "call_timeout" -> {
-        dismissCall(context, data["callId"].orEmpty())
+        renderCallDismiss(context, data)
       }
       "incoming_call" -> renderIncomingCall(context, data)
       else -> {
@@ -89,6 +89,15 @@ object ManeCombPushNotificationRenderer {
     }
 
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+  }
+
+  private fun renderCallDismiss(context: Context, data: Map<String, String>) {
+    val callId = data["callId"].orEmpty().trim()
+    if (callId.isEmpty()) return
+    dismissCall(context, callId)
+    if (isAppInForeground(context)) {
+      deliverCallDismissToForeground(context, data, callId)
+    }
   }
 
   private fun renderIncomingCall(context: Context, data: Map<String, String>) {
@@ -189,6 +198,34 @@ object ManeCombPushNotificationRenderer {
       true
     } catch (_: Exception) {
       false
+    }
+  }
+
+  private fun deliverCallDismissToForeground(
+    context: Context,
+    data: Map<String, String>,
+    callId: String
+  ) {
+    val reason = data["reason"].orEmpty().ifBlank {
+      data["type"].orEmpty().removePrefix("call_").ifBlank { "ended" }
+    }
+    val uri = Uri.parse("manecomb:///call").buildUpon()
+      .appendQueryParameter("callId", callId)
+      .appendQueryParameter("action", "dismiss")
+      .appendQueryParameter("reason", reason)
+      .build()
+    val intent = Intent(context, MainActivity::class.java).apply {
+      action = Intent.ACTION_VIEW
+      this.data = uri
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+
+    try {
+      context.startActivity(intent)
+    } catch (_: Exception) {
+      // La autoridad backend ya termino la llamada; este intent solo reconcilia UI foreground.
     }
   }
 
