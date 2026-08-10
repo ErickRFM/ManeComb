@@ -116,7 +116,7 @@ export function CallPermissionModal(): React.ReactElement | null {
               accessibilityRole="button"
               accessibilityLabel={needsSettings ? 'Abrir ajustes de ManeComb' : 'Volver a solicitar permisos'}
               disabled={retrying}
-              onPress={() => void primaryAction()}
+              onPress={() => { primaryAction().catch(() => undefined); }}
               style={({ pressed }) => [styles.primary, pressed && styles.pressed, retrying && styles.disabled]}>
               <Text style={styles.primaryText}>
                 {retrying ? 'Comprobando…' : needsSettings ? 'Abrir ajustes' : 'Permitir'}
