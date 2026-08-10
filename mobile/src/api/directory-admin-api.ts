@@ -1,5 +1,5 @@
 import { apiClient } from '@/src/api/client';
-import type { DocumentItem, User, Vehicle } from '@/src/types/app';
+import type { DocumentItem, OperationalSchedule, User, Vehicle } from '@/src/types/app';
 
 export type ManagedVehicle = Vehicle & {
   retiredAt?: string | null;
@@ -104,6 +104,17 @@ export async function assignDriverVehicleRequest(userId: string, vehicleId: stri
   const response = await apiClient.patch<{ ok: boolean; data: User }>(
     `/users/${encodeURIComponent(userId)}`,
     { vehicleId }
+  );
+  return response.data.data;
+}
+
+export async function updateDriverOperationalScheduleRequest(
+  userId: string,
+  operationalSchedule: OperationalSchedule | null
+) {
+  const response = await apiClient.patch<{ ok: boolean; data: User }>(
+    `/users/${encodeURIComponent(userId)}`,
+    { operationalSchedule }
   );
   return response.data.data;
 }
