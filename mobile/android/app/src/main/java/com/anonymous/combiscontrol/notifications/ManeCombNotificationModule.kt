@@ -66,15 +66,9 @@ class ManeCombNotificationModule(
   }
 
   /**
-   * Feedback audible y haptico de una alerta operativa con la app abierta.
-   *
-   * No publica notificacion del sistema: la UI ya esta delante del usuario. Usa
-   * la misma ManeCombAlertPolicy que el renderer de FCM, incluida su memoria de
-   * dedup, para que socket y push no puedan sonar los dos por el mismo
-   * incidentId durante una transicion foreground/background.
-   *
-   * Resuelve `false` cuando el dedup lo suprime o cuando el sistema esta en
-   * silencio, para que JS pueda distinguirlo sin volver a decidir la politica.
+   * Socket/JS reaches the exact same native NotificationChannel authority as FCM.
+   * No direct MediaPlayer/Vibrator path exists, so foreground cannot bypass the
+   * user's channel settings or race a push with a second feedback mechanism.
    */
   @ReactMethod
   fun playOperationalAlert(
@@ -82,62 +76,25 @@ class ManeCombNotificationModule(
     category: String?,
     level: String?,
     severity: String?,
+    title: String?,
+    body: String?,
+    deepLink: String?,
     promise: Promise
   ) {
     try {
-      val feedback = ManeCombAlertPolicy.resolve(category, level, severity)
-      if (feedback == null) {
-        promise.resolve(false)
-        return
-      }
-
-      val key = incidentId?.trim().orEmpty()
-      if (!ManeCombAlertPolicy.shouldEmitAlert(key, System.currentTimeMillis())) {
-        promise.resolve(false)
-        return
-      }
-
-      val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-      val ringerMode = audioManager?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
-
-      // Se respeta el modo del sistema: en silencio no se reproduce nada, en
-      // vibracion solo se vibra. Sin tocar el volumen global ni saltar DND.
-      if (ringerMode == AudioManager.RINGER_MODE_NORMAL) {
-        runCatching {
-          val player = MediaPlayer()
-          player.setAudioAttributes(
-            AudioAttributes.Builder()
-              .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-              .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-              .build()
-          )
-          reactContext.resources.openRawResourceFd(feedback.soundResource).use { descriptor ->
-            player.setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
-          }
-          player.setOnCompletionListener { it.release() }
-          player.prepare()
-          player.start()
-        }
-      }
-
-      if (ringerMode != AudioManager.RINGER_MODE_SILENT) {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-          (reactContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
-        } else {
-          @Suppress("DEPRECATION")
-          reactContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-        runCatching {
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(feedback.vibrationPattern, -1))
-          } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(feedback.vibrationPattern, -1)
-          }
-        }
-      }
-
-      promise.resolve(true)
+      val emitted = ManeCombPushNotificationRenderer.showOperationalAlert(
+        reactContext,
+        mapOf(
+          "incidentId" to incidentId?.trim().orEmpty(),
+          "category" to category?.trim().orEmpty(),
+          "level" to level?.trim().orEmpty(),
+          "severity" to severity?.trim().orEmpty(),
+          "title" to title?.trim().orEmpty(),
+          "body" to body?.trim().orEmpty(),
+          "deepLink" to deepLink?.trim().orEmpty()
+        )
+      )
+      promise.resolve(emitted)
     } catch (error: Exception) {
       promise.reject("operational_alert_failed", error)
     }

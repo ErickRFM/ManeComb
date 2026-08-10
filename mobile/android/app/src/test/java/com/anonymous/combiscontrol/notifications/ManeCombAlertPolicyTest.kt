@@ -118,6 +118,8 @@ class ManeCombAlertPolicyTest {
     assertTrue(ManeCombAlertPolicy.shouldEmitAlert("inc-1", now))
     assertFalse(ManeCombAlertPolicy.shouldEmitAlert("inc-1", now + 250))
     assertFalse(ManeCombAlertPolicy.shouldEmitAlert("inc-1", now + 3_000))
+    assertFalse(ManeCombAlertPolicy.shouldEmitAlert("inc-1", now + 30_000))
+    assertTrue(ManeCombAlertPolicy.DEDUP_WINDOW_MS > 60_000L)
   }
 
   @Test

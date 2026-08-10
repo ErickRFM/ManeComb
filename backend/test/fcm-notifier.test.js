@@ -109,6 +109,7 @@ function testPayloadContract() {
   assert.equal(sos.data.severity, 'critical');
   assert.equal(sos.data.deepLink, '/incidencias?incidentId=inc-1&focus=sos');
   assert.equal(sos.android.priority, 'HIGH');
+  assert.equal(sos.android.ttl, '60s');
 
   const warning = buildFcmMessage('token', {
     category: 'incident',
@@ -119,6 +120,8 @@ function testPayloadContract() {
   });
   assert.equal(warning.data.level, 'warning');
   assert.equal(warning.data.category, 'incident');
+  assert.equal(warning.android.priority, 'HIGH');
+  assert.equal(warning.android.ttl, '60s');
 
   const info = buildFcmMessage('token', {
     category: 'incident',
@@ -126,6 +129,8 @@ function testPayloadContract() {
     data: { incidentId: 'inc-3', severity: 'low', type: 'otro' },
   });
   assert.equal(info.data.level, 'info');
+  assert.equal(info.android.priority, 'NORMAL');
+  assert.equal(info.android.ttl, '60s');
 
   // Sin level explicito el campo viaja vacio en vez de inventarse un valor.
   const unknown = buildFcmMessage('token', { category: 'incident', data: { incidentId: 'inc-4' } });

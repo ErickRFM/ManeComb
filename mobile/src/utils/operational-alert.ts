@@ -12,6 +12,9 @@ export type OperationalAlert = {
   category: string;
   level: string;
   severity: string;
+  title: string;
+  body: string;
+  deepLink: string;
 };
 
 const ALERT_CATEGORIES = new Set([
@@ -54,6 +57,9 @@ export function toOperationalAlertFromNotification(payload: unknown): Operationa
     category,
     level: text(notification.level) || text(data.level),
     severity: text(data.severity),
+    title: text(notification.title) || text(data.title) || 'Alerta operativa de ManeComb',
+    body: text(notification.body) || text(data.body) || 'Nueva alerta operativa.',
+    deepLink: text(notification.deepLink) || text(data.deepLink) || '/incidencias',
   };
 }
 
@@ -75,6 +81,9 @@ export function toOperationalAlertFromSos(payload: unknown): OperationalAlert | 
     category: 'sos',
     level: 'critical',
     severity: text(incident.severity) || 'critical',
+    title: text(incident.title) ? `SOS activo: ${text(incident.title)}` : 'Alerta SOS de ManeComb',
+    body: text(incident.description) || 'Nueva alerta SOS operativa.',
+    deepLink: `/incidencias?incidentId=${encodeURIComponent(incidentId)}&focus=sos`,
   };
 }
 

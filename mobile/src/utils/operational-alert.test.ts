@@ -29,6 +29,9 @@ describe('alertas operativas en foreground', () => {
       category: 'sos',
       level: 'critical',
       severity: 'critical',
+      title: 'SOS activo: Accidente',
+      body: 'Erik reporto accidente.',
+      deepLink: '/incidencias?incidentId=inc-1&focus=sos',
     });
   });
 
@@ -45,6 +48,9 @@ describe('alertas operativas en foreground', () => {
       category: 'incident',
       level: 'warning',
       severity: 'high',
+      title: 'SOS activo: Accidente',
+      body: 'Erik reporto accidente.',
+      deepLink: '/incidencias',
     });
 
     const info = toOperationalAlertFromNotification(
@@ -109,6 +115,9 @@ describe('alertas operativas en foreground', () => {
       category: 'sos',
       level: 'critical',
       severity: 'critical',
+      title: 'Alerta SOS de ManeComb',
+      body: 'Nueva alerta SOS operativa.',
+      deepLink: '/incidencias?incidentId=inc-9&focus=sos',
     });
 
     expect(toOperationalAlertFromSos({})).toBeNull();

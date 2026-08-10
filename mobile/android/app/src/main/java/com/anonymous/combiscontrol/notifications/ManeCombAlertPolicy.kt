@@ -174,8 +174,10 @@ object ManeCombAlertPolicy {
   // La clave es el incidentId, asi que dos incidencias distintas —aunque
   // compartan titulo, unidad o tipo— no se deduplican nunca.
 
-  const val DEDUP_WINDOW_MS = 8_000L
-  private const val DEDUP_MAX_ENTRIES = 64
+  // Operational FCM TTL is 60 s. Keep the shared identity memory beyond that
+  // transport horizon so a delayed second transport cannot replay feedback.
+  const val DEDUP_WINDOW_MS = 75_000L
+  private const val DEDUP_MAX_ENTRIES = 256
 
   private val recentAlerts = LinkedHashMap<String, Long>()
 

@@ -17,7 +17,10 @@ type ManeCombNotificationModule = {
     incidentId: string,
     category: string,
     level: string,
-    severity: string
+    severity: string,
+    title: string,
+    body: string,
+    deepLink: string
   ) => Promise<boolean>;
 };
 
@@ -39,12 +42,23 @@ export async function playOperationalAlertFeedback(alert: {
   category: string;
   level: string;
   severity: string;
+  title: string;
+  body: string;
+  deepLink: string;
 }) {
   const play = NativeNotification?.playOperationalAlert;
   if (!play) return false;
 
   try {
-    return await play(alert.incidentId, alert.category, alert.level, alert.severity);
+    return await play(
+      alert.incidentId,
+      alert.category,
+      alert.level,
+      alert.severity,
+      alert.title,
+      alert.body,
+      alert.deepLink
+    );
   } catch {
     return false;
   }
