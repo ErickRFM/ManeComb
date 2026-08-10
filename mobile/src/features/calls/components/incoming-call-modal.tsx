@@ -83,7 +83,7 @@ export function IncomingCallModal(): React.ReactElement | null {
               accessibilityRole="button"
               accessibilityLabel="Aceptar llamada"
               disabled={acting}
-              onPress={() => { void accept(); }}
+              onPress={() => { accept().catch(() => undefined); }}
               style={({ pressed }) => [styles.button, styles.accept, pressed && styles.pressed]}>
               <Text style={styles.buttonText}>Aceptar</Text>
             </Pressable>
