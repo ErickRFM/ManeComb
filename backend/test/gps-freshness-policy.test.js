@@ -25,7 +25,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
 
 assert.equal(GPS_LIVE_MAX_AGE_SECONDS, 15);
 assert.equal(GPS_FRESH_MAX_AGE_SECONDS, 30);
-assert.equal(GPS_STALE_MAX_AGE_SECONDS, 60);
+assert.equal(GPS_STALE_MAX_AGE_SECONDS, 90);
 
 const live = buildOperationalUnitSnapshot({ vehicle: vehicleAt(15), now: NOW });
 assert.equal(live.gps.connectionState, "live");
@@ -45,11 +45,11 @@ assert.equal(stale.gps.connectionState, "stale");
 assert.equal(stale.gps.freshness, "stale");
 assert.equal(stale.operationalState, "unknown");
 
-const staleBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(60), now: NOW });
+const staleBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(90), now: NOW });
 assert.equal(staleBoundary.gps.connectionState, "stale");
 assert.equal(staleBoundary.gps.freshness, "stale");
 
-const lost = buildOperationalUnitSnapshot({ vehicle: vehicleAt(61), now: NOW });
+const lost = buildOperationalUnitSnapshot({ vehicle: vehicleAt(91), now: NOW });
 assert.equal(lost.gps.connectionState, "lost");
 assert.equal(lost.gps.freshness, "missing");
 assert.equal(lost.gps.lat, 19.3139, "la ultima posicion conocida nunca desaparece");
