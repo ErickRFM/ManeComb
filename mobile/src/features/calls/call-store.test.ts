@@ -123,16 +123,10 @@ describe('call-store signaling global', () => {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
     socket.server('rtc:incoming-call', incoming);
-
     const accepting = state().acceptIncomingCall();
-
-    // El preflight de permisos es asíncrono. Mientras no termine no se consume
-    // el ringing ni se informa aceptación al backend.
     expect(state().phase).toBe('INCOMING_RINGING');
     expect(socket.emitted.some((entry) => entry.event === 'rtc:accept')).toBe(false);
-
     await accepting;
-
     expect(state().phase).toBe('CONNECTING');
     expect(socket.emitted.some((entry) =>
       entry.event === 'rtc:accept' && entry.payload.callId === 'call-1'
