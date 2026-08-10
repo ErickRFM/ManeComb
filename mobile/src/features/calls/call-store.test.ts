@@ -5,8 +5,10 @@ declare const __dirname: string;
 const fs = require('fs');
 const path = require('path');
 
+import type { CallMediaPermissionResult } from './call-permissions';
 import { canConversationStartCall } from './call-selectors';
 import {
+  __setCallPermissionRequesterForTests,
   __setConnectTimeoutMsForTests,
   __setResultDisplayMsForTests,
   setCallRuntimeFactory,
@@ -76,10 +78,15 @@ const incoming = {
   mode: 'audio' as const,
   caller: { id: 'user-a', name: 'Ana' },
 };
+const grantedAudioPermissions: CallMediaPermissionResult = {
+  microphone: 'granted',
+  camera: 'not_required',
+};
 
 beforeEach(() => {
   __setResultDisplayMsForTests(0);
   __setConnectTimeoutMsForTests(100000);
+  __setCallPermissionRequesterForTests(null);
   installFakeRuntime();
   capturedRuntime = null;
   const current = state();
@@ -119,6 +126,23 @@ describe('call-store signaling global', () => {
     expect(state().callId).toBeNull();
   });
 
+  it('permiso denegado en saliente no emite rtc:call ni crea sesion', async () => {
+    __setCallPermissionRequesterForTests(async () => ({
+      microphone: 'denied',
+      camera: 'not_required',
+    }));
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+
+    const result = await state().startCall({ conversationId: 'conv-1', mode: 'audio' });
+
+    expect(result).toEqual({ ok: false, code: 'media_permission_required' });
+    expect(state().phase).toBe('IDLE');
+    expect(state().callId).toBeNull();
+    expect(state().permissionPrompt?.failureCode).toBe('microphone_permission_denied');
+    expect(socket.emitted.some((entry) => entry.event === 'rtc:call')).toBe(false);
+  });
+
   it('aceptar conserva ringing durante preflight y solo despues pasa a CONNECTING', async () => {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
@@ -132,6 +156,75 @@ describe('call-store signaling global', () => {
       entry.event === 'rtc:accept' && entry.payload.callId === 'call-1'
     )).toBe(true);
     expect(capturedRuntime).not.toBeNull();
+  });
+
+  it('permiso denegado en entrante conserva ringing y no emite rtc:accept', async () => {
+    __setCallPermissionRequesterForTests(async () => ({
+      microphone: 'denied',
+      camera: 'not_required',
+    }));
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', incoming);
+
+    await state().acceptIncomingCall();
+
+    expect(state().phase).toBe('INCOMING_RINGING');
+    expect(state().permissionPrompt?.failureCode).toBe('microphone_permission_denied');
+    expect(state()._accepting).toBe(false);
+    expect(socket.emitted.some((entry) => entry.event === 'rtc:accept')).toBe(false);
+  });
+
+  it('serializa dos intentos concurrentes de aceptar durante el preflight', async () => {
+    let permissionRequests = 0;
+    let resolvePermissions: ((value: CallMediaPermissionResult) => void) | null = null;
+    __setCallPermissionRequesterForTests(() => {
+      permissionRequests += 1;
+      return new Promise<CallMediaPermissionResult>((resolve) => {
+        resolvePermissions = resolve;
+      });
+    });
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', incoming);
+
+    const firstAccept = state().acceptIncomingCall();
+    const secondAccept = state().acceptIncomingCall();
+
+    expect(permissionRequests).toBe(1);
+    expect(state()._accepting).toBe(true);
+    expect(socket.emitted.some((entry) => entry.event === 'rtc:accept')).toBe(false);
+
+    resolvePermissions!(grantedAudioPermissions);
+    await Promise.all([firstAccept, secondAccept]);
+
+    expect(socket.emitted.filter((entry) => entry.event === 'rtc:accept')).toHaveLength(1);
+    expect(state().phase).toBe('CONNECTING');
+    expect(state()._accepting).toBe(false);
+  });
+
+  it('ignora una respuesta tardia de permisos si la llamada expiro durante el prompt', async () => {
+    let resolvePermissions: ((value: CallMediaPermissionResult) => void) | null = null;
+    __setCallPermissionRequesterForTests(() =>
+      new Promise<CallMediaPermissionResult>((resolve) => {
+        resolvePermissions = resolve;
+      })
+    );
+    const socket = fakeSocket();
+    state().bindSocket(socket as any);
+    socket.server('rtc:incoming-call', incoming);
+
+    const accepting = state().acceptIncomingCall();
+    expect(state()._accepting).toBe(true);
+    state().handleTimeout({ callId: 'call-1' });
+    resolvePermissions!({ microphone: 'denied', camera: 'not_required' });
+    await accepting;
+    await flush();
+
+    expect(state().phase).toBe('IDLE');
+    expect(state().permissionPrompt).toBeNull();
+    expect(state()._accepting).toBe(false);
+    expect(socket.emitted.some((entry) => entry.event === 'rtc:accept')).toBe(false);
   });
 
   it('un accept rechazado falla sin iniciar peer/media', async () => {
