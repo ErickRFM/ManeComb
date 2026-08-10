@@ -61,10 +61,21 @@ const MANAGED_USER_FIELDS = new Set([
   "shift",
   "vehicleId"
 ]);
+const DRIVER_ADMIN_MUTABLE_FIELDS = new Set([
+  "operationalSchedule",
+  "shift",
+  "vehicleId"
+]);
 
 function pickFields(payload, allowedFields) {
   return Object.fromEntries(
     Object.entries(payload || {}).filter(([key]) => allowedFields.has(key))
+  );
+}
+
+function getManagedDriverFieldConflicts(payload) {
+  return Object.keys(payload || {}).filter(
+    (field) => MANAGED_USER_FIELDS.has(field) && !DRIVER_ADMIN_MUTABLE_FIELDS.has(field)
   );
 }
 
@@ -337,24 +348,40 @@ router.patch("/:userId", authenticate, requireOrganization, requirePermission("c
     }
 
     const targetUser = scopedUsers.find((entry) => entry.id === req.params.userId);
-    const payload = pickFields(req.body, MANAGED_USER_FIELDS);
-    const hasVehicleTransition = Object.prototype.hasOwnProperty.call(payload, "vehicleId");
-    const requestedVehicleId = hasVehicleTransition ? payload.vehicleId || null : targetUser.vehicleId;
-    delete payload.vehicleId;
+    const requestedManagedFields = pickFields(req.body, MANAGED_USER_FIELDS);
 
     if (
       targetUser.role === "driver" &&
-      typeof payload.userStatus === "string" &&
-      payload.userStatus !== targetUser.userStatus
+      typeof requestedManagedFields.userStatus === "string" &&
+      requestedManagedFields.userStatus !== targetUser.userStatus
     ) {
       return res.status(409).json({
         ok: false,
         code: "EXPLICIT_LIFECYCLE_ACTION_REQUIRED",
-        message: payload.userStatus === "suspended"
+        message: requestedManagedFields.userStatus === "suspended"
           ? "Usa la acción Dar de baja para suspender al conductor de forma segura."
           : "Usa la acción Reactivar para validar el cupo del plan."
       });
     }
+
+    if (targetUser.role === "driver") {
+      const conflictingFields = getManagedDriverFieldConflicts(req.body);
+      if (conflictingFields.length > 0) {
+        return res.status(409).json({
+          ok: false,
+          code: "DRIVER_SELF_PROFILE_AUTHORITY",
+          message: "Los datos personales, credenciales, rol y estado del conductor los administra el propio conductor o su flujo de ciclo de vida.",
+          fields: conflictingFields
+        });
+      }
+    }
+
+    const payload = targetUser.role === "driver"
+      ? pickFields(req.body, DRIVER_ADMIN_MUTABLE_FIELDS)
+      : requestedManagedFields;
+    const hasVehicleTransition = Object.prototype.hasOwnProperty.call(payload, "vehicleId");
+    const requestedVehicleId = hasVehicleTransition ? payload.vehicleId || null : targetUser.vehicleId;
+    delete payload.vehicleId;
 
     if (payload.role === "driver" && targetUser.role !== "driver") {
       return res.status(409).json({
