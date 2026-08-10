@@ -48,7 +48,7 @@ jobs:
         run: npm run typecheck
       - name: Android alert policy tests
         working-directory: mobile/android
-        run: ./gradlew :app:testDebugUnitTest --tests com.anonymous.combiscontrol.notifications.ManeCombAlertPolicyTest --no-daemon
+        run: bash ./gradlew :app:testDebugUnitTest --tests com.anonymous.combiscontrol.notifications.ManeCombAlertPolicyTest --no-daemon
       - name: Diff check
         run: git diff --check
       - name: Commit generated fix
