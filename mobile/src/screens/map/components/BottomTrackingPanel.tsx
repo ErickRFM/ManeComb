@@ -189,6 +189,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       damping: 18,
       stiffness: 220,
       mass: 0.75,
+      overshootClamping: true,
       useNativeDriver: true,
     }).start();
   }, [panelDragY, reduceMotionEnabled]);
@@ -258,7 +259,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     });
   }, [reduceMotionEnabled]);
 
-  // Geometria del selector de unidades. Se guarda en refs para que medir no provoque re-render.
   const trackScrollRef = useRef<ScrollView | null>(null);
   const trackViewportWidthRef = useRef(0);
   const trackChipLayoutRef = useRef<Record<string, { x: number; width: number }>>({});
@@ -267,7 +267,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     trackChipLayoutRef.current[unitId] = { x, width };
   }, []);
 
-  // Centra la pestana seleccionada para que nunca quede fuera del viewport.
   const selectedUnitId = selectedUnit?.unitId;
   useEffect(() => {
     if (!selectedUnitId) return;
@@ -282,8 +281,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     () => selectVehicleActiveSession(selectedUnit?.unitId, activeSession, sessionHistory),
     [activeSession, selectedUnit?.unitId, sessionHistory]
   );
-  // Estado, GPS, ruta, conductor y ETA vienen resueltos del backend.
-  // Este componente solo los formatea.
   const routeLabel = useMemo(() => formatRoute(selectedUnit?.route ?? null), [selectedUnit?.route]);
   const compactMeta = useMemo(() => formatCompactUnitMeta(selectedUnit), [selectedUnit]);
   const statusLabel = selectedUnit ? stateLabel(selectedUnit.operationalState) : 'Sin estado';
@@ -337,7 +334,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ['GPS', gpsLabel],
         ['Ultima actualizacion', lastUpdateLabel]
       );
-      // Atributos que no pertenecen al contrato operacional.
       if (selectedVehicle) {
         if (isFiniteMetricNumber(selectedVehicle.occupancy) && isFiniteMetricNumber(selectedVehicle.capacity)) {
           rows.push(['Ocupacion', `${selectedVehicle.occupancy} de ${selectedVehicle.capacity}`]);
@@ -345,7 +341,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
         if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
       }
-      // Hora de llegada tal como la calculo el backend. Nunca `ahora + minutos`.
       if (selectedUnit.route?.etaAt) rows.push(['ETA', formatEta(selectedUnit.route)]);
       if (selectedVehicle && isFiniteMetricNumber(selectedVehicle.delayMinutes)) {
         rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
