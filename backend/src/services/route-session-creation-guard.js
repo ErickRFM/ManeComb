@@ -22,6 +22,7 @@ function normalize(value) {
 function isDriverEligibleForSession(user, payload = {}) {
   if (!user || normalize(user.role).toLowerCase() !== "driver") return false;
   if (normalize(user.userStatus || "active").toLowerCase() !== "active") return false;
+  if (normalize(user.status).toLowerCase() === "offboarding") return false;
   if (normalize(user.vehicleId) !== normalize(payload.vehicleId)) return false;
 
   const userOrganizationId = normalize(user.organizationId);
