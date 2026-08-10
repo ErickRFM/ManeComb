@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "branch": "main",
+    "commit": "2d02c857507ccf54fb8058aa94e273b2166767f9",
+    "capturedAt": "2026-08-10"
+  },
+  "maxBaselineDriftCommits": 50,
+  "requiredGates": [
+    {
+      "id": "AUTHORITY",
+      "question": "Who owns this state or decision?"
+    },
+    {
+      "id": "RACE_LIFECYCLE",
+      "question": "What happens when events arrive together, late, repeated, or out of order?"
+    },
+    {
+      "id": "PLATFORM",
+      "question": "Do Android, iOS, web, and backend interpret the same contract?"
+    },
+    {
+      "id": "INTEGRATION",
+      "question": "Does the behavior remain correct across sockets, cache, auth, rate limits, storage, and retries?"
+    },
+    {
+      "id": "CI_RELEASE",
+      "question": "Does CI certify the exact artifact and configuration that will be installed or deployed?"
+    },
+    {
+      "id": "PHYSICAL",
+      "question": "What behavior remains unprovable without the real device or runtime?"
+    }
+  ],
+  "crossLayerSurfaces": [
+    "auth-session",
+    "tenant-capabilities",
+    "notifications-fcm",
+    "rtc",
+    "radio",
+    "gps-tracking",
+    "cache-rate-limit",
+    "mapbox-rendering",
+    "documents-native-viewer",
+    "commercial-payments",
+    "release-artifacts"
+  ],
+  "blockingSeverities": ["P0", "P1"]
+}
