@@ -434,8 +434,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const state = get();
       if (!isIdle(state) || state._starting) return { ok: false, code: 'busy_local' };
       if (state.permissionPrompt) return { ok: false, code: 'media_permission_required' };
-      const socket = state._socket;
-      if (!socket) return { ok: false, code: 'no_socket' };
+      if (!state._socket) return { ok: false, code: 'no_socket' };
 
       set({ _starting: true });
       try {
@@ -445,7 +444,14 @@ export const useCallStore = create<CallStore>()((set, get) => {
           mode,
         });
         if (!permissionsReady) return { ok: false, code: 'media_permission_required' };
-        if (!isIdle(get())) return { ok: false, code: 'busy_local' };
+
+        // Permission prompts can outlive a Socket.IO reconnect. Never signal on
+        // the socket captured before await: re-read the current authority after
+        // the async preflight and fail closed if no live socket remains bound.
+        const currentBeforeStart = get();
+        if (!isIdle(currentBeforeStart)) return { ok: false, code: 'busy_local' };
+        const socket = currentBeforeStart._socket;
+        if (!socket) return { ok: false, code: 'no_socket' };
 
         const ack = await emitStartCall(socket, { conversationId, mode });
         if (!isIdle(get())) return { ok: false, code: 'busy_local' };

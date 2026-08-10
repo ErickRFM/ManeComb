@@ -114,6 +114,32 @@ describe('call-store signaling global', () => {
     expect(state().roomId).toBe('rtc:call:C-42');
   });
 
+  it('relee el socket despues del permiso y nunca señaliza por un socket reemplazado', async () => {
+    let resolvePermissions: ((value: CallMediaPermissionResult) => void) | null = null;
+    __setCallPermissionRequesterForTests(() =>
+      new Promise<CallMediaPermissionResult>((resolve) => {
+        resolvePermissions = resolve;
+      })
+    );
+    const first = fakeSocket();
+    const second = fakeSocket();
+    first.setNextAck({ ok: true, callId: 'stale-call' });
+    second.setNextAck({ ok: true, callId: 'fresh-call' });
+    state().bindSocket(first as any);
+
+    const starting = state().startCall({ conversationId: 'conv-1', mode: 'audio' });
+    expect(state()._starting).toBe(true);
+    state().bindSocket(second as any);
+    resolvePermissions!(grantedAudioPermissions);
+
+    const result = await starting;
+    expect(result).toEqual({ ok: true });
+    expect(first.emitted.filter((entry) => entry.event === 'rtc:call')).toHaveLength(0);
+    expect(second.emitted.filter((entry) => entry.event === 'rtc:call')).toHaveLength(1);
+    expect(state().callId).toBe('fresh-call');
+    expect(state()._starting).toBe(false);
+  });
+
   it('busy/direct_call_required no crean una sesion local', async () => {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
