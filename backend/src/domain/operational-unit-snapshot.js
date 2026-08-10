@@ -13,11 +13,11 @@
  */
 
 // Politica operacional de frescura. Con heartbeat movil de 5-10 s, 15 s
-// mantiene margen para jitter de red sin esconder una desconexion real durante
-// minutos. La ultima posicion conocida siempre se conserva.
+// mantiene margen para jitter de red. A los 31 s la senal ya es stale y exige
+// atencion; a los 90 s pasa a perdida dura sin esperar los 15 min anteriores.
 const GPS_LIVE_MAX_AGE_SECONDS = 15;
 const GPS_FRESH_MAX_AGE_SECONDS = 30;
-const GPS_STALE_MAX_AGE_SECONDS = 60;
+const GPS_STALE_MAX_AGE_SECONDS = 90;
 
 /** Estados de vehiculo que retiran la unidad del inventario visible. */
 const HIDDEN_VEHICLE_STATUSES = new Set(["archived", "deleted", "retired"]);
