@@ -1,0 +1,57 @@
+name: Temporary mobile reconnect stability
+
+on:
+  push:
+    branches:
+      - fix/mobile-reconnect-ui-stability
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: ${{ !contains(github.event.head_commit.message, '[generated mobile stability]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Apply deterministic codemod
+        run: node scripts/tmp-mobile-reconnect-stability.js
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Run focused stability regression
+        working-directory: mobile
+        run: npx jest src/store/reconnect-ui-stability.test.ts --runInBand
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit generated mobile fix and remove temporary tooling
+        shell: bash
+        run: |
+          rm scripts/tmp-mobile-reconnect-stability.js
+          rm .github/workflows/tmp-mobile-reconnect-stability.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/src/store/root-store.ts mobile/src/screens/checklist-screen.tsx mobile/src/store/reconnect-ui-stability.test.ts mobile/src/components/connection-banner.tsx mobile/src/components/app-shell.tsx scripts/tmp-mobile-reconnect-stability.js .github/workflows/tmp-mobile-reconnect-stability.yml
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+            exit 1
+          fi
+          git commit -m "fix(mobile): stabilize reconnect recovery and checklist [generated mobile stability]"
+          git push origin HEAD:${{ github.ref_name }}
