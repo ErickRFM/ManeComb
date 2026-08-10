@@ -138,6 +138,8 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<RouteSession | null>(null);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const expandedScrollRef = useRef<ScrollView | null>(null);
+  const revealExpandedSectionRef = useRef(false);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotionEnabled);
@@ -179,7 +181,33 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     setDetailsOpen(false);
     setHistoryOpen(false);
     setSelectedSession(null);
+    revealExpandedSectionRef.current = false;
+    expandedScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [selectedUnit?.unitId]);
+
+  const handleToggleDetails = useCallback(() => {
+    setDetailsOpen((current) => {
+      revealExpandedSectionRef.current = !current;
+      return !current;
+    });
+    setHistoryOpen(false);
+    setSelectedSession(null);
+  }, []);
+
+  const handleToggleHistory = useCallback(() => {
+    setHistoryOpen((current) => {
+      revealExpandedSectionRef.current = !current;
+      return !current;
+    });
+    setDetailsOpen(false);
+    setSelectedSession(null);
+  }, []);
+
+  const handleExpandedContentSizeChange = useCallback(() => {
+    if (!revealExpandedSectionRef.current) return;
+    revealExpandedSectionRef.current = false;
+    expandedScrollRef.current?.scrollToEnd({ animated: !reduceMotionEnabled });
+  }, [reduceMotionEnabled]);
 
   // Geometria del selector de unidades. Se guarda en refs para que medir no provoque re-render.
   const trackScrollRef = useRef<ScrollView | null>(null);
@@ -470,11 +498,14 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ) : null}
 
         {isExpanded ? (
-          <ScrollView
-            style={styles.expandedPanelScroll}
-            contentContainerStyle={styles.expandedPanelContent}
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={false}>
+          <>
+            <ScrollView
+              ref={expandedScrollRef}
+              style={styles.expandedPanelScroll}
+              contentContainerStyle={styles.expandedPanelContent}
+              nestedScrollEnabled
+              onContentSizeChange={handleExpandedContentSizeChange}
+              showsVerticalScrollIndicator={false}>
             {selectedUnit ? (
               <View style={styles.metricGrid}>
                 {metricCards.map(({ label, value, icon }) => (
@@ -494,33 +525,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                     </Text>
                   </View>
                 ))}
-              </View>
-            ) : null}
-
-            {selectedUnit ? (
-              <View style={[styles.panelActionRow, isNarrow ? responsiveStyles.panelActionRowNarrow : undefined]}>
-                <Pressable
-                  onPress={() => {
-                    setDetailsOpen((current) => !current);
-                    setHistoryOpen(false);
-                    setSelectedSession(null);
-                  }}
-                  style={[styles.detailsButton, styles.panelActionButton, { borderColor: theme.colors.line }]}
-                  accessibilityLabel="Ver detalles de unidad">
-                  <MaterialCommunityIcons name="information-outline" size={18} color={theme.colors.text} />
-                  <Text style={[styles.detailsButtonText, { color: theme.colors.text }]}>Detalles</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setHistoryOpen((current) => !current);
-                    setDetailsOpen(false);
-                    setSelectedSession(null);
-                  }}
-                  style={[styles.detailsButton, styles.panelActionButton, { borderColor: theme.colors.line }]}
-                  accessibilityLabel="Abrir historial de jornadas">
-                  <MaterialCommunityIcons name="history" size={18} color={theme.colors.text} />
-                  <Text style={[styles.detailsButtonText, { color: theme.colors.text }]}>Historial</Text>
-                </Pressable>
               </View>
             ) : null}
 
@@ -607,7 +611,41 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                 </View>
               ) : null}
             </ScrollView> : null}
-          </ScrollView>
+            </ScrollView>
+
+            {selectedUnit ? (
+              <View style={[styles.panelActionRow, isNarrow ? responsiveStyles.panelActionRowNarrow : undefined]}>
+                <Pressable
+                  onPress={handleToggleDetails}
+                  style={({ pressed }) => [
+                    styles.detailsButton,
+                    styles.panelActionButton,
+                    { borderColor: detailsOpen ? theme.colors.accent : theme.colors.line },
+                    detailsOpen ? { backgroundColor: theme.colors.surfaceAlt } : undefined,
+                    pressed ? styles.controlPressed : undefined,
+                  ]}
+                  accessibilityLabel="Ver detalles de unidad"
+                  accessibilityState={{ expanded: detailsOpen, selected: detailsOpen }}>
+                  <MaterialCommunityIcons name="information-outline" size={18} color={detailsOpen ? theme.colors.accent : theme.colors.text} />
+                  <Text style={[styles.detailsButtonText, { color: detailsOpen ? theme.colors.accent : theme.colors.text }]}>Detalles</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleToggleHistory}
+                  style={({ pressed }) => [
+                    styles.detailsButton,
+                    styles.panelActionButton,
+                    { borderColor: historyOpen ? theme.colors.accent : theme.colors.line },
+                    historyOpen ? { backgroundColor: theme.colors.surfaceAlt } : undefined,
+                    pressed ? styles.controlPressed : undefined,
+                  ]}
+                  accessibilityLabel="Abrir historial de jornadas"
+                  accessibilityState={{ expanded: historyOpen, selected: historyOpen }}>
+                  <MaterialCommunityIcons name="history" size={18} color={historyOpen ? theme.colors.accent : theme.colors.text} />
+                  <Text style={[styles.detailsButtonText, { color: historyOpen ? theme.colors.accent : theme.colors.text }]}>Historial</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </>
         ) : null}
       </View>
     </View>
