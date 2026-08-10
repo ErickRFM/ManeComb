@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "e2cef85eefcc8f910a542b74977f8c18fad31835",
+    "commit": "fa0d1b6160b7ebdfc800d10191445d95374cde85",
     "capturedAt": "2026-08-10"
   },
   "maxBaselineDriftCommits": 50,
@@ -17,7 +17,7 @@
     },
     {
       "id": "PLATFORM",
-      "question": "Do Android, iOS, web, and backend interpret the same contract?"
+      "question": "Do provisioned platforms, web clients, and backend interpret the same contract, and are unprovisioned targets explicitly identified?"
     },
     {
       "id": "INTEGRATION",
@@ -43,6 +43,7 @@
     "mapbox-rendering",
     "documents-native-viewer",
     "commercial-payments",
+    "fleet-driver-lifecycle",
     "release-artifacts"
   ],
   "blockingSeverities": ["P0", "P1"]
