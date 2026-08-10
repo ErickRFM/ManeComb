@@ -1,6 +1,7 @@
 import {
   assertCallMediaPermissions,
   callPermissionFailureNeedsSettings,
+  checkCallMediaPermissions,
   getCallPermissionFailure,
   getCallPermissionFailureCopy,
   requestCallMediaPermissions,
@@ -72,7 +73,10 @@ describe('call media permissions', () => {
     });
 
     const result = await requestCallMediaPermissions('video', adapter);
-    expect(result.microphone).toBe('denied');
+    expect(result).toEqual({
+      microphone: 'denied',
+      camera: 'not_requested',
+    });
     expect(requestedPermissions).toEqual([['android.permission.RECORD_AUDIO']]);
     expect(getCallPermissionFailure(result, 'video')).toBe('microphone_permission_denied');
   });
@@ -83,6 +87,29 @@ describe('call media permissions', () => {
     });
 
     await assertCallMediaPermissions('video', adapter);
+    expect(requestedPermissions).toEqual([]);
+  });
+
+  it('final media assertion is check-only and never opens a late prompt', async () => {
+    const { adapter, requestedPermissions } = createAdapter({
+      requested: { 'android.permission.RECORD_AUDIO': 'granted' },
+    });
+
+    await expect(assertCallMediaPermissions('audio', adapter)).rejects.toThrow(
+      'audio_track_unavailable'
+    );
+    expect(requestedPermissions).toEqual([]);
+  });
+
+  it('checks camera and microphone without requesting during capture defense', async () => {
+    const { adapter, requestedPermissions } = createAdapter({
+      granted: ['android.permission.RECORD_AUDIO'],
+    });
+
+    await expect(checkCallMediaPermissions('video', adapter)).resolves.toEqual({
+      microphone: 'granted',
+      camera: 'denied',
+    });
     expect(requestedPermissions).toEqual([]);
   });
 
@@ -111,10 +138,9 @@ describe('call media permissions', () => {
     expect(getCallPermissionFailureCopy(failure)).toContain('Ajustes');
   });
 
-  it('stops video capture when camera permission is blocked', async () => {
+  it('final capture guard maps a missing camera to video_track_unavailable', async () => {
     const { adapter } = createAdapter({
       granted: ['android.permission.RECORD_AUDIO'],
-      requested: { 'android.permission.CAMERA': 'never_ask_again' },
     });
 
     await expect(assertCallMediaPermissions('video', adapter)).rejects.toThrow(
