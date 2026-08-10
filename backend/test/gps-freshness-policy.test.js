@@ -58,7 +58,8 @@ assert.equal(lost.gps.lat, 19.3139, "la ultima posicion conocida nunca desaparec
 // no puede hacer que una posicion recibida hace cinco segundos parezca perdida.
 const skewedPhoneClock = buildOperationalUnitSnapshot({
   vehicle: vehicleAt(300, {
-    locationReceivedAt: new Date(NOW.getTime() - 5_000).toISOString()
+    locationReceivedAt: new Date(NOW.getTime() - 5_000).toISOString(),
+    locationTimestampSource: "server"
   }),
   now: NOW
 });
@@ -66,6 +67,33 @@ assert.equal(skewedPhoneClock.gps.ageSeconds, 5);
 assert.equal(skewedPhoneClock.gps.connectionState, "live");
 assert.equal(skewedPhoneClock.gps.freshness, "fresh");
 assert.notEqual(skewedPhoneClock.gps.recordedAt, skewedPhoneClock.gps.receivedAt);
+
+// Un punto que estuvo 30 minutos en la cola puede llegar al servidor AHORA,
+// pero no se convierte en una posicion viva. `transport_queue_age` afirma que
+// locationTimestamp ya esta reconstruido con el reloj del servidor.
+const queuedBacklog = buildOperationalUnitSnapshot({
+  vehicle: vehicleAt(30 * 60, {
+    locationReceivedAt: NOW.toISOString(),
+    locationTimestampSource: "transport_queue_age"
+  }),
+  now: NOW
+});
+assert.equal(queuedBacklog.gps.ageSeconds, 30 * 60);
+assert.equal(queuedBacklog.gps.connectionState, "lost");
+assert.equal(queuedBacklog.gps.freshness, "missing");
+assert.equal(queuedBacklog.gps.receivedAt, NOW.toISOString());
+assert.notEqual(queuedBacklog.gps.recordedAt, queuedBacklog.gps.receivedAt);
+
+// La misma autoridad permite que una captura inmediata de la cola sea live.
+const queuedImmediate = buildOperationalUnitSnapshot({
+  vehicle: vehicleAt(0, {
+    locationReceivedAt: NOW.toISOString(),
+    locationTimestampSource: "transport_queue_age"
+  }),
+  now: NOW
+});
+assert.equal(queuedImmediate.gps.connectionState, "live");
+assert.equal(queuedImmediate.gps.freshness, "fresh");
 
 // Compatibilidad con registros previos a locationReceivedAt.
 const legacy = buildOperationalUnitSnapshot({
@@ -76,4 +104,4 @@ assert.equal(legacy.gps.ageSeconds, 20);
 assert.equal(legacy.gps.connectionState, "delayed");
 assert.equal(legacy.gps.freshness, "fresh");
 
-console.log("ok - GPS freshness usa receive-time y transicion rapida live/delayed/stale/lost");
+console.log("ok - GPS freshness separa receive-time de captura offline y transicion live/delayed/stale/lost");

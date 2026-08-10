@@ -1,23 +1,49 @@
 const MAX_CLIENT_CLOCK_SKEW_MS = Math.max(0, Number(process.env.TRACKING_MAX_CLOCK_SKEW_MS) || 5 * 60 * 1000);
+const MAX_CLIENT_QUEUE_AGE_MS = Math.max(
+  MAX_CLIENT_CLOCK_SKEW_MS,
+  Number(process.env.TRACKING_MAX_CLIENT_QUEUE_AGE_MS) || 24 * 60 * 60 * 1000
+);
 const GPS_FRESHNESS_MS = Math.max(30_000, Number(process.env.TRACKING_GPS_FRESHNESS_MS) || 2 * 60 * 1000);
 
-function normalizeTrackingTime(clientTimestamp, receivedAt = new Date()) {
+function normalizeClientQueueAge(value) {
+  if (value === null || typeof value === "undefined" || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.min(MAX_CLIENT_QUEUE_AGE_MS, Math.round(parsed));
+}
+
+function normalizeTrackingTime(clientTimestamp, receivedAt = new Date(), clientQueueAgeMs = null) {
   const received = new Date(receivedAt);
   const safeReceived = Number.isNaN(received.getTime()) ? new Date() : received;
   const parsedClient = clientTimestamp ? new Date(clientTimestamp) : null;
   const hasValidClientTime = parsedClient && !Number.isNaN(parsedClient.getTime());
   const skewMs = hasValidClientTime ? parsedClient.getTime() - safeReceived.getTime() : null;
   const withinAcceptedSkew = skewMs !== null && Math.abs(skewMs) <= MAX_CLIENT_CLOCK_SKEW_MS;
+  const normalizedQueueAgeMs = normalizeClientQueueAge(clientQueueAgeMs);
+  const hasTransportQueueAge = normalizedQueueAgeMs !== null;
+  const transportCapturedAt = hasTransportQueueAge
+    ? new Date(safeReceived.getTime() - normalizedQueueAgeMs)
+    : null;
 
   return {
     clientTimestamp: hasValidClientTime ? parsedClient.toISOString() : null,
     receivedAt: safeReceived.toISOString(),
-    processedTimestamp: withinAcceptedSkew ? parsedClient.toISOString() : safeReceived.toISOString(),
+    processedTimestamp: hasTransportQueueAge
+      ? transportCapturedAt.toISOString()
+      : withinAcceptedSkew
+        ? parsedClient.toISOString()
+        : safeReceived.toISOString(),
+    transportCapturedAt: transportCapturedAt ? transportCapturedAt.toISOString() : null,
+    clientQueueAgeMs: normalizedQueueAgeMs,
     clockSkewMs: skewMs,
-    timestampSource: withinAcceptedSkew ? "client" : "server",
+    timestampSource: hasTransportQueueAge
+      ? "transport_queue_age"
+      : withinAcceptedSkew
+        ? "client"
+        : "server",
     discardReason: clientTimestamp && !hasValidClientTime
       ? "invalid_client_timestamp"
-      : skewMs !== null && !withinAcceptedSkew
+      : !hasTransportQueueAge && skewMs !== null && !withinAcceptedSkew
         ? (skewMs > 0 ? "client_clock_ahead" : "client_clock_behind")
         : null
   };
@@ -39,4 +65,11 @@ function buildGpsFreshness(locationTimestamp, evaluatedAt = new Date()) {
   };
 }
 
-module.exports = { GPS_FRESHNESS_MS, MAX_CLIENT_CLOCK_SKEW_MS, buildGpsFreshness, normalizeTrackingTime };
+module.exports = {
+  GPS_FRESHNESS_MS,
+  MAX_CLIENT_CLOCK_SKEW_MS,
+  MAX_CLIENT_QUEUE_AGE_MS,
+  buildGpsFreshness,
+  normalizeClientQueueAge,
+  normalizeTrackingTime
+};

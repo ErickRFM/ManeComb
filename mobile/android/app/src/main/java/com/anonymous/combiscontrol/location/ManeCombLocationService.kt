@@ -381,8 +381,20 @@ class ManeCombLocationService : Service(), LocationListener {
       connection.doOutput = true
       connection.setRequestProperty("Authorization", "Bearer $safeToken")
       connection.setRequestProperty("Content-Type", "application/json")
+
+      // The persisted body owns capture time. Queue age is derived immediately
+      // before every attempt so retries report elapsed transport delay without
+      // mutating the durable queue or trusting the server/device wall-clock offset.
+      val uploadBody = JSONObject(body.toString())
+      val capturedAt = uploadBody.optLong("timestamp", 0L)
+      if (capturedAt > 0L) {
+        val queueAgeMs = (System.currentTimeMillis() - capturedAt)
+          .coerceAtLeast(0L)
+          .coerceAtMost(MAX_PENDING_AGE_MS)
+        uploadBody.put("clientQueueAgeMs", queueAgeMs)
+      }
       OutputStreamWriter(connection.outputStream).use { writer ->
-        writer.write(body.toString())
+        writer.write(uploadBody.toString())
       }
 
       val responseCode = connection.responseCode
