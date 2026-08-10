@@ -121,6 +121,51 @@ describe('Android runtime hardening', () => {
     expect(renderer).not.toContain('if (!isAppInForeground(context)) showIncomingCall(context, data)');
   });
 
+  it('rejects public fake /call links before React while preserving internal call intents', () => {
+    const mainActivity = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'MainActivity.kt'
+      ),
+      'utf8'
+    );
+    const renderer = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombPushNotificationRenderer.kt'
+      ),
+      'utf8'
+    );
+
+    expect(mainActivity).toContain('const val EXTRA_INTERNAL_CALL_INTENT = "manecomb.internal.CALL_INTENT"');
+    expect(mainActivity).toContain('sanitizeCallIntent(intent)');
+    expect(mainActivity).toContain('getBooleanExtra(EXTRA_INTERNAL_CALL_INTENT, false)');
+    expect(mainActivity).toContain('sourceIntent.data = null');
+    expect(mainActivity.indexOf('sanitizeCallIntent(intent)')).toBeLessThan(
+      mainActivity.indexOf('configureIncomingCallWindow(intent)')
+    );
+    expect(renderer).toContain('putExtra(MainActivity.EXTRA_INTERNAL_CALL_INTENT, true)');
+    expect((renderer.match(/putExtra\(MainActivity\.EXTRA_INTERNAL_CALL_INTENT, true\)/g) || []).length)
+      .toBeGreaterThanOrEqual(3);
+  });
+
   it('bounds lockscreen visibility and lets terminal intents restore privacy', () => {
     const mainActivity = fs.readFileSync(
       path.join(
