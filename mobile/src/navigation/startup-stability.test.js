@@ -32,6 +32,15 @@ describe('Mobile startup stability contract', () => {
     expect(request).not.toContain('_allowRetry: true');
   });
 
+  it('never automatically replays login or registration after 429', () => {
+    const login = section(client, 'export async function loginRequest', 'export async function registerRequest');
+    const register = section(client, 'export async function registerRequest', '/**');
+    for (const request of [login, register]) {
+      expect(request).toContain('_skipNetworkRetry: true');
+      expect(request).not.toContain('_allowRetry: true');
+    }
+  });
+
   it('applies the same no-replay policy to the interceptor refresh path', () => {
     // La recuperacion de 401 del interceptor golpea el mismo POST /auth/refresh
     // rotatorio. Si aqui se permite reintento, un 502/504/429 replaya un token
@@ -80,5 +89,22 @@ describe('Mobile startup stability contract', () => {
     expect(initialize).toContain('sessionToken = get().token || sessionToken');
     expect(signIn).toContain('void get().refreshAll();');
     expect(signIn).not.toContain('await get().refreshAll();');
+  });
+
+  it('keeps bootstrap credentials for transient HTTP failures', () => {
+    const initialize = section(store, 'initialize: async () =>', 'signIn: async');
+    expect(initialize).toContain('isTransientSessionFailure(error)');
+    expect(initialize).toContain('...cachedState');
+    expect(initialize).toContain('token: get().token || sessionToken');
+    expect(initialize).toContain('refreshToken: get().refreshToken || nextRefreshToken');
+    expect(initialize).toContain('if (isAuthoritativeSessionFailure(error))');
+  });
+
+  it('coalesces concurrent refreshAll calls into one operation', () => {
+    const refreshAll = section(store, 'refreshAll: async () =>', 'flushPendingSync: async');
+    expect(refreshAll).toContain('refreshAllInFlight?.epoch === refreshEpoch');
+    expect(refreshAll).toContain('return refreshAllInFlight.promise;');
+    expect(refreshAll).toContain('refreshAllInFlight = { epoch: refreshEpoch, promise: refreshOperation };');
+    expect(refreshAll).toContain('refreshAllInFlight = null;');
   });
 });

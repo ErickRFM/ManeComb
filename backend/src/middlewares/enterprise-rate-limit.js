@@ -1,5 +1,6 @@
 const { getRedisClient } = require("../services/redis");
 const { recordAuditLog } = require("../services/audit");
+const logger = require("../services/logger");
 
 const memoryBuckets = new Map();
 
@@ -65,6 +66,18 @@ function enterpriseRateLimit({
     }
 
     res.setHeader("Retry-After", String(Math.ceil(result.resetInMs / 1000)));
+    const retryAfterSeconds = Math.ceil(result.resetInMs / 1000);
+    const traceId = req?.traceId || res?.locals?.traceId || null;
+    logger.warn({
+      action: "RateLimitRejected",
+      module: "RateLimit",
+      requestId: traceId,
+      status: "429",
+      metadata: {
+        retryAfterSeconds,
+        scope
+      }
+    });
     await recordAuditLog(req, {
       action: "security.rate_limit_triggered",
       severity: "warning",
@@ -73,6 +86,8 @@ function enterpriseRateLimit({
       metadata: {
         key,
         max,
+        retryAfterSeconds,
+        traceId,
         windowMs
       }
     });
@@ -80,7 +95,9 @@ function enterpriseRateLimit({
     return res.status(429).json({
       ok: false,
       message,
-      retryAfterSeconds: Math.ceil(result.resetInMs / 1000)
+      retryAfterSeconds,
+      scope,
+      traceId
     });
   };
 }

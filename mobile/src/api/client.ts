@@ -1,5 +1,6 @@
 import axios, { isAxiosError, type AxiosError } from 'axios';
 import { Platform } from 'react-native';
+import { formatRetryAfter, parseRetryAfterSeconds } from './retry-after';
 import {
   API_ORIGIN as RESOLVED_API_ORIGIN,
   API_TIMEOUT_MS as RESOLVED_API_TIMEOUT_MS,
@@ -45,7 +46,7 @@ const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
 const PASSWORD_RECOVERY_TIMEOUT_MS = 80000;
 const MAX_NETWORK_RETRIES = 2;
 const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options']);
-const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 500, 502, 503, 504]);
 let lastTraceId: string | null = null;
 let refreshTokenPromise: Promise<string | null> | null = null;
 
@@ -187,7 +188,10 @@ export function getApiErrorMessage(
   }
 
   const status = error.response?.status;
-  const responseData = error.response?.data as { message?: unknown } | undefined;
+  const responseData = error.response?.data as {
+    message?: unknown;
+    retryAfterSeconds?: unknown;
+  } | undefined;
   const apiMessage = responseData?.message;
 
   if (options.hasInternet === false && !error.response) {
@@ -231,6 +235,10 @@ export function getApiErrorMessage(
   }
 
   if (status === 429) {
+    const retryAfter = parseRetryAfterSeconds(error.response);
+    if (retryAfter) {
+      return `Demasiados intentos. Intenta de nuevo en ${formatRetryAfter(retryAfter)}.`;
+    }
     return 'Demasiados intentos. Espera un momento e intenta de nuevo.';
   }
 
@@ -465,8 +473,8 @@ export async function loginRequest(email: string, password: string, appVersion?:
     buildNumber,
     platform: Platform.OS,
   }, {
-    _allowRetry: true,
     _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
   } as RetryableRequestConfig);
 
   return response.data;
@@ -474,8 +482,8 @@ export async function loginRequest(email: string, password: string, appVersion?:
 
 export async function registerRequest(payload: RegisterPayload) {
   const response = await apiClient.post<LoginResult>('/auth/register', payload, {
-    _allowRetry: true,
     _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
   } as RetryableRequestConfig);
   return response.data;
 }
