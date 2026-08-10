@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  Animated,
   LayoutAnimation,
   PanResponder,
   Platform,
@@ -38,6 +39,9 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const PANEL_ANIMATION_MS = 220;
+const PANEL_DRAG_LIMIT = 96;
+const PANEL_DRAG_TRIGGER = 28;
+const PANEL_FLING_VELOCITY = 0.35;
 const NARROW_PANEL_BREAKPOINT = 390;
 const SECTION_REVEAL_MARGIN = 8;
 
@@ -147,6 +151,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const expandedScrollRef = useRef<ScrollView | null>(null);
   const pendingRevealRef = useRef<PanelRevealTarget>(null);
+  const panelDragY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotionEnabled);
@@ -173,17 +178,48 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     }
   }, [reduceMotionEnabled]);
 
+  const settlePanelDrag = useCallback(() => {
+    panelDragY.stopAnimation();
+    if (reduceMotionEnabled) {
+      panelDragY.setValue(0);
+      return;
+    }
+    Animated.spring(panelDragY, {
+      toValue: 0,
+      damping: 18,
+      stiffness: 220,
+      mass: 0.75,
+      useNativeDriver: true,
+    }).start();
+  }, [panelDragY, reduceMotionEnabled]);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dy < -24) setPanelExpanded(true);
-          if (gesture.dy > 24) setPanelExpanded(false);
+          Math.abs(gesture.dy) > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          panelDragY.stopAnimation();
         },
+        onPanResponderMove: (_, gesture) => {
+          if (reduceMotionEnabled) return;
+          const oppositeResistance = PANEL_DRAG_LIMIT * 0.18;
+          const minDrag = isExpanded ? -oppositeResistance : -PANEL_DRAG_LIMIT;
+          const maxDrag = isExpanded ? PANEL_DRAG_LIMIT : oppositeResistance;
+          panelDragY.setValue(Math.max(minDrag, Math.min(maxDrag, gesture.dy)));
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const shouldExpand = !isExpanded
+            && (gesture.dy < -PANEL_DRAG_TRIGGER || gesture.vy < -PANEL_FLING_VELOCITY);
+          const shouldCollapse = isExpanded
+            && (gesture.dy > PANEL_DRAG_TRIGGER || gesture.vy > PANEL_FLING_VELOCITY);
+          if (shouldExpand) setPanelExpanded(true);
+          if (shouldCollapse) setPanelExpanded(false);
+          settlePanelDrag();
+        },
+        onPanResponderTerminate: settlePanelDrag,
       }),
-    [setPanelExpanded]
+    [isExpanded, panelDragY, reduceMotionEnabled, setPanelExpanded, settlePanelDrag]
   );
 
   useEffect(() => {
@@ -239,8 +275,8 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     const viewportWidth = trackViewportWidthRef.current;
     if (!chip || viewportWidth <= 0) return;
     const target = Math.max(0, chip.x + chip.width / 2 - viewportWidth / 2);
-    trackScrollRef.current?.scrollTo({ x: target, animated: true });
-  }, [selectedUnitId]);
+    trackScrollRef.current?.scrollTo({ x: target, animated: !reduceMotionEnabled });
+  }, [reduceMotionEnabled, selectedUnitId]);
 
   const vehicleSession = useMemo(
     () => selectVehicleActiveSession(selectedUnit?.unitId, activeSession, sessionHistory),
@@ -439,7 +475,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         </View>
       ) : null}
 
-      <View
+      <Animated.View
         style={[
           styles.followCard,
           styles.trackingPanelCard,
@@ -448,8 +484,9 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
           isExpanded
             ? { maxHeight: expandedMaxHeight }
             : { minHeight: compactHeight, maxHeight: compactMaxHeight },
+          { transform: [{ translateY: panelDragY }] },
         ]}>
-        <View {...panResponder.panHandlers} style={styles.panelGestureArea}>
+        <View {...panResponder.panHandlers} style={[styles.panelGestureArea, responsiveStyles.panelGestureAreaComfortable]}>
           <View style={[styles.panelHandle, { backgroundColor: theme.colors.line }]} />
         </View>
         <View style={styles.followHeader}>
@@ -488,11 +525,19 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             bounces={false}
             overScrollMode="never"
             showsHorizontalScrollIndicator={false}
-            style={styles.trackScroller}
+            style={[
+              styles.trackScroller,
+              responsiveStyles.trackScrollerStable,
+              isNarrow ? responsiveStyles.trackScrollerNarrow : undefined,
+            ]}
             onLayout={(event) => {
               trackViewportWidthRef.current = event.nativeEvent.layout.width;
             }}
-            contentContainerStyle={styles.trackList}>
+            contentContainerStyle={[
+              styles.trackList,
+              responsiveStyles.trackListStable,
+              isNarrow ? responsiveStyles.trackListNarrow : undefined,
+            ]}>
             {trackingUnits.map((unit) => {
               const isSelected = unit.unitId === selectedUnit?.unitId;
               return (
@@ -669,7 +714,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             ) : null}
           </>
         ) : null}
-      </View>
+      </Animated.View>
     </View>
   );
 });
@@ -691,6 +736,25 @@ const responsiveStyles = StyleSheet.create({
   },
   panelActionRowNarrow: {
     flexWrap: 'wrap',
+  },
+  panelGestureAreaComfortable: {
+    minHeight: 24,
+    marginBottom: -4,
+  },
+  trackScrollerStable: {
+    flexShrink: 0,
+    minHeight: 42,
+  },
+  trackScrollerNarrow: {
+    marginHorizontal: -10,
+  },
+  trackListStable: {
+    alignItems: 'center',
+    minHeight: 42,
+    paddingVertical: 2,
+  },
+  trackListNarrow: {
+    paddingHorizontal: 10,
   },
   detailRowNarrow: {
     alignItems: 'flex-start',
