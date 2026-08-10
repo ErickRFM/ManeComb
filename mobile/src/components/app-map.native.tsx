@@ -1,7 +1,7 @@
 import Mapbox from '@rnmapbox/maps';
 import Config from 'react-native-config';
 import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import type {
   AppMapMarkerProps,
   AppMapPadding,
@@ -13,6 +13,7 @@ import type {
 import { readRuntimeValue } from '@/src/config/api_config';
 import type { GeoPoint } from '@/src/types/app';
 import { resolveMapStyleUrl } from '@/src/components/map-style-urls';
+import { resolveAnnotationLayerId } from '@/src/components/map-annotation-layer';
 
 const MAPBOX_ACCESS_TOKEN =
   readRuntimeValue('MAPBOX_ACCESS_TOKEN', 'MANECOMB_MAPBOX_ACCESS_TOKEN') ||
@@ -242,6 +243,9 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
           zoomLevel: toZoom(initialRegion),
         }}
       />
+      {/* Antes que los hijos: garantiza la capa de anotaciones a la que se
+          anclan las lineas de ruta, aunque la pantalla no monte ningun pin. */}
+      <MapAnnotationAnchor />
       {children}
     </Mapbox.MapView>
   );
@@ -254,6 +258,44 @@ const lineLayerStyle = {
   lineOpacity: 0.78,
   lineWidth: 3,
 };
+
+/**
+ * Id de la capa de anotaciones para ESTA plataforma. Android e iOS usan ids
+ * distintos; el resolver documenta ambos y su procedencia en el SDK.
+ */
+export const MAP_ANNOTATION_LAYER_ID = resolveAnnotationLayerId(Platform.OS);
+
+/**
+ * Ancla invisible.
+ *
+ * `belowLayerID` se resuelve esperando a que la capa exista, y esa espera no
+ * tiene timeout en ninguna de las dos plataformas. Un mapa que dibujara rutas
+ * sin ningun `PointAnnotation` montado no anadiria nunca la linea: pasaria de un
+ * defecto visual a una ruta invisible. El caso es real —el mapa principal sin
+ * ubicacion de usuario ni incidencias— asi que se garantiza la capa.
+ *
+ * Es inerte por construccion, no solo por ser invisible:
+ *  - `addToMap` accede al coordinator perezoso ANTES de tocar el bitmap, asi que
+ *    la capa se crea igual (RNMBXPointAnnotation.kt:103);
+ *  - `BitmapUtils.viewToBitmap` exige `w > 0 && h > 0` y devuelve `null` con un
+ *    hijo de 0x0, asi que no se genera imagen ni se dibuja nada;
+ *  - sin `draggable` ni `onSelected` no admite arrastre ni seleccion;
+ *  - `fitToCoordinates` recibe coordenadas explicitas del llamador, asi que el
+ *    ancla no entra en el encuadre ni mueve la camara.
+ *
+ * Va en Null Island, fuera de cualquier area operativa.
+ */
+const ANNOTATION_ANCHOR_COORDINATE: [number, number] = [0, 0];
+
+export function MapAnnotationAnchor() {
+  return (
+    <Mapbox.PointAnnotation
+      id="manecomb-annotation-anchor"
+      coordinate={ANNOTATION_ANCHOR_COORDINATE}>
+      <View style={styles.annotationAnchor} />
+    </Mapbox.PointAnnotation>
+  );
+}
 
 export const AppMapPolyline = memo(function AppMapRouteLine({
   coordinates,
@@ -285,6 +327,7 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
     <Mapbox.ShapeSource id={sourceId} shape={shape}>
       <Mapbox.LineLayer
         id={`${sourceId}-line`}
+        belowLayerID={MAP_ANNOTATION_LAYER_ID}
         style={{
           ...lineLayerStyle,
           lineBlur,
@@ -328,6 +371,10 @@ export const AppMapMarker = memo(function AppMapPointMarker({
 });
 
 const styles = StyleSheet.create({
+  annotationAnchor: {
+    height: 0,
+    width: 0,
+  },
   markerHost: {
     alignItems: 'center',
     justifyContent: 'center',
