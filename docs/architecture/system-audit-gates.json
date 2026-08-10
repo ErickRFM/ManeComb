@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "fa0d1b6160b7ebdfc800d10191445d95374cde85",
+    "commit": "6ff529c87f74df1b78a7905c080b6fc599025b1e",
     "capturedAt": "2026-08-10"
   },
   "maxBaselineDriftCommits": 50,
@@ -36,6 +36,8 @@
   "crossLayerSurfaces": [
     "auth-session",
     "tenant-capabilities",
+    "profile-self-service",
+    "managed-staff-identity",
     "notifications-fcm",
     "rtc",
     "radio",
