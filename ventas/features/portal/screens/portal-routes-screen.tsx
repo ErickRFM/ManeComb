@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { palette } from '@/constants/theme';
@@ -26,6 +26,7 @@ import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { portalPalette } from '../portal-theme';
 import { RouteEditor, createBlankEditor } from '../routes/routes.types';
+import { createLatestRoutePlanAuthority } from '../routes/latest-route-plan-authority.js';
 import { parseCoordinate, getRouteGeometry, getDriverName, getRouteLabel } from '../routes/routes.utils';
 import { applyOperationalSnapshot } from '../dashboard/dashboard.utils';
 import { styles } from '../routes/routes.styles';
@@ -131,6 +132,7 @@ export function PortalRoutesScreen() {
   const [learnedCandidates, setLearnedCandidates] = useState<LearnedRouteCandidate[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [candidateBusy, setCandidateBusy] = useState(false);
+  const routePlanAuthorityRef = useRef(createLatestRoutePlanAuthority());
 
   useEffect(() => {
     void loadVehicles();
@@ -197,17 +199,33 @@ export function PortalRoutesScreen() {
   }, [editorPoints, editorStops]);
 
   useEffect(() => {
+    const planRequest = routePlanAuthorityRef.current.begin();
     const origin = editorPoints[0]; const destination = editorPoints[1];
-    if (!showRouteEditor || !origin || !destination) { if (!origin || !destination) setEditorGeometry(editorPoints); return; }
+    if (!showRouteEditor || !origin || !destination) {
+      if (!origin || !destination) setEditorGeometry(editorPoints);
+      setCatalogBusy(false);
+      planRequest.invalidate();
+      return;
+    }
     const timer = window.setTimeout(() => {
+      if (!planRequest.isCurrent()) return;
       setCatalogBusy(true);
       void planSavedRouteRequest({ origin, destination, stops: editorStops }).then((plan) => {
+        if (!planRequest.isCurrent()) return;
         const route = plan.routes?.[0]; if (!route) return;
         setEditorGeometry(route.polyline || []);
         setEditorMetrics({ distanceMeters: route.distanceMeters || 0, durationSeconds: route.durationSeconds || 0, durationInTrafficSeconds: route.durationInTrafficSeconds || 0 });
-      }).catch((error) => setMessage(getApiErrorMessage(error, 'No fue posible recalcular la geometría.'))).finally(() => setCatalogBusy(false));
+      }).catch((error) => {
+        if (!planRequest.isCurrent()) return;
+        setMessage(getApiErrorMessage(error, 'No fue posible recalcular la geometría.'));
+      }).finally(() => {
+        if (planRequest.isCurrent()) setCatalogBusy(false);
+      });
     }, 320);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      planRequest.invalidate();
+    };
   }, [editorPoints, editorStops, showRouteEditor]);
 
   const createCatalogRoute = async () => {
@@ -646,7 +664,7 @@ export function PortalRoutesScreen() {
           if (!routeToDelete) return;
           setCatalogBusy(true);
           try {
-            const result = await deleteSavedRouteRequest(routeToDelete.id);
+            await deleteSavedRouteRequest(routeToDelete.id);
             setSavedRoutes((current) => current.filter((r) => r.id !== routeToDelete.id));
             setSelectedRouteId((current) => (current === routeToDelete.id ? null : current));
             setMessage('Ruta eliminada.');
@@ -702,5 +720,4 @@ export function PortalRoutesScreen() {
     </PortalLayout>
   );
 }
-
 
