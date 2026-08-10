@@ -169,13 +169,28 @@ export function ChecklistScreen() {
       useAppStore.setState({ routeSessionHistory: await getRouteSessionHistoryRequest({ limit: 500 }) });
       setHistoryLoadError(false);
     } catch {
-      setHistoryLoadError(true);
+      // Si ya existe historial valido, un fallo transitorio no debe convertir
+      // datos visibles en un error duro ni provocar saltos de layout.
+      setHistoryLoadError(useAppStore.getState().routeSessionHistory.length === 0);
     }
   }, []);
 
+  const historyRefreshKey = `${user?.id || 'none'}:${syncedActiveSession?.id || 'none'}:${syncedActiveSession?.status || 'none'}:${syncedActiveSession?.finishedAt || ''}`;
+  const lastHistoryRefreshKeyRef = useRef(historyRefreshKey);
+
   useEffect(() => {
-    if (user) loadSessionHistory();
-  }, [loadSessionHistory, user, syncedActiveSession]);
+    if (!user) return;
+
+    const hasCachedHistory = useAppStore.getState().routeSessionHistory.length > 0;
+    const semanticSessionChanged = lastHistoryRefreshKeyRef.current !== historyRefreshKey;
+    if (!hasCachedHistory || semanticSessionChanged) {
+      lastHistoryRefreshKeyRef.current = historyRefreshKey;
+      void loadSessionHistory();
+      return;
+    }
+
+    setHistoryLoadError(false);
+  }, [historyRefreshKey, loadSessionHistory, user?.id]);
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
   const selectedAssignedRoute = useMemo<AssignedRoute | null>(
@@ -1027,6 +1042,8 @@ export function ChecklistScreen() {
       <View style={styles.filterFrame}>
         <ScrollView
           horizontal
+          bounces={false}
+          overScrollMode="never"
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterScrollContent}>
           {[
@@ -1060,7 +1077,7 @@ export function ChecklistScreen() {
           <Text style={styles.sectionLink} numberOfLines={1}>{filteredRecords.length} registros</Text>
         </View>
 
-        {historyLoadError ? (
+        {historyLoadError && sessionHistory.length === 0 ? (
           <View style={styles.historyErrorBanner}>
             <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.colors.warning} />
             <Text style={styles.historyErrorText}>Error al cargar historial.</Text>
