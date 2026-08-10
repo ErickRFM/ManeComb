@@ -24,7 +24,7 @@ export function AdminAuthLayout({ title, subtitle, children }: Props) {
             <Text style={styles.brandBadge}>Admin</Text>
           </View>
           <View style={styles.headingBlock}>
-            <Text style={styles.title}>{title}</Text>
+            <Text accessibilityRole="header" style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
           </View>
           {children}
