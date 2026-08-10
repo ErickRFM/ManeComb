@@ -111,14 +111,15 @@ export function getSelectorCopy(
       : step === 2
         ? 'Selecciona el destino'
         : 'Deseas agregar paradas?';
+  const editAction = isEditingRoute ? 'guardar los cambios' : 'continuar';
   const hint =
     step === 1
       ? 'Toca el mapa para fijar el origen de la ruta.'
       : step === 2
         ? 'Toca el mapa para fijar el destino y calcular la ruta.'
         : stopCount
-          ? 'Cada toque agrega otro waypoint. Puedes deshacer el ultimo o continuar.'
-          : 'Las paradas son opcionales. Toca el mapa para agregar una o continua.';
+          ? `Cada toque agrega otro waypoint. Puedes deshacer el ultimo o ${editAction}.`
+          : `Las paradas son opcionales. Toca el mapa para agregar una o ${editAction}.`;
   const confirmLabel = isEditingRoute ? 'Guardar cambios' : 'Continuar';
 
   return { step, title, hint, confirmLabel };
