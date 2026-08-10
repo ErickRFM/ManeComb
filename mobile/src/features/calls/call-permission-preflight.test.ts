@@ -49,9 +49,11 @@ describe('RTC media permission preflight placement', () => {
     expect(callOverlay).toContain('hasActiveCallPhase && Boolean(localStream)');
   });
 
-  it('keeps a final permission defense at getUserMedia boundary', () => {
+  it('keeps a final permission defense at the actual getUserMedia invocation', () => {
     const permissionIndex = callMedia.indexOf('assertCallMediaPermissions(mode)');
-    const mediaIndex = callMedia.indexOf('mediaDevices.getUserMedia');
+    // El módulo también referencia getUserMedia en el guard de disponibilidad,
+    // por eso se fija la última ocurrencia, que corresponde a la captura real.
+    const mediaIndex = callMedia.lastIndexOf('mediaDevices.getUserMedia');
     expect(permissionIndex).toBeGreaterThan(-1);
     expect(mediaIndex).toBeGreaterThan(permissionIndex);
   });
