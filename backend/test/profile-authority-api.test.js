@@ -96,6 +96,77 @@ async function testDriverCannotEscalateSelfProfile() {
   }
 }
 
+async function testAdminCannotOverwriteDriverSelfProfile() {
+  const context = await startServer();
+
+  try {
+    const organizationId = `org-driver-admin-authority-${Date.now()}`;
+    const owner = await context.store.createUser({
+      name: "Owner",
+      email: `profile-owner-${Date.now()}@manecomb.test`,
+      password: "Ruta123!",
+      role: "owner",
+      accountType: "company_owner",
+      organizationId,
+      companyId: organizationId,
+      userStatus: "active",
+      status: "offline"
+    });
+    const driver = await context.store.createUser({
+      name: "Driver Canonical",
+      email: `profile-managed-driver-${Date.now()}@manecomb.test`,
+      password: "Ruta123!",
+      phone: "+52 55 2222 3333",
+      role: "driver",
+      accountType: "operations",
+      organizationId,
+      companyId: organizationId,
+      userStatus: "active",
+      status: "offline",
+      shift: "Matutino"
+    });
+    const token = signToken(owner);
+
+    const rejected = await requestJson(`${context.url}/users/${driver.id}`, token, {
+      name: "Admin Override",
+      email: "override@manecomb.test",
+      phone: "+52 55 9999 9999",
+      password: "Otro123!",
+      avatarUrl: "data:image/jpeg;base64,dGVzdA=="
+    });
+
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.payload.code, "DRIVER_SELF_PROFILE_AUTHORITY");
+    assert.ok(rejected.payload.fields.includes("name"));
+    assert.ok(rejected.payload.fields.includes("password"));
+
+    const unchanged = await context.store.getUserById(driver.id);
+    assert.equal(unchanged.name, "Driver Canonical");
+    assert.equal(unchanged.email, driver.email);
+    assert.equal(unchanged.phone, "+52 55 2222 3333");
+
+    const operational = await requestJson(`${context.url}/users/${driver.id}`, token, {
+      shift: "Vespertino",
+      operationalSchedule: {
+        enabled: true,
+        startTime: "13:00",
+        endTime: "21:00",
+        activeDays: [1, 2, 3, 4, 5],
+        timezone: "America/Mexico_City"
+      }
+    });
+
+    assert.equal(operational.status, 200);
+    assert.equal(operational.payload.ok, true);
+    assert.equal(operational.payload.data.name, "Driver Canonical");
+    assert.equal(operational.payload.data.shift, "Vespertino");
+    assert.equal(operational.payload.data.operationalSchedule.startTime, "13:00");
+    assert.equal(operational.payload.data.operationalSchedule.endTime, "21:00");
+  } finally {
+    await context.close();
+  }
+}
+
 async function testCompanyAdministratorsKeepCompanySelfService() {
   for (const role of ["owner", "admin"]) {
     const context = await startServer();
@@ -184,6 +255,7 @@ async function testLimitedPortalRolesCannotEditCompanyProfile() {
 
 async function main() {
   await testDriverCannotEscalateSelfProfile();
+  await testAdminCannotOverwriteDriverSelfProfile();
   await testCompanyAdministratorsKeepCompanySelfService();
   await testLimitedPortalRolesCannotEditCompanyProfile();
   console.log("ok - profile authority API");
