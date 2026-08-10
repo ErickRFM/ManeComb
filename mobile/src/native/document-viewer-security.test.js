@@ -25,6 +25,14 @@ describe('Android protected document viewer', () => {
     expect(source).not.toContain('for (index in 0 until renderer.pageCount)');
   });
 
+  it('bounds compressed image decode before materializing a bitmap', () => {
+    expect(source).toContain('private fun decodeImageForDisplay(file: File)');
+    expect(source).toContain('inJustDecodeBounds = true');
+    expect(source).toContain('inSampleSize = sampleSize');
+    expect(source).toContain('MAX_IMAGE_PIXELS');
+    expect(source).not.toContain('BitmapFactory.decodeFile(file.absolutePath)\n');
+  });
+
   it('keeps explicit page navigation and closes renderer on destroy/error', () => {
     expect(source).toContain('buildPageButton("Anterior")');
     expect(source).toContain('buildPageButton("Siguiente")');
