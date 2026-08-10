@@ -119,11 +119,15 @@ export function CallOverlay(): React.ReactElement {
     }
   }, [pendingPushCall, socket, socketStatus]);
 
-  // CONNECTING sólo es alcanzable después del preflight autoritativo del store.
-  // En ese punto Android ya concedió la media requerida, así que el foreground
-  // service puede elevarse antes de que WebRTC intente producir localStream.
+  // OUTGOING_RINGING sólo existe después del preflight. Mantener el FGS desde
+  // aquí permite que una llamada iniciada en foreground continúe si el usuario
+  // manda la app a segundo plano antes de que el receptor acepte. Incoming no
+  // eleva el servicio durante ringing porque todavía puede estar sin permisos.
   const needsForegroundService =
-    phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
+    phase === 'OUTGOING_RINGING' ||
+    phase === 'CONNECTING' ||
+    phase === 'CONNECTED' ||
+    phase === 'RECONNECTING';
   const needsIncomingCallWindow =
     direction === 'incoming' &&
     (
