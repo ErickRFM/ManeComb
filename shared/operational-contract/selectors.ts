@@ -28,19 +28,34 @@ export function formatEta(route: OperationalUnitSnapshot['route'], locale = 'es-
   return eta.toLocaleTimeString(locale, TIME_FORMAT);
 }
 
+function formatGpsAge(ageSeconds: number | null): string | null {
+  if (ageSeconds === null) return null;
+  if (ageSeconds < 60) return `hace ${Math.max(0, Math.round(ageSeconds))} s`;
+
+  const minutes = Math.floor(ageSeconds / 60);
+  if (minutes < 60) return `hace ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
+}
+
 export function formatFreshness(gps: OperationalUnitSnapshot['gps']): string {
   if (gps.connectionState === 'live') return 'GPS en vivo';
   if (gps.connectionState === 'delayed') return 'GPS retrasado';
-  if (gps.connectionState === 'lost' && gps.ageSeconds === null) return 'Sin GPS';
-  if (gps.ageSeconds === null) return 'Sin GPS';
 
-  const minutes = Math.floor(gps.ageSeconds / 60);
-  if (minutes < 1) return 'Hace segundos';
-  if (minutes < 60) return `Hace ${minutes} min`;
+  const age = formatGpsAge(gps.ageSeconds);
 
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Hace ${hours} h`;
-  return `Hace ${Math.floor(hours / 24)} d`;
+  // El backend ya resolvio la severidad. La UI solo la hace visible para que un
+  // dato viejo no parezca una unidad sana ni una ultima posicion desaparezca.
+  if (gps.connectionState === 'stale') {
+    return age ? `GPS sin señal · ${age}` : 'GPS sin señal';
+  }
+  if (gps.connectionState === 'lost') {
+    return age ? `GPS perdido · ${age}` : 'Sin GPS';
+  }
+
+  return age ? `Última ubicación · ${age}` : 'Sin GPS';
 }
 
 export function formatSpeed(gps: OperationalUnitSnapshot['gps']): string {

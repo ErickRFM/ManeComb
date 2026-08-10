@@ -17,6 +17,7 @@ const { createEmbeddedStore, createMongoStore } = require("./data/store");
 const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
 const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
+const { startOperationalFreshnessSweeper } = require("./services/operational-freshness-sweeper");
 const { migrateLegacyLocalDocumentsToMongo } = require("./services/storage");
 const { registerSocketServer } = require("./sockets");
 const logger = require("./services/logger");
@@ -109,6 +110,7 @@ async function startServer() {
   const io = registerSocketServer(server, store);
 
   app.locals.io = io;
+  startOperationalFreshnessSweeper({ io, store, server });
 
   server.listen(PORT, HOST, () => {
     const currentDb = getDbState();

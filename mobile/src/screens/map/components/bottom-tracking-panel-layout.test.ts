@@ -46,4 +46,23 @@ describe('geometria de BottomTrackingPanel', () => {
     expect(panel).toContain('trackingUnits.length <= 1 ? <View');
     expect(panel).not.toContain('trackingUnits.length <= 1 ? <ScrollView');
   });
+
+  it('reserva un viewport vertical para que las pestanas no se recorten en Android estrecho', () => {
+    expect(panel).toContain('responsiveStyles.trackScrollerStable');
+    expect(panel).toContain('responsiveStyles.trackListStable');
+    expect(panel).toContain('minHeight: 42');
+    expect(panel).toContain('paddingVertical: 2');
+    expect(panel).toContain('marginHorizontal: -10');
+    expect(panel).toContain('paddingHorizontal: 10');
+  });
+
+  it('hace que el panel siga el dedo y haga snap por distancia o velocidad', () => {
+    expect(panel).toContain('Animated.View');
+    expect(panel).toContain('onPanResponderMove');
+    expect(panel).toContain('panelDragY.setValue');
+    expect(panel).toContain('Animated.spring(panelDragY');
+    expect(panel).toContain('translateY: panelDragY');
+    expect(panel).toContain('PANEL_DRAG_TRIGGER');
+    expect(panel).toContain('PANEL_FLING_VELOCITY');
+  });
 });

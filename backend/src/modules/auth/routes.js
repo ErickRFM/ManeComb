@@ -616,7 +616,7 @@ async function sendSessionResponse(req, res) {
   logAuthAccessDecision(req.path === "/session" ? "auth.session" : "auth.me", req.user, authContext);
 
   const { appVersion } = req.query || {};
-  const updateInfo = appVersion ? getAppUpdateInfo(store, appVersion) : {};
+  const updateInfo = appVersion ? await getAppUpdateInfo(store, appVersion) : {};
   const profile = sanitizeProfileForViewer(
     req.user,
     await store.getUserProfile(req.user.id)
