@@ -114,7 +114,11 @@ function getStoredItem(key: string) {
     return null;
   }
 
-  return window.localStorage.getItem(key);
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
 function setStoredItem(key: string, value: string) {
@@ -122,7 +126,12 @@ function setStoredItem(key: string, value: string) {
     return;
   }
 
-  window.localStorage.setItem(key, value);
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage can be blocked by browser privacy policies. The in-memory session
+    // remains valid, but persistence must never block hydration or login.
+  }
 }
 
 function deleteStoredItem(key: string) {
@@ -130,7 +139,11 @@ function deleteStoredItem(key: string) {
     return;
   }
 
-  window.localStorage.removeItem(key);
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Treat restricted storage as already cleared from this runtime's point of view.
+  }
 }
 
 function persistSession(token: string | null, refreshToken?: string | null) {
@@ -144,6 +157,8 @@ function persistSession(token: string | null, refreshToken?: string | null) {
 
   if (refreshToken) {
     setStoredItem(REFRESH_TOKEN_KEY, refreshToken);
+  } else {
+    deleteStoredItem(REFRESH_TOKEN_KEY);
   }
 }
 
@@ -436,10 +451,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       clearPortalState();
       setAuthToken(response.token);
-
-      if (rememberSession) {
-        persistSession(response.token, response.refreshToken);
-      }
+      persistSession(
+        rememberSession ? response.token : null,
+        rememberSession ? response.refreshToken : null
+      );
 
       set({
         token: response.token,
@@ -473,10 +488,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       clearPortalState();
       setAuthToken(response.token);
-
-      if (rememberSession) {
-        persistSession(response.token, response.refreshToken);
-      }
+      persistSession(
+        rememberSession ? response.token : null,
+        rememberSession ? response.refreshToken : null
+      );
 
       set({
         token: response.token,
@@ -799,7 +814,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const vehicle = await clearRouteAssignmentRequest(vehicleId);
       set((state) => ({
-        vehicles: state.vehicles.map((entry) => (entry.id === vehicleId ? vehicle : entry)),
+        vehicles: state.vehicles.map((entry) => (entry.id === vehicle.id ? vehicle : entry)),
       }));
       return { ok: true };
     } catch (error) {

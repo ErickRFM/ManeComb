@@ -24,6 +24,7 @@ export type PlatformCompany = {
   lastAccessAt: string | null;
   owner: PlatformCompanyOwner;
   plan: PlatformCompanyPlan;
+  commercialAccess: boolean;
   commercial: {
     orderId: string | null;
     accountStatus: string | null;

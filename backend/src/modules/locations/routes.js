@@ -14,26 +14,47 @@ const { ingestVehicleLocation } = require("../../services/vehicle-location-inges
 const router = Router();
 const gpsLimiter = enterpriseRateLimit({ scope: "gps", max: 120, windowMs: 60 * 1000 });
 
+function getVehicleRouteIds(vehicle) {
+  return [
+    vehicle?.routeId,
+    vehicle?.route?.id,
+    vehicle?.assignedRoute?.routeId
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
 function filterLiveLocationsForTenant(user, live) {
   const vehicles = filterTenantList(user, live.vehicles || []);
   const vehicleIds = new Set(vehicles.map((vehicle) => vehicle.id));
   const organizationId = getOrganizationId(user);
+  const role = String(user?.role || "").toLowerCase();
+  const isDriver = ["driver", "conductor"].includes(role);
+  const driverRouteIds = new Set(
+    isDriver ? vehicles.flatMap((vehicle) => getVehicleRouteIds(vehicle)) : []
+  );
 
   return {
     ...live,
-    routes: (live.routes || []).filter(
-      (route) => Boolean(
+    routes: (live.routes || []).filter((route) => {
+      const belongsToTenant = Boolean(
         organizationId &&
         route.organizationId &&
         String(route.organizationId) === organizationId
-      )
-    ),
+      );
+
+      if (!belongsToTenant) return false;
+      if (!isDriver) return true;
+
+      const routeId = String(route.id || route._id || "").trim();
+      return Boolean(routeId && driverRouteIds.has(routeId));
+    }),
     vehicles: vehicles.map((vehicle) => ({
       ...vehicle,
       gpsFreshness: buildGpsFreshness(vehicle.locationTimestamp, live.updatedAt)
     })),
     incidents: (live.incidents || []).filter((incident) => {
-      if (["driver", "conductor"].includes(String(user.role || "").toLowerCase())) {
+      if (isDriver) {
         return incident.reporterId === user.id || incident.vehicleId === user.vehicleId;
       }
 
@@ -80,3 +101,4 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
 });
 
 module.exports = router;
+module.exports.filterLiveLocationsForTenant = filterLiveLocationsForTenant;

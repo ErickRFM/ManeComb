@@ -47,6 +47,16 @@ assert.match(screen, /paymentStatus/);
 assert.match(screen, /planId/);
 assert.match(screen, /pagination\.hasNext/);
 assert.match(screen, /router\.push\(`\/admin\/companies\//);
+
+// Least privilege: Empresas pertenece a platform.companies.read, pero los
+// datos y controles financieros solo pueden activarse con commercial.read.
+assert.match(screen, /usePlatformStore/);
+assert.match(screen, /platform\.commercial\.read/);
+assert.match(screen, /paymentStatus: canReadCommercial \? paymentStatus : null/);
+assert.match(screen, /canReadCommercial \? \(/);
+assert.match(screen, /company\.commercialAccess \? \(/);
+assert.match(types, /commercialAccess: boolean/);
+
 for (const forbiddenAction of [
   'suspendCompany',
   'reactivateCompany',
@@ -63,4 +73,4 @@ assert.doesNotMatch(types, /latitude|longitude|location:/i);
 assert.match(shell, /pathname\.startsWith/);
 assert.match(shell, /resetCompanies\(\)/);
 
-console.log('ok - ADM-GLOBAL-P2 company list, detail and request ordering contracts');
+console.log('ok - ADM-GLOBAL-P2 company list, detail, permissions and request ordering contracts');

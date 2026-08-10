@@ -5,7 +5,7 @@ const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const ACCESS_TOKEN_SAFETY_WINDOW_MS = 60 * 1000;
 const DEFAULT_CHAT_TTL_SECONDS = 24 * 60 * 60;
-const DEFAULT_CALL_TTL_SECONDS = 40;
+const DEFAULT_CALL_TTL_SECONDS = 35;
 
 function base64Url(value) {
   return Buffer.from(value)
@@ -120,18 +120,38 @@ function isUrgentPayload(payload = {}) {
   );
 }
 
-function resolveTtlSeconds(payload = {}) {
+function incomingCallDeadlineMs(payload = {}) {
+  const category = String(payload.category || payload.data?.category || "").toLowerCase();
+  const type = String(payload.data?.type || "").toLowerCase();
+  if (category !== "call" || type !== "incoming_call") return null;
+  const parsed = Date.parse(String(payload.data?.expiresAt || ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isExpiredIncomingCallPayload(payload = {}, nowMs = Date.now()) {
+  const deadlineMs = incomingCallDeadlineMs(payload);
+  return deadlineMs != null && deadlineMs <= nowMs;
+}
+
+function resolveTtlSeconds(payload = {}, nowMs = Date.now()) {
   const explicit = Number(payload.ttlSeconds);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.max(1, Math.floor(explicit));
   }
 
-  return String(payload.category || "").toLowerCase() === "call"
-    ? DEFAULT_CALL_TTL_SECONDS
-    : DEFAULT_CHAT_TTL_SECONDS;
+  if (String(payload.category || payload.data?.category || "").toLowerCase() === "call") {
+    const deadlineMs = incomingCallDeadlineMs(payload);
+    if (deadlineMs != null) {
+      const remainingMs = Math.max(0, deadlineMs - nowMs);
+      return Math.max(1, Math.floor(remainingMs / 1000));
+    }
+    return DEFAULT_CALL_TTL_SECONDS;
+  }
+
+  return DEFAULT_CHAT_TTL_SECONDS;
 }
 
-function buildFcmMessage(token, payload = {}) {
+function buildFcmMessage(token, payload = {}, nowMs = Date.now()) {
   const category = String(payload.category || payload.data?.category || "notifications").trim();
   const conversationId = String(payload.data?.conversationId || "").trim();
   const callId = String(payload.data?.callId || "").trim();
@@ -146,7 +166,7 @@ function buildFcmMessage(token, payload = {}) {
     data: buildDataPayload(payload),
     android: {
       priority: isUrgentPayload(payload) ? "HIGH" : "NORMAL",
-      ttl: `${resolveTtlSeconds(payload)}s`,
+      ttl: `${resolveTtlSeconds(payload, nowMs)}s`,
       ...(tag ? { collapse_key: tag } : {})
     }
   };
@@ -211,7 +231,14 @@ function createFcmNotifier({
     if (!credentials) {
       return { ok: false, skipped: true, token: subscription.token, reason: "not_configured" };
     }
+    if (isExpiredIncomingCallPayload(payload, now())) {
+      return { ok: false, skipped: true, token: subscription.token, reason: "expired_call" };
+    }
     const accessToken = await getAccessToken();
+    const sendTime = now();
+    if (isExpiredIncomingCallPayload(payload, sendTime)) {
+      return { ok: false, skipped: true, token: subscription.token, reason: "expired_call" };
+    }
     const response = await fetchImpl(
       `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(credentials.projectId)}/messages:send`,
       {
@@ -220,7 +247,7 @@ function createFcmNotifier({
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ message: buildFcmMessage(subscription.token, payload) })
+        body: JSON.stringify({ message: buildFcmMessage(subscription.token, payload, sendTime) })
       }
     );
     const body = await response.json().catch(() => ({}));
@@ -302,6 +329,8 @@ module.exports = {
   buildFcmMessage,
   createFcmNotifier,
   createServiceAccountAssertion,
+  isExpiredIncomingCallPayload,
   resolveServiceAccount,
+  resolveTtlSeconds,
   sendFcmPushNotifications
 };

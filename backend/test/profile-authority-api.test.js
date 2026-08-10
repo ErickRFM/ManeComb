@@ -96,47 +96,96 @@ async function testDriverCannotEscalateSelfProfile() {
   }
 }
 
-async function testCompanyOwnerKeepsCompanySelfService() {
-  const context = await startServer();
+async function testCompanyAdministratorsKeepCompanySelfService() {
+  for (const role of ["owner", "admin"]) {
+    const context = await startServer();
 
-  try {
-    const owner = await context.store.createUser({
-      name: "Owner Original",
-      email: `profile-owner-${Date.now()}@manecomb.test`,
-      password: "Ruta123!",
-      role: "owner",
-      accountType: "company_owner",
-      organizationId: "org-company-profile",
-      companyId: "org-company-profile",
-      userStatus: "active",
-      status: "offline"
-    });
-    const token = signToken(owner);
+    try {
+      const user = await context.store.createUser({
+        name: `${role} Original`,
+        email: `profile-${role}-${Date.now()}@manecomb.test`,
+        password: "Ruta123!",
+        role,
+        accountType: "company_owner",
+        organizationId: `org-company-profile-${role}`,
+        companyId: `org-company-profile-${role}`,
+        userStatus: "active",
+        status: "offline"
+      });
+      const token = signToken(user);
 
-    const response = await requestJson(`${context.url}/users/me`, token, {
-      companyProfile: {
-        companyName: "Empresa Actualizada",
-        billingEmail: "billing@manecomb.test"
-      },
-      paymentProfile: { preferredMethod: "spei" },
-      role: "driver",
-      vehicleId: "vehicle-injected"
-    });
+      const response = await requestJson(`${context.url}/users/me`, token, {
+        companyProfile: {
+          companyName: `Empresa ${role}`,
+          billingEmail: `${role}@manecomb.test`
+        },
+        paymentProfile: { preferredMethod: "spei" },
+        role: "driver",
+        vehicleId: "vehicle-injected"
+      });
 
-    assert.equal(response.status, 200);
-    assert.equal(response.payload.ok, true);
-    assert.equal(response.payload.data.role, "owner");
-    assert.equal(response.payload.data.vehicleId || null, null);
-    assert.equal(response.payload.data.companyProfile.companyName, "Empresa Actualizada");
-    assert.equal(response.payload.data.paymentProfile.preferredMethod, "spei");
-  } finally {
-    await context.close();
+      assert.equal(response.status, 200);
+      assert.equal(response.payload.ok, true);
+      assert.equal(response.payload.data.role, role);
+      assert.equal(response.payload.data.vehicleId || null, null);
+      assert.equal(response.payload.data.companyProfile.companyName, `Empresa ${role}`);
+      assert.equal(response.payload.data.paymentProfile.preferredMethod, "spei");
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+async function testLimitedPortalRolesCannotEditCompanyProfile() {
+  for (const role of ["billing_manager", "support", "viewer"]) {
+    const context = await startServer();
+
+    try {
+      const user = await context.store.createUser({
+        name: `${role} Original`,
+        email: `profile-limited-${role}-${Date.now()}@manecomb.test`,
+        password: "Ruta123!",
+        role,
+        accountType: "company_owner",
+        organizationId: `org-limited-profile-${role}`,
+        companyId: `org-limited-profile-${role}`,
+        userStatus: "active",
+        status: "offline",
+        companyProfile: { companyName: "Empresa Canónica" }
+      });
+      const token = signToken(user);
+
+      const response = await requestJson(`${context.url}/users/me`, token, {
+        name: `${role} Personal Updated`,
+        phone: "+52 55 4444 5555",
+        companyName: "Injected direct company",
+        billingEmail: "injected@manecomb.test",
+        companyProfile: { companyName: "Injected Company" },
+        paymentProfile: { preferredMethod: "card" },
+        operationalSchedule: { enabled: false }
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.payload.ok, true);
+      assert.equal(response.payload.data.name, `${role} Personal Updated`);
+      assert.equal(response.payload.data.phone, "+52 55 4444 5555");
+      assert.equal(response.payload.data.companyProfile.companyName, "Empresa Canónica");
+      assert.equal(response.payload.data.paymentProfile.preferredMethod, "spei");
+      assert.equal(response.payload.data.operationalSchedule || null, null);
+
+      const stored = await context.store.getUserById(user.id);
+      assert.equal(stored.companyProfile.companyName, "Empresa Canónica");
+      assert.equal(stored.paymentProfile.preferredMethod, "spei");
+    } finally {
+      await context.close();
+    }
   }
 }
 
 async function main() {
   await testDriverCannotEscalateSelfProfile();
-  await testCompanyOwnerKeepsCompanySelfService();
+  await testCompanyAdministratorsKeepCompanySelfService();
+  await testLimitedPortalRolesCannotEditCompanyProfile();
   console.log("ok - profile authority API");
 }
 

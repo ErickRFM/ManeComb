@@ -96,6 +96,7 @@ export type User = {
   accountType: AccountType;
   accountChannel?: AccountChannel;
   accountChannelReason?: string | null;
+  capabilities?: string[];
   organizationId?: string;
   userStatus?: UserAccountStatus;
   lastAccessAt?: string | null;
@@ -987,22 +988,6 @@ export type OperationalEventRecord = {
   durationMs?: number;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
-};
-
-export type OperationalObservabilitySnapshot = {
-  windowHours: number;
-  apiErrors: number;
-  slowRequests: number;
-  pushDelivered: number;
-  pushFailed: number;
-  checkoutEvents: number;
-  activeCriticalIncidents: number;
-  rtc: {
-    recentSessions: number;
-    completedSessions: number;
-    averageDurationSeconds: number;
-  };
-  recentEvents: OperationalEventRecord[];
 };
 
 export type LiveLocationsData = {

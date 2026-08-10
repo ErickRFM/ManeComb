@@ -23,6 +23,11 @@ class ManeCombFirebaseMessagingService : FirebaseMessagingService() {
       if (data["body"].isNullOrBlank()) data["body"] = notification.body.orEmpty()
     }
 
+    // Firebase timestamps are server-origin metadata. They are kept internal to the native
+    // renderer so an incorrect Android wall clock cannot immediately discard a valid call.
+    if (message.sentTime > 0L) data["fcmSentTimeMs"] = message.sentTime.toString()
+    if (message.ttl > 0) data["fcmTtlSeconds"] = message.ttl.toString()
+
     try {
       ManeCombPushNotificationRenderer.render(applicationContext, data)
     } catch (error: Exception) {

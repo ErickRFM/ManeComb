@@ -33,6 +33,8 @@ export function __setConnectTimeoutMsForTests(ms: number): void {
   CONNECT_TIMEOUT_MS = ms;
 }
 
+const RING_TIMEOUT_FALLBACK_MS = 35000;
+
 let runtimeFactory: CallRuntimeFactory | null = null;
 export function setCallRuntimeFactory(factory: CallRuntimeFactory | null): void {
   runtimeFactory = factory;
@@ -50,6 +52,7 @@ interface CallStore extends CallState {
   _socket: CallSocket | null;
   _unbind: (() => void) | null;
   _resetTimer: ReturnType<typeof setTimeout> | null;
+  _ringTimeout: ReturnType<typeof setTimeout> | null;
   _starting: boolean;
   _runtime: CallRuntime | null;
   _connectTimeout: ReturnType<typeof setTimeout> | null;
@@ -97,6 +100,22 @@ export const useCallStore = create<CallStore>()((set, get) => {
     set({ _resetTimer: timer });
   };
 
+  const clearRingTimeout = (): void => {
+    const timer = get()._ringTimeout;
+    if (timer) clearTimeout(timer);
+    set({ _ringTimeout: null });
+  };
+
+  const ringDelayMs = (expiresAt?: string, ringTimeoutMs?: number): number => {
+    const relativeLimit = Number.isFinite(ringTimeoutMs) && Number(ringTimeoutMs) > 0
+      ? Math.floor(Number(ringTimeoutMs))
+      : RING_TIMEOUT_FALLBACK_MS;
+    if (!expiresAt) return relativeLimit;
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(expiresAtMs)) return relativeLimit;
+    return Math.max(0, Math.min(relativeLimit, expiresAtMs - now()));
+  };
+
   const clearConnectTimeout = (): void => {
     const timer = get()._connectTimeout;
     if (timer) clearTimeout(timer);
@@ -124,10 +143,28 @@ export const useCallStore = create<CallStore>()((set, get) => {
   };
 
   const endWith = (result: CallState['endResult']): void => {
+    clearRingTimeout();
     stopRuntime();
     set({ elapsedSeconds: 0 });
     dispatch({ type: 'END', result, now: now() });
     scheduleReset();
+  };
+
+  const scheduleRingTimeout = (
+    callId: string,
+    expiresAt?: string,
+    ringTimeoutMs?: number
+  ): void => {
+    clearRingTimeout();
+    const delay = ringDelayMs(expiresAt, ringTimeoutMs);
+    const timer = setTimeout(() => {
+      set({ _ringTimeout: null });
+      const state = get();
+      if (state.callId !== callId) return;
+      if (state.phase !== 'OUTGOING_RINGING' && state.phase !== 'INCOMING_RINGING') return;
+      endWith('no_answer');
+    }, delay);
+    set({ _ringTimeout: timer });
   };
 
   const ensureElapsedTimer = (): void => {
@@ -160,7 +197,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
     const state = get();
     if (state.callId !== callId) return;
     if (state.phase === 'IDLE' || state.phase === 'ENDING' || state.phase === 'FAILED') return;
+    if (code === 'rtc_join_connected_elsewhere') {
+      endWith('answered_elsewhere');
+      return;
+    }
     if (state._socket) emitEnd(state._socket, callId);
+    clearRingTimeout();
     stopRuntime();
     set({ elapsedSeconds: 0 });
     dispatch({ type: 'FAIL', failureCode: code, now: now() });
@@ -221,6 +263,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
     _socket: null,
     _unbind: null,
     _resetTimer: null,
+    _ringTimeout: null,
     _starting: false,
     _runtime: null,
     _connectTimeout: null,
@@ -250,6 +293,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
 
     reset: () => {
       clearResetTimer();
+      clearRingTimeout();
       stopRuntime();
       set({ _starting: false, elapsedSeconds: 0 });
       dispatch({ type: 'RESET' });
@@ -291,6 +335,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
           roomId: ack.roomId ?? null,
           now: now(),
         });
+        scheduleRingTimeout(ack.callId, ack.expiresAt, ack.ringTimeoutMs);
         return { ok: true };
       } finally {
         set({ _starting: false });
@@ -301,6 +346,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
       const activeCallId = state.callId;
+      clearRingTimeout();
       dispatch({ type: 'LOCAL_ACCEPT', now: now() });
       if (!state._socket) {
         onRuntimeFailed(activeCallId, 'accept_no_socket');
@@ -311,6 +357,14 @@ export const useCallStore = create<CallStore>()((set, get) => {
       const current = get();
       if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
       if (!ack.ok) {
+        if (ack.code === 'call_expired' || ack.code === 'unknown_call') {
+          endWith('no_answer');
+          return;
+        }
+        if (ack.code === 'answered_elsewhere') {
+          endWith('answered_elsewhere');
+          return;
+        }
         onRuntimeFailed(
           activeCallId,
           ack.code === 'ack_timeout' ? 'accept_timeout' : 'accept_failed'
@@ -364,11 +418,18 @@ export const useCallStore = create<CallStore>()((set, get) => {
         return;
       }
       dispatch({ type: 'INCOMING', payload, now: now() });
+      scheduleRingTimeout(payload.callId, payload.expiresAt, payload.ringTimeoutMs);
     },
 
     handleAccepted: (payload) => {
       const state = get();
-      if (!matchesCall(state, payload?.callId) || state.phase !== 'OUTGOING_RINGING') return;
+      if (!matchesCall(state, payload?.callId)) return;
+      if (state.phase === 'INCOMING_RINGING') {
+        endWith('answered_elsewhere');
+        return;
+      }
+      if (state.phase !== 'OUTGOING_RINGING') return;
+      clearRingTimeout();
       dispatch({ type: 'REMOTE_ACCEPTED', roomId: payload.roomId ?? null, now: now() });
       startRuntime();
     },

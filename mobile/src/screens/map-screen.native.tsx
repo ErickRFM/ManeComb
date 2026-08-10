@@ -9,6 +9,11 @@ import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
+import {
+  ENTERPRISE_CAPABILITY,
+  hasEnterpriseCapability,
+} from '@/src/utils/mobile-authority';
+import { getApiErrorMessage } from '@/src/api/client';
 import { executeRouteSessionAction, type RouteSessionAction } from '@/src/services/route-session-actions';
 import { getBackgroundLocationServiceStatusAsync } from '@/src/native/background-location';
 import { requestBackgroundPermission } from './map/services/location-service';
@@ -533,9 +538,13 @@ export function MapScreen() {
           routes: selectedVehicleRoutes,
         };
   const visibleMapUnits = driverWithoutUnit ? [] : mappableUnits;
-  // Sin distincion por rol: el conductor ve el mismo inventario que el resto.
+  // El backend ya entrega inventario tenant/driver-scoped; Mobile no vuelve a inferir alcance por rol.
   const visiblePanelUnits = driverWithoutUnit ? [] : prioritizedUnits;
   const visibleMapIncidents = driverWithoutUnit ? [] : visibleIncidents;
+  const canViewVehicleDetails = hasEnterpriseCapability(
+    user,
+    ENTERPRISE_CAPABILITY.analyticsView
+  );
 
   const driverJourney = user.role === 'driver' ? ownOperationalUnit?.journey || null : selectedJourney;
   const journeyStatus: 'none' | 'assigned' | 'ready' | 'running' | 'paused' = driverJourney
@@ -583,8 +592,14 @@ export function MapScreen() {
       }
       setPendingJourneyAction(null);
       if (!result.offline) await refreshAll();
-    } catch {
-      useAppStore.setState({ error: 'No fue posible actualizar la jornada.' });
+    } catch (journeyError) {
+      // Backend ya explica por que rechazo la transicion: 403 "Solo el chofer
+      // asignado puede iniciar la jornada", 409 "La unidad no tiene chofer
+      // asignado", 409 por transicion invalida. Descartar el error y mostrar una
+      // frase generica escondia esas causas detras de un fallo indistinguible.
+      useAppStore.setState({
+        error: getApiErrorMessage(journeyError, 'No fue posible actualizar la jornada.'),
+      });
     } finally {
       setIsChangingJourney(false);
     }
@@ -701,7 +716,7 @@ export function MapScreen() {
               selectedUnit={selectedUnit}
               selectedVehicle={selectedVehicle}
               trackingUnits={visiblePanelUnits}
-              userRole={user.role}
+              canViewVehicleDetails={canViewVehicleDetails}
               activeSession={activeRouteSession}
               sessionHistory={sessionHistory}
               incidents={visibleIncidents}

@@ -43,18 +43,27 @@ async function createContext() {
     routeId: route.id,
     store,
     token: signToken(store.getUserById("user-admin-01")),
+    // La telemetria GPS solo la publica el actor que opera la unidad. El token de
+    // admin sirve para las llamadas administrativas del escenario, no para
+    // /locations/update.
+    driverToken: signToken(store.getUserById("user-driver-01")),
     url: `http://127.0.0.1:${server.address().port}/api`,
     close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   };
 }
 
-async function request(context, path, method = "GET", body) {
+async function request(context, path, method = "GET", body, { as = "admin" } = {}) {
+  const token = as === "driver" ? context.driverToken : context.token;
   const response = await fetch(`${context.url}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${context.token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined
   });
   return { status: response.status, data: await response.json() };
+}
+
+async function requestAsDriver(context, path, body) {
+  return request(context, path, "POST", body, { as: "driver" });
 }
 
 function testMetricsEngineScenarios() {
@@ -198,7 +207,7 @@ async function main() {
     let persistedPositions = 0;
     const createPosition = context.store.createRouteSessionPosition.bind(context.store);
     context.store.createRouteSessionPosition = (payload) => { persistedPositions += 1; return createPosition(payload); };
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.42, longitude: -99.08 }, accuracy: 8,
       timestamp: new Date().toISOString()
     });
@@ -208,29 +217,29 @@ async function main() {
     });
     assert.equal(resumed.data.data.status, "RUNNING");
     const baseTime = new Date(new Date(session.startedAt).getTime() + 1_000);
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.415, longitude: -99.073 }, accuracy: 7,
       speed: 0, sessionId: session.id, packetId: "gps-packet-1",
       timestamp: baseTime.toISOString()
     });
     assert.equal(persistedPositions, 1);
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.415, longitude: -99.073 }, accuracy: 7,
       speed: 0, sessionId: session.id, packetId: "gps-packet-1",
       timestamp: baseTime.toISOString()
     });
     assert.equal(context.store.listRouteSessionPositions({ sessionId: session.id, limit: 10 }).length, 1);
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.4452, longitude: -99.1513 }, accuracy: 9,
       speed: 0,
       timestamp: new Date(baseTime.getTime() + 130_000).toISOString()
     });
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.47, longitude: -99.2 }, accuracy: 80,
       speed: 8,
       timestamp: new Date(baseTime.getTime() + 135_000).toISOString()
     });
-    await request(context, "/locations/update", "POST", {
+    await requestAsDriver(context, "/locations/update", {
       vehicleId: "vehicle-101", coordinates: { latitude: 19.4452, longitude: -99.1513 }, accuracy: 12,
       speed: 7,
       timestamp: new Date(baseTime.getTime() + 140_000).toISOString()
@@ -284,8 +293,8 @@ async function main() {
       speed: 2,
       timestamp: session.startedAt
     };
-    assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
-    assert.equal((await request(context, "/locations/update", "POST", latePacket)).status, 200);
+    assert.equal((await requestAsDriver(context, "/locations/update", latePacket)).status, 200);
+    assert.equal((await requestAsDriver(context, "/locations/update", latePacket)).status, 200);
     assert.equal(context.store.listRouteSessionPositions({ sessionId: session.id, limit: 20 }).length, 5);
     const recoveryTimestamp = new Date(baseTime.getTime() + 150_000).toISOString();
     context.store.createRouteSessionPosition({

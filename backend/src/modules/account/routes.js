@@ -19,18 +19,12 @@ const {
   getOrganizationId,
   pickActiveOrder
 } = require("../../services/portal-account");
+const {
+  SUBSCRIPTION_UPDATE_REASONS,
+  emitSubscriptionUpdated
+} = require("../../services/subscription-realtime");
 
 const router = Router();
-
-function emitAccountEvent(req, eventName, payload) {
-  const organizationId = getOrganizationId(req.user);
-
-  if (organizationId) {
-    req.app.locals.io?.to(`org:${organizationId}`).emit(eventName, payload);
-  }
-
-  req.app.locals.io?.to(`user:${req.user.id}`).emit(eventName, payload);
-}
 
 async function recordAudit(req, payload) {
   await req.app.locals.store.recordAppEvent?.({
@@ -113,10 +107,10 @@ router.patch("/subscription/plan", authenticate, requirePortalAccess, requirePer
       planId: plan.id
     }
   });
-  emitAccountEvent(req, "subscription:updated", {
-    subscription,
+  emitSubscriptionUpdated({
+    io: req.app.locals.io,
     organizationId: getOrganizationId(req.user),
-    updatedAt: new Date().toISOString()
+    reason: SUBSCRIPTION_UPDATE_REASONS.PLAN_CHANGED
   });
 
   return res.json({
@@ -170,10 +164,10 @@ router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePe
     entityId: activeOrder.id,
     message: `Suscripcion ${activeOrder.referenceCode} cancelada`
   });
-  emitAccountEvent(req, "subscription:updated", {
-    subscription,
+  emitSubscriptionUpdated({
+    io: req.app.locals.io,
     organizationId: getOrganizationId(req.user),
-    updatedAt: new Date().toISOString()
+    reason: SUBSCRIPTION_UPDATE_REASONS.SUBSCRIPTION_CANCELLED
   });
 
   return res.json({

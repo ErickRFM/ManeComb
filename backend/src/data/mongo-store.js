@@ -23,6 +23,7 @@ const {
   IncidentModel,
   LearnedRouteCandidateModel,
   NotificationModel,
+  PlatformUserModel,
   RtcSessionModel,
   RouteEventModel,
   RouteModel,
@@ -161,12 +162,8 @@ function getUserOrganizationId(user) {
   );
 }
 
-function canAccessAllOrganizations(user) {
-  return user?.role === "admin" && user?.accountType !== "company_owner";
-}
-
 function getOrganizationQuery(user) {
-  if (!user || canAccessAllOrganizations(user)) {
+  if (!user) {
     return {};
   }
 
@@ -1799,7 +1796,10 @@ async function createMongoStore() {
       {
         _id: activationKeyId,
         ...(filter.companyId ? { companyId: filter.companyId } : {}),
-        ...(filter.status ? { status: filter.status } : {})
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(Object.prototype.hasOwnProperty.call(filter, "usedByDriverId")
+          ? { usedByDriverId: filter.usedByDriverId }
+          : {})
       },
       {
         $set: update
@@ -1892,7 +1892,11 @@ async function createMongoStore() {
     };
     const organizationId = getUserOrganizationId(currentUser);
     const filter = {
-      ...(canAccessAllOrganizations(currentUser) || !organizationId ? {} : { organizationId }),
+      ...(!currentUser
+        ? {}
+        : organizationId
+          ? { organizationId }
+          : { organizationId: "__missing__" }),
       deletedAt: null
     };
 
@@ -2351,9 +2355,10 @@ async function createMongoStore() {
   async function getNotificationsForUser(user) {
     const organizationId = getUserOrganizationId(user);
     const organizationQuery = getOrganizationQuery(user);
-    const roleAudience = canAccessAllOrganizations(user)
-      ? { targetRoles: user.role }
-      : { organizationId, targetRoles: user.role };
+    const roleAudience = {
+      organizationId: organizationId || "__missing__",
+      targetRoles: user.role
+    };
     const notifications = await NotificationModel.find({
       ...organizationQuery,
       $or: [

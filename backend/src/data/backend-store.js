@@ -1,3 +1,4 @@
+const { AppReleaseRepository } = require("./repositories/app-release-repository");
 const { DocumentRepository } = require("./repositories/document-repository");
 const { FleetRepository } = require("./repositories/fleet-repository");
 const { IncidentRepository } = require("./repositories/incident-repository");
@@ -7,6 +8,8 @@ const { PaymentRepository } = require("./repositories/payment-repository");
 const { SessionRepository } = require("./repositories/session-repository");
 const { TrackingRepository } = require("./repositories/tracking-repository");
 const { UserRepository } = require("./repositories/user-repository");
+const { AppConfigModel, AppClientVersionModel } = require("./app-release-models");
+const { AppReleaseStoreService } = require("../services/app-release-store-service");
 const { DocumentService } = require("../services/document-service");
 const { FleetService } = require("../services/fleet-service");
 const { IncidentService } = require("../services/incident-service");
@@ -19,7 +22,17 @@ const { UserService } = require("../services/user-service");
 
 function buildBackendStore(baseStore, dependencies = {}) {
   const models = dependencies.models || {};
+  const useDefaultAppReleaseModels = Boolean(models.AppEventModel);
+  const appReleaseModels = dependencies.models
+    ? {
+        AppConfigModel:
+          models.AppConfigModel || (useDefaultAppReleaseModels ? AppConfigModel : null),
+        AppClientVersionModel:
+          models.AppClientVersionModel || (useDefaultAppReleaseModels ? AppClientVersionModel : null)
+      }
+    : {};
   const repositories = {
+    appRelease: new AppReleaseRepository(baseStore, appReleaseModels),
     documents: new DocumentRepository(baseStore, models),
     fleet: new FleetRepository(baseStore),
     incidents: new IncidentRepository(baseStore),
@@ -32,6 +45,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
   };
 
   const services = {
+    appRelease: new AppReleaseStoreService(repositories.appRelease),
     documents: new DocumentService(repositories.documents),
     fleet: new FleetService(repositories.fleet),
     incidents: new IncidentService(repositories.incidents),
@@ -55,8 +69,23 @@ function buildBackendStore(baseStore, dependencies = {}) {
       }, {})
     : {};
 
+  // These methods enforce enterprise tenant boundaries independently of the
+  // persistence adapter. Keep them behind repositories in embedded/test too,
+  // while other legacy embedded domains migrate deliberately.
+  const invariantMethods = {
+    deleteRoute: services.fleet.deleteRoute.bind(services.fleet),
+    getDashboardOverview: services.fleet.getDashboardOverview.bind(services.fleet),
+    getNotificationsForUser: services.notifications.getNotificationsForUser.bind(services.notifications),
+    listIncidents: services.incidents.listIncidents.bind(services.incidents),
+    listRoutes: services.fleet.listRoutes.bind(services.fleet),
+    listUsers: services.users.listUsers.bind(services.users),
+    markNotificationAsRead: services.notifications.markNotificationAsRead.bind(services.notifications),
+    updateRoute: services.fleet.updateRoute.bind(services.fleet)
+  };
+
   return {
     ...baseStore,
+    ...invariantMethods,
     ...serviceMethods,
     repositories,
     services

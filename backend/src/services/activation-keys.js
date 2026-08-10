@@ -1,5 +1,6 @@
 const { randomBytes, randomUUID } = require("crypto");
 const { validatePasswordStrength } = require("../utils/password-policy");
+const logger = require("./logger");
 const { buildSubscription, pickActiveOrder } = require("./portal-account");
 
 const DEFAULT_KEY_TTL_DAYS = 14;
@@ -626,6 +627,7 @@ async function registerDriverWithActivationKey(store, payload = {}) {
   // conductores eligen la misma unidad, solo uno gana y el perdedor conserva
   // su key intacta para volver a intentar con otra unidad.
   const selectedVehicle = await claimSelectedUnit(store, payload, context.companyId, driverId);
+  let userPersisted = false;
 
   try {
     const claimedKey = await store.markActivationKeyUsed(activationKey.id, {
@@ -659,8 +661,23 @@ async function registerDriverWithActivationKey(store, payload = {}) {
     const user = existingUser
       ? await store.updateUser(existingUser.id, userPayload)
       : await store.createUser(userPayload, "driver");
+    userPersisted = true;
 
-    await updateStarterFleet(store, context.order, user, vehicle);
+    try {
+      await updateStarterFleet(store, context.order, user, vehicle);
+    } catch (starterFleetError) {
+      logger.warn({
+        action: "StarterFleetSync",
+        module: "ActivationKeys",
+        organizationId: context.companyId,
+        userId: user.id,
+        status: "degraded",
+        message: "No fue posible sincronizar starterFleet despues de activar al conductor",
+        metadata: {
+          errorName: String(starterFleetError?.name || "Error").slice(0, 80)
+        }
+      });
+    }
 
     return {
       user,
@@ -684,12 +701,39 @@ async function registerDriverWithActivationKey(store, payload = {}) {
       }
     };
   } catch (error) {
-    // Si el registro falla despues de reclamar la unidad, se libera para no
-    // dejarla bloqueada por un conductor que nunca llego a existir.
-    if (selectedVehicle && typeof store.releaseVehicleFromDriver === "function") {
-      await store.releaseVehicleFromDriver(selectedVehicle.id, driverId).catch(() => null);
+    // Compensacion segura: si el fallo ocurre despues de consumir la key,
+    // restaurarla solo cuando siga ligada a ESTE intento. Ninguna compensacion
+    // debe ocultar el error original ni revertir cambios de otro proceso.
+    const compensations = [];
+
+    if (!userPersisted && typeof store.updateActivationKey === "function") {
+      compensations.push(
+        Promise.resolve().then(() =>
+          store.updateActivationKey(
+            activationKey.id,
+            {
+              status: "available",
+              usedByDriverId: null,
+              usedByDriverState: null,
+              usedAt: null
+            },
+            {
+              companyId: context.companyId,
+              status: "used",
+              usedByDriverId: driverId
+            }
+          )
+        )
+      );
     }
 
+    if (!userPersisted && selectedVehicle && typeof store.releaseVehicleFromDriver === "function") {
+      compensations.push(
+        Promise.resolve().then(() => store.releaseVehicleFromDriver(selectedVehicle.id, driverId))
+      );
+    }
+
+    await Promise.allSettled(compensations);
     throw error;
   }
 }

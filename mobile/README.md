@@ -4,6 +4,10 @@ App movil React Native CLI para Android/iOS. El entrypoint es `index.js`, que re
 
 ## Desarrollo Android
 
+### Certificación del APK debug en CI
+
+Que `assembleDebug` termine correctamente es solo un **compile gate**: no demuestra que el APK pueda ejecutarse sin Metro ni que incluya su configuración de runtime. El job `android-debug-apk` de CI es un **artifact certification gate**: crea un `.env.ci` temporal desde el secret `MAPBOX_ACCESS_TOKEN`, genera el bundle JS production-like, compila el APK y verifica dentro del artefacto el bundle standalone y la misma configuración pública `pk.` de Mapbox en JavaScript y recursos/manifest Android. El upload ocurre únicamente después de esas verificaciones.
+
 ```powershell
 npm install
 npm start

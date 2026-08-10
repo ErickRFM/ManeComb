@@ -2,6 +2,8 @@ import { createPlatformApiClient, getPlatformTokenHeader } from '@/lib/platform-
 import type {
   PlatformAuditEntry,
   PlatformCommercialOrder,
+  PlatformDeviceVersionStats,
+  PlatformOperationalInsights,
   PlatformOperationList,
   PlatformSystemReadiness,
 } from './types';
@@ -42,6 +44,20 @@ export async function platformSystemReadinessRequest(token: string) {
     headers: getPlatformTokenHeader(token),
   });
   return data.data as PlatformSystemReadiness;
+}
+
+export async function platformSystemObservabilityRequest(token: string) {
+  const { data } = await platformApi.get('/system/observability?hours=24&limit=10', {
+    headers: getPlatformTokenHeader(token),
+  });
+  return data.data as PlatformOperationalInsights;
+}
+
+export async function platformDeviceVersionStatsRequest(token: string) {
+  const { data } = await platformApi.get('/system/app/device-stats', {
+    headers: getPlatformTokenHeader(token),
+  });
+  return data.data as PlatformDeviceVersionStats;
 }
 
 export async function platformAuditRequest(

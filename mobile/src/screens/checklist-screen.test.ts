@@ -253,4 +253,45 @@ describe('ChecklistScreen', () => {
       renderer?.unmount();
     });
   });
+
+  it('no vuelve a decidir el acceso a Control con una tabla de roles propia', () => {
+    // Control esta gobernado por canUseMobileControl a traves de ControlRoute,
+    // su unico punto de montaje. La lista negra que vivia en la pantalla era una
+    // segunda autorizacion y contradecia al modelo: negaba a dispatcher, que si
+    // pertenece a Control cuando el backend le concede routes.manage.
+    useAppStore.setState({
+      mapData: {
+        center: { latitude: 19.4326, longitude: -99.1332 },
+        incidents: [],
+        routes: [],
+        vehicles: [],
+      },
+      themeMode: 'light',
+      user: {
+        accountType: 'operations',
+        capabilities: ['routes.manage'],
+        email: 'dispatcher@manecomb.test',
+        id: 'dispatcher-1',
+        name: 'Dispatcher',
+        role: 'dispatcher',
+        vehicleId: null,
+      },
+    } as never);
+
+    let renderer: TestRenderer.ReactTestRenderer | null = null;
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ChecklistScreen));
+    });
+
+    // Si la pantalla redirigiera, no renderizaria su propio contenido.
+    const rendered = JSON.stringify(
+      (renderer as unknown as TestRenderer.ReactTestRenderer).toJSON()
+    );
+    expect(rendered).toContain('Checklist');
+
+    act(() => {
+      renderer?.unmount();
+    });
+  });
 });

@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const { createEmbeddedStore } = require("../src/data/store");
-const { ingestVehicleLocation } = require("../src/services/vehicle-location-ingestion");
+const {
+  canPublishVehicleTelemetry,
+  ingestVehicleLocation
+} = require("../src/services/vehicle-location-ingestion");
 
 function fakeIo() {
   const events = [];
@@ -42,6 +45,47 @@ async function main() {
     }, store, transport: "http" }),
     (error) => error?.code === "forbidden_vehicle"
   );
+  // Publicar telemetria GPS es propiedad operativa de la unidad, no
+  // administracion. Ver/administrar tracking son autoridades distintas
+  // (canViewAnalytics para /locations/live, canManageRoutes para rutas) y no
+  // pasan por aqui.
+  const admin = store.getUserById("user-admin-01");
+  assert.equal(admin.role, "admin");
+  assert.equal(admin.vehicleId, null, "el modelo no asigna unidad a un no-conductor");
+  await assert.rejects(
+    () => ingestVehicleLocation({ actor: admin, io, payload: {
+      ...base, packetId: "gps-contract-admin", timestamp: new Date(Date.now() + 3000).toISOString()
+    }, store, transport: "http" }),
+    (error) => error?.code === "forbidden_vehicle"
+  );
+
+  const supervisor = store.getUserById("user-supervisor-01");
+  await assert.rejects(
+    () => ingestVehicleLocation({ actor: supervisor, io, payload: {
+      ...base, packetId: "gps-contract-supervisor", timestamp: new Date(Date.now() + 4000).toISOString()
+    }, store, transport: "socket" }),
+    (error) => error?.code === "forbidden_vehicle"
+  );
+
+  // Cross-tenant se rechaza antes que la propiedad, aunque el actor declare
+  // tener asignada esa misma unidad.
+  await assert.rejects(
+    () => ingestVehicleLocation({ actor: {
+      id: "user-foreign-driver", role: "driver", organizationId: "otra-organizacion", vehicleId: "vehicle-101"
+    }, io, payload: {
+      ...base, packetId: "gps-contract-cross-tenant", timestamp: new Date(Date.now() + 5000).toISOString()
+    }, store, transport: "http" }),
+    (error) => error?.code === "cross_tenant_vehicle"
+  );
+
+  // Ninguno de los rechazos anteriores movio la posicion de la unidad.
+  assert.deepEqual(store.getVehicleById("vehicle-101").location, { latitude: 19.45, longitude: -99.12 });
+
+  assert.equal(canPublishVehicleTelemetry({ role: "driver", vehicleId: "vehicle-101" }, "vehicle-101"), true);
+  assert.equal(canPublishVehicleTelemetry({ role: "admin", vehicleId: null }, "vehicle-101"), false);
+  assert.equal(canPublishVehicleTelemetry({ role: "driver", vehicleId: "vehicle-102" }, "vehicle-101"), false);
+  assert.equal(canPublishVehicleTelemetry(null, "vehicle-101"), false);
+
   console.log("vehicle location ingestion tests passed");
 }
 

@@ -6,6 +6,7 @@ import type { AccountChannel, User } from '@/src/types/app';
 
 type RouteUser = Pick<User, 'accountType' | 'role'> & {
   accountChannel?: AccountChannel | string | null;
+  capabilities?: string[] | null;
 };
 
 const OPERATIONAL_ROLES = new Set([
@@ -52,9 +53,11 @@ export function isCustomerAccount(user: RouteUser | null | undefined) {
 }
 
 export function getAuthenticatedHome(user?: RouteUser | null) {
-  const channel = getAccountChannel(user);
+  // Web routing follows explicit product authorization first. accountChannel is
+  // the preferred channel, not an exclusivity rule.
+  if (canAccessPortal(user)) return '/portal';
 
-  if (channel === 'company_portal') return '/portal';
+  const channel = getAccountChannel(user);
   if (channel === 'mobile_operations') return '/acceso-operativo';
   if (channel === 'platform_admin') return '/acceso-admin';
   return '/acceso-restringido';

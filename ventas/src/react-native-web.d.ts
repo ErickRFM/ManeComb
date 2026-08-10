@@ -41,6 +41,8 @@ declare module 'react-native' {
     class Value {
       constructor(value: number);
       interpolate(config: any): any;
+      setValue(value: number): void;
+      stopAnimation(callback?: (value: number) => void): void;
     }
     const View: ComponentType<any>;
     function loop(animation: any): { start(): void; stop(): void };

@@ -50,6 +50,42 @@ export type ReadinessComponent = {
   persistence?: string;
   healthy?: boolean;
   issues?: string[];
+  [key: string]: string | number | boolean | string[] | null | undefined;
+};
+
+export type PlatformOperationalEvent = {
+  id: string | null;
+  type: string | null;
+  scope: string | null;
+  level: string | null;
+  status: string | null;
+  route: string | null;
+  method: string | null;
+  durationMs: number;
+  createdAt: string | null;
+};
+
+export type PlatformOperationalInsights = {
+  windowHours: number;
+  apiErrors: number;
+  slowRequests: number;
+  pushDelivered: number;
+  pushFailed: number;
+  checkoutEvents: number;
+  activeCriticalIncidents: number;
+  rtc: {
+    recentSessions: number;
+    completedSessions: number;
+    averageDurationSeconds: number;
+  };
+  recentEvents: PlatformOperationalEvent[];
+};
+
+export type PlatformDeviceVersionStats = {
+  total: number;
+  versions: Record<string, number>;
+  mostUsedVersion: string | null;
+  lastPublication: string | null;
 };
 
 export type PlatformSystemReadiness = {
@@ -65,6 +101,8 @@ export type PlatformSystemReadiness = {
   whatsapp: ReadinessComponent;
   rtc: ReadinessComponent;
   transcription: ReadinessComponent;
+  observability?: ReadinessComponent;
+  appVersions?: ReadinessComponent;
 };
 
 export type PlatformAuditEntry = {

@@ -21,6 +21,7 @@ export type CallEndResult =
   | 'no_answer'
   | 'cancelled'
   | 'ended'
+  | 'answered_elsewhere'
   | 'failed'
   | null;
 
@@ -47,6 +48,8 @@ export interface IncomingCallPayload {
   conversationId: string;
   mode: CallMode;
   caller: { id: string; name: string | null };
+  expiresAt?: string;
+  ringTimeoutMs?: number;
 }
 
 export interface CallAck {
@@ -56,6 +59,8 @@ export interface CallAck {
   status?: string;
   code?: string;
   reason?: string;
+  expiresAt?: string;
+  ringTimeoutMs?: number;
 }
 
 // Contrato minimo del socket compartido. Evita acoplar el modulo a socket.io-client y permite

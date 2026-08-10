@@ -17,6 +17,11 @@ export type PortalActionResult = {
   message?: string;
 };
 
+export type PortalLoadOptions = {
+  force?: boolean;
+  includeBilling?: boolean;
+};
+
 export type PortalStore = {
   overview: PortalOverview | null;
   onboarding: PortalOnboarding | null;
@@ -39,7 +44,7 @@ export type PortalStore = {
   loadSessions: () => Promise<void>;
   loadDocuments: () => Promise<void>;
   loadIncidents: () => Promise<void>;
-  loadAll: (options?: { force?: boolean }) => Promise<void>;
+  loadAll: (options?: PortalLoadOptions) => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
   shareActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;
   revokeActivationKey: (activationKeyId: string) => Promise<PortalActionResult>;

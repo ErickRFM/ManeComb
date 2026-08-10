@@ -558,15 +558,7 @@ function createEmbeddedStore() {
     );
   }
 
-  function canAccessAllOrganizations(user) {
-    return user?.role === "admin" && user?.accountType !== "company_owner";
-  }
-
   function canAccessOrganizationResource(user, resource) {
-    if (canAccessAllOrganizations(user)) {
-      return true;
-    }
-
     const organizationId = getUserOrganizationId(user);
     const resourceOrganizationId = String(resource?.organizationId || "").trim();
 
@@ -936,12 +928,15 @@ function createEmbeddedStore() {
       driver: 2
     };
     const organizationId = getUserOrganizationId(currentUser);
-    const canSeeAll = canAccessAllOrganizations(currentUser);
+    const isGlobalInventory = !currentUser;
 
     return clone(
       state.users
         .filter((user) => !user.deletedAt)
-        .filter((user) => canSeeAll || !organizationId || getUserOrganizationId(user) === organizationId)
+        .filter((user) =>
+          isGlobalInventory ||
+          (organizationId && getUserOrganizationId(user) === organizationId)
+        )
         .map((user) => sanitizeUser(user))
         .sort((left, right) => {
           const leftOrder = roleOrder[left.role] ?? 99;
@@ -1305,8 +1300,9 @@ function createEmbeddedStore() {
       const documentOrganizationId = String(document.organizationId || "").trim();
 
       if (
-        !canAccessAllOrganizations(user) &&
-        (!documentOrganizationId || documentOrganizationId !== userOrganizationId)
+        !userOrganizationId ||
+        !documentOrganizationId ||
+        documentOrganizationId !== userOrganizationId
       ) {
         return false;
       }
@@ -2544,6 +2540,13 @@ function createEmbeddedStore() {
     }
 
     if (filter.status && activationKey.status !== filter.status) {
+      return null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(filter, "usedByDriverId") &&
+      activationKey.usedByDriverId !== filter.usedByDriverId
+    ) {
       return null;
     }
 

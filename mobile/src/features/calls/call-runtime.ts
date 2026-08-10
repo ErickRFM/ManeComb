@@ -71,6 +71,8 @@ export function resolveRtcJoinFailureCode(ack: any): string {
       return 'rtc_join_call_ended';
     case 'unknown_call':
       return 'rtc_join_unknown_call';
+    case 'already_connected_elsewhere':
+      return 'rtc_join_connected_elsewhere';
     case 'ack_timeout':
       return 'rtc_join_timeout';
     default:

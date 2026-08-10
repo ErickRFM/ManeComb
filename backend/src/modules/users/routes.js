@@ -24,6 +24,7 @@ const {
   sendWelcomeEmail
 } = require("../../services/domain-email-events");
 const { pickSelfProfileFields } = require("../../services/profile-authority");
+const { sanitizeProfileForViewer } = require("../../services/profile-visibility");
 
 const router = Router();
 const ACCOUNT_ADMIN_ROLES = new Set(["owner", "admin", "billing_manager", "support", "viewer"]);
@@ -126,9 +127,13 @@ async function recordAudit(req, payload) {
 }
 
 router.get("/me", authenticate, async (req, res) => {
+  const profile = sanitizeProfileForViewer(
+    req.user,
+    await req.app.locals.store.getUserProfile(req.user.id)
+  );
   return res.json({
     ok: true,
-    data: await req.app.locals.store.getUserProfile(req.user.id)
+    data: profile
   });
 });
 

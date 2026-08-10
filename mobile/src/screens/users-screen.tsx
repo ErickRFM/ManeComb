@@ -12,6 +12,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Role, Vehicle } from '@/src/types/app';
 import { formatRole } from '@/src/utils/format';
+import { canManageMobileDocuments } from '@/src/utils/mobile-authority';
 import { getPresenceStatus } from '@/src/utils/presence';
 import { formatOperationalSchedule, getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { openSalesPortal } from '@/src/utils/sales-portal';
@@ -75,7 +76,7 @@ export function UsersScreen() {
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
     [vehicles]
   );
-  const canOpenDocuments = user?.role === 'owner' || user?.role === 'admin';
+  const canOpenDocuments = canManageMobileDocuments(user);
 
   const refreshDirectory = useCallback(async () => {
     setIsRefreshing(true);

@@ -39,7 +39,6 @@ import {
   getMessagesPageRequest,
   getMessagesRequest,
   getNotificationsRequest,
-  getOperationalObservabilityRequest,
   getApiErrorMessage,
   getSessionRequest,
   getUsersRequest,
@@ -87,7 +86,6 @@ import type {
   LoginResult,
   LiveLocationsData,
   NotificationItem,
-  OperationalObservabilitySnapshot,
   ProfileMutationPayload,
   DriverActivationRegisterPayload,
   RegisterPayload,
@@ -122,6 +120,17 @@ import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from 
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
 import { isRealtimeAuthError } from '@/src/utils/realtime-state';
 import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/chat-message-id';
+import {
+  canLoadDirectoryUsers,
+  canRefreshOperationalData,
+} from '@/src/utils/mobile-authority';
+import { shouldAdoptRouteSessionUpdate } from '@/src/store/route-session-reconciliation';
+import {
+  resolveWebStorage,
+  safeWebStorageGetItem,
+  safeWebStorageRemoveItem,
+  safeWebStorageSetItem,
+} from '@/src/store/safe-web-storage';
 
 const TOKEN_KEY = 'combis-session-token';
 const REFRESH_TOKEN_KEY = 'combis-refresh-token';
@@ -235,7 +244,6 @@ export type AppState = {
   isLoadingOlderChatByConversation: Record<string, boolean>;
   documents: DocumentItem[];
   notifications: NotificationItem[];
-  observability: OperationalObservabilitySnapshot | null;
   users: User[];
   activeRouteSession: RouteSession | null;
   routeSessionHistory: RouteSession[];
@@ -327,7 +335,6 @@ function getEmptyOperationalState(): Partial<AppState> {
     isLoadingOlderChatByConversation: {},
     documents: [],
     notifications: [],
-    observability: null,
     users: [],
     activeRouteSession: null,
     routeSessionHistory: [],
@@ -363,6 +370,13 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     isSigningOut: false,
     error,
     updateInfo: null,
+    // Cerrar la sesion tambien cierra el arranque. `beginSessionEpoch` de arriba
+    // invalida cualquier `initialize`/`refreshAll` en vuelo, y esas tareas
+    // retornan sin tocar los flags para no pisar esta autoridad; si no los
+    // declaramos aqui, `isBootstrapping` se queda en true y la app se cuelga en
+    // el loader de arranque sin ninguna operacion real detras.
+    isBootstrapping: false,
+    isHydrated: true,
   });
 }
 
@@ -412,7 +426,7 @@ function logStoreError(scope: string, error: unknown) {
 }
 
 function getWebStorage() {
-  return (Platform.OS === 'web' && typeof window !== 'undefined') ? window.localStorage : null;
+  return resolveWebStorage(Platform.OS === 'web');
 }
 
 async function withStorageTimeout<T>(task: Promise<T>, fallbackValue: T) {
@@ -421,19 +435,19 @@ async function withStorageTimeout<T>(task: Promise<T>, fallbackValue: T) {
 
 async function getStoredItem(key: string) {
   const web = getWebStorage();
-  if (web) return web.getItem(key);
+  if (web) return safeWebStorageGetItem(web, key);
   try { return await withStorageTimeout(SecureStore.getItemAsync(key), null); } catch { return null; }
 }
 
 async function setStoredItem(key: string, value: string) {
   const web = getWebStorage();
-  if (web) { web.setItem(key, value); return; }
+  if (web) { safeWebStorageSetItem(web, key, value); return; }
   try { await withStorageTimeout(SecureStore.setItemAsync(key, value), undefined); } catch { }
 }
 
 async function deleteStoredItem(key: string) {
   const web = getWebStorage();
-  if (web) { web.removeItem(key); return; }
+  if (web) { safeWebStorageRemoveItem(web, key); return; }
   try { await withStorageTimeout(SecureStore.deleteItemAsync(key), undefined); } catch { }
 }
 
@@ -678,7 +692,6 @@ function buildCacheSnapshot(state: AppState): Omit<OfflineCacheSnapshot, 'savedA
     messagesByConversation: state.messagesByConversation,
     documents: state.documents,
     notifications: state.notifications,
-    observability: state.observability,
     users: state.users,
     activeRouteSession: state.activeRouteSession,
     routeSessionHistory: state.routeSessionHistory,
@@ -700,7 +713,6 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     messagesByConversation: snapshot.messagesByConversation || {},
     documents: snapshot.documents || [],
     notifications: snapshot.notifications || [],
-    observability: snapshot.observability || null,
     users: snapshot.users || [],
     activeRouteSession: snapshot.activeRouteSession || null,
     routeSessionHistory: snapshot.routeSessionHistory || [],
@@ -792,17 +804,7 @@ function shouldRefreshOperationalData(
   authContext: AuthRoutingContext | null | undefined,
   user: User | null | undefined
 ) {
-  if (!user || !authContext) {
-    return false;
-  }
-
-  const accountChannel = authContext.accountChannel ?? user.accountChannel;
-
-  if (accountChannel) {
-    return accountChannel === 'mobile_operations' && authContext.canAccessMobile === true;
-  }
-
-  return user.accountType === 'operations' && authContext.canAccessMobile === true;
+  return canRefreshOperationalData(authContext, user);
 }
 
 async function refreshAuthSession(set: StoreSet, epoch?: number) {
@@ -1501,6 +1503,15 @@ function connectSocket(set: StoreSet, get: () => AppState) {
   });
 
   socket.on('route-session:updated', (session: RouteSession) => {
+    if (
+      !shouldAdoptRouteSessionUpdate({
+        sessionVehicleId: session?.vehicleId,
+        userVehicleId: get().user?.vehicleId,
+      })
+    ) {
+      return;
+    }
+
     set({ activeRouteSession: ['RUNNING', 'PAUSED'].includes(session.status) ? session : null });
     persistOfflineSnapshot(get);
   });
@@ -1850,7 +1861,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], observability: null, users: [], activeRouteSession: null, routeSessionHistory: [],
+  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -1934,6 +1945,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionToken = get().token || sessionToken;
         nextRefreshToken = get().refreshToken || nextRefreshToken;
       } catch (error) {
+        // Sesion invalidada mientras `/auth/me` estaba en vuelo. `clearSessionState`
+        // es dueño del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
         if (isSessionEpochStale(epoch)) return;
         if (isProbablyNetworkError(error)) {
           const startupError = getReadableErrorMessage(
@@ -1995,6 +2008,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const authContext = getAuthContextFromPayload(s);
+      // Idem: la sesion ya fue cerrada, no reescribimos nada sobre `clearSessionState`.
       if (isSessionEpochStale(epoch)) return;
       if (s.updateAvailable !== undefined) {
         const updateInfoPayload = {
@@ -2103,13 +2117,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (isSessionEpochStale(epoch)) return;
       const res = await Promise.allSettled([
         getLocationsRequest(), getOperationalUnitsRequest(), getIncidentsRequest(), getConversationsRequest(), getChatContactsRequest(),
-        getDocumentsRequest(), getNotificationsRequest(), user.role === 'admin' ? getOperationalObservabilityRequest() : Promise.resolve(null),
-        user.role === 'admin' || user.role === 'supervisor' || user.accountType === 'company_owner' ? getUsersRequest() : Promise.resolve([]),
+        getDocumentsRequest(), getNotificationsRequest(),
+        canLoadDirectoryUsers(user) ? getUsersRequest() : Promise.resolve([]),
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
       const data: any = {};
-      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'observability', 'users', 'activeRouteSession', 'routeSessionHistory'];
+      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'users', 'activeRouteSession', 'routeSessionHistory'];
       let fulfilledCount = 0;
       res.forEach((r, i) => {
         if (r.status === 'fulfilled') {
@@ -2522,7 +2536,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   loadUsers: async () => {
     const currentUser = get().user;
-    if (!currentUser || !['owner', 'admin', 'supervisor'].includes(currentUser.role)) return;
+    if (!canLoadDirectoryUsers(currentUser)) return;
 
     try {
       set({ users: await getUsersRequest() });
