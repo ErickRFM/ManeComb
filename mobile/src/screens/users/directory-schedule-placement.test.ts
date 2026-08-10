@@ -10,6 +10,10 @@ describe('autoridad UI del horario operativo', () => {
     path.join(mobileRoot, 'src', 'screens', 'users-screen.tsx'),
     'utf8'
   );
+  const scheduleModal = fs.readFileSync(
+    path.join(mobileRoot, 'src', 'screens', 'users', 'DriverScheduleModal.tsx'),
+    'utf8'
+  );
   const profileEditor = fs.readFileSync(
     path.join(mobileRoot, 'src', 'screens', 'company-profile-edit-screen.tsx'),
     'utf8'
@@ -36,5 +40,13 @@ describe('autoridad UI del horario operativo', () => {
     expect(profileEditor).not.toContain('Horario operativo');
     expect(profileEditor).not.toContain('scheduleStartTime');
     expect(profileEditor).not.toContain('operationalSchedule:');
+  });
+
+  it('no habilita la primera configuracion solo por abrir el modal', () => {
+    expect(scheduleModal).toContain('const [dirty, setDirty] = useState(false)');
+    expect(scheduleModal).toContain('setDirty(false)');
+    expect(scheduleModal).toContain(': dirty');
+    expect(scheduleModal).toContain('setDirty(true)');
+    expect(scheduleModal).toContain('disabled={saving || !hasChanges}');
   });
 });
