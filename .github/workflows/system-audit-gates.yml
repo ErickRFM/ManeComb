@@ -2,6 +2,13 @@ name: System audit gates
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - converted_to_draft
+      - edited
   push:
     branches:
       - main
@@ -35,3 +42,10 @@ jobs:
 
       - name: Validate audit gates and baseline freshness
         run: node scripts/validate-system-audit-gates.mjs
+
+      - name: Test physical merge policy
+        run: node --test scripts/validate-pr-physical-gate.test.mjs
+
+      - name: Enforce physical gate on Ready PRs
+        if: github.event_name == 'pull_request'
+        run: node scripts/validate-pr-physical-gate.mjs
