@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import type { ConversationChannelMode } from '@/src/types/app';
+import { ensureCallMediaPermissionsForUi } from '@/src/features/calls/call-permission-ui';
+import type { CallMode } from './chat/types';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ChatScreenView } from './chat/components/chat-screen-view';
 import { useChatController } from './chat/hooks/use-chat-controller';
@@ -115,6 +117,15 @@ export function ChatScreen() {
     [isCompact, openDirectConversation, setControllerMobilePane]
   );
 
+  const startCall = useCallback(
+    async (mode: CallMode) => {
+      const granted = await ensureCallMediaPermissionsForUi(mode);
+      if (!granted) return;
+      await controller.startCall(mode);
+    },
+    [controller.startCall]
+  );
+
   useEffect(() => {
     if (
       Platform.OS !== 'android' ||
@@ -135,6 +146,7 @@ export function ChatScreen() {
   return (
     <ChatScreenView
       {...controller}
+      startCall={startCall}
       handleOpenDirect={handleOpenDirect}
       handleOpenGeneral={handleOpenGeneral}
       handleSelectConversation={handleSelectConversation}
