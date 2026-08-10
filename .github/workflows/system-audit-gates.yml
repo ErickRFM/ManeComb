@@ -1,0 +1,37 @@
+name: System audit gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "audit/**"
+      - "codex/**"
+      - "claude/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-audit-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-layer-contract:
+    name: Cross-layer audit contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout full history for freshness checks
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Validate audit gates and baseline freshness
+        run: node scripts/validate-system-audit-gates.mjs
