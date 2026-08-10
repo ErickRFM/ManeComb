@@ -1,7 +1,12 @@
 import { Platform } from 'react-native';
 import * as Location from '@/src/native/location';
 import { distanceInMeters } from '@/src/hooks/point-to-point-tracker-core';
-import { MAX_ACCEPTED_ACCURACY_METERS, MIN_NATIVE_DISTANCE_METERS, MIN_NATIVE_INTERVAL_MS } from '../constants/tracking';
+import {
+  LOCATION_HEARTBEAT_INTERVAL_MS,
+  MAX_ACCEPTED_ACCURACY_METERS,
+  MIN_NATIVE_DISTANCE_METERS,
+  MIN_NATIVE_INTERVAL_MS,
+} from '../constants/tracking';
 import type { LiveLocationPoint, LocationPermissionState } from '../types/location-engine';
 
 export function toPermissionState(status: Location.PermissionStatus): LocationPermissionState {
@@ -54,13 +59,24 @@ export function isLowAccuracy(point: LiveLocationPoint) {
 
 export function shouldAcceptLocation(
   previous: LiveLocationPoint | null,
-  next: LiveLocationPoint
+  next: LiveLocationPoint,
+  elapsedSinceAcceptedMs = 0
 ) {
   if (isLowAccuracy(next)) {
     return false;
   }
 
-  return !previous || distanceInMeters(previous, next) >= MIN_NATIVE_DISTANCE_METERS;
+  if (!previous) {
+    return true;
+  }
+
+  // La distancia filtra jitter cuando el GPS reporta muy seguido. El heartbeat
+  // temporal evita el bug inverso: una combi estacionada debe seguir demostrando
+  // que su GPS esta vivo aunque no recorra ocho metros.
+  return (
+    distanceInMeters(previous, next) >= MIN_NATIVE_DISTANCE_METERS ||
+    elapsedSinceAcceptedMs >= LOCATION_HEARTBEAT_INTERVAL_MS
+  );
 }
 
 export function toIsoTimestamp(timestamp: number | undefined) {
