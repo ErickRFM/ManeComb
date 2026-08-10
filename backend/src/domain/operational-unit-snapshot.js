@@ -87,10 +87,13 @@ function toSpeedKmh(rawSpeed) {
  * determina la FRESCURA, no si la posicion existe: una ultima posicion conocida
  * sigue siendo informacion util aunque no sepamos exactamente cuando se tomo.
  *
- * La frescura operacional usa `locationReceivedAt` (reloj del servidor) como
- * autoridad. `locationTimestamp` se conserva como hora de captura/historial y
- * funciona como fallback para datos legados, pero un reloj de telefono atrasado
- * o adelantado no puede convertir una unidad viva en stale ni viceversa.
+ * Para paquetes normales, la frescura operacional usa `locationReceivedAt`
+ * (reloj del servidor) como autoridad y evita que un reloj de telefono atrasado
+ * o adelantado altere el estado vivo. Para paquetes provenientes de una cola
+ * offline, `locationTimestampSource === "transport_queue_age"` significa que
+ * `locationTimestamp` ya fue reconstruido por el servidor a partir de la edad
+ * de transporte; en ese caso la captura —no la recepcion tardia— manda sobre la
+ * frescura. `locationTimestamp` sigue siendo fallback para datos legados.
  *
  * Antes se exigian ambas cosas y se devolvia `lat: null`, con lo que el mapa de
  * seguimiento no tenia nada que dibujar y la unidad desaparecia, mientras el
@@ -99,6 +102,7 @@ function toSpeedKmh(rawSpeed) {
 function buildGps(vehicle, progress, nowMs) {
   const recordedAt = toDate(vehicle?.locationTimestamp);
   const receivedAt = toDate(vehicle?.locationReceivedAt);
+  const timestampSource = String(vehicle?.locationTimestampSource || "").trim();
   const latitude = finiteOrNull(vehicle?.location?.latitude);
   const longitude = finiteOrNull(vehicle?.location?.longitude);
   const hasPosition = latitude !== null && longitude !== null;
@@ -117,10 +121,13 @@ function buildGps(vehicle, progress, nowMs) {
     };
   }
 
-  // El servidor manda sobre el reloj del dispositivo para estado vivo. Los
-  // registros antiguos que aun no tienen `locationReceivedAt` conservan el
-  // comportamiento compatible usando la hora de captura.
-  const authorityTime = receivedAt || recordedAt;
+  // La recepcion actual prueba conectividad de transporte, no que la posicion
+  // haya sido capturada ahora. Cuando el cliente declara edad de cola, el
+  // backend convierte esa duracion en un timestamp de captura con reloj servidor
+  // y evita rejuvenecer un backlog al recuperar Internet.
+  const authorityTime = timestampSource === "transport_queue_age"
+    ? recordedAt
+    : receivedAt || recordedAt;
   const ageSeconds = authorityTime
     ? Math.max(0, Math.round((nowMs - authorityTime.getTime()) / 1000))
     : null;
