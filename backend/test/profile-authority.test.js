@@ -36,7 +36,7 @@ function testOperationalSelfServiceIsPersonalOnly() {
   assert.equal(payload.vehicleId, undefined);
 }
 
-function testCompanyAdministratorKeepsCommercialSelfService() {
+function testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule() {
   for (const role of ["owner", "admin"]) {
     const payload = pickSelfProfileFields(
       { accountType: "company_owner", role },
@@ -52,7 +52,7 @@ function testCompanyAdministratorKeepsCommercialSelfService() {
     assert.equal(payload.name, "Company Admin");
     assert.deepEqual(payload.companyProfile, { companyName: "ManeComb Demo" });
     assert.deepEqual(payload.paymentProfile, { preferredMethod: "spei" });
-    assert.deepEqual(payload.operationalSchedule, { enabled: true });
+    assert.equal(payload.operationalSchedule, undefined);
     assert.equal(payload.role, undefined);
     assert.equal(canManageOwnCompanyProfile({ accountType: "company_owner", role }), true);
   }
@@ -92,6 +92,7 @@ function testFieldCatalogsRemainExplicit() {
   assert.ok(PERSONAL_PROFILE_FIELDS.includes("avatarUrl"));
   assert.ok(!PERSONAL_PROFILE_FIELDS.includes("companyProfile"));
   assert.ok(COMPANY_PROFILE_FIELDS.includes("companyProfile"));
+  assert.ok(!COMPANY_PROFILE_FIELDS.includes("operationalSchedule"));
   assert.deepEqual(getSelfProfileFields({ accountType: "operations", role: "driver" }), PERSONAL_PROFILE_FIELDS);
   assert.deepEqual(getSelfProfileFields({ accountType: "company_owner", role: "owner" }), COMPANY_PROFILE_FIELDS);
   assert.deepEqual(getSelfProfileFields({ accountType: "company_owner", role: "viewer" }), PERSONAL_PROFILE_FIELDS);
@@ -158,7 +159,7 @@ function testProfileDocumentsRemainTenantScoped() {
 
 function main() {
   testOperationalSelfServiceIsPersonalOnly();
-  testCompanyAdministratorKeepsCommercialSelfService();
+  testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule();
   testLimitedPortalRolesRemainPersonalOnly();
   testOperationalAdminDoesNotBecomeCompanyEditor();
   testFieldCatalogsRemainExplicit();
