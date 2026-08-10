@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
@@ -6,8 +7,11 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
 
+export const TRANSIENT_CONNECTION_NOTICE_DELAY_MS = 3500;
+
 export function ConnectionBanner() {
   const { theme } = useAppTheme();
+  const [showTransientNotice, setShowTransientNotice] = useState(false);
   const { isRefreshing, networkStatus, pendingSyncCount, realtimeDiagnostics, refreshAll, signOut, socketStatus, user } = useAppStore(
     useShallow((state) => ({
       isRefreshing: state.isRefreshing,
@@ -21,12 +25,13 @@ export function ConnectionBanner() {
     }))
   );
 
+  const heartbeatHealthy = Boolean(
+    realtimeDiagnostics.lastPongAt &&
+    realtimeDiagnostics.missedHeartbeatAcks === 0 &&
+    Date.now() - new Date(realtimeDiagnostics.lastPongAt).getTime() <= 55000
+  );
   const realtime = getRealtimeSnapshot({
-    heartbeatHealthy: Boolean(
-      realtimeDiagnostics.lastPongAt &&
-      realtimeDiagnostics.missedHeartbeatAcks === 0 &&
-      Date.now() - new Date(realtimeDiagnostics.lastPongAt).getTime() <= 55000
-    ),
+    heartbeatHealthy,
     hasUser: Boolean(user),
     networkStatus,
     pendingSyncCount,
@@ -34,23 +39,42 @@ export function ConnectionBanner() {
   });
   const offline = realtime.state === 'DISCONNECTED';
   const unauthorized = realtime.state === 'UNAUTHORIZED';
-  const visibleStates = new Set([
-    'CONNECTING',
-    'AUTHENTICATING',
-    'RECONNECTING',
-    'UNAUTHORIZED',
-    'ERROR',
-  ]);
+  const hardFailure = offline || unauthorized || realtime.state === 'ERROR';
 
-  if (!offline && !visibleStates.has(realtime.state) && pendingSyncCount === 0) {
+  // `networkStatus: recovering` tambien se usa mientras se reconcilian datos despues
+  // de una reconexion. Si Socket.IO ya esta conectado y el heartbeat esta sano, no
+  // debemos volver a presentar esa reconciliacion como una caida del transporte.
+  const transportRecovering =
+    (realtime.state === 'CONNECTING' ||
+      realtime.state === 'AUTHENTICATING' ||
+      realtime.state === 'RECONNECTING') &&
+    !(socketStatus === 'connected' && heartbeatHealthy);
+  const transientNotice = !hardFailure && (transportRecovering || pendingSyncCount > 0);
+
+  useEffect(() => {
+    if (!transientNotice) {
+      setShowTransientNotice(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowTransientNotice(true);
+    }, TRANSIENT_CONNECTION_NOTICE_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [transientNotice]);
+
+  if (!hardFailure && (!transientNotice || !showTransientNotice)) {
     return null;
   }
 
   const label = offline
     ? realtime.detail
-    : pendingSyncCount > 0
+    : pendingSyncCount > 0 && !transportRecovering
       ? 'Sincronizando pendientes...'
-      : realtime.detail;
+      : realtime.state === 'RECONNECTING'
+        ? 'Reconectando...'
+        : realtime.detail;
   const tint = unauthorized
     ? theme.colors.danger
     : offline
@@ -83,7 +107,7 @@ export function ConnectionBanner() {
         }}
         disabled={isRefreshing}
         accessibilityRole="button"
-        accessibilityLabel={unauthorized ? 'Volver a iniciar sesión' : 'Reintentar conexion'}
+        accessibilityLabel={unauthorized ? 'Volver a iniciar sesión' : 'Reintentar conexión'}
         accessibilityState={{ busy: isRefreshing, disabled: isRefreshing }}
         hitSlop={10}
         style={styles.retryButton}>
