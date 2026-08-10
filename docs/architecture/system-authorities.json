@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "3d1fa8ab6dab44cb0b4d565629567a38e9f2df91",
+    "commit": "fa0d1b6160b7ebdfc800d10191445d95374cde85",
     "capturedAt": "2026-08-10",
-    "phase": "post-integration-authority-refresh"
+    "phase": "post-runtime-hardening-semantic-refresh"
   },
   "products": [
     {
@@ -28,7 +28,7 @@
       "id": "mobile",
       "name": "Operational mobile application",
       "rootPaths": ["mobile"],
-      "runtime": "React Native Android and iOS",
+      "runtime": "React Native Android is provisioned and CI-certified; iOS remains an unprovisioned target without a native project or release artifact",
       "audience": ["operations"],
       "allowedChannels": ["mobile_operations"]
     },
@@ -91,6 +91,15 @@
       "targetPhase": 1
     },
     {
+      "id": "api-rate-limit-perimeter",
+      "decision": "Which API requests consume anonymous, authenticated, media or auth-specific rate-limit budgets",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/middlewares/api-rate-limit.js", "backend/src/middlewares/enterprise-rate-limit.js", "backend/src/modules/auth"],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 1
+    },
+    {
       "id": "tenant",
       "decision": "Which organization owns and may access a resource",
       "owner": "backend",
@@ -132,11 +141,20 @@
       "targetPhase": 4
     },
     {
+      "id": "manual-payment-decision",
+      "decision": "Manual SPEI evidence version, review lease, sticky approval or rejection decision and durable recovery after activation",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": ["backend/src/modules/manual-payments", "backend/src/modules/platform/manual-payment-routes.js"],
+      "consumers": ["sales-portal", "admin-global"],
+      "targetPhase": 4
+    },
+    {
       "id": "fleet",
       "decision": "Lifecycle and operational identity of vehicles, drivers and units",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/operational-units", "backend/src/modules/locations"],
+      "sourcePaths": ["backend/src/modules/operational-units", "backend/src/modules/locations", "backend/src/services/driver-lifecycle.js"],
       "consumers": ["sales-portal", "mobile", "admin-global"],
       "targetPhase": 5
     },
@@ -150,12 +168,27 @@
       "targetPhase": 6
     },
     {
+      "id": "portal-route-plan-commit",
+      "decision": "Which asynchronous route-plan response is still allowed to update the Portal route editor",
+      "owner": "sales-portal",
+      "status": "canonical",
+      "sourcePaths": ["ventas/features/portal/routes", "ventas/features/portal/screens/portal-routes-screen.tsx"],
+      "consumers": ["sales-portal"],
+      "targetPhase": 6
+    },
+    {
       "id": "tracking",
-      "decision": "Accepted positions, operational movement, deviation and route progress",
+      "decision": "Accepted positions, capture freshness, transport receipt, operational movement, deviation and route progress",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/locations", "backend/src/domain"],
-      "consumers": ["sales-portal", "mobile"],
+      "sourcePaths": [
+        "backend/src/modules/locations",
+        "backend/src/domain",
+        "backend/src/services/vehicle-location-ingestion.js",
+        "backend/src/services/tracking-time.js",
+        "backend/src/services/operational-freshness-sweeper.js"
+      ],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
       "targetPhase": 6
     },
     {
@@ -222,7 +255,7 @@
     },
     {
       "id": "mobile-version",
-      "decision": "Public application version and Android build number",
+      "decision": "Public Android application version and Android build number",
       "owner": "mobile",
       "status": "canonical",
       "sourcePaths": ["mobile/app.json"],
@@ -236,6 +269,15 @@
       "status": "canonical",
       "sourcePaths": ["scripts/validate-environment-contract.mjs", ".env.example", "backend/.env.example", "ventas/.env.example", "mobile/.env.example", "admin-global/.env.example"],
       "consumers": ["backend", "sales-portal", "mobile", "admin-global", "communication-service"],
+      "targetPhase": 8
+    },
+    {
+      "id": "physical-merge-policy",
+      "decision": "Whether a Ready PR has real physical PASS, justified N/A, or explicitly accepted pending hardware evidence",
+      "owner": "infrastructure",
+      "status": "canonical",
+      "sourcePaths": ["scripts/validate-pr-physical-gate.mjs", ".github/workflows/system-audit-gates.yml", ".github/pull_request_template.md"],
+      "consumers": ["backend", "sales-portal", "mobile", "admin-global"],
       "targetPhase": 8
     },
     {
@@ -262,8 +304,15 @@
       "id": "COMMUNICATION-HYBRID-BOUNDARY",
       "severity": "P1",
       "phase": 7,
-      "summary": "Communication Service is tested independently but installed by the backend, so its public package boundary must be made explicit.",
+      "summary": "Communication Service is tested independently but installed by the backend; its package/runtime boundary is intentionally tracked until the public package contract is made explicit.",
       "sourcePaths": ["backend/package.json", "communication-service/package.json"]
+    },
+    {
+      "id": "IOS-NATIVE-ARTIFACT-PENDING",
+      "severity": "P2",
+      "phase": 3,
+      "summary": "The dependency graph contains iOS tooling and an ios command, but the repository has no mobile/ios native project and CI does not certify an iOS artifact; iOS is not a current release target.",
+      "sourcePaths": ["mobile/package.json", ".github/workflows/ci.yml"]
     },
     {
       "id": "BACKEND-TEST-CHAIN",
@@ -290,8 +339,15 @@
       "id": "ADMIN-GLOBAL-EXTERNAL-CERTIFICATION",
       "severity": "P0",
       "phase": 9,
-      "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates.",
+      "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates that cannot be proven from repository CI alone.",
       "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md"]
+    },
+    {
+      "id": "GITHUB-REQUIRED-CHECKS-EXTERNAL",
+      "severity": "P1",
+      "phase": 8,
+      "summary": "System Audit, CI and Dependency checks exist in the repository, but GitHub branch protection/required-check enforcement remains repository configuration and must be enabled externally to make bypass impossible.",
+      "sourcePaths": [".github/workflows/ci.yml", ".github/workflows/system-audit-gates.yml"]
     }
   ]
 }
