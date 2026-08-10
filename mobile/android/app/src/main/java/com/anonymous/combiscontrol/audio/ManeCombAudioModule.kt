@@ -1,4 +1,4 @@
-﻿package com.anonymous.combiscontrol.audio
+package com.anonymous.combiscontrol.audio
 
 import android.media.AudioFocusRequest
 import android.media.AudioAttributes
@@ -573,6 +573,10 @@ class ManeCombAudioModule(
         true
       }
       nextPlayer.prepareAsync()
+    } catch (error: AudioPlaybackException) {
+      releaseRadioPlayer(playerId)
+      Log.e(TAG, "radio history playback failed code=${error.code} url=$uri message=${error.message}", error)
+      promise.reject(error.code, error.message ?: "No fue posible reproducir el audio.", error)
     } catch (error: Exception) {
       releaseRadioPlayer(playerId)
       promise.reject("audio_playback_failed", error.message ?: "Error del reproductor Android.", error)
@@ -716,6 +720,56 @@ class ManeCombAudioModule(
     return headers
   }
 
+  private fun playbackCacheKey(uri: String, headers: HashMap<String, String>): String {
+    // La cache es privada al sandbox, pero ademas queda ligada a la credencial
+    // actual. El token nunca se escribe: solo participa en el hash del nombre.
+    val authorization = headers.entries
+      .firstOrNull { (key, _) -> key.equals("Authorization", ignoreCase = true) }
+      ?.value
+      .orEmpty()
+    return sha256("$authorization\n$uri")
+  }
+
+  private fun findCachedPlaybackSource(
+    cacheDir: File,
+    cacheKey: String,
+    normalizedUri: String
+  ): PlaybackSource? {
+    val cachedFile = cacheDir.listFiles()
+      ?.asSequence()
+      ?.filter { it.isFile && !it.name.endsWith(".tmp") && it.name.startsWith(cacheKey) && it.length() > 0 }
+      ?.maxByOrNull { it.lastModified() }
+      ?: return null
+
+    cachedFile.setLastModified(System.currentTimeMillis())
+    return PlaybackSource(
+      sourceUri = normalizedUri,
+      localUri = Uri.fromFile(cachedFile).toString(),
+      contentType = guessMimeType(cachedFile.name),
+      size = cachedFile.length(),
+      statusCode = 0
+    )
+  }
+
+  private fun prunePlaybackCache(cacheDir: File) {
+    val now = System.currentTimeMillis()
+    cacheDir.listFiles()?.forEach { file ->
+      if (!file.isFile) return@forEach
+      val ageMs = (now - file.lastModified()).coerceAtLeast(0L)
+      val expiredTemporary = file.name.endsWith(".tmp") && ageMs > PLAYBACK_CACHE_TEMP_MAX_AGE_MS
+      val expiredMedia = !file.name.endsWith(".tmp") && ageMs > PLAYBACK_CACHE_MAX_AGE_MS
+      if (expiredTemporary || expiredMedia) {
+        file.delete()
+      }
+    }
+
+    cacheDir.listFiles()
+      ?.filter { it.isFile && !it.name.endsWith(".tmp") }
+      ?.sortedByDescending { it.lastModified() }
+      ?.drop(PLAYBACK_CACHE_MAX_FILES)
+      ?.forEach { it.delete() }
+  }
+
   private fun resolvePlaybackSource(uri: String, headers: HashMap<String, String>): PlaybackSource {
     val normalizedUri = uri.trim()
 
@@ -743,6 +797,13 @@ class ManeCombAudioModule(
     val cacheDir = File(reactContext.cacheDir, "manecomb-audio-playback")
     if (!cacheDir.exists()) {
       cacheDir.mkdirs()
+    }
+
+    prunePlaybackCache(cacheDir)
+    val cacheKey = playbackCacheKey(normalizedUri, headers)
+    findCachedPlaybackSource(cacheDir, cacheKey, normalizedUri)?.let { cached ->
+      Log.i(TAG, "audio cache hit local=${cached.localUri} size=${cached.size}")
+      return cached
     }
 
     val connection = (URL(normalizedUri).openConnection() as HttpURLConnection).apply {
@@ -776,6 +837,19 @@ class ManeCombAudioModule(
           "audio_download_not_found",
           "Archivo no encontrado."
         )
+        429 -> {
+          val retryAfterSeconds = connection.getHeaderField("Retry-After")
+            ?.trim()
+            ?.toIntOrNull()
+          val retryHint = retryAfterSeconds
+            ?.takeIf { it in 1..300 }
+            ?.let { " Intenta de nuevo en $it s." }
+            ?: " Intenta de nuevo en unos segundos."
+          throw AudioPlaybackException(
+            "audio_download_rate_limited",
+            "El audio esta temporalmente limitado.$retryHint"
+          )
+        }
       }
 
       if (statusCode !in 200..299) {
@@ -792,7 +866,7 @@ class ManeCombAudioModule(
         )
       }
 
-      val targetFile = File(cacheDir, "${sha256(normalizedUri)}${extensionForContentType(contentType, normalizedUri)}")
+      val targetFile = File(cacheDir, "$cacheKey${extensionForContentType(contentType, normalizedUri)}")
       val temporaryFile = File(cacheDir, "${targetFile.name}.tmp")
 
       connection.inputStream.use { input ->
@@ -815,6 +889,8 @@ class ManeCombAudioModule(
         temporaryFile.delete()
       }
 
+      targetFile.setLastModified(System.currentTimeMillis())
+      prunePlaybackCache(cacheDir)
       Log.i(TAG, "audio cached local=${targetFile.absolutePath} size=${targetFile.length()}")
 
       return PlaybackSource(
@@ -900,7 +976,6 @@ class ManeCombAudioModule(
 
     return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
   }
-
 
   private fun abandonPlaybackFocus() {
     val audioManager = reactContext.getSystemService(AudioManager::class.java) ?: return
@@ -1121,5 +1196,8 @@ class ManeCombAudioModule(
 
   companion object {
     private const val TAG = "ManeCombAudio"
+    private const val PLAYBACK_CACHE_MAX_FILES = 64
+    private const val PLAYBACK_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000L
+    private const val PLAYBACK_CACHE_TEMP_MAX_AGE_MS = 5 * 60 * 1000L
   }
 }
