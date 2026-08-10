@@ -64,10 +64,12 @@ class MainActivity : ReactActivity() {
   }
 
   private fun configureIncomingCallWindow(sourceIntent: Intent?) {
-    val uri = sourceIntent?.data
-    val isCallIntent = uri?.path?.trim()?.equals("/call", ignoreCase = true) == true
-    val isTerminalIntent = uri?.getQueryParameter("action")?.equals("dismiss", ignoreCase = true) == true
-    setIncomingCallWindowActive(isCallIntent && !isTerminalIntent)
+    val uri = sourceIntent?.data ?: return
+    val isCallIntent = uri.path?.trim()?.equals("/call", ignoreCase = true) == true
+    if (!isCallIntent) return
+
+    val isTerminalIntent = uri.getQueryParameter("action")?.equals("dismiss", ignoreCase = true) == true
+    setIncomingCallWindowActive(!isTerminalIntent)
   }
 
   private fun applyIncomingCallWindow(active: Boolean) {
