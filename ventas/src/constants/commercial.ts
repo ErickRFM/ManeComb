@@ -1,32 +1,32 @@
 export const COMMERCIAL_FAQS = [
   {
-    question: '¿Cómo elijo la capacidad correcta?',
+    question: '¿La prueba requiere tarjeta?',
     answer:
-      'Cada plan indica cuántas unidades incluye y el costo por unidad. Elige el paquete que corresponde al tamaño actual de tu flotilla; puedes cambiar a una capacidad mayor conforme crezcas.',
+      'El plan público de 2 combis puede ofrecer una prueba de 7 días sin registrar tarjeta. Cuando la prueba está disponible, ManeComb la muestra como la opción principal y no realiza ningún cargo durante la demo.',
   },
   {
-    question: '¿El precio es por mes?',
+    question: '¿El precio ya incluye IVA?',
     answer:
-      'Sí. Cada tarjeta muestra la mensualidad del paquete y la cantidad de unidades incluidas para comparar la capacidad de la flotilla.',
+      'Sí. El checkout muestra el subtotal, confirma el IVA incluido y presenta el total mensual antes de continuar con la activación o el pago.',
   },
   {
-    question: '¿Puedo arrancar con pocas unidades?',
+    question: '¿Cómo se confirma un pago o una transferencia?',
     answer:
-      'Sí. El plan de 2 combis está pensado para pilotos y operaciones pequeñas; después puedes elegir una capacidad mayor conforme crezca tu flotilla.',
+      'ManeComb conserva la orden y su referencia. La activación ocurre cuando el backend confirma el estado correspondiente; si el pago queda pendiente, puedes revisar su avance desde el portal.',
   },
   {
-    question: '¿Qué puedo administrar desde ManeComb?',
+    question: '¿Puedo cambiar o cancelar mi plan?',
     answer:
-      'El portal organiza usuarios, roles, unidades, rutas, documentos, planes y seguimiento. La app móvil concentra GPS, jornadas, checklist, incidencias, chat, radio, PTT y llamadas.',
+      'Sí. La suscripción se administra desde el portal, donde puedes revisar el plan vigente y las acciones disponibles para cambiarlo o cancelarlo.',
   },
   {
-    question: '¿La app sirve para conductores, supervisores y administración?',
+    question: '¿Qué incluye la plataforma?',
     answer:
-      'Sí. Cada perfil recibe acceso según su rol y permisos, mientras la información operativa permanece conectada dentro de la misma organización.',
+      'El portal organiza unidades, rutas, equipo, permisos y documentos. La app operativa conecta GPS, jornadas, checklist, incidencias, chat, radio, PTT y llamadas según los permisos de cada cuenta.',
   },
   {
-    question: '¿Cómo se activa un plan?',
+    question: '¿Dónde recibo ayuda antes o después de activar?',
     answer:
-      'Elige la capacidad, crea o abre tu cuenta y continúa con el método disponible. El portal conserva la referencia y el estado de la activación.',
+      'Puedes contactar al equipo comercial desde esta misma página. Después de crear tu cuenta, el portal mantiene el contexto de plan, pagos y configuración para continuar sin empezar de nuevo.',
   },
 ];

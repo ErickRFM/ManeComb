@@ -6,6 +6,11 @@ declare module 'react-native' {
   export type ImageStyle = Record<string, unknown>;
   export type StyleProp<T> = T | T[] | false | null | undefined;
 
+  export type LayoutChangeEvent = {
+    nativeEvent: {
+      layout: { x: number; y: number; width: number; height: number };
+    };
+  };
   export type NativeScrollEvent = {
     contentOffset: { x: number; y: number };
     contentSize: { width: number; height: number };

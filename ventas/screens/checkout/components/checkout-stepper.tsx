@@ -10,17 +10,16 @@ type Props = {
 
 const items = [
   { id: 'payment' as const, label: 'Pago', icon: 'credit-card-outline' as const },
-  { id: 'confirmation' as const, label: 'Confirmacion', icon: 'account-check-outline' as const },
   { id: 'done' as const, label: 'Listo', icon: 'check-circle-outline' as const },
 ];
 
 export function Stepper({ currentStep }: Props) {
-  const currentIndex = items.findIndex((item) => item.id === currentStep);
+  const completed = currentStep === 'done';
 
   return (
-    <View style={s.stepper}>
+    <View accessibilityLabel={completed ? 'Checkout completado' : 'Checkout en proceso'} style={s.stepper}>
       {items.map((item, index) => {
-        const active = index <= currentIndex;
+        const active = item.id === 'payment' || completed;
 
         return (
           <View key={item.id} style={s.stepItem}>

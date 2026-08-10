@@ -6,6 +6,7 @@ import {
   Text,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -37,6 +38,7 @@ import { PlanCardSkeleton } from './sales/components/plan-card-skeleton';
 import { PlanCard } from './sales/components/plan-card';
 import { CheckoutReturnBanner } from './sales/components/checkout-return-banner';
 import { FaqItem } from './sales/components/faq-item';
+import { AppDownloadSection } from './sales/components/app-download-section';
 import { SiteFooter } from './sales/components/site-footer';
 
 export function SalesScreen() {
@@ -80,6 +82,8 @@ export function SalesScreen() {
   const cardStep = cardWidth + planCardGap;
   const compactPlanCard = cardWidth < 288;
   const carouselRef = useRef<ScrollView>(null);
+  const pageRef = useRef<ScrollView>(null);
+  const nativeSectionOffsets = useRef<Record<string, number>>({});
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [openFaqIndex, setOpenFaqIndex] = useState(-1);
@@ -106,15 +110,14 @@ export function SalesScreen() {
       return;
     }
 
-    const bestValueIndex = Math.max(
-      plans.findIndex((plan) => plan.badge.toLowerCase().includes('vendido')),
-      0
-    );
-    setActivePlanIndex(bestValueIndex);
+    // La selección inicial se apoya en una capacidad contractual estable (demo pública),
+    // no en copy de marketing como "Más vendido" que puede cambiar sin alterar el catálogo.
+    const recommendedIndex = Math.max(plans.findIndex((plan) => isPublicDemoPlan(plan)), 0);
+    setActivePlanIndex(recommendedIndex);
 
     const frame = requestAnimationFrame(() => {
       carouselRef.current?.scrollTo({
-        x: getPlanScrollOffset(bestValueIndex),
+        x: getPlanScrollOffset(recommendedIndex),
         animated: false,
       });
     });
@@ -181,6 +184,7 @@ export function SalesScreen() {
           style: styles.webPage,
         }
       : {
+          ref: pageRef,
           style: styles.scroll,
           contentContainerStyle: styles.content,
           showsVerticalScrollIndicator: false,
@@ -192,11 +196,23 @@ export function SalesScreen() {
           },
         };
 
+  const registerNativeSection = useCallback(
+    (target: string) => (event: LayoutChangeEvent) => {
+      nativeSectionOffsets.current[target] = event.nativeEvent.layout.y;
+    },
+    []
+  );
+
   const scrollToSection = (target: string) => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const section = document.getElementById(target);
       section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
+    }
+
+    const targetOffset = nativeSectionOffsets.current[target];
+    if (typeof targetOffset === 'number') {
+      pageRef.current?.scrollTo({ y: Math.max(0, targetOffset - 96), animated: true });
     }
 
     if (target === 'planes') {
@@ -250,7 +266,12 @@ export function SalesScreen() {
       />
 
       <PageScroller {...(pageScrollerProps as any)}>
-        <View style={[styles.container, isPhone ? styles.containerPhone : undefined]}>
+        <View
+          style={[
+            styles.container,
+            isPhone ? styles.containerPhone : undefined,
+            isPhone ? { paddingTop: 108, gap: 52 } : undefined,
+          ]}>
           <CheckoutReturnBanner
             confirmation={checkoutConfirm}
             status={checkoutReturnStatus}
@@ -272,6 +293,7 @@ export function SalesScreen() {
                 styles.heroSection,
                 heroSideBySide ? styles.heroDesktop : undefined,
                 isPhone ? styles.heroPhone : undefined,
+                isPhone ? { minHeight: 680 } : undefined,
                 isTablet && !heroSideBySide ? styles.heroTablet : undefined,
                 Platform.OS === 'web'
                   ? ({
@@ -279,7 +301,7 @@ export function SalesScreen() {
                         'linear-gradient(135deg, rgba(5, 8, 22, 0.54), rgba(10, 18, 45, 0.72)), radial-gradient(circle at 18% 20%, rgba(255, 45, 122, 0.18), transparent 28%), radial-gradient(circle at 78% 18%, rgba(0, 194, 255, 0.17), transparent 34%)',
                       boxShadow:
                         '0 0 0 1px rgba(245, 247, 255, 0.08), 0 36px 120px rgba(0, 0, 0, 0.46)',
-                      scrollMarginTop: 120,
+                      scrollMarginTop: 108,
                     } as any)
                   : undefined,
               ]}>
@@ -289,6 +311,7 @@ export function SalesScreen() {
                   <Text style={styles.heroKickerText}>CONTROL TOTAL DE LA OPERACIÓN</Text>
                 </View>
                 <Text
+                  accessibilityRole="header"
                   style={[
                     styles.heroTitle,
                     isPhone ? styles.heroTitlePhone : undefined,
@@ -302,21 +325,20 @@ export function SalesScreen() {
                     isPhone ? styles.heroSubtitlePhone : undefined,
                     isTablet ? styles.heroSubtitleTablet : undefined,
                   ]}>
-                  ManeComb une portal administrativo y app operativa para supervisar GPS, rutas, jornadas,
-                  documentos, incidencias, chat, radio y llamadas desde una sola plataforma.
+                  Portal y app conectados para supervisar la operación, coordinar al equipo y conservar evidencia sin brincar entre sistemas.
                 </Text>
                 <HeroSignalRow compact={isPhone} />
                 <View style={styles.heroActions}>
                   <ActionButton
-                    label="Conocer la plataforma"
-                    icon="view-dashboard-outline"
-                    onPress={() => scrollToSection('funcionalidades')}
-                  />
-                  <ActionButton
                     label="Explorar planes"
                     icon="arrow-down"
-                    variant="ghost"
                     onPress={() => scrollToSection('planes')}
+                  />
+                  <ActionButton
+                    label="Conocer la plataforma"
+                    icon="view-dashboard-outline"
+                    variant="ghost"
+                    onPress={() => scrollToSection('funcionalidades')}
                   />
                 </View>
               </View>
@@ -325,133 +347,143 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={1} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
-            <PlatformOverview compact={isPhone || isTablet} />
-          </RevealView>
+          <View onLayout={registerNativeSection('funcionalidades')}>
+            <RevealView index={1} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+              <PlatformOverview compact={isPhone || isTablet} />
+            </RevealView>
+          </View>
 
-          <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
-            <View nativeID="planes" style={styles.anchorOffset}>
-              <View style={styles.plansHeader}>
-                <SectionHeading
-                  eyebrow="PLANES CLAROS, SIN LETRA CHIQUITA"
-                  title="Elige la capacidad de tu flotilla"
-                  intro="Todos los planes incluyen la plataforma operativa y se activan directamente. Elige la capacidad que necesita tu empresa."
-                />
-                <View style={styles.carouselControls}>
-                  {plans.length ? (
-                    <Text
-                      accessibilityLiveRegion="polite"
-                      style={[
-                        styles.sectionEyebrow,
-                        {
-                          color: neonPalette.mutedStrong,
-                          letterSpacing: 0.4,
-                          minWidth: 42,
-                          textAlign: 'center',
-                        },
-                      ]}>
-                      {activePlanIndex + 1} / {plans.length}
-                    </Text>
-                  ) : null}
-                  <RoundIconButton
-                    accessibilityLabel="Plan anterior"
-                    icon="chevron-left"
-                    onPress={() => jumpToPlan(activePlanIndex - 1)}
-                    disabled={!plans.length || activePlanIndex === 0}
-                  />
-                  <RoundIconButton
-                    accessibilityLabel="Plan siguiente"
-                    icon="chevron-right"
-                    onPress={() => jumpToPlan(activePlanIndex + 1)}
-                    disabled={!plans.length || activePlanIndex === plans.length - 1}
-                  />
-                </View>
-              </View>
+          <View onLayout={registerNativeSection('descargar')}>
+            <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+              <AppDownloadSection onPortalPress={loginAction} />
+            </RevealView>
+          </View>
 
-              {plansLoading ? (
-                <View
-                  style={[
-                    styles.planCarousel,
-                    isPhone ? styles.planCarouselPhone : undefined,
-                    isDesktop ? styles.planCarouselDesktop : undefined,
-                    isDesktop
-                      ? { alignSelf: 'center', width: desktopCarouselWidth }
-                      : undefined,
-                    { alignItems: 'stretch' },
-                  ]}>
-                  {[0, 1, 2].map((i) => (
-                    <PlanCardSkeleton key={i} width={cardWidth} />
-                  ))}
-                </View>
-              ) : plansError ? (
-                <View style={styles.plansEmpty}>
-                  <MaterialCommunityIcons name="cloud-alert-outline" size={28} color={neonPalette.muted} />
-                  <Text style={styles.plansEmptyTitle}>No pudimos cargar los planes</Text>
-                  <Text style={styles.plansEmptyText}>{plansError}</Text>
-                  <Pressable accessibilityRole="button" onPress={() => void loadPlans()} style={styles.plansRetryButton}>
-                    <Text style={styles.plansRetryLabel}>Reintentar</Text>
-                  </Pressable>
-                </View>
-              ) : plans.length ? (
-                <ScrollView
-                  ref={carouselRef}
-                  horizontal
-                  style={[
-                    styles.planCarouselViewport,
-                    isPhone ? styles.planCarouselViewportPhone : undefined,
-                    isDesktop ? styles.planCarouselViewportDesktop : undefined,
-                    isDesktop ? { maxWidth: desktopCarouselWidth } : undefined,
-                  ]}
-                  snapToInterval={cardStep}
-                  snapToAlignment="start"
-                  disableIntervalMomentum
-                  decelerationRate="fast"
-                  contentContainerStyle={[
-                    styles.planCarousel,
-                    isPhone ? styles.planCarouselPhone : undefined,
-                    isDesktop ? styles.planCarouselDesktop : undefined,
-                    { alignItems: 'stretch' },
-                  ]}
-                  showsHorizontalScrollIndicator={false}
-                  onMomentumScrollEnd={handlePlansScrollEnd}>
-                  {plans.map((plan, index) => (
-                    <PlanCard
-                      key={plan.id}
-                      index={index}
-                      plan={plan}
-                      width={cardWidth}
-                      compact={compactPlanCard}
-                      active={activePlanIndex === index}
-                      accent={getPlanAccent(plan, index)}
-                      onPress={() => jumpToPlan(index)}
-                      onBuy={() => goToPlanCheckout(plan)}
-                      onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}
-                      trialLabel={
-                        isPublicDemoPlan(plan) && Number(plan.trialDays) > 0
-                          ? `Usar demo ${plan.trialDays} días`
-                          : null
-                      }
-                      userLabel={buyLabel}
+          <View onLayout={registerNativeSection('planes')}>
+            <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+              <View nativeID="planes" style={styles.anchorOffset}>
+                <View style={styles.plansHeader}>
+                  <SectionHeading
+                    eyebrow="PLANES CLAROS, SIN LETRA CHIQUITA"
+                    title="Elige la capacidad de tu flotilla"
+                    intro="Compara mensualidad, unidades incluidas y módulos antes de crear tu cuenta. Tu selección se conserva durante todo el proceso."
+                  />
+                  <View style={styles.carouselControls}>
+                    {plans.length ? (
+                      <Text
+                        accessibilityLiveRegion="polite"
+                        style={[
+                          styles.sectionEyebrow,
+                          {
+                            color: neonPalette.mutedStrong,
+                            letterSpacing: 0.4,
+                            minWidth: 42,
+                            textAlign: 'center',
+                          },
+                        ]}>
+                        {activePlanIndex + 1} / {plans.length}
+                      </Text>
+                    ) : null}
+                    <RoundIconButton
+                      accessibilityLabel="Plan anterior"
+                      icon="chevron-left"
+                      onPress={() => jumpToPlan(activePlanIndex - 1)}
+                      disabled={!plans.length || activePlanIndex === 0}
                     />
-                  ))}
-                </ScrollView>
-              ) : (
-                <View style={styles.plansEmpty}>
-                  <MaterialCommunityIcons name="clipboard-list-outline" size={28} color={neonPalette.muted} />
-                  <Text style={styles.plansEmptyTitle}>No hay planes publicados</Text>
-                  <Text style={styles.plansEmptyText}>
-                    Los planes aparecerán aquí cuando el administrador los publique.
-                  </Text>
+                    <RoundIconButton
+                      accessibilityLabel="Plan siguiente"
+                      icon="chevron-right"
+                      onPress={() => jumpToPlan(activePlanIndex + 1)}
+                      disabled={!plans.length || activePlanIndex === plans.length - 1}
+                    />
+                  </View>
                 </View>
-              )}
-            </View>
-          </RevealView>
 
-          <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+                {plansLoading ? (
+                  <View
+                    style={[
+                      styles.planCarousel,
+                      isPhone ? styles.planCarouselPhone : undefined,
+                      isDesktop ? styles.planCarouselDesktop : undefined,
+                      isDesktop
+                        ? { alignSelf: 'center', width: desktopCarouselWidth }
+                        : undefined,
+                      { alignItems: 'stretch' },
+                    ]}>
+                    {[0, 1, 2].map((i) => (
+                      <PlanCardSkeleton key={i} width={cardWidth} />
+                    ))}
+                  </View>
+                ) : plansError ? (
+                  <View style={styles.plansEmpty}>
+                    <MaterialCommunityIcons name="cloud-alert-outline" size={28} color={neonPalette.muted} />
+                    <Text style={styles.plansEmptyTitle}>No pudimos cargar los planes</Text>
+                    <Text style={styles.plansEmptyText}>{plansError}</Text>
+                    <Pressable accessibilityRole="button" onPress={() => void loadPlans()} style={styles.plansRetryButton}>
+                      <Text style={styles.plansRetryLabel}>Reintentar</Text>
+                    </Pressable>
+                  </View>
+                ) : plans.length ? (
+                  <ScrollView
+                    ref={carouselRef}
+                    horizontal
+                    style={[
+                      styles.planCarouselViewport,
+                      isPhone ? styles.planCarouselViewportPhone : undefined,
+                      isDesktop ? styles.planCarouselViewportDesktop : undefined,
+                      isDesktop ? { maxWidth: desktopCarouselWidth } : undefined,
+                    ]}
+                    snapToInterval={cardStep}
+                    snapToAlignment="start"
+                    disableIntervalMomentum
+                    decelerationRate="fast"
+                    contentContainerStyle={[
+                      styles.planCarousel,
+                      isPhone ? styles.planCarouselPhone : undefined,
+                      isDesktop ? styles.planCarouselDesktop : undefined,
+                      { alignItems: 'stretch' },
+                    ]}
+                    showsHorizontalScrollIndicator={false}
+                    onMomentumScrollEnd={handlePlansScrollEnd}>
+                    {plans.map((plan, index) => (
+                      <PlanCard
+                        key={plan.id}
+                        index={index}
+                        plan={plan}
+                        width={cardWidth}
+                        compact={compactPlanCard}
+                        active={activePlanIndex === index}
+                        accent={getPlanAccent(plan, index)}
+                        onPress={() => jumpToPlan(index)}
+                        onBuy={() => goToPlanCheckout(plan)}
+                        onTrial={isPublicDemoPlan(plan) ? () => goToPlanCheckout(plan, true) : undefined}
+                        trialLabel={
+                          isPublicDemoPlan(plan) && Number(plan.trialDays) > 0
+                            ? `Usar demo ${plan.trialDays} días`
+                            : null
+                        }
+                        userLabel={buyLabel}
+                      />
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.plansEmpty}>
+                    <MaterialCommunityIcons name="clipboard-list-outline" size={28} color={neonPalette.muted} />
+                    <Text style={styles.plansEmptyTitle}>No hay planes publicados</Text>
+                    <Text style={styles.plansEmptyText}>
+                      Los planes aparecerán aquí cuando el administrador los publique.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </RevealView>
+          </View>
+
+          <RevealView index={4} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <SectionHeading
               eyebrow="DE LA COMPRA A LA OPERACIÓN"
-              title="Empieza con una estructura clara"
-              intro="Selecciona capacidad, configura tu empresa y conecta portal, unidades y conductores sin cambiar de sistema."
+              title="Del plan elegido a una flotilla operando"
+              intro="Crea tu cuenta, configura la empresa, conecta unidades y empieza a trabajar desde portal y app con la misma información."
               centered
             />
             <View style={[styles.processRail, isPhone || isTablet ? styles.processRailPhone : undefined]}>
@@ -467,47 +499,49 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
-          <RevealView index={4} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
-            <View
-              nativeID="confianza"
-              style={[
-                styles.trustSection,
-                Platform.OS === 'web'
-                  ? ({
-                      backgroundImage:
-                        'linear-gradient(135deg, rgba(9, 15, 34, 0.8), rgba(10, 17, 39, 0.92)), radial-gradient(circle at 15% 20%, rgba(0, 194, 255, 0.14), transparent 34%), radial-gradient(circle at 85% 55%, rgba(255, 45, 122, 0.12), transparent 35%)',
-                      boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 24px 80px rgba(0,0,0,0.34)',
-                      backdropFilter: 'blur(18px)',
-                      scrollMarginTop: 120,
-                    } as any)
-                  : undefined,
-              ]}>
-              <SectionHeading
-                eyebrow="UNA PLATAFORMA, TODA LA OPERACIÓN"
-                title="Cada módulo comparte la misma información"
-                intro="Menos herramientas aisladas y menos capturas repetidas: administración, seguimiento, comunicación y evidencia trabajan sobre la misma cuenta y flotilla."
-                centered
-              />
+          <View onLayout={registerNativeSection('confianza')}>
+            <RevealView index={5} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
               <View
+                nativeID="confianza"
                 style={[
-                  styles.metricGrid,
-                  isPhone ? styles.metricGridPhone : undefined,
-                  isTablet ? styles.metricGridTablet : undefined,
+                  styles.trustSection,
+                  Platform.OS === 'web'
+                    ? ({
+                        backgroundImage:
+                          'linear-gradient(135deg, rgba(9, 15, 34, 0.8), rgba(10, 17, 39, 0.92)), radial-gradient(circle at 15% 20%, rgba(0, 194, 255, 0.14), transparent 34%), radial-gradient(circle at 85% 55%, rgba(255, 45, 122, 0.12), transparent 35%)',
+                        boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 24px 80px rgba(0,0,0,0.34)',
+                        backdropFilter: 'blur(18px)',
+                        scrollMarginTop: 108,
+                      } as any)
+                    : undefined,
                 ]}>
-                {trustMetrics.map((metric) => (
-                  <View key={metric.label} style={[styles.metricCard, isTablet ? styles.metricCardTablet : undefined]}>
-                    <View style={[styles.metricIcon, { borderColor: `${metric.color}55`, backgroundColor: `${metric.color}14` }]}>
-                      <MaterialCommunityIcons name={metric.icon} size={25} color={metric.color} />
+                <SectionHeading
+                  eyebrow="UNA SOLA FUENTE DE INFORMACIÓN"
+                  title="Lo que configuras en el portal llega a la operación"
+                  intro="Unidades, rutas, equipo, comunicación y evidencia comparten la misma cuenta para reducir capturas repetidas y herramientas aisladas."
+                  centered
+                />
+                <View
+                  style={[
+                    styles.metricGrid,
+                    isPhone ? styles.metricGridPhone : undefined,
+                    isTablet ? styles.metricGridTablet : undefined,
+                  ]}>
+                  {trustMetrics.map((metric) => (
+                    <View key={metric.label} style={[styles.metricCard, isTablet ? styles.metricCardTablet : undefined]}>
+                      <View style={[styles.metricIcon, { borderColor: `${metric.color}55`, backgroundColor: `${metric.color}14` }]}>
+                        <MaterialCommunityIcons name={metric.icon} size={25} color={metric.color} />
+                      </View>
+                      <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
+                      <Text style={styles.metricLabel}>{metric.label}</Text>
                     </View>
-                    <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
-                    <Text style={styles.metricLabel}>{metric.label}</Text>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
-            </View>
-          </RevealView>
+            </RevealView>
+          </View>
 
-          <RevealView index={5} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={6} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <View
               nativeID="faq"
               style={[
@@ -519,7 +553,7 @@ export function SalesScreen() {
                         'linear-gradient(135deg, rgba(8, 13, 30, 0.86), rgba(10, 17, 39, 0.8)), radial-gradient(circle at 10% 45%, rgba(122, 60, 255, 0.16), transparent 31%)',
                       boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 22px 70px rgba(0, 0, 0, 0.34)',
                       backdropFilter: 'blur(18px)',
-                      scrollMarginTop: 120,
+                      scrollMarginTop: 108,
                     } as any)
                   : undefined,
               ]}>
@@ -535,9 +569,9 @@ export function SalesScreen() {
               ) : null}
               <View style={styles.faqContent}>
                 <SectionHeading
-                  eyebrow="PREGUNTAS FRECUENTES"
-                  title="Decide con información clara"
-                  intro="Planes, operación y activación explicados antes de registrarte."
+                  eyebrow="ANTES DE ACTIVAR"
+                  title="Resuelve las dudas que sí afectan la compra"
+                  intro="Prueba, IVA, pagos, cancelación, alcance y soporte explicados antes de crear tu cuenta."
                 />
                 <View style={styles.faqList}>
                   {COMMERCIAL_FAQS.map((faq, index) => (

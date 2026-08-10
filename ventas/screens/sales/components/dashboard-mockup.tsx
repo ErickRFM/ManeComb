@@ -30,9 +30,9 @@ function FloatingIndicator({
         { borderColor: `${color}58` },
         webStyle({
           backgroundImage: `linear-gradient(135deg, rgba(7, 12, 30, 0.82), ${color}12)`,
-          boxShadow: `0 0 0 1px ${color}20, 0 0 28px ${color}24, 0 14px 34px rgba(0,0,0,0.28)`,
+          boxShadow: `0 0 0 1px ${color}20, 0 0 24px ${color}20, 0 12px 30px rgba(0,0,0,0.26)`,
           backdropFilter: 'blur(14px)',
-          animation: reducedMotion ? undefined : 'manecombFloat 7s ease-in-out infinite',
+          animation: reducedMotion ? undefined : 'manecombFloat 9s ease-in-out infinite',
         }),
       ]}>
       <View style={[styles.floatingIcon, { backgroundColor: `${color}15` }]}>
@@ -55,7 +55,7 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
   const reducedMotion = usePrefersReducedMotion();
   const frameRef = usePointerParallax(
     Platform.OS === 'web' && !isPhone && !reducedMotion,
-    (cursor) => `perspective(950px) rotateY(${-10 + cursor.x * 2.4}deg) rotateX(${7 - cursor.y * 2}deg)`
+    (cursor) => `perspective(950px) rotateY(${-7 + cursor.x * 1.3}deg) rotateX(${4 - cursor.y * 1.2}deg)`
   );
 
   return (
@@ -67,7 +67,7 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
           isPhone ? styles.dashboardFramePhone : undefined,
           webStyle({
             boxShadow:
-              '0 0 0 1px rgba(0, 194, 255, 0.34), 0 0 44px rgba(0, 194, 255, 0.2), 0 42px 90px rgba(0,0,0,0.44)',
+              '0 0 0 1px rgba(0, 194, 255, 0.34), 0 0 38px rgba(0, 194, 255, 0.17), 0 38px 82px rgba(0,0,0,0.4)',
             transformStyle: 'preserve-3d',
           }),
         ]}>
@@ -111,7 +111,7 @@ const DashboardMockup = memo(function DashboardMockup({ isPhone }: { isPhone: bo
                     borderColor: `${pin.color}77`,
                     backgroundColor: `${pin.color}24`,
                   },
-                  webStyle({ boxShadow: `0 0 18px ${pin.color}70` }),
+                  webStyle({ boxShadow: `0 0 16px ${pin.color}60` }),
                 ]}>
                 <MaterialCommunityIcons name="bus" size={16} color={pin.color} />
               </View>
