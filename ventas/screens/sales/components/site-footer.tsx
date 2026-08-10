@@ -2,11 +2,17 @@ import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { SUPPORT_EMAIL, SUPPORT_PHONE, SYSTEM_STATUS_URL, footerColumns, neonPalette } from '../constants';
+import { SUPPORT_EMAIL, SUPPORT_PHONE, neonPalette } from '../constants';
 import { styles } from '../styles';
 import { openExternalUrl } from '../utils';
 import type { IconName } from '../types';
-import { AppDownloadSection } from './app-download-section';
+
+const publicFooterColumns = [
+  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes'] },
+  { title: 'Empresa', links: ['Confianza', 'Contacto'] },
+  { title: 'Soporte', links: ['Soporte comercial'] },
+  { title: 'Legal', links: ['Privacidad', 'Términos'] },
+] as const;
 
 function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => void; text: string }) {
   const content = (
@@ -17,7 +23,7 @@ function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => v
   );
 
   return onPress ? (
-    <Pressable onPress={onPress} style={styles.contactRow}>
+    <Pressable accessibilityRole="link" onPress={onPress} style={styles.contactRow}>
       {content}
     </Pressable>
   ) : (
@@ -39,23 +45,15 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
       onNavigate('descargar');
       return;
     }
-    if (label === 'Nosotros' || label.startsWith('Casos de')) {
+    if (label === 'Confianza') {
       onNavigate('confianza');
       return;
     }
-    if (label === 'Contacto' || label === 'Centro de ayuda') {
+    if (label === 'Contacto' || label === 'Soporte comercial') {
       openExternalUrl(`mailto:${SUPPORT_EMAIL}?subject=Soporte%20ManeComb`);
       return;
     }
-    if (label.startsWith('Documentaci')) {
-      openExternalUrl(`mailto:${SUPPORT_EMAIL}?subject=Documentacion%20ManeComb`);
-      return;
-    }
-    if (label === 'Estado del sistema') {
-      openExternalUrl(SYSTEM_STATUS_URL);
-      return;
-    }
-    if (label === 'Cookies' || label === 'Privacidad') {
+    if (label === 'Privacidad') {
       router.push('/privacidad' as never);
       return;
     }
@@ -65,57 +63,44 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
   };
 
   return (
-    <>
-      <View
-        style={{
-          alignSelf: 'center',
-          marginBottom: 78,
-          maxWidth: 1240,
-          paddingHorizontal: 22,
-          width: '100%',
-        }}>
-        <AppDownloadSection onPortalPress={() => router.push('/portal' as never)} />
-      </View>
-
-      <View style={styles.footer}>
-        <View style={styles.footerInner}>
-          <View style={styles.footerBrand}>
-            <BrandLogo size="sm" plain />
-            <Text style={styles.footerDescription}>
-              Portal administrativo y app operativa para controlar unidades, rutas, equipo, comunicación y evidencia desde una sola plataforma.
-            </Text>
-          </View>
-
-          <View style={styles.footerColumns}>
-            {footerColumns.map((column) => (
-              <View key={column.title} style={styles.footerColumn}>
-                <Text style={styles.footerColumnTitle}>{column.title}</Text>
-                {column.links.map((link) => (
-                  <Pressable
-                    key={link}
-                    accessibilityRole="link"
-                    onPress={() => handleFooterLink(link)}
-                    style={styles.footerLinkButton}>
-                    <Text style={styles.footerLink}>{link}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.contactCard}>
-            <Text style={styles.contactTitle}>¿Hablamos?</Text>
-            <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
-            <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
-            <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
-          </View>
+    <View style={styles.footer}>
+      <View style={styles.footerInner}>
+        <View style={styles.footerBrand}>
+          <BrandLogo size="sm" plain />
+          <Text style={styles.footerDescription}>
+            Portal administrativo y app operativa para controlar unidades, rutas, equipo, comunicación y evidencia desde una sola plataforma.
+          </Text>
         </View>
 
-        <View style={styles.footerBottom}>
-          <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
-          <Text style={styles.footerBottomText}>Una sola operación. Una sola fuente de información.</Text>
+        <View style={styles.footerColumns}>
+          {publicFooterColumns.map((column) => (
+            <View key={column.title} style={styles.footerColumn}>
+              <Text style={styles.footerColumnTitle}>{column.title}</Text>
+              {column.links.map((link) => (
+                <Pressable
+                  key={link}
+                  accessibilityRole="link"
+                  onPress={() => handleFooterLink(link)}
+                  style={styles.footerLinkButton}>
+                  <Text style={styles.footerLink}>{link}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.contactCard}>
+          <Text style={styles.contactTitle}>¿Hablamos?</Text>
+          <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
+          <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
+          <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
         </View>
       </View>
-    </>
+
+      <View style={styles.footerBottom}>
+        <Text style={styles.footerBottomText}>© 2026 ManeComb. Todos los derechos reservados.</Text>
+        <Text style={styles.footerBottomText}>Una sola operación. Una sola fuente de información.</Text>
+      </View>
+    </View>
   );
 }
