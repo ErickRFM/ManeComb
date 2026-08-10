@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const {
   buildReleaseEnvironment,
   validateReleaseRuntime,
@@ -9,6 +11,20 @@ const firebaseEnv = {
   MANECOMB_FIREBASE_API_KEY: 'firebase-api-key',
   MANECOMB_FIREBASE_SENDER_ID: '123',
 };
+
+function parseEnvFile(filePath) {
+  return Object.fromEntries(
+    fs
+      .readFileSync(filePath, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#') && line.includes('='))
+      .map((line) => {
+        const separator = line.indexOf('=');
+        return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+      })
+  );
+}
 
 function validEnvironment(overrides = {}) {
   return buildReleaseEnvironment({
@@ -60,5 +76,19 @@ describe('Android release runtime policy', () => {
     expect(() => validateReleaseRuntime(validEnvironment({ MANECOMB_API_URL: 'http://10.0.2.2:5000/api' }))).toThrow(
       'MANECOMB_API_URL debe usar HTTPS'
     );
+  });
+
+  it('el .env.production versionado cumple el gate de Release', () => {
+    const productionEnv = parseEnvFile(path.resolve(__dirname, '..', '.env.production'));
+    const env = buildReleaseEnvironment({
+      processEnv: {
+        MAPBOX_ACCESS_TOKEN: 'pk.test-public-token',
+        ...firebaseEnv,
+      },
+      productionEnv,
+    });
+
+    expect(productionEnv.MANECOMB_REQUIRE_FCM).toBe('1');
+    expect(() => validateReleaseRuntime(env)).not.toThrow();
   });
 });
