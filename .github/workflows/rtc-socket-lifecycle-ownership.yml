@@ -23,7 +23,9 @@ jobs:
         with:
           node-version: '22'
       - name: Apply deterministic migration
-        run: node scripts/apply-rtc-socket-lifecycle-ownership.js
+        run: |
+          node scripts/apply-rtc-socket-lifecycle-ownership.js
+          node scripts/patch-rtc-socket-lifecycle-signaling-test.js
       - name: Validate generated JavaScript
         run: |
           node --check backend/src/modules/rtc/live-authority.js
