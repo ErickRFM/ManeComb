@@ -10,6 +10,12 @@ import {
   reduce,
   type CallEvent,
 } from './call-machine';
+import {
+  getCallPermissionFailure,
+  requestCallMediaPermissions,
+  type CallMediaPermissionResult,
+  type CallPermissionFailureCode,
+} from './call-permissions';
 import { computeElapsedSeconds } from './call-selectors';
 import {
   bindCallSocket,
@@ -42,12 +48,32 @@ export function setCallRuntimeFactory(factory: CallRuntimeFactory | null): void 
 
 const now = (): number => Date.now();
 
+export type CallPermissionIntent =
+  | {
+      kind: 'outgoing';
+      conversationId: string;
+      mode: CallMode;
+    }
+  | {
+      kind: 'incoming';
+      callId: string;
+      mode: CallMode;
+    };
+
+export type CallPermissionPrompt = {
+  intent: CallPermissionIntent;
+  permissions: CallMediaPermissionResult;
+  failureCode: CallPermissionFailureCode;
+};
+
 interface CallStore extends CallState {
   elapsedSeconds: number;
   isMuted: boolean;
   isCameraEnabled: boolean;
   localStream: any | null;
   remoteStream: any | null;
+  permissionPrompt: CallPermissionPrompt | null;
+  permissionRetrying: boolean;
 
   _socket: CallSocket | null;
   _unbind: (() => void) | null;
@@ -71,6 +97,8 @@ interface CallStore extends CallState {
   endCall: () => void;
   toggleMute: () => void;
   toggleCamera: () => void;
+  dismissPermissionPrompt: () => void;
+  retryPermissionPrompt: () => Promise<void>;
   reset: () => void;
 
   handleIncoming: (payload: IncomingCallPayload) => void;
@@ -145,7 +173,11 @@ export const useCallStore = create<CallStore>()((set, get) => {
   const endWith = (result: CallState['endResult']): void => {
     clearRingTimeout();
     stopRuntime();
-    set({ elapsedSeconds: 0 });
+    set({
+      elapsedSeconds: 0,
+      permissionPrompt: null,
+      permissionRetrying: false,
+    });
     dispatch({ type: 'END', result, now: now() });
     scheduleReset();
   };
@@ -253,6 +285,25 @@ export const useCallStore = create<CallStore>()((set, get) => {
     });
   };
 
+  const ensureMediaPermissions = async (intent: CallPermissionIntent): Promise<boolean> => {
+    const permissions = await requestCallMediaPermissions(intent.mode);
+    const failureCode = getCallPermissionFailure(permissions, intent.mode);
+
+    if (!failureCode) {
+      set({ permissionPrompt: null });
+      return true;
+    }
+
+    set({
+      permissionPrompt: {
+        intent,
+        permissions,
+        failureCode,
+      },
+    });
+    return false;
+  };
+
   return {
     ...initialCallState(),
     elapsedSeconds: 0,
@@ -260,6 +311,8 @@ export const useCallStore = create<CallStore>()((set, get) => {
     isCameraEnabled: true,
     localStream: null,
     remoteStream: null,
+    permissionPrompt: null,
+    permissionRetrying: false,
     _socket: null,
     _unbind: null,
     _resetTimer: null,
@@ -295,7 +348,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
       clearResetTimer();
       clearRingTimeout();
       stopRuntime();
-      set({ _starting: false, elapsedSeconds: 0 });
+      set({
+        _starting: false,
+        elapsedSeconds: 0,
+        permissionPrompt: null,
+        permissionRetrying: false,
+      });
       dispatch({ type: 'RESET' });
     },
 
@@ -315,13 +373,54 @@ export const useCallStore = create<CallStore>()((set, get) => {
       set({ isCameraEnabled: nextEnabled });
     },
 
+    dismissPermissionPrompt: () => {
+      set({ permissionPrompt: null, permissionRetrying: false });
+    },
+
+    retryPermissionPrompt: async () => {
+      const prompt = get().permissionPrompt;
+      if (!prompt || get().permissionRetrying) return;
+
+      set({ permissionPrompt: null, permissionRetrying: true });
+      try {
+        if (prompt.intent.kind === 'outgoing') {
+          await get().startCall({
+            conversationId: prompt.intent.conversationId,
+            mode: prompt.intent.mode,
+          });
+          return;
+        }
+
+        const state = get();
+        if (
+          state.phase === 'INCOMING_RINGING' &&
+          state.callId === prompt.intent.callId &&
+          state.mode === prompt.intent.mode
+        ) {
+          await get().acceptIncomingCall();
+        }
+      } finally {
+        set({ permissionRetrying: false });
+      }
+    },
+
     startCall: async ({ conversationId, mode }) => {
       const state = get();
       if (!isIdle(state) || state._starting) return { ok: false, code: 'busy_local' };
+      if (state.permissionPrompt) return { ok: false, code: 'media_permission_required' };
       const socket = state._socket;
       if (!socket) return { ok: false, code: 'no_socket' };
+
       set({ _starting: true });
       try {
+        const permissionsReady = await ensureMediaPermissions({
+          kind: 'outgoing',
+          conversationId,
+          mode,
+        });
+        if (!permissionsReady) return { ok: false, code: 'media_permission_required' };
+        if (!isIdle(get())) return { ok: false, code: 'busy_local' };
+
         const ack = await emitStartCall(socket, { conversationId, mode });
         if (!isIdle(get())) return { ok: false, code: 'busy_local' };
         if (!ack?.ok || !ack.callId) {
@@ -345,15 +444,33 @@ export const useCallStore = create<CallStore>()((set, get) => {
     acceptIncomingCall: async () => {
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
+      if (state.permissionPrompt) return;
       const activeCallId = state.callId;
-      clearRingTimeout();
-      dispatch({ type: 'LOCAL_ACCEPT', now: now() });
+      const activeMode = state.mode || 'audio';
+
       if (!state._socket) {
         onRuntimeFailed(activeCallId, 'accept_no_socket');
         return;
       }
 
-      const ack = await emitAccept(state._socket, activeCallId);
+      const permissionsReady = await ensureMediaPermissions({
+        kind: 'incoming',
+        callId: activeCallId,
+        mode: activeMode,
+      });
+      if (!permissionsReady) return;
+
+      const currentBeforeAccept = get();
+      if (
+        currentBeforeAccept.phase !== 'INCOMING_RINGING' ||
+        currentBeforeAccept.callId !== activeCallId ||
+        !currentBeforeAccept._socket
+      ) return;
+
+      clearRingTimeout();
+      dispatch({ type: 'LOCAL_ACCEPT', now: now() });
+
+      const ack = await emitAccept(currentBeforeAccept._socket, activeCallId);
       const current = get();
       if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
       if (!ack.ok) {
@@ -417,6 +534,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
         if (state._socket) emitBusy(state._socket, payload.callId);
         return;
       }
+      set({ permissionPrompt: null, permissionRetrying: false });
       dispatch({ type: 'INCOMING', payload, now: now() });
       scheduleRingTimeout(payload.callId, payload.expiresAt, payload.ringTimeoutMs);
     },
