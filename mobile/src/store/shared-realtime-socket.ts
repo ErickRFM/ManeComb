@@ -1,5 +1,9 @@
 export const SHARED_SOCKET_DISCOVERY_INTERVAL_MS = 25;
 export const SHARED_SOCKET_DISCOVERY_MAX_ATTEMPTS = 160;
+export const FLEET_REALTIME_INVALIDATION_EVENTS = [
+  'vehicle:deleted',
+  'vehicle:retired',
+] as const;
 
 export function shouldRetrySharedRealtimeSocket(input: {
   attempt: number;
