@@ -90,11 +90,42 @@ function resolveManagedUserCreationIdentity(actor, payload = {}) {
   };
 }
 
+function assertManagedUserIdentityStable(targetUser, payload = {}) {
+  if (!targetUser || normalize(targetUser.role) === "driver") {
+    return;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "role")) {
+    const requestedRole = normalize(payload.role);
+    const currentRole = normalize(targetUser.role);
+    if (!requestedRole || requestedRole !== currentRole) {
+      throw new ManagedUserProfilePolicyError(
+        "PROFILE_ROLE_IMMUTABLE",
+        "El tipo de perfil no se puede cambiar desde la edición genérica. Usa un flujo explícito de cambio de rol.",
+        409
+      );
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "accountType")) {
+    const requestedAccountType = normalize(payload.accountType);
+    const currentAccountType = normalize(targetUser.accountType);
+    if (!requestedAccountType || requestedAccountType !== currentAccountType) {
+      throw new ManagedUserProfilePolicyError(
+        "PROFILE_CHANNEL_IMMUTABLE",
+        "El canal del perfil no se puede cambiar desde la edición genérica.",
+        409
+      );
+    }
+  }
+}
+
 module.exports = {
   MANAGED_STAFF_ROLES,
   ManagedUserProfilePolicyError,
   OPERATIONS_ONLY_STAFF_ROLES,
   PORTAL_ONLY_STAFF_ROLES,
+  assertManagedUserIdentityStable,
   resolveManagedStaffAccountType,
   resolveManagedUserCreationIdentity
 };
