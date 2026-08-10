@@ -1,9 +1,16 @@
+import * as NativeLocation from '@/src/native/location';
 import {
   LOCATION_HEARTBEAT_INTERVAL_MS,
   MAX_ACCEPTED_ACCURACY_METERS,
   MIN_NATIVE_DISTANCE_METERS,
+  MIN_NATIVE_INTERVAL_MS,
 } from '../constants/tracking';
-import { buildLivePoint, isLowAccuracy, shouldAcceptLocation } from './location-service';
+import {
+  buildLivePoint,
+  isLowAccuracy,
+  shouldAcceptLocation,
+  watchNativeLocation,
+} from './location-service';
 import { shouldSyncVehicleLocation } from './tracking-service';
 
 jest.mock('@/src/native/location', () => ({
@@ -46,6 +53,19 @@ describe('location engine services', () => {
     expect(shouldAcceptLocation(initial, tooClose)).toBe(false);
     expect(shouldAcceptLocation(initial, farEnough)).toBe(true);
     expect(MIN_NATIVE_DISTANCE_METERS).toBe(8);
+  });
+
+  it('keeps the native distance filter open so stationary heartbeat fixes can arrive', async () => {
+    await watchNativeLocation(jest.fn(), jest.fn());
+
+    expect(NativeLocation.watchPositionAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distanceInterval: 0,
+        timeInterval: MIN_NATIVE_INTERVAL_MS,
+      }),
+      expect.any(Function),
+      expect.any(Function)
+    );
   });
 
   it('renews GPS liveness even when a stationary unit does not cross the distance filter', () => {
