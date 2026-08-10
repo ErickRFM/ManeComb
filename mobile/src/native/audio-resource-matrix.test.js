@@ -59,16 +59,20 @@ describe('microphone has a single arbiter', () => {
   });
 
   it('reuses authenticated history cache before opening the network and preserves 429 semantics', () => {
+    const cacheKeyStart = audioModule.indexOf('private fun playbackCacheKey(');
+    const cacheKeyEnd = audioModule.indexOf('private fun findCachedPlaybackSource(', cacheKeyStart);
+    const cacheKeySource = audioModule.slice(cacheKeyStart, cacheKeyEnd);
     const resolveStart = audioModule.indexOf('private fun resolvePlaybackSource(');
     const resolveEnd = audioModule.indexOf('private fun isSupportedAudioContentType', resolveStart);
     const resolveSource = audioModule.slice(resolveStart, resolveEnd);
 
+    expect(cacheKeySource).toContain('key.equals("Authorization", ignoreCase = true)');
+    expect(cacheKeySource).toContain('sha256("$authorization\\n$uri")');
     expect(resolveSource).toContain('playbackCacheKey(normalizedUri, headers)');
     expect(resolveSource).toContain('findCachedPlaybackSource(cacheDir, cacheKey, normalizedUri)');
     expect(resolveSource.indexOf('findCachedPlaybackSource')).toBeLessThan(
       resolveSource.indexOf('URL(normalizedUri).openConnection()')
     );
-    expect(resolveSource).toContain('key.equals("Authorization", ignoreCase = true)');
     expect(resolveSource).toContain('429 ->');
     expect(resolveSource).toContain('audio_download_rate_limited');
 
