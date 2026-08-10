@@ -22,11 +22,20 @@ function git(...args) {
   }).trim();
 }
 
+function gitRefExists(ref) {
+  try {
+    git('rev-parse', '--verify', ref);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function assertFile(filePath, label) {
   if (!fs.existsSync(filePath)) fail(`${label} is missing: ${path.relative(repositoryRoot, filePath)}`);
 }
 
-function commitDrift(base, head = 'HEAD') {
+function commitDrift(base, head) {
   return Number(git('rev-list', '--count', `${base}..${head}`));
 }
 
@@ -44,6 +53,7 @@ if (errors.length === 0) {
     'CI_RELEASE',
     'PHYSICAL',
   ];
+  const freshnessRef = gitRefExists('origin/main') ? 'origin/main' : 'HEAD';
 
   if (contract.schemaVersion !== 1) fail('system-audit-gates schemaVersion must be 1.');
 
@@ -78,15 +88,21 @@ if (errors.length === 0) {
     try {
       git('merge-base', '--is-ancestor', baseline, 'HEAD');
     } catch {
-      fail(`Audit baseline ${baseline} is not an ancestor of HEAD. Rebase/reconcile before trusting the audit.`);
+      fail(`Audit baseline ${baseline} is not an ancestor of HEAD. Reconcile the branch before trusting the audit.`);
+    }
+
+    try {
+      git('merge-base', '--is-ancestor', baseline, freshnessRef);
+    } catch {
+      fail(`Audit baseline ${baseline} is not an ancestor of ${freshnessRef}. Refresh from current main.`);
     }
 
     if (errors.length === 0) {
-      const drift = commitDrift(baseline);
+      const drift = commitDrift(baseline, freshnessRef);
       if (drift > maxDrift) {
-        fail(`Audit baseline is ${drift} commits behind HEAD (max ${maxDrift}). Refresh the audit before merge.`);
+        fail(`Audit baseline is ${drift} commits behind ${freshnessRef} (max ${maxDrift}). Refresh the audit before merge.`);
       }
-      console.log(`System audit baseline drift: ${drift}/${maxDrift} commits.`);
+      console.log(`System audit baseline drift vs ${freshnessRef}: ${drift}/${maxDrift} commits.`);
     }
   }
 
@@ -106,16 +122,19 @@ if (errors.length === 0) {
   const authorityBaseline = String(authorityDocument.baseline?.commit || '').trim();
   if (/^[a-f0-9]{40}$/.test(authorityBaseline)) {
     try {
-      git('merge-base', '--is-ancestor', authorityBaseline, 'HEAD');
-      const authorityDrift = commitDrift(authorityBaseline);
+      git('merge-base', '--is-ancestor', authorityBaseline, freshnessRef);
+      const authorityDrift = commitDrift(authorityBaseline, freshnessRef);
       if (authorityDrift > maxDrift) {
         console.log(
-          `::warning::System authority map is ${authorityDrift} commits behind HEAD. ` +
+          `::warning::System authority map is ${authorityDrift} commits behind ${freshnessRef}. ` +
           'Its schema may be valid while its findings are stale; refresh it in a dedicated authority audit.'
         );
       }
     } catch {
-      console.log('::warning::System authority map baseline is not an ancestor of HEAD; dedicated reconciliation required.');
+      console.log(
+        `::warning::System authority map baseline is not an ancestor of ${freshnessRef}; ` +
+        'dedicated reconciliation required.'
+      );
     }
   } else {
     fail('system-authorities baseline.commit is not a full Git SHA.');
