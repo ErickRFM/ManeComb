@@ -67,9 +67,9 @@ export function OrderSummary({ includeRadioAddon, plan, requestTrial, totalAmoun
       </View>
 
       <View style={s.cancelBox}>
-        <MaterialCommunityIcons name={requestTrial ? 'flask-outline' : 'shield-check-outline'} size={28} color={palette.violet} />
+        <MaterialCommunityIcons name={requestTrial ? 'shield-check-outline' : 'shield-check-outline'} size={28} color={palette.violet} />
         <View style={s.cancelCopy}>
-          <Text style={s.cancelTitle}>{requestTrial ? 'Demo 7 días' : 'Control de tu suscripción'}</Text>
+          <Text style={s.cancelTitle}>{requestTrial ? 'Prueba 7 días' : 'Control de tu suscripción'}</Text>
           <Text style={s.cancelText}>
             {requestTrial
               ? 'Prueba primero y conserva el plan seleccionado.'
