@@ -11,6 +11,7 @@ type SelectorRouteOverlayProps = {
     step: number;
     title: string;
     hint: string;
+    confirmLabel: string;
   };
   isPlanningSelectorRoute: boolean;
   onConfirmSelection: () => void;
@@ -97,7 +98,7 @@ export function SelectorRouteOverlay({
             ]}>
             <MaterialCommunityIcons name="flag-checkered" size={18} color="#FFFFFF" />
             <Text style={styles.selectorConfirmText}>
-              {isPlanningSelectorRoute ? 'Calculando ruta...' : 'Continuar'}
+              {isPlanningSelectorRoute ? 'Calculando ruta...' : copy.confirmLabel}
             </Text>
           </Pressable>
         </View>
