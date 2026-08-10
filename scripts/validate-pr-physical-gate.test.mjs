@@ -33,6 +33,36 @@ test('Ready with pending physical work fails', () => {
   assert.match(result.message, /Ready while PHYSICAL_GATE is PENDING/i);
 });
 
+test('Ready ACCEPTED_PENDING requires evidence and explicit acceptance', () => {
+  const missingAcceptance = validatePhysicalGate(pr({
+    body: [
+      'PHYSICAL_GATE: ACCEPTED_PENDING',
+      'PHYSICAL_EVIDENCE: Release APK still needs airplane-mode GPS replay on a real Android device.',
+    ].join('\n'),
+  }));
+  assert.equal(missingAcceptance.ok, false);
+  assert.match(missingAcceptance.message, /PHYSICAL_ACCEPTANCE/i);
+
+  const bareAcceptance = validatePhysicalGate(pr({
+    body: [
+      'PHYSICAL_GATE: ACCEPTED_PENDING',
+      'PHYSICAL_EVIDENCE: Release APK still needs airplane-mode GPS replay on a real Android device.',
+      'PHYSICAL_ACCEPTANCE: pending',
+    ].join('\n'),
+  }));
+  assert.equal(bareAcceptance.ok, false);
+
+  const valid = validatePhysicalGate(pr({
+    body: [
+      'PHYSICAL_GATE: ACCEPTED_PENDING',
+      'PHYSICAL_EVIDENCE: Release APK still needs airplane-mode GPS replay on a real Android device.',
+      'PHYSICAL_ACCEPTANCE: Repository owner requested merge of automated-certified code so the merged release can be installed and physically tested.',
+    ].join('\n'),
+  }));
+  assert.equal(valid.ok, true);
+  assert.match(valid.message, /explicitly accepted/i);
+});
+
 test('Ready rejects duplicate or conflicting physical gate declarations', () => {
   const duplicate = validatePhysicalGate(pr({
     body: [

@@ -36,6 +36,23 @@ function isAuthApiRequest(req) {
   return /^\/api\/auth(?:\/|$)/.test(requestPath(req));
 }
 
+// Only routes that already own an explicit enterprise limiter may bypass the
+// generic API perimeter. Matching all /api/auth/* used to leave /me, /session,
+// /logout-all and E2EE backup outside every generic quota, including invalid
+// Bearer requests. Method + path are part of the authority so a new auth route
+// fails closed into the normal perimeter by default.
+function isAuthRouteWithDedicatedLimiter(req) {
+  const method = String(req?.method || "").toUpperCase();
+  if (method !== "POST") return false;
+  return new Set([
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/refresh",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password"
+  ]).has(requestPath(req));
+}
+
 function getVerifiedBearerIdentity(req) {
   const authorization = String(req?.headers?.authorization || "").trim();
   const match = authorization.match(/^Bearer\s+(\S+)$/i);
@@ -58,7 +75,7 @@ function hasVerifiedBearerCredential(req) {
 }
 
 function selectGeneralApiRateLimitScope(req) {
-  if (isMediaReadRequest(req) || isAuthApiRequest(req)) return "skip";
+  if (isMediaReadRequest(req) || isAuthRouteWithDedicatedLimiter(req)) return "skip";
   return hasVerifiedBearerCredential(req) ? "authenticated" : "anonymous";
 }
 
@@ -165,6 +182,7 @@ module.exports = {
   getVerifiedBearerIdentity,
   hasVerifiedBearerCredential,
   isAuthApiRequest,
+  isAuthRouteWithDedicatedLimiter,
   isMediaReadRequest,
   mediaReadRateLimit,
   selectGeneralApiRateLimitScope,
