@@ -12,12 +12,14 @@ const CONV_GROUP = "conversation-ops";
 function harness(store) {
   const emits = [];
   const timers = [];
+  let clock = Date.now();
   const service = createRtcCallService({
     store,
     emitToUser: (userId, event, payload) => emits.push({ userId, event, payload }),
     deliverNotification: async () => ({ ok: true }),
-    setTimeoutFn: (fn) => {
-      const handle = { fn, cleared: false };
+    now: () => clock,
+    setTimeoutFn: (fn, delay = 0) => {
+      const handle = { fn, delay, cleared: false };
       timers.push(handle);
       return handle;
     },
@@ -40,6 +42,7 @@ function harness(store) {
       for (const timer of timers) {
         if (timer.cleared) continue;
         timer.cleared = true;
+        clock += Math.max(0, Number(timer.delay) || 0);
         timer.fn();
       }
       await flushAsync();
@@ -194,45 +197,54 @@ function fakeStore(conversation) {
     assert.equal((await h.service.accept({ user: driver, callId: call.callId })).code, "unknown_call");
   }
 
-  // End is idempotent and frees both busy slots.
+  // End is idempotent, frees busy slots and only the media-owning socket can hang up active calls.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-    assert.equal((await h.service.end({ user: admin, callId: call.callId })).ok, true);
-    assert.equal((await h.service.end({ user: admin, callId: call.callId })).idempotent, true);
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-end-owner",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-end-owner", callId: call.callId });
+    assert.deepEqual(
+      await h.service.end({ user: admin, socketId: "admin-sibling", callId: call.callId }),
+      { ok: false, code: "not_call_owner" }
+    );
+    assert.equal((await h.service.getCall(call.callId)).status, "active");
+    assert.equal((await h.service.end({
+      user: admin,
+      socketId: "admin-end-owner",
+      callId: call.callId
+    })).ok, true);
+    assert.equal((await h.service.end({
+      user: admin,
+      socketId: "admin-end-owner",
+      callId: call.callId
+    })).idempotent, true);
     assert.equal(h.usersReceiving("rtc:end").length, 1);
     assert.equal(h.service._state.userState.size, 0);
   }
 
-  // Disconnect cleanup is keyed by authenticated user, not by a process-local socket binding.
+  // Active disconnect cleanup belongs to the media-owning socket, never every device of the user.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-
-    await h.service.handleDisconnect(admin.id, { isUserConnected: () => false });
-    assert.equal(h.service._state.pendingDisconnects.size, 1);
-    await h.service.noteUserReconnected(admin.id);
-    assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
-
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: (userId) => userId === driver.id
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-owner",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
     });
+    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });
+
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-sibling" }), false);
+    assert.equal(h.service._state.pendingDisconnects.size, 0);
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-owner" }), true);
     assert.equal(h.service._state.pendingDisconnects.size, 1);
     await h.runTimers();
     assert.equal(h.service._state.callsById.size, 0);
     assert.equal(h.payloadOf("rtc:end").reason, "peer_disconnected");
     assert.equal(h.payloadOf("rtc:end").endedBy, admin.id);
-  }
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-    await h.service.handleDisconnect(admin.id, { isUserConnected: () => true });
-    assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
   }
 
   // Payload cannot choose caller/callee, and unsupported modes are rejected.
@@ -310,6 +322,34 @@ function fakeStore(conversation) {
     const joinBlock = socketSource.slice(joinStart, joinEnd);
     assert.ok(joinBlock.includes('reason: "already_connected_elsewhere"'));
     assert.equal(joinBlock.includes('socketsLeave'), false, "a live sibling socket must not evict the active device");
+  }
+
+  // Socket integration must never regress back to user-wide lease refresh/reconnect shortcuts.
+  {
+    const socketSource = require("node:fs").readFileSync(
+      require("node:path").join(__dirname, "../src/sockets/index.js"),
+      "utf8"
+    );
+    const heartbeatStart = socketSource.indexOf('socket.on("client:heartbeat"');
+    const heartbeatEnd = socketSource.indexOf('socket.on("conversation:join"', heartbeatStart);
+    const heartbeatBlock = socketSource.slice(heartbeatStart, heartbeatEnd);
+    assert.ok(heartbeatBlock.includes('refreshForSocket(authenticatedUser.id, socket.id'));
+    assert.equal(heartbeatBlock.includes('refreshForUser('), false);
+
+    const presenceStart = socketSource.indexOf('socket.on("presence:join"');
+    const presenceEnd = socketSource.indexOf('socket.on("client:heartbeat"', presenceStart);
+    assert.equal(socketSource.slice(presenceStart, presenceEnd).includes('noteUserReconnected'), false);
+
+    const leaveStart = socketSource.indexOf('socket.on("rtc:leave"');
+    const leaveEnd = socketSource.indexOf('["rtc:offer", "rtc:answer", "rtc:ice-candidate"]', leaveStart);
+    const leaveBlock = socketSource.slice(leaveStart, leaveEnd);
+    assert.ok(leaveBlock.includes('handleDisconnect(userId, { socketId: socket.id })'));
+
+    const disconnectStart = socketSource.indexOf('socket.on("disconnect", async () =>');
+    const disconnectEnd = socketSource.indexOf('  });\n\n  return io;', disconnectStart);
+    const disconnectBlock = socketSource.slice(disconnectStart, disconnectEnd);
+    assert.ok(disconnectBlock.includes('handleDisconnect(disconnectedUserId, { socketId: socket.id })'));
+    assert.equal(disconnectBlock.includes('isUserConnected:'), false);
   }
 
   console.log("ok - rtc-call-signaling async authority contract");

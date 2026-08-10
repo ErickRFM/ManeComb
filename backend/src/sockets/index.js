@@ -302,6 +302,13 @@ function registerSocketServer(server, store) {
     return participants.some((participant) => participant.id === String(socketId));
   }
 
+  async function isSocketConnectedById(socketId) {
+    const safeSocketId = String(socketId || "").trim();
+    if (!safeSocketId) return false;
+    const participants = await io.in(safeSocketId).fetchSockets();
+    return participants.some((participant) => participant.id === safeSocketId);
+  }
+
   async function leaveRtcRoom(socket, roomId, endReason = "hangup") {
     const disconnectTimer = rtcDisconnectTimers.get(socket.id);
     if (disconnectTimer) {
@@ -433,8 +440,6 @@ function registerSocketServer(server, store) {
 
       socket.data.presenceJoined = true;
       socket.data.lastPresenceHeartbeatAt = Date.now();
-      // A.1: si el usuario recupero un socket dentro de la gracia, cancelar el cleanup de su llamada.
-      if (resolvedUserId) await callService.noteUserReconnected(resolvedUserId);
       const organizationSockets = resolvedOrganizationId
         ? await io.in(`org:${resolvedOrganizationId}`).fetchSockets()
         : [];
@@ -478,7 +483,9 @@ function registerSocketServer(server, store) {
         return;
       }
 
-      await callService.refreshForUser(authenticatedUser.id);
+      await callService.refreshForSocket(authenticatedUser.id, socket.id, {
+        isSocketConnected: isSocketConnectedById
+      });
 
       const response = {
         ok: true,
@@ -1091,7 +1098,9 @@ function registerSocketServer(server, store) {
       const auth = await callService.canJoinCall({
         callId: safeCallId,
         userId: authenticatedUser.id,
-        organizationId
+        organizationId,
+        socketId: socket.id,
+        isSocketConnected: isSocketConnectedById
       });
       if (!auth.ok) {
         observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { callId: safeCallId, reason: auth.reason });
@@ -1130,9 +1139,14 @@ function registerSocketServer(server, store) {
 
     socket.on("rtc:leave", async ({ callId } = {}) => {
       const startedAt = Date.now();
-      const safeRoomId = callRoomIdOf(callId);
+      const safeCallId = String(callId || "").trim();
+      const safeRoomId = callRoomIdOf(safeCallId);
       if (safeRoomId) await leaveRtcRoom(socket, safeRoomId);
-      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: String(callId || "") || null });
+      const userId = socket.data.user?.id || null;
+      if (safeCallId && userId) {
+        await callService.handleDisconnect(userId, { socketId: socket.id });
+      }
+      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: safeCallId || null });
     });
 
     ["rtc:offer", "rtc:answer", "rtc:ice-candidate"].forEach((eventName) => {
@@ -1285,11 +1299,9 @@ function registerSocketServer(server, store) {
       Array.from(activeRadioTransmissions.entries()).forEach(([channelId, transmission]) => {
         if (transmission.socketId === socket.id) void finishRadioTransmission(channelId, "disconnected");
       });
-      // Bloque A/A.1: si el socket era parte de una llamada, aplicar gracia de 15s antes de limpiar
-      // (no limpiar si conserva/recupera otro socket autenticado). Idempotente.
-      await callService.handleDisconnect(disconnectedUserId, {
-        isUserConnected: (userId) => hasAnotherLivePresenceSocket(socket, userId)
-      });
+      // Solo el socket propietario de la media puede degradar el lease de la llamada.
+      // Un telefono hermano del mismo usuario nunca cancela ni extiende esta gracia.
+      await callService.handleDisconnect(disconnectedUserId, { socketId: socket.id });
     });
   });
 

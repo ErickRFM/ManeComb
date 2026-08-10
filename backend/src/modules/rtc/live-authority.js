@@ -42,10 +42,11 @@ return 1
 const REFRESH_SCRIPT = `
 local current = redis.call("get", KEYS[1])
 if not current then return 0 end
-redis.call("pexpire", KEYS[1], ARGV[2])
+if current ~= ARGV[1] then return -1 end
+redis.call("pexpire", KEYS[1], ARGV[3])
 for i = 2, #KEYS do
-  if redis.call("get", KEYS[i]) == ARGV[1] then
-    redis.call("pexpire", KEYS[i], ARGV[2])
+  if redis.call("get", KEYS[i]) == ARGV[2] then
+    redis.call("pexpire", KEYS[i], ARGV[3])
   end
 end
 return 1
@@ -195,11 +196,14 @@ function createRtcLiveAuthority({
 
   async function refresh(call, { ttlMs = activeLeaseMs } = {}) {
     if (!call?.callId) return false;
-    if (!distributed) return localCalls.has(call.callId);
+    if (!distributed) {
+      const current = localCalls.get(call.callId);
+      return Boolean(current) && JSON.stringify(current) === JSON.stringify(call);
+    }
     assertDistributedAuthority();
     const result = await redisClient.eval(REFRESH_SCRIPT, {
       keys: keysForCall(call),
-      arguments: [call.callId, String(ttlMs)]
+      arguments: [JSON.stringify(call), call.callId, String(ttlMs)]
     });
     return Number(result) === 1;
   }
