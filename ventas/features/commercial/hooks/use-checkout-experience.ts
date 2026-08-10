@@ -101,7 +101,7 @@ export function useCheckoutExperience({
       return null;
     }
 
-    if (demoTrial && !canUseDemoCard) {
+    if (demoTrial && (!canUseDemoCard || method !== 'card')) {
       setMessage('La tarjeta demo solo puede activar la prueba de 7 días del plan de 2 combis.');
       return null;
     }
@@ -120,7 +120,14 @@ export function useCheckoutExperience({
     setMessage(null);
     try {
       const companyName = user.companyProfile?.companyName || user.name || 'Cuenta ManeComb';
-      const paymentMethod = trialForSubmit ? 'trial' : method;
+      // El trial sigue siendo la autoridad de acceso. Cuando el usuario elige tarjeta demo,
+      // conservamos "card" como método de la orden para que Portal/correos reflejen la
+      // experiencia simulada sin convertirla en un pago real.
+      const paymentMethod: CheckoutPaymentMethod = demoTrial
+        ? 'card'
+        : trialForSubmit
+          ? 'trial'
+          : method;
       const safeAddOns = trialForSubmit ? [] : selectedAddOns;
       const expectedAmount = trialForSubmit
         ? 0

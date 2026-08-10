@@ -116,7 +116,7 @@ function CardTestForm({
         </View>
         <Text style={s.testModeText}>
           {productionDemo
-            ? 'Sin cargo real. La tarjeta se valida como demostración y activa la misma prueba de 7 días autorizada por el backend.'
+            ? 'Se simula el cobro para mostrarte la experiencia completa. No existe cargo real; solo se conservan marca, últimos 4, vencimiento y titular.'
             : 'Pago simulado sin cargo real. Este formulario solo se usa en el proveedor técnico de pruebas.'}
         </Text>
       </View>
@@ -188,22 +188,34 @@ export function CheckoutPaymentSection({
 }: Props) {
   const isManualPaymentMode = providerMode === 'manual';
   const demoCardAvailable = Boolean(
-    isManualPaymentMode
+    requestTrial
       && selectedPlan.trialEligible
       && Number(selectedPlan.units) === 2
       && Number(selectedPlan.trialDays) === 7
   );
-  const effectiveMethod: PaymentMethod = isManualPaymentMode && !demoCardAvailable ? 'spei' : selectedMethod;
-  const manualDemoSelected = !requestTrial && demoCardAvailable && effectiveMethod === 'card';
+  const effectiveMethod: PaymentMethod = !requestTrial && isManualPaymentMode ? 'spei' : selectedMethod;
+  const trialCardSelected = requestTrial && demoCardAvailable && effectiveMethod === 'card';
   const legacyCardLabel = savedCard?.cardLast4
     ? `${savedCard.cardBrand || 'Tarjeta'} •••• ${savedCard.cardLast4}`
     : null;
 
   useEffect(() => {
-    if (!requestTrial && isManualPaymentMode && !demoCardAvailable && selectedMethod !== 'spei') {
+    if (!requestTrial && isManualPaymentMode && selectedMethod !== 'spei') {
       onSelectMethod('spei');
     }
-  }, [demoCardAvailable, isManualPaymentMode, onSelectMethod, requestTrial, selectedMethod]);
+  }, [isManualPaymentMode, onSelectMethod, requestTrial, selectedMethod]);
+
+  const renderTrialWithoutCard = () => (
+    <View style={s.speiPanel}>
+      <MaterialCommunityIcons name="shield-check-outline" size={32} color={palette.cyan} />
+      <View style={s.speiCopy}>
+        <Text style={s.speiTitle}>Acceso demo sin tarjeta</Text>
+        <Text style={s.speiText}>
+          Puedes activar la prueba de {selectedPlan.trialDays || 7} días sin registrar ningún método. El backend conserva la misma regla de una sola prueba por organización.
+        </Text>
+      </View>
+    </View>
+  );
 
   const renderManualSpei = () => (
     <View style={s.speiPanel}>
@@ -215,7 +227,7 @@ export function CheckoutPaymentSection({
         </Text>
         {legacyCardLabel ? (
           <Text style={s.speiText}>
-            {legacyCardLabel} permanece como referencia histórica, pero no será utilizada ni reemplaza el pago SPEI.
+            {legacyCardLabel} permanece guardada como referencia de demostración, pero no será utilizada ni reemplaza el pago SPEI real.
           </Text>
         ) : null}
       </View>
@@ -227,7 +239,7 @@ export function CheckoutPaymentSection({
       <View style={s.panelTitleRow}>
         <View style={s.panelTitleIcon}>
           <MaterialCommunityIcons
-            name={requestTrial || manualDemoSelected ? 'flask-outline' : isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
+            name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'flask-outline') : isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
             size={24}
             color={palette.violet}
           />
@@ -235,38 +247,26 @@ export function CheckoutPaymentSection({
         <View style={s.panelTitleCopy}>
           <Text style={s.panelTitle}>
             {requestTrial
-              ? 'Prueba ManeComb'
-              : manualDemoSelected
+              ? trialCardSelected
                 ? 'Tarjeta demo'
-                : isManualPaymentMode
-                  ? 'Transferencia SPEI'
-                  : 'Información de pago'}
+                : 'Prueba ManeComb'
+              : isManualPaymentMode
+                ? 'Transferencia SPEI'
+                : 'Información de pago'}
           </Text>
           <Text style={s.panelSubtitle}>
             {requestTrial
-              ? `Activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis sin realizar un cobro.`
-              : manualDemoSelected
-                ? `Demostración sin cargo: valida una tarjeta de prueba y activa ${selectedPlan.trialDays || 7} días con la autoridad de trial del backend.`
-                : isManualPaymentMode
-                  ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
-                  : 'Elige tu método y completa la transacción con el proveedor disponible.'}
+              ? trialCardSelected
+                ? `Simula un cobro de ${formatCurrency(selectedPlan.price)} MXN y activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis.`
+                : `Activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis sin registrar tarjeta.`
+              : isManualPaymentMode
+                ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
+                : 'Elige tu método y completa la transacción con el proveedor disponible.'}
           </Text>
         </View>
       </View>
 
       {requestTrial ? (
-        <View style={s.speiPanel}>
-          <MaterialCommunityIcons name="shield-check-outline" size={32} color={palette.cyan} />
-          <View style={s.speiCopy}>
-            <Text style={s.speiTitle}>Acceso de prueba sin pago</Text>
-            <Text style={s.speiText}>
-              La activación de prueba se valida directamente con ManeComb. No depende de Mercado Pago, tarjeta ni SPEI y no genera un cargo al activarla.
-            </Text>
-          </View>
-        </View>
-      ) : isTestPaymentMode ? (
-        <CardTestForm testCard={testCard} onTestCardChange={onTestCardChange} />
-      ) : isManualPaymentMode ? (
         demoCardAvailable ? (
           <>
             <View style={s.methodTabs}>
@@ -278,16 +278,20 @@ export function CheckoutPaymentSection({
               />
               <MethodTab
                 active={effectiveMethod === 'spei'}
-                icon="bank-outline"
-                label="Transferencia SPEI"
+                icon="shield-check-outline"
+                label="Sin tarjeta"
                 onPress={() => onSelectMethod('spei')}
               />
             </View>
-            {effectiveMethod === 'card' ? (
+            {trialCardSelected ? (
               <CardTestForm testCard={testCard} onTestCardChange={onTestCardChange} productionDemo />
-            ) : renderManualSpei()}
+            ) : renderTrialWithoutCard()}
           </>
-        ) : renderManualSpei()
+        ) : renderTrialWithoutCard()
+      ) : isTestPaymentMode ? (
+        <CardTestForm testCard={testCard} onTestCardChange={onTestCardChange} />
+      ) : isManualPaymentMode ? (
+        renderManualSpei()
       ) : (
         <>
           <View style={s.methodTabs}>
@@ -329,7 +333,7 @@ export function CheckoutPaymentSection({
         </>
       )}
 
-      {selectedPlan.radioAddonEligible && !requestTrial && !manualDemoSelected ? (
+      {selectedPlan.radioAddonEligible && !requestTrial ? (
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: includeRadioAddon }}
@@ -353,14 +357,14 @@ export function CheckoutPaymentSection({
         <MaterialCommunityIcons name="lock-outline" size={18} color={palette.violet} />
         <Text style={s.securityText}>
           {requestTrial
-            ? 'La prueba se activa en tu cuenta sin cobro y sin depender del proveedor de pagos.'
-            : manualDemoSelected
-              ? 'Demo temporal: no se cobra la tarjeta. ManeComb descarta el número completo y el CVV y el backend aplica las mismas reglas de una prueba de 7 días.'
-              : isTestPaymentMode
-                ? 'Entorno de pruebas: no se realizan cargos y no se almacenan CVV ni números completos.'
-                : isManualPaymentMode
-                  ? 'La orden permanecerá pendiente hasta que ManeComb confirme la transferencia recibida.'
-                  : 'Pago procesado por el proveedor disponible y estado confirmado por backend.'}
+            ? trialCardSelected
+              ? 'Cargo simulado únicamente para la demostración. Se validan los datos, se guardan solo marca, últimos 4, vencimiento y titular; el número completo y el CVV se descartan y no se marca un pago real como recibido.'
+              : 'La prueba se activa sin cobro y sin guardar un método de pago. Después podrás usar el sistema durante el periodo demo.'
+            : isTestPaymentMode
+              ? 'Entorno de pruebas: no se realizan cargos y no se almacenan CVV ni números completos.'
+              : isManualPaymentMode
+                ? 'La orden permanecerá pendiente hasta que ManeComb confirme la transferencia recibida.'
+                : 'Pago procesado por el proveedor disponible y estado confirmado por backend.'}
         </Text>
       </View>
 
@@ -381,8 +385,10 @@ export function CheckoutPaymentSection({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={
-          requestTrial || manualDemoSelected
-            ? 'Activar prueba de demostración'
+          requestTrial
+            ? trialCardSelected
+              ? 'Simular cobro y activar prueba de demostración'
+              : 'Activar prueba sin tarjeta'
             : isManualPaymentMode
               ? 'Generar instrucciones de transferencia'
               : 'Continuar al pago seguro'
@@ -399,13 +405,15 @@ export function CheckoutPaymentSection({
         ) : (
           <>
             <MaterialCommunityIcons
-              name={requestTrial || manualDemoSelected ? 'flask-outline' : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
+              name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'flask-outline') : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
               size={24}
               color="#FFFFFF"
             />
             <Text style={s.payButtonText}>
-              {requestTrial || manualDemoSelected
-                ? `Activar demo ${selectedPlan.trialDays || 7} días · sin cargo`
+              {requestTrial
+                ? trialCardSelected
+                  ? `Simular cobro ${formatCurrency(selectedPlan.price)} MXN y activar demo`
+                  : `Activar demo ${selectedPlan.trialDays || 7} días sin tarjeta`
                 : isTestPaymentMode
                   ? `Pagar en modo de pruebas ${buttonAmount}`
                   : isManualPaymentMode

@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const store = fs.readFileSync(path.join(root, 'src/store/use-app-store.ts'), 'utf8');
+const store = fs.readFileSync(path.join(root, 'src/store/use-app-store.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 const required = [
   ['try {\n    return window.localStorage.getItem(key);', 'La lectura de localStorage debe fallar cerrada sin bloquear la hidratación.'],

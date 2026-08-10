@@ -36,6 +36,13 @@ const EMPTY_TEST_CARD: TestCardInput = {
   postalCode: '',
 };
 
+type DemoCardReceipt = {
+  brand: string;
+  last4: string;
+  amount: number;
+  email: string;
+};
+
 function onlyDigits(value: string) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -95,6 +102,7 @@ export function PlanCheckoutScreen() {
   const [step, setStep] = useState<CheckoutStep>('payment');
   const [testCard, setTestCard] = useState<TestCardInput>(EMPTY_TEST_CARD);
   const [cardDemoMessage, setCardDemoMessage] = useState<string | null>(null);
+  const [demoCardReceipt, setDemoCardReceipt] = useState<DemoCardReceipt | null>(null);
   const [cardSaving, setCardSaving] = useState(false);
   const paymentInFlight = useRef(false);
 
@@ -124,8 +132,11 @@ export function PlanCheckoutScreen() {
       && (effectiveRequestTrial || providerMode !== 'unavailable')
   );
   const isTestPaymentMode = providerMode === 'test';
-  const isManualPaymentMode = providerMode === 'manual';
-  const isManualCardDemo = isManualPaymentMode && canUseDemoCard && selectedMethod === 'card' && !effectiveRequestTrial;
+  const isTrialCardDemo = Boolean(
+    effectiveRequestTrial
+      && canUseDemoCard
+      && selectedMethod === 'card'
+  );
 
   useEffect(() => {
     if (planId) {
@@ -168,11 +179,11 @@ export function PlanCheckoutScreen() {
     );
   }
 
-  const saveDemoCard = async () => {
+  const saveDemoCard = async (): Promise<DemoCardReceipt | null> => {
     const validationMessage = validateTestCard(testCard);
     if (validationMessage) {
       setCardDemoMessage(validationMessage);
-      return false;
+      return null;
     }
 
     const digits = onlyDigits(testCard.cardNumber);
@@ -196,14 +207,20 @@ export function PlanCheckoutScreen() {
 
       if (!result.ok) {
         setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta demo.');
-        return false;
+        return null;
       }
 
+      const safeReceipt = {
+        brand,
+        last4,
+        amount: Number(selectedPlan.price || 0),
+        email: user.email,
+      };
+      setDemoCardReceipt(safeReceipt);
       setCardDemoMessage(
         `${brand} terminada en ${last4} validada para la demostración. El número completo y el CVV fueron descartados.`
       );
-      setTestCard(EMPTY_TEST_CARD);
-      return true;
+      return safeReceipt;
     } finally {
       setCardSaving(false);
     }
@@ -215,9 +232,9 @@ export function PlanCheckoutScreen() {
     paymentInFlight.current = true;
     setCardDemoMessage(null);
     try {
-      if (isManualCardDemo) {
-        const cardSaved = await saveDemoCard();
-        if (!cardSaved) return;
+      if (isTrialCardDemo) {
+        const savedCard = await saveDemoCard();
+        if (!savedCard) return;
 
         setStep('confirmation');
         const nextResult = await submit({
@@ -232,6 +249,7 @@ export function PlanCheckoutScreen() {
         }
         await loadAll({ force: true });
         clearCheckoutContext();
+        setTestCard(EMPTY_TEST_CARD);
         setStep('done');
         return;
       }
@@ -264,7 +282,7 @@ export function PlanCheckoutScreen() {
 
   const selectPaymentMethod = (method: PaymentMethod) => {
     setSelectedMethod(method);
-    if (method === 'card' && canUseDemoCard) {
+    if (effectiveRequestTrial || (method === 'card' && canUseDemoCard)) {
       setIncludeRadioAddon(false);
     }
     setCardDemoMessage(null);
@@ -273,16 +291,21 @@ export function PlanCheckoutScreen() {
   const goToPortal = () => {
     router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never);
   };
-  const doneTitle = receiptIsActive
-    ? 'Plan activado en tu cuenta.'
-    : receiptIsPending
-      ? 'Transferencia pendiente de validación.'
-      : 'Orden registrada.';
-  const doneText =
-    receipt?.nextStep ||
-    (receiptIsActive
-      ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
-      : 'Revisa el estado del pago desde tu portal ManeComb.');
+  const doneTitle = demoCardReceipt && receiptIsActive
+    ? 'Pago demo aprobado · prueba activa.'
+    : effectiveRequestTrial && receiptIsActive
+      ? 'Prueba activada en tu cuenta.'
+      : receiptIsActive
+        ? 'Plan activado en tu cuenta.'
+        : receiptIsPending
+          ? 'Transferencia pendiente de validación.'
+          : 'Orden registrada.';
+  const doneText = demoCardReceipt && receiptIsActive
+    ? `Cargo simulado de ${formatCurrency(demoCardReceipt.amount)} MXN aprobado con ${demoCardReceipt.brand} •••• ${demoCardReceipt.last4}. No se realizó ningún cargo real. La confirmación de la demo se enviará a ${demoCardReceipt.email} y tu prueba de ${selectedPlan.trialDays || 7} días ya está activa.`
+    : receipt?.nextStep ||
+      (receiptIsActive
+        ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
+        : 'Revisa el estado del pago desde tu portal ManeComb.');
   const doneButtonLabel = receiptIsActive ? 'Continuar configuración' : 'Ver estado en portal';
   const checkoutMessage = getCheckoutMessage(cardDemoMessage || message);
 
@@ -340,12 +363,20 @@ export function PlanCheckoutScreen() {
                 <OrderSummary
                   includeRadioAddon={includeRadioAddon}
                   plan={selectedPlan}
-                  requestTrial={effectiveRequestTrial || isManualCardDemo}
+                  requestTrial={effectiveRequestTrial}
                   totalAmount={totalAmount}
                 />
               </View>
 
-              <CheckoutTrustStrip buttonAmount={isManualCardDemo ? 'Demo 7 días · sin cargo' : buttonAmount} />
+              <CheckoutTrustStrip
+                buttonAmount={
+                  isTrialCardDemo
+                    ? `Cargo demo ${formatCurrency(selectedPlan.price)} MXN · sin cargo real`
+                    : effectiveRequestTrial
+                      ? `Demo ${selectedPlan.trialDays || 7} días · sin tarjeta`
+                      : buttonAmount
+                }
+              />
             </>
           )}
         </View>
