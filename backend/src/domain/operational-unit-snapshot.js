@@ -12,9 +12,12 @@
  *    Una unidad dada de alta es visible aunque no tenga GPS, sesion ni ruta.
  */
 
-const GPS_FRESH_MAX_AGE_SECONDS = 120;
-const GPS_STALE_MAX_AGE_SECONDS = 900;
-const GPS_LIVE_MAX_AGE_SECONDS = 30;
+// Politica operacional de frescura. Con heartbeat movil de 5-10 s, 15 s
+// mantiene margen para jitter de red sin esconder una desconexion real durante
+// minutos. La ultima posicion conocida siempre se conserva.
+const GPS_LIVE_MAX_AGE_SECONDS = 15;
+const GPS_FRESH_MAX_AGE_SECONDS = 30;
+const GPS_STALE_MAX_AGE_SECONDS = 60;
 
 /** Estados de vehiculo que retiran la unidad del inventario visible. */
 const HIDDEN_VEHICLE_STATUSES = new Set(["archived", "deleted", "retired"]);
@@ -84,6 +87,11 @@ function toSpeedKmh(rawSpeed) {
  * determina la FRESCURA, no si la posicion existe: una ultima posicion conocida
  * sigue siendo informacion util aunque no sepamos exactamente cuando se tomo.
  *
+ * La frescura operacional usa `locationReceivedAt` (reloj del servidor) como
+ * autoridad. `locationTimestamp` se conserva como hora de captura/historial y
+ * funciona como fallback para datos legados, pero un reloj de telefono atrasado
+ * o adelantado no puede convertir una unidad viva en stale ni viceversa.
+ *
  * Antes se exigian ambas cosas y se devolvia `lat: null`, con lo que el mapa de
  * seguimiento no tenia nada que dibujar y la unidad desaparecia, mientras el
  * mini-mapa de ruta —que solo mira `vehicle.location`— si la mostraba.
@@ -109,10 +117,13 @@ function buildGps(vehicle, progress, nowMs) {
     };
   }
 
-  // Sin sello de tiempo conservamos la posicion, pero no podemos fecharla:
-  // `missing` y `ageSeconds: null` dicen exactamente eso.
-  const ageSeconds =
-    recordedAt === null ? null : Math.max(0, Math.round((nowMs - recordedAt.getTime()) / 1000));
+  // El servidor manda sobre el reloj del dispositivo para estado vivo. Los
+  // registros antiguos que aun no tienen `locationReceivedAt` conservan el
+  // comportamiento compatible usando la hora de captura.
+  const authorityTime = receivedAt || recordedAt;
+  const ageSeconds = authorityTime
+    ? Math.max(0, Math.round((nowMs - authorityTime.getTime()) / 1000))
+    : null;
   const freshness =
     ageSeconds === null
       ? "missing"
@@ -121,15 +132,11 @@ function buildGps(vehicle, progress, nowMs) {
         : ageSeconds <= GPS_STALE_MAX_AGE_SECONDS
           ? "stale"
           : "missing";
-  const authorityTime = receivedAt || recordedAt;
-  const connectionAgeSeconds = authorityTime
-    ? Math.max(0, Math.round((nowMs - authorityTime.getTime()) / 1000))
-    : null;
-  const connectionState = connectionAgeSeconds === null || connectionAgeSeconds > GPS_STALE_MAX_AGE_SECONDS
+  const connectionState = ageSeconds === null || ageSeconds > GPS_STALE_MAX_AGE_SECONDS
     ? "lost"
-    : connectionAgeSeconds <= GPS_LIVE_MAX_AGE_SECONDS
+    : ageSeconds <= GPS_LIVE_MAX_AGE_SECONDS
       ? "live"
-      : connectionAgeSeconds <= GPS_FRESH_MAX_AGE_SECONDS
+      : ageSeconds <= GPS_FRESH_MAX_AGE_SECONDS
         ? "delayed"
         : "stale";
 
