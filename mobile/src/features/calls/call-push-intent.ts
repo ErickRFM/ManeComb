@@ -7,9 +7,10 @@ export type PushCallIntent = {
   callerId: string;
   callerName: string | null;
   mode: CallMode;
-  action: 'incoming' | 'accept';
+  action: 'incoming' | 'accept' | 'dismiss';
   expiresAt: string | null;
   ringTimeoutMs: number | null;
+  reason?: string | null;
 };
 
 function parseQuery(raw: string): Record<string, string> {
@@ -35,9 +36,26 @@ export function parsePushCallIntent(
   if (!safeUrl || !safeUrl.toLowerCase().includes('/call')) return null;
   const params = parseQuery(safeUrl);
   const callId = String(params.callId || '').trim();
+  if (!callId) return null;
+
+  if (params.action === 'dismiss') {
+    return {
+      key: `${callId}:dismiss`,
+      callId,
+      conversationId: '',
+      callerId: '',
+      callerName: null,
+      mode: 'audio',
+      action: 'dismiss',
+      expiresAt: null,
+      ringTimeoutMs: null,
+      reason: String(params.reason || '').trim() || null,
+    };
+  }
+
   const conversationId = String(params.conversationId || '').trim();
   const callerId = String(params.callerId || '').trim();
-  if (!callId || !conversationId || !callerId) return null;
+  if (!conversationId || !callerId) return null;
 
   const expiresAt = String(params.expiresAt || '').trim() || null;
   if (expiresAt) {

@@ -41,7 +41,56 @@ describe('Android runtime hardening', () => {
     expect(manifest).toContain('com.google.firebase.MESSAGING_EVENT');
   });
 
-  it('renders calls with explicit accept/reject and never auto-accepts full screen', () => {
+  it('renders calls with explicit accept/reject and skew-resilient FCM timing', () => {
+    const renderer = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombPushNotificationRenderer.kt'
+      ),
+      'utf8'
+    );
+    const service = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombFirebaseMessagingService.kt'
+      ),
+      'utf8'
+    );
+
+    expect(renderer).toContain('NotificationCompat.CallStyle.forIncomingCall');
+    expect(renderer).toContain('ManeCombCallActionReceiver.ACTION_REJECT');
+    expect(renderer).toContain('builder.setFullScreenIntent(contentIntent, true)');
+    expect(renderer).not.toContain('builder.setFullScreenIntent(acceptIntent, true)');
+    expect(renderer).toContain('.appendQueryParameter("expiresAt", deadline.localExpiresAt)');
+    expect(renderer).toContain('.appendQueryParameter("ringTimeoutMs", deadline.timeoutMs.toString())');
+    expect(renderer).toContain('.setTimeoutAfter(deadline.timeoutMs)');
+    expect(renderer).toContain('CLOCK_SKEW_FALLBACK_RING_MS = 10_000L');
+    expect(renderer).toContain('(expiresAtMillis - fcmSentTimeMs).coerceAtLeast(0L)');
+    expect(renderer).toContain('minOf(serverWindowMs, CLOCK_SKEW_FALLBACK_RING_MS)');
+    expect(service).toContain('data["fcmSentTimeMs"] = message.sentTime.toString()');
+    expect(service).toContain('data["fcmTtlSeconds"] = message.ttl.toString()');
+    expect(renderer).not.toContain('.setTimeoutAfter(40_000L)');
+  });
+
+  it('delivers foreground incoming and terminal FCM through the existing deep-link runtime', () => {
     const renderer = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -59,9 +108,118 @@ describe('Android runtime hardening', () => {
       'utf8'
     );
 
-    expect(renderer).toContain('NotificationCompat.CallStyle.forIncomingCall');
-    expect(renderer).toContain('ManeCombCallActionReceiver.ACTION_REJECT');
-    expect(renderer).toContain('builder.setFullScreenIntent(contentIntent, true)');
-    expect(renderer).not.toContain('builder.setFullScreenIntent(acceptIntent, true)');
+    expect(renderer).toContain('"incoming_call" -> renderIncomingCall(context, data)');
+    expect(renderer).toContain('renderCallDismiss(context, data)');
+    expect(renderer).toContain('deliverIncomingCallToForeground(context, data, deadline)');
+    expect(renderer).toContain('deliverCallDismissToForeground(context, data, callId)');
+    expect(renderer).toContain('context.startActivity(intent)');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_NEW_TASK');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_SINGLE_TOP');
+    expect(renderer).toContain('Intent.FLAG_ACTIVITY_CLEAR_TOP');
+    expect(renderer).toContain('this.data = callDeepLink(data, "incoming", deadline)');
+    expect(renderer).toContain('.appendQueryParameter("action", "dismiss")');
+    expect(renderer).not.toContain('if (!isAppInForeground(context)) showIncomingCall(context, data)');
+  });
+
+  it('rejects public fake /call links with a private per-install token before React', () => {
+    const mainActivity = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'MainActivity.kt'
+      ),
+      'utf8'
+    );
+    const renderer = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombPushNotificationRenderer.kt'
+      ),
+      'utf8'
+    );
+
+    expect(mainActivity).toContain('const val EXTRA_INTERNAL_CALL_INTENT_TOKEN = "manecomb.internal.CALL_INTENT_TOKEN"');
+    expect(mainActivity).toContain('sanitizeCallIntent(intent)');
+    expect(mainActivity).toContain('getStringExtra(EXTRA_INTERNAL_CALL_INTENT_TOKEN)');
+    expect(mainActivity).toContain('internalCallIntentToken(this)');
+    expect(mainActivity).toContain('getSharedPreferences(INTERNAL_CALL_PREFS, Context.MODE_PRIVATE)');
+    expect(mainActivity).toContain('UUID.randomUUID().toString()');
+    expect(mainActivity).toContain('suppliedToken != expectedToken');
+    expect(mainActivity).toContain('sourceIntent.data = null');
+    expect(mainActivity.indexOf('sanitizeCallIntent(intent)')).toBeLessThan(
+      mainActivity.indexOf('configureIncomingCallWindow(intent)')
+    );
+    expect(renderer).toContain('MainActivity.EXTRA_INTERNAL_CALL_INTENT_TOKEN');
+    expect(renderer).toContain('MainActivity.internalCallIntentToken(context)');
+    expect((renderer.match(/MainActivity\.EXTRA_INTERNAL_CALL_INTENT_TOKEN/g) || []).length)
+      .toBeGreaterThanOrEqual(3);
+  });
+
+  it('bounds lockscreen visibility without letting unrelated links mutate call state', () => {
+    const mainActivity = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'MainActivity.kt'
+      ),
+      'utf8'
+    );
+    const callModule = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'calls',
+        'ManeCombCallModule.kt'
+      ),
+      'utf8'
+    );
+    const overlay = fs.readFileSync(
+      path.join(mobileRoot, 'src', 'features', 'calls', 'call-overlay.tsx'),
+      'utf8'
+    );
+
+    expect(mainActivity).toContain('fun setIncomingCallWindowActive(active: Boolean)');
+    expect(mainActivity).toContain('INCOMING_CALL_WINDOW_MAX_MS = 45_000L');
+    expect(mainActivity).toContain('mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)');
+    expect(mainActivity).toContain('if (!isCallIntent) return');
+    expect(mainActivity).toContain('getQueryParameter("action")?.equals("dismiss", ignoreCase = true)');
+    expect(mainActivity).toContain('setIncomingCallWindowActive(!isTerminalIntent)');
+    expect(callModule).toContain('fun setIncomingCallWindowActive(active: Boolean, promise: Promise)');
+    expect(callModule).toContain('activity.setIncomingCallWindowActive(active)');
+    expect(overlay).toContain('setIncomingCallWindowActive(false).catch(() => undefined)');
+    expect(overlay).toContain("intent.action === 'dismiss'");
+    expect(overlay).toContain('dismissedCallIds.current.add(intent.callId)');
+    expect(overlay).toContain("direction === 'incoming'");
+    expect(overlay).toContain('callWindowManaged.current = true');
   });
 });

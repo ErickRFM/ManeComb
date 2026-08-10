@@ -3,6 +3,7 @@ import { NativeModules, Platform } from 'react-native';
 type ManeCombCallNativeModule = {
   startCallForegroundService: (isVideo: boolean) => Promise<void>;
   stopCallForegroundService: () => Promise<void>;
+  setIncomingCallWindowActive?: (active: boolean) => Promise<boolean | void>;
 };
 
 const nativeModule: ManeCombCallNativeModule | null =
@@ -30,5 +31,15 @@ export async function stopCallForegroundService(): Promise<void> {
     await nativeModule.stopCallForegroundService();
   } catch {
     // Detener el servicio nunca debe bloquear el cierre de la llamada.
+  }
+}
+
+export async function setIncomingCallWindowActive(active: boolean): Promise<void> {
+  if (!nativeModule?.setIncomingCallWindowActive) return;
+
+  try {
+    await nativeModule.setIncomingCallWindowActive(active);
+  } catch {
+    // MainActivity mantiene un autocierre nativo; este bridge es un cierre temprano best-effort.
   }
 }
