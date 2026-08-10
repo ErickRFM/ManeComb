@@ -129,7 +129,7 @@ export const mapStyles = StyleSheet.create({
   compactGpsStatus: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
   compactGpsText: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '800', fontFamily: Typography.body },
   expandButton: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 4 },
-  expandedPanelScroll: { flexGrow: 0, flexShrink: 1 },
+  expandedPanelScroll: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
   expandedPanelContent: { gap: 8, paddingBottom: 16 },
   metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metricCard: { width: '48%', minHeight: 66, borderRadius: AppTheme.radius.xs2, padding: 9, gap: 2 },
@@ -183,6 +183,7 @@ export const mapStyles = StyleSheet.create({
   // y el contenido lo repone para que las pestanas queden alineadas con el resto del panel.
   trackScroller: { marginHorizontal: -12, flexGrow: 0 },
   trackList: { gap: 8, paddingHorizontal: 12 },
+  singleTrackList: { marginHorizontal: -12 },
   trackChip: { minHeight: 36, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 11, borderWidth: 1 },
   trackChipTitle: { fontSize: 13, fontWeight: '800', fontFamily: Typography.body },
   trackChipTitleSelected: { color: '#FFF' },

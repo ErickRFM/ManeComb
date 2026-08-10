@@ -26,6 +26,12 @@ import {
   isFiniteMetricNumber,
   selectVehicleActiveSession,
 } from './bottom-tracking-panel-data';
+import {
+  cancelPanelReveal,
+  consumePanelReveal,
+  requestPanelReveal,
+  type PanelRevealTarget,
+} from './bottom-tracking-panel-scroll-state';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -33,6 +39,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const PANEL_ANIMATION_MS = 220;
 const NARROW_PANEL_BREAKPOINT = 390;
+const SECTION_REVEAL_MARGIN = 8;
 
 /** Etiquetas de estado de jornada. El estado operacional usa `stateLabel`. */
 const sessionStatusLabels: Record<string, string> = {
@@ -139,7 +146,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   const [selectedSession, setSelectedSession] = useState<RouteSession | null>(null);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const expandedScrollRef = useRef<ScrollView | null>(null);
-  const revealExpandedSectionRef = useRef(false);
+  const pendingRevealRef = useRef<PanelRevealTarget>(null);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotionEnabled);
@@ -158,6 +165,8 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     }
     setIsExpanded(nextExpanded);
     if (!nextExpanded) {
+      pendingRevealRef.current = cancelPanelReveal();
+      expandedScrollRef.current?.scrollTo({ y: 0, animated: false });
       setDetailsOpen(false);
       setHistoryOpen(false);
       setSelectedSession(null);
@@ -181,13 +190,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     setDetailsOpen(false);
     setHistoryOpen(false);
     setSelectedSession(null);
-    revealExpandedSectionRef.current = false;
+    pendingRevealRef.current = cancelPanelReveal();
     expandedScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [selectedUnit?.unitId]);
 
   const handleToggleDetails = useCallback(() => {
     setDetailsOpen((current) => {
-      revealExpandedSectionRef.current = !current;
+      pendingRevealRef.current = requestPanelReveal(pendingRevealRef.current, 'details', current);
       return !current;
     });
     setHistoryOpen(false);
@@ -196,17 +205,21 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
 
   const handleToggleHistory = useCallback(() => {
     setHistoryOpen((current) => {
-      revealExpandedSectionRef.current = !current;
+      pendingRevealRef.current = requestPanelReveal(pendingRevealRef.current, 'history', current);
       return !current;
     });
     setDetailsOpen(false);
     setSelectedSession(null);
   }, []);
 
-  const handleExpandedContentSizeChange = useCallback(() => {
-    if (!revealExpandedSectionRef.current) return;
-    revealExpandedSectionRef.current = false;
-    expandedScrollRef.current?.scrollToEnd({ animated: !reduceMotionEnabled });
+  const handleSectionLayout = useCallback((target: Exclude<PanelRevealTarget, null>, y: number) => {
+    const reveal = consumePanelReveal(pendingRevealRef.current, target);
+    pendingRevealRef.current = reveal.pending;
+    if (!reveal.shouldScroll) return;
+    expandedScrollRef.current?.scrollTo({
+      y: Math.max(0, y - SECTION_REVEAL_MARGIN),
+      animated: !reduceMotionEnabled,
+    });
   }, [reduceMotionEnabled]);
 
   // Geometria del selector de unidades. Se guarda en refs para que medir no provoque re-render.
@@ -471,6 +484,9 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
           <ScrollView
             ref={trackScrollRef}
             horizontal
+            alwaysBounceHorizontal={false}
+            bounces={false}
+            overScrollMode="never"
             showsHorizontalScrollIndicator={false}
             style={styles.trackScroller}
             onLayout={(event) => {
@@ -503,8 +519,10 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               ref={expandedScrollRef}
               style={styles.expandedPanelScroll}
               contentContainerStyle={styles.expandedPanelContent}
+              alwaysBounceVertical={false}
+              bounces={false}
               nestedScrollEnabled
-              onContentSizeChange={handleExpandedContentSizeChange}
+              overScrollMode="never"
               showsVerticalScrollIndicator={false}>
             {selectedUnit ? (
               <View style={styles.metricGrid}>
@@ -529,13 +547,17 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
             ) : null}
 
             {detailsOpen ? (
-              <View style={[styles.detailsPanel, { borderColor: theme.colors.line }]}>
+              <View
+                onLayout={(event) => handleSectionLayout('details', event.nativeEvent.layout.y)}
+                style={[styles.detailsPanel, { borderColor: theme.colors.line }]}>
                 {detailRows.map(renderDetailRow)}
               </View>
             ) : null}
 
             {historyOpen ? (
-              <View style={[styles.inlineHistory, { borderColor: theme.colors.line }]}>
+              <View
+                onLayout={(event) => handleSectionLayout('history', event.nativeEvent.layout.y)}
+                style={[styles.inlineHistory, { borderColor: theme.colors.line }]}>
                 {selectedSession ? (
                   <>
                     <Pressable onPress={() => setSelectedSession(null)} style={styles.historyBack}>
@@ -587,7 +609,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               </Pressable>
             ) : null}
 
-            {trackingUnits.length <= 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.trackScroller} contentContainerStyle={styles.trackList}>
+            {trackingUnits.length <= 1 ? <View style={[styles.trackList, styles.singleTrackList]}>
               {trackingUnits.map((unit) => {
                 const isSelected = unit.unitId === selectedUnit?.unitId;
                 return (
@@ -610,7 +632,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                   <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>Sin unidades disponibles</Text>
                 </View>
               ) : null}
-            </ScrollView> : null}
+            </View> : null}
             </ScrollView>
 
             {selectedUnit ? (

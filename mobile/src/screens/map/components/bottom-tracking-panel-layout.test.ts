@@ -21,8 +21,10 @@ describe('geometria de BottomTrackingPanel', () => {
 
     expect(scrollClose).toBeGreaterThan(0);
     expect(actionRow).toBeGreaterThan(scrollClose);
-    expect(panel).toContain('onContentSizeChange={handleExpandedContentSizeChange}');
-    expect(panel).toContain('expandedScrollRef.current?.scrollToEnd');
+    expect(panel).toContain("onLayout={(event) => handleSectionLayout('details', event.nativeEvent.layout.y)}");
+    expect(panel).toContain("onLayout={(event) => handleSectionLayout('history', event.nativeEvent.layout.y)}");
+    expect(panel).toContain('y: Math.max(0, y - SECTION_REVEAL_MARGIN)');
+    expect(panel).not.toContain('scrollToEnd');
   });
 
   it('restaura el scroll al cambiar unidad y expone estado activo accesible', () => {
@@ -32,8 +34,16 @@ describe('geometria de BottomTrackingPanel', () => {
   });
 
   it('reserva espacio inferior y evita que acciones o scroll desborden el card', () => {
-    expect(styles).toContain('expandedPanelScroll: { flexGrow: 0, flexShrink: 1 }');
+    expect(styles).toContain('expandedPanelScroll: { flexGrow: 0, flexShrink: 1, minHeight: 0 }');
     expect(styles).toContain('expandedPanelContent: { gap: 8, paddingBottom: 16 }');
     expect(styles).toContain('panelActionRow: { flexDirection: \'row\', flexShrink: 0');
+  });
+
+  it('evita overscroll y no anida un ScrollView horizontal para cero o una unidad', () => {
+    expect(panel).toContain('alwaysBounceVertical={false}');
+    expect(panel).toContain('alwaysBounceHorizontal={false}');
+    expect(panel).toContain('overScrollMode="never"');
+    expect(panel).toContain('trackingUnits.length <= 1 ? <View');
+    expect(panel).not.toContain('trackingUnits.length <= 1 ? <ScrollView');
   });
 });
