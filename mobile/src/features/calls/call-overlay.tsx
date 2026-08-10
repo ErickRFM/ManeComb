@@ -31,11 +31,42 @@ export function CallOverlay(): React.ReactElement {
   const mode = useCallStore((state) => state.mode);
   const [pendingPushCall, setPendingPushCall] = useState<PushCallIntent | null>(null);
   const consumedPushCalls = useRef(new Set<string>());
+  const dismissedCallIds = useRef(new Set<string>());
   const callWindowManaged = useRef(false);
 
   const receivePushUrl = useCallback((url: string | null | undefined) => {
     const intent = parsePushCallIntent(url);
     if (!intent || consumedPushCalls.current.has(intent.key)) return;
+
+    if (intent.action === 'dismiss') {
+      consumedPushCalls.current.add(intent.key);
+      dismissedCallIds.current.add(intent.callId);
+      setPendingPushCall((current) => current?.callId === intent.callId ? null : current);
+      setIncomingCallWindowActive(false).catch(() => undefined);
+
+      const store = useCallStore.getState();
+      if (store.callId === intent.callId) {
+        if (intent.reason === 'accepted') {
+          store.handleAccepted({ callId: intent.callId });
+        } else if (intent.reason === 'timeout') {
+          store.handleTimeout({ callId: intent.callId });
+        } else if (
+          intent.reason === 'cancelled' ||
+          intent.reason === 'rejected' ||
+          intent.reason === 'busy'
+        ) {
+          store.handleCancelled({ callId: intent.callId });
+        } else {
+          store.handleRemoteEnd({ callId: intent.callId, reason: intent.reason || undefined });
+        }
+      }
+      return;
+    }
+
+    if (dismissedCallIds.current.has(intent.callId)) {
+      consumedPushCalls.current.add(intent.key);
+      return;
+    }
     setPendingPushCall(intent);
   }, []);
 
@@ -51,6 +82,11 @@ export function CallOverlay(): React.ReactElement {
 
   useEffect(() => {
     if (!pendingPushCall || socketStatus !== 'connected' || !socket) return;
+    if (dismissedCallIds.current.has(pendingPushCall.callId)) {
+      consumedPushCalls.current.add(pendingPushCall.key);
+      setPendingPushCall(null);
+      return;
+    }
 
     const store = useCallStore.getState();
     if (store.phase === 'IDLE') {
@@ -76,7 +112,7 @@ export function CallOverlay(): React.ReactElement {
     consumedPushCalls.current.add(pendingPushCall.key);
     setPendingPushCall(null);
     if (pendingPushCall.action === 'accept') {
-      void useCallStore.getState().acceptIncomingCall();
+      useCallStore.getState().acceptIncomingCall().catch(() => undefined);
     }
   }, [pendingPushCall, socket, socketStatus]);
 
