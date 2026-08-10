@@ -11,6 +11,7 @@ import android.os.ParcelFileDescriptor
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -18,10 +19,21 @@ import android.widget.TextView
 import java.io.File
 
 class ManeCombDocumentViewerActivity : Activity() {
-  private val renderedBitmaps = mutableListOf<Bitmap>()
+  private var renderedBitmap: Bitmap? = null
+  private var pdfRenderer: PdfRenderer? = null
+  private var pdfImage: ImageView? = null
+  private var pageIndicator: TextView? = null
+  private var previousPageButton: TextView? = null
+  private var nextPageButton: TextView? = null
+  private var currentPageIndex = 0
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    // El rótulo PROTEGIDO debe corresponder a una protección real del Window.
+    // FLAG_SECURE bloquea screenshots, screen recording y thumbnails recientes
+    // mientras este Activity contiene documentos autenticados del tenant.
+    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
     val filePath = intent.getStringExtra(EXTRA_FILE_PATH).orEmpty()
     val mimeType = intent.getStringExtra(EXTRA_MIME_TYPE).orEmpty().lowercase()
@@ -78,15 +90,14 @@ class ManeCombDocumentViewerActivity : Activity() {
         showError(content, "Este tipo de documento todavía no puede mostrarse dentro de ManeComb.")
       }
     } catch (_: Exception) {
+      closePdfRenderer()
       showError(content, "No fue posible mostrar el documento protegido.")
     }
   }
 
   override fun onDestroy() {
-    renderedBitmaps.forEach { bitmap ->
-      if (!bitmap.isRecycled) bitmap.recycle()
-    }
-    renderedBitmaps.clear()
+    clearRenderedBitmap()
+    closePdfRenderer()
     super.onDestroy()
   }
 
@@ -141,9 +152,10 @@ class ManeCombDocumentViewerActivity : Activity() {
   }
 
   private fun renderImage(file: File, content: LinearLayout) {
+    closePdfRenderer()
     val bitmap = BitmapFactory.decodeFile(file.absolutePath)
       ?: throw IllegalStateException("image_decode_failed")
-    renderedBitmaps.add(bitmap)
+    replaceRenderedBitmap(bitmap)
 
     val image = ImageView(this).apply {
       setImageBitmap(bitmap)
@@ -159,53 +171,164 @@ class ManeCombDocumentViewerActivity : Activity() {
   }
 
   private fun renderPdf(file: File, content: LinearLayout) {
+    closePdfRenderer()
     val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-    val renderer = PdfRenderer(descriptor)
+    val renderer = try {
+      PdfRenderer(descriptor)
+    } catch (error: Exception) {
+      descriptor.close()
+      throw error
+    }
+    pdfRenderer = renderer
+
+    if (renderer.pageCount == 0) {
+      closePdfRenderer()
+      showError(content, "El PDF no contiene páginas visibles.")
+      return
+    }
+
+    pdfImage = ImageView(this).apply {
+      adjustViewBounds = true
+      scaleType = ImageView.ScaleType.FIT_CENTER
+      setBackgroundColor(Color.WHITE)
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      ).apply {
+        bottomMargin = dp(12)
+      }
+    }
+    content.addView(pdfImage)
+    content.addView(buildPageControls())
+
+    currentPageIndex = currentPageIndex.coerceIn(0, renderer.pageCount - 1)
+    renderPdfPage(currentPageIndex)
+  }
+
+  /**
+   * Mantiene como máximo UN bitmap de PDF en memoria. Antes se renderizaban todas
+   * las páginas y se conservaban hasta onDestroy; un PDF pequeño pero con muchas
+   * páginas podía agotar el heap. La navegación pagina bajo demanda y recicla la
+   * anterior antes de crear la siguiente.
+   */
+  private fun renderPdfPage(index: Int) {
+    val renderer = pdfRenderer ?: return
+    if (renderer.pageCount <= 0) return
+    val safeIndex = index.coerceIn(0, renderer.pageCount - 1)
+    val page = renderer.openPage(safeIndex)
     try {
-      if (renderer.pageCount == 0) {
-        showError(content, "El PDF no contiene páginas visibles.")
-        return
-      }
-
       val targetWidth = (resources.displayMetrics.widthPixels - dp(24)).coerceAtLeast(1)
-      for (index in 0 until renderer.pageCount) {
-        val page = renderer.openPage(index)
-        try {
-          val targetHeight = (targetWidth.toFloat() * page.height.toFloat() / page.width.toFloat())
-            .toInt()
-            .coerceAtLeast(1)
-          val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-          bitmap.eraseColor(Color.WHITE)
-          page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-          renderedBitmaps.add(bitmap)
+      val targetHeight = (targetWidth.toFloat() * page.height.toFloat() / page.width.toFloat())
+        .toInt()
+        .coerceAtLeast(1)
+      val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+      bitmap.eraseColor(Color.WHITE)
+      page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
 
-          val image = ImageView(this).apply {
-            setImageBitmap(bitmap)
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Página ${index + 1}"
-            setBackgroundColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(
-              ViewGroup.LayoutParams.MATCH_PARENT,
-              ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-              bottomMargin = dp(12)
-            }
-          }
-          content.addView(image)
-        } finally {
-          page.close()
-        }
+      pdfImage?.setImageBitmap(null)
+      replaceRenderedBitmap(bitmap)
+      pdfImage?.apply {
+        setImageBitmap(bitmap)
+        contentDescription = "Página ${safeIndex + 1} de ${renderer.pageCount}"
       }
+      currentPageIndex = safeIndex
+      updatePageControls()
     } finally {
-      // PdfRenderer toma propiedad del ParcelFileDescriptor y lo cierra aquí.
-      // No se debe cerrar el descriptor una segunda vez porque algunos OEM
-      // propagan EBADF y terminarían sustituyendo un PDF válido por la vista de error.
-      renderer.close()
+      page.close()
+    }
+  }
+
+  private fun buildPageControls(): View {
+    val controls = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER
+      setPadding(0, dp(6), 0, dp(6))
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      )
+    }
+
+    previousPageButton = buildPageButton("Anterior") {
+      renderPdfPage(currentPageIndex - 1)
+    }
+    pageIndicator = TextView(this).apply {
+      textSize = 13f
+      setTextColor(Color.LTGRAY)
+      gravity = Gravity.CENTER
+      layoutParams = LinearLayout.LayoutParams(dp(96), dp(44))
+    }
+    nextPageButton = buildPageButton("Siguiente") {
+      renderPdfPage(currentPageIndex + 1)
+    }
+
+    controls.addView(previousPageButton)
+    controls.addView(pageIndicator)
+    controls.addView(nextPageButton)
+    return controls
+  }
+
+  private fun buildPageButton(label: String, onClick: () -> Unit): TextView {
+    return TextView(this).apply {
+      text = label
+      textSize = 13f
+      setTextColor(Color.WHITE)
+      setTypeface(typeface, Typeface.BOLD)
+      gravity = Gravity.CENTER
+      setPadding(dp(12), dp(8), dp(12), dp(8))
+      contentDescription = label
+      setOnClickListener { if (isEnabled) onClick() }
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+        dp(44)
+      )
+    }
+  }
+
+  private fun updatePageControls() {
+    val count = pdfRenderer?.pageCount ?: 0
+    if (count <= 0) return
+    pageIndicator?.text = "${currentPageIndex + 1} / $count"
+    setPageButtonEnabled(previousPageButton, currentPageIndex > 0)
+    setPageButtonEnabled(nextPageButton, currentPageIndex < count - 1)
+  }
+
+  private fun setPageButtonEnabled(button: TextView?, enabled: Boolean) {
+    button?.isEnabled = enabled
+    button?.alpha = if (enabled) 1f else 0.38f
+  }
+
+  private fun replaceRenderedBitmap(bitmap: Bitmap) {
+    val previous = renderedBitmap
+    renderedBitmap = bitmap
+    if (previous != null && previous !== bitmap && !previous.isRecycled) {
+      previous.recycle()
+    }
+  }
+
+  private fun clearRenderedBitmap() {
+    pdfImage?.setImageBitmap(null)
+    renderedBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    renderedBitmap = null
+    pdfImage = null
+  }
+
+  private fun closePdfRenderer() {
+    try {
+      pdfRenderer?.close()
+    } finally {
+      pdfRenderer = null
+      pageIndicator = null
+      previousPageButton = null
+      nextPageButton = null
     }
   }
 
   private fun showError(content: LinearLayout, message: String) {
+    clearRenderedBitmap()
+    closePdfRenderer()
     content.removeAllViews()
     content.gravity = Gravity.CENTER
     content.addView(TextView(this).apply {
