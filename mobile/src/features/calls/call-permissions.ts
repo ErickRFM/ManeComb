@@ -1,7 +1,12 @@
 import { Linking, PermissionsAndroid, Platform } from 'react-native';
 
 export type CallMediaMode = 'audio' | 'video';
-export type CallPermissionStatus = 'granted' | 'denied' | 'blocked' | 'not_required';
+export type CallPermissionStatus =
+  | 'granted'
+  | 'denied'
+  | 'blocked'
+  | 'not_required'
+  | 'not_requested';
 
 export type CallMediaPermissionResult = {
   microphone: CallPermissionStatus;
@@ -47,16 +52,43 @@ function normalizeRequestedStatus(
   return 'denied';
 }
 
-async function resolvePermissionStatus(
+async function checkPermissionStatus(
+  permission: string,
+  adapter: CallPermissionAdapter
+): Promise<CallPermissionStatus> {
+  return (await adapter.check(permission)) ? 'granted' : 'denied';
+}
+
+async function requestPermissionStatus(
   permission: string,
   adapter: CallPermissionAdapter
 ): Promise<CallPermissionStatus> {
   if (await adapter.check(permission)) return 'granted';
 
-  // Pedir cada permiso por separado hace explícito qué recurso se solicita y
-  // evita que cámara/micrófono queden mezclados en un único resultado opaco.
+  // Android muestra mejor contexto cuando micrófono y cámara se solicitan en
+  // secuencia. No se pide cámara si primero no existe permiso de micrófono.
   const requested = await adapter.requestMultiple([permission]);
   return normalizeRequestedStatus(requested[permission], adapter);
+}
+
+export async function checkCallMediaPermissions(
+  mode: CallMediaMode,
+  adapter: CallPermissionAdapter = defaultAdapter
+): Promise<CallMediaPermissionResult> {
+  if (adapter.platform !== 'android') {
+    return {
+      microphone: 'granted',
+      camera: mode === 'video' ? 'granted' : 'not_required',
+    };
+  }
+
+  const microphone = await checkPermissionStatus(adapter.microphonePermission, adapter);
+  const camera =
+    mode === 'video'
+      ? await checkPermissionStatus(adapter.cameraPermission, adapter)
+      : 'not_required';
+
+  return { microphone, camera };
 }
 
 export async function requestCallMediaPermissions(
@@ -70,17 +102,17 @@ export async function requestCallMediaPermissions(
     };
   }
 
-  const microphone = await resolvePermissionStatus(adapter.microphonePermission, adapter);
+  const microphone = await requestPermissionStatus(adapter.microphonePermission, adapter);
   if (microphone !== 'granted') {
     return {
       microphone,
-      camera: mode === 'video' ? 'denied' : 'not_required',
+      camera: mode === 'video' ? 'not_requested' : 'not_required',
     };
   }
 
   const camera =
     mode === 'video'
-      ? await resolvePermissionStatus(adapter.cameraPermission, adapter)
+      ? await requestPermissionStatus(adapter.cameraPermission, adapter)
       : 'not_required';
 
   return { microphone, camera };
@@ -130,16 +162,12 @@ export async function assertCallMediaPermissions(
   mode: CallMediaMode,
   adapter?: CallPermissionAdapter
 ): Promise<void> {
-  const permissions = await requestCallMediaPermissions(mode, adapter);
+  // Defensa final exclusivamente de lectura. Nunca vuelve a abrir prompts cuando
+  // la llamada ya está en CONNECTING: el preflight debe ocurrir antes del signaling.
+  const permissions = await checkCallMediaPermissions(mode, adapter);
   const failure = getCallPermissionFailure(permissions, mode);
 
   if (!failure) return;
-
-  // call-media conserva este chequeo como defensa final ante revocación entre el
-  // preflight de UI y getUserMedia. El preflight principal ocurre antes de
-  // señalizar o aceptar la llamada.
-  if (failure.startsWith('camera_')) {
-    throw new Error('video_track_unavailable');
-  }
+  if (failure.startsWith('camera_')) throw new Error('video_track_unavailable');
   throw new Error('audio_track_unavailable');
 }
