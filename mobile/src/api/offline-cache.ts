@@ -166,6 +166,29 @@ function createOperationId(type: string) {
   return `${type}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// AsyncStorage no ofrece una operación read-modify-write atómica. Sin una cola
+// local, dos acciones offline concurrentes pueden leer el mismo snapshot y la
+// última escritura borra silenciosamente la operación de la otra. Esta cola es
+// la autoridad única para mutaciones del pending-sync dentro del proceso.
+let pendingSyncMutationTail: Promise<void> = Promise.resolve();
+
+function serializePendingSyncMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const operation = pendingSyncMutationTail.then(mutation, mutation);
+  pendingSyncMutationTail = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  return operation;
+}
+
+async function readPendingSyncQueueUnsafe() {
+  return safeJsonParse<PendingSyncOperation[]>(await AsyncStorage.getItem(QUEUE_KEY)) || [];
+}
+
+async function writePendingSyncQueueUnsafe(queue: PendingSyncOperation[]) {
+  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-MAX_QUEUE_ITEMS)));
+}
+
 export async function loadOfflineCache() {
   return safeJsonParse<OfflineCacheSnapshot>(await AsyncStorage.getItem(CACHE_KEY));
 }
@@ -181,38 +204,57 @@ export async function saveOfflineCache(snapshot: Omit<OfflineCacheSnapshot, 'sav
 }
 
 export async function clearOfflineCache() {
-  await AsyncStorage.multiRemove([CACHE_KEY, QUEUE_KEY]);
+  // El snapshot puede limpiarse inmediatamente. La cola, en cambio, debe pasar
+  // por la misma exclusión mutua que enqueue/remove/replace para que un write ya
+  // iniciado no la resucite después de logout o cambio de tenant.
+  await AsyncStorage.removeItem(CACHE_KEY);
+  await serializePendingSyncMutation(async () => {
+    await AsyncStorage.removeItem(QUEUE_KEY);
+  });
 }
 
 export async function loadPendingSyncQueue() {
-  return safeJsonParse<PendingSyncOperation[]>(await AsyncStorage.getItem(QUEUE_KEY)) || [];
+  // Una lectura pública observa únicamente un estado ya confirmado. No debe
+  // adelantar una mutación en vuelo y reportar un pendingSyncCount obsoleto.
+  await pendingSyncMutationTail;
+  return readPendingSyncQueueUnsafe();
 }
 
 export async function savePendingSyncQueue(queue: PendingSyncOperation[]) {
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-MAX_QUEUE_ITEMS)));
+  await serializePendingSyncMutation(async () => {
+    await writePendingSyncQueueUnsafe(queue);
+  });
 }
 
 export async function enqueuePendingSyncOperation(
   operation: Omit<PendingSyncOperation, 'id' | 'createdAt' | 'attempts'>
 ) {
-  const queue = await loadPendingSyncQueue();
-  const nextOperation = {
-    ...operation,
-    id: createOperationId(operation.type),
-    createdAt: new Date().toISOString(),
-    attempts: 0,
-  } as PendingSyncOperation;
+  return serializePendingSyncMutation(async () => {
+    const queue = await readPendingSyncQueueUnsafe();
+    const nextOperation = {
+      ...operation,
+      id: createOperationId(operation.type),
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    } as PendingSyncOperation;
 
-  await savePendingSyncQueue([...queue, nextOperation]);
-  return nextOperation;
+    await writePendingSyncQueueUnsafe([...queue, nextOperation]);
+    return nextOperation;
+  });
 }
 
 export async function replacePendingSyncOperation(operation: PendingSyncOperation) {
-  const queue = await loadPendingSyncQueue();
-  await savePendingSyncQueue(queue.map((entry) => (entry.id === operation.id ? operation : entry)));
+  await serializePendingSyncMutation(async () => {
+    const queue = await readPendingSyncQueueUnsafe();
+    await writePendingSyncQueueUnsafe(
+      queue.map((entry) => (entry.id === operation.id ? operation : entry))
+    );
+  });
 }
 
 export async function removePendingSyncOperation(operationId: string) {
-  const queue = await loadPendingSyncQueue();
-  await savePendingSyncQueue(queue.filter((entry) => entry.id !== operationId));
+  await serializePendingSyncMutation(async () => {
+    const queue = await readPendingSyncQueueUnsafe();
+    await writePendingSyncQueueUnsafe(queue.filter((entry) => entry.id !== operationId));
+  });
 }
