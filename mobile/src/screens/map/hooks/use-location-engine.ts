@@ -7,7 +7,10 @@ import {
   releaseBackgroundLocationServiceAsync,
 } from '@/src/native/background-location';
 import { useAppStore } from '@/src/store/root-store';
-import { MAX_ACCEPTED_ACCURACY_METERS } from '../constants/tracking';
+import {
+  LOCATION_FIX_WATCHDOG_POLL_MS,
+  MAX_ACCEPTED_ACCURACY_METERS,
+} from '../constants/tracking';
 import { initialLocationEngineState, locationReducer } from '../reducers/location-reducer';
 import {
   buildLivePoint,
@@ -28,6 +31,10 @@ import {
   canCaptureLocalLocation,
   canOwnVehicleTracking,
 } from '../utils/location-eligibility';
+import {
+  hasLocationFixTimedOut,
+  resolveSilentLocationIssue,
+} from '../utils/location-watchdog';
 
 const BACKGROUND_OWNER = 'operational-runtime' as const;
 
@@ -60,6 +67,10 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const webWatcherIdRef = useRef<number | null>(null);
   const lastAcceptedPointRef = useRef<LiveLocationPoint | null>(null);
+  const lastAcceptedAtRef = useRef<number | null>(null);
+  const lastObservedFixAtRef = useRef<number | null>(null);
+  const watchdogIssueRef = useRef<string | null>(null);
+  const watchdogCheckInFlightRef = useRef(false);
   const requestGenerationRef = useRef(0);
   const [watcherActive, setWatcherActive] = useState(false);
   const [state, dispatch] = useReducer(locationReducer, initialLocationEngineState);
@@ -86,6 +97,10 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
     }
 
     watcherRef.current = null;
+    lastAcceptedAtRef.current = null;
+    lastObservedFixAtRef.current = null;
+    watchdogIssueRef.current = null;
+    watchdogCheckInFlightRef.current = false;
     setWatcherActive(false);
   }, []);
 
@@ -136,8 +151,11 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
         if (issue === 'permission_denied') {
           lastAcceptedPointRef.current = null;
+          lastAcceptedAtRef.current = null;
+          lastObservedFixAtRef.current = null;
         }
 
+        watchdogIssueRef.current = issue;
         dispatch({
           type: 'ISSUE',
           backgroundPermission,
@@ -149,10 +167,17 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
       const acceptPosition = (position: LocationPosition) => {
         if (!isCurrent()) return;
+        const receivedAt = Date.now();
+        lastObservedFixAtRef.current = receivedAt;
+        watchdogIssueRef.current = null;
+
         const nextPoint = buildLivePoint(position.coords);
         const lastPoint = lastAcceptedPointRef.current;
+        const elapsedSinceAcceptedMs = lastAcceptedAtRef.current === null
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, receivedAt - lastAcceptedAtRef.current);
 
-        if (!shouldAcceptLocation(lastPoint, nextPoint)) {
+        if (!shouldAcceptLocation(lastPoint, nextPoint, elapsedSinceAcceptedMs)) {
           dispatch({
             type: 'POINT_IGNORED',
             backgroundPermission,
@@ -167,6 +192,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
         }
 
         lastAcceptedPointRef.current = nextPoint;
+        lastAcceptedAtRef.current = receivedAt;
         dispatch({
           type: 'POINT_ACCEPTED',
           backgroundPermission,
@@ -211,6 +237,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
           }
 
           webWatcherIdRef.current = watchId;
+          lastObservedFixAtRef.current = Date.now();
           setWatcherActive(true);
           return;
         }
@@ -222,6 +249,9 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
         }
 
         watcherRef.current = subscription;
+        if (lastObservedFixAtRef.current === null) {
+          lastObservedFixAtRef.current = Date.now();
+        }
         setWatcherActive(true);
       };
 
@@ -267,6 +297,63 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       releaseTracking();
     };
   }, [releaseTracking, requestLocation, trackingEnabled]);
+
+  useEffect(() => {
+    if (!trackingEnabled || !watcherActive) return undefined;
+
+    const timer = setInterval(() => {
+      const lastObservedAt = lastObservedFixAtRef.current;
+      if (
+        watchdogCheckInFlightRef.current ||
+        !hasLocationFixTimedOut(lastObservedAt, Date.now())
+      ) {
+        return;
+      }
+
+      watchdogCheckInFlightRef.current = true;
+      const observedAtBeforeCheck = lastObservedAt;
+
+      Promise.all([hasLocationServicesEnabled(), getForegroundPermission()])
+        .then(([servicesEnabled, foreground]) => {
+          if (!trackingEnabledRef.current || (!watcherRef.current && Platform.OS !== 'web')) {
+            return;
+          }
+
+          // Si llego un fix mientras consultabamos permiso/proveedor, el watcher
+          // sigue sano y no debemos declarar una desconexion fantasma.
+          if (lastObservedFixAtRef.current !== observedAtBeforeCheck) {
+            return;
+          }
+
+          const issue = resolveSilentLocationIssue({
+            servicesEnabled,
+            permissionGranted: foreground.status === Location.PermissionStatus.GRANTED,
+          });
+
+          if (watchdogIssueRef.current === issue) return;
+          watchdogIssueRef.current = issue;
+
+          if (issue === 'permission_denied') {
+            lastAcceptedPointRef.current = null;
+            lastAcceptedAtRef.current = null;
+          }
+
+          dispatch({
+            type: 'ISSUE',
+            backgroundPermission: state.backgroundPermission,
+            issue,
+            permission: issue === 'permission_denied' ? 'denied' : 'granted',
+            servicesEnabled,
+          });
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          watchdogCheckInFlightRef.current = false;
+        });
+    }, LOCATION_FIX_WATCHDOG_POLL_MS);
+
+    return () => clearInterval(timer);
+  }, [state.backgroundPermission, trackingEnabled, watcherActive]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
