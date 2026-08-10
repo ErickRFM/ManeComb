@@ -1,4 +1,5 @@
 import {
+  FLEET_REALTIME_INVALIDATION_EVENTS,
   SHARED_SOCKET_DISCOVERY_MAX_ATTEMPTS,
   shouldRequestColdStartRealtimeRecovery,
   shouldRetrySharedRealtimeSocket,
@@ -94,5 +95,12 @@ describe('shared realtime socket discovery', () => {
     expect(shouldRequestColdStartRealtimeRecovery({ ...base, networkStatus: 'offline' })).toBe(false);
     expect(shouldRequestColdStartRealtimeRecovery({ ...base, authContextReady: true })).toBe(false);
     expect(shouldRequestColdStartRealtimeRecovery({ ...base, hasSocket: true })).toBe(false);
+  });
+
+  it('revalidates backend authority when a vehicle leaves the active fleet', () => {
+    expect(FLEET_REALTIME_INVALIDATION_EVENTS).toEqual([
+      'vehicle:deleted',
+      'vehicle:retired',
+    ]);
   });
 });
