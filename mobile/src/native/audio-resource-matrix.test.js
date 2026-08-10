@@ -58,6 +58,35 @@ describe('microphone has a single arbiter', () => {
     expect(startHistory).toContain('radio_channel_active');
   });
 
+  it('reuses authenticated history cache before opening the network and preserves 429 semantics', () => {
+    const resolveStart = audioModule.indexOf('private fun resolvePlaybackSource(');
+    const resolveEnd = audioModule.indexOf('private fun isSupportedAudioContentType', resolveStart);
+    const resolveSource = audioModule.slice(resolveStart, resolveEnd);
+
+    expect(resolveSource).toContain('playbackCacheKey(normalizedUri, headers)');
+    expect(resolveSource).toContain('findCachedPlaybackSource(cacheDir, cacheKey, normalizedUri)');
+    expect(resolveSource.indexOf('findCachedPlaybackSource')).toBeLessThan(
+      resolveSource.indexOf('URL(normalizedUri).openConnection()')
+    );
+    expect(resolveSource).toContain('key.equals("Authorization", ignoreCase = true)');
+    expect(resolveSource).toContain('429 ->');
+    expect(resolveSource).toContain('audio_download_rate_limited');
+
+    const startHistory = audioModule.slice(
+      audioModule.indexOf('fun startRadioHistoryPlayer('),
+      audioModule.indexOf('fun pauseRadioHistoryPlayer(')
+    );
+    expect(startHistory).toContain('catch (error: AudioPlaybackException)');
+    expect(startHistory).toContain('promise.reject(error.code');
+  });
+
+  it('bounds the playback cache instead of growing without limit', () => {
+    expect(audioModule).toContain('private const val PLAYBACK_CACHE_MAX_FILES = 64');
+    expect(audioModule).toContain('private const val PLAYBACK_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000L');
+    expect(audioModule).toContain('private fun prunePlaybackCache(cacheDir: File)');
+    expect(audioModule).toContain('drop(PLAYBACK_CACHE_MAX_FILES)');
+  });
+
   it('creates AudioRecord and AudioTrack in exactly one place', () => {
     const owners = fs
       .readdirSync(path.join(NATIVE_ROOT, 'audio'))
