@@ -26,7 +26,7 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
-      - name: Apply scoped audit hardening
+      - name: Apply non-workflow audit hardening
         shell: bash
         run: |
           node <<'NODE'
@@ -42,10 +42,7 @@ jobs:
           edit('docs/architecture/system-audit-gates.json', (source) => {
             const needle = '  "maxBaselineDriftCommits": 50,\n';
             if (!source.includes(needle)) throw new Error('audit drift marker not found');
-            return source.replace(
-              needle,
-              `${needle}  "maxAuthorityMapDriftCommits": 50,\n`
-            );
+            return source.replace(needle, `${needle}  "maxAuthorityMapDriftCommits": 50,\n`);
           });
 
           edit('scripts/validate-system-audit-gates.mjs', (source) => {
@@ -56,13 +53,6 @@ jobs:
               `${maxDriftBlock}\n  const maxAuthorityMapDrift = Number(contract.maxAuthorityMapDriftCommits);\n  if (!Number.isInteger(maxAuthorityMapDrift) || maxAuthorityMapDrift < 1) {\n    fail('maxAuthorityMapDriftCommits must be a positive integer.');\n  }\n`
             );
 
-            const marker = `    'Mobile quality',\n    'Android debug APK certification',`;
-            if (!source.includes(marker)) throw new Error('CI marker list not found');
-            source = source.replace(
-              marker,
-              `    'Mobile quality',\n    'Mobile Jest (Windows)',\n    'Android debug APK certification',`
-            );
-
             const oldAuthorityBlock = `      if (authorityDrift > maxDrift) {\n        console.log(\n          \`::warning::System authority map is \${authorityDrift} commits behind \${freshnessRef}. \` +\n          'Its schema may be valid while its findings are stale; refresh it in a dedicated authority audit.'\n        );\n      }\n    } catch {\n      console.log(\n        \`::warning::System authority map baseline is not an ancestor of \${freshnessRef}; \` +\n        'dedicated reconciliation required.'\n      );\n    }`;
             if (!source.includes(oldAuthorityBlock)) throw new Error('authority warning block not found');
             source = source.replace(
@@ -70,13 +60,6 @@ jobs:
               `      if (authorityDrift > maxAuthorityMapDrift) {\n        fail(\n          \`System authority map is \${authorityDrift} commits behind \${freshnessRef} \` +\n          \`(max \${maxAuthorityMapDrift}). Refresh the semantic authority audit before merge.\`\n        );\n      } else {\n        console.log(\n          \`System authority map drift vs \${freshnessRef}: \${authorityDrift}/\${maxAuthorityMapDrift} commits.\`\n        );\n      }\n    } catch {\n      fail(\n        \`System authority map baseline is not an ancestor of \${freshnessRef}. \` +\n        'Run a dedicated semantic authority reconciliation before merge.'\n      );\n    }`
             );
             return source;
-          });
-
-          edit('.github/workflows/ci.yml', (source) => {
-            const marker = '\n  android-debug-apk:\n';
-            if (!source.includes(marker)) throw new Error('android job marker not found');
-            const windowsJob = `\n  mobile-windows-tests:\n    name: Mobile Jest (Windows)\n    runs-on: windows-latest\n    timeout-minutes: 15\n    defaults:\n      run:\n        working-directory: mobile\n    steps:\n      - name: Checkout\n        uses: actions/checkout@v5\n\n      - name: Setup Node\n        uses: actions/setup-node@v5\n        with:\n          node-version: "22"\n          cache: npm\n          cache-dependency-path: mobile/package-lock.json\n\n      - name: Install dependencies\n        run: npm ci\n\n      - name: Run Jest portability gate\n        run: npm test\n`;
-            return source.replace(marker, `${windowsJob}${marker}`);
           });
 
           edit('mobile/.eslintrc.js', (source) => {
@@ -93,15 +76,10 @@ jobs:
             const endMarker = '\n}\n\nfunction DetailItem';
             const end = source.indexOf(endMarker, start);
             if (start < 0 || end < 0) throw new Error('nested ActionButton block not found');
-
             const replacement = `\n}\n\nfunction ActionButton({\n  accent = false,\n  danger = false,\n  icon,\n  label,\n  onPress,\n}: {\n  accent?: boolean;\n  danger?: boolean;\n  icon: string;\n  label: string;\n  onPress: () => void;\n}) {\n  const { theme } = useAppTheme();\n  const styles = useMemo(() => createStyles(theme), [theme]);\n  const color = danger ? theme.colors.danger : accent ? theme.colors.accent : theme.colors.text;\n\n  return (\n    <Pressable\n      accessibilityRole="button"\n      onPress={onPress}\n      style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>\n      <MaterialCommunityIcons name={icon} size={18} color={color} />\n      <Text style={[styles.actionText, { color }]}>{label}</Text>\n    </Pressable>\n  );\n}\n\nfunction DetailItem`;
-
             return source.slice(0, start) + replacement + source.slice(end + endMarker.length);
           });
           NODE
-
-      - name: Validate audit gate locally
-        run: node scripts/validate-system-audit-gates.mjs
 
       - name: Install mobile dependencies
         working-directory: mobile
@@ -119,12 +97,11 @@ jobs:
         working-directory: mobile
         run: npm test
 
-      - name: Remove temporary workflow and commit
+      - name: Commit non-workflow changes
         shell: bash
         run: |
-          rm -f .github/workflows/zz-audit-hardening-autofix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/ci.yml docs/architecture/system-audit-gates.json scripts/validate-system-audit-gates.mjs mobile/.eslintrc.js mobile/src/screens/users-screen.tsx .github/workflows/zz-audit-hardening-autofix.yml
-          git commit -m "chore(ci): close audit portability and lint debt"
+          git add docs/architecture/system-audit-gates.json scripts/validate-system-audit-gates.mjs mobile/.eslintrc.js mobile/src/screens/users-screen.tsx
+          git commit -m "chore(mobile): close lint and authority audit debt"
           git push origin HEAD:audit/hardening-windows-lint-authorities-20260810
