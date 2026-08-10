@@ -189,6 +189,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       damping: 18,
       stiffness: 220,
       mass: 0.75,
+      overshootClamping: true,
       useNativeDriver: true,
     }).start();
   }, [panelDragY, reduceMotionEnabled]);
@@ -337,7 +338,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ['GPS', gpsLabel],
         ['Ultima actualizacion', lastUpdateLabel]
       );
-      // Atributos que no pertenecen al contrato operacional.
       if (selectedVehicle) {
         if (isFiniteMetricNumber(selectedVehicle.occupancy) && isFiniteMetricNumber(selectedVehicle.capacity)) {
           rows.push(['Ocupacion', `${selectedVehicle.occupancy} de ${selectedVehicle.capacity}`]);
@@ -345,7 +345,6 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         if (isFiniteMetricNumber(selectedVehicle.fuel)) rows.push(['Combustible', `${Math.round(selectedVehicle.fuel)}%`]);
         if (isFiniteMetricNumber(selectedVehicle.currentKilometers)) rows.push(['Odometro', `${Math.round(Number(selectedVehicle.currentKilometers))} km`]);
       }
-      // Hora de llegada tal como la calculo el backend. Nunca `ahora + minutos`.
       if (selectedUnit.route?.etaAt) rows.push(['ETA', formatEta(selectedUnit.route)]);
       if (selectedVehicle && isFiniteMetricNumber(selectedVehicle.delayMinutes)) {
         rows.push(['Retraso', `${Math.max(0, Math.round(selectedVehicle.delayMinutes))} min`]);
