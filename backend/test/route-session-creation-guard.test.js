@@ -96,9 +96,9 @@ async function testOffboardWinsDeferredCreate() {
       return { ...session };
     },
     getRouteSessionById: async () => session ? { ...session } : null,
-    updateRouteSession: async (sessionId, updates, options = {}) => {
+    updateRouteSession: async (sessionId, updates) => {
       assert.equal(sessionId, "session-race");
-      assert.equal(options.expectedStatus, "RUNNING");
+      assert.equal(updates.expectedStatus, "RUNNING");
       session = { ...session, ...updates };
       return { ...session, transitionApplied: true };
     },
