@@ -369,7 +369,7 @@ export function UsersScreen() {
   };
 
   const assignDriver = async (driverId: string | null) => {
-    if (!assignmentVehicle) return;
+    if (!assignmentVehicle || !canManageUsers) return;
     setAssignmentLoading(true);
     try {
       if (driverId === null) {
@@ -584,7 +584,9 @@ export function UsersScreen() {
                     {canManageVehicles && !vehicle.retiredAt ? (
                       <>
                         <ActionButton icon="pencil-outline" label="Editar" onPress={() => openVehicleEditor(vehicle)} />
-                        <ActionButton icon="account-switch-outline" label={vehicle.driverId ? 'Conductor' : 'Asignar conductor'} onPress={() => setAssignmentVehicle(vehicle)} />
+                        {canManageUsers ? (
+                          <ActionButton icon="account-switch-outline" label={vehicle.driverId ? 'Conductor' : 'Asignar conductor'} onPress={() => setAssignmentVehicle(vehicle)} />
+                        ) : null}
                         <ActionButton danger icon="archive-arrow-down-outline" label="Dar de baja" onPress={() => void openVehicleAction('retire', vehicle)} />
                       </>
                     ) : null}
