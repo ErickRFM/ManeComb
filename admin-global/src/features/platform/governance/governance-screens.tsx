@@ -268,7 +268,7 @@ function CreateUserPanel({ canCreateOwner, createState, createError, onCreate }:
       <View style={styles.formGrid}>
         <TextInput accessibilityLabel="Nombre completo" editable={!isSubmitting} onChangeText={setName} placeholder="Nombre completo" placeholderTextColor={palette.mutedSoft} style={styles.input} value={name} />
         <TextInput accessibilityLabel="Correo del usuario interno" autoCapitalize="none" autoComplete="email" editable={!isSubmitting} keyboardType="email-address" onChangeText={setEmail} placeholder="correo@manecomb.com" placeholderTextColor={palette.mutedSoft} style={styles.input} textContentType="emailAddress" value={email} />
-        <TextInput accessibilityLabel="Contraseña temporal" autoCapitalize="none" autoComplete="new-password" editable={!isSubmitting} onChangeText={setPassword} placeholder="Contraseña temporal (12+ caracteres)" placeholderTextColor={palette.mutedSoft} secureTextEntry style={styles.input} textContentType="newPassword" value={password} />
+        <TextInput accessibilityLabel="Contraseña temporal" autoCapitalize="none" editable={!isSubmitting} onChangeText={setPassword} placeholder="Contraseña temporal (12+ caracteres)" placeholderTextColor={palette.mutedSoft} secureTextEntry style={styles.input} textContentType="newPassword" value={password} />
       </View>
       <Text style={styles.fieldHint}>Rol inicial</Text>
       <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
