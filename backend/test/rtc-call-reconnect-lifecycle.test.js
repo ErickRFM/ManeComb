@@ -95,7 +95,7 @@ function harness(store) {
       userId: admin.id,
       organizationId: admin.organizationId,
       socketId: "admin-new",
-      isSocketConnected: async () => false
+      isSocketConnected: async (socketId) => socketId === "driver-owner"
     });
     assert.equal(recovered.ok, true);
 
@@ -125,6 +125,65 @@ function harness(store) {
       isSocketConnected: async (socketId) => socketId !== "admin-crashed"
     }), false);
     assert.equal(h.service._state.pendingDisconnects.size, 1);
+    await h.runTimers();
+    assert.equal(await h.service.getCall(call.callId), null);
+  }
+
+  // Heartbeat alone never recovers media; rtc:join is the only grace-clearing authority.
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-leave-owner",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-leave-owner", callId: call.callId });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-leave-owner" }), true);
+    assert.equal(await h.service.refreshForSocket(admin.id, "admin-leave-owner", {
+      isSocketConnected: async () => true
+    }), false, "heartbeat cannot clear a media disconnect marker");
+    assert.equal(h.service._state.callsById.get(call.callId).disconnectingUserId, admin.id);
+
+    const rejoin = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-leave-owner",
+      isSocketConnected: async () => true
+    });
+    assert.equal(rejoin.ok, true);
+    assert.equal(h.service._state.callsById.get(call.callId).disconnectingUserId, null);
+    assert.equal(await h.service.refreshForSocket(admin.id, "admin-leave-owner", {
+      isSocketConnected: async () => true
+    }), true);
+  }
+
+  // If both owners disappear, the first rejoin transfers the existing grace to the still-missing peer.
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-both-old",
+      conversationId: CONV_DIRECT,
+      mode: "video"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-both-old", callId: call.callId });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-both-old" }), true);
+    assert.equal(await h.service.handleDisconnect(driver.id, { socketId: "driver-both-old" }), true);
+
+    const rejoin = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-both-new",
+      isSocketConnected: async () => false
+    });
+    assert.equal(rejoin.ok, true);
+    const active = h.service._state.callsById.get(call.callId);
+    assert.equal(active.callerSocketId, "admin-both-new");
+    assert.equal(active.disconnectingUserId, driver.id);
+    assert.equal(active.disconnectingSocketId, "driver-both-old");
     await h.runTimers();
     assert.equal(await h.service.getCall(call.callId), null);
   }

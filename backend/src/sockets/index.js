@@ -1139,9 +1139,14 @@ function registerSocketServer(server, store) {
 
     socket.on("rtc:leave", async ({ callId } = {}) => {
       const startedAt = Date.now();
-      const safeRoomId = callRoomIdOf(callId);
+      const safeCallId = String(callId || "").trim();
+      const safeRoomId = callRoomIdOf(safeCallId);
       if (safeRoomId) await leaveRtcRoom(socket, safeRoomId);
-      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: String(callId || "") || null });
+      const userId = socket.data.user?.id || null;
+      if (safeCallId && userId) {
+        await callService.handleDisconnect(userId, { socketId: socket.id });
+      }
+      observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: safeCallId || null });
     });
 
     ["rtc:offer", "rtc:answer", "rtc:ice-candidate"].forEach((eventName) => {

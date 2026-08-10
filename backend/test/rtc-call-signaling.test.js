@@ -340,6 +340,11 @@ function fakeStore(conversation) {
     const presenceEnd = socketSource.indexOf('socket.on("client:heartbeat"', presenceStart);
     assert.equal(socketSource.slice(presenceStart, presenceEnd).includes('noteUserReconnected'), false);
 
+    const leaveStart = socketSource.indexOf('socket.on("rtc:leave"');
+    const leaveEnd = socketSource.indexOf('["rtc:offer", "rtc:answer", "rtc:ice-candidate"]', leaveStart);
+    const leaveBlock = socketSource.slice(leaveStart, leaveEnd);
+    assert.ok(leaveBlock.includes('handleDisconnect(userId, { socketId: socket.id })'));
+
     const disconnectStart = socketSource.indexOf('socket.on("disconnect", async () =>');
     const disconnectEnd = socketSource.indexOf('  });\n\n  return io;', disconnectStart);
     const disconnectBlock = socketSource.slice(disconnectStart, disconnectEnd);

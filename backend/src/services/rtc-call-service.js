@@ -536,22 +536,8 @@ function createRtcCallService({
             return false;
           }
           const markedOwner = socketOwnerId(call, markedUserId) || String(call.disconnectingSocketId || "").trim() || null;
-          const markedIsLive = Boolean(
-            markedOwner &&
-            typeof isSocketConnected === "function" &&
-            await isSocketConnected(markedOwner)
-          );
-          if (markedIsLive) {
-            const next = {
-              ...call,
-              disconnectingUserId: null,
-              disconnectingSocketId: null,
-              disconnectDeadlineAt: null
-            };
-            if (await authority.compareAndSet(call, next, { ttlMs: activeLeaseMs })) return true;
-            continue;
-          }
-
+          // Heartbeat proves transport liveness only. It never proves that media rejoined the RTC room.
+          // Recovery/ownership transfer is exclusively authorized by canJoinCall().
           if (markedOwner) scheduleDisconnectCleanup(call, markedUserId, markedOwner);
           if (await authority.refresh(call, { ttlMs: leaseTtlForCall(call) })) return false;
           continue;
@@ -652,18 +638,36 @@ function createRtcCallService({
         }
 
         const clearingOwnGrace = call.disconnectingUserId === userId;
+        let missingPeer = null;
+        if (clearingOwnGrace && typeof isSocketConnected === "function") {
+          for (const peerId of callParticipantIds(call).filter((id) => id !== userId)) {
+            const peerSocketId = socketOwnerId(call, peerId);
+            if (!peerSocketId || !(await isSocketConnected(peerSocketId))) {
+              missingPeer = { userId: peerId, socketId: peerSocketId };
+              break;
+            }
+          }
+        }
         const next = {
           ...call,
           [field]: safeSocketId,
           ...(clearingOwnGrace
-            ? {
-                disconnectingUserId: null,
-                disconnectingSocketId: null,
-                disconnectDeadlineAt: null
-              }
+            ? missingPeer
+              ? {
+                  disconnectingUserId: missingPeer.userId,
+                  disconnectingSocketId: missingPeer.socketId,
+                  disconnectDeadlineAt: call.disconnectDeadlineAt
+                }
+              : {
+                  disconnectingUserId: null,
+                  disconnectingSocketId: null,
+                  disconnectDeadlineAt: null
+                }
             : {})
         };
-        const ttlMs = clearingOwnGrace ? activeLeaseMs : leaseTtlForCall(call);
+        const ttlMs = clearingOwnGrace
+          ? missingPeer ? leaseTtlForCall(call) : activeLeaseMs
+          : leaseTtlForCall(call);
         if (JSON.stringify(next) === JSON.stringify(call)) {
           if (await authority.refresh(call, { ttlMs })) {
             return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
@@ -671,6 +675,9 @@ function createRtcCallService({
           continue;
         }
         if (await authority.compareAndSet(call, next, { ttlMs })) {
+          if (missingPeer?.socketId) {
+            scheduleDisconnectCleanup(next, missingPeer.userId, missingPeer.socketId);
+          }
           return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
         }
       }
