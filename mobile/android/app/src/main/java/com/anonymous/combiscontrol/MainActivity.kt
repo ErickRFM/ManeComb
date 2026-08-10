@@ -18,11 +18,13 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    sanitizeCallIntent(intent)
     configureIncomingCallWindow(intent)
     super.onCreate(null)
   }
 
   override fun onNewIntent(intent: Intent) {
+    sanitizeCallIntent(intent)
     configureIncomingCallWindow(intent)
     super.onNewIntent(intent)
     setIntent(intent)
@@ -38,6 +40,20 @@ class MainActivity : ReactActivity() {
     applyIncomingCallWindow(active)
     if (active) {
       mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)
+    }
+  }
+
+  /**
+   * El scheme manecomb:// es publico por definicion de Android. Antes de que React/Linking
+   * vea una URL /call exigimos la marca que solo agregan nuestros PendingIntent/FCM internos.
+   * Otros deep links (chat, rutas, etc.) conservan su comportamiento publico.
+   */
+  private fun sanitizeCallIntent(sourceIntent: Intent?) {
+    val uri = sourceIntent?.data ?: return
+    val isCallIntent = uri.path?.trim()?.equals("/call", ignoreCase = true) == true
+    val isInternalCallIntent = sourceIntent.getBooleanExtra(EXTRA_INTERNAL_CALL_INTENT, false)
+    if (isCallIntent && !isInternalCallIntent) {
+      sourceIntent.data = null
     }
   }
 
@@ -96,6 +112,7 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
+    const val EXTRA_INTERNAL_CALL_INTENT = "manecomb.internal.CALL_INTENT"
     private const val INCOMING_CALL_WINDOW_MAX_MS = 45_000L
   }
 }
