@@ -6,9 +6,8 @@ export {};
 
 describe('RTC media permission preflight placement', () => {
   const root = nodeProcess.cwd();
-  const chatScreen = fs.readFileSync(path.join(root, 'src', 'screens', 'chat-screen.tsx'), 'utf8');
-  const incomingModal = fs.readFileSync(
-    path.join(root, 'src', 'features', 'calls', 'components', 'incoming-call-modal.tsx'),
+  const callStore = fs.readFileSync(
+    path.join(root, 'src', 'features', 'calls', 'call-store.ts'),
     'utf8'
   );
   const callOverlay = fs.readFileSync(
@@ -20,27 +19,34 @@ describe('RTC media permission preflight placement', () => {
     'utf8'
   );
 
-  it('gates outgoing signaling before controller.startCall', () => {
-    const permissionIndex = chatScreen.indexOf('ensureCallMediaPermissionsForUi(mode)');
-    const startIndex = chatScreen.indexOf('controller.startCall(mode)');
+  it('gates outgoing signaling in the store before emitStartCall', () => {
+    const startBlock = callStore.slice(callStore.indexOf('startCall: async'));
+    const permissionIndex = startBlock.indexOf('ensureMediaPermissions');
+    const signalIndex = startBlock.indexOf('emitStartCall');
     expect(permissionIndex).toBeGreaterThan(-1);
-    expect(startIndex).toBeGreaterThan(permissionIndex);
-    expect(chatScreen).toContain('if (!granted) return;');
+    expect(signalIndex).toBeGreaterThan(permissionIndex);
+    expect(startBlock).toContain("code: 'media_permission_required'");
   });
 
-  it('gates manual incoming accept before backend accept', () => {
-    const permissionIndex = incomingModal.indexOf('ensureCallMediaPermissionsForUi');
-    const acceptIndex = incomingModal.indexOf('await acceptIncomingCall()');
+  it('gates incoming accept in the store before LOCAL_ACCEPT and emitAccept', () => {
+    const acceptBlock = callStore.slice(callStore.indexOf('acceptIncomingCall: async'));
+    const permissionIndex = acceptBlock.indexOf('ensureMediaPermissions');
+    const localAcceptIndex = acceptBlock.indexOf("type: 'LOCAL_ACCEPT'");
+    const signalIndex = acceptBlock.indexOf('emitAccept');
     expect(permissionIndex).toBeGreaterThan(-1);
-    expect(acceptIndex).toBeGreaterThan(permissionIndex);
-    expect(incomingModal).toContain("phase === 'INCOMING_RINGING'");
+    expect(localAcceptIndex).toBeGreaterThan(permissionIndex);
+    expect(signalIndex).toBeGreaterThan(localAcceptIndex);
   });
 
-  it('gates notification accept before backend accept', () => {
-    const permissionIndex = callOverlay.indexOf('ensureCallMediaPermissionsForUi');
-    const acceptIndex = callOverlay.indexOf('acceptIncomingCall()');
-    expect(permissionIndex).toBeGreaterThan(-1);
-    expect(acceptIndex).toBeGreaterThan(permissionIndex);
+  it('routes push accept through the same store authority', () => {
+    expect(callOverlay).toContain('useCallStore.getState().acceptIncomingCall()');
+    expect(callOverlay).toContain('<CallPermissionModal />');
+    expect(callOverlay).not.toContain('ensureCallMediaPermissionsForUi');
+  });
+
+  it('delays microphone/camera foreground service until local media exists', () => {
+    expect(callOverlay).toContain('const localStream = useCallStore');
+    expect(callOverlay).toContain('hasActiveCallPhase && Boolean(localStream)');
   });
 
   it('keeps a final permission defense at getUserMedia boundary', () => {
