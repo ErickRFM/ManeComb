@@ -1061,27 +1061,34 @@ export function UsersScreen() {
     </AppShell>
   );
 
-  function ActionButton({
-    accent = false,
-    danger = false,
-    icon,
-    label,
-    onPress,
-  }: {
-    accent?: boolean;
-    danger?: boolean;
-    icon: string;
-    label: string;
-    onPress: () => void;
-  }) {
-    const color = danger ? theme.colors.danger : accent ? theme.colors.accent : theme.colors.text;
-    return (
-      <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>
-        <MaterialCommunityIcons name={icon} size={18} color={color} />
-        <Text style={[styles.actionText, { color }]}>{label}</Text>
-      </Pressable>
-    );
-  }
+}
+
+function ActionButton({
+  accent = false,
+  danger = false,
+  icon,
+  label,
+  onPress,
+}: {
+  accent?: boolean;
+  danger?: boolean;
+  icon: string;
+  label: string;
+  onPress: () => void;
+}) {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const color = danger ? theme.colors.danger : accent ? theme.colors.accent : theme.colors.text;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>
+      <MaterialCommunityIcons name={icon} size={18} color={color} />
+      <Text style={[styles.actionText, { color }]}>{label}</Text>
+    </Pressable>
+  );
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {

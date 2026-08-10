@@ -84,6 +84,11 @@ if (errors.length === 0) {
     fail('maxBaselineDriftCommits must be a positive integer.');
   }
 
+  const maxAuthorityMapDrift = Number(contract.maxAuthorityMapDriftCommits);
+  if (!Number.isInteger(maxAuthorityMapDrift) || maxAuthorityMapDrift < 1) {
+    fail('maxAuthorityMapDriftCommits must be a positive integer.');
+  }
+
   if (errors.length === 0) {
     try {
       git('merge-base', '--is-ancestor', baseline, 'HEAD');
@@ -110,6 +115,7 @@ if (errors.length === 0) {
   const requiredCiMarkers = [
     'Backend tests',
     'Mobile quality',
+    'Mobile Jest (Windows)',
     'Android debug APK certification',
     'Infrastructure validation',
     'validate-system-authorities.mjs',
@@ -124,16 +130,20 @@ if (errors.length === 0) {
     try {
       git('merge-base', '--is-ancestor', authorityBaseline, freshnessRef);
       const authorityDrift = commitDrift(authorityBaseline, freshnessRef);
-      if (authorityDrift > maxDrift) {
+      if (authorityDrift > maxAuthorityMapDrift) {
+        fail(
+          `System authority map is ${authorityDrift} commits behind ${freshnessRef} ` +
+          `(max ${maxAuthorityMapDrift}). Refresh the semantic authority audit before merge.`
+        );
+      } else {
         console.log(
-          `::warning::System authority map is ${authorityDrift} commits behind ${freshnessRef}. ` +
-          'Its schema may be valid while its findings are stale; refresh it in a dedicated authority audit.'
+          `System authority map drift vs ${freshnessRef}: ${authorityDrift}/${maxAuthorityMapDrift} commits.`
         );
       }
     } catch {
-      console.log(
-        `::warning::System authority map baseline is not an ancestor of ${freshnessRef}; ` +
-        'dedicated reconciliation required.'
+      fail(
+        `System authority map baseline is not an ancestor of ${freshnessRef}. ` +
+        'Run a dedicated semantic authority reconciliation before merge.'
       );
     }
   } else {
