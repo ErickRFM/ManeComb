@@ -97,9 +97,12 @@ describe('shared realtime socket discovery', () => {
     expect(shouldRequestColdStartRealtimeRecovery({ ...base, hasSocket: true })).toBe(false);
   });
 
-  it('revalidates backend authority when a vehicle leaves the active fleet', () => {
+  it('revalidates backend authority for driver and vehicle lifecycle changes', () => {
     expect(FLEET_REALTIME_INVALIDATION_EVENTS).toEqual([
+      'driver:offboarded',
+      'driver:reactivated',
       'vehicle:deleted',
+      'vehicle:released',
       'vehicle:retired',
     ]);
   });
