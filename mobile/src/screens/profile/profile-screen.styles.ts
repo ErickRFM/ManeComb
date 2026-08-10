@@ -236,6 +236,15 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
       minHeight: 44,
       paddingHorizontal: 12,
     },
+    profileActions: {
+      flexDirection: isPhone ? 'column' : 'row',
+      gap: 10,
+      width: '100%',
+    },
+    profileActionButton: {
+      flex: isPhone ? undefined : 1,
+      minWidth: 0,
+    },
     documentUploadButton: {
       alignItems: 'center',
       backgroundColor: theme.colors.accent,
@@ -246,6 +255,24 @@ export function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isC
     },
     documentUploadText: {
       color: AppTheme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    documentSelfServiceButton: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.accent,
+      borderRadius: AppTheme.radius.xs3,
+      borderWidth: 1.5,
+      flexDirection: 'row',
+      gap: 8,
+      justifyContent: 'center',
+      minHeight: 44,
+      paddingHorizontal: 14,
+    },
+    documentSelfServiceText: {
+      color: theme.colors.accent,
       fontFamily: Typography.body,
       fontSize: 13,
       fontWeight: '900',
