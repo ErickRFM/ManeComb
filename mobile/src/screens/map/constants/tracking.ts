@@ -8,8 +8,8 @@ export const LOCATION_SYNC_INTERVAL_MS = 5000;
 // convertir una parada real en una falsa desconexion.
 export const LOCATION_HEARTBEAT_INTERVAL_MS = 10000;
 
-// Si el watcher permanece activo pero deja de entregar cualquier fix durante
-// esta ventana, la app conserva la ultima coordenada y cambia el HUD a estado
-// de senal no disponible. No se confunde con perdida de Internet.
-export const LOCATION_FIX_WATCHDOG_MS = 20000;
-export const LOCATION_FIX_WATCHDOG_POLL_MS = 5000;
+// Dos/tres ciclos nativos sin ningun fix ya son suficientes para tratar la
+// captura como sospechosa. El chequeo es barato (permiso + proveedor) y corre
+// solo mientras el watcher foreground esta activo.
+export const LOCATION_FIX_WATCHDOG_MS = 15000;
+export const LOCATION_FIX_WATCHDOG_POLL_MS = 2500;
