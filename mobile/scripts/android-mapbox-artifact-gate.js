@@ -3,9 +3,35 @@ const { Buffer } = require('node:buffer');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+const MAPBOX_STRING_RESOURCE = 'mapbox_access_token';
+
 function fail(message) {
   console.error(message);
   process.exit(1);
+}
+
+/**
+ * Evidencia real de que el APK quedo configurado para Mapbox.
+ *
+ * El token llega al artifact por dos vias, ambas generadas desde el ENVFILE:
+ *   - BuildConfig.MAPBOX_ACCESS_TOKEN, que react-native-config emite via
+ *     dotenv.gradle y termina en classes*.dex;
+ *   - los string resources, tanto el que emite dotenv.gradle como el
+ *     `mapbox_access_token` declarado en app/build.gradle.
+ *
+ * El AndroidManifest NO participa: ni los manifests de la app
+ * (main/debug/debugOptimized) ni el de @rnmapbox/maps declaran el token, asi que
+ * exigirlo alli era una condicion imposible de satisfacer y hacia fallar la
+ * certificacion aunque el APK estuviera bien configurado.
+ *
+ * Devuelve los nombres de la evidencia ausente, nunca el valor del token.
+ */
+function missingMapboxArtifactEvidence({ dex, resourceValue, resourceEntry }) {
+  return [
+    dex ? null : 'dex',
+    resourceValue ? null : 'resources',
+    resourceEntry ? null : `string/${MAPBOX_STRING_RESOURCE}`,
+  ].filter(Boolean);
 }
 
 function validToken(value) {
@@ -58,19 +84,29 @@ function certify(apkPath, envFile) {
 
   const aapt2 = resolveAapt2();
   const resources = capture(aapt2, ['dump', 'resources', apkPath]);
-  const manifest = capture(aapt2, ['dump', 'xmltree', apkPath, 'AndroidManifest.xml']);
   const tokenBytes = Buffer.from(token);
   const dexContainsToken = entries.filter((entry) => /^classes\d*\.dex$/.test(entry))
     .some((entry) => capture('unzip', ['-p', apkPath, entry]).includes(tokenBytes));
-  const manifestText = manifest.toString('utf8');
-  if (!dexContainsToken || !resources.includes(tokenBytes) ||
-      (!manifestText.includes('mapbox_access_token') && !manifestText.includes('MAPBOX_ACCESS_TOKEN'))) {
+
+  const missing = missingMapboxArtifactEvidence({
+    dex: dexContainsToken,
+    resourceValue: resources.includes(tokenBytes),
+    resourceEntry: resources.includes(Buffer.from(MAPBOX_STRING_RESOURCE)),
+  });
+
+  if (missing.length) {
+    // Nombres de evidencia, nunca el valor del token.
+    console.error(`Mapbox APK configuration missing: ${missing.join(', ')}`);
     fail('Mapbox APK configuration: FAIL');
   }
   console.log('Mapbox APK configuration: PASS');
 }
 
-const [command, first, second] = process.argv.slice(2);
-if (command === 'prepare' && first) prepare(first);
-else if (command === 'certify' && first && second) certify(first, second);
-else fail('Uso: android-mapbox-artifact-gate.js prepare <env> | certify <apk> <env>');
+if (require.main === module) {
+  const [command, first, second] = process.argv.slice(2);
+  if (command === 'prepare' && first) prepare(first);
+  else if (command === 'certify' && first && second) certify(first, second);
+  else fail('Uso: android-mapbox-artifact-gate.js prepare <env> | certify <apk> <env>');
+}
+
+module.exports = { missingMapboxArtifactEvidence };
