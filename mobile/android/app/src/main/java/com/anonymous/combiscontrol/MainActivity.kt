@@ -3,6 +3,8 @@ package com.anonymous.combiscontrol
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -10,6 +12,11 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnable
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 class MainActivity : ReactActivity() {
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val clearIncomingCallWindow = Runnable {
+    applyIncomingCallWindow(false)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     configureIncomingCallWindow(intent)
     super.onCreate(null)
@@ -22,27 +29,47 @@ class MainActivity : ReactActivity() {
   }
 
   /**
-   * Solo una URL autoritativa /call puede aparecer sobre la pantalla bloqueada. Una apertura
-   * normal restaura inmediatamente el comportamiento de privacidad habitual de la app.
+   * Solo una URL autoritativa /call puede aparecer sobre la pantalla bloqueada.
+   * El lifecycle JS puede apagarla antes y este timeout nativo evita que una URL
+   * invalida/vencida deje la Activity visible si React nunca llega a rehidratarla.
    */
+  fun setIncomingCallWindowActive(active: Boolean) {
+    mainHandler.removeCallbacks(clearIncomingCallWindow)
+    applyIncomingCallWindow(active)
+    if (active) {
+      mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)
+    }
+  }
+
   private fun configureIncomingCallWindow(sourceIntent: Intent?) {
     val isCallIntent = sourceIntent?.data?.path?.trim()?.equals("/call", ignoreCase = true) == true
+    setIncomingCallWindowActive(isCallIntent)
+  }
+
+  private fun applyIncomingCallWindow(active: Boolean) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-      setShowWhenLocked(isCallIntent)
-      setTurnScreenOn(isCallIntent)
-    } else if (isCallIntent) {
-      @Suppress("DEPRECATION")
+      setShowWhenLocked(active)
+      setTurnScreenOn(active)
+      return
+    }
+
+    @Suppress("DEPRECATION")
+    if (active) {
       window.addFlags(
         android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
           android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
       )
     } else {
-      @Suppress("DEPRECATION")
       window.clearFlags(
         android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
           android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
       )
     }
+  }
+
+  override fun onDestroy() {
+    mainHandler.removeCallbacks(clearIncomingCallWindow)
+    super.onDestroy()
   }
 
   override fun getMainComponentName(): String = "main"
@@ -56,13 +83,17 @@ class MainActivity : ReactActivity() {
   }
 
   override fun invokeDefaultOnBackPressed() {
-      if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
-          if (!moveTaskToBack(false)) {
-              super.invokeDefaultOnBackPressed()
-          }
-          return
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
+      if (!moveTaskToBack(false)) {
+        super.invokeDefaultOnBackPressed()
       }
+      return
+    }
 
-      super.invokeDefaultOnBackPressed()
+    super.invokeDefaultOnBackPressed()
+  }
+
+  companion object {
+    private const val INCOMING_CALL_WINDOW_MAX_MS = 45_000L
   }
 }
