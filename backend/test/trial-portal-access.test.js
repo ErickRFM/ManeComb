@@ -27,6 +27,20 @@ async function requestJson(url, init = {}) {
   };
 }
 
+async function registerOwner(api, { companyName, email, name }) {
+  return requestJson(`${api}/auth/register`, {
+    method: "POST",
+    body: JSON.stringify({
+      accountType: "company_owner",
+      companyName,
+      email,
+      name,
+      password: "Ruta123!",
+      phone: "+52 55 2000 0000"
+    })
+  });
+}
+
 async function main() {
   const store = createEmbeddedStore();
   const app = createApp({
@@ -49,16 +63,10 @@ async function main() {
 
     const email = `trial-portal-${Date.now()}@manecomb.test`;
     const companyName = "ManeComb Trial QA";
-    const registration = await requestJson(`${api}/auth/register`, {
-      method: "POST",
-      body: JSON.stringify({
-        accountType: "company_owner",
-        companyName,
-        email,
-        name: "Owner Trial",
-        password: "Ruta123!",
-        phone: "+52 55 2000 0000"
-      })
+    const registration = await registerOwner(api, {
+      companyName,
+      email,
+      name: "Owner Trial"
     });
 
     assert.equal(registration.status, 201);
@@ -125,7 +133,62 @@ async function main() {
     assert.equal(portal.status, 200);
     assert.equal(portal.body.ok, true);
 
-    console.log("ok - trial activa Portal y Mobile para owner empresarial sin proveedor de pagos");
+    const cardDemoEmail = `trial-card-${Date.now()}@manecomb.test`;
+    const cardDemoCompany = "ManeComb Card Demo QA";
+    const cardRegistration = await registerOwner(api, {
+      companyName: cardDemoCompany,
+      email: cardDemoEmail,
+      name: "Owner Card Demo"
+    });
+
+    assert.equal(cardRegistration.status, 201);
+    assert.ok(cardRegistration.body.token);
+
+    const cardDemoCheckout = await requestJson(`${api}/commercial/checkout`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${cardRegistration.body.token}`,
+        "Idempotency-Key": `trial-card-${Date.now()}-0001`
+      },
+      body: JSON.stringify({
+        companyName: cardDemoCompany,
+        contactName: "Owner Card Demo",
+        email: cardDemoEmail,
+        paymentMethod: "card",
+        phone: "+52 55 2000 0000",
+        planId: "starter-2",
+        requestTrial: true,
+        selectedAddOns: []
+      })
+    });
+
+    assert.equal(cardDemoCheckout.status, 201);
+    assert.equal(cardDemoCheckout.body.data.paymentProvider, "trial_access");
+    assert.equal(cardDemoCheckout.body.data.paymentStatus, "trial_active");
+    assert.notEqual(cardDemoCheckout.body.data.paymentStatus, "paid");
+    assert.notEqual(cardDemoCheckout.body.data.paymentStatus, "paid_test");
+    assert.equal(cardDemoCheckout.body.data.activationStatus, "active");
+    assert.equal(cardDemoCheckout.body.data.checkoutUrl, null);
+
+    const cardDemoOrders = await store.listCommercialOrders();
+    const cardDemoOrder = cardDemoOrders.find((entry) => entry.email === cardDemoEmail);
+    assert.ok(cardDemoOrder);
+    assert.equal(cardDemoOrder.paymentMethod, "card");
+    assert.equal(cardDemoOrder.requestTrial, true);
+    assert.equal(cardDemoOrder.trialStatus, "active");
+    assert.equal(cardDemoOrder.activationStatus, "active");
+    assert.ok(cardDemoOrder.lastNotificationAt);
+    assert.ok(cardDemoOrder.lastNotificationStatus);
+
+    const cardDemoSession = await requestJson(`${api}/auth/me`, {
+      headers: { Authorization: `Bearer ${cardRegistration.body.token}` }
+    });
+    assert.equal(cardDemoSession.status, 200);
+    assert.equal(cardDemoSession.body.subscription.status, "trial");
+    assert.equal(cardDemoSession.body.canUseOperations, true);
+    assert.equal(cardDemoSession.body.canAccessMobile, true);
+
+    console.log("ok - trial activa Portal/Mobile y card demo conserva método sin marcar pago real");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
