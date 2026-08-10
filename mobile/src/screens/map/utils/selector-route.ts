@@ -98,7 +98,12 @@ export function createStopFromPoint(point: NavigationPlaceResult, order: number)
   };
 }
 
-export function getSelectorCopy(hasOrigin: boolean, hasDestination: boolean, stopCount: number) {
+export function getSelectorCopy(
+  hasOrigin: boolean,
+  hasDestination: boolean,
+  stopCount: number,
+  isEditingRoute = false
+) {
   const step = !hasOrigin ? 1 : !hasDestination ? 2 : 3;
   const title =
     step === 1
@@ -114,8 +119,9 @@ export function getSelectorCopy(hasOrigin: boolean, hasDestination: boolean, sto
         : stopCount
           ? 'Cada toque agrega otro waypoint. Puedes deshacer el ultimo o continuar.'
           : 'Las paradas son opcionales. Toca el mapa para agregar una o continua.';
+  const confirmLabel = isEditingRoute ? 'Guardar cambios' : 'Continuar';
 
-  return { step, title, hint };
+  return { step, title, hint, confirmLabel };
 }
 
 export function buildConfirmSelectionParams(
