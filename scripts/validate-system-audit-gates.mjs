@@ -115,6 +115,7 @@ if (errors.length === 0) {
   const requiredCiMarkers = [
     'Backend tests',
     'Mobile quality',
+    'Mobile Jest (Windows)',
     'Android debug APK certification',
     'Infrastructure validation',
     'validate-system-authorities.mjs',
