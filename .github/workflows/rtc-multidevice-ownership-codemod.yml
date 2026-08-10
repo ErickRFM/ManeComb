@@ -1,0 +1,38 @@
+name: RTC multidevice ownership codemod
+
+on:
+  push:
+    branches:
+      - fix/rtc-multidevice-accept-ownership
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: github.event.head_commit.message != 'fix(rtc): bind accept ownership to the winning socket'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/rtc-multidevice-accept-ownership
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Apply deterministic multidevice migration
+        run: node scripts/apply-rtc-multidevice-ownership-codemod.js
+      - name: Validate generated JavaScript
+        run: |
+          node --check backend/src/services/rtc-call-service.js
+          node --check backend/src/sockets/index.js
+          node --check backend/test/rtc-call-signaling.test.js
+      - name: Commit generated migration
+        run: |
+          git config user.name "ErickRFM"
+          git config user.email "55464579+ErickRFM@users.noreply.github.com"
+          git add backend/src/services/rtc-call-service.js backend/src/sockets/index.js backend/test/rtc-call-signaling.test.js mobile/src/features/calls/call-types.ts mobile/src/features/calls/call-runtime.ts mobile/src/features/calls/call-store.ts mobile/src/features/calls/call-multidevice-ownership.test.ts
+          git commit -m "fix(rtc): bind accept ownership to the winning socket"
+          git push origin HEAD:fix/rtc-multidevice-accept-ownership
