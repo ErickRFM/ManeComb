@@ -30,6 +30,12 @@ assert.match(store, /listRequestId/);
 assert.match(store, /detailRequestId/);
 assert.match(store, /requestId !== listRequestId/);
 assert.match(store, /requestId !== detailRequestId/);
+assert.match(store, /platformCompanyRequest\(token, organizationId\)/);
+assert.doesNotMatch(
+  store,
+  /current\.detailState === 'ready'.*current\.selected\?\.organizationId === organizationId/s,
+  'El detalle de empresa debe revalidar backend al entrar para reflejar cambios de Portal/Mobile.'
+);
 
 for (const field of [
   'company.companyName',
@@ -77,4 +83,4 @@ assert.doesNotMatch(types, /latitude|longitude|location:/i);
 assert.match(shell, /pathname\.startsWith/);
 assert.match(shell, /resetCompanies\(\)/);
 
-console.log('ok - ADM-GLOBAL-P2 company list, detail, permissions and request ordering contracts');
+console.log('ok - ADM-GLOBAL-P2 company list, detail, permissions, freshness and request ordering contracts');

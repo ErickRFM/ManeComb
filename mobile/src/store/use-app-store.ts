@@ -5,6 +5,7 @@ import {
   useAppStore,
 } from './root-store';
 import {
+  FLEET_REALTIME_INVALIDATION_EVENTS,
   SHARED_SOCKET_DISCOVERY_INTERVAL_MS,
   shouldRequestColdStartRealtimeRecovery,
   shouldRetrySharedRealtimeSocket,
@@ -121,6 +122,24 @@ export function useSharedRealtimeSocket(): Socket | null {
     token,
     userId,
   ]);
+
+  useEffect(() => {
+    if (!sharedSocket) return undefined;
+
+    const refreshFleetAuthority = () => {
+      void useAppStore.getState().refreshAll().catch(() => undefined);
+    };
+
+    FLEET_REALTIME_INVALIDATION_EVENTS.forEach((eventName) => {
+      sharedSocket.on(eventName, refreshFleetAuthority);
+    });
+
+    return () => {
+      FLEET_REALTIME_INVALIDATION_EVENTS.forEach((eventName) => {
+        sharedSocket.off(eventName, refreshFleetAuthority);
+      });
+    };
+  }, [sharedSocket]);
 
   return sharedSocket;
 }

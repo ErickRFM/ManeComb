@@ -57,10 +57,11 @@ export const usePlatformCompanyStore = create<CompanyStore>((set, get) => ({
     }
   },
 
-  loadDetail: async (token, organizationId, force = false) => {
+  loadDetail: async (token, organizationId, _force = false) => {
     if (!token || !organizationId) return;
-    const current = get();
-    if (!force && current.detailState === 'ready' && current.selected?.organizationId === organizationId) return;
+    // El detalle agrega usuarios, unidades y estado comercial que pueden cambiar
+    // desde Portal/Ventas o Mobile. Revalidar siempre al entrar evita servir un
+    // snapshot viejo durante la misma sesion de Admin Global.
     const requestId = ++detailRequestId;
     set({ detailState: 'loading', detailError: null, selected: null });
     try {
