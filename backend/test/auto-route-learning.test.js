@@ -30,9 +30,12 @@ async function createEvidenceSession(store, {
   accuracy = 12, intervalMs = 30000, gapAfter = null
 }) {
   const start = new Date(Date.UTC(2026, 6, 1 + index, 12, 0, 0));
+  // Este helper genera evidencia geométrica sintética, no una operación física de
+  // un conductor. No inventar driverId: el guard de jornadas debe reservar esa
+  // relación para sesiones iniciadas por un driver real y asignado.
   const created = await store.createRouteSession({
     organizationId, routeId: `recording:${vehicleId}`, vehicleId,
-    driverId: `driver:${vehicleId}`, startedAt: start.toISOString()
+    startedAt: start.toISOString()
   });
   for (let pointIndex = 0; pointIndex < path.length; pointIndex += 1) {
     const gapMs = gapAfter !== null && pointIndex > gapAfter ? 600000 : 0;
