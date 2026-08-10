@@ -48,3 +48,59 @@ describe('radio screen history contracts', () => {
     }
   );
 });
+
+describe('Radio Pro console projection contracts', () => {
+  const fs = jest.requireActual('fs') as {
+    readFileSync: (filePath: string, encoding: string) => string;
+  };
+  const viewSource = fs.readFileSync('src/screens/radio/radio-screen-view.tsx', 'utf8');
+  const styleSource = fs.readFileSync('src/screens/radio/radio-screen.styles.ts', 'utf8');
+
+  it('projects a compact operational console instead of an empty flex layout', () => {
+    const heroCardStyles = styleSource.slice(
+      styleSource.indexOf('heroCard:'),
+      styleSource.indexOf('heroTopRow:')
+    );
+
+    expect(viewSource).toContain('ManeComb Radio Pro');
+    expect(viewSource).toContain('styles.operationalState');
+    expect(styleSource).toContain('consolePageContent:');
+    expect(heroCardStyles).toContain('flexGrow: 0');
+    expect(heroCardStyles).not.toContain("justifyContent: 'space-between'");
+  });
+
+  it('uses real TX metering and no fabricated RX waveform or duplicate player', () => {
+    expect(viewSource).toContain('{isCapturing ? (');
+    expect(viewSource).toContain('<PttAudioWave');
+    expect(viewSource).toContain('subscribeToPttAudioLevel');
+    expect(viewSource).not.toContain('rxWaveform');
+    expect(viewSource).not.toContain('Audio.Sound.createAsync');
+  });
+
+  it('keeps receiving and busy UI derived from the canonical console state', () => {
+    expect(viewSource).toContain('deriveLiveConsole({');
+    expect(viewSource).toContain('radioPhase === \'RECEIVING\'');
+    expect(viewSource).toContain('disabled={consoleState.pttDisabled}');
+    expect(viewSource).not.toMatch(/useState\([^\n]*(receiving|transmitting|channelBusy)/i);
+  });
+
+  it('keeps the full route label responsive and sourced from audio authority', () => {
+    expect(viewSource).toContain('getRadioRouteLabel(audioRoute.active)');
+    expect(viewSource).toContain('styles.routeChipText');
+    expect(viewSource).toContain('adjustsFontSizeToFit');
+    expect(styleSource).toMatch(/deviceCompactChip:\s*\{[\s\S]*?maxWidth: isPhone \? 132 : 168/);
+  });
+
+  it('exposes named pager tabs through the existing goToPage path', () => {
+    expect(viewSource).toContain('RADIO_PAGES.map');
+    expect(viewSource).toContain('accessibilityRole="tab"');
+    expect(viewSource).toContain('onPress={() => goToPage(index as RadioPageIndex)}');
+    expect(viewSource).toContain('{label}');
+  });
+
+  it('derives last transmission from loadedVoiceNotes and routes to Audios', () => {
+    expect(viewSource).toContain('const lastTransmission = loadedVoiceNotes[0] || null;');
+    expect(viewSource).toContain("setAudioFilter(activeChannel ? 'current' : 'all')");
+    expect(viewSource).toContain('goToPage(2);');
+  });
+});

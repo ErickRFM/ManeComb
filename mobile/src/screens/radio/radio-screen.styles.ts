@@ -5,7 +5,8 @@ import type { useAppTheme } from '@/src/hooks/use-app-theme';
 export function createStyles(
   theme: ReturnType<typeof useAppTheme>['theme'],
   isDesktop: boolean,
-  isPhone: boolean
+  isPhone: boolean,
+  isCompactConsole: boolean
 ) {
   return StyleSheet.create({
     container: {
@@ -28,33 +29,48 @@ export function createStyles(
       paddingRight: isPhone ? 0 : 2,
     },
     radioPage: {
-      justifyContent: 'space-between',
+      flex: 1,
+      minHeight: 0,
+    },
+    consolePageContent: {
+      flexGrow: 1,
+      paddingBottom: 2,
     },
     pageIndicators: {
-      minHeight: 22,
+      minHeight: 44,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
+      gap: 6,
       paddingTop: 4,
     },
     pageIndicatorHit: {
-      minWidth: 22,
-      minHeight: 18,
+      flex: 1,
+      minWidth: 0,
+      maxWidth: 112,
+      minHeight: 40,
+      borderRadius: 999,
+      flexDirection: 'row',
+      gap: 6,
       alignItems: 'center',
       justifyContent: 'center',
+      paddingHorizontal: isPhone ? 8 : 12,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
     },
-    pageIndicator: {
-      width: 7,
-      height: 7,
-      borderRadius: 999,
-      backgroundColor: theme.colors.line,
-      opacity: 0.72,
+    pageIndicatorText: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
     },
     pageIndicatorActive: {
-      width: 22,
-      backgroundColor: theme.colors.accent,
-      opacity: 1,
+      borderColor: theme.colors.accent,
+      backgroundColor: theme.colors.accentSoft,
+    },
+    pageIndicatorTextActive: {
+      color: theme.colors.accent,
     },
     header: {
       flexDirection: 'row',
@@ -113,7 +129,7 @@ export function createStyles(
     },
     deviceCompactChip: {
       minHeight: 40,
-      maxWidth: isPhone ? 82 : 152,
+      maxWidth: isPhone ? 132 : 168,
       borderRadius: AppTheme.radius.xs3,
       borderWidth: 1,
       borderColor: theme.colors.line,
@@ -126,6 +142,13 @@ export function createStyles(
     deviceCompactText: {
       flex: 1,
       minWidth: 0,
+      color: theme.colors.text,
+      fontFamily: Typography.body,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    routeChipText: {
+      flexShrink: 1,
       color: theme.colors.text,
       fontFamily: Typography.body,
       fontSize: 12,
@@ -422,15 +445,14 @@ export function createStyles(
       borderColor: theme.colors.accent,
     },
     heroCard: {
-      flex: 1,
+      flexGrow: 0,
       minWidth: 0,
       borderRadius: AppTheme.radius.lg,
       borderWidth: 1,
       borderColor: theme.colors.line,
       backgroundColor: theme.colors.surface,
-      justifyContent: 'space-between',
       padding: isPhone ? 12 : 16,
-      gap: isPhone ? 8 : 10,
+      gap: isPhone ? 10 : 12,
       ...(Platform.OS === 'web'
         ? {
             boxShadow: '0px 16px 34px rgba(4, 16, 27, 0.12)',
@@ -505,6 +527,13 @@ export function createStyles(
       lineHeight: 18,
       fontWeight: '900',
     },
+    operationalState: {
+      color: theme.colors.text,
+      fontFamily: Typography.display,
+      fontSize: 12,
+      lineHeight: 15,
+      letterSpacing: 0.7,
+    },
     operationalAction: {
       color: theme.colors.muted,
       fontFamily: Typography.body,
@@ -523,18 +552,18 @@ export function createStyles(
       flexGrow: 0,
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: isPhone ? 232 : 266,
+      minHeight: isCompactConsole ? 172 : isPhone ? 196 : 224,
     },
     pttHalo: {
       position: 'absolute',
-      width: isPhone ? 220 : 256,
-      height: isPhone ? 220 : 256,
+      width: isCompactConsole ? 164 : isPhone ? 188 : 216,
+      height: isCompactConsole ? 164 : isPhone ? 188 : 216,
       borderRadius: 999,
       backgroundColor: theme.colors.accentSoft,
     },
     pttOuter: {
-      width: isPhone ? 220 : 256,
-      height: isPhone ? 220 : 256,
+      width: isCompactConsole ? 164 : isPhone ? 188 : 216,
+      height: isCompactConsole ? 164 : isPhone ? 188 : 216,
       borderRadius: 999,
       borderWidth: 1,
       borderColor: theme.colors.accentSoft,
@@ -584,7 +613,7 @@ export function createStyles(
     pttButtonTitle: {
       color: '#FFFFFF',
       fontFamily: Typography.display,
-      fontSize: isPhone ? 24 : 27,
+      fontSize: isCompactConsole ? 21 : isPhone ? 23 : 26,
       fontWeight: '900',
     },
     pttButtonSubtitle: {
@@ -598,7 +627,7 @@ export function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       minWidth: 0,
-      gap: 12,
+      gap: isPhone ? 6 : 10,
       paddingVertical: 2,
     },
     consoleMetaItem: {
@@ -606,7 +635,7 @@ export function createStyles(
       minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: isPhone ? 5 : 8,
     },
     consoleMetaCopy: {
       flex: 1,
@@ -623,13 +652,70 @@ export function createStyles(
     consoleMetaValue: {
       color: theme.colors.text,
       fontFamily: Typography.display,
-      fontSize: 13,
+      fontSize: isPhone ? 11 : 13,
       lineHeight: 16,
     },
     consoleMetaDivider: {
       width: 1,
       height: 28,
       backgroundColor: theme.colors.line,
+    },
+    lastTransmissionCard: {
+      minHeight: 66,
+      borderRadius: AppTheme.radius.sm2,
+      borderWidth: 1,
+      borderColor: theme.colors.line,
+      backgroundColor: theme.colors.surfaceAlt,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    lastTransmissionIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      backgroundColor: theme.colors.accentSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    lastTransmissionCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 1,
+    },
+    lastTransmissionLabel: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 10,
+      lineHeight: 13,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+    },
+    lastTransmissionTitle: {
+      color: theme.colors.text,
+      fontFamily: Typography.display,
+      fontSize: 14,
+      lineHeight: 18,
+    },
+    lastTransmissionMeta: {
+      color: theme.colors.muted,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      lineHeight: 14,
+    },
+    lastTransmissionAction: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    lastTransmissionActionText: {
+      color: theme.colors.accent,
+      fontFamily: Typography.body,
+      fontSize: 11,
+      fontWeight: '900',
     },
     historyPanel: {
       flex: 1,
