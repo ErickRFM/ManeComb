@@ -90,7 +90,7 @@ describe('Android runtime hardening', () => {
     expect(renderer).not.toContain('.setTimeoutAfter(40_000L)');
   });
 
-  it('delivers foreground incoming-call FCM through the existing deep-link runtime', () => {
+  it('delivers foreground incoming and terminal FCM through the existing deep-link runtime', () => {
     const renderer = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -109,16 +109,19 @@ describe('Android runtime hardening', () => {
     );
 
     expect(renderer).toContain('"incoming_call" -> renderIncomingCall(context, data)');
+    expect(renderer).toContain('renderCallDismiss(context, data)');
     expect(renderer).toContain('deliverIncomingCallToForeground(context, data, deadline)');
+    expect(renderer).toContain('deliverCallDismissToForeground(context, data, callId)');
     expect(renderer).toContain('context.startActivity(intent)');
     expect(renderer).toContain('Intent.FLAG_ACTIVITY_NEW_TASK');
     expect(renderer).toContain('Intent.FLAG_ACTIVITY_SINGLE_TOP');
     expect(renderer).toContain('Intent.FLAG_ACTIVITY_CLEAR_TOP');
     expect(renderer).toContain('this.data = callDeepLink(data, "incoming", deadline)');
+    expect(renderer).toContain('.appendQueryParameter("action", "dismiss")');
     expect(renderer).not.toContain('if (!isAppInForeground(context)) showIncomingCall(context, data)');
   });
 
-  it('bounds lockscreen visibility and exposes an explicit lifecycle close', () => {
+  it('bounds lockscreen visibility and lets terminal intents restore privacy', () => {
     const mainActivity = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -158,10 +161,13 @@ describe('Android runtime hardening', () => {
     expect(mainActivity).toContain('fun setIncomingCallWindowActive(active: Boolean)');
     expect(mainActivity).toContain('INCOMING_CALL_WINDOW_MAX_MS = 45_000L');
     expect(mainActivity).toContain('mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)');
-    expect(mainActivity).toContain('applyIncomingCallWindow(false)');
+    expect(mainActivity).toContain('getQueryParameter("action")?.equals("dismiss", ignoreCase = true)');
+    expect(mainActivity).toContain('setIncomingCallWindowActive(isCallIntent && !isTerminalIntent)');
     expect(callModule).toContain('fun setIncomingCallWindowActive(active: Boolean, promise: Promise)');
     expect(callModule).toContain('activity.setIncomingCallWindowActive(active)');
     expect(overlay).toContain('setIncomingCallWindowActive(false).catch(() => undefined)');
+    expect(overlay).toContain("intent.action === 'dismiss'");
+    expect(overlay).toContain('dismissedCallIds.current.add(intent.callId)');
     expect(overlay).toContain("direction === 'incoming'");
     expect(overlay).toContain('callWindowManaged.current = true');
   });
