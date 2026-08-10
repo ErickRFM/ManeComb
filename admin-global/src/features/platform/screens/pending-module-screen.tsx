@@ -7,10 +7,10 @@ export function AdminPendingModuleScreen({ item }: { item: AdminNavigationItem }
   return (
     <AdminShell title={item.label} subtitle={item.description}>
       <View style={styles.card}>
-        <Text style={styles.phase}>{item.phase}</Text>
-        <Text style={styles.title}>Módulo identificado, todavía no habilitado</Text>
+        <Text style={styles.status}>No disponible</Text>
+        <Text accessibilityRole="header" style={styles.title}>Este módulo aún no está habilitado</Text>
         <Text style={styles.body}>
-          La navegación ya respeta las capacidades de tu rol. Los datos y acciones de este módulo se implementarán en {item.phase}, sin inventar registros ni reutilizar endpoints empresariales fuera de su alcance tenant.
+          Tu navegación solo muestra funciones permitidas para tu cuenta. Cuando este módulo esté disponible, aparecerá con sus datos y acciones autorizadas.
         </Text>
       </View>
     </AdminShell>
@@ -27,11 +27,11 @@ const styles = StyleSheet.create({
     maxWidth: 760,
     padding: 24,
   },
-  phase: {
+  status: {
     backgroundColor: palette.surfaceAlt,
     borderRadius: 999,
     color: palette.info,
-    fontFamily: Typography.mono,
+    fontFamily: Typography.body,
     fontSize: 10,
     fontWeight: '900',
     overflow: 'hidden',

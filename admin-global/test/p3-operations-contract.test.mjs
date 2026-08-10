@@ -43,11 +43,13 @@ assert.match(screens, /Nunca expone secretos, tokens ni URLs privadas/);
 assert.match(screens, /IP, user-agent y payloads crudos permanecen fuera/);
 assert.match(screens, /paymentStatus/);
 assert.match(screens, /Persistencia no disponible/);
+assert.match(screens, /formatStatus/);
+assert.match(screens, /accessibilityState=\{\{ selected: active \}\}/);
+assert.match(screens, /minHeight: 44/);
 assert.doesNotMatch(screens, /refundOrder|capturePayment|cancelSubscription|forceActivation|rotateSecret|deleteAudit/i);
 
 assert.doesNotMatch(types, /accessToken|apiKey|webhookSecret|paymentProviderReference|userAgent|\bip:/i);
 assert.match(shell, /resetOperations\(\)/);
-assert.match(shell, /['"]P3['"]/);
-assert.match(shell, /styles\.phaseBadgeReady/);
+assert.doesNotMatch(shell, /phaseBadge/);
 
 console.log('ok - ADM-GLOBAL-P3 operations, audit and request ordering contracts');

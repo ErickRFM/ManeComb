@@ -42,11 +42,13 @@ for (const field of [
 ]) {
   assert.ok(screen.includes(field), `La interfaz debe consumir ${field}.`);
 }
-assert.match(screen, /Solo lectura/);
 assert.match(screen, /paymentStatus/);
 assert.match(screen, /planId/);
 assert.match(screen, /pagination\.hasNext/);
 assert.match(screen, /router\.push\(`\/admin\/companies\//);
+assert.match(screen, /const compact = width < 720/);
+assert.match(screen, /mobileDataCard/);
+assert.match(screen, /formatStatus/);
 
 // Least privilege: Empresas pertenece a platform.companies.read, pero los
 // datos y controles financieros solo pueden activarse con commercial.read.
@@ -57,6 +59,8 @@ assert.match(screen, /canReadCommercial \? \(/);
 assert.match(screen, /company\.commercialAccess \? \(/);
 assert.match(types, /commercialAccess: boolean/);
 
+// La autoridad de solo consulta se valida por ausencia de mutaciones, no por
+// exigir una frase específica en la interfaz.
 for (const forbiddenAction of [
   'suspendCompany',
   'reactivateCompany',

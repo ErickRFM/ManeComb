@@ -7,7 +7,6 @@ export type AdminNavigationItem = {
   path: string;
   description: string;
   module?: PlatformModuleKey;
-  phase: 'P1' | 'P2' | 'P3' | 'P4';
 };
 
 const NAVIGATION_ITEMS: AdminNavigationItem[] = [
@@ -17,7 +16,6 @@ const NAVIGATION_ITEMS: AdminNavigationItem[] = [
     shortLabel: 'Resumen',
     path: '/admin/overview',
     description: 'Estado general de empresas, usuarios, unidades y órdenes.',
-    phase: 'P1',
   },
   {
     key: 'companies',
@@ -26,7 +24,6 @@ const NAVIGATION_ITEMS: AdminNavigationItem[] = [
     path: '/admin/companies',
     description: 'Consulta multiempresa y detalle global en modo lectura.',
     module: 'companies',
-    phase: 'P2',
   },
   {
     key: 'commercial',
@@ -35,16 +32,14 @@ const NAVIGATION_ITEMS: AdminNavigationItem[] = [
     path: '/admin/commercial',
     description: 'Órdenes, pagos, suscripciones y eventos comerciales.',
     module: 'commercial',
-    phase: 'P3',
   },
   {
     key: 'system',
     label: 'Sistema',
     shortLabel: 'Sistema',
     path: '/admin/system',
-    description: 'Readiness e integraciones sanitizadas de ManeComb.',
+    description: 'Salud general e integraciones de ManeComb.',
     module: 'system',
-    phase: 'P3',
   },
   {
     key: 'audit',
@@ -53,7 +48,6 @@ const NAVIGATION_ITEMS: AdminNavigationItem[] = [
     path: '/admin/audit',
     description: 'Actividad sensible del personal interno de plataforma.',
     module: 'audit',
-    phase: 'P3',
   },
   {
     key: 'team',
@@ -62,16 +56,14 @@ const NAVIGATION_ITEMS: AdminNavigationItem[] = [
     path: '/admin/team',
     description: 'Usuarios internos, roles, MFA y estado de cuenta.',
     module: 'users',
-    phase: 'P4',
   },
   {
     key: 'sessions',
     label: 'Sesiones',
     shortLabel: 'Sesiones',
     path: '/admin/sessions',
-    description: 'Consulta y revocación controlada de sesiones Platform.',
+    description: 'Consulta y revocación controlada de sesiones.',
     module: 'sessions',
-    phase: 'P4',
   },
 ];
 

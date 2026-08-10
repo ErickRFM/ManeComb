@@ -16,20 +16,21 @@ export function AdminLoginScreen() {
   if (mode === 'mfa_challenge') return <Redirect href="/admin/mfa" />;
 
   const isSubmitting = mode === 'loading';
+  const canSubmit = Boolean(email.trim() && password && !isSubmitting);
 
   const handleSubmit = () => {
-    if (isSubmitting || !email.trim() || !password) return;
-    login(email.trim(), password.trim());
+    if (!canSubmit) return;
+    login(email.trim(), password);
   };
 
   return (
     <AdminLoginGuard>
       <AdminAuthLayout
-        title="Admin Platform"
-        subtitle="Inicia sesión con tu cuenta de administrador"
+        title="Admin Global"
+        subtitle="Acceso privado para el equipo autorizado de ManeComb"
       >
         {error ? (
-          <View style={styles.feedbackBox}>
+          <View accessibilityRole="alert" style={styles.feedbackBox}>
             <Text style={styles.feedbackText}>{error}</Text>
           </View>
         ) : null}
@@ -38,14 +39,19 @@ export function AdminLoginScreen() {
           <Text style={styles.fieldLabel}>Correo electrónico</Text>
           <View style={styles.inputShell}>
             <TextInput
-              value={email}
-              onChangeText={(v) => { setEmail(v); if (error) clearError(); }}
-              keyboardType="email-address"
+              accessibilityLabel="Correo electrónico"
               autoCapitalize="none"
-              placeholder="admin@ejemplo.com"
+              autoComplete="email"
+              editable={!isSubmitting}
+              keyboardType="email-address"
+              onChangeText={(value) => { setEmail(value); if (error) clearError(); }}
+              placeholder="admin@manecomb.com"
               placeholderTextColor="rgba(216, 226, 245, 0.38)"
+              returnKeyType="next"
               selectionColor="#E31E24"
               style={styles.input}
+              textContentType="emailAddress"
+              value={email}
             />
           </View>
         </View>
@@ -54,18 +60,27 @@ export function AdminLoginScreen() {
           <Text style={styles.fieldLabel}>Contraseña</Text>
           <View style={styles.inputShell}>
             <TextInput
-              value={password}
-              onChangeText={(v) => { setPassword(v); if (error) clearError(); }}
-              secureTextEntry={!showPassword}
+              accessibilityLabel="Contraseña"
               autoCapitalize="none"
+              editable={!isSubmitting}
+              onChangeText={(value) => { setPassword(value); if (error) clearError(); }}
+              onSubmitEditing={handleSubmit}
               placeholder="••••••••"
               placeholderTextColor="rgba(216, 226, 245, 0.38)"
+              returnKeyType="go"
+              secureTextEntry={!showPassword}
               selectionColor="#E31E24"
               style={styles.input}
+              textContentType="password"
+              value={password}
             />
             <Pressable
-              onPress={() => setShowPassword((p) => !p)}
+              accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showPassword }}
+              disabled={isSubmitting}
               hitSlop={8}
+              onPress={() => setShowPassword((previous) => !previous)}
               style={styles.toggleButton}
             >
               <Text style={styles.toggleText}>
@@ -76,16 +91,18 @@ export function AdminLoginScreen() {
         </View>
 
         <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
+          disabled={!canSubmit}
           onPress={handleSubmit}
-          disabled={isSubmitting}
           style={({ pressed }) => [
             styles.submitButton,
-            pressed && !isSubmitting ? styles.submitPressed : undefined,
-            isSubmitting ? styles.submitDisabled : undefined,
+            pressed && canSubmit ? styles.submitPressed : undefined,
+            !canSubmit ? styles.submitDisabled : undefined,
           ]}
         >
           <Text style={styles.submitText}>
-            {isSubmitting ? 'Iniciando sesión...' : 'Iniciar sesión'}
+            {isSubmitting ? 'Iniciando sesión…' : 'Iniciar sesión'}
           </Text>
         </Pressable>
       </AdminAuthLayout>
@@ -100,13 +117,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(240, 106, 106, 0.46)',
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
   },
   feedbackText: {
     color: '#F4A0A0',
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '700',
+    lineHeight: 18,
     textAlign: 'center',
   },
   field: { gap: 8 },
@@ -115,7 +133,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.body,
     fontSize: 12,
     fontWeight: '800',
-    textTransform: 'uppercase',
   },
   inputShell: {
     alignItems: 'center',
@@ -144,7 +161,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 46,
-    paddingHorizontal: 2,
+    minWidth: 56,
   },
   toggleText: {
     color: palette.muted,
@@ -170,5 +187,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   submitPressed: { opacity: 0.9 },
-  submitDisabled: { opacity: 0.7 },
+  submitDisabled: { opacity: 0.48 },
 });

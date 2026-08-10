@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -27,12 +27,48 @@ const ROLES = [
   'platform_owner',
 ];
 
+const ROLE_LABELS: Record<string, string> = {
+  platform_admin: 'Administrador',
+  platform_support: 'Soporte',
+  platform_finance: 'Finanzas',
+  platform_viewer: 'Consulta',
+  platform_owner: 'Propietario',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Activo',
+  disabled: 'Deshabilitado',
+  pending: 'Pendiente',
+  revoked: 'Revocado',
+  suspended: 'Suspendido',
+  verified: 'Verificado',
+  true: 'Verificado',
+  false: 'Pendiente',
+};
+
+const ACTION_LABELS: Record<GovernanceActionType, string> = {
+  'platform.user.reactivate': 'Reactivar usuario',
+  'platform.user.suspend': 'Suspender usuario',
+  'platform.user.role.change': 'Cambiar rol',
+  'platform.sessions.revoke_all': 'Cerrar sus sesiones',
+  'platform.session.revoke': 'Revocar sesión',
+};
+
 function formatDate(value: string | null | undefined) {
   if (!value) return 'Sin registro';
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? 'Sin registro'
     : new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function formatRole(value: string) {
+  return ROLE_LABELS[value] || value.replace('platform_', '').replaceAll('_', ' ');
+}
+
+function formatStatus(value: string | boolean) {
+  const normalized = String(value);
+  return STATUS_LABELS[normalized] || normalized.replaceAll('_', ' ');
 }
 
 function StateCard({ title, body, danger = false, action, onAction }: {
@@ -43,11 +79,11 @@ function StateCard({ title, body, danger = false, action, onAction }: {
   onAction?: () => void;
 }) {
   return (
-    <View style={[styles.stateCard, danger && styles.dangerCard]}>
+    <View accessibilityRole={danger ? 'alert' : undefined} style={[styles.stateCard, danger && styles.dangerCard]}>
       <Text style={[styles.stateTitle, danger && styles.dangerText]}>{title}</Text>
       <Text style={styles.stateBody}>{body}</Text>
       {action && onAction ? (
-        <Pressable onPress={onAction} style={styles.secondaryButton}>
+        <Pressable accessibilityRole="button" onPress={onAction} style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonText}>{action}</Text>
         </Pressable>
       ) : null}
@@ -62,7 +98,7 @@ function StatusBadge({ value }: { value: string | boolean }) {
     : ['suspended', 'false', 'revoked', 'disabled'].includes(normalized)
       ? styles.badBadge
       : styles.neutralBadge;
-  return <Text style={[styles.badge, style]}>{normalized}</Text>;
+  return <Text style={[styles.badge, style]}>{formatStatus(value)}</Text>;
 }
 
 export function AdminTeamScreen() {
@@ -100,12 +136,12 @@ export function AdminTeamScreen() {
   return (
     <AdminShell
       actions={(
-        <Pressable onPress={() => setShowCreate((value) => !value)} style={styles.primaryButton}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: showCreate }} onPress={() => setShowCreate((value) => !value)} style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>{showCreate ? 'Cerrar formulario' : 'Nuevo usuario'}</Text>
         </Pressable>
       )}
       title="Personal interno"
-      subtitle="Cuentas exclusivas de Platform. Las contraseñas temporales no se guardan en la interfaz y cada cuenta debe completar MFA."
+      subtitle="Administra las cuentas internas de ManeComb. Todas requieren MFA y las contraseñas temporales no quedan guardadas en la interfaz."
     >
       {showCreate ? (
         <CreateUserPanel
@@ -125,23 +161,28 @@ export function AdminTeamScreen() {
       <View style={styles.filterCard}>
         <TextInput
           accessibilityLabel="Buscar personal interno"
+          autoCapitalize="none"
           onChangeText={setSearch}
           onSubmitEditing={() => loadPage(1)}
           placeholder="Nombre, correo, rol o estado"
           placeholderTextColor={palette.mutedSoft}
+          returnKeyType="search"
           style={styles.input}
           value={search}
         />
-        <Pressable onPress={() => loadPage(1)} style={styles.primaryButton}>
+        <Pressable accessibilityRole="button" onPress={() => loadPage(1)} style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>Buscar</Text>
         </Pressable>
       </View>
 
       {teamState === 'loading' || teamState === 'idle' ? (
-        <StateCard body="Consultando cuentas Platform sanitizadas." title="Cargando personal…" />
+        <StateCard body="Consultando el personal interno." title="Cargando personal…" />
       ) : null}
       {teamState === 'error' ? (
         <StateCard action="Reintentar" body={teamError || 'No fue posible cargar el personal.'} danger onAction={() => loadPage(pagination?.page || 1)} title="Error de consulta" />
+      ) : null}
+      {teamState === 'ready' && users.length === 0 ? (
+        <StateCard body="No hay usuarios que coincidan con la búsqueda actual." title="Sin resultados" />
       ) : null}
 
       <View style={styles.grid}>
@@ -151,14 +192,14 @@ export function AdminTeamScreen() {
             <View key={user.id} style={styles.userCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.flex}>
-                  <Text style={styles.cardTitle}>{user.name}</Text>
+                  <Text accessibilityRole="header" style={styles.cardTitle}>{user.name}</Text>
                   <Text style={styles.mono}>{user.email}</Text>
                 </View>
                 <StatusBadge value={user.status} />
               </View>
               <View style={styles.infoGrid}>
-                <Info label="Rol" value={user.role.replace('platform_', '')} />
-                <Info label="MFA" value={user.mfaEnabled ? 'configurado' : 'pendiente'} />
+                <Info label="Rol" value={formatRole(user.role)} />
+                <Info label="MFA" value={user.mfaEnabled ? 'Configurado' : 'Pendiente'} />
                 <Info label="Último acceso" value={formatDate(user.lastLoginAt)} />
                 <Info label="Creada" value={formatDate(user.createdAt)} />
               </View>
@@ -166,8 +207,8 @@ export function AdminTeamScreen() {
               <View style={styles.cardActions}>
                 {isCurrent ? <Text style={styles.currentLabel}>Cuenta actual</Text> : null}
                 {canExecuteActions && !isCurrent ? (
-                  <Pressable onPress={() => setSelectedUser(user)} style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonText}>Acciones controladas</Text>
+                  <Pressable accessibilityRole="button" onPress={() => setSelectedUser(user)} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Administrar</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -217,30 +258,38 @@ function CreateUserPanel({ canCreateOwner, createState, createError, onCreate }:
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('platform_viewer');
   const allowedRoles = canCreateOwner ? ROLES : ROLES.filter((item) => item !== 'platform_owner');
+  const isSubmitting = createState === 'loading';
+  const canSubmit = Boolean(!isSubmitting && name.trim() && email.trim() && password.length >= 12);
 
   return (
     <View style={styles.panel}>
-      <Text style={styles.panelTitle}>Crear usuario Platform</Text>
+      <Text accessibilityRole="header" style={styles.panelTitle}>Crear usuario interno</Text>
       <Text style={styles.panelBody}>La contraseña es temporal, no se persiste en el navegador y la cuenta deberá enrolar MFA.</Text>
       <View style={styles.formGrid}>
-        <TextInput onChangeText={setName} placeholder="Nombre completo" placeholderTextColor={palette.mutedSoft} style={styles.input} value={name} />
-        <TextInput autoCapitalize="none" onChangeText={setEmail} placeholder="correo@manecomb.com" placeholderTextColor={palette.mutedSoft} style={styles.input} value={email} />
-        <TextInput autoCapitalize="none" onChangeText={setPassword} placeholder="Contraseña temporal (12+ caracteres)" placeholderTextColor={palette.mutedSoft} secureTextEntry style={styles.input} value={password} />
+        <TextInput accessibilityLabel="Nombre completo" editable={!isSubmitting} onChangeText={setName} placeholder="Nombre completo" placeholderTextColor={palette.mutedSoft} style={styles.input} value={name} />
+        <TextInput accessibilityLabel="Correo del usuario interno" autoCapitalize="none" autoComplete="email" editable={!isSubmitting} keyboardType="email-address" onChangeText={setEmail} placeholder="correo@manecomb.com" placeholderTextColor={palette.mutedSoft} style={styles.input} textContentType="emailAddress" value={email} />
+        <TextInput accessibilityLabel="Contraseña temporal" autoCapitalize="none" editable={!isSubmitting} onChangeText={setPassword} placeholder="Contraseña temporal (12+ caracteres)" placeholderTextColor={palette.mutedSoft} secureTextEntry style={styles.input} textContentType="newPassword" value={password} />
       </View>
+      <Text style={styles.fieldHint}>Rol inicial</Text>
       <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
-        {allowedRoles.map((item) => (
-          <Pressable key={item} onPress={() => setRole(item)} style={[styles.chip, role === item && styles.chipActive]}>
-            <Text style={styles.chipText}>{item.replace('platform_', '')}</Text>
-          </Pressable>
-        ))}
+        {allowedRoles.map((item) => {
+          const active = role === item;
+          return (
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={item} onPress={() => setRole(item)} style={[styles.chip, active && styles.chipActive]}>
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{formatRole(item)}</Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
-      {createError ? <Text style={styles.errorText}>{createError}</Text> : null}
+      {createError ? <Text accessibilityRole="alert" style={styles.errorText}>{createError}</Text> : null}
       <Pressable
-        disabled={createState === 'loading' || !name.trim() || !email.trim() || password.length < 12}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
+        disabled={!canSubmit}
         onPress={() => void onCreate({ name: name.trim(), email: email.trim(), password, role })}
-        style={[styles.primaryButton, (createState === 'loading' || !name.trim() || !email.trim() || password.length < 12) && styles.disabled]}
+        style={[styles.primaryButton, !canSubmit && styles.disabled]}
       >
-        <Text style={styles.primaryButtonText}>{createState === 'loading' ? 'Creando…' : 'Crear cuenta interna'}</Text>
+        <Text style={styles.primaryButtonText}>{isSubmitting ? 'Creando…' : 'Crear cuenta interna'}</Text>
       </Pressable>
     </View>
   );
@@ -265,23 +314,24 @@ export function AdminSessionsScreen() {
   const loadPage = (page: number) => token && void loadSessions(token, { page, limit: 40, activeOnly, sort: 'lastSeenAt', order: 'desc' });
 
   return (
-    <AdminShell title="Sesiones Platform" subtitle="Dispositivos internos y estado MFA. La API no entrega IP, user-agent ni hashes de refresh al frontend.">
+    <AdminShell title="Sesiones" subtitle="Accesos del personal interno y estado MFA. La API no entrega IP, user-agent ni hashes de refresh al frontend.">
       <View style={styles.filterCard}>
-        <Pressable onPress={() => setActiveOnly((value) => !value)} style={[styles.chip, activeOnly && styles.chipActive]}>
-          <Text style={styles.chipText}>{activeOnly ? 'Solo activas' : 'Todas las sesiones'}</Text>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: activeOnly }} onPress={() => setActiveOnly((value) => !value)} style={[styles.chip, activeOnly && styles.chipActive]}>
+          <Text style={[styles.chipText, activeOnly && styles.chipTextActive]}>{activeOnly ? 'Solo activas' : 'Todas las sesiones'}</Text>
         </Pressable>
-        <Pressable onPress={() => loadPage(pagination?.page || 1)} style={styles.secondaryButton}>
+        <Pressable accessibilityRole="button" onPress={() => loadPage(pagination?.page || 1)} style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonText}>Actualizar</Text>
         </Pressable>
       </View>
 
       {state === 'loading' || state === 'idle' ? <StateCard body="Consultando sesiones internas." title="Cargando sesiones…" /> : null}
       {state === 'error' ? <StateCard action="Reintentar" body={error || 'No fue posible cargar las sesiones.'} danger onAction={() => loadPage(pagination?.page || 1)} title="Error de consulta" /> : null}
+      {state === 'ready' && sessions.length === 0 ? <StateCard body="No hay sesiones que coincidan con el filtro actual." title="Sin sesiones" /> : null}
 
       {sessions.map((session) => (
         <View key={session.id} style={styles.sessionRow}>
-          <View style={styles.flex}>
-            <Text style={styles.cardTitle}>{session.user?.name || 'Usuario no disponible'}</Text>
+          <View style={styles.sessionIdentity}>
+            <Text accessibilityRole="header" style={styles.cardTitle}>{session.user?.name || 'Usuario no disponible'}</Text>
             <Text style={styles.mono}>{session.user?.email || session.userId}</Text>
           </View>
           <Info label="Dispositivo" value={`${session.deviceName} · ${session.platform}`} />
@@ -290,7 +340,7 @@ export function AdminSessionsScreen() {
           <StatusBadge value={session.mfaVerified ? 'verified' : 'pending'} />
           {session.current ? <Text style={styles.currentLabel}>Actual</Text> : null}
           {canExecuteActions && session.isActive && !session.current ? (
-            <Pressable onPress={() => setSelectedSession(session)} style={styles.secondaryButton}>
+            <Pressable accessibilityRole="button" onPress={() => setSelectedSession(session)} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>Revocar</Text>
             </Pressable>
           ) : null}
@@ -343,6 +393,7 @@ function ControlledActionPanel({ actions, targetId, targetLabel, onClose, onSucc
   const [confirmation, setConfirmation] = useState('');
   const [nextRole, setNextRole] = useState('platform_viewer');
   const expectedConfirmation = `CONFIRM ${action}`;
+  const canSubmit = actionState !== 'loading' && reason.trim().length >= 10 && confirmation.trim() === expectedConfirmation;
 
   useEffect(() => {
     clearAction();
@@ -367,77 +418,95 @@ function ControlledActionPanel({ actions, targetId, targetLabel, onClose, onSucc
   };
 
   return (
-    <View style={styles.actionOverlay}>
-      <View style={styles.actionPanel}>
-        <View style={styles.cardHeader}>
-          <View style={styles.flex}>
-            <Text style={styles.panelTitle}>Acción controlada</Text>
-            <Text style={styles.panelBody}>{targetLabel}</Text>
+    <View accessibilityViewIsModal style={styles.actionOverlay}>
+      <ScrollView contentContainerStyle={styles.actionOverlayContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.actionPanel}>
+          <View style={styles.cardHeader}>
+            <View style={styles.flex}>
+              <Text accessibilityRole="header" style={styles.panelTitle}>Acción controlada</Text>
+              <Text style={styles.panelBody}>{targetLabel}</Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cerrar</Text></Pressable>
           </View>
-          <Pressable onPress={onClose} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cerrar</Text></Pressable>
-        </View>
 
-        <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
-          {actions.map((item) => (
-            <Pressable
-              key={item}
-              onPress={() => { setAction(item); setConfirmation(''); clearAction(); }}
-              style={[styles.chip, action === item && styles.chipDanger]}
-            >
-              <Text style={styles.chipText}>{item.replace('platform.', '')}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {action === 'platform.user.role.change' ? (
+          <Text style={styles.fieldHint}>Acción</Text>
           <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
-            {ROLES.map((role) => (
-              <Pressable key={role} onPress={() => setNextRole(role)} style={[styles.chip, nextRole === role && styles.chipActive]}>
-                <Text style={styles.chipText}>{role.replace('platform_', '')}</Text>
-              </Pressable>
-            ))}
+            {actions.map((item) => {
+              const active = action === item;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  key={item}
+                  onPress={() => { setAction(item); setConfirmation(''); clearAction(); }}
+                  style={[styles.chip, active && styles.chipDanger]}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{ACTION_LABELS[item]}</Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
-        ) : null}
 
-        <TextInput
-          multiline
-          onChangeText={setReason}
-          placeholder="Razón operativa obligatoria (mínimo 10 caracteres)"
-          placeholderTextColor={palette.mutedSoft}
-          style={[styles.input, styles.reasonInput]}
-          value={reason}
-        />
-        <Text style={styles.confirmationHelp}>Escribe exactamente: {expectedConfirmation}</Text>
-        <TextInput
-          autoCapitalize="none"
-          onChangeText={setConfirmation}
-          placeholder={expectedConfirmation}
-          placeholderTextColor={palette.mutedSoft}
-          style={styles.input}
-          value={confirmation}
-        />
-
-        {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
-        {pendingAction && actionState === 'error' ? (
-          <Text style={styles.pendingText}>El reintento conservará la misma Idempotency-Key para evitar duplicar la acción.</Text>
-        ) : null}
-        {lastResult ? <Text style={styles.successText}>Acción completada · {lastResult.revokedCount} sesiones revocadas</Text> : null}
-
-        <View style={styles.cardActions}>
-          {actionState === 'error' && pendingAction ? (
-            <Pressable onPress={() => void retry()} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Reintentar misma acción</Text>
-            </Pressable>
+          {action === 'platform.user.role.change' ? (
+            <>
+              <Text style={styles.fieldHint}>Nuevo rol</Text>
+              <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
+                {ROLES.map((role) => {
+                  const active = nextRole === role;
+                  return (
+                    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={role} onPress={() => setNextRole(role)} style={[styles.chip, active && styles.chipActive]}>
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{formatRole(role)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </>
           ) : null}
-          <Pressable
-            disabled={actionState === 'loading' || reason.trim().length < 10 || confirmation.trim() !== expectedConfirmation}
-            onPress={() => void submit()}
-            style={[styles.dangerButton, (actionState === 'loading' || reason.trim().length < 10 || confirmation.trim() !== expectedConfirmation) && styles.disabled]}
-          >
-            <Text style={styles.dangerButtonText}>{actionState === 'loading' ? 'Ejecutando…' : 'Ejecutar acción'}</Text>
-          </Pressable>
+
+          <TextInput
+            accessibilityLabel="Razón de la acción"
+            multiline
+            onChangeText={setReason}
+            placeholder="Razón operativa obligatoria (mínimo 10 caracteres)"
+            placeholderTextColor={palette.mutedSoft}
+            style={[styles.input, styles.reasonInput]}
+            value={reason}
+          />
+          <Text style={styles.confirmationHelp}>Para confirmar, escribe exactamente: {expectedConfirmation}</Text>
+          <TextInput
+            accessibilityLabel="Confirmación de acción sensible"
+            autoCapitalize="none"
+            onChangeText={setConfirmation}
+            placeholder={expectedConfirmation}
+            placeholderTextColor={palette.mutedSoft}
+            style={styles.input}
+            value={confirmation}
+          />
+
+          {actionError ? <Text accessibilityRole="alert" style={styles.errorText}>{actionError}</Text> : null}
+          {pendingAction && actionState === 'error' ? (
+            <Text style={styles.pendingText}>El reintento conservará la misma Idempotency-Key para evitar duplicar la acción.</Text>
+          ) : null}
+          {lastResult ? <Text style={styles.successText}>Acción completada correctamente.</Text> : null}
+
+          <View style={styles.cardActions}>
+            {actionState === 'error' && pendingAction ? (
+              <Pressable accessibilityRole="button" onPress={() => void retry()} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>Reintentar misma acción</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canSubmit, busy: actionState === 'loading' }}
+              disabled={!canSubmit}
+              onPress={() => void submit()}
+              style={[styles.dangerButton, !canSubmit && styles.disabled]}
+            >
+              <Text style={styles.dangerButtonText}>{actionState === 'loading' ? 'Ejecutando…' : 'Ejecutar acción'}</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -457,8 +526,8 @@ function Pagination({ label, hasPrev, hasNext, onPrev, onNext }: {
     <View style={styles.pagination}>
       <Text style={styles.stateBody}>{label}</Text>
       <View style={styles.cardActions}>
-        <Pressable disabled={!hasPrev} onPress={onPrev} style={[styles.secondaryButton, !hasPrev && styles.disabled]}><Text style={styles.secondaryButtonText}>Anterior</Text></Pressable>
-        <Pressable disabled={!hasNext} onPress={onNext} style={[styles.secondaryButton, !hasNext && styles.disabled]}><Text style={styles.secondaryButtonText}>Siguiente</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={!hasPrev} onPress={onPrev} style={[styles.secondaryButton, !hasPrev && styles.disabled]}><Text style={styles.secondaryButtonText}>Anterior</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={!hasNext} onPress={onNext} style={[styles.secondaryButton, !hasNext && styles.disabled]}><Text style={styles.secondaryButtonText}>Siguiente</Text></Pressable>
       </View>
     </View>
   );
@@ -466,12 +535,12 @@ function Pagination({ label, hasPrev, hasNext, onPrev, onNext }: {
 
 const styles = StyleSheet.create({
   filterCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
-  input: { backgroundColor: palette.surfaceAlt, borderColor: palette.line, borderRadius: 10, borderWidth: 1, color: palette.text, flex: 1, fontFamily: Typography.body, minHeight: 44, minWidth: 240, paddingHorizontal: 14, paddingVertical: 10 },
-  primaryButton: { alignItems: 'center', backgroundColor: palette.accent, borderRadius: 10, justifyContent: 'center', minHeight: 42, paddingHorizontal: 17 },
+  input: { backgroundColor: palette.surfaceAlt, borderColor: palette.line, borderRadius: 10, borderWidth: 1, color: palette.text, flex: 1, fontFamily: Typography.body, minHeight: 44, minWidth: 220, paddingHorizontal: 14, paddingVertical: 10 },
+  primaryButton: { alignItems: 'center', backgroundColor: palette.accent, borderRadius: 10, justifyContent: 'center', minHeight: 44, paddingHorizontal: 17 },
   primaryButtonText: { color: '#fff', fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
-  secondaryButton: { alignItems: 'center', borderColor: palette.lineStrong, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 38, paddingHorizontal: 13 },
+  secondaryButton: { alignItems: 'center', borderColor: palette.lineStrong, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 13 },
   secondaryButtonText: { color: palette.muted, fontFamily: Typography.body, fontSize: 10, fontWeight: '900' },
-  dangerButton: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 9, justifyContent: 'center', minHeight: 40, paddingHorizontal: 15 },
+  dangerButton: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 9, justifyContent: 'center', minHeight: 44, paddingHorizontal: 15 },
   dangerButtonText: { color: '#fff', fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
   disabled: { opacity: 0.35 },
   stateCard: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 14, borderWidth: 1, gap: 8, padding: 18 },
@@ -480,12 +549,12 @@ const styles = StyleSheet.create({
   stateBody: { color: palette.muted, fontFamily: Typography.body, fontSize: 11, lineHeight: 17 },
   dangerText: { color: palette.danger },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  userCard: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, flexGrow: 1, minWidth: 300, padding: 17, width: '48%' },
-  cardHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
-  flex: { flex: 1 },
+  userCard: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, flexGrow: 1, minWidth: 280, padding: 17, width: '48%' },
+  cardHeader: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between' },
+  flex: { flex: 1, minWidth: 170 },
   cardTitle: { color: palette.text, fontFamily: Typography.display, fontSize: 16, fontWeight: '900' },
   mono: { color: palette.mutedSoft, fontFamily: Typography.mono, fontSize: 9, marginTop: 4 },
-  badge: { borderRadius: 999, fontFamily: Typography.mono, fontSize: 9, fontWeight: '900', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 5, textTransform: 'uppercase' },
+  badge: { borderRadius: 999, fontFamily: Typography.body, fontSize: 9, fontWeight: '900', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 5 },
   goodBadge: { backgroundColor: 'rgba(53,200,107,.14)', color: palette.success },
   badBadge: { backgroundColor: 'rgba(240,106,106,.14)', color: palette.danger },
   neutralBadge: { backgroundColor: palette.surfaceAlt, color: palette.muted },
@@ -495,23 +564,27 @@ const styles = StyleSheet.create({
   infoValue: { color: palette.text, fontFamily: Typography.body, fontSize: 10, fontWeight: '800', marginTop: 4 },
   reasonText: { color: palette.warning, fontFamily: Typography.body, fontSize: 10, lineHeight: 15, marginTop: 14 },
   cardActions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'flex-end', marginTop: 15 },
-  currentLabel: { color: palette.info, fontFamily: Typography.mono, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
+  currentLabel: { color: palette.info, fontFamily: Typography.body, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
   panel: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, gap: 13, padding: 19 },
   panelTitle: { color: palette.text, fontFamily: Typography.display, fontSize: 18, fontWeight: '900' },
   panelBody: { color: palette.muted, fontFamily: Typography.body, fontSize: 11, lineHeight: 17 },
   formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  fieldHint: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
   chips: { gap: 8 },
-  chip: { backgroundColor: palette.surfaceAlt, borderColor: palette.line, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  chip: { alignItems: 'center', backgroundColor: palette.surfaceAlt, borderColor: palette.line, borderRadius: 999, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 13 },
   chipActive: { backgroundColor: palette.accentSoft, borderColor: 'rgba(227,30,36,.35)' },
   chipDanger: { backgroundColor: 'rgba(240,106,106,.12)', borderColor: 'rgba(240,106,106,.35)' },
-  chipText: { color: palette.muted, fontFamily: Typography.body, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
+  chipText: { color: palette.muted, fontFamily: Typography.body, fontSize: 9, fontWeight: '900' },
+  chipTextActive: { color: palette.text },
   errorText: { color: palette.danger, fontFamily: Typography.body, fontSize: 10, lineHeight: 15 },
   successText: { color: palette.success, fontFamily: Typography.body, fontSize: 10, lineHeight: 15 },
   pendingText: { color: palette.warning, fontFamily: Typography.body, fontSize: 10, lineHeight: 15 },
   sessionRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 13, padding: 15 },
+  sessionIdentity: { flex: 1, minWidth: 200 },
   pagination: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', padding: 14 },
-  actionOverlay: { backgroundColor: 'rgba(3,7,18,.88)', bottom: 0, left: 0, padding: 18, position: 'fixed' as any, right: 0, top: 0, zIndex: 100 },
-  actionPanel: { alignSelf: 'center', backgroundColor: '#0C121C', borderColor: palette.lineStrong, borderRadius: 18, borderWidth: 1, gap: 14, marginTop: 40, maxWidth: 760, padding: 20, width: '100%' },
+  actionOverlay: { backgroundColor: 'rgba(3,7,18,.88)', bottom: 0, left: 0, position: 'fixed' as any, right: 0, top: 0, zIndex: 100 },
+  actionOverlayContent: { flexGrow: 1, justifyContent: 'center', padding: 18 },
+  actionPanel: { alignSelf: 'center', backgroundColor: '#0C121C', borderColor: palette.lineStrong, borderRadius: 18, borderWidth: 1, gap: 14, maxWidth: 760, padding: 20, width: '100%' },
   reasonInput: { minHeight: 96, textAlignVertical: 'top' },
   confirmationHelp: { color: palette.warning, fontFamily: Typography.mono, fontSize: 10, lineHeight: 15 },
 });

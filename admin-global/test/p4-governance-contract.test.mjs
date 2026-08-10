@@ -46,11 +46,13 @@ assert.match(store, /actionRequestId \+= 1/);
 assert.match(screens, /secureTextEntry/);
 assert.match(screens, /La contraseña es temporal, no se persiste en el navegador/);
 assert.match(screens, /expectedConfirmation = `CONFIRM \$\{action\}`/);
-assert.match(screens, /reason\.trim\(\)\.length < 10/);
+assert.match(screens, /reason\.trim\(\)\.length >= 10/);
 assert.match(screens, /capabilities\?\.modules\.actions/);
 assert.match(screens, /capabilities\.user\.role === 'platform_owner'/);
 assert.match(screens, /Reintentar misma acción/);
 assert.match(screens, /misma Idempotency-Key/);
+assert.match(screens, /actionOverlayContent/);
+assert.match(screens, /minHeight: 44/);
 assert.doesNotMatch(screens, /console\.log|console\.error/);
 
 assert.match(governanceRoutes, /assertCanAssignPlatformRole\(req\.platformUser\.role, req\.body\?\.role\)/);
@@ -64,6 +66,6 @@ assert.ok(
 
 assert.doesNotMatch(types, /passwordHash|mfaSecretEncrypted|mfaBackupCodes|refreshTokenHash|userAgent|\bip:/i);
 assert.match(shell, /resetGovernance\(\)/);
-assert.match(shell, /\['P1', 'P2', 'P3', 'P4'\]/);
+assert.doesNotMatch(shell, /phaseBadge/);
 
 console.log('ok - ADM-GLOBAL-P4 governance, role hierarchy, idempotency and request ordering contracts');

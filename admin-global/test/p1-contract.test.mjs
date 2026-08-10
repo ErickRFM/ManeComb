@@ -58,8 +58,7 @@ for (const moduleName of ['companies', 'commercial', 'system', 'audit', 'users',
   assert.match(navigation, new RegExp(`module: '${moduleName}'`));
 }
 assert.match(navigation, /capabilities\.modules\[item\.module\]/);
-assert.match(navigation, /phase: 'P1'/);
-assert.match(navigation, /phase: 'P4'/);
+assert.doesNotMatch(navigation, /phase:/);
 
 assert.match(shell, /useWindowDimensions/);
 assert.match(shell, /getAdminNavigation\(capabilities\)/);
@@ -68,6 +67,10 @@ assert.match(shell, /router\.replace\('\/admin\/login'\)/);
 assert.match(shell, /shouldRenewPlatformSession\(session\.token\)/);
 assert.match(shell, /setInterval\(verifyExpiration, 60_000\)/);
 assert.match(shell, /visibilitychange/);
+assert.match(shell, /accessibilityState=\{\{ selected: active \}\}/);
+assert.match(shell, /accessibilityRole="header"/);
+assert.match(shell, /minHeight: 44/);
+assert.doesNotMatch(shell, /phaseBadge/);
 
 for (const field of [
   'overview.companies.total',

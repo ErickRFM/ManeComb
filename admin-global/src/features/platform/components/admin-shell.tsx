@@ -23,6 +23,18 @@ type AdminShellProps = {
   actions?: ReactNode;
 };
 
+const ROLE_LABELS: Record<string, string> = {
+  platform_owner: 'Propietario',
+  platform_admin: 'Administrador',
+  platform_support: 'Soporte',
+  platform_finance: 'Finanzas',
+  platform_viewer: 'Consulta',
+};
+
+function formatRole(role: string) {
+  return ROLE_LABELS[role] || role.replace('platform_', '').replaceAll('_', ' ');
+}
+
 export function AdminShell({ title, subtitle, children, actions }: AdminShellProps) {
   const { width } = useWindowDimensions();
   const pathname = usePathname().replace(/\/+$/, '') || '/';
@@ -87,6 +99,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
     const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
     return (
       <Pressable
+        accessibilityLabel={`Ir a ${item.label}`}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}
         key={item.key}
@@ -108,12 +121,6 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
             </Text>
           ) : null}
         </View>
-        <Text style={[
-          styles.phaseBadge,
-          ['P1', 'P2', 'P3', 'P4'].includes(item.phase) && styles.phaseBadgeReady,
-        ]}>
-          {item.phase}
-        </Text>
       </Pressable>
     );
   });
@@ -124,7 +131,7 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
         <View style={styles.sidebar}>
           <View style={styles.brandBlock}>
             <View style={styles.brandRow}>
-              <Text style={styles.brand}>ManeComb</Text>
+              <Text accessibilityRole="header" style={styles.brand}>ManeComb</Text>
               <Text style={styles.adminBadge}>Admin</Text>
             </View>
             <Text style={styles.brandCaption}>Centro de mando interno</Text>
@@ -138,10 +145,15 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
             <Text numberOfLines={1} style={styles.accountName}>{session.user.name || session.user.email}</Text>
             <Text numberOfLines={1} style={styles.accountEmail}>{session.user.email}</Text>
             <View style={styles.roleRow}>
-              <Text style={styles.roleBadge}>{session.user.role.replace('platform_', '')}</Text>
+              <Text style={styles.roleBadge}>{formatRole(session.user.role)}</Text>
               <Text style={styles.secureLabel}>MFA activo</Text>
             </View>
-            <Pressable onPress={handleLogout} style={({ pressed }) => [styles.logoutButton, pressed && styles.navigationItemPressed]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar sesión de Admin Global"
+              onPress={handleLogout}
+              style={({ pressed }) => [styles.logoutButton, pressed && styles.navigationItemPressed]}
+            >
               <Text style={styles.logoutText}>Cerrar sesión</Text>
             </Pressable>
           </View>
@@ -150,10 +162,15 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
         <View style={styles.mobileChrome}>
           <View style={styles.mobileHeader}>
             <View>
-              <Text style={styles.brand}>ManeComb</Text>
+              <Text accessibilityRole="header" style={styles.brand}>ManeComb</Text>
               <Text style={styles.brandCaption}>Admin Global</Text>
             </View>
-            <Pressable onPress={handleLogout} style={styles.mobileLogoutButton}>
+            <Pressable
+              accessibilityLabel="Cerrar sesión de Admin Global"
+              accessibilityRole="button"
+              onPress={handleLogout}
+              style={styles.mobileLogoutButton}
+            >
               <Text style={styles.logoutText}>Salir</Text>
             </Pressable>
           </View>
@@ -168,16 +185,16 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
       )}
 
       <ScrollView
-        contentContainerStyle={styles.pageContent}
+        contentContainerStyle={[styles.pageContent, !isDesktop && styles.pageContentMobile]}
         style={styles.pageScroll}
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageHeading}>
             <Text style={styles.eyebrow}>ADMIN GLOBAL</Text>
-            <Text style={styles.title}>{title}</Text>
+            <Text accessibilityRole="header" style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
           </View>
-          {actions ? <View style={styles.pageActions}>{actions}</View> : null}
+          {actions ? <View style={[styles.pageActions, !isDesktop && styles.pageActionsMobile]}>{actions}</View> : null}
         </View>
         {children}
       </ScrollView>
@@ -235,23 +252,11 @@ const styles = StyleSheet.create({
   },
   navigationItemActive: { backgroundColor: palette.accentSoft, borderColor: 'rgba(227, 30, 36, 0.3)' },
   navigationItemPressed: { opacity: 0.72 },
-  navigationItemMobile: { backgroundColor: palette.card, minHeight: 42, paddingVertical: 7 },
+  navigationItemMobile: { backgroundColor: palette.card, minHeight: 44, paddingVertical: 8 },
   navigationCopy: { flex: 1 },
   navigationLabel: { color: palette.muted, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
   navigationLabelActive: { color: palette.text },
   navigationDescription: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 10, lineHeight: 14, marginTop: 3 },
-  phaseBadge: {
-    backgroundColor: palette.surfaceAlt,
-    borderRadius: 999,
-    color: palette.mutedSoft,
-    fontFamily: Typography.mono,
-    fontSize: 9,
-    fontWeight: '800',
-    overflow: 'hidden',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  phaseBadgeReady: { backgroundColor: 'rgba(53, 200, 107, 0.14)', color: palette.success },
   accountBlock: { borderTopColor: palette.line, borderTopWidth: 1, gap: 5, paddingTop: 18 },
   accountName: { color: palette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
   accountEmail: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 11 },
@@ -260,12 +265,11 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surfaceAlt,
     borderRadius: 999,
     color: palette.info,
-    fontFamily: Typography.mono,
+    fontFamily: Typography.body,
     fontSize: 9,
     overflow: 'hidden',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    textTransform: 'uppercase',
   },
   secureLabel: { color: palette.success, fontFamily: Typography.body, fontSize: 10, fontWeight: '700' },
   logoutButton: {
@@ -275,19 +279,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     marginTop: 12,
-    minHeight: 40,
+    minHeight: 44,
   },
   logoutText: { color: palette.muted, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
   mobileChrome: { backgroundColor: '#090E15', borderBottomColor: palette.line, borderBottomWidth: 1 },
-  mobileHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 16 },
-  mobileLogoutButton: { borderColor: palette.line, borderRadius: 9, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 9 },
+  mobileHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14 },
+  mobileLogoutButton: { alignItems: 'center', borderColor: palette.line, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14 },
   mobileNavigation: { gap: 8, paddingHorizontal: 14, paddingVertical: 12 },
   pageScroll: { flex: 1 },
   pageContent: { alignSelf: 'center', gap: 22, maxWidth: 1240, padding: 24, width: '100%' },
+  pageContentMobile: { gap: 18, padding: 16 },
   pageHeader: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 18, justifyContent: 'space-between' },
   pageHeading: { flex: 1, minWidth: 260 },
   eyebrow: { color: palette.accent, fontFamily: Typography.mono, fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
   title: { color: palette.text, fontFamily: Typography.display, fontSize: 30, fontWeight: '900', marginTop: 6 },
   subtitle: { color: palette.muted, fontFamily: Typography.body, fontSize: 14, lineHeight: 21, marginTop: 6, maxWidth: 720 },
-  pageActions: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  pageActions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  pageActionsMobile: { width: '100%' },
 });
