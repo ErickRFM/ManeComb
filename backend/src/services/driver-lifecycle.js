@@ -154,6 +154,38 @@ async function changeDriverVehicle(store, { organizationId, userId, vehicleId })
   return result;
 }
 
+async function beginDriverOffboardBarrier(store, { impact, organizationId, userId }) {
+  // Sin unidad asignada no existe una petición válida de start-session que pueda
+  // ganar la carrera, por lo que conservamos la semántica idempotente original.
+  if (!impact?.assignedVehicle) return impact?.conductor || null;
+
+  const current = await Promise.resolve(store.getUserById(userId));
+  if (
+    !current ||
+    String(current.role || "").trim().toLowerCase() !== "driver" ||
+    String(current.organizationId || "").trim() !== String(organizationId || "").trim()
+  ) {
+    throw new DriverLifecycleError("Conductor no encontrado.", 404, "not_found");
+  }
+
+  if (String(current.userStatus || "active").trim().toLowerCase() === "suspended") {
+    return current;
+  }
+
+  const guarded = await Promise.resolve(store.updateUser(userId, {
+    status: "offboarding",
+    userStatus: "suspended"
+  }));
+  if (!guarded || String(guarded.userStatus || "").trim().toLowerCase() !== "suspended") {
+    throw new DriverLifecycleError(
+      "No fue posible bloquear nuevas jornadas antes de la baja.",
+      409,
+      "offboard_barrier_failed"
+    );
+  }
+  return guarded;
+}
+
 async function closeActiveJourneyForOffboard(
   store,
   { actor, actorId, organizationId, reason, activeRouteSession, userId }
@@ -210,17 +242,25 @@ async function offboardDriver(store, { actorId, actor, organizationId, reason, r
   }
 
   const impact = await previewDriverLifecycleImpact(store, { organizationId, userId });
+  const { order } = await getCommercialContext(store, actor);
+
+  // La barrera persistente ocurre ANTES de cerrar la jornada. Así toda petición
+  // /sessions/start que ya pasó authenticate queda cubierta por el guard del store:
+  // si crea antes de la barrera, el cierre de abajo la ve; si crea después, la
+  // revalidación post-create la cancela. No queda una ventana sin autoridad.
+  await beginDriverOffboardBarrier(store, { impact, organizationId, userId });
+  await revokeAllSessions(userId, null, "driver_offboarded");
+
+  const guardedImpact = await previewDriverLifecycleImpact(store, { organizationId, userId });
   const closedJourney = await closeActiveJourneyForOffboard(store, {
     actor,
     actorId,
     organizationId,
     reason: safeReason,
-    activeRouteSession: impact.activeRouteSession,
+    activeRouteSession: guardedImpact.activeRouteSession,
     userId
   });
-  const { order } = await getCommercialContext(store, actor);
 
-  await revokeAllSessions(userId, null, "driver_offboarded");
   const result = await store.offboardDriverState({
     actorId,
     organizationId,
@@ -332,6 +372,7 @@ async function deleteVehicleSafely(store, { organizationId, vehicleId }) {
 
 module.exports = {
   DriverLifecycleError,
+  beginDriverOffboardBarrier,
   changeDriverVehicle,
   deleteDriverSafely,
   deleteVehicleSafely,
