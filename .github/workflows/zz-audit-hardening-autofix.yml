@@ -1,0 +1,130 @@
+name: Temporary audit hardening autofix
+
+on:
+  push:
+    branches:
+      - audit/hardening-windows-lint-authorities-20260810
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Apply scoped audit hardening
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function edit(path, transform) {
+            const before = fs.readFileSync(path, 'utf8');
+            const after = transform(before);
+            if (after === before) throw new Error(`Expected edit did not change ${path}`);
+            fs.writeFileSync(path, after);
+          }
+
+          edit('docs/architecture/system-audit-gates.json', (source) => {
+            const needle = '  "maxBaselineDriftCommits": 50,\n';
+            if (!source.includes(needle)) throw new Error('audit drift marker not found');
+            return source.replace(
+              needle,
+              `${needle}  "maxAuthorityMapDriftCommits": 50,\n`
+            );
+          });
+
+          edit('scripts/validate-system-audit-gates.mjs', (source) => {
+            const maxDriftBlock = `  const maxDrift = Number(contract.maxBaselineDriftCommits);\n  if (!Number.isInteger(maxDrift) || maxDrift < 1) {\n    fail('maxBaselineDriftCommits must be a positive integer.');\n  }\n`;
+            if (!source.includes(maxDriftBlock)) throw new Error('max drift validation block not found');
+            source = source.replace(
+              maxDriftBlock,
+              `${maxDriftBlock}\n  const maxAuthorityMapDrift = Number(contract.maxAuthorityMapDriftCommits);\n  if (!Number.isInteger(maxAuthorityMapDrift) || maxAuthorityMapDrift < 1) {\n    fail('maxAuthorityMapDriftCommits must be a positive integer.');\n  }\n`
+            );
+
+            const marker = `    'Mobile quality',\n    'Android debug APK certification',`;
+            if (!source.includes(marker)) throw new Error('CI marker list not found');
+            source = source.replace(
+              marker,
+              `    'Mobile quality',\n    'Mobile Jest (Windows)',\n    'Android debug APK certification',`
+            );
+
+            const oldAuthorityBlock = `      if (authorityDrift > maxDrift) {\n        console.log(\n          \`::warning::System authority map is \${authorityDrift} commits behind \${freshnessRef}. \` +\n          'Its schema may be valid while its findings are stale; refresh it in a dedicated authority audit.'\n        );\n      }\n    } catch {\n      console.log(\n        \`::warning::System authority map baseline is not an ancestor of \${freshnessRef}; \` +\n        'dedicated reconciliation required.'\n      );\n    }`;
+            if (!source.includes(oldAuthorityBlock)) throw new Error('authority warning block not found');
+            source = source.replace(
+              oldAuthorityBlock,
+              `      if (authorityDrift > maxAuthorityMapDrift) {\n        fail(\n          \`System authority map is \${authorityDrift} commits behind \${freshnessRef} \` +\n          \`(max \${maxAuthorityMapDrift}). Refresh the semantic authority audit before merge.\`\n        );\n      } else {\n        console.log(\n          \`System authority map drift vs \${freshnessRef}: \${authorityDrift}/\${maxAuthorityMapDrift} commits.\`\n        );\n      }\n    } catch {\n      fail(\n        \`System authority map baseline is not an ancestor of \${freshnessRef}. \` +\n        'Run a dedicated semantic authority reconciliation before merge.'\n      );\n    }`
+            );
+            return source;
+          });
+
+          edit('.github/workflows/ci.yml', (source) => {
+            const marker = '\n  android-debug-apk:\n';
+            if (!source.includes(marker)) throw new Error('android job marker not found');
+            const windowsJob = `\n  mobile-windows-tests:\n    name: Mobile Jest (Windows)\n    runs-on: windows-latest\n    timeout-minutes: 15\n    defaults:\n      run:\n        working-directory: mobile\n    steps:\n      - name: Checkout\n        uses: actions/checkout@v5\n\n      - name: Setup Node\n        uses: actions/setup-node@v5\n        with:\n          node-version: "22"\n          cache: npm\n          cache-dependency-path: mobile/package-lock.json\n\n      - name: Install dependencies\n        run: npm ci\n\n      - name: Run Jest portability gate\n        run: npm test\n`;
+            return source.replace(marker, `${windowsJob}${marker}`);
+          });
+
+          edit('mobile/.eslintrc.js', (source) => {
+            const marker = '  overrides: [\n';
+            if (!source.includes(marker)) throw new Error('eslint overrides marker not found');
+            return source.replace(
+              marker,
+              `  rules: {\n    // ManeComb uses explicit void expressions to mark intentionally fire-and-forget async work.\n    // The React Native base no-void rule conflicts with that convention and produced 48 noise warnings.\n    'no-void': 'off',\n  },\n  overrides: [\n`
+            );
+          });
+
+          edit('mobile/src/screens/users-screen.tsx', (source) => {
+            const start = source.indexOf('\n  function ActionButton({');
+            const endMarker = '\n}\n\nfunction DetailItem';
+            const end = source.indexOf(endMarker, start);
+            if (start < 0 || end < 0) throw new Error('nested ActionButton block not found');
+
+            const replacement = `\n}\n\nfunction ActionButton({\n  accent = false,\n  danger = false,\n  icon,\n  label,\n  onPress,\n}: {\n  accent?: boolean;\n  danger?: boolean;\n  icon: string;\n  label: string;\n  onPress: () => void;\n}) {\n  const { theme } = useAppTheme();\n  const styles = useMemo(() => createStyles(theme), [theme]);\n  const color = danger ? theme.colors.danger : accent ? theme.colors.accent : theme.colors.text;\n\n  return (\n    <Pressable\n      accessibilityRole="button"\n      onPress={onPress}\n      style={({ pressed }) => [styles.actionButton, pressed ? styles.actionButtonPressed : undefined]}>\n      <MaterialCommunityIcons name={icon} size={18} color={color} />\n      <Text style={[styles.actionText, { color }]}>{label}</Text>\n    </Pressable>\n  );\n}\n\nfunction DetailItem`;
+
+            return source.slice(0, start) + replacement + source.slice(end + endMarker.length);
+          });
+          NODE
+
+      - name: Validate audit gate locally
+        run: node scripts/validate-system-audit-gates.mjs
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Typecheck mobile
+        working-directory: mobile
+        run: npm run typecheck
+
+      - name: Require zero mobile lint warnings
+        working-directory: mobile
+        run: npm run lint -- --max-warnings=0
+
+      - name: Run mobile tests
+        working-directory: mobile
+        run: npm test
+
+      - name: Remove temporary workflow and commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/zz-audit-hardening-autofix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/ci.yml docs/architecture/system-audit-gates.json scripts/validate-system-audit-gates.mjs mobile/.eslintrc.js mobile/src/screens/users-screen.tsx .github/workflows/zz-audit-hardening-autofix.yml
+          git commit -m "chore(ci): close audit portability and lint debt"
+          git push origin HEAD:audit/hardening-windows-lint-authorities-20260810
