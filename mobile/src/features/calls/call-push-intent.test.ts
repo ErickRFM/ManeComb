@@ -18,6 +18,23 @@ describe('call push intent', () => {
     });
   });
 
+  it('acepta un dismiss terminal con solo callId y razon', () => {
+    expect(parsePushCallIntent(
+      'manecomb:///call?callId=call-2&action=dismiss&reason=cancelled'
+    )).toEqual({
+      key: 'call-2:dismiss',
+      callId: 'call-2',
+      conversationId: '',
+      callerId: '',
+      callerName: null,
+      mode: 'audio',
+      action: 'dismiss',
+      expiresAt: null,
+      ringTimeoutMs: null,
+      reason: 'cancelled',
+    });
+  });
+
   it('rechaza un deep link cuya llamada ya expiro', () => {
     const intent = parsePushCallIntent(
       'manecomb:///call?callId=old&conversationId=conv&callerId=user&expiresAt=2030-01-01T00%3A00%3A35.000Z&ringTimeoutMs=35000',

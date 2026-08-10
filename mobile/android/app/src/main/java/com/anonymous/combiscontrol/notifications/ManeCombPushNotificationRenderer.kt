@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import com.anonymous.combiscontrol.MainActivity
 import com.anonymous.combiscontrol.R
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -28,15 +29,20 @@ object ManeCombPushNotificationRenderer {
   const val CHANNEL_CALLS = "manecomb-incoming-calls"
   const val GROUP_CHAT = "manecomb-chat"
   private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
+  private const val DEFAULT_CALL_RING_TIMEOUT_MS = 35_000L
+  private const val CLOCK_SKEW_FALLBACK_RING_MS = 10_000L
+
+  private data class CallDeadline(
+    val timeoutMs: Long,
+    val localExpiresAt: String
+  )
 
   fun render(context: Context, data: Map<String, String>) {
     when (data["type"]?.trim()?.lowercase()) {
       "call_dismiss", "call_ended", "call_cancelled", "call_timeout" -> {
-        dismissCall(context, data["callId"].orEmpty())
+        renderCallDismiss(context, data)
       }
-      "incoming_call" -> {
-        if (!isAppInForeground(context)) showIncomingCall(context, data)
-      }
+      "incoming_call" -> renderIncomingCall(context, data)
       else -> {
         if (!isAppInForeground(context)) showMessage(context, data)
       }
@@ -85,17 +91,54 @@ object ManeCombPushNotificationRenderer {
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
   }
 
+  private fun renderCallDismiss(context: Context, data: Map<String, String>) {
+    val callId = data["callId"].orEmpty().trim()
+    if (callId.isEmpty()) return
+    dismissCall(context, callId)
+    if (isAppInForeground(context)) {
+      deliverCallDismissToForeground(context, data, callId)
+    }
+  }
+
+  private fun renderIncomingCall(context: Context, data: Map<String, String>) {
+    val callId = data["callId"].orEmpty().trim()
+    if (callId.isEmpty()) return
+    val deadline = resolveCallDeadline(data)
+    if (deadline.timeoutMs <= 0L) return
+
+    // Socket.IO sigue siendo el transporte normal. Si justo esta reconectando pero el proceso
+    // esta foreground, FCM entrega el mismo URI que CallOverlay ya consume via Linking. No se
+    // crea un segundo store/event bus y el backend sigue validando cualquier accept.
+    if (isAppInForeground(context) && deliverIncomingCallToForeground(context, data, deadline)) {
+      dismissCall(context, callId)
+      return
+    }
+
+    showIncomingCallNotification(context, data, callId, deadline)
+  }
+
   fun showIncomingCall(context: Context, data: Map<String, String>) {
     val callId = data["callId"].orEmpty().trim()
-    if (callId.isEmpty() || isExpired(data["expiresAt"])) return
+    if (callId.isEmpty()) return
+    val deadline = resolveCallDeadline(data)
+    if (deadline.timeoutMs <= 0L) return
+    showIncomingCallNotification(context, data, callId, deadline)
+  }
+
+  private fun showIncomingCallNotification(
+    context: Context,
+    data: Map<String, String>,
+    callId: String,
+    deadline: CallDeadline
+  ) {
     if (!canPostNotifications(context)) return
     ensureChannels(context)
 
     val callerName = data["callerName"].orEmpty().ifBlank { "Contacto operativo" }
     val mode = data["mode"].orEmpty().ifBlank { "audio" }
     val notificationId = stableId("call:$callId")
-    val viewUri = callDeepLink(data, "incoming")
-    val acceptUri = callDeepLink(data, "accept")
+    val viewUri = callDeepLink(data, "incoming", deadline)
+    val acceptUri = callDeepLink(data, "accept", deadline)
     val contentIntent = activityIntent(context, notificationId, viewUri)
     val acceptIntent = activityIntent(context, notificationId + 1, acceptUri)
     val rejectIntent = PendingIntent.getBroadcast(
@@ -118,7 +161,7 @@ object ManeCombPushNotificationRenderer {
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setAutoCancel(false)
       .setOngoing(true)
-      .setTimeoutAfter(40_000L)
+      .setTimeoutAfter(deadline.timeoutMs)
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, rejectIntent, acceptIntent))
@@ -135,6 +178,63 @@ object ManeCombPushNotificationRenderer {
     }
 
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+  }
+
+  private fun deliverIncomingCallToForeground(
+    context: Context,
+    data: Map<String, String>,
+    deadline: CallDeadline
+  ): Boolean {
+    val intent = Intent(context, MainActivity::class.java).apply {
+      action = Intent.ACTION_VIEW
+      this.data = callDeepLink(data, "incoming", deadline)
+      putExtra(
+        MainActivity.EXTRA_INTERNAL_CALL_INTENT_TOKEN,
+        MainActivity.internalCallIntentToken(context)
+      )
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+
+    return try {
+      context.startActivity(intent)
+      true
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  private fun deliverCallDismissToForeground(
+    context: Context,
+    data: Map<String, String>,
+    callId: String
+  ) {
+    val reason = data["reason"].orEmpty().ifBlank {
+      data["type"].orEmpty().removePrefix("call_").ifBlank { "ended" }
+    }
+    val uri = Uri.parse("manecomb:///call").buildUpon()
+      .appendQueryParameter("callId", callId)
+      .appendQueryParameter("action", "dismiss")
+      .appendQueryParameter("reason", reason)
+      .build()
+    val intent = Intent(context, MainActivity::class.java).apply {
+      action = Intent.ACTION_VIEW
+      this.data = uri
+      putExtra(
+        MainActivity.EXTRA_INTERNAL_CALL_INTENT_TOKEN,
+        MainActivity.internalCallIntentToken(context)
+      )
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+
+    try {
+      context.startActivity(intent)
+    } catch (_: Exception) {
+      // La autoridad backend ya termino la llamada; este intent solo reconcilia UI foreground.
+    }
   }
 
   fun dismissCall(context: Context, callId: String) {
@@ -216,6 +316,10 @@ object ManeCombPushNotificationRenderer {
       Intent(context, MainActivity::class.java).apply {
         action = Intent.ACTION_VIEW
         data = uri
+        putExtra(
+          MainActivity.EXTRA_INTERNAL_CALL_INTENT_TOKEN,
+          MainActivity.internalCallIntentToken(context)
+        )
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or
           Intent.FLAG_ACTIVITY_SINGLE_TOP or
           Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -230,13 +334,17 @@ object ManeCombPushNotificationRenderer {
     return Uri.parse("manecomb://$path")
   }
 
-  private fun callDeepLink(data: Map<String, String>, action: String): Uri {
+  private fun callDeepLink(data: Map<String, String>, action: String, deadline: CallDeadline): Uri {
     val builder = Uri.parse("manecomb:///call").buildUpon()
       .appendQueryParameter("callId", data["callId"].orEmpty())
       .appendQueryParameter("conversationId", data["conversationId"].orEmpty())
       .appendQueryParameter("callerId", data["callerId"].orEmpty())
       .appendQueryParameter("callerName", data["callerName"].orEmpty())
       .appendQueryParameter("mode", data["mode"].orEmpty().ifBlank { "audio" })
+      // Desde FCM se convierte una sola vez a reloj local. A partir de aqui Android y JS
+      // comparten el mismo deadline relativo aunque el reloj de pared del equipo este sesgado.
+      .appendQueryParameter("expiresAt", deadline.localExpiresAt)
+      .appendQueryParameter("ringTimeoutMs", deadline.timeoutMs.toString())
       .appendQueryParameter("action", action)
     return builder.build()
   }
@@ -260,17 +368,71 @@ object ManeCombPushNotificationRenderer {
     return manager.canUseFullScreenIntent()
   }
 
-  private fun isExpired(value: String?): Boolean {
+  private fun parseUtcMillis(value: String?): Long? {
     val raw = value.orEmpty().trim()
-    if (raw.isEmpty()) return false
+    if (raw.isEmpty()) return null
     return try {
       val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
       }
-      (parser.parse(raw)?.time ?: Long.MAX_VALUE) <= System.currentTimeMillis()
+      parser.parse(raw)?.time
     } catch (_: Exception) {
-      false
+      null
     }
+  }
+
+  private fun formatUtcMillis(value: Long): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+      timeZone = TimeZone.getTimeZone("UTC")
+    }
+    return formatter.format(Date(value))
+  }
+
+  private fun resolveCallDeadline(data: Map<String, String>): CallDeadline {
+    val relativeLimit = data["ringTimeoutMs"]
+      ?.trim()
+      ?.toLongOrNull()
+      ?.takeIf { it > 0L }
+      ?: DEFAULT_CALL_RING_TIMEOUT_MS
+    val nowMs = System.currentTimeMillis()
+    val expiresAtMillis = parseUtcMillis(data["expiresAt"])
+    if (expiresAtMillis == null) {
+      return CallDeadline(relativeLimit, formatUtcMillis(nowMs + relativeLimit))
+    }
+
+    val localRemainingMs = expiresAtMillis - nowMs
+    val fcmSentTimeMs = data["fcmSentTimeMs"]?.trim()?.toLongOrNull()?.takeIf { it > 0L }
+    val fcmTtlMs = data["fcmTtlSeconds"]
+      ?.trim()
+      ?.toLongOrNull()
+      ?.takeIf { it > 0L }
+      ?.times(1000L)
+
+    val timeoutMs = if (fcmSentTimeMs != null && fcmTtlMs != null) {
+      // `expiresAt` y FCM `sentTime` son tiempos originados fuera del reloj del telefono.
+      // La diferencia entre ambos produce un presupuesto de ringing independiente del skew.
+      val serverWindowMs = minOf(
+        relativeLimit,
+        fcmTtlMs,
+        (expiresAtMillis - fcmSentTimeMs).coerceAtLeast(0L)
+      )
+      if (serverWindowMs <= 0L) {
+        0L
+      } else if (localRemainingMs in 1..serverWindowMs) {
+        // El reloj local es compatible con la ventana que FCM acaba de admitir: conserva
+        // el tiempo realmente transcurrido durante transporte/arranque.
+        localRemainingMs
+      } else {
+        // Sin una referencia online no se puede separar matematicamente skew de demora FCM.
+        // Se evita descartar una llamada valida por reloj manual y se limita el posible
+        // ringing fantasma; cualquier accept sigue validado por la autoridad Redis/backend.
+        minOf(serverWindowMs, CLOCK_SKEW_FALLBACK_RING_MS)
+      }
+    } else {
+      minOf(relativeLimit, localRemainingMs.coerceAtLeast(0L))
+    }
+
+    return CallDeadline(timeoutMs, formatUtcMillis(nowMs + timeoutMs))
   }
 
   private fun stableId(value: String): Int = value.hashCode() and 0x7fffffff

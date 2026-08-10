@@ -64,7 +64,9 @@ function createRtcCallService({
       title: input.title || "Llamada ManeComb",
       body: input.body || "Actualizacion de llamada",
       silent: Boolean(input.silent),
-      ttlSeconds: input.ttlSeconds || Math.ceil(ringTimeoutMs / 1000) + 5,
+      ...(Number.isFinite(Number(input.ttlSeconds)) && Number(input.ttlSeconds) > 0
+        ? { ttlSeconds: Math.max(1, Math.floor(Number(input.ttlSeconds))) }
+        : {}),
       data: {
         type: input.type || "call_state",
         callId: call.callId,
