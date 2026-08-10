@@ -196,7 +196,9 @@ const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   CI: '1',
   NODE_ENV: 'production',
   ENVFILE: envFileName,
-  GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
+  ...(process.platform === 'win32'
+    ? { GRADLE_USER_HOME: 'C:\\gradle-cache-combis' }
+    : {}),
 });
 
 const reactNativeCli = path.join(projectRoot, 'node_modules', 'react-native', 'cli.js');
