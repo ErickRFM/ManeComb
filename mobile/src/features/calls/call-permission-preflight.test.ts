@@ -54,10 +54,17 @@ describe('RTC media permission preflight placement', () => {
     expect(chatScreen).toContain('setCallNotice(null)');
   });
 
-  it('starts the media foreground service from permission-gated active phases', () => {
-    expect(callOverlay).toContain("phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING'");
+  it('starts the media foreground service from permission-gated ringing/active phases', () => {
+    expect(callOverlay).toContain("phase === 'OUTGOING_RINGING'");
+    expect(callOverlay).toContain("phase === 'CONNECTING'");
+    expect(callOverlay).toContain("phase === 'CONNECTED'");
+    expect(callOverlay).toContain("phase === 'RECONNECTING'");
     expect(callOverlay).not.toContain('Boolean(localStream)');
     expect(callOverlay).not.toContain('const localStream = useCallStore');
+    // INCOMING_RINGING must not start a camera/mic FGS before its permission preflight.
+    const serviceBlock = callOverlay.slice(callOverlay.indexOf('const needsForegroundService'));
+    const serviceEnd = serviceBlock.indexOf('const needsIncomingCallWindow');
+    expect(serviceBlock.slice(0, serviceEnd)).not.toContain("phase === 'INCOMING_RINGING'");
   });
 
   it('keeps a final permission defense at the actual getUserMedia invocation', () => {
