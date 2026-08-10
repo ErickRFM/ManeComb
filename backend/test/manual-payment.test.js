@@ -1,9 +1,12 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   getCommercialPlanById,
   getCommercialPlanPricing
 } = require("../src/config/commercial-plans");
 const {
+  REVIEW_LEASE_MS,
   claimManualPaymentDecision,
   completeManualPaymentDecision,
   getManualPaymentEvidence,
@@ -220,6 +223,83 @@ async function main() {
   const paidEligibility = getManualPaymentEligibility(order({ paymentStatus: "paid", activationStatus: "active" }));
   assert.equal(paidEligibility.eligible, false);
   assert.equal(paidEligibility.reason, "already_paid");
+
+  // Regression del boundary irreversible: si una aprobación quedó `reviewing`
+  // porque la activación se persistió antes que el cierre de evidencia, expirar
+  // el lease permite RECUPERAR approve, pero nunca cambiar la decisión a reject.
+  resetManualPaymentEvidenceForTests();
+  const recoveryOrder = order({
+    id: "order-manual-recovery-02",
+    referenceCode: "MNCB-RECOVERY02"
+  });
+  const recoveryStart = new Date("2026-08-08T18:00:00.000Z");
+  const recoverySubmission = await submitManualPaymentEvidence({
+    order: recoveryOrder,
+    userId: "user-owner-02",
+    idempotencyKey: "manual-submit-recovery-order-02",
+    now: recoveryStart,
+    payload: {
+      trackingKey: "SPEI-RECOVERY-002",
+      originBank: "Banco prueba",
+      transferDate: "2026-08-08",
+      amount: 159
+    }
+  });
+  const recoveryClaim = await claimManualPaymentDecision({
+    orderId: recoveryOrder.id,
+    decision: "approve",
+    reviewNote: "Depósito conciliado antes del fallo",
+    reviewerId: "platform-finance-01",
+    idempotencyKey: "manual-review-recovery-approve-01",
+    expectedEvidenceVersion: recoverySubmission.evidence.version,
+    now: recoveryStart
+  });
+  assert.equal(recoveryClaim.evidence.pendingDecision, "approve");
+
+  const afterLease = new Date(recoveryStart.getTime() + REVIEW_LEASE_MS + 1);
+  await expectCode(
+    claimManualPaymentDecision({
+      orderId: recoveryOrder.id,
+      decision: "reject",
+      reviewNote: "Intento contradictorio después del lease",
+      reviewerId: "platform-finance-02",
+      idempotencyKey: "manual-review-recovery-reject-02",
+      expectedEvidenceVersion: recoverySubmission.evidence.version,
+      now: afterLease
+    }),
+    "manual_payment_decision_conflict"
+  );
+
+  const recoveredApprove = await claimManualPaymentDecision({
+    orderId: recoveryOrder.id,
+    decision: "approve",
+    reviewNote: "Recuperación idempotente de la aprobación",
+    reviewerId: "platform-finance-02",
+    idempotencyKey: "manual-review-recovery-approve-02",
+    expectedEvidenceVersion: recoverySubmission.evidence.version,
+    now: afterLease
+  });
+  assert.equal(recoveredApprove.claimed, true);
+  assert.equal(recoveredApprove.evidence.pendingDecision, "approve");
+  const recoveredCompleted = await completeManualPaymentDecision({
+    orderId: recoveryOrder.id,
+    decision: "approve",
+    keyHash: recoveredApprove.keyHash,
+    reviewerId: "platform-finance-02",
+    reviewNote: "Recuperación idempotente de la aprobación",
+    now: afterLease
+  });
+  assert.equal(recoveredCompleted.status, "approved");
+
+  const routeSource = fs.readFileSync(
+    path.resolve(__dirname, "../src/modules/platform/manual-payment-routes.js"),
+    "utf8"
+  );
+  assert.match(routeSource, /let approvalCommitted = false;/);
+  assert.match(routeSource, /approvalCommitted = alreadyPaid;/);
+  assert.match(routeSource, /approvalCommitted = true;/);
+  assert.match(routeSource, /claim\?\.claimed && claim\.keyHash && !approvalCommitted/);
+  assert.match(routeSource, /decision === "reject" && orderAlreadyActivated/);
 
   console.log("manual-payment.test.js: ok");
 }
