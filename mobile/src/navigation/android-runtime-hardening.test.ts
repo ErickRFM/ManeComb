@@ -41,7 +41,7 @@ describe('Android runtime hardening', () => {
     expect(manifest).toContain('com.google.firebase.MESSAGING_EVENT');
   });
 
-  it('renders calls with explicit accept/reject and never auto-accepts full screen', () => {
+  it('renders calls with explicit accept/reject and skew-resilient FCM timing', () => {
     const renderer = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -58,15 +58,35 @@ describe('Android runtime hardening', () => {
       ),
       'utf8'
     );
+    const service = fs.readFileSync(
+      path.join(
+        mobileRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'anonymous',
+        'combiscontrol',
+        'notifications',
+        'ManeCombFirebaseMessagingService.kt'
+      ),
+      'utf8'
+    );
 
     expect(renderer).toContain('NotificationCompat.CallStyle.forIncomingCall');
     expect(renderer).toContain('ManeCombCallActionReceiver.ACTION_REJECT');
     expect(renderer).toContain('builder.setFullScreenIntent(contentIntent, true)');
     expect(renderer).not.toContain('builder.setFullScreenIntent(acceptIntent, true)');
-    expect(renderer).toContain('.appendQueryParameter("expiresAt", data["expiresAt"].orEmpty())');
-    expect(renderer).toContain('.appendQueryParameter("ringTimeoutMs", data["ringTimeoutMs"].orEmpty())');
-    expect(renderer).toContain('.setTimeoutAfter(callTimeoutMs)');
-    expect(renderer).toContain('return minOf(relativeLimit, remainingMs.coerceAtLeast(0L))');
+    expect(renderer).toContain('.appendQueryParameter("expiresAt", deadline.localExpiresAt)');
+    expect(renderer).toContain('.appendQueryParameter("ringTimeoutMs", deadline.timeoutMs.toString())');
+    expect(renderer).toContain('.setTimeoutAfter(deadline.timeoutMs)');
+    expect(renderer).toContain('CLOCK_SKEW_FALLBACK_RING_MS = 10_000L');
+    expect(renderer).toContain('(expiresAtMillis - fcmSentTimeMs).coerceAtLeast(0L)');
+    expect(renderer).toContain('minOf(serverWindowMs, CLOCK_SKEW_FALLBACK_RING_MS)');
+    expect(service).toContain('data["fcmSentTimeMs"] = message.sentTime.toString()');
+    expect(service).toContain('data["fcmTtlSeconds"] = message.ttl.toString()');
     expect(renderer).not.toContain('.setTimeoutAfter(40_000L)');
   });
 });
