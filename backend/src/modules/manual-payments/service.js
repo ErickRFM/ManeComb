@@ -352,6 +352,20 @@ async function submitManualPaymentEvidence({ order, userId, payload = {}, idempo
   }
 }
 
+function assertExpiredReviewDecisionCompatible(current, normalizedDecision, now) {
+  if (String(current?.status) !== "reviewing") return;
+  const leaseUntilMs = new Date(current?.reviewLeaseUntil || 0).getTime();
+  if (Number.isFinite(leaseUntilMs) && leaseUntilMs > now.getTime()) return;
+  const pendingDecision = String(current?.pendingDecision || "").trim().toLowerCase();
+  if (pendingDecision && pendingDecision !== normalizedDecision) {
+    throw domainError(
+      "manual_payment_decision_conflict",
+      `La transferencia ya tiene una decisión ${pendingDecision} en recuperación y no puede cambiar a ${normalizedDecision}.`,
+      409
+    );
+  }
+}
+
 async function claimManualPaymentDecision({
   orderId,
   decision,
@@ -394,6 +408,8 @@ async function claimManualPaymentDecision({
     throw domainError("manual_payment_already_reviewed", "Esta transferencia ya fue revisada.", 409);
   }
 
+  assertExpiredReviewDecisionCompatible(current, normalizedDecision, now);
+
   const leaseUntil = new Date(now.getTime() + REVIEW_LEASE_MS);
   if (!isMongoReady()) {
     const memoryCurrent = memoryEvidence.get(String(orderId));
@@ -409,6 +425,7 @@ async function claimManualPaymentDecision({
     if (leaseActive) {
       throw domainError("manual_payment_review_in_progress", "La transferencia ya está siendo revisada.", 409);
     }
+    assertExpiredReviewDecisionCompatible(memoryCurrent, normalizedDecision, now);
     const claimed = {
       ...memoryCurrent,
       status: "reviewing",
@@ -436,7 +453,11 @@ async function claimManualPaymentDecision({
       version: expectedVersion,
       $or: [
         { status: "pending_review" },
-        { status: "reviewing", reviewLeaseUntil: { $lte: now } }
+        {
+          status: "reviewing",
+          pendingDecision: { $in: [null, normalizedDecision] },
+          reviewLeaseUntil: { $lte: now }
+        }
       ]
     },
     {
@@ -476,6 +497,7 @@ async function claimManualPaymentDecision({
         evidence: serializeManualPaymentEvidence(latest)
       };
     }
+    assertExpiredReviewDecisionCompatible(latest, normalizedDecision, now);
     throw domainError("manual_payment_review_in_progress", "La transferencia ya está siendo revisada.", 409);
   }
 
@@ -552,6 +574,8 @@ function resetManualPaymentEvidenceForTests() {
 }
 
 module.exports = {
+  REVIEW_LEASE_MS,
+  assertExpiredReviewDecisionCompatible,
   claimManualPaymentDecision,
   completeManualPaymentDecision,
   getManualPaymentEligibility,
