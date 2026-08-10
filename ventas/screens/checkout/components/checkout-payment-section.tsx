@@ -111,12 +111,12 @@ function CardTestForm({
     <View style={s.testPaymentPanel}>
       <View style={s.testModeHeader}>
         <View style={s.testModeBadge}>
-          <MaterialCommunityIcons name={productionDemo ? 'flask-outline' : 'shield-key-outline'} size={18} color={palette.lime} />
-          <Text style={s.testModeBadgeText}>{productionDemo ? 'Demostración temporal' : 'Modo de pruebas'}</Text>
+          <MaterialCommunityIcons name={productionDemo ? 'shield-check-outline' : 'shield-key-outline'} size={18} color={palette.lime} />
+          <Text style={s.testModeBadgeText}>{productionDemo ? 'Prueba 7 días' : 'Modo de pruebas'}</Text>
         </View>
         <Text style={s.testModeText}>
           {productionDemo
-            ? 'Se simula el cobro para mostrarte la experiencia completa. No existe cargo real; solo se conservan marca, últimos 4, vencimiento y titular.'
+            ? 'Registra tu tarjeta para continuar. Durante el periodo de prueba no se realizará ningún cargo; solo conservamos marca, últimos 4, vencimiento y titular.'
             : 'Pago simulado sin cargo real. Este formulario solo se usa en el proveedor técnico de pruebas.'}
         </Text>
       </View>
@@ -132,7 +132,7 @@ function CardTestForm({
         <TestPaymentInput
           icon="credit-card-outline"
           keyboardType="number-pad"
-          label="Número de tarjeta de prueba"
+          label={productionDemo ? 'Número de tarjeta' : 'Número de tarjeta de prueba'}
           onChangeText={(value) => onTestCardChange({ cardNumber: value })}
           placeholder="4111 1111 1111 1111"
           value={testCard.cardNumber}
@@ -209,9 +209,9 @@ export function CheckoutPaymentSection({
     <View style={s.speiPanel}>
       <MaterialCommunityIcons name="shield-check-outline" size={32} color={palette.cyan} />
       <View style={s.speiCopy}>
-        <Text style={s.speiTitle}>Acceso demo sin tarjeta</Text>
+        <Text style={s.speiTitle}>Prueba sin tarjeta</Text>
         <Text style={s.speiText}>
-          Puedes activar la prueba de {selectedPlan.trialDays || 7} días sin registrar ningún método. El backend conserva la misma regla de una sola prueba por organización.
+          Puedes activar la prueba de {selectedPlan.trialDays || 7} días sin registrar ningún método de pago. La prueba está disponible una sola vez por organización.
         </Text>
       </View>
     </View>
@@ -227,7 +227,7 @@ export function CheckoutPaymentSection({
         </Text>
         {legacyCardLabel ? (
           <Text style={s.speiText}>
-            {legacyCardLabel} permanece guardada como referencia de demostración, pero no será utilizada ni reemplaza el pago SPEI real.
+            {legacyCardLabel} permanece guardada como método registrado, pero no será utilizada ni reemplaza el pago SPEI real.
           </Text>
         ) : null}
       </View>
@@ -239,7 +239,7 @@ export function CheckoutPaymentSection({
       <View style={s.panelTitleRow}>
         <View style={s.panelTitleIcon}>
           <MaterialCommunityIcons
-            name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'flask-outline') : isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
+            name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'shield-check-outline') : isManualPaymentMode ? 'bank-transfer' : 'credit-card-check-outline'}
             size={24}
             color={palette.violet}
           />
@@ -248,7 +248,7 @@ export function CheckoutPaymentSection({
           <Text style={s.panelTitle}>
             {requestTrial
               ? trialCardSelected
-                ? 'Tarjeta demo'
+                ? 'Tarjeta'
                 : 'Prueba ManeComb'
               : isManualPaymentMode
                 ? 'Transferencia SPEI'
@@ -257,7 +257,7 @@ export function CheckoutPaymentSection({
           <Text style={s.panelSubtitle}>
             {requestTrial
               ? trialCardSelected
-                ? `Simula un cobro de ${formatCurrency(selectedPlan.price)} MXN y activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis.`
+                ? `Registra tu tarjeta y activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis.`
                 : `Activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis sin registrar tarjeta.`
               : isManualPaymentMode
                 ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
@@ -273,7 +273,7 @@ export function CheckoutPaymentSection({
               <MethodTab
                 active={effectiveMethod === 'card'}
                 icon="credit-card-outline"
-                label="Tarjeta demo"
+                label="Tarjeta"
                 onPress={() => onSelectMethod('card')}
               />
               <MethodTab
@@ -358,8 +358,8 @@ export function CheckoutPaymentSection({
         <Text style={s.securityText}>
           {requestTrial
             ? trialCardSelected
-              ? 'Cargo simulado únicamente para la demostración. Se validan los datos, se guardan solo marca, últimos 4, vencimiento y titular; el número completo y el CVV se descartan y no se marca un pago real como recibido.'
-              : 'La prueba se activa sin cobro y sin guardar un método de pago. Después podrás usar el sistema durante el periodo demo.'
+              ? 'Durante la prueba no se realizará ningún cargo. Se guardan únicamente marca, últimos 4, vencimiento y titular; el número completo y el CVV se descartan.'
+              : 'La prueba se activa sin cobro y sin guardar un método de pago. Después podrás usar el sistema durante el periodo de prueba.'
             : isTestPaymentMode
               ? 'Entorno de pruebas: no se realizan cargos y no se almacenan CVV ni números completos.'
               : isManualPaymentMode
@@ -387,7 +387,7 @@ export function CheckoutPaymentSection({
         accessibilityLabel={
           requestTrial
             ? trialCardSelected
-              ? 'Simular cobro y activar prueba de demostración'
+              ? 'Registrar tarjeta y activar prueba'
               : 'Activar prueba sin tarjeta'
             : isManualPaymentMode
               ? 'Generar instrucciones de transferencia'
@@ -405,15 +405,15 @@ export function CheckoutPaymentSection({
         ) : (
           <>
             <MaterialCommunityIcons
-              name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'flask-outline') : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
+              name={requestTrial ? (trialCardSelected ? 'credit-card-check-outline' : 'shield-check-outline') : isManualPaymentMode ? 'bank-transfer' : 'lock-check-outline'}
               size={24}
               color="#FFFFFF"
             />
             <Text style={s.payButtonText}>
               {requestTrial
                 ? trialCardSelected
-                  ? `Simular cobro ${formatCurrency(selectedPlan.price)} MXN y activar demo`
-                  : `Activar demo ${selectedPlan.trialDays || 7} días sin tarjeta`
+                  ? `Activar prueba ${selectedPlan.trialDays || 7} días`
+                  : `Activar prueba ${selectedPlan.trialDays || 7} días sin tarjeta`
                 : isTestPaymentMode
                   ? `Pagar en modo de pruebas ${buttonAmount}`
                   : isManualPaymentMode

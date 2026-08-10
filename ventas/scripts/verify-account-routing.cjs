@@ -244,15 +244,15 @@ const demoCardContracts = [
   'cardLast4: last4',
   'demoTrial: true',
   'selectedAddOns: []',
-  'Tarjeta demo',
+  "? 'Tarjeta'",
   'Sin tarjeta',
-  'Simular cobro ${formatCurrency(selectedPlan.price)} MXN y activar demo',
+  'Activar prueba ${selectedPlan.trialDays || 7} días',
   'El número completo y el CVV fueron descartados.',
 ];
 
 for (const contract of demoCardContracts) {
   if (!checkoutSources.includes(contract) && !checkoutPaymentSection.includes(contract)) {
-    throw new Error(`La tarjeta demo dejó de reutilizar la autoridad de trial segura: ${contract}`);
+    throw new Error(`La tarjeta de prueba dejó de reutilizar la autoridad de trial segura: ${contract}`);
   }
 }
 
@@ -263,14 +263,14 @@ const demoIdempotencyContracts = [
 
 for (const contract of demoIdempotencyContracts) {
   if (!checkoutContext.includes(contract)) {
-    throw new Error(`La idempotencia volvió a mezclar Tarjeta demo y trial sin tarjeta: ${contract}`);
+    throw new Error(`La idempotencia volvió a mezclar tarjeta y trial sin tarjeta: ${contract}`);
   }
 }
 
 const trialPaymentUiContracts = [
   "providerMode === 'unavailable' && !requestTrial",
-  'Acceso demo sin tarjeta',
-  'Cargo simulado únicamente para la demostración.',
+  'Prueba sin tarjeta',
+  'Durante la prueba no se realizará ningún cargo.',
   'La prueba se activa sin cobro y sin guardar un método de pago.',
 ];
 
@@ -304,4 +304,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical channels, capabilities, route registry, scoped boot, product boundaries, checkout intent, provider readiness and trial/demo-card → Portal verified.');
+console.log('Canonical channels, capabilities, route registry, scoped boot, product boundaries, checkout intent, provider readiness and trial-card → Portal verified.');
