@@ -186,6 +186,8 @@ export function AppShell({
       topChrome
     );
 
+  const desktopConnectionBanner = isMobileLayout ? null : <ConnectionBanner />;
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       {scroll ? (
@@ -201,23 +203,29 @@ export function AppShell({
           showsVerticalScrollIndicator={false}
           refreshControl={refreshControl}
           {...scrollProps}>
-          <ConnectionBanner />
+          {desktopConnectionBanner}
           {mobileHeaderChrome}
           {children}
         </KeyboardSafeScrollView>
       ) : keyboardSafe && Platform.OS !== 'web' ? (
         <KeyboardSafeView behavior="padding" style={contentStyles}>
-          <ConnectionBanner />
+          {desktopConnectionBanner}
           {mobileHeaderChrome}
           {children}
         </KeyboardSafeView>
       ) : (
         <View style={contentStyles}>
-          <ConnectionBanner />
+          {desktopConnectionBanner}
           {mobileHeaderChrome}
           {children}
         </View>
       )}
+
+      {isMobileLayout ? (
+        <View pointerEvents="box-none" style={styles.connectionOverlay}>
+          <ConnectionBanner />
+        </View>
+      ) : null}
 
       {isMobileLayout ? (
         <OperationalMenuDrawer
@@ -262,6 +270,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: AppTheme.spacing.lg,
     paddingTop: AppTheme.spacing.md,
     paddingBottom: AppTheme.spacing.xxl,
+  },
+  connectionOverlay: {
+    position: 'absolute',
+    top: AppTheme.spacing.xs,
+    left: AppTheme.spacing.sm,
+    right: AppTheme.spacing.sm,
+    zIndex: 40,
+    elevation: 40,
   },
   mobileToolbar: {
     flexDirection: 'row',
