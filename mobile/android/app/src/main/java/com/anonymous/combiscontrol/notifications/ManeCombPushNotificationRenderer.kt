@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import com.anonymous.combiscontrol.MainActivity
 import com.anonymous.combiscontrol.R
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -29,6 +30,12 @@ object ManeCombPushNotificationRenderer {
   const val GROUP_CHAT = "manecomb-chat"
   private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
   private const val DEFAULT_CALL_RING_TIMEOUT_MS = 35_000L
+  private const val CLOCK_SKEW_FALLBACK_RING_MS = 10_000L
+
+  private data class CallDeadline(
+    val timeoutMs: Long,
+    val localExpiresAt: String
+  )
 
   fun render(context: Context, data: Map<String, String>) {
     when (data["type"]?.trim()?.lowercase()) {
@@ -89,16 +96,16 @@ object ManeCombPushNotificationRenderer {
   fun showIncomingCall(context: Context, data: Map<String, String>) {
     val callId = data["callId"].orEmpty().trim()
     if (callId.isEmpty()) return
-    val callTimeoutMs = remainingCallTimeoutMs(data)
-    if (callTimeoutMs <= 0L) return
+    val deadline = resolveCallDeadline(data)
+    if (deadline.timeoutMs <= 0L) return
     if (!canPostNotifications(context)) return
     ensureChannels(context)
 
     val callerName = data["callerName"].orEmpty().ifBlank { "Contacto operativo" }
     val mode = data["mode"].orEmpty().ifBlank { "audio" }
     val notificationId = stableId("call:$callId")
-    val viewUri = callDeepLink(data, "incoming")
-    val acceptUri = callDeepLink(data, "accept")
+    val viewUri = callDeepLink(data, "incoming", deadline)
+    val acceptUri = callDeepLink(data, "accept", deadline)
     val contentIntent = activityIntent(context, notificationId, viewUri)
     val acceptIntent = activityIntent(context, notificationId + 1, acceptUri)
     val rejectIntent = PendingIntent.getBroadcast(
@@ -121,7 +128,7 @@ object ManeCombPushNotificationRenderer {
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setAutoCancel(false)
       .setOngoing(true)
-      .setTimeoutAfter(callTimeoutMs)
+      .setTimeoutAfter(deadline.timeoutMs)
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, rejectIntent, acceptIntent))
@@ -233,15 +240,17 @@ object ManeCombPushNotificationRenderer {
     return Uri.parse("manecomb://$path")
   }
 
-  private fun callDeepLink(data: Map<String, String>, action: String): Uri {
+  private fun callDeepLink(data: Map<String, String>, action: String, deadline: CallDeadline): Uri {
     val builder = Uri.parse("manecomb:///call").buildUpon()
       .appendQueryParameter("callId", data["callId"].orEmpty())
       .appendQueryParameter("conversationId", data["conversationId"].orEmpty())
       .appendQueryParameter("callerId", data["callerId"].orEmpty())
       .appendQueryParameter("callerName", data["callerName"].orEmpty())
       .appendQueryParameter("mode", data["mode"].orEmpty().ifBlank { "audio" })
-      .appendQueryParameter("expiresAt", data["expiresAt"].orEmpty())
-      .appendQueryParameter("ringTimeoutMs", data["ringTimeoutMs"].orEmpty())
+      // Desde FCM se convierte una sola vez a reloj local. A partir de aqui Android y JS
+      // comparten el mismo deadline relativo aunque el reloj de pared del equipo este sesgado.
+      .appendQueryParameter("expiresAt", deadline.localExpiresAt)
+      .appendQueryParameter("ringTimeoutMs", deadline.timeoutMs.toString())
       .appendQueryParameter("action", action)
     return builder.build()
   }
@@ -278,15 +287,58 @@ object ManeCombPushNotificationRenderer {
     }
   }
 
-  private fun remainingCallTimeoutMs(data: Map<String, String>): Long {
+  private fun formatUtcMillis(value: Long): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+      timeZone = TimeZone.getTimeZone("UTC")
+    }
+    return formatter.format(Date(value))
+  }
+
+  private fun resolveCallDeadline(data: Map<String, String>): CallDeadline {
     val relativeLimit = data["ringTimeoutMs"]
       ?.trim()
       ?.toLongOrNull()
       ?.takeIf { it > 0L }
       ?: DEFAULT_CALL_RING_TIMEOUT_MS
-    val expiresAtMillis = parseUtcMillis(data["expiresAt"]) ?: return relativeLimit
-    val remainingMs = expiresAtMillis - System.currentTimeMillis()
-    return minOf(relativeLimit, remainingMs.coerceAtLeast(0L))
+    val nowMs = System.currentTimeMillis()
+    val expiresAtMillis = parseUtcMillis(data["expiresAt"])
+    if (expiresAtMillis == null) {
+      return CallDeadline(relativeLimit, formatUtcMillis(nowMs + relativeLimit))
+    }
+
+    val localRemainingMs = expiresAtMillis - nowMs
+    val fcmSentTimeMs = data["fcmSentTimeMs"]?.trim()?.toLongOrNull()?.takeIf { it > 0L }
+    val fcmTtlMs = data["fcmTtlSeconds"]
+      ?.trim()
+      ?.toLongOrNull()
+      ?.takeIf { it > 0L }
+      ?.times(1000L)
+
+    val timeoutMs = if (fcmSentTimeMs != null && fcmTtlMs != null) {
+      // `expiresAt` y FCM `sentTime` son tiempos originados fuera del reloj del telefono.
+      // La diferencia entre ambos produce un presupuesto de ringing independiente del skew.
+      val serverWindowMs = minOf(
+        relativeLimit,
+        fcmTtlMs,
+        (expiresAtMillis - fcmSentTimeMs).coerceAtLeast(0L)
+      )
+      if (serverWindowMs <= 0L) {
+        0L
+      } else if (localRemainingMs in 1..serverWindowMs) {
+        // El reloj local es compatible con la ventana que FCM acaba de admitir: conserva
+        // el tiempo realmente transcurrido durante transporte/arranque.
+        localRemainingMs
+      } else {
+        // Sin una referencia online no se puede separar matematicamente skew de demora FCM.
+        // Se evita descartar una llamada valida por reloj manual y se limita el posible
+        // ringing fantasma; cualquier accept sigue validado por la autoridad Redis/backend.
+        minOf(serverWindowMs, CLOCK_SKEW_FALLBACK_RING_MS)
+      }
+    } else {
+      minOf(relativeLimit, localRemainingMs.coerceAtLeast(0L))
+    }
+
+    return CallDeadline(timeoutMs, formatUtcMillis(nowMs + timeoutMs))
   }
 
   private fun stableId(value: String): Int = value.hashCode() and 0x7fffffff
