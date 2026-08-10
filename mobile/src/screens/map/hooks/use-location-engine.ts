@@ -8,7 +8,6 @@ import {
 } from '@/src/native/background-location';
 import { useAppStore } from '@/src/store/root-store';
 import {
-  LOCATION_FIX_WATCHDOG_MS,
   LOCATION_FIX_WATCHDOG_POLL_MS,
   MAX_ACCEPTED_ACCURACY_METERS,
 } from '../constants/tracking';
@@ -32,6 +31,10 @@ import {
   canCaptureLocalLocation,
   canOwnVehicleTracking,
 } from '../utils/location-eligibility';
+import {
+  hasLocationFixTimedOut,
+  resolveSilentLocationIssue,
+} from '../utils/location-watchdog';
 
 const BACKGROUND_OWNER = 'operational-runtime' as const;
 
@@ -302,8 +305,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
       const lastObservedAt = lastObservedFixAtRef.current;
       if (
         watchdogCheckInFlightRef.current ||
-        lastObservedAt === null ||
-        Date.now() - lastObservedAt < LOCATION_FIX_WATCHDOG_MS
+        !hasLocationFixTimedOut(lastObservedAt, Date.now())
       ) {
         return;
       }
@@ -313,7 +315,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
       Promise.all([hasLocationServicesEnabled(), getForegroundPermission()])
         .then(([servicesEnabled, foreground]) => {
-          if (!trackingEnabledRef.current || !watcherRef.current && Platform.OS !== 'web') {
+          if (!trackingEnabledRef.current || (!watcherRef.current && Platform.OS !== 'web')) {
             return;
           }
 
@@ -323,11 +325,10 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
             return;
           }
 
-          const issue = foreground.status !== Location.PermissionStatus.GRANTED
-            ? 'permission_denied'
-            : servicesEnabled
-              ? 'unavailable'
-              : 'services_disabled';
+          const issue = resolveSilentLocationIssue({
+            servicesEnabled,
+            permissionGranted: foreground.status === Location.PermissionStatus.GRANTED,
+          });
 
           if (watchdogIssueRef.current === issue) return;
           watchdogIssueRef.current = issue;
