@@ -4,7 +4,6 @@ const cors = require("cors");
 const express = require("express");
 const helmet = require("helmet");
 const morgan = require("morgan");
-const rateLimit = require("express-rate-limit");
 const packageJson = require("../package.json");
 const {
   CORS_ORIGIN,
@@ -50,6 +49,7 @@ const {
   observeDuration,
   setGauge
 } = require("./services/metrics");
+const { generalApiRateLimit, mediaReadRateLimit } = require("./middlewares/api-rate-limit");
 const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
 const { platformAuth } = require("./middlewares/platform-auth");
@@ -185,15 +185,12 @@ function createApp({ store, getDbState }) {
 
     next();
   });
-  app.use(
-    "/api",
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 200,
-      standardHeaders: true,
-      legacyHeaders: false
-    })
-  );
+
+  // La multimedia autenticada tiene una cuota separada: una descarga de audio
+  // no debe consumir el presupuesto genérico de la sesión operativa. El orden
+  // importa: primero aplica su límite dedicado y después el general la omite.
+  app.use("/api", mediaReadRateLimit);
+  app.use("/api", generalApiRateLimit);
 
   app.get("/", (req, res) => {
     return res.json({
