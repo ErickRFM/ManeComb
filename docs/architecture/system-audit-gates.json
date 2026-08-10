@@ -6,6 +6,7 @@
     "capturedAt": "2026-08-10"
   },
   "maxBaselineDriftCommits": 50,
+  "maxAuthorityMapDriftCommits": 50,
   "requiredGates": [
     {
       "id": "AUTHORITY",
