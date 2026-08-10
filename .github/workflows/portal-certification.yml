@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - ".github/workflows/portal-certification.yml"
+      - "backend/src/services/account-channel.js"
+      - "backend/src/services/auth-context.js"
+      - "backend/src/services/enterprise-capabilities.js"
       - "mobile/e2e/certification/**"
       - "mobile/playwright.certification.config.ts"
       - "mobile/package.json"
@@ -73,6 +76,7 @@ jobs:
           --config playwright.certification.config.ts
           e2e/certification/public-responsive.spec.ts
           e2e/certification/local-account-channel.spec.ts
+          e2e/certification/backend-portal-capability-contract.spec.ts
 
       - name: Upload public and local contract evidence
         if: always()
