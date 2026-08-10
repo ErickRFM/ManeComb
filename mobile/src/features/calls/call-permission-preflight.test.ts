@@ -18,6 +18,10 @@ describe('RTC media permission preflight placement', () => {
     path.join(root, 'src', 'features', 'calls', 'call-media.ts'),
     'utf8'
   );
+  const chatScreen = fs.readFileSync(
+    path.join(root, 'src', 'screens', 'chat-screen.tsx'),
+    'utf8'
+  );
 
   it('gates outgoing signaling in the store before emitStartCall', () => {
     const startBlock = callStore.slice(callStore.indexOf('startCall: async'));
@@ -42,6 +46,12 @@ describe('RTC media permission preflight placement', () => {
     expect(callOverlay).toContain('useCallStore.getState().acceptIncomingCall()');
     expect(callOverlay).toContain('<CallPermissionModal />');
     expect(callOverlay).not.toContain('ensureCallMediaPermissionsForUi');
+  });
+
+  it('keeps permission recovery authoritative if Chat writes a late generic notice', () => {
+    expect(chatScreen).toContain('permissionPrompt && callNotice');
+    expect(chatScreen).toContain('[callNotice, permissionPrompt, setCallNotice]');
+    expect(chatScreen).toContain('setCallNotice(null)');
   });
 
   it('delays microphone/camera foreground service until local media exists', () => {
