@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import type { ConversationChannelMode } from '@/src/types/app';
+import { useCallStore } from '@/src/features/calls/call-store';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ChatScreenView } from './chat/components/chat-screen-view';
 import { useChatController } from './chat/hooks/use-chat-controller';
@@ -17,11 +18,21 @@ export function ChatScreen() {
     handleSelectConversation: selectConversation,
     isCompact,
     mobilePane,
+    setCallNotice,
     setMobilePane: setControllerMobilePane,
   } = controller;
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const conversations = useAppStore((state) => state.conversations);
+  const permissionPrompt = useCallStore((state) => state.permissionPrompt);
   const pinnedConversationIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (permissionPrompt) {
+      // El modal global de permisos es la autoridad de recuperación. Evita que
+      // quede detrás un aviso genérico de "No fue posible iniciar la llamada".
+      setCallNotice(null);
+    }
+  }, [permissionPrompt, setCallNotice]);
 
   useEffect(() => {
     const activeConversation = conversations.find(
