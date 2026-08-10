@@ -161,6 +161,22 @@ if (!adminGlobal?.allowedChannels?.includes('platform_admin')) {
   fail('admin-global must explicitly allow platform_admin.');
 }
 
+const rtcLive = authorities.find((authority) => authority.id === 'rtc-live-call');
+if (!rtcLive || rtcLive.owner !== 'backend' || rtcLive.status !== 'canonical') {
+  fail('rtc-live-call must be a canonical backend authority.');
+}
+if (!rtcLive?.sourcePaths?.includes('backend/src/modules/rtc/live-authority.js')) {
+  fail('rtc-live-call must point to backend/src/modules/rtc/live-authority.js.');
+}
+
+const rtcCdr = authorities.find((authority) => authority.id === 'rtc-cdr');
+if (!rtcCdr || rtcCdr.owner !== 'backend' || rtcCdr.status !== 'canonical') {
+  fail('rtc-cdr must be a canonical backend authority.');
+}
+if (!rtcCdr?.sourcePaths?.includes('backend/src/data/repositories/session-repository.js')) {
+  fail('rtc-cdr must point to the durable session repository.');
+}
+
 if (errors.length > 0) {
   console.error('System authority validation failed:');
   for (const error of errors) console.error(`- ${error}`);

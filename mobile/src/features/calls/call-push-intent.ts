@@ -8,6 +8,8 @@ export type PushCallIntent = {
   callerName: string | null;
   mode: CallMode;
   action: 'incoming' | 'accept';
+  expiresAt: string | null;
+  ringTimeoutMs: number | null;
 };
 
 function parseQuery(raw: string): Record<string, string> {
@@ -25,7 +27,10 @@ function parseQuery(raw: string): Record<string, string> {
   );
 }
 
-export function parsePushCallIntent(url: string | null | undefined): PushCallIntent | null {
+export function parsePushCallIntent(
+  url: string | null | undefined,
+  now: () => number = Date.now
+): PushCallIntent | null {
   const safeUrl = String(url || '').trim();
   if (!safeUrl || !safeUrl.toLowerCase().includes('/call')) return null;
   const params = parseQuery(safeUrl);
@@ -33,6 +38,17 @@ export function parsePushCallIntent(url: string | null | undefined): PushCallInt
   const conversationId = String(params.conversationId || '').trim();
   const callerId = String(params.callerId || '').trim();
   if (!callId || !conversationId || !callerId) return null;
+
+  const expiresAt = String(params.expiresAt || '').trim() || null;
+  if (expiresAt) {
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now()) return null;
+  }
+
+  const rawRingTimeoutMs = Number(params.ringTimeoutMs);
+  const ringTimeoutMs = Number.isFinite(rawRingTimeoutMs) && rawRingTimeoutMs > 0
+    ? Math.floor(rawRingTimeoutMs)
+    : null;
   const action = params.action === 'accept' ? 'accept' : 'incoming';
   const mode: CallMode = params.mode === 'video' ? 'video' : 'audio';
 
@@ -44,5 +60,7 @@ export function parsePushCallIntent(url: string | null | undefined): PushCallInt
     callerName: String(params.callerName || '').trim() || null,
     mode,
     action,
+    expiresAt,
+    ringTimeoutMs,
   };
 }

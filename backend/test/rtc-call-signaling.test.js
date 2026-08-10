@@ -1,14 +1,13 @@
-// RC-MOBILE-CALLS-PRODUCTION-01 Bloque A + A.1 — signaling global de llamadas (backend autoritativo).
-// Ejercita el servicio real; los efectos de red se capturan con un emitToUser fake y timers
-// inyectables (el repo no tiene socket.io-client en tests). Store real para flujos; fake-store para
-// controlar conteo de participantes y payloads.
+// RC-RTC-DISTRIBUTED-AUTHORITY-20260809
+// Contract regression for direct-call authorization, lifecycle idempotency, grace cleanup
+// and callId-based membership after the live authority became asynchronous/distributed.
 
 const assert = require("node:assert/strict");
 const { createRtcCallService, callRoom } = require("../src/services/rtc-call-service");
 const { createEmbeddedStore } = require("../src/data/store");
 
-const CONV_DIRECT = "conversation-101"; // [user-admin-01, user-driver-01] (org demo) -> directa
-const CONV_GROUP = "conversation-ops";  // 4 participantes -> grupal
+const CONV_DIRECT = "conversation-101";
+const CONV_GROUP = "conversation-ops";
 
 function harness(store) {
   const emits = [];
@@ -16,250 +15,304 @@ function harness(store) {
   const service = createRtcCallService({
     store,
     emitToUser: (userId, event, payload) => emits.push({ userId, event, payload }),
-    setTimeoutFn: (fn) => { const h = { fn, cleared: false }; timers.push(h); return h; },
-    clearTimeoutFn: (h) => { if (h && typeof h === "object") h.cleared = true; }
+    deliverNotification: async () => ({ ok: true }),
+    setTimeoutFn: (fn) => {
+      const handle = { fn, cleared: false };
+      timers.push(handle);
+      return handle;
+    },
+    clearTimeoutFn: (handle) => {
+      if (handle && typeof handle === "object") handle.cleared = true;
+    }
   });
+
+  async function flushAsync() {
+    for (let index = 0; index < 4; index += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
   return {
-    service, emits, timers,
-    runTimers: () => { for (const t of timers) { if (!t.cleared) { t.cleared = true; t.fn(); } } },
-    usersReceiving: (event) => emits.filter((e) => e.event === event).map((e) => e.userId),
-    payloadOf: (event) => (emits.find((e) => e.event === event) || {}).payload
+    service,
+    emits,
+    timers,
+    async runTimers() {
+      for (const timer of timers) {
+        if (timer.cleared) continue;
+        timer.cleared = true;
+        timer.fn();
+      }
+      await flushAsync();
+    },
+    usersReceiving(eventName) {
+      return emits.filter((entry) => entry.event === eventName).map((entry) => entry.userId);
+    },
+    payloadOf(eventName) {
+      return emits.find((entry) => entry.event === eventName)?.payload;
+    }
   };
 }
 
 function fakeStore(conversation) {
   return {
-    canUserAccessConversation: async (userId, convId) =>
-      convId === conversation.id && conversation.participants.includes(userId),
-    getConversationById: async (convId) => (convId === conversation.id ? conversation : null)
+    canUserAccessConversation: async (userId, conversationId) =>
+      conversationId === conversation.id && conversation.participants.includes(userId),
+    getConversationById: async (conversationId) =>
+      conversationId === conversation.id ? conversation : null
   };
 }
 
 (async () => {
-  // ============ Flujos con store real ============
   const store = createEmbeddedStore();
   const admin = store.getUserById("user-admin-01");
   const driver = store.getUserById("user-driver-01");
   const supervisor = store.getUserById("user-supervisor-01");
 
-  // A1/A2: llamada autorizada, callId backend, namespace canonico, solo participante timbrado.
+  // Authorized direct call: backend chooses callId and only the real callee rings.
   {
     const h = harness(store);
-    const res = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    assert.equal(res.ok, true);
-    assert.ok(res.callId);
-    assert.equal(res.roomId, `rtc:call:${res.callId}`, "namespace canonico rtc:call:{callId}");
-    assert.deepEqual(h.usersReceiving("rtc:incoming-call"), ["user-driver-01"], "solo el callee es timbrado");
-    console.log("ok - A1/A2: autorizada, callId backend, namespace canonico, solo participante");
+    const result = await h.service.startCall({
+      caller: admin,
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    assert.equal(result.ok, true);
+    assert.ok(result.callId);
+    assert.equal(result.roomId, `rtc:call:${result.callId}`);
+    assert.deepEqual(h.usersReceiving("rtc:incoming-call"), [driver.id]);
+    assert.equal(h.service._state.userState.size, 2);
   }
 
-  // A3: cross-tenant bloqueado.
+  // Tenant mismatch and non-direct conversations are rejected before reservation/emission.
   {
     const h = harness(store);
-    const res = await h.service.startCall({ caller: { ...admin, organizationId: "otra-org" }, callerSocketId: "s", conversationId: CONV_DIRECT, mode: "audio" });
-    assert.equal(res.ok, false);
-    assert.equal(res.code, "forbidden");
-    assert.equal(h.emits.length, 0, "sin fuga de eventos");
-    console.log("ok - A3: cross-tenant bloqueado");
+    const crossTenant = await h.service.startCall({
+      caller: { ...admin, organizationId: "otra-org" },
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    assert.deepEqual(crossTenant, { ok: false, code: "forbidden" });
+    assert.equal(h.emits.length, 0);
+
+    const group = await h.service.startCall({
+      caller: admin,
+      conversationId: CONV_GROUP,
+      mode: "audio"
+    });
+    assert.equal(group.code, "direct_call_required");
+    assert.equal(h.service._state.userState.size, 0);
   }
 
-  // A.1-1: conversacion GRUPAL rechazada (direct_call_required), sin reservar ni emitir.
+  // Accept is atomic/idempotent and unlocks callId-based media membership.
   {
     const h = harness(store);
-    const res = await h.service.startCall({ caller: admin, callerSocketId: "s", conversationId: CONV_GROUP, mode: "audio" });
-    assert.equal(res.ok, false);
-    assert.equal(res.code, "direct_call_required", "grupal -> direct_call_required");
-    assert.equal(res.callId, undefined, "no genera callId");
-    assert.equal(h.emits.length, 0, "no emite rtc:incoming-call");
-    assert.equal(h.service._state.userState.size, 0, "no reserva usuarios");
-    console.log("ok - A.1-1: conversacion grupal rechazada");
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    assert.equal((await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId
+    })).reason, "not_accepted");
+
+    const accepted = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-a",
+      callId: call.callId
+    });
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.roomId, `rtc:call:${call.callId}`);
+    assert.ok(h.usersReceiving("rtc:call-accepted").includes(admin.id));
+    assert.ok(h.usersReceiving("rtc:call-accepted").includes(driver.id));
+
+    const duplicate = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-a",
+      callId: call.callId
+    });
+    assert.equal(duplicate.ok, true);
+    assert.equal(duplicate.idempotent, true);
+
+    const otherDevice = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-b",
+      callId: call.callId
+    });
+    assert.deepEqual(otherDevice, { ok: false, code: "answered_elsewhere" });
+
+    const callerJoin = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId
+    });
+    const calleeJoin = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: driver.id,
+      organizationId: admin.organizationId
+    });
+    assert.equal(callerJoin.ok, true);
+    assert.equal(calleeJoin.ok, true);
+    assert.equal(callerJoin.room, `rtc:call:${call.callId}`);
+    assert.equal(await h.service.isCallMember(call.callId, supervisor.id), false);
   }
 
-  // A4 accept, A5 reject, A6 cancel, A7 busy, A8 timeout, A9 end idempotente.
+  // Reject, cancel and busy release the reservation without duplicate notifications.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    const acc = h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    assert.equal(acc.ok, true);
-    assert.equal(acc.roomId, `rtc:call:${call.callId}`);
-    assert.ok(h.usersReceiving("rtc:call-accepted").includes("user-admin-01"));
-    assert.ok(h.usersReceiving("rtc:call-accepted").includes("user-driver-01"));
-    console.log("ok - A4: accept notifica a ambos");
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    assert.equal((await h.service.reject({ user: driver, callId: call.callId })).ok, true);
+    assert.deepEqual(h.usersReceiving("rtc:call-rejected"), [admin.id]);
+    assert.equal((await h.service.reject({ user: driver, callId: call.callId })).idempotent, true);
+    assert.equal(h.service._state.userState.size, 0);
   }
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.reject({ user: driver, callId: call.callId });
-    assert.deepEqual(h.usersReceiving("rtc:call-rejected"), ["user-admin-01"]);
-    assert.equal(h.service._state.userState.size, 0, "liberado tras reject");
-    console.log("ok - A5: reject");
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "video" });
+    assert.equal((await h.service.cancel({ user: admin, callId: call.callId })).ok, true);
+    assert.deepEqual(h.usersReceiving("rtc:call-cancelled"), [driver.id]);
+    assert.equal((await h.service.cancel({ user: admin, callId: call.callId })).idempotent, true);
   }
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.cancel({ user: admin, callId: call.callId });
-    assert.deepEqual(h.usersReceiving("rtc:call-cancelled"), ["user-driver-01"]);
-    console.log("ok - A6: cancel");
-  }
-  {
-    const h = harness(store);
-    const directSupDriver = store.ensureDirectConversation("user-supervisor-01", "user-driver-01");
-    await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    const second = await h.service.startCall({ caller: supervisor, callerSocketId: "sock-s", conversationId: directSupDriver.id, mode: "audio" });
+    const supervisorDriver = store.ensureDirectConversation(supervisor.id, driver.id);
+    await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    const second = await h.service.startCall({
+      caller: supervisor,
+      conversationId: supervisorDriver.id,
+      mode: "audio"
+    });
     assert.equal(second.ok, false);
     assert.equal(second.code, "busy");
-    console.log("ok - A7: busy (destinatario ocupado)");
-  }
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.runTimers(); // dispara el timeout de ring
-    assert.ok(h.usersReceiving("rtc:call-timeout").includes("user-admin-01"));
-    assert.ok(h.usersReceiving("rtc:call-timeout").includes("user-driver-01"));
-    // accept despues de timeout -> unknown_call.
-    const late = h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    assert.equal(late.code, "unknown_call", "accept tras timeout rechazado");
-    console.log("ok - A8: timeout + accept tardio rechazado");
-  }
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    // accept duplicado -> idempotente ok.
-    const dupAccept = h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    assert.equal(dupAccept.ok, true);
-    assert.equal(dupAccept.idempotent, true, "accept duplicado idempotente");
-    const first = h.service.end({ user: admin, callId: call.callId });
-    assert.equal(first.ok, true);
-    const second = h.service.end({ user: admin, callId: call.callId });
-    assert.equal(second.idempotent, true, "end duplicado idempotente");
-    assert.equal(h.usersReceiving("rtc:end").length, 1, "no re-emite en end idempotente");
-    console.log("ok - A9: accept/end duplicados idempotentes");
-  }
-  // reject/cancel duplicados idempotentes.
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.reject({ user: driver, callId: call.callId });
-    assert.equal(h.service.reject({ user: driver, callId: call.callId }).idempotent, true, "reject duplicado idempotente");
-    assert.equal(h.service.cancel({ user: admin, callId: call.callId }).idempotent, true, "cancel sobre terminada idempotente");
-    assert.equal(h.usersReceiving("rtc:call-rejected").length, 1, "no re-emite");
-    console.log("ok - A.1: reject/cancel duplicados idempotentes");
   }
 
-  // ============ Disconnect con gracia (A.1-3) ============
-  // Definitivo: sin otro socket -> tras gracia, rtc:end reason peer_disconnected + limpieza.
+  // Ring timeout owns cleanup; a late accept cannot resurrect the call.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    await h.service.handleDisconnect("sock-a", { isUserConnected: () => false });
-    assert.equal(h.service._state.callsById.size, 1, "durante la gracia la llamada sigue viva");
-    h.runTimers(); // vence la gracia
-    const endPayload = h.payloadOf("rtc:end");
-    assert.equal(endPayload.reason, "peer_disconnected", "notifica peer_disconnected");
-    assert.ok(h.usersReceiving("rtc:end").includes("user-driver-01"), "el otro extremo es notificado");
-    assert.equal(h.service._state.callsById.size, 0, "llamada liberada tras la gracia");
-    console.log("ok - A.1-3: disconnect definitivo tras gracia (peer_disconnected)");
-  }
-  // Reconexion dentro de la gracia -> se cancela el cleanup.
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    await h.service.handleDisconnect("sock-a", { isUserConnected: () => false });
-    h.service.noteUserReconnected("user-admin-01"); // vuelve dentro de la gracia
-    h.runTimers();
-    assert.equal(h.service._state.callsById.size, 1, "reconexion cancela el cleanup: llamada viva");
-    assert.equal(h.usersReceiving("rtc:end").length, 0, "no se emitio end");
-    console.log("ok - A.1-3: reconexion dentro de la gracia cancela el cleanup");
-  }
-  // Conserva otro socket -> no se programa cleanup.
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, callerSocketId: "sock-a", conversationId: CONV_DIRECT, mode: "audio" });
-    h.service.accept({ user: driver, socketId: "sock-b", callId: call.callId });
-    await h.service.handleDisconnect("sock-a", { isUserConnected: () => true });
-    assert.equal(h.service._state.pendingDisconnects.size, 0, "otro socket vivo -> sin cleanup programado");
-    h.runTimers();
-    assert.equal(h.service._state.callsById.size, 1, "llamada intacta");
-    console.log("ok - A.1-3: conserva otro socket -> sin cleanup");
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    await h.runTimers();
+    assert.ok(h.usersReceiving("rtc:call-timeout").includes(admin.id));
+    assert.ok(h.usersReceiving("rtc:call-timeout").includes(driver.id));
+    assert.equal(h.service._state.callsById.size, 0);
+    assert.equal((await h.service.accept({ user: driver, callId: call.callId })).code, "unknown_call");
   }
 
-  // ============ Contrato de payload / modo (fake-store) ============
+  // End is idempotent and frees both busy slots.
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    await h.service.accept({ user: driver, callId: call.callId });
+    assert.equal((await h.service.end({ user: admin, callId: call.callId })).ok, true);
+    assert.equal((await h.service.end({ user: admin, callId: call.callId })).idempotent, true);
+    assert.equal(h.usersReceiving("rtc:end").length, 1);
+    assert.equal(h.service._state.userState.size, 0);
+  }
+
+  // Disconnect cleanup is keyed by authenticated user, not by a process-local socket binding.
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    await h.service.accept({ user: driver, callId: call.callId });
+
+    await h.service.handleDisconnect(admin.id, { isUserConnected: () => false });
+    assert.equal(h.service._state.pendingDisconnects.size, 1);
+    await h.service.noteUserReconnected(admin.id);
+    assert.equal(h.service._state.pendingDisconnects.size, 0);
+    assert.equal(h.service._state.callsById.size, 1);
+
+    await h.service.handleDisconnect(admin.id, {
+      isUserConnected: (userId) => userId === driver.id
+    });
+    assert.equal(h.service._state.pendingDisconnects.size, 1);
+    await h.runTimers();
+    assert.equal(h.service._state.callsById.size, 0);
+    assert.equal(h.payloadOf("rtc:end").reason, "peer_disconnected");
+    assert.equal(h.payloadOf("rtc:end").endedBy, admin.id);
+  }
+  {
+    const h = harness(store);
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    await h.service.accept({ user: driver, callId: call.callId });
+    await h.service.handleDisconnect(admin.id, { isUserConnected: () => true });
+    assert.equal(h.service._state.pendingDisconnects.size, 0);
+    assert.equal(h.service._state.callsById.size, 1);
+  }
+
+  // Payload cannot choose caller/callee, and unsupported modes are rejected.
   const callerA = { id: "u-a", name: "A", organizationId: "org-1" };
-  // A.1-4: conversacion INCOMPLETA (1 participante) rechazada.
   {
     const h = harness(fakeStore({ id: "c-1", organizationId: "org-1", participants: ["u-a"] }));
-    const res = await h.service.startCall({ caller: callerA, callerSocketId: "s", conversationId: "c-1", mode: "audio" });
-    assert.equal(res.code, "direct_call_required", "incompleta -> direct_call_required");
-    console.log("ok - A.1-4: conversacion incompleta rechazada");
+    const result = await h.service.startCall({ caller: callerA, conversationId: "c-1", mode: "audio" });
+    assert.equal(result.code, "direct_call_required");
   }
-  // El payload NO puede elegir caller/callee arbitrarios: se usan el usuario autenticado y los
-  // participantes reales de la conversacion.
   {
-    const conv = { id: "c-2", organizationId: "org-1", participants: ["u-a", "u-b"] };
-    const h = harness(fakeStore(conv));
-    const res = await h.service.startCall({
-      caller: callerA, callerSocketId: "s", conversationId: "c-2", mode: "audio",
-      callerId: "u-victim", calleeId: "u-evil", to: "u-evil" // campos maliciosos ignorados
+    const h = harness(fakeStore({ id: "c-2", organizationId: "org-1", participants: ["u-a", "u-b"] }));
+    const result = await h.service.startCall({
+      caller: callerA,
+      conversationId: "c-2",
+      mode: "audio",
+      callerId: "u-victim",
+      calleeId: "u-evil",
+      to: "u-evil"
     });
-    assert.equal(res.ok, true);
-    assert.deepEqual(h.usersReceiving("rtc:incoming-call"), ["u-b"], "callee resuelto del backend, no del payload");
-    const incoming = h.payloadOf("rtc:incoming-call");
-    assert.equal(incoming.caller.id, "u-a", "caller = usuario autenticado, no el del payload");
-    console.log("ok - A.1-4: payload no elige caller/callee arbitrarios");
+    assert.equal(result.ok, true);
+    assert.deepEqual(h.usersReceiving("rtc:incoming-call"), ["u-b"]);
+    assert.equal(h.payloadOf("rtc:incoming-call").caller.id, "u-a");
   }
-  // mode invalido -> invalid_mode.
   {
     const h = harness(fakeStore({ id: "c-3", organizationId: "org-1", participants: ["u-a", "u-b"] }));
-    const res = await h.service.startCall({ caller: callerA, callerSocketId: "s", conversationId: "c-3", mode: "hologram" });
-    assert.equal(res.code, "invalid_mode", "mode invalido rechazado");
-    assert.equal(h.emits.length, 0, "no emite con mode invalido");
-    console.log("ok - A.1-4: mode invalido rechazado");
+    const result = await h.service.startCall({ caller: callerA, conversationId: "c-3", mode: "hologram" });
+    assert.equal(result.code, "invalid_mode");
+    assert.equal(h.emits.length, 0);
   }
-  // Namespace: verificacion directa del helper.
-  assert.equal(callRoom("abc"), "rtc:call:abc", "callRoom canonico");
-  console.log("ok - A.1-2: namespace canonico rtc:call:{callId}");
 
-  // ============ C.1: autorizacion de join por callId ============
+  assert.equal(callRoom("abc"), "rtc:call:abc");
+
+  // Unknown/foreign/ended callIds cannot join or signal.
   {
     const h = harness(store);
-    // 1. sin callId / 2. inexistente -> unknown_call
-    assert.equal(h.service.canJoinCall({ callId: '', userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-1 sin callId');
-    assert.equal(h.service.canJoinCall({ callId: 'nope', userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-2 inexistente');
+    assert.equal((await h.service.canJoinCall({
+      callId: "nope",
+      userId: admin.id,
+      organizationId: admin.organizationId
+    })).reason, "unknown_call");
 
-    const call = await h.service.startCall({ caller: admin, callerSocketId: 'sock-a', conversationId: CONV_DIRECT, mode: 'audio' });
-    // 3. no aceptada (ringing) -> not_accepted
-    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'not_accepted', 'C1-3 ringing');
+    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
+    await h.service.accept({ user: driver, callId: call.callId });
+    assert.equal((await h.service.canJoinCall({
+      callId: call.callId,
+      userId: supervisor.id,
+      organizationId: admin.organizationId
+    })).reason, "forbidden");
+    assert.equal((await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: "otra-org"
+    })).reason, "forbidden");
+    assert.equal(await h.service.isCallMember(call.callId, admin.id), true);
 
-    h.service.accept({ user: driver, socketId: 'sock-b', callId: call.callId });
-    // 6. caller y callee aceptados -> ok ; 7. sala canonica
-    const joinCaller = h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId });
-    const joinCallee = h.service.canJoinCall({ callId: call.callId, userId: 'user-driver-01', organizationId: admin.organizationId });
-    assert.equal(joinCaller.ok, true, 'C1-6 caller join');
-    assert.equal(joinCallee.ok, true, 'C1-6 callee join');
-    assert.equal(joinCaller.room, `rtc:call:${call.callId}`, 'C1-7 sala canonica');
-
-    // 4/8. usuario ajeno (tercero) -> forbidden
-    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-supervisor-01', organizationId: admin.organizationId }).reason, 'forbidden', 'C1-4/8 ajeno');
-    // org inconsistente -> forbidden
-    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: 'otra-org' }).reason, 'forbidden', 'C1 org inconsistente');
-
-    // 9. isCallMember respalda offer/answer/ICE
-    assert.equal(h.service.isCallMember(call.callId, 'user-admin-01'), true, 'C1-9 caller es miembro');
-    assert.equal(h.service.isCallMember(call.callId, 'user-driver-01'), true, 'C1-9 callee es miembro');
-    assert.equal(h.service.isCallMember(call.callId, 'user-supervisor-01'), false, 'C1-9 ajeno no es miembro');
-
-    // 5/11. terminada -> call_ended / getCall null
-    h.service.end({ user: admin, callId: call.callId });
-    assert.equal(h.service.canJoinCall({ callId: call.callId, userId: 'user-admin-01', organizationId: admin.organizationId }).reason, 'unknown_call', 'C1-5/11 terminada limpia');
-    assert.equal(h.service.getCall(call.callId), null, 'C1-11 getCall null tras end');
-    assert.equal(h.service.isCallMember(call.callId, 'user-admin-01'), false, 'C1 miembro falso tras end');
+    await h.service.end({ user: admin, callId: call.callId });
+    assert.equal((await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId
+    })).reason, "unknown_call");
+    assert.equal(await h.service.getCall(call.callId), null);
+    assert.equal(await h.service.isCallMember(call.callId, admin.id), false);
   }
-  console.log("ok - C.1: join autorizado por callId (existencia/aceptacion/pertenencia/org/sala/terminada)");
 
-  console.log("ok - rtc-call-signaling A/A.1/C.1: contrato directo, namespace, ocupacion, idempotencia, gracia y join por callId");
+  // A second live socket for the same logical user must never evict the winner from the RTC room.
+  {
+    const socketSource = require("node:fs").readFileSync(
+      require("node:path").join(__dirname, "../src/sockets/index.js"),
+      "utf8"
+    );
+    const joinStart = socketSource.indexOf('socket.on("rtc:join"');
+    const joinEnd = socketSource.indexOf('// C.1: leave/offer/answer/ICE/stats', joinStart);
+    assert.ok(joinStart >= 0 && joinEnd > joinStart, "rtc:join contract must remain discoverable");
+    const joinBlock = socketSource.slice(joinStart, joinEnd);
+    assert.ok(joinBlock.includes('reason: "already_connected_elsewhere"'));
+    assert.equal(joinBlock.includes('socketsLeave'), false, "a live sibling socket must not evict the active device");
+  }
+
+  console.log("ok - rtc-call-signaling async authority contract");
 })().catch((error) => {
   console.error(error);
   process.exit(1);

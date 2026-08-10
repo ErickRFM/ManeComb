@@ -20,6 +20,7 @@ const {
   persistTransmission
 } = require("../modules/radio/live-stream");
 const { createRadioFloorControl } = require("../modules/radio/floor-control");
+const { createRtcSessionCoordinator } = require("../modules/rtc/session-coordinator");
 
 const RADIO_TRANSMISSION_TIMEOUT_MS = 65000;
 const PRESENCE_HEARTBEAT_TIMEOUT_MS = 55000;
@@ -31,8 +32,7 @@ function getRadioRoom(channelId) {
 
 function registerSocketServer(server, store) {
   const allowCredentials = !CLIENT_ORIGINS.includes("*");
-  const rtcRooms = new Map();
-  const activeRtcSessions = new Map();
+  // Timers are process-local scheduling only; they are never live-call authority.
   const rtcDisconnectTimers = new Map();
   const activeRadioTransmissions = new Map();
   const io = new Server(server, {
@@ -51,7 +51,8 @@ function registerSocketServer(server, store) {
   });
   const redisClient = getRedisClient();
   const redisReadiness = getRedisReadiness();
-  let radioClusterReady = !redisReadiness.enabled;
+  // A configured Redis deployment is fail-closed until the Socket.IO adapter is ready.
+  let realtimeClusterReady = !redisReadiness.enabled;
 
   async function hasAnotherLivePresenceSocket(sourceSocket, userId) {
     const candidates = await io.in(`user:${userId}`).fetchSockets();
@@ -105,7 +106,7 @@ function registerSocketServer(server, store) {
   const radioFloor = createRadioFloorControl({
     redisClient,
     redisReadiness,
-    isClusterReady: () => radioClusterReady,
+    isClusterReady: () => realtimeClusterReady,
     getLocalOwner: (channelId) => activeRadioTransmissions.get(channelId) || null
   });
 
@@ -115,27 +116,27 @@ function registerSocketServer(server, store) {
       const subClient = redisClient.duplicate();
       let adapterConfigured = false;
       subClient.on("ready", () => {
-        if (adapterConfigured) radioClusterReady = true;
+        if (adapterConfigured) realtimeClusterReady = true;
       });
       subClient.on("end", () => {
-        radioClusterReady = false;
+        realtimeClusterReady = false;
       });
       subClient.on("error", (error) => {
-        radioClusterReady = false;
-        logger.error({ action: "RedisAdapter", module: "Radio", status: "error", error });
+        realtimeClusterReady = false;
+        logger.error({ action: "RedisAdapter", module: "Realtime", status: "error", error });
       });
       subClient
         .connect()
         .then(() => {
           io.adapter(createAdapter(redisClient, subClient));
           adapterConfigured = true;
-          radioClusterReady = true;
+          realtimeClusterReady = true;
         })
         .catch((error) => {
-          logger.error({ action: "ConnectRedisAdapter", module: "Radio", status: "error", error });
+          logger.error({ action: "ConnectRedisAdapter", module: "Realtime", status: "error", error });
         });
     } catch (error) {
-      logger.error({ action: "ConfigureRedisAdapter", module: "Radio", status: "error", error });
+      logger.error({ action: "ConfigureRedisAdapter", module: "Realtime", status: "error", error });
     }
   }
 
@@ -172,74 +173,88 @@ function registerSocketServer(server, store) {
     return `rtc:${roomId}`;
   }
 
-  function getRtcParticipants(roomId) {
-    return Array.from(rtcRooms.get(roomId)?.values() || []);
+  async function getRtcParticipants(roomId) {
+    const sockets = await io.in(getRoomKey(roomId)).fetchSockets();
+    return sockets
+      .map((candidate) => ({
+        socketId: candidate.id,
+        userId: candidate.data.user?.id || null,
+        name: candidate.data.user?.name || null,
+        organizationId: getOrganizationId(candidate.data.user)
+      }))
+      .filter((participant) => participant.userId && participant.organizationId);
   }
 
   function getRtcParticipantSnapshot(participants) {
+    const unique = Array.from(
+      new Map(
+        participants
+          .filter((participant) => participant?.userId)
+          .map((participant) => [participant.userId, participant])
+      ).values()
+    );
     return {
-      participantUserIds: participants.map((participant) => participant.userId).filter(Boolean),
-      participantNames: participants.map((participant) => participant.name).filter(Boolean)
+      participantUserIds: unique.map((participant) => participant.userId),
+      participantNames: unique.map((participant) => participant.name).filter(Boolean)
     };
   }
 
+  const rtcSessions = createRtcSessionCoordinator({
+    store,
+    redisClient,
+    redisReadiness,
+    isClusterReady: () => realtimeClusterReady
+  });
+
   async function syncRtcSession(roomId, payload) {
-    const activeSessionId = activeRtcSessions.get(roomId);
-
-    if (!activeSessionId) {
-      return null;
-    }
-
-    return await store.updateRtcSession(activeSessionId, payload);
+    const participants = await getRtcParticipants(roomId);
+    const organizationId = participants[0]?.organizationId || null;
+    if (!organizationId) return null;
+    return await rtcSessions.sync(roomId, organizationId, payload);
   }
 
   async function ensureRtcSession(roomId, payload) {
-    const participants = getRtcParticipants(roomId);
+    const participants = await getRtcParticipants(roomId);
     const snapshot = getRtcParticipantSnapshot(participants);
-    const existingSessionId = activeRtcSessions.get(roomId);
-
-    if (existingSessionId) {
-      return await store.updateRtcSession(existingSessionId, {
-        ...snapshot,
-        offerCount: Math.max(1, Number(payload.offerCount) || 1),
-        sharedScreen: Boolean(payload.sharedScreen)
-      });
-    }
-
-    const session = await store.createRtcSession({
-      roomId,
-      organizationId: payload.organizationId,
-      initiatedBy: payload.initiatedBy,
+    const update = {
+      ...snapshot,
       offerCount: Math.max(1, Number(payload.offerCount) || 1),
-      mode: payload.mode || null,
-      sharedScreen: Boolean(payload.sharedScreen),
-      ...snapshot
+      sharedScreen: Boolean(payload.sharedScreen)
+    };
+    return await rtcSessions.ensure(roomId, {
+      organizationId: payload.organizationId,
+      update,
+      create: {
+        roomId,
+        organizationId: payload.organizationId,
+        initiatedBy: payload.initiatedBy,
+        mode: payload.mode || null,
+        ...update
+      }
     });
-
-    activeRtcSessions.set(roomId, session.id);
-    return session;
   }
 
-  async function finishRtcSession(roomId, status, participants = getRtcParticipants(roomId), endReason = "hangup") {
-    const activeSessionId = activeRtcSessions.get(roomId);
-
-    if (!activeSessionId) {
-      return null;
-    }
-
-    activeRtcSessions.delete(roomId);
-
-    return await store.updateRtcSession(activeSessionId, {
-      ...getRtcParticipantSnapshot(participants),
+  async function finishRtcSession(
+    roomId,
+    status,
+    participants,
+    endReason = "hangup",
+    fallbackOrganizationId = null
+  ) {
+    const safeParticipants = Array.isArray(participants) ? participants : await getRtcParticipants(roomId);
+    const organizationId = safeParticipants[0]?.organizationId || fallbackOrganizationId;
+    if (!organizationId) return null;
+    return await rtcSessions.finish(roomId, organizationId, {
+      ...getRtcParticipantSnapshot(safeParticipants),
       status,
       endReason,
       endedAt: new Date().toISOString()
     });
   }
 
-  function broadcastRtcParticipants(roomId) {
+  async function broadcastRtcParticipants(roomId) {
     io.to(getRoomKey(roomId)).emit("rtc:participants", {
-      participants: getRtcParticipants(roomId),
+      participants: await getRtcParticipants(roomId),
       roomId
     });
   }
@@ -277,19 +292,14 @@ function registerSocketServer(server, store) {
     return await canUseOperationalFeatures(store, socket.data.user);
   }
 
-  function isRtcRoomCompatible(roomId, organizationId) {
-    const members = rtcRooms.get(roomId);
-
-    return (
-      !members ||
-      Array.from(members.values()).every(
-        (participant) => participant.organizationId === organizationId
-      )
-    );
+  function isSocketInRtcRoom(socket, roomId) {
+    return socket.rooms.has(getRoomKey(roomId));
   }
 
-  function isSocketInRtcRoom(socket, roomId) {
-    return rtcRooms.get(roomId)?.has(socket.id) || false;
+  async function isSocketInRtcRoomById(roomId, socketId) {
+    if (!socketId) return false;
+    const participants = await io.in(getRoomKey(roomId)).fetchSockets();
+    return participants.some((participant) => participant.id === String(socketId));
   }
 
   async function leaveRtcRoom(socket, roomId, endReason = "hangup") {
@@ -298,41 +308,81 @@ function registerSocketServer(server, store) {
       clearTimeout(disconnectTimer);
       rtcDisconnectTimers.delete(socket.id);
     }
+    if (!roomId || !isSocketInRtcRoom(socket, roomId)) return;
 
-    if (!roomId || !rtcRooms.has(roomId)) {
-      return;
-    }
+    const previousParticipants = await getRtcParticipants(roomId);
+    await socket.leave(getRoomKey(roomId));
+    const participants = await getRtcParticipants(roomId);
+    const organizationId =
+      participants[0]?.organizationId ||
+      previousParticipants[0]?.organizationId ||
+      getOrganizationId(socket.data.user);
 
-    const members = rtcRooms.get(roomId);
-    const previousParticipants = Array.from(members.values());
-    const didDelete = members.delete(socket.id);
-
-    if (!didDelete) {
-      return;
-    }
-
-    socket.leave(getRoomKey(roomId));
-
-    if (!members.size) {
-      await finishRtcSession(roomId, "completed", previousParticipants, endReason);
-      rtcRooms.delete(roomId);
+    if (!participants.length) {
+      await finishRtcSession(roomId, "completed", previousParticipants, endReason, organizationId);
     } else {
-      await syncRtcSession(roomId, getRtcParticipantSnapshot(Array.from(members.values())));
+      await rtcSessions.sync(
+        roomId,
+        organizationId,
+        getRtcParticipantSnapshot(participants)
+      );
     }
 
     io.to(getRoomKey(roomId)).emit("rtc:hangup", {
       roomId,
       fromSocketId: socket.id
     });
-    broadcastRtcParticipants(roomId);
+    await broadcastRtcParticipants(roomId);
   }
 
-  // RC-MOBILE-CALLS-PRODUCTION-01 Bloque A: signaling global de llamadas (autoritativo backend).
-  // Reserva/timbre/aceptacion/timeout viven aqui; el media (join/offer/answer/ICE) sigue en rtc:*.
-  // Estado en memoria => asume UNA instancia de backend (documentado en el reporte); con varias
-  // replicas debera centralizarse (Redis).
+  async function reconcileRtcRoomAfterDisconnect(socket, roomId, endReason = "timeout") {
+    if (!roomId) return;
+    const disconnectedUserId = socket.data.user?.id || null;
+    const participants = await getRtcParticipants(roomId);
+    if (disconnectedUserId && participants.some((participant) => participant.userId === disconnectedUserId)) {
+      const organizationId = participants[0]?.organizationId || getOrganizationId(socket.data.user);
+      if (organizationId) {
+        await rtcSessions.sync(roomId, organizationId, getRtcParticipantSnapshot(participants));
+      }
+      return;
+    }
+
+    const disconnectedParticipant = disconnectedUserId
+      ? {
+          socketId: socket.id,
+          userId: disconnectedUserId,
+          name: socket.data.user?.name || null,
+          organizationId: getOrganizationId(socket.data.user)
+        }
+      : null;
+    const previousParticipants = disconnectedParticipant
+      ? [...participants, disconnectedParticipant]
+      : participants;
+    const organizationId =
+      participants[0]?.organizationId ||
+      disconnectedParticipant?.organizationId ||
+      null;
+
+    if (!participants.length) {
+      await finishRtcSession(roomId, "completed", previousParticipants, endReason, organizationId);
+    } else if (organizationId) {
+      await rtcSessions.sync(roomId, organizationId, getRtcParticipantSnapshot(participants));
+    }
+
+    io.to(getRoomKey(roomId)).emit("rtc:hangup", {
+      roomId,
+      fromSocketId: socket.id
+    });
+    await broadcastRtcParticipants(roomId);
+  }
+
+  // Redis owns the live call lease; Socket.IO Redis adapter owns distributed room transport;
+  // Mongo/store remains the CDR/history authority.
   const callService = createRtcCallService({
     store,
+    redisClient,
+    redisReadiness,
+    isClusterReady: () => realtimeClusterReady,
     emitToUser: (userId, event, payload) => io.to(`user:${userId}`).emit(event, payload)
   });
 
@@ -384,7 +434,7 @@ function registerSocketServer(server, store) {
       socket.data.presenceJoined = true;
       socket.data.lastPresenceHeartbeatAt = Date.now();
       // A.1: si el usuario recupero un socket dentro de la gracia, cancelar el cleanup de su llamada.
-      if (resolvedUserId) callService.noteUserReconnected(resolvedUserId);
+      if (resolvedUserId) await callService.noteUserReconnected(resolvedUserId);
       const organizationSockets = resolvedOrganizationId
         ? await io.in(`org:${resolvedOrganizationId}`).fetchSockets()
         : [];
@@ -413,7 +463,7 @@ function registerSocketServer(server, store) {
       observeSocketEvent(socket, "presence:join", startedAt, "success");
     });
 
-    socket.on("client:heartbeat", (payload, ack) => {
+    socket.on("client:heartbeat", async (payload, ack) => {
       const startedAt = Date.now();
       const authenticatedUser = socket.data.user || null;
 
@@ -427,6 +477,8 @@ function registerSocketServer(server, store) {
         observeSocketEvent(socket, "client:heartbeat", startedAt, "unauthorized");
         return;
       }
+
+      await callService.refreshForUser(authenticatedUser.id);
 
       const response = {
         ok: true,
@@ -1036,7 +1088,11 @@ function registerSocketServer(server, store) {
         return;
       }
 
-      const auth = callService.canJoinCall({ callId: safeCallId, userId: authenticatedUser.id, organizationId });
+      const auth = await callService.canJoinCall({
+        callId: safeCallId,
+        userId: authenticatedUser.id,
+        organizationId
+      });
       if (!auth.ok) {
         observeSocketEvent(socket, "rtc:join", startedAt, "forbidden", { callId: safeCallId, reason: auth.reason });
         acknowledge(ack, { ok: false, reason: auth.reason });
@@ -1045,34 +1101,22 @@ function registerSocketServer(server, store) {
 
       const safeRoomId = auth.roomId; // `call:{callId}`
       const roomKey = getRoomKey(safeRoomId);
-      const members = rtcRooms.get(safeRoomId) || new Map();
-      const previousConnection = Array.from(members.values()).find(
-        (participant) => participant.userId === authenticatedUser.id && participant.socketId !== socket.id
+      const roomSockets = await io.in(roomKey).fetchSockets();
+      const previousConnections = roomSockets.filter(
+        (participant) =>
+          participant.data.user?.id === authenticatedUser.id && participant.id !== socket.id
       );
-
-      if (previousConnection) {
-        const reconnectTimer = rtcDisconnectTimers.get(previousConnection.socketId);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        rtcDisconnectTimers.delete(previousConnection.socketId);
-        members.delete(previousConnection.socketId);
-      }
-      const alreadyJoined = members.has(socket.id);
-
-      if (!alreadyJoined && members.size >= 2) {
-        observeSocketEvent(socket, "rtc:join", startedAt, "busy", { roomId: safeRoomId });
-        acknowledge(ack, { ok: false, reason: "busy" });
+      if (previousConnections.length) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "rejected", {
+          roomId: safeRoomId,
+          reason: "already_connected_elsewhere"
+        });
+        acknowledge(ack, { ok: false, reason: "already_connected_elsewhere" });
         return;
       }
 
-      members.set(socket.id, {
-        socketId: socket.id,
-        userId: authenticatedUser.id,
-        name: authenticatedUser.name,
-        organizationId
-      });
-      rtcRooms.set(safeRoomId, members);
-      socket.join(roomKey);
-      broadcastRtcParticipants(safeRoomId);
+      await socket.join(roomKey);
+      await broadcastRtcParticipants(safeRoomId);
       observeSocketEvent(socket, "rtc:join", startedAt, "success", { roomId: safeRoomId });
       acknowledge(ack, { ok: true });
     });
@@ -1084,10 +1128,10 @@ function registerSocketServer(server, store) {
       return safe ? `call:${safe}` : "";
     };
 
-    socket.on("rtc:leave", ({ callId } = {}) => {
+    socket.on("rtc:leave", async ({ callId } = {}) => {
       const startedAt = Date.now();
       const safeRoomId = callRoomIdOf(callId);
-      if (safeRoomId) void leaveRtcRoom(socket, safeRoomId);
+      if (safeRoomId) await leaveRtcRoom(socket, safeRoomId);
       observeSocketEvent(socket, "rtc:leave", startedAt, "success", { callId: String(callId || "") || null });
     });
 
@@ -1103,8 +1147,8 @@ function registerSocketServer(server, store) {
           !authenticatedUser ||
           !(await canUseOperations(socket)) ||
           !isSocketInRtcRoom(socket, safeRoomId) ||
-          !callService.isCallMember(safeCallId, authenticatedUser.id) ||
-          (targetSocketId && !rtcRooms.get(safeRoomId)?.has(String(targetSocketId)))
+          !(await callService.isCallMember(safeCallId, authenticatedUser.id)) ||
+          (targetSocketId && !(await isSocketInRtcRoomById(safeRoomId, targetSocketId)))
         ) {
           observeSocketEvent(socket, eventName, startedAt, "forbidden", { callId: safeCallId || null });
           return;
@@ -1171,7 +1215,14 @@ function registerSocketServer(server, store) {
       }
       const result = await callService.startCall({ caller: user, callerSocketId: socket.id, conversationId, mode });
       acknowledge(ack, result.ok
-        ? { ok: true, callId: result.callId, roomId: result.roomId, status: result.status }
+        ? {
+            ok: true,
+            callId: result.callId,
+            roomId: result.roomId,
+            status: result.status,
+            expiresAt: result.expiresAt,
+            ringTimeoutMs: result.ringTimeoutMs
+          }
         : { ok: false, code: result.code });
       observeSocketEvent(socket, "rtc:call", startedAt, result.ok ? "success" : "rejected", { callId: result.callId || null, code: result.code || null });
     });
@@ -1184,7 +1235,7 @@ function registerSocketServer(server, store) {
         observeSocketEvent(socket, eventName, startedAt, "forbidden", {});
         return;
       }
-      const result = action({ user, socketId: socket.id, callId: String(callId || "").trim() });
+      const result = await action({ user, socketId: socket.id, callId: String(callId || "").trim() });
       acknowledge(ack, result);
       observeSocketEvent(socket, eventName, startedAt, result.ok ? "success" : "rejected", { callId: String(callId || "") || null, code: result.code || null });
     };
@@ -1194,6 +1245,12 @@ function registerSocketServer(server, store) {
     socket.on("rtc:cancel", callActionHandler("rtc:cancel", (args) => callService.cancel(args)));
     socket.on("rtc:busy", callActionHandler("rtc:busy", (args) => callService.busy(args)));
     socket.on("rtc:end", callActionHandler("rtc:end", (args) => callService.end(args)));
+
+    socket.on("disconnecting", () => {
+      socket.data.rtcDisconnectRoomIds = [...socket.rooms]
+        .filter((room) => room.startsWith("rtc:call:"))
+        .map((room) => room.slice("rtc:".length));
+    });
 
     socket.on("disconnect", async () => {
       incrementMetric("socket_disconnects_total", 1);
@@ -1211,15 +1268,17 @@ function registerSocketServer(server, store) {
       if (socket.data.presenceJoined && disconnectedOrganizationId && disconnectedUserId) {
         await emitPresenceStatus(socket, "offline");
       }
-      const joinedRtcRoomIds = Array.from(rtcRooms.keys()).filter((roomId) =>
-        isSocketInRtcRoom(socket, roomId)
-      );
+      const joinedRtcRoomIds = Array.isArray(socket.data.rtcDisconnectRoomIds)
+        ? socket.data.rtcDisconnectRoomIds
+        : [];
       if (joinedRtcRoomIds.length) {
         const disconnectTimer = setTimeout(() => {
-        rtcDisconnectTimers.delete(socket.id);
-        joinedRtcRoomIds.forEach((roomId) => {
-          void leaveRtcRoom(socket, roomId, "timeout");
-        });
+          rtcDisconnectTimers.delete(socket.id);
+          joinedRtcRoomIds.forEach((roomId) => {
+            void reconcileRtcRoomAfterDisconnect(socket, roomId, "timeout").catch((error) => {
+              logger.error({ action: "RtcDisconnectReconcile", module: "RTC", status: "error", error });
+            });
+          });
         }, 15000);
         rtcDisconnectTimers.set(socket.id, disconnectTimer);
       }
@@ -1228,7 +1287,7 @@ function registerSocketServer(server, store) {
       });
       // Bloque A/A.1: si el socket era parte de una llamada, aplicar gracia de 15s antes de limpiar
       // (no limpiar si conserva/recupera otro socket autenticado). Idempotente.
-      await callService.handleDisconnect(socket.id, {
+      await callService.handleDisconnect(disconnectedUserId, {
         isUserConnected: (userId) => hasAnotherLivePresenceSocket(socket, userId)
       });
     });

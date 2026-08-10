@@ -59,6 +59,8 @@ export function CallOverlay(): React.ReactElement {
           id: pendingPushCall.callerId,
           name: pendingPushCall.callerName,
         },
+        expiresAt: pendingPushCall.expiresAt || undefined,
+        ringTimeoutMs: pendingPushCall.ringTimeoutMs || undefined,
       });
     }
 

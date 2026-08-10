@@ -108,7 +108,6 @@ async function testCallPushLifecycle() {
 
   const started = await service.startCall({
     caller: { id: 'caller-1', name: 'Ana', organizationId: 'org-1' },
-    callerSocketId: 'socket-caller',
     conversationId: 'conv-1',
     mode: 'video',
   });
@@ -122,9 +121,8 @@ async function testCallPushLifecycle() {
   assert.ok(pushed[0].deepLink.includes('action=incoming'));
   assert.ok(emitted.some((entry) => entry.event === 'rtc:incoming-call'));
 
-  const accepted = service.accept({
+  const accepted = await service.accept({
     user: { id: 'callee-1' },
-    socketId: 'socket-callee',
     callId: started.callId,
   });
   await new Promise((resolve) => setImmediate(resolve));
