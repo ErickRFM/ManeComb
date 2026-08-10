@@ -14,6 +14,7 @@ const recoveryScreen = read('screens/password-recovery/password-recovery-request
 const checkoutScreen = read('screens/plan-checkout-screen.tsx');
 const checkoutPaymentSection = read('screens/checkout/components/checkout-payment-section.tsx');
 const checkoutExperience = read('features/commercial/hooks/use-checkout-experience.ts');
+const checkoutContext = read('src/utils/checkout-context.ts');
 
 const requiredPortalRoles = ['owner', 'admin', 'billing_manager', 'support', 'viewer'];
 const requiredChannels = ['company_portal', 'mobile_operations', 'platform_admin', 'blocked'];
@@ -193,6 +194,17 @@ const demoCardContracts = [
 for (const contract of demoCardContracts) {
   if (!checkoutSources.includes(contract) && !checkoutPaymentSection.includes(contract)) {
     throw new Error(`La tarjeta demo dejó de reutilizar la autoridad de trial segura: ${contract}`);
+  }
+}
+
+const demoIdempotencyContracts = [
+  "const normalizedTrialMethod = safeRequestTrial && requestedMethod === 'card' ? 'card' : 'trial';",
+  'paymentMethod: safeRequestTrial ? normalizedTrialMethod : requestedMethod,',
+];
+
+for (const contract of demoIdempotencyContracts) {
+  if (!checkoutContext.includes(contract)) {
+    throw new Error(`La idempotencia volvió a mezclar Tarjeta demo y trial sin tarjeta: ${contract}`);
   }
 }
 
