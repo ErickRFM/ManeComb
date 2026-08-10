@@ -16,11 +16,16 @@ const destination = {
 
 describe('selector route CTA', () => {
   it('keeps Continuar while creating a route', () => {
-    expect(getSelectorCopy(true, true, 0, false).confirmLabel).toBe('Continuar');
+    const copy = getSelectorCopy(true, true, 0, false);
+    expect(copy.confirmLabel).toBe('Continuar');
+    expect(copy.hint).toContain('continuar');
   });
 
-  it('shows Guardar cambios while editing an existing route', () => {
-    expect(getSelectorCopy(true, true, 2, true).confirmLabel).toBe('Guardar cambios');
+  it('shows Guardar cambios and matching guidance while editing an existing route', () => {
+    const copy = getSelectorCopy(true, true, 2, true);
+    expect(copy.confirmLabel).toBe('Guardar cambios');
+    expect(copy.hint).toContain('guardar los cambios');
+    expect(copy.hint).not.toContain('continuar');
   });
 
   it('preserves editingRouteId through map confirmation instead of creating a second save path', () => {
