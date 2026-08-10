@@ -8,6 +8,7 @@ import { apiClient, getApiErrorMessage } from '@/src/api/client';
 import { useAppStore } from '@/src/store/use-app-store';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalProfileCompanySection } from '../profile/components/portal-profile-company-section';
+import { PortalAccountCenter } from '../profile/components/portal-account-center';
 import { PortalProfilePasswordSection } from '../profile/components/portal-profile-password-section';
 import { PortalProfilePersonalSection } from '../profile/components/portal-profile-personal-section';
 import { PortalProfileSessionsSection } from '../profile/components/portal-profile-sessions-section';
@@ -32,12 +33,14 @@ export function PortalProfileScreen() {
     loadAll,
     revokeSession,
     sessions,
+    subscription,
   } = usePortalStore(
     useShallow((state) => ({
       isSubmitting: state.isSubmitting,
       loadAll: state.loadAll,
       revokeSession: state.revokeSession,
       sessions: state.sessions,
+      subscription: state.subscription,
     }))
   );
   const canManageCompany = hasPortalPermission(user, 'users');
@@ -172,6 +175,10 @@ export function PortalProfileScreen() {
           : activeSection === 'soporte'
             ? 'Canales de ayuda y soporte ManeComb.'
             : 'Información personal y seguridad de tu cuenta.'}>
+      {activeSection === 'resumen' && user ? (
+        <PortalAccountCenter subscription={subscription} user={user} />
+      ) : null}
+
       {activeSection === 'resumen' ? (
         <PortalProfilePersonalSection
           form={form}

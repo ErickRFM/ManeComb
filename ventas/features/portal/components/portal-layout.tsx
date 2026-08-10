@@ -22,6 +22,7 @@ import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
 import { canAccessPortal, hasPortalPermission } from '../utils/access';
 import { PORTAL_NAV_SECTIONS, type PortalNavItem } from '../navigation/portal-route-registry';
+import { getPortalRouteLoadScope } from '../store/portal-load-policy';
 
 type PortalLayoutProps = PropsWithChildren<{
   title: string;
@@ -63,24 +64,36 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
       user: state.user,
     }))
   );
-  const { clearError, error, loadAll } = usePortalStore(
+  const { clearError, error, loadAll, loadBilling, loadOverview } = usePortalStore(
     useShallow((state) => ({
       clearError: state.clearError,
       error: state.error,
       loadAll: state.loadAll,
+      loadBilling: state.loadBilling,
+      loadOverview: state.loadOverview,
     }))
   );
 
   // Depende del id y no del objeto: el usuario se reemplaza en cada refresh de
   // sesion y volvia a disparar la carga completa del portal.
   const userId = user?.id;
-  const canManageBilling = hasPortalPermission(user, 'billing');
-
   useEffect(() => {
-    if (userId) {
-      void loadAll({ includeBilling: canManageBilling });
+    if (!userId) return;
+
+    switch (getPortalRouteLoadScope(pathname)) {
+      case 'account':
+        void loadAll({ includeBilling: false });
+        break;
+      case 'billing':
+        void loadBilling();
+        break;
+      case 'overview':
+        void loadOverview();
+        break;
+      default:
+        break;
     }
-  }, [canManageBilling, loadAll, userId]);
+  }, [loadAll, loadBilling, loadOverview, pathname, userId]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
