@@ -217,6 +217,12 @@ gradle.taskGraph.whenReady { taskGraph ->
     def needsReleaseSigning = taskGraph.allTasks.any {
         it.path == ':app:assembleRelease' || it.path == ':app:bundleRelease'
     }
+    def needsCertifiedDebug = System.getenv('MANECOMB_CERTIFY_ANDROID_DEBUG') == '1' &&
+        taskGraph.allTasks.any { it.path == ':app:assembleDebug' }
+
+    if (needsCertifiedDebug && !mapboxAccessToken.startsWith('pk.')) {
+        throw new GradleException('MAPBOX_ACCESS_TOKEN publico es obligatorio para certificar Debug.')
+    }
 
     if (needsReleaseSigning && !hasReleaseSigningConfig) {
         throw new GradleException(
