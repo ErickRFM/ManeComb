@@ -218,6 +218,7 @@ function createRtcCallService({
       calleeIds: [calleeIds[0]],
       status: "ringing",
       acceptedBy: null,
+      acceptedSocketId: null,
       createdAt,
       connectedAt: null,
       endedAt: null,
@@ -266,15 +267,18 @@ function createRtcCallService({
     };
   }
 
-  async function accept({ user, callId }) {
+  async function accept({ user, socketId = null, callId }) {
+    const safeSocketId = String(socketId || "").trim() || null;
     let result;
     try {
       result = await updateCurrent(callId, (call) => {
         if (!call.calleeIds.includes(user.id)) return { ok: false, code: "forbidden" };
         if (call.status === "active") {
-          return call.acceptedBy === user.id
-            ? { ok: true, idempotent: true }
-            : { ok: false, code: "already_active" };
+          if (call.acceptedBy !== user.id) return { ok: false, code: "already_active" };
+          if (call.acceptedSocketId && safeSocketId && call.acceptedSocketId !== safeSocketId) {
+            return { ok: false, code: "answered_elsewhere" };
+          }
+          return { ok: true, idempotent: true };
         }
         if (call.status !== "ringing") return { ok: false, code: "unknown_call" };
         if (isRingingExpired(call)) {
@@ -286,6 +290,7 @@ function createRtcCallService({
             ...call,
             status: "active",
             acceptedBy: user.id,
+            acceptedSocketId: safeSocketId,
             connectedAt: now()
           }
         };

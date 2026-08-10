@@ -197,6 +197,10 @@ export const useCallStore = create<CallStore>()((set, get) => {
     const state = get();
     if (state.callId !== callId) return;
     if (state.phase === 'IDLE' || state.phase === 'ENDING' || state.phase === 'FAILED') return;
+    if (code === 'rtc_join_connected_elsewhere') {
+      endWith('answered_elsewhere');
+      return;
+    }
     if (state._socket) emitEnd(state._socket, callId);
     clearRingTimeout();
     stopRuntime();
@@ -357,6 +361,10 @@ export const useCallStore = create<CallStore>()((set, get) => {
           endWith('no_answer');
           return;
         }
+        if (ack.code === 'answered_elsewhere') {
+          endWith('answered_elsewhere');
+          return;
+        }
         onRuntimeFailed(
           activeCallId,
           ack.code === 'ack_timeout' ? 'accept_timeout' : 'accept_failed'
@@ -415,7 +423,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
 
     handleAccepted: (payload) => {
       const state = get();
-      if (!matchesCall(state, payload?.callId) || state.phase !== 'OUTGOING_RINGING') return;
+      if (!matchesCall(state, payload?.callId)) return;
+      if (state.phase === 'INCOMING_RINGING') {
+        endWith('answered_elsewhere');
+        return;
+      }
+      if (state.phase !== 'OUTGOING_RINGING') return;
       clearRingTimeout();
       dispatch({ type: 'REMOTE_ACCEPTED', roomId: payload.roomId ?? null, now: now() });
       startRuntime();

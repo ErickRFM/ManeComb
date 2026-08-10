@@ -21,6 +21,7 @@ export type CallEndResult =
   | 'no_answer'
   | 'cancelled'
   | 'ended'
+  | 'answered_elsewhere'
   | 'failed'
   | null;
 

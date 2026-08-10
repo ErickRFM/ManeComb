@@ -113,15 +113,30 @@ function fakeStore(conversation) {
       organizationId: admin.organizationId
     })).reason, "not_accepted");
 
-    const accepted = await h.service.accept({ user: driver, callId: call.callId });
+    const accepted = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-a",
+      callId: call.callId
+    });
     assert.equal(accepted.ok, true);
     assert.equal(accepted.roomId, `rtc:call:${call.callId}`);
     assert.ok(h.usersReceiving("rtc:call-accepted").includes(admin.id));
     assert.ok(h.usersReceiving("rtc:call-accepted").includes(driver.id));
 
-    const duplicate = await h.service.accept({ user: driver, callId: call.callId });
+    const duplicate = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-a",
+      callId: call.callId
+    });
     assert.equal(duplicate.ok, true);
     assert.equal(duplicate.idempotent, true);
+
+    const otherDevice = await h.service.accept({
+      user: driver,
+      socketId: "driver-socket-b",
+      callId: call.callId
+    });
+    assert.deepEqual(otherDevice, { ok: false, code: "answered_elsewhere" });
 
     const callerJoin = await h.service.canJoinCall({
       callId: call.callId,

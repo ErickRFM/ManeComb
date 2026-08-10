@@ -1106,11 +1106,13 @@ function registerSocketServer(server, store) {
         (participant) =>
           participant.data.user?.id === authenticatedUser.id && participant.id !== socket.id
       );
-      for (const previousConnection of previousConnections) {
-        const reconnectTimer = rtcDisconnectTimers.get(previousConnection.id);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        rtcDisconnectTimers.delete(previousConnection.id);
-        await io.in(previousConnection.id).socketsLeave(roomKey);
+      if (previousConnections.length) {
+        observeSocketEvent(socket, "rtc:join", startedAt, "rejected", {
+          roomId: safeRoomId,
+          reason: "already_connected_elsewhere"
+        });
+        acknowledge(ack, { ok: false, reason: "already_connected_elsewhere" });
+        return;
       }
 
       await socket.join(roomKey);
