@@ -47,7 +47,7 @@ jest.mock('@/src/native/background-location', () => ({
 const mockHasLocationServicesEnabled = jest.fn();
 const mockGetForegroundPermission = jest.fn();
 const mockGetCurrentLocation = jest.fn();
-let watchedPosition: ((position: {
+let mockWatchedPosition: ((position: {
   coords: { latitude: number; longitude: number; accuracy: number };
   timestamp?: number;
 }) => void) | null = null;
@@ -64,8 +64,8 @@ jest.mock('../services/location-service', () => ({
   shouldAcceptLocation: jest.fn(() => true),
   toIsoTimestamp: jest.fn(() => '2026-08-10T07:00:00.000Z'),
   toPermissionState: jest.fn(() => 'granted'),
-  watchNativeLocation: jest.fn(async (onPosition: typeof watchedPosition) => {
-    watchedPosition = onPosition;
+  watchNativeLocation: jest.fn(async (onPosition: typeof mockWatchedPosition) => {
+    mockWatchedPosition = onPosition;
     return { remove: jest.fn() };
   }),
 }));
@@ -97,7 +97,7 @@ describe('useLocationEngine foreground GPS watchdog', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-08-10T07:00:00.000Z'));
     jest.clearAllMocks();
-    watchedPosition = null;
+    mockWatchedPosition = null;
     mockHasLocationServicesEnabled.mockResolvedValue(true);
     mockGetForegroundPermission.mockResolvedValue({ status: 'granted' });
     mockNativeForegroundPermission.mockResolvedValue({ status: 'granted' });
@@ -124,7 +124,7 @@ describe('useLocationEngine foreground GPS watchdog', () => {
     });
 
     expect(current.value?.issue).toBeNull();
-    expect(watchedPosition).not.toBeNull();
+    expect(mockWatchedPosition).not.toBeNull();
 
     await act(async () => {
       jest.advanceTimersByTime(LOCATION_FIX_WATCHDOG_MS + LOCATION_FIX_WATCHDOG_POLL_MS);
@@ -135,7 +135,7 @@ describe('useLocationEngine foreground GPS watchdog', () => {
     expect(current.value?.coordinates).toMatchObject({ latitude: 19.43, longitude: -99.13 });
 
     await act(async () => {
-      watchedPosition?.({
+      mockWatchedPosition?.({
         coords: { latitude: 19.43001, longitude: -99.13001, accuracy: 5 },
         timestamp: Date.now(),
       });
@@ -144,7 +144,7 @@ describe('useLocationEngine foreground GPS watchdog', () => {
 
     expect(current.value?.issue).toBeNull();
 
-    act(() => renderer.unmount());
+    act(() => renderer!.unmount());
   });
 
   it('distinguishes GPS services being turned off from a generic lack of fixes', async () => {
@@ -170,6 +170,6 @@ describe('useLocationEngine foreground GPS watchdog', () => {
     expect(current.value?.issue).toBe('services_disabled');
     expect(current.value?.servicesEnabled).toBe(false);
 
-    act(() => renderer.unmount());
+    act(() => renderer!.unmount());
   });
 });
