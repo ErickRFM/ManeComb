@@ -57,32 +57,35 @@ function navItem(
 
 export const PORTAL_NAV_SECTIONS: PortalNavSection[] = [
   {
-    title: 'Cuenta',
+    title: 'Operación',
     items: [
-      navItem('/portal', 'Operaciones', 'view-dashboard-outline'),
-      navItem('/portal/plan', 'Mi plan', 'clipboard-list-outline'),
-      navItem('/portal/facturacion', 'Facturación', 'file-document-outline'),
-      navItem('/portal/pagos', 'Pagos', 'credit-card-outline'),
-    ],
-  },
-  {
-    title: 'Administración',
-    items: [
-      navItem('/portal/perfil', 'Empresa', 'domain', 'empresa', 'users'),
-      navItem('/portal/usuarios', 'Equipo', 'account-key-outline', 'administracion'),
-      navItem('/portal/unidades', 'Unidades', 'bus-multiple'),
+      navItem('/portal', 'Inicio', 'view-dashboard-outline'),
       navItem('/portal/rutas', 'Rutas', 'routes'),
-      navItem('/portal/perfil', 'Seguridad', 'shield-lock-outline', 'seguridad'),
-      navItem('/portal/documentos', 'Documentos', 'file-document-multiple-outline'),
       navItem('/portal/incidencias', 'Incidencias', 'alert-circle-outline'),
     ],
   },
   {
-    title: 'Ayuda',
+    title: 'Gestión',
     items: [
+      navItem('/portal/usuarios', 'Equipo', 'account-key-outline', 'administracion'),
+      navItem('/portal/unidades', 'Unidades', 'bus-multiple'),
+      navItem('/portal/documentos', 'Documentos', 'file-document-multiple-outline'),
       navItem('/portal/onboarding', 'Activación', 'flag-checkered'),
+    ],
+  },
+  {
+    title: 'Suscripción',
+    items: [
+      navItem('/portal/plan', 'Mi plan', 'clipboard-list-outline'),
+      navItem('/portal/pagos', 'Pagos', 'credit-card-outline'),
+      navItem('/portal/facturacion', 'Facturación', 'file-document-outline'),
+    ],
+  },
+  {
+    title: 'Cuenta',
+    items: [
+      navItem('/portal/perfil', 'Cuenta y empresa', 'account-circle-outline'),
       navItem('/portal/app-movil', 'App Móvil', 'cellphone-arrow-down'),
-      navItem('/portal/perfil', 'Soporte', 'lifebuoy', 'soporte'),
     ],
   },
 ];

@@ -105,13 +105,21 @@ if (portalLayout.includes('const navSections')) {
 }
 
 const portalBootContracts = [
-  "loadAll({ includeBilling: canManageBilling })",
+  'getPortalRouteLoadScope(pathname)',
+  "case 'account':",
+  'loadAll({ includeBilling: false })',
+  "case 'billing':",
+  'loadBilling()',
+  "case 'overview':",
+  'loadOverview()',
   "includeBilling ? getAccountInvoicesRequest() : Promise.resolve([])",
   'lastFullLoadIncludedBilling',
 ];
 
 for (const contract of portalBootContracts) {
-  const source = contract.startsWith('loadAll(') ? portalLayout : portalActions;
+  const source = contract.includes('getAccountInvoicesRequest') || contract === 'lastFullLoadIncludedBilling'
+    ? portalActions
+    : portalLayout;
   if (!source.includes(contract)) {
     throw new Error(`El arranque del Portal perdió el alcance por capabilities: ${contract}`);
   }
