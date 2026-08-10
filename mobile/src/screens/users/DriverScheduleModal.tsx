@@ -100,18 +100,24 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [draft, setDraft] = useState<DriverScheduleDraft>(() => createDriverScheduleDraft(null));
+  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!driver) return;
     setDraft(createDriverScheduleDraft(driver.operationalSchedule));
+    setDirty(false);
     setError(null);
     setSaving(false);
   }, [driver]);
 
   const isConfigured = Boolean(driver?.operationalSchedule);
-  const hasChanges = Boolean(driver) && !driverScheduleDraftEquals(draft, driver?.operationalSchedule);
+  const hasChanges = Boolean(driver) && (
+    isConfigured
+      ? !driverScheduleDraftEquals(draft, driver?.operationalSchedule)
+      : dirty
+  );
   const summary = formatDriverScheduleSummary(draft);
   const timezoneLabel = draft.timezone || 'Local del dispositivo';
   const savedStateLabel = !isConfigured
@@ -120,8 +126,13 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
       ? 'Horario pausado'
       : 'Horario configurado';
 
+  const updateDraft = (updater: (current: DriverScheduleDraft) => DriverScheduleDraft) => {
+    setDirty(true);
+    setDraft(updater);
+  };
+
   const toggleDay = (day: number) => {
-    setDraft((current) => {
+    updateDraft((current) => {
       const selected = current.activeDays.includes(day);
       if (selected && current.activeDays.length === 1) return current;
       return {
@@ -204,7 +215,7 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
               <Switch
                 accessibilityLabel="Horario operativo"
                 value={draft.enabled}
-                onValueChange={(enabled) => setDraft((current) => ({ ...current, enabled }))}
+                onValueChange={(enabled) => updateDraft((current) => ({ ...current, enabled }))}
                 trackColor={{ false: theme.colors.line, true: theme.colors.accentSoft }}
                 thumbColor={draft.enabled ? theme.colors.accent : theme.colors.muted}
               />
@@ -221,12 +232,12 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
             <TimeStepper
               label="Inicio"
               value={draft.startTime}
-              onChange={(startTime) => setDraft((current) => ({ ...current, startTime }))}
+              onChange={(startTime) => updateDraft((current) => ({ ...current, startTime }))}
             />
             <TimeStepper
               label="Fin"
               value={draft.endTime}
-              onChange={(endTime) => setDraft((current) => ({ ...current, endTime }))}
+              onChange={(endTime) => updateDraft((current) => ({ ...current, endTime }))}
             />
 
             <View style={styles.section}>
