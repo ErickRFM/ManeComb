@@ -161,6 +161,25 @@ if (!adminGlobal?.allowedChannels?.includes('platform_admin')) {
   fail('admin-global must explicitly allow platform_admin.');
 }
 
+const accountChannel = authorities.find((authority) => authority.id === 'account-channel');
+if (!accountChannel || accountChannel.owner !== 'backend' || accountChannel.status !== 'canonical') {
+  fail('account-channel must be a canonical backend authority.');
+}
+if (!accountChannel?.sourcePaths?.includes('backend/src/services/account-channel.js')) {
+  fail('account-channel must point to backend/src/services/account-channel.js.');
+}
+
+const closedDivergenceIds = new Set([
+  'AUTH-CHANNEL-OR-AND',
+  'PORTAL-GUARD-PARTIAL',
+  'SALES-OPERATIONAL-HANDOFF-TEMPORARY',
+]);
+for (const divergence of divergences) {
+  if (closedDivergenceIds.has(divergence.id)) {
+    fail(`knownDivergences reintroduces a closed integration finding: ${divergence.id}`);
+  }
+}
+
 const rtcLive = authorities.find((authority) => authority.id === 'rtc-live-call');
 if (!rtcLive || rtcLive.owner !== 'backend' || rtcLive.status !== 'canonical') {
   fail('rtc-live-call must be a canonical backend authority.');
