@@ -63,5 +63,10 @@ describe('Android runtime hardening', () => {
     expect(renderer).toContain('ManeCombCallActionReceiver.ACTION_REJECT');
     expect(renderer).toContain('builder.setFullScreenIntent(contentIntent, true)');
     expect(renderer).not.toContain('builder.setFullScreenIntent(acceptIntent, true)');
+    expect(renderer).toContain('.appendQueryParameter("expiresAt", data["expiresAt"].orEmpty())');
+    expect(renderer).toContain('.appendQueryParameter("ringTimeoutMs", data["ringTimeoutMs"].orEmpty())');
+    expect(renderer).toContain('.setTimeoutAfter(callTimeoutMs)');
+    expect(renderer).toContain('return minOf(relativeLimit, remainingMs.coerceAtLeast(0L))');
+    expect(renderer).not.toContain('.setTimeoutAfter(40_000L)');
   });
 });

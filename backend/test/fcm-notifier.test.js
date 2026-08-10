@@ -3,7 +3,9 @@ const { generateKeyPairSync } = require('node:crypto');
 const {
   buildFcmMessage,
   createFcmNotifier,
+  isExpiredIncomingCallPayload,
   resolveServiceAccount,
+  resolveTtlSeconds,
 } = require('../src/services/fcm-notifier');
 const { createRtcCallService } = require('../src/services/rtc-call-service');
 
@@ -38,18 +40,26 @@ async function testFcmProvider() {
       },
     };
   };
-  const notifier = createFcmNotifier({ env, fetchImpl, now: () => 1_700_000_000_000 });
+  const nowMs = 1_700_000_000_000;
+  const expiresAt = new Date(nowMs + 35_000).toISOString();
+  const callPayload = {
+    category: 'call',
+    level: 'critical',
+    title: 'Ana te está llamando',
+    body: 'Llamada de audio',
+    data: {
+      type: 'incoming_call',
+      callId: 'call-1',
+      mode: 'audio',
+      expiresAt,
+      ringTimeoutMs: '35000',
+    },
+  };
+  const notifier = createFcmNotifier({ env, fetchImpl, now: () => nowMs });
 
   const result = await notifier.sendMany(
     [{ token: 'native-fcm-token-1', platform: 'android' }],
-    {
-      category: 'call',
-      level: 'critical',
-      title: 'Ana te está llamando',
-      body: 'Llamada de audio',
-      ttlSeconds: 40,
-      data: { type: 'incoming_call', callId: 'call-1', mode: 'audio' },
-    }
+    callPayload
   );
   await notifier.sendMany(
     [{ token: 'native-fcm-token-2', platform: 'android' }],
@@ -64,7 +74,10 @@ async function testFcmProvider() {
   assert.equal(body.message.data.type, 'incoming_call');
   assert.equal(body.message.data.callId, 'call-1');
   assert.equal(body.message.android.priority, 'HIGH');
-  assert.equal(body.message.android.ttl, '40s');
+  assert.equal(body.message.android.ttl, '35s');
+  assert.equal(resolveTtlSeconds(callPayload, nowMs + 5_000), 30);
+  assert.equal(buildFcmMessage('token-delayed', callPayload, nowMs + 5_000).android.ttl, '30s');
+  assert.equal(isExpiredIncomingCallPayload(callPayload, nowMs + 35_000), true);
 }
 
 function testPayloadContract() {
@@ -119,7 +132,22 @@ async function testCallPushLifecycle() {
   assert.equal(pushed[0].data.callerName, 'Ana');
   assert.equal(pushed[0].data.mode, 'video');
   assert.ok(pushed[0].deepLink.includes('action=incoming'));
+  assert.ok(pushed[0].deepLink.includes('expiresAt='));
+  assert.ok(pushed[0].deepLink.includes('ringTimeoutMs=35000'));
+  assert.equal(pushed[0].ttlSeconds, undefined, 'incoming push TTL is derived by FCM from expiresAt at send time');
   assert.ok(emitted.some((entry) => entry.event === 'rtc:incoming-call'));
+
+  const expiredNotifier = createFcmNotifier({
+    env: serviceAccountEnv(),
+    fetchImpl: async () => { throw new Error('expired call must not reach transport'); },
+    now: () => Date.parse(started.expiresAt),
+  });
+  const expiredResult = await expiredNotifier.sendMany(
+    [{ token: 'native-expired-call', platform: 'android' }],
+    pushed[0]
+  );
+  assert.equal(expiredResult.skipped, 1);
+  assert.equal(expiredResult.results[0].reason, 'expired_call');
 
   const accepted = await service.accept({
     user: { id: 'callee-1' },

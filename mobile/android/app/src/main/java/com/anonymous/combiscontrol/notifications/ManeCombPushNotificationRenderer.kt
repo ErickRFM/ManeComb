@@ -28,6 +28,7 @@ object ManeCombPushNotificationRenderer {
   const val CHANNEL_CALLS = "manecomb-incoming-calls"
   const val GROUP_CHAT = "manecomb-chat"
   private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
+  private const val DEFAULT_CALL_RING_TIMEOUT_MS = 35_000L
 
   fun render(context: Context, data: Map<String, String>) {
     when (data["type"]?.trim()?.lowercase()) {
@@ -87,7 +88,9 @@ object ManeCombPushNotificationRenderer {
 
   fun showIncomingCall(context: Context, data: Map<String, String>) {
     val callId = data["callId"].orEmpty().trim()
-    if (callId.isEmpty() || isExpired(data["expiresAt"])) return
+    if (callId.isEmpty()) return
+    val callTimeoutMs = remainingCallTimeoutMs(data)
+    if (callTimeoutMs <= 0L) return
     if (!canPostNotifications(context)) return
     ensureChannels(context)
 
@@ -118,7 +121,7 @@ object ManeCombPushNotificationRenderer {
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setAutoCancel(false)
       .setOngoing(true)
-      .setTimeoutAfter(40_000L)
+      .setTimeoutAfter(callTimeoutMs)
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, rejectIntent, acceptIntent))
@@ -237,6 +240,8 @@ object ManeCombPushNotificationRenderer {
       .appendQueryParameter("callerId", data["callerId"].orEmpty())
       .appendQueryParameter("callerName", data["callerName"].orEmpty())
       .appendQueryParameter("mode", data["mode"].orEmpty().ifBlank { "audio" })
+      .appendQueryParameter("expiresAt", data["expiresAt"].orEmpty())
+      .appendQueryParameter("ringTimeoutMs", data["ringTimeoutMs"].orEmpty())
       .appendQueryParameter("action", action)
     return builder.build()
   }
@@ -260,17 +265,28 @@ object ManeCombPushNotificationRenderer {
     return manager.canUseFullScreenIntent()
   }
 
-  private fun isExpired(value: String?): Boolean {
+  private fun parseUtcMillis(value: String?): Long? {
     val raw = value.orEmpty().trim()
-    if (raw.isEmpty()) return false
+    if (raw.isEmpty()) return null
     return try {
       val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
       }
-      (parser.parse(raw)?.time ?: Long.MAX_VALUE) <= System.currentTimeMillis()
+      parser.parse(raw)?.time
     } catch (_: Exception) {
-      false
+      null
     }
+  }
+
+  private fun remainingCallTimeoutMs(data: Map<String, String>): Long {
+    val relativeLimit = data["ringTimeoutMs"]
+      ?.trim()
+      ?.toLongOrNull()
+      ?.takeIf { it > 0L }
+      ?: DEFAULT_CALL_RING_TIMEOUT_MS
+    val expiresAtMillis = parseUtcMillis(data["expiresAt"]) ?: return relativeLimit
+    val remainingMs = expiresAtMillis - System.currentTimeMillis()
+    return minOf(relativeLimit, remainingMs.coerceAtLeast(0L))
   }
 
   private fun stableId(value: String): Int = value.hashCode() and 0x7fffffff
