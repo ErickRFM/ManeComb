@@ -121,7 +121,7 @@ describe('Android runtime hardening', () => {
     expect(renderer).not.toContain('if (!isAppInForeground(context)) showIncomingCall(context, data)');
   });
 
-  it('rejects public fake /call links before React while preserving internal call intents', () => {
+  it('rejects public fake /call links with a private per-install token before React', () => {
     const mainActivity = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -154,15 +154,20 @@ describe('Android runtime hardening', () => {
       'utf8'
     );
 
-    expect(mainActivity).toContain('const val EXTRA_INTERNAL_CALL_INTENT = "manecomb.internal.CALL_INTENT"');
+    expect(mainActivity).toContain('const val EXTRA_INTERNAL_CALL_INTENT_TOKEN = "manecomb.internal.CALL_INTENT_TOKEN"');
     expect(mainActivity).toContain('sanitizeCallIntent(intent)');
-    expect(mainActivity).toContain('getBooleanExtra(EXTRA_INTERNAL_CALL_INTENT, false)');
+    expect(mainActivity).toContain('getStringExtra(EXTRA_INTERNAL_CALL_INTENT_TOKEN)');
+    expect(mainActivity).toContain('internalCallIntentToken(this)');
+    expect(mainActivity).toContain('getSharedPreferences(INTERNAL_CALL_PREFS, Context.MODE_PRIVATE)');
+    expect(mainActivity).toContain('UUID.randomUUID().toString()');
+    expect(mainActivity).toContain('suppliedToken != expectedToken');
     expect(mainActivity).toContain('sourceIntent.data = null');
     expect(mainActivity.indexOf('sanitizeCallIntent(intent)')).toBeLessThan(
       mainActivity.indexOf('configureIncomingCallWindow(intent)')
     );
-    expect(renderer).toContain('putExtra(MainActivity.EXTRA_INTERNAL_CALL_INTENT, true)');
-    expect((renderer.match(/putExtra\(MainActivity\.EXTRA_INTERNAL_CALL_INTENT, true\)/g) || []).length)
+    expect(renderer).toContain('MainActivity.EXTRA_INTERNAL_CALL_INTENT_TOKEN');
+    expect(renderer).toContain('MainActivity.internalCallIntentToken(context)');
+    expect((renderer.match(/MainActivity\.EXTRA_INTERNAL_CALL_INTENT_TOKEN/g) || []).length)
       .toBeGreaterThanOrEqual(3);
   });
 
