@@ -188,6 +188,7 @@ object ManeCombPushNotificationRenderer {
     val intent = Intent(context, MainActivity::class.java).apply {
       action = Intent.ACTION_VIEW
       this.data = callDeepLink(data, "incoming", deadline)
+      putExtra(MainActivity.EXTRA_INTERNAL_CALL_INTENT, true)
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or
         Intent.FLAG_ACTIVITY_SINGLE_TOP or
         Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -217,6 +218,7 @@ object ManeCombPushNotificationRenderer {
     val intent = Intent(context, MainActivity::class.java).apply {
       action = Intent.ACTION_VIEW
       this.data = uri
+      putExtra(MainActivity.EXTRA_INTERNAL_CALL_INTENT, true)
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or
         Intent.FLAG_ACTIVITY_SINGLE_TOP or
         Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -308,6 +310,7 @@ object ManeCombPushNotificationRenderer {
       Intent(context, MainActivity::class.java).apply {
         action = Intent.ACTION_VIEW
         data = uri
+        putExtra(MainActivity.EXTRA_INTERNAL_CALL_INTENT, true)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or
           Intent.FLAG_ACTIVITY_SINGLE_TOP or
           Intent.FLAG_ACTIVITY_CLEAR_TOP
