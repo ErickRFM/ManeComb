@@ -232,7 +232,7 @@ async function main() {
     id: "order-manual-recovery-02",
     referenceCode: "MNCB-RECOVERY02"
   });
-  const recoveryStart = new Date("2026-08-08T10:00:00.000Z");
+  const recoveryStart = new Date("2026-08-08T18:00:00.000Z");
   const recoverySubmission = await submitManualPaymentEvidence({
     order: recoveryOrder,
     userId: "user-owner-02",
