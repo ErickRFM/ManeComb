@@ -56,7 +56,10 @@ describe('mobile reconnect UI stability', () => {
     expect(checklist).toContain('semanticSessionChanged');
     expect(checklist).toContain('routeSessionHistory.length === 0');
     expect(checklist).toContain('historyLoadError && sessionHistory.length === 0');
+    expect(checklist).toContain('loadSessionHistory().catch(() => undefined);');
+    expect(checklist).toContain('[historyRefreshKey, loadSessionHistory, user]');
     expect(checklist).not.toContain('[loadSessionHistory, user, syncedActiveSession]');
+    expect(checklist).not.toContain('void loadSessionHistory();');
     expect(checklist).toContain('bounces={false}');
     expect(checklist).toContain('overScrollMode="never"');
   });
