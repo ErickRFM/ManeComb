@@ -7,8 +7,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationManagerCompat
@@ -56,6 +62,84 @@ class ManeCombNotificationModule(
     }
     FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener {
       promise.resolve(it.isSuccessful)
+    }
+  }
+
+  /**
+   * Feedback audible y haptico de una alerta operativa con la app abierta.
+   *
+   * No publica notificacion del sistema: la UI ya esta delante del usuario. Usa
+   * la misma ManeCombAlertPolicy que el renderer de FCM, incluida su memoria de
+   * dedup, para que socket y push no puedan sonar los dos por el mismo
+   * incidentId durante una transicion foreground/background.
+   *
+   * Resuelve `false` cuando el dedup lo suprime o cuando el sistema esta en
+   * silencio, para que JS pueda distinguirlo sin volver a decidir la politica.
+   */
+  @ReactMethod
+  fun playOperationalAlert(
+    incidentId: String?,
+    category: String?,
+    level: String?,
+    severity: String?,
+    promise: Promise
+  ) {
+    try {
+      val feedback = ManeCombAlertPolicy.resolve(category, level, severity)
+      if (feedback == null) {
+        promise.resolve(false)
+        return
+      }
+
+      val key = incidentId?.trim().orEmpty()
+      if (!ManeCombAlertPolicy.shouldEmitAlert(key, System.currentTimeMillis())) {
+        promise.resolve(false)
+        return
+      }
+
+      val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+      val ringerMode = audioManager?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+
+      // Se respeta el modo del sistema: en silencio no se reproduce nada, en
+      // vibracion solo se vibra. Sin tocar el volumen global ni saltar DND.
+      if (ringerMode == AudioManager.RINGER_MODE_NORMAL) {
+        runCatching {
+          val player = MediaPlayer()
+          player.setAudioAttributes(
+            AudioAttributes.Builder()
+              .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+              .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+              .build()
+          )
+          reactContext.resources.openRawResourceFd(feedback.soundResource).use { descriptor ->
+            player.setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
+          }
+          player.setOnCompletionListener { it.release() }
+          player.prepare()
+          player.start()
+        }
+      }
+
+      if (ringerMode != AudioManager.RINGER_MODE_SILENT) {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          (reactContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+        } else {
+          @Suppress("DEPRECATION")
+          reactContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+        runCatching {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator?.vibrate(VibrationEffect.createWaveform(feedback.vibrationPattern, -1))
+          } else {
+            @Suppress("DEPRECATION")
+            vibrator?.vibrate(feedback.vibrationPattern, -1)
+          }
+        }
+      }
+
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("operational_alert_failed", error)
     }
   }
 
@@ -182,6 +266,7 @@ class ManeCombNotificationModule(
 
   private fun ensureChannels() {
     ManeCombPushNotificationRenderer.ensureChannels(reactContext)
+    ManeCombAlertPolicy.ensureChannels(reactContext)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
     val manager = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -228,24 +313,23 @@ class ManeCombNotificationModule(
     manager.createNotificationChannel(sos)
   }
 
+  // Las categorias operativas las resuelve ManeCombAlertPolicy, la unica politica
+  // de feedback, para que este switch no pueda divergir del que aplica el
+  // renderer de FCM. Aqui solo quedan las categorias que la politica no gobierna.
   private fun channelIdForCategory(category: String): String =
-    when (category) {
-      "emergency", "emergencies", "emergencia", "emergencias" -> CHANNEL_EMERGENCIES
-      "incident", "incidents", "incidente", "incidencias" -> CHANNEL_INCIDENTS
-      "radio" -> CHANNEL_RADIO
-      "sos" -> CHANNEL_SOS
-      "chat" -> ManeCombPushNotificationRenderer.CHANNEL_CHAT
-      else -> CHANNEL_GENERAL
-    }
+    ManeCombAlertPolicy.resolve(category, null)?.channelId
+      ?: when (category) {
+        "radio" -> CHANNEL_RADIO
+        "chat" -> ManeCombPushNotificationRenderer.CHANNEL_CHAT
+        else -> CHANNEL_GENERAL
+      }
 
   private fun priorityForCategory(category: String): Int =
-    when (category) {
-      "emergency", "emergencies", "emergencia", "emergencias" -> NotificationCompat.PRIORITY_MAX
-      "incident", "incidents", "incidente", "incidencias" -> NotificationCompat.PRIORITY_HIGH
-      "radio", "chat" -> NotificationCompat.PRIORITY_HIGH
-      "sos" -> NotificationCompat.PRIORITY_MAX
-      else -> NotificationCompat.PRIORITY_DEFAULT
-    }
+    ManeCombAlertPolicy.resolve(category, null)?.priority
+      ?: when (category) {
+        "radio", "chat" -> NotificationCompat.PRIORITY_HIGH
+        else -> NotificationCompat.PRIORITY_DEFAULT
+      }
 
   companion object {
     const val KEY_REPLY_TEXT = "reply_text"
