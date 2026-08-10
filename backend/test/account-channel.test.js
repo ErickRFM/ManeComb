@@ -102,6 +102,35 @@ function testSerializerDecoratesEverySessionRead() {
   console.log("ok - serializer emite canal canónico sin datos sensibles");
 }
 
+function testLegacyCustomerNormalizationUsesCurrentRoleMatrix() {
+  const legacyCompanyOwner = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "owner"
+  }));
+  const legacySupervisor = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "supervisor"
+  }));
+  const legacyDriver = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "driver"
+  }));
+
+  assert.equal(legacyCompanyOwner.accountType, "company_owner");
+  assert.equal(legacyCompanyOwner.accountChannel, "company_portal");
+  assert.equal(legacySupervisor.accountType, "operations");
+  assert.equal(legacySupervisor.accountChannel, "mobile_operations");
+  assert.equal(legacySupervisor.capabilities.includes("documents.manage"), true);
+  assert.equal(legacyDriver.accountType, "operations");
+  assert.equal(legacyDriver.accountChannel, "mobile_operations");
+  assert.deepEqual(
+    legacyDriver.capabilities.filter((entry) => entry.endsWith(".manage") || entry === "analytics.view"),
+    []
+  );
+
+  console.log("ok - perfiles legacy customer se normalizan por la matriz actual sin bloquear supervisor/driver");
+}
+
 function testInvalidCombinationsFailClosed() {
   const invalidCases = [
     {
@@ -223,6 +252,7 @@ async function run() {
   testCompanyPortalRoleMatrix();
   testMobileOperationsRoleMatrix();
   testSerializerDecoratesEverySessionRead();
+  testLegacyCustomerNormalizationUsesCurrentRoleMatrix();
   testInvalidCombinationsFailClosed();
   testSuspensionOverridesProductIdentity();
   testPlatformIdentityHasDedicatedChannel();
