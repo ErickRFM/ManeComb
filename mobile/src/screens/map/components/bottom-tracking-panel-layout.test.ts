@@ -56,11 +56,12 @@ describe('geometria de BottomTrackingPanel', () => {
     expect(panel).toContain('paddingHorizontal: 10');
   });
 
-  it('hace que el panel siga el dedo y haga snap por distancia o velocidad', () => {
+  it('hace que el panel siga el dedo y haga snap por distancia o velocidad sin rebote', () => {
     expect(panel).toContain('Animated.View');
     expect(panel).toContain('onPanResponderMove');
     expect(panel).toContain('panelDragY.setValue');
     expect(panel).toContain('Animated.spring(panelDragY');
+    expect(panel).toContain('overshootClamping: true');
     expect(panel).toContain('translateY: panelDragY');
     expect(panel).toContain('PANEL_DRAG_TRIGGER');
     expect(panel).toContain('PANEL_FLING_VELOCITY');
