@@ -61,10 +61,9 @@ describe('cola offline de Control', () => {
     };
 
     const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 30 * 60 * 1000);
-    expect(replay).toMatchObject({
-      type: 'vehicle:location',
-      payload: { clientQueueAgeMs: 30 * 60 * 1000 },
-    });
+    expect(replay.type).toBe('vehicle:location');
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(replay.payload.clientQueueAgeMs).toBe(30 * 60 * 1000);
     // The device wall clock/capture timestamp is preserved as evidence; replay
     // age is a separate elapsed-duration authority.
     expect(replay.payload.timestamp).toBe(operation.payload.timestamp);
@@ -83,8 +82,9 @@ describe('cola offline de Control', () => {
       },
     };
     const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 48 * 60 * 60 * 1000);
-    expect(replay.type === 'vehicle:location' ? replay.payload.clientQueueAgeMs : null)
-      .toBe(24 * 60 * 60 * 1000);
+    expect(replay.type).toBe('vehicle:location');
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(replay.payload.clientQueueAgeMs).toBe(24 * 60 * 60 * 1000);
   });
 
   it('no pierde acciones cuando varias se encolan al mismo tiempo', async () => {
