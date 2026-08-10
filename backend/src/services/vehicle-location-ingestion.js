@@ -128,7 +128,14 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     throw new LocationIngestionError(409, "outside_operational_schedule", "GPS pausado fuera del horario operativo");
   }
 
-  const temporal = normalizeTrackingTime(payload.timestamp);
+  // `clientQueueAgeMs` is an elapsed-duration signal produced at send time by
+  // the client queue. Unlike the device wall clock, elapsed queue age can tell
+  // us that a packet was captured long ago even when the phone clock is skewed.
+  const temporal = normalizeTrackingTime(
+    payload.timestamp,
+    new Date(),
+    payload.clientQueueAgeMs
+  );
   logger.info({
     module: "Tracking",
     action: "location.temporal_decision",

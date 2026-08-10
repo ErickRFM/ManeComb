@@ -10,6 +10,7 @@ const {
   createRateLimitHandler,
   getVerifiedBearerIdentity,
   isAuthApiRequest,
+  isAuthRouteWithDedicatedLimiter,
   isMediaReadRequest,
   selectGeneralApiRateLimitScope,
   shouldSkipGeneralApiRateLimit
@@ -55,10 +56,21 @@ assert.equal(MEDIA_READ_MAX, 180);
 
 assert.equal(isAuthApiRequest({ originalUrl: "/api/auth/login" }), true);
 assert.equal(isAuthApiRequest({ originalUrl: "/api/auth/me?appVersion=1.3.0" }), true);
+for (const pathName of [
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/refresh",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password"
+]) {
+  const request = { method: "POST", originalUrl: pathName, headers: {} };
+  assert.equal(isAuthRouteWithDedicatedLimiter(request), true, `${pathName} must own an explicit limiter`);
+  assert.equal(selectGeneralApiRateLimitScope(request), "skip", `${pathName} must not be double-limited`);
+}
 assert.equal(
-  selectGeneralApiRateLimitScope({ method: "POST", originalUrl: "/api/auth/login", headers: {} }),
-  "skip",
-  "Auth must only consume its explicit route limiter"
+  isAuthRouteWithDedicatedLimiter({ method: "GET", originalUrl: "/api/auth/login", headers: {} }),
+  false,
+  "Method is part of the explicit limiter authority"
 );
 
 const authenticatedOperationalRequest = {
@@ -101,6 +113,47 @@ assert.equal(
   selectGeneralApiRateLimitScope({ method: "GET", originalUrl: "/api/public-probe", headers: {} }),
   "anonymous",
   "Unauthenticated non-Auth traffic remains protected by the general limiter"
+);
+
+// Auth routes without their own limiter must fail closed into the same bounded
+// perimeter as every other API route. This includes malformed or revoked-looking
+// credentials: cryptographic verification only chooses the quota key; it never
+// grants endpoint authorization.
+assert.equal(
+  selectGeneralApiRateLimitScope({
+    method: "GET",
+    originalUrl: "/api/auth/me?appVersion=1.3.0",
+    headers: { authorization: "Bearer invalid-credential" }
+  }),
+  "anonymous"
+);
+assert.equal(
+  selectGeneralApiRateLimitScope({
+    method: "GET",
+    originalUrl: "/api/auth/me?appVersion=1.3.0",
+    headers: { authorization: `Bearer ${operationalToken}` }
+  }),
+  "authenticated"
+);
+assert.equal(
+  selectGeneralApiRateLimitScope({ method: "POST", originalUrl: "/api/auth/logout", headers: {} }),
+  "anonymous"
+);
+assert.equal(
+  selectGeneralApiRateLimitScope({
+    method: "POST",
+    originalUrl: "/api/auth/logout-all",
+    headers: { authorization: `Bearer ${operationalToken}` }
+  }),
+  "authenticated"
+);
+assert.equal(
+  selectGeneralApiRateLimitScope({
+    method: "PUT",
+    originalUrl: "/api/auth/e2ee-backup",
+    headers: { authorization: `Bearer ${operationalToken}` }
+  }),
+  "authenticated"
 );
 
 // A representative reconciliation is about a dozen operational reads. The
@@ -176,6 +229,7 @@ assert.ok(authRoutes.includes('router.post("/login", authLimiter'));
 assert.ok(authRoutes.includes('router.post("/register", authLimiter'));
 assert.ok(authRoutes.includes('router.post("/refresh", refreshLimiter'));
 assert.ok(authRoutes.includes('router.post("/forgot-password", passwordResetLimiter'));
+assert.ok(authRoutes.includes('router.post("/reset-password", authLimiter'));
 assert.ok(enterpriseLimiter.includes("retryAfterSeconds"));
 assert.ok(enterpriseLimiter.includes("traceId"));
 assert.ok(enterpriseLimiter.includes("scope"));
@@ -188,4 +242,4 @@ assert.ok(
   "La descarga debe conservar autorizacion por usuario/tenant"
 );
 
-console.log("ok - anonymous, authenticated and media traffic use bounded independent rate limit budgets");
+console.log("ok - anonymous, authenticated, auth and media traffic use bounded independent rate limit budgets");

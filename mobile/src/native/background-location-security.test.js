@@ -67,4 +67,13 @@ describe('Android background GPS session isolation', () => {
     expect(service).toContain('KEY_PENDING_OWNER_VEHICLE_ID');
     expect(service).toContain('pendingLocations.clear()');
   });
+
+  it('reports current queue age without mutating the persisted GPS packet', () => {
+    const service = source('../../android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationService.kt');
+    expect(service).toContain('val uploadBody = JSONObject(body.toString())');
+    expect(service).toContain('val capturedAt = uploadBody.optLong("timestamp", 0L)');
+    expect(service).toContain('uploadBody.put("clientQueueAgeMs", queueAgeMs)');
+    expect(service).toContain('writer.write(uploadBody.toString())');
+    expect(service).not.toContain('body.put("clientQueueAgeMs"');
+  });
 });

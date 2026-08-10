@@ -11,6 +11,11 @@ function collectEvidenceLines(body) {
   return Array.from(body.matchAll(pattern), (match) => String(match[1] || '').trim());
 }
 
+function collectAcceptanceLines(body) {
+  const pattern = /^\s*PHYSICAL_ACCEPTANCE\s*:\s*(.*?)\s*$/gim;
+  return Array.from(body.matchAll(pattern), (match) => String(match[1] || '').trim());
+}
+
 export function validatePhysicalGate(pullRequest, eventNumber = '?') {
   if (!pullRequest) {
     return { ok: true, skipped: true, message: 'Event is not a pull request.' };
@@ -28,13 +33,13 @@ export function validatePhysicalGate(pullRequest, eventNumber = '?') {
     };
   }
 
-  const gates = collectCanonicalValues(body, 'PHYSICAL_GATE', 'PASS|N\\/A|PENDING');
+  const gates = collectCanonicalValues(body, 'PHYSICAL_GATE', 'PASS|N\\/A|PENDING|ACCEPTED_PENDING');
   if (gates.length === 0) {
     return {
       ok: false,
       message:
         `PR #${number} is Ready but has no canonical PHYSICAL_GATE declaration. ` +
-        'Add exactly one line: PHYSICAL_GATE: PASS or PHYSICAL_GATE: N/A. ' +
+        'Add exactly one line: PHYSICAL_GATE: PASS, PHYSICAL_GATE: N/A, or PHYSICAL_GATE: ACCEPTED_PENDING. ' +
         'Use PHYSICAL_GATE: PENDING while the PR remains Draft.',
     };
   }
@@ -49,7 +54,7 @@ export function validatePhysicalGate(pullRequest, eventNumber = '?') {
   if (gate === 'PENDING') {
     return {
       ok: false,
-      message: `PR #${number} is Ready while PHYSICAL_GATE is PENDING. Return it to Draft or complete the physical gate.`,
+      message: `PR #${number} is Ready while PHYSICAL_GATE is PENDING. Return it to Draft, complete the physical gate, or explicitly use ACCEPTED_PENDING with an acceptance record.`,
     };
   }
 
@@ -67,7 +72,8 @@ export function validatePhysicalGate(pullRequest, eventNumber = '?') {
       ok: false,
       message:
         `PR #${number} declares PHYSICAL_GATE: ${gate} but does not provide PHYSICAL_EVIDENCE. ` +
-        'For PASS, name the device/runtime and result. For N/A, state why no physical/runtime proof applies.',
+        'For PASS, name the device/runtime and result. For N/A, state why no physical/runtime proof applies. ' +
+        'For ACCEPTED_PENDING, state the exact physical matrix still pending.',
     };
   }
 
@@ -78,10 +84,27 @@ export function validatePhysicalGate(pullRequest, eventNumber = '?') {
     };
   }
 
+  if (gate === 'ACCEPTED_PENDING') {
+    const acceptanceLines = collectAcceptanceLines(body);
+    if (acceptanceLines.length !== 1) {
+      return {
+        ok: false,
+        message: `PR #${number} uses ACCEPTED_PENDING and must declare exactly one PHYSICAL_ACCEPTANCE line; found ${acceptanceLines.length}.`,
+      };
+    }
+    const acceptance = acceptanceLines[0];
+    if (!acceptance || /^(pending|todo|tbd|none|n\/?a|-)$/i.test(acceptance)) {
+      return {
+        ok: false,
+        message: `PR #${number}: PHYSICAL_ACCEPTANCE must record who/why explicitly accepted merge before physical proof.`,
+      };
+    }
+  }
+
   return {
     ok: true,
     skipped: false,
-    message: `PR #${number} merge policy valid: PHYSICAL_GATE=${gate}; evidence declared.`,
+    message: `PR #${number} merge policy valid: PHYSICAL_GATE=${gate}; evidence declared${gate === 'ACCEPTED_PENDING' ? '; pending proof explicitly accepted' : ''}.`,
   };
 }
 
