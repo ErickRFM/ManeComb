@@ -1,7 +1,7 @@
 import Mapbox from '@rnmapbox/maps';
 import Config from 'react-native-config';
 import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import type {
   AppMapMarkerProps,
   AppMapPadding,
@@ -13,6 +13,7 @@ import type {
 import { readRuntimeValue } from '@/src/config/api_config';
 import type { GeoPoint } from '@/src/types/app';
 import { resolveMapStyleUrl } from '@/src/components/map-style-urls';
+import { resolveAnnotationLayerId } from '@/src/components/map-annotation-layer';
 
 const MAPBOX_ACCESS_TOKEN =
   readRuntimeValue('MAPBOX_ACCESS_TOKEN', 'MANECOMB_MAPBOX_ACCESS_TOKEN') ||
@@ -259,28 +260,30 @@ const lineLayerStyle = {
 };
 
 /**
- * Capa de anotaciones de @rnmapbox/maps.
- *
- * `PointAnnotation` no es una vista sobre el mapa: se rasteriza y se dibuja como
- * simbolos en una capa del style graph, creada por
- * `RNMBXPointAnnotationCoordinator` con este id fijo. Las `LineLayer` de ruta se
- * insertaban despues, asi que quedaban POR ENCIMA de los pines de origen/destino
- * y el trazado los atravesaba.
- *
- * Anclar las lineas debajo de esta capa impone el orden real del style graph. No
- * es un zIndex de UI: `MarkerView` (paradas) y los overlays de React ya van sobre
- * la superficie del mapa por construccion.
+ * Id de la capa de anotaciones para ESTA plataforma. Android e iOS usan ids
+ * distintos; el resolver documenta ambos y su procedencia en el SDK.
  */
-export const MAP_ANNOTATION_LAYER_ID = 'RNMBX-mapview-annotations';
+export const MAP_ANNOTATION_LAYER_ID = resolveAnnotationLayerId(Platform.OS);
 
 /**
  * Ancla invisible.
  *
- * `belowLayerID` se resuelve con `waitForLayer`, que encola la insercion sin
- * timeout hasta que la capa exista. Un mapa que dibujara rutas sin ningun
- * `PointAnnotation` montado no anadiria nunca la linea. Montar una anotacion
- * vacia garantiza que la capa de anotaciones existe siempre; va en Null Island,
- * fuera de cualquier area operativa.
+ * `belowLayerID` se resuelve esperando a que la capa exista, y esa espera no
+ * tiene timeout en ninguna de las dos plataformas. Un mapa que dibujara rutas
+ * sin ningun `PointAnnotation` montado no anadiria nunca la linea: pasaria de un
+ * defecto visual a una ruta invisible. El caso es real —el mapa principal sin
+ * ubicacion de usuario ni incidencias— asi que se garantiza la capa.
+ *
+ * Es inerte por construccion, no solo por ser invisible:
+ *  - `addToMap` accede al coordinator perezoso ANTES de tocar el bitmap, asi que
+ *    la capa se crea igual (RNMBXPointAnnotation.kt:103);
+ *  - `BitmapUtils.viewToBitmap` exige `w > 0 && h > 0` y devuelve `null` con un
+ *    hijo de 0x0, asi que no se genera imagen ni se dibuja nada;
+ *  - sin `draggable` ni `onSelected` no admite arrastre ni seleccion;
+ *  - `fitToCoordinates` recibe coordenadas explicitas del llamador, asi que el
+ *    ancla no entra en el encuadre ni mueve la camara.
+ *
+ * Va en Null Island, fuera de cualquier area operativa.
  */
 const ANNOTATION_ANCHOR_COORDINATE: [number, number] = [0, 0];
 
