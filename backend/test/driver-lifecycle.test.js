@@ -58,6 +58,17 @@ async function runLifecycleFlow() {
   assert.equal((await listAdminActivationKeys(store, owner)).summary.availableSlots, beforeRelease.summary.availableSlots);
 
   await changeDriverVehicle(store, { organizationId, userId: driver.id, vehicleId: vehicle.id });
+  const activeJourney = await store.createRouteSession({ organizationId, vehicleId: vehicle.id, driverId: driver.id });
+  await store.updateRouteSession(activeJourney.id, {
+    status: 'RUNNING',
+    startedAt: new Date().toISOString(),
+  });
+  const activeImpact = await previewDriverLifecycleImpact(store, { organizationId, userId: driver.id });
+  assert.equal(activeImpact.activeRouteSession.id, activeJourney.id);
+  assert.equal(activeImpact.canOffboard, true);
+  assert.equal(activeImpact.blockers.length, 0);
+  assert.equal(activeImpact.warnings.some((entry) => entry.includes('cerrará administrativamente')), true);
+
   const offboarded = await offboardDriver(store, {
     actor: owner, actorId: owner.id, organizationId, reason: 'Baja laboral', releaseVehicle: true, userId: driver.id,
   });
@@ -65,6 +76,14 @@ async function runLifecycleFlow() {
   assert.equal(offboarded.releasedVehicle.driverId, null);
   assert.equal(offboarded.capacity.summary.availableSlots, 2);
   assert.equal((await listSessionsForUser(driver.id)).every((entry) => !entry.isActive), true);
+  assert.equal(offboarded.closedJourney.id, activeJourney.id);
+  const closedJourney = await store.getRouteSessionById(activeJourney.id);
+  assert.equal(closedJourney.status, 'CANCELLED');
+  assert.match(closedJourney.finishReason, /Baja administrativa: Baja laboral/);
+  const closeEvent = await store.getLastRouteEvent(activeJourney.id, 'SESSION_FINISHED');
+  assert.ok(closeEvent);
+  assert.equal(closeEvent.metadata.nextStatus, 'CANCELLED');
+  assert.equal(closeEvent.metadata.source, 'driver_offboard');
   const storedFirstKey = await store.findActivationKeyByKey(firstKey.key);
   assert.equal(storedFirstKey.status, 'used');
   assert.equal(storedFirstKey.usedByDriverId, driver.id);

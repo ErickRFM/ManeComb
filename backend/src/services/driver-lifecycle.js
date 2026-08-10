@@ -1,6 +1,8 @@
 const { buildSubscription, pickActiveOrder } = require("./portal-account");
 const { listAdminActivationKeys } = require("./activation-keys");
 const { listSessionsForUser, revokeAllSessions } = require("./sessions");
+const { JourneyTransitionError, transitionJourneySession } = require("./journey-transition-service");
+const { recordSessionEvent } = require("./route-event-engine");
 
 class DriverLifecycleError extends Error {
   constructor(message, statusCode = 400, code = "FLEET_LIFECYCLE_ERROR", details = null) {
@@ -61,7 +63,9 @@ async function previewDriverLifecycleImpact(store, { organizationId, userId }) {
   const blockers = [];
   const warnings = [];
 
-  if (dependencies.activeSession) blockers.push("Finaliza la jornada activa.");
+  if (dependencies.activeSession) {
+    warnings.push("Se cerrará administrativamente la jornada activa antes de completar la baja.");
+  }
   if (dependencies.vehicle) warnings.push(`Se liberará la unidad ${dependencies.vehicle.code}.`);
   if (dependencies.documentCount > 0) warnings.push("Los documentos se conservarán como evidencia histórica.");
   if (dependencies.historicalSessionCount > 0) warnings.push("Las jornadas históricas conservarán la referencia del conductor.");
@@ -81,7 +85,7 @@ async function previewDriverLifecycleImpact(store, { organizationId, userId }) {
     relatedDocuments: { count: dependencies.documentCount },
     sessionsToRevoke: activeSessions,
     releasesPlanSlot: !suspended,
-    canOffboard: !dependencies.activeSession,
+    canOffboard: true,
     canDelete: suspended && !dependencies.vehicle && !dependencies.activeSession,
     blockers,
     warnings
@@ -150,6 +154,55 @@ async function changeDriverVehicle(store, { organizationId, userId, vehicleId })
   return result;
 }
 
+async function closeActiveJourneyForOffboard(
+  store,
+  { actor, actorId, organizationId, reason, activeRouteSession, userId }
+) {
+  if (!activeRouteSession?.id) return null;
+
+  const finishReason = `Baja administrativa: ${reason}`.slice(0, 500);
+  try {
+    const transition = await transitionJourneySession({
+      store,
+      sessionId: activeRouteSession.id,
+      actor: {
+        id: actorId,
+        role: actor?.role || "admin",
+        organizationId
+      },
+      nextStatus: "CANCELLED",
+      finishReason
+    });
+
+    if (transition.applied) {
+      await recordSessionEvent(store, transition.session, "SESSION_FINISHED", {
+        previousStatus: transition.previousStatus,
+        nextStatus: "CANCELLED",
+        updatedBy: actorId,
+        finishReason: transition.session.finishReason || finishReason,
+        source: "driver_offboard"
+      });
+    }
+
+    return transition.session;
+  } catch (error) {
+    if (
+      error instanceof JourneyTransitionError &&
+      ["terminal_status", "concurrent_transition", "session_not_found"].includes(error.code)
+    ) {
+      const latestImpact = await previewDriverLifecycleImpact(store, { organizationId, userId });
+      if (!latestImpact.activeRouteSession) return null;
+      throw new DriverLifecycleError(
+        "La jornada cambió mientras se procesaba la baja. Actualiza e intenta de nuevo.",
+        409,
+        "active_session_changed",
+        latestImpact
+      );
+    }
+    throw error;
+  }
+}
+
 async function offboardDriver(store, { actorId, actor, organizationId, reason, releaseVehicle = true, userId }) {
   const safeReason = assertReason(reason, "El motivo de baja");
   if (releaseVehicle !== true) {
@@ -157,9 +210,14 @@ async function offboardDriver(store, { actorId, actor, organizationId, reason, r
   }
 
   const impact = await previewDriverLifecycleImpact(store, { organizationId, userId });
-  if (!impact.canOffboard) {
-    throw new DriverLifecycleError(impact.blockers[0], 409, "active_session", impact);
-  }
+  const closedJourney = await closeActiveJourneyForOffboard(store, {
+    actor,
+    actorId,
+    organizationId,
+    reason: safeReason,
+    activeRouteSession: impact.activeRouteSession,
+    userId
+  });
   const { order } = await getCommercialContext(store, actor);
 
   await revokeAllSessions(userId, null, "driver_offboarded");
@@ -182,9 +240,12 @@ async function offboardDriver(store, { actorId, actor, organizationId, reason, r
 
   return {
     ...result,
+    closedJourney,
     capacity: await listAdminActivationKeys(store, actor),
     message: result.changed
-      ? "Conductor dado de baja. La unidad y el cupo quedaron disponibles; ya puedes generar una key nueva."
+      ? closedJourney
+        ? "Conductor dado de baja. La jornada activa se cerró administrativamente, la unidad y el cupo quedaron disponibles; ya puedes generar una key nueva."
+        : "Conductor dado de baja. La unidad y el cupo quedaron disponibles; ya puedes generar una key nueva."
       : "El conductor ya estaba dado de baja."
   };
 }
