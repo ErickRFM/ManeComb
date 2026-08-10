@@ -62,7 +62,6 @@ export function AdminLoginScreen() {
             <TextInput
               accessibilityLabel="Contraseña"
               autoCapitalize="none"
-              autoComplete="current-password"
               editable={!isSubmitting}
               onChangeText={(value) => { setPassword(value); if (error) clearError(); }}
               onSubmitEditing={handleSubmit}
