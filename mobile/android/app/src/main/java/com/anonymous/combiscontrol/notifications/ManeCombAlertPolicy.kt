@@ -53,11 +53,7 @@ object ManeCombAlertPolicy {
     channelDescription = "Alertas criticas de seguridad reportadas por conductores",
     soundResource = R.raw.alert_sos,
     vibrationPattern = longArrayOf(0, 500, 180, 500, 180, 500, 180, 700),
-    importance = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-      NotificationManager.IMPORTANCE_HIGH
-    } else {
-      NotificationManager.IMPORTANCE_HIGH
-    },
+    importance = NotificationManager.IMPORTANCE_HIGH,
     priority = NotificationCompat.PRIORITY_MAX
   )
 
