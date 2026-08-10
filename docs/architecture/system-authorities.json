@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "fa0d1b6160b7ebdfc800d10191445d95374cde85",
+    "commit": "6ff529c87f74df1b78a7905c080b6fc599025b1e",
     "capturedAt": "2026-08-10",
-    "phase": "post-runtime-hardening-semantic-refresh"
+    "phase": "post-consolidated-runtime-profile-and-race-hardening"
   },
   "products": [
     {
@@ -123,6 +123,32 @@
       "targetPhase": 2
     },
     {
+      "id": "profile-self-service",
+      "decision": "Which personal profile fields an authenticated user may mutate directly while administration is excluded from driver-owned identity fields",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": [
+        "backend/src/services/profile-authority.js",
+        "backend/src/modules/users/routes.js"
+      ],
+      "consumers": ["mobile", "sales-portal"],
+      "targetPhase": 2
+    },
+    {
+      "id": "managed-staff-identity",
+      "decision": "Which staff roles may be created by administration, which account channel each role belongs to, and whether role/channel may change after creation",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": [
+        "backend/src/services/managed-user-profile-policy.js",
+        "backend/src/services/user-service.js",
+        "backend/src/modules/users/routes.js",
+        "backend/src/data/serializers.js"
+      ],
+      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "targetPhase": 2
+    },
+    {
       "id": "commercial-catalog",
       "decision": "Available plans, prices, included capacity and commercial benefits",
       "owner": "backend",
@@ -151,19 +177,28 @@
     },
     {
       "id": "fleet",
-      "decision": "Lifecycle and operational identity of vehicles, drivers and units",
+      "decision": "Lifecycle and operational identity of vehicles, drivers and units, including the offboarding barrier that blocks new journey creation",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/operational-units", "backend/src/modules/locations", "backend/src/services/driver-lifecycle.js"],
+      "sourcePaths": [
+        "backend/src/modules/operational-units",
+        "backend/src/modules/locations",
+        "backend/src/services/driver-lifecycle.js",
+        "backend/src/services/route-session-creation-guard.js"
+      ],
       "consumers": ["sales-portal", "mobile", "admin-global"],
       "targetPhase": 5
     },
     {
       "id": "navigation",
-      "decision": "Route definitions, assignments, activation and route-session state",
+      "decision": "Route definitions, assignments, activation and route-session state, including lifecycle eligibility at session creation",
       "owner": "backend",
       "status": "transitional",
-      "sourcePaths": ["backend/src/modules/navigation", "shared/operational-contract"],
+      "sourcePaths": [
+        "backend/src/modules/navigation",
+        "backend/src/services/route-session-creation-guard.js",
+        "shared/operational-contract"
+      ],
       "consumers": ["sales-portal", "mobile"],
       "targetPhase": 6
     },
