@@ -52,6 +52,8 @@ function testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule() {
     assert.equal(payload.name, "Company Admin");
     assert.deepEqual(payload.companyProfile, { companyName: "ManeComb Demo" });
     assert.deepEqual(payload.paymentProfile, { preferredMethod: "spei" });
+    // El horario pertenece al Directorio administrado; /users/me no es una
+    // segunda autoridad oculta para modificarlo desde Editar perfil.
     assert.equal(payload.operationalSchedule, undefined);
     assert.equal(payload.role, undefined);
     assert.equal(canManageOwnCompanyProfile({ accountType: "company_owner", role }), true);
