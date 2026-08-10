@@ -20,16 +20,14 @@ import {
 } from '@/src/utils/operational-schedule';
 import { InfoTile } from './profile/components/info-tile';
 import { createStyles } from './profile/profile-screen.styles';
-import { getProfileDocumentSummary } from './documents/documents.utils';
 
 export function ProfileScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < DesignSystem.breakpoints.compact;
   const isPhone = width < DesignSystem.breakpoints.phone;
   const { isDark, setThemeMode, theme } = useAppTheme();
-  const { documents, presenceByUser, signOut, user } = useAppStore(
+  const { presenceByUser, signOut, user } = useAppStore(
     useShallow((state) => ({
-      documents: state.documents,
       presenceByUser: state.presenceByUser,
       signOut: state.signOut,
       user: state.user,
@@ -45,8 +43,6 @@ export function ProfileScreen() {
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
-  const documentSummary = getProfileDocumentSummary(documents);
-  const isDriver = user.role === 'driver';
 
   return (
     <AppShell
@@ -88,31 +84,12 @@ export function ProfileScreen() {
               accessibilityRole="button"
               onPress={() => router.push('/perfil-editar')}
               style={styles.documentUploadButton}>
-              <MaterialCommunityIcons name="account-edit-outline" size={18} color={theme.colors.accent} />
               <Text style={styles.documentUploadText}>Editar mi perfil</Text>
             </Pressable>
           </View>
         </AppCard>
 
         <View style={styles.sideColumn}>
-          <AppCard>
-            <View style={styles.pillsRow}>
-              <Text style={styles.cardTitle}>Documentos</Text>
-              {isDriver ? <StatusPill label={documentSummary} tone="info" /> : null}
-            </View>
-            {isDriver ? (
-              <View style={styles.notificationList}>
-                <Text style={styles.emptyNotifications}>Gestiona archivos, vigencias, reemplazos e historial desde una pantalla dedicada.</Text>
-                <Pressable accessibilityRole="button" onPress={() => router.push('/mis-documentos')} style={styles.documentUploadButton}>
-                  <MaterialCommunityIcons name="file-document-multiple-outline" size={18} color={theme.colors.accent} />
-                  <Text style={styles.documentUploadText}>Administrar mis documentos</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Text style={styles.emptyNotifications}>La revisión administrativa de documentos se realiza en el portal web.</Text>
-            )}
-          </AppCard>
-
           <AppCard>
             <Text style={styles.cardTitle}>Apariencia</Text>
             <View style={styles.themeRow}>
