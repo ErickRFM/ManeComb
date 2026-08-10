@@ -32,6 +32,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppShell } from '@/src/components/app-shell';
 import { StatusPill } from '@/src/components/status-pill';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
+import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getRadioLiveErrorMessage } from '@/src/features/radio-live/radio-live-errors';
 import { RADIO_LIVE_SUPPORTED } from '@/src/features/radio-live/radio-live-runtime';
@@ -82,9 +83,11 @@ const WAVEFORM_BARS = 18;
 
 export function RadioScreen() {
   const params = useLocalSearchParams<{ channelId?: string; mode?: string }>();
-  const { width } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const isDesktop = width >= DesignSystem.breakpoints.compact;
   const isPhone = width < DesignSystem.breakpoints.phone;
+  const isCompactConsole = height < 820 || fontScale >= 1.3;
+  const reducedMotion = useReducedMotion();
   const { theme } = useAppTheme();
   const {
     activeConversationId,
@@ -145,8 +148,8 @@ export function RadioScreen() {
   const { audioRoute, cycleRoute } = useRadioAudioRoute(LIVE_RADIO_SUPPORTED);
 
   const styles = useMemo(
-    () => createStyles(theme, isDesktop, isPhone),
-    [theme, isDesktop, isPhone]
+    () => createStyles(theme, isDesktop, isPhone, isCompactConsole),
+    [theme, isCompactConsole, isDesktop, isPhone]
   );
   const [search, setSearch] = useState('');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -428,17 +431,26 @@ export function RadioScreen() {
     resetWaveform();
   }, [resetWaveform]);
 
-  // Animacion, halo, cronometro y waveform siguen la fase canonica: se cancelan
-  // en cualquier salida, incluida la de error o la que decide el backend.
+  // Motion is only a projection of the canonical runtime phase. RX/idle never
+  // invent audio levels; only native TX metering renders the waveform.
   useEffect(() => {
-    if (isCapturing) {
+    const shouldPulse = isCapturing || consoleState.pending;
+    const shouldBreathe = consoleState.variant === 'idle' || radioPhase === 'RECEIVING';
+
+    if (!reducedMotion && (shouldPulse || shouldBreathe)) {
       pulseValue.value = withRepeat(
-        withSequence(withTiming(1.04, RADIO_MOTION), withTiming(1, RADIO_MOTION)),
+        withSequence(
+          withTiming(shouldPulse ? 1.04 : 1.018, RADIO_MOTION),
+          withTiming(1, RADIO_MOTION)
+        ),
         -1,
         true
       );
       haloValue.value = withRepeat(
-        withSequence(withTiming(0.72, RADIO_MOTION), withTiming(0, RADIO_MOTION)),
+        withSequence(
+          withTiming(isCapturing ? 0.72 : radioPhase === 'RECEIVING' ? 0.46 : 0.24, RADIO_MOTION),
+          withTiming(0, RADIO_MOTION)
+        ),
         -1,
         false
       );
@@ -463,7 +475,7 @@ export function RadioScreen() {
     setRecordingSeconds(0);
     resetWaveform();
     return undefined;
-  }, [haloValue, isCapturing, pulseValue, resetWaveform]);
+  }, [consoleState.pending, consoleState.variant, haloValue, isCapturing, pulseValue, radioPhase, reducedMotion, resetWaveform]);
 
   useEffect(() => {
     loadChatContacts();
@@ -1085,6 +1097,11 @@ export function RadioScreen() {
             ? theme.colors.success
             : theme.colors.muted;
   const activeOperatorCount = activeChannel?.participants.length || 0;
+  const activeRouteLabel = audioRoute ? getRadioRouteLabel(audioRoute.active) : 'Sistema';
+  const lastTransmission = loadedVoiceNotes[0] || null;
+  const lastTransmissionDuration = lastTransmission?.message.durationSeconds
+    ? formatDuration(lastTransmission.message.durationSeconds)
+    : null;
   const pttVariantStyles: Record<RadioConsoleVariant, object> = {
     idle: styles.pttButtonIdle,
     recording: styles.pttButtonRecording,
@@ -1177,12 +1194,16 @@ export function RadioScreen() {
             </Text>
             <View style={styles.headerPills}>
               <StatusPill label={consoleState.label} tone={consoleState.tone} />
-              <View style={styles.headerMiniChip}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${activeOperatorCount || 0} miembros. Abrir canales`}
+                onPress={() => goToPage(0)}
+                style={styles.headerMiniChip}>
                 <MaterialCommunityIcons name="account-group" size={14} color={theme.colors.muted} />
                 <Text style={styles.headerMiniText} numberOfLines={1}>
                   {activeOperatorCount || '--'} miembros
                 </Text>
-              </View>
+              </Pressable>
             </View>
           </View>
           {Platform.OS === 'web' && (
@@ -1261,15 +1282,21 @@ export function RadioScreen() {
 
           </View>
 
-          <View style={[styles.page, styles.radioPage, { width: pageWidth }]}>
+          <View style={[styles.page, { width: pageWidth }]}>
+          <ScrollView
+            bounces={false}
+            overScrollMode="never"
+            showsVerticalScrollIndicator={false}
+            style={styles.radioPage}
+            contentContainerStyle={styles.consolePageContent}>
           <View style={styles.heroCard}>
             <View style={styles.heroTopRow}>
               <View style={styles.heroCopy}>
                 <Text style={styles.heroEyebrow}>
-                  {LIVE_RADIO_SUPPORTED ? 'Consola PTT' : 'Notas de voz'}
+                  {LIVE_RADIO_SUPPORTED ? 'ManeComb Radio Pro' : 'Notas de voz'}
                 </Text>
-                <Text style={styles.heroTitle}>
-                  {consoleState.label}
+                <Text style={styles.heroTitle} numberOfLines={2}>
+                  Consola PTT
                 </Text>
               </View>
               <View style={styles.heroPills}>
@@ -1286,7 +1313,7 @@ export function RadioScreen() {
                       size={16}
                       color={theme.colors.info}
                     />
-                    <Text style={styles.deviceCompactText} numberOfLines={1}>
+                    <Text style={styles.routeChipText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
                       {getRadioRouteLabel(audioRoute.active)}
                     </Text>
                   </Pressable>
@@ -1321,6 +1348,8 @@ export function RadioScreen() {
             {audioSettingsPanel}
 
             <View
+              accessibilityRole="summary"
+              accessibilityLabel={`${consoleState.label}. ${consoleState.detail}`}
               style={[
                 styles.operationalBanner,
                 {
@@ -1332,21 +1361,22 @@ export function RadioScreen() {
                 <MaterialCommunityIcons name={consoleState.icon as any} size={19} color="#FFFFFF" />
               </View>
               <View style={styles.operationalCopy}>
-                <Text style={styles.operationalTitle} numberOfLines={1}>
+                <Text style={styles.operationalState} numberOfLines={1}>
+                  {consoleState.label.toUpperCase()}
+                </Text>
+                <Text style={styles.operationalTitle} numberOfLines={2}>
                   {consoleState.detail}
                 </Text>
-                {statusMessage ? (
-                  <Text style={styles.operationalAction} numberOfLines={1}>
-                    {statusMessage}
-                  </Text>
-                ) : null}
               </View>
             </View>
 
             <View style={styles.pttCenter}>
               <Animated.View style={[styles.pttHalo, haloAnimatedStyle]} />
               {isCapturing ? (
-                <PttAudioWave diameter={isPhone ? 244 : 284} samples={waveformLevels} />
+                <PttAudioWave
+                  diameter={isCompactConsole ? 184 : isPhone ? 208 : 236}
+                  samples={waveformLevels}
+                />
               ) : null}
               <Animated.View style={[styles.pttOuter, pttAnimatedStyle]}>
                 <Pressable
@@ -1381,6 +1411,35 @@ export function RadioScreen() {
               </Animated.View>
             </View>
 
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={lastTransmission ? 'Ir a la ultima transmision en Audios' : 'Ir a Audios'}
+              onPress={() => {
+                setAudioFilter(activeChannel ? 'current' : 'all');
+                goToPage(2);
+              }}
+              style={styles.lastTransmissionCard}>
+              <View style={styles.lastTransmissionIcon}>
+                <MaterialCommunityIcons name="history" size={18} color={theme.colors.accent} />
+              </View>
+              <View style={styles.lastTransmissionCopy}>
+                <Text style={styles.lastTransmissionLabel}>Ultima transmision</Text>
+                <Text style={styles.lastTransmissionTitle} numberOfLines={1}>
+                  {lastTransmission?.message.sender?.name || 'Sin transmisiones recientes'}
+                </Text>
+                {lastTransmission ? (
+                  <Text style={styles.lastTransmissionMeta} numberOfLines={1}>
+                    {formatRelativeTime(lastTransmission.message.createdAt)}
+                    {lastTransmissionDuration ? ` · ${lastTransmissionDuration}` : ''}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.lastTransmissionAction}>
+                <Text style={styles.lastTransmissionActionText}>Audios</Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.accent} />
+              </View>
+            </Pressable>
+
             <View style={styles.consoleMetaRow}>
               <View style={styles.consoleMetaItem}>
                 <MaterialCommunityIcons name="access-point" size={18} color={theme.colors.muted} />
@@ -1391,27 +1450,27 @@ export function RadioScreen() {
               </View>
               <View style={styles.consoleMetaDivider} />
               <View style={styles.consoleMetaItem}>
-                <MaterialCommunityIcons
-                  name={transmitter ? 'account-voice' : 'history'}
-                  size={18}
-                  color={theme.colors.muted}
-                />
+                <MaterialCommunityIcons name="account-group" size={18} color={theme.colors.muted} />
                 <View style={styles.consoleMetaCopy}>
-                  <Text style={styles.consoleMetaLabel}>
-                    {transmitter ? 'En el canal' : 'Ultima actividad'}
-                  </Text>
+                  <Text style={styles.consoleMetaLabel}>Miembros</Text>
                   <Text style={styles.consoleMetaValue} numberOfLines={1}>
-                    {transmitter
-                      ? transmitter.name
-                      : loadedVoiceNotes[0]
-                        ? formatRelativeTime(loadedVoiceNotes[0].message.createdAt)
-                        : 'Sin actividad'}
+                    {activeOperatorCount || 0} conectados
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.consoleMetaDivider} />
+              <View style={styles.consoleMetaItem}>
+                <MaterialCommunityIcons name={audioRoute ? getRadioRouteIcon(audioRoute.active) as any : 'volume-high'} size={18} color={theme.colors.muted} />
+                <View style={styles.consoleMetaCopy}>
+                  <Text style={styles.consoleMetaLabel}>Salida</Text>
+                  <Text style={styles.consoleMetaValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+                    {activeRouteLabel}
                   </Text>
                 </View>
               </View>
             </View>
           </View>
-
+          </ScrollView>
           </View>
 
           <View style={[styles.page, { width: pageWidth }]}>
@@ -1429,19 +1488,29 @@ export function RadioScreen() {
         </ScrollView>
       </View>
 
-      <View style={styles.pageIndicators}>
+      <View accessibilityRole="tablist" style={styles.pageIndicators}>
         {RADIO_PAGES.map((label, index) => (
           <Pressable
             key={label}
+            accessibilityRole="tab"
             accessibilityLabel={`Ir a ${label}`}
+            accessibilityState={{ selected: activePageIndex === index }}
             onPress={() => goToPage(index as RadioPageIndex)}
-            style={styles.pageIndicatorHit}>
-            <View
-              style={[
-                styles.pageIndicator,
-                activePageIndex === index ? styles.pageIndicatorActive : undefined,
-              ]}
+            style={[
+              styles.pageIndicatorHit,
+              activePageIndex === index ? styles.pageIndicatorActive : undefined,
+            ]}>
+            <MaterialCommunityIcons
+              name={index === 0 ? 'account-group-outline' : index === 1 ? 'radio-handheld' : 'waveform'}
+              size={16}
+              color={activePageIndex === index ? theme.colors.accent : theme.colors.muted}
             />
+            <Text style={[
+              styles.pageIndicatorText,
+              activePageIndex === index ? styles.pageIndicatorTextActive : undefined,
+            ]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {label}
+            </Text>
           </Pressable>
         ))}
       </View>
