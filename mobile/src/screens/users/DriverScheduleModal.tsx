@@ -110,9 +110,15 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
     setSaving(false);
   }, [driver]);
 
+  const isConfigured = Boolean(driver?.operationalSchedule);
   const hasChanges = Boolean(driver) && !driverScheduleDraftEquals(draft, driver?.operationalSchedule);
   const summary = formatDriverScheduleSummary(draft);
   const timezoneLabel = draft.timezone || 'Local del dispositivo';
+  const savedStateLabel = !isConfigured
+    ? 'Sin horario configurado'
+    : driver?.operationalSchedule?.enabled === false
+      ? 'Horario pausado'
+      : 'Horario configurado';
 
   const toggleDay = (day: number) => {
     setDraft((current) => {
@@ -172,11 +178,27 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
             overScrollMode="never"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}>
+            <View style={styles.savedStateRow}>
+              <MaterialCommunityIcons
+                name={isConfigured ? 'calendar-check-outline' : 'calendar-blank-outline'}
+                size={20}
+                color={isConfigured ? theme.colors.success : theme.colors.muted}
+              />
+              <View style={styles.headerCopy}>
+                <Text style={styles.savedStateTitle}>Estado guardado</Text>
+                <Text style={styles.sectionHint}>{savedStateLabel}</Text>
+              </View>
+            </View>
+
             <View style={styles.enabledRow}>
               <View style={styles.headerCopy}>
-                <Text style={styles.sectionTitle}>Horario operativo</Text>
+                <Text style={styles.sectionTitle}>{isConfigured ? 'Horario operativo' : 'Habilitar al guardar'}</Text>
                 <Text style={styles.sectionHint}>
-                  {draft.enabled ? 'El horario está habilitado.' : 'El horario está pausado sin perder su configuración.'}
+                  {!isConfigured
+                    ? `Al guardar por primera vez quedará ${draft.enabled ? 'habilitado' : 'pausado'}.`
+                    : draft.enabled
+                      ? 'El horario quedará habilitado.'
+                      : 'El horario quedará pausado sin perder su configuración.'}
                 </Text>
               </View>
               <Switch
@@ -191,7 +213,7 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
             <View style={styles.summaryCard}>
               <MaterialCommunityIcons name="calendar-clock" size={22} color={theme.colors.accent} />
               <View style={styles.headerCopy}>
-                <Text style={styles.summaryTitle}>Resumen</Text>
+                <Text style={styles.summaryTitle}>Horario a guardar</Text>
                 <Text style={styles.summaryText}>{summary}</Text>
               </View>
             </View>
@@ -236,7 +258,7 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
                 <View style={styles.headerCopy}>
                   <Text style={styles.timezoneValue}>{timezoneLabel}</Text>
                   <Text style={styles.sectionHint}>
-                    Se conserva la zona ya registrada. Sin una zona explícita, ManeComb usa la hora local del dispositivo.
+                    Se conserva la zona registrada. La validación operativa actual usa el reloj local del dispositivo.
                   </Text>
                 </View>
               </View>
@@ -256,7 +278,7 @@ export function DriverScheduleModal({ driver, onClose, onSaved }: DriverSchedule
               {saving ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.primaryText}>Guardar horario</Text>
+                <Text style={styles.primaryText}>{isConfigured ? 'Guardar horario' : 'Configurar horario'}</Text>
               )}
             </Pressable>
           </View>
@@ -307,6 +329,17 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
       width: 40,
     },
     scrollContent: { gap: 14, padding: 18, paddingBottom: 22 },
+    savedStateRow: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.card,
+      borderColor: theme.colors.line,
+      borderRadius: AppTheme.radius.md,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: 10,
+      padding: 12,
+    },
+    savedStateTitle: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
     enabledRow: {
       alignItems: 'center',
       backgroundColor: theme.colors.surfaceAlt,
