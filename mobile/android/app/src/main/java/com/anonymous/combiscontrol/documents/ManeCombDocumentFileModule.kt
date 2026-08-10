@@ -1,7 +1,6 @@
 package com.anonymous.combiscontrol.documents
 
 import android.content.Intent
-import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -36,16 +35,16 @@ class ManeCombDocumentFileModule(private val context: ReactApplicationContext) :
           connection.disconnect()
         }
 
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.documents", destination)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-          setDataAndType(uri, mimeType)
-          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(context, ManeCombDocumentViewerActivity::class.java).apply {
+          putExtra(ManeCombDocumentViewerActivity.EXTRA_FILE_PATH, destination.absolutePath)
+          putExtra(ManeCombDocumentViewerActivity.EXTRA_MIME_TYPE, mimeType)
+          putExtra(ManeCombDocumentViewerActivity.EXTRA_DISPLAY_NAME, fileName)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        if (intent.resolveActivity(context.packageManager) == null) throw IllegalStateException("viewer_unavailable")
         context.startActivity(intent)
         promise.resolve(null)
-      } catch (error: Exception) {
-        promise.reject("DOCUMENT_OPEN_FAILED", "No fue posible abrir el documento protegido.")
+      } catch (_: Exception) {
+        promise.reject("DOCUMENT_OPEN_FAILED", "No fue posible abrir el documento protegido dentro de ManeComb.")
       }
     }
   }

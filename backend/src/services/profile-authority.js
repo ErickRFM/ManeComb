@@ -10,6 +10,9 @@ const PERSONAL_PROFILE_FIELDS = Object.freeze([
   "e2eeKeyRotatedAt"
 ]);
 
+// El perfil propio conserva datos personales/comerciales. `operationalSchedule`
+// se administra sobre el usuario objetivo mediante PATCH /users/:userId y
+// `users.manage`, para que Directorio sea la única autoridad de edición.
 const COMPANY_PROFILE_FIELDS = Object.freeze([
   ...PERSONAL_PROFILE_FIELDS,
   "companyName",
@@ -25,8 +28,7 @@ const COMPANY_PROFILE_FIELDS = Object.freeze([
   "cardExpYear",
   "customerReference",
   "companyProfile",
-  "paymentProfile",
-  "operationalSchedule"
+  "paymentProfile"
 ]);
 
 function pickAllowedFields(payload, allowedFields) {
