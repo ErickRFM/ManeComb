@@ -1,7 +1,17 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router, usePathname } from '@/src/navigation/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  InteractionManager,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
@@ -24,8 +34,8 @@ type OperationalMenuDrawerProps = {
 };
 
 const DRAWER_WIDTH = 340;
-const DRAWER_OPEN_MS = DesignSystem.motion.normal;
-const DRAWER_CLOSE_MS = 160;
+const DRAWER_OPEN_MS = DesignSystem.motion.fast;
+const DRAWER_CLOSE_MS = 120;
 
 export function OperationalMenuDrawer({
   visible,
@@ -37,32 +47,32 @@ export function OperationalMenuDrawer({
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const reducedMotion = useReducedMotion();
-  const slideProgress = useRef(new Animated.Value(1)).current;
-  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [shouldRender, setShouldRender] = useState(visible);
+  const slideProgress = useRef(new Animated.Value(visible ? 0 : 1)).current;
+  const navigationFrameRef = useRef<number | null>(null);
+  const [hasOpened, setHasOpened] = useState(visible);
+  const canRender = hasOpened || visible;
   const {
-    conversations,
-    incidents,
-    mapData,
+    activeIncidentCount,
+    conversationCount,
+    mapVehicleCount,
     signOut,
     user,
-    users,
+    userCount,
   } = useAppStore(
     useShallow((state) => ({
-      conversations: state.conversations,
-      incidents: state.incidents,
-      mapData: state.mapData,
+      activeIncidentCount: state.incidents.reduce(
+        (count, incident) => count + (incident.status !== 'resolved' ? 1 : 0),
+        0
+      ),
+      conversationCount: state.conversations.length,
+      mapVehicleCount: state.mapData?.vehicles.length ?? 0,
       signOut: state.signOut,
       user: state.user,
-      users: state.users,
+      userCount: state.users.length,
     }))
   );
 
   const sections = useMemo(() => (user ? getAppSections(user) : []), [user]);
-  const activeIncidentCount = useMemo(
-    () => incidents.filter((incident) => incident.status !== 'resolved').length,
-    [incidents]
-  );
   const derivedKey = useMemo(() => {
     if (!user) {
       return activeKey;
@@ -73,13 +83,27 @@ export function OperationalMenuDrawer({
   }, [activeKey, pathname, user]);
 
   useEffect(() => {
-    if (visible) {
-      setShouldRender(true);
+    if (hasOpened || visible) {
+      return undefined;
     }
-  }, [visible]);
+
+    // Precalienta el contenido pesado del drawer cuando termina la interacción
+    // actual. Así el primer toque no tiene que montar logo/lista justo al abrir.
+    const task = InteractionManager.runAfterInteractions(() => {
+      setHasOpened(true);
+    });
+
+    return () => task.cancel();
+  }, [hasOpened, visible]);
 
   useEffect(() => {
-    if (!shouldRender) {
+    if (visible && !hasOpened) {
+      setHasOpened(true);
+    }
+  }, [hasOpened, visible]);
+
+  useEffect(() => {
+    if (!canRender) {
       return;
     }
 
@@ -87,35 +111,28 @@ export function OperationalMenuDrawer({
 
     if (reducedMotion) {
       slideProgress.setValue(visible ? 0 : 1);
-      if (!visible) {
-        setShouldRender(false);
-      }
       return;
     }
 
     Animated.timing(slideProgress, {
       toValue: visible ? 0 : 1,
       duration: visible ? DRAWER_OPEN_MS : DRAWER_CLOSE_MS,
-      easing: visible ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
+      easing: visible ? Easing.out(Easing.cubic) : Easing.out(Easing.quad),
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished && !visible) {
-        setShouldRender(false);
-      }
-    });
-  }, [reducedMotion, shouldRender, slideProgress, visible]);
+    }).start();
+  }, [canRender, reducedMotion, slideProgress, visible]);
 
   useEffect(() => {
     return () => {
-      if (navigationTimerRef.current) {
-        clearTimeout(navigationTimerRef.current);
+      if (navigationFrameRef.current !== null) {
+        cancelAnimationFrame(navigationFrameRef.current);
       }
       slideProgress.stopAnimation();
     };
   }, [slideProgress]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !shouldRender || typeof document === 'undefined') {
+    if (Platform.OS !== 'web' || !visible || typeof document === 'undefined') {
       return;
     }
 
@@ -129,9 +146,9 @@ export function OperationalMenuDrawer({
       document.body.style.overflow = previousBodyOverflow;
       document.documentElement.style.overflow = previousDocumentOverflow;
     };
-  }, [shouldRender]);
+  }, [visible]);
 
-  if (!shouldRender || !user) {
+  if (!canRender || !user) {
     return null;
   }
 
@@ -142,33 +159,35 @@ export function OperationalMenuDrawer({
       return;
     }
 
-    if (navigationTimerRef.current) {
-      clearTimeout(navigationTimerRef.current);
+    if (navigationFrameRef.current !== null) {
+      cancelAnimationFrame(navigationFrameRef.current);
     }
 
-    navigationTimerRef.current = setTimeout(
-      () => router.push(href),
-      reducedMotion ? 0 : DRAWER_CLOSE_MS
-    );
+    // No bloqueamos la navegación esperando un timer JS. El cierre ya corre en
+    // el driver nativo y la ruta puede arrancar en el siguiente frame.
+    navigationFrameRef.current = requestAnimationFrame(() => {
+      navigationFrameRef.current = null;
+      router.push(href);
+    });
   };
 
   const getBadgeLabel = (key: AppSectionKey) => {
     switch (key) {
       case 'mapa':
-        return mapData ? `${mapData.vehicles.length}` : undefined;
+        return mapVehicleCount ? `${mapVehicleCount}` : undefined;
       case 'incidencias':
         return activeIncidentCount ? `${activeIncidentCount}` : undefined;
       case 'usuarios':
-        return users.length ? `${users.length}` : undefined;
+        return userCount ? `${userCount}` : undefined;
       case 'chat':
-        return conversations.length ? `${conversations.length}` : undefined;
+        return conversationCount ? `${conversationCount}` : undefined;
       default:
         return undefined;
     }
   };
 
   return (
-    <View style={styles.drawerLayer}>
+    <View pointerEvents={visible ? 'auto' : 'none'} style={styles.drawerLayer}>
       <Animated.View
         style={[
           styles.drawerBackdrop,
@@ -189,6 +208,8 @@ export function OperationalMenuDrawer({
       </Animated.View>
 
       <Animated.View
+        renderToHardwareTextureAndroid={visible}
+        shouldRasterizeIOS={visible}
         style={[
           styles.drawer,
           {
@@ -288,11 +309,7 @@ export function OperationalMenuDrawer({
                 </View>
 
                 {badgeLabel ? (
-                  <View
-                    style={[
-                      styles.itemBadge,
-                      itemBadgeBackgroundStyle,
-                    ]}>
+                  <View style={[styles.itemBadge, itemBadgeBackgroundStyle]}>
                     <Text
                       style={[
                         styles.itemBadgeText,
