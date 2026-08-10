@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking } from 'react-native';
 
 import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
+import { setIncomingCallWindowActive } from '@/src/native/call-service';
 import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
 import {
   resetCallForegroundService,
@@ -26,9 +27,11 @@ export function CallOverlay(): React.ReactElement {
   const socket = sharedSocket as unknown as CallSocket | null;
   const bindSocket = useCallStore((state) => state.bindSocket);
   const phase = useCallStore((state) => state.phase);
+  const direction = useCallStore((state) => state.direction);
   const mode = useCallStore((state) => state.mode);
   const [pendingPushCall, setPendingPushCall] = useState<PushCallIntent | null>(null);
   const consumedPushCalls = useRef(new Set<string>());
+  const callWindowManaged = useRef(false);
 
   const receivePushUrl = useCallback((url: string | null | undefined) => {
     const intent = parsePushCallIntent(url);
@@ -79,6 +82,14 @@ export function CallOverlay(): React.ReactElement {
 
   const needsForegroundService =
     phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
+  const needsIncomingCallWindow =
+    direction === 'incoming' &&
+    (
+      phase === 'INCOMING_RINGING' ||
+      phase === 'CONNECTING' ||
+      phase === 'CONNECTED' ||
+      phase === 'RECONNECTING'
+    );
 
   useEffect(() => {
     setCallForegroundServiceMode(
@@ -86,11 +97,28 @@ export function CallOverlay(): React.ReactElement {
     ).catch(() => undefined);
   }, [mode, needsForegroundService]);
 
+  useEffect(() => {
+    if (needsIncomingCallWindow) {
+      callWindowManaged.current = true;
+      setIncomingCallWindowActive(true).catch(() => undefined);
+      return;
+    }
+
+    // No limpiar en el primer IDLE: el initial URL puede estar esperando socket/rehidratacion.
+    // Una vez que JS administró la llamada entrante, cualquier salida de sus fases activas
+    // restaura privacidad inmediatamente; MainActivity conserva un autocierre independiente.
+    if (callWindowManaged.current) {
+      callWindowManaged.current = false;
+      setIncomingCallWindowActive(false).catch(() => undefined);
+    }
+  }, [needsIncomingCallWindow]);
+
   useEffect(
     () => () => {
       const store = useCallStore.getState();
       store.unbindSocket();
       store.reset();
+      setIncomingCallWindowActive(false).catch(() => undefined);
       resetCallForegroundService().catch(() => undefined);
     },
     []
