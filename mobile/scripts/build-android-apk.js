@@ -3,6 +3,10 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { withAndroidSdkEnv } = require('./android-sdk');
 const { patchAndroidNodePath } = require('./patch-android-node-path');
+const {
+  buildReleaseEnvironment,
+  validateReleaseRuntime,
+} = require('./release-runtime-policy');
 
 const projectRoot = path.resolve(__dirname, '..');
 const androidDir = path.join(projectRoot, 'android');
@@ -52,14 +56,6 @@ function readEnvFile(fileName) {
       })
   );
 }
-
-const productionDefaults = {
-  MANECOMB_APP_ENV: 'production',
-  MANECOMB_API_URL: 'https://manecomb.onrender.com/api',
-  MANECOMB_SOCKET_URL: 'https://manecomb.onrender.com',
-  MANECOMB_API_TIMEOUT_MS: '15000',
-  MANECOMB_ANDROID_CLEARTEXT: '0',
-};
 
 function findAvailableSubstDrive() {
   const preferredDrives = ['M', 'R', 'T', 'U', 'V', 'W'];
@@ -134,6 +130,21 @@ function runFromShortWindowsPathIfNeeded() {
   process.exit(child.status || 0);
 }
 
+function run(command, args, options = {}) {
+  console.log(`[apk] Ejecutando: ${command} ${args.join(' ')}`);
+  const result = spawnSync(command, args, {
+    cwd: projectRoot,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    console.error(`[apk] Error: comando fallo con codigo ${result.status}`);
+    process.exit(result.status || 1);
+  }
+}
+
 function removeInsideAndroidDir(targetPath) {
   const resolvedAndroidDir = path.resolve(androidDir);
   const resolvedTarget = path.resolve(targetPath);
@@ -153,57 +164,21 @@ function removeInsideAndroidDir(targetPath) {
   console.log(`[apk] Cache nativa removida: ${resolvedTarget}`);
 }
 
-function hasManualFirebaseConfig(env) {
-  return [
-    'MANECOMB_FIREBASE_PROJECT_ID',
-    'MANECOMB_FIREBASE_APP_ID',
-    'MANECOMB_FIREBASE_API_KEY',
-    'MANECOMB_FIREBASE_SENDER_ID',
-  ].every((key) => String(env[key] || '').trim());
-}
-
 runFromShortWindowsPathIfNeeded();
 
-function run(command, args, options = {}) {
-  console.log(`[apk] Ejecutando: ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, {
-    cwd: projectRoot,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    ...options,
-  });
-
-  if (result.status !== 0) {
-    console.error(`[apk] Error: comando fallo con codigo ${result.status}`);
-    process.exit(result.status || 1);
-  }
-}
-
 const localEnv = readEnvFile('.env');
-const fileEnv = {
-  ...productionDefaults,
-  ...(localEnv.MAPBOX_ACCESS_TOKEN
-    ? { MAPBOX_ACCESS_TOKEN: localEnv.MAPBOX_ACCESS_TOKEN }
-    : {}),
-  ...readEnvFile('.env.production'),
-};
-
-if (!String(fileEnv.MAPBOX_ACCESS_TOKEN || '').startsWith('pk.')) {
-  throw new Error(
-    '[apk] MAPBOX_ACCESS_TOKEN publico es obligatorio para Release; sin el, MapView cierra la aplicacion.'
-  );
-}
-
-const firebaseConfigured = fs.existsSync(googleServicesPath) || hasManualFirebaseConfig(fileEnv);
-if (String(fileEnv.MANECOMB_REQUIRE_FCM || '').trim() === '1' && !firebaseConfigured) {
-  throw new Error(
-    '[apk] FCM es obligatorio para este release. Agrega android/app/google-services.json o MANECOMB_FIREBASE_*.'
-  );
-}
+const productionEnv = readEnvFile('.env.production');
+const releaseEnv = buildReleaseEnvironment({
+  processEnv: process.env,
+  localEnv,
+  productionEnv,
+});
+const { firebaseConfigured } = validateReleaseRuntime(releaseEnv, {
+  googleServicesExists: fs.existsSync(googleServicesPath),
+});
 
 const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
-  ...process.env,
-  ...fileEnv,
+  ...releaseEnv,
   CI: '1',
   NODE_ENV: 'production',
   ENVFILE: '.env.production',
@@ -215,9 +190,6 @@ console.log('[apk] Envfile: .env.production');
 console.log(`[apk] API: ${env.MANECOMB_API_URL}`);
 console.log(`[apk] Socket: ${env.MANECOMB_SOCKET_URL}`);
 console.log(`[apk] FCM Android: ${firebaseConfigured ? 'configurado' : 'NO CONFIGURADO'}`);
-if (!firebaseConfigured) {
-  console.warn('[apk] Aviso: el APK compilara, pero no recibira mensajes/llamadas con la app cerrada.');
-}
 console.log(`[apk] Android SDK: ${sdkRoot}`);
 console.log(`[apk] JAVA_HOME: ${javaHome}`);
 console.log(`[apk] GRADLE_USER_HOME: ${gradleUserHome}`);
