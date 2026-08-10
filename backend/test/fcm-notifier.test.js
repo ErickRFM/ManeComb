@@ -92,6 +92,49 @@ function testPayloadContract() {
   assert.equal(message.data.count, '2');
   assert.equal(message.data.type, 'chat_message');
   assert.equal(message.android.priority, 'HIGH');
+
+  // La gravedad la resuelve backend; el dispositivo debe consumirla, no volver a
+  // deducirla desde severity ni desde el texto del titulo.
+  const sos = buildFcmMessage('token', {
+    category: 'sos',
+    level: 'critical',
+    title: 'SOS activo: Accidente',
+    body: 'Erik reporto accidente.',
+    deepLink: '/incidencias?incidentId=inc-1&focus=sos',
+    data: { incidentId: 'inc-1', severity: 'critical', type: 'accidente' },
+  });
+  assert.equal(sos.data.level, 'critical');
+  assert.equal(sos.data.category, 'sos');
+  assert.equal(sos.data.incidentId, 'inc-1');
+  assert.equal(sos.data.severity, 'critical');
+  assert.equal(sos.data.deepLink, '/incidencias?incidentId=inc-1&focus=sos');
+  assert.equal(sos.android.priority, 'HIGH');
+  assert.equal(sos.android.ttl, '60s');
+
+  const warning = buildFcmMessage('token', {
+    category: 'incident',
+    level: 'warning',
+    title: 'Nueva incidencia: Falla mecanica',
+    body: 'Erik reporto mecanica.',
+    data: { incidentId: 'inc-2', severity: 'high', type: 'mecanica' },
+  });
+  assert.equal(warning.data.level, 'warning');
+  assert.equal(warning.data.category, 'incident');
+  assert.equal(warning.android.priority, 'HIGH');
+  assert.equal(warning.android.ttl, '60s');
+
+  const info = buildFcmMessage('token', {
+    category: 'incident',
+    level: 'info',
+    data: { incidentId: 'inc-3', severity: 'low', type: 'otro' },
+  });
+  assert.equal(info.data.level, 'info');
+  assert.equal(info.android.priority, 'NORMAL');
+  assert.equal(info.android.ttl, '60s');
+
+  // Sin level explicito el campo viaja vacio en vez de inventarse un valor.
+  const unknown = buildFcmMessage('token', { category: 'incident', data: { incidentId: 'inc-4' } });
+  assert.equal(unknown.data.level, '');
 }
 
 async function testCallPushLifecycle() {

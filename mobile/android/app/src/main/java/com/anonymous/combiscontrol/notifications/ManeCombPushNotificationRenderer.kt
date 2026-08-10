@@ -38,6 +38,14 @@ object ManeCombPushNotificationRenderer {
   )
 
   fun render(context: Context, data: Map<String, String>) {
+    // `category` primero: para incidencias `data["type"]` trae el tipo de negocio
+    // ("mecanica", "accidente"), no un discriminador de mensaje, asi que
+    // conmutar por `type` las hacia caer en la rama de chat.
+    if (ManeCombAlertPolicy.isOperationalAlert(data["category"])) {
+      showOperationalAlert(context, data)
+      return
+    }
+
     when (data["type"]?.trim()?.lowercase()) {
       "call_dismiss", "call_ended", "call_cancelled", "call_timeout" -> {
         renderCallDismiss(context, data)
@@ -49,6 +57,78 @@ object ManeCombPushNotificationRenderer {
     }
   }
 
+  /**
+   * Alertas operativas (incidencias y SOS). Nunca usan el canal de chat, ni
+   * MessagingStyle, ni el fallback de deep link a /chat.
+   */
+  fun showOperationalAlert(context: Context, data: Map<String, String>): Boolean {
+    // Foreground and background intentionally share this exact path. Posting
+    // through NotificationChannel lets Android honor the user-selected sound,
+    // vibration, importance, DND and mute policy instead of bypassing it with
+    // MediaPlayer/Vibrator when JS happens to be alive.
+    if (!canPostNotifications(context)) return false
+
+    val feedback = ManeCombAlertPolicy.resolve(
+      data["category"],
+      data["level"],
+      data["severity"]
+    ) ?: return false
+
+    val incidentId = data["incidentId"].orEmpty().trim()
+    val title = data["title"].orEmpty().ifBlank { "ManeComb" }
+    val body = data["body"].orEmpty().ifBlank { "Nueva alerta operativa." }
+
+    if (!ManeCombAlertPolicy.shouldEmitAlert(
+        incidentId.ifEmpty { title },
+        System.currentTimeMillis()
+      )
+    ) {
+      return false
+    }
+
+    ManeCombAlertPolicy.ensureChannels(context)
+
+    val notificationId = ManeCombAlertPolicy.notificationIdFor(incidentId, title)
+    val contentIntent = activityIntent(
+      context,
+      notificationId,
+      normalizeDeepLink(data["deepLink"], "/incidencias")
+    )
+
+    // Lockscreen public version never reuses business title/body. The private
+    // notification still contains the operational detail after unlock.
+    val publicTitle = if (feedback.channelId == ManeCombAlertPolicy.CHANNEL_SOS) {
+      "Alerta SOS de ManeComb"
+    } else {
+      "Alerta operativa de ManeComb"
+    }
+    val publicVersion = NotificationCompat.Builder(context, feedback.channelId)
+      .setSmallIcon(R.drawable.notification_icon)
+      .setContentTitle(publicTitle)
+      .setCategory(NotificationCompat.CATEGORY_EVENT)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+      .build()
+
+    val builder = NotificationCompat.Builder(context, feedback.channelId)
+      .setSmallIcon(R.drawable.notification_icon)
+      .setContentTitle(title)
+      .setContentText(body)
+      .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+      .setContentIntent(contentIntent)
+      .setCategory(NotificationCompat.CATEGORY_EVENT)
+      .setPriority(feedback.priority)
+      .setAutoCancel(true)
+      .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+      .setPublicVersion(publicVersion)
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+      builder.setSound(ManeCombAlertPolicy.soundUri(context, feedback))
+      builder.setVibrate(feedback.vibrationPattern)
+    }
+
+    NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    return true
+  }
   fun showMessage(context: Context, data: Map<String, String>) {
     if (!canPostNotifications(context)) return
     ensureChannels(context)
@@ -244,6 +324,8 @@ object ManeCombPushNotificationRenderer {
   }
 
   fun ensureChannels(context: Context) {
+    // Los canales de alerta operativa los define la politica unica.
+    ManeCombAlertPolicy.ensureChannels(context)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java)
 

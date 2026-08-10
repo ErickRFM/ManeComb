@@ -6,6 +6,7 @@ const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const ACCESS_TOKEN_SAFETY_WINDOW_MS = 60 * 1000;
 const DEFAULT_CHAT_TTL_SECONDS = 24 * 60 * 60;
 const DEFAULT_CALL_TTL_SECONDS = 35;
+const DEFAULT_OPERATIONAL_ALERT_TTL_SECONDS = 60;
 
 function base64Url(value) {
   return Buffer.from(value)
@@ -98,6 +99,11 @@ function buildDataPayload(payload = {}) {
     ...(payload.data || {}),
     type,
     category,
+    // `level` es la gravedad ya resuelta por backend (critical/warning/info).
+    // Sin reenviarla, el dispositivo tendria que volver a deducirla desde
+    // `severity` o desde el texto del titulo, creando una segunda autoridad de
+    // politica. Viaja para que Android la consuma, no la recalcule.
+    level: String(payload.level || payload.data?.level || "").trim(),
     title: String(payload.title || "").trim(),
     body: String(payload.body || "").trim(),
     deepLink: String(payload.deepLink || payload.data?.deepLink || "").trim(),
@@ -109,10 +115,22 @@ function buildDataPayload(payload = {}) {
   );
 }
 
+const OPERATIONAL_ALERT_CATEGORIES = new Set([
+  "sos", "emergency", "emergencies", "emergencia", "emergencias",
+  "incident", "incidents", "incidente", "incidencias"
+]);
+
+function isOperationalAlertPayload(payload = {}) {
+  const category = String(payload.category || payload.data?.category || "").trim().toLowerCase();
+  return OPERATIONAL_ALERT_CATEGORIES.has(category);
+}
+
 function isUrgentPayload(payload = {}) {
   const category = String(payload.category || payload.data?.category || "").toLowerCase();
+  const level = String(payload.level || payload.data?.level || "").trim().toLowerCase();
   return (
-    payload.level === "critical" ||
+    level === "critical" ||
+    (isOperationalAlertPayload(payload) && level === "warning") ||
     category === "call" ||
     category === "chat" ||
     category === "sos" ||
@@ -146,6 +164,10 @@ function resolveTtlSeconds(payload = {}, nowMs = Date.now()) {
       return Math.max(1, Math.floor(remainingMs / 1000));
     }
     return DEFAULT_CALL_TTL_SECONDS;
+  }
+
+  if (isOperationalAlertPayload(payload)) {
+    return DEFAULT_OPERATIONAL_ALERT_TTL_SECONDS;
   }
 
   return DEFAULT_CHAT_TTL_SECONDS;

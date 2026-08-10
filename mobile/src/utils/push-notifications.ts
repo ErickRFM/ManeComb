@@ -13,12 +13,56 @@ type ManeCombNotificationModule = {
   ) => Promise<boolean>;
   getPushToken: () => Promise<string | null>;
   deletePushToken: () => Promise<boolean>;
+  playOperationalAlert?: (
+    incidentId: string,
+    category: string,
+    level: string,
+    severity: string,
+    title: string,
+    body: string,
+    deepLink: string
+  ) => Promise<boolean>;
 };
 
 const NativeNotification =
   Platform.OS === 'android'
     ? (NativeModules.ManeCombNotification as ManeCombNotificationModule | undefined)
     : undefined;
+
+/**
+ * Feedback audible y haptico de una alerta operativa con la app abierta.
+ *
+ * Delega en la politica nativa, que decide canal/sonido/vibracion y que ademas
+ * es duena de la memoria de dedup compartida con el push. Por eso no se hace
+ * ninguna comprobacion de duplicados aqui: dos memorias independientes podrian
+ * sonar cada una.
+ */
+export async function playOperationalAlertFeedback(alert: {
+  incidentId: string;
+  category: string;
+  level: string;
+  severity: string;
+  title: string;
+  body: string;
+  deepLink: string;
+}) {
+  const play = NativeNotification?.playOperationalAlert;
+  if (!play) return false;
+
+  try {
+    return await play(
+      alert.incidentId,
+      alert.category,
+      alert.level,
+      alert.severity,
+      alert.title,
+      alert.body,
+      alert.deepLink
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type NotificationPermissionState = 'granted' | 'denied' | 'unavailable';
 

@@ -114,11 +114,16 @@ import {
 } from '@/src/utils/chat-e2ee';
 import {
   configureAppNotifications,
+  playOperationalAlertFeedback,
   requestAppNotificationPermission,
   requestNativePushToken,
   showInAppNotification,
   type PushRouteIntent,
 } from '@/src/utils/push-notifications';
+import {
+  toOperationalAlertFromNotification,
+  toOperationalAlertFromSos,
+} from '@/src/utils/operational-alert';
 import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
@@ -1520,6 +1525,29 @@ function connectSocket(set: StoreSet, get: () => AppState) {
     get().refreshAll().catch(() => undefined);
   });
 
+  // Alertas operativas con la app abierta. Antes no existia ningun consumidor de
+  // `notification:created` ni de `incident:sos`, asi que un SOS no producia
+  // ninguna senal audible ni haptica mientras el supervisor usaba ManeComb.
+  //
+  // Se reutiliza el socket que ya existe: sin bus nuevo. El dedup vive en la
+  // politica nativa y es el mismo que consulta el push, para que socket y FCM no
+  // suenen los dos por el mismo incidentId durante una transicion
+  // foreground/background.
+  socket.on('notification:created', (payload: unknown) => {
+    const alert = toOperationalAlertFromNotification(payload);
+    if (!alert) return;
+    void playOperationalAlertFeedback(alert);
+  });
+
+  socket.on('incident:sos', (payload: unknown) => {
+    const alert = toOperationalAlertFromSos(payload);
+    if (!alert) return;
+    void playOperationalAlertFeedback(alert);
+  });
+
+  // `incident:updated` sigue sin producir sonido: un cambio de estado no es una
+  // alerta nueva, y backend tampoco emite notificacion al pasar a in_progress o
+  // resolved.
   socket.on('incident:created', (i: Incident) => set(s => {
     const incident = enrichIncidentFromState(s, i);
     return {

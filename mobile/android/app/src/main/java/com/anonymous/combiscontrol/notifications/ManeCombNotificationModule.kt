@@ -7,8 +7,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationManagerCompat
@@ -56,6 +62,41 @@ class ManeCombNotificationModule(
     }
     FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener {
       promise.resolve(it.isSuccessful)
+    }
+  }
+
+  /**
+   * Socket/JS reaches the exact same native NotificationChannel authority as FCM.
+   * No direct MediaPlayer/Vibrator path exists, so foreground cannot bypass the
+   * user's channel settings or race a push with a second feedback mechanism.
+   */
+  @ReactMethod
+  fun playOperationalAlert(
+    incidentId: String?,
+    category: String?,
+    level: String?,
+    severity: String?,
+    title: String?,
+    body: String?,
+    deepLink: String?,
+    promise: Promise
+  ) {
+    try {
+      val emitted = ManeCombPushNotificationRenderer.showOperationalAlert(
+        reactContext,
+        mapOf(
+          "incidentId" to incidentId?.trim().orEmpty(),
+          "category" to category?.trim().orEmpty(),
+          "level" to level?.trim().orEmpty(),
+          "severity" to severity?.trim().orEmpty(),
+          "title" to title?.trim().orEmpty(),
+          "body" to body?.trim().orEmpty(),
+          "deepLink" to deepLink?.trim().orEmpty()
+        )
+      )
+      promise.resolve(emitted)
+    } catch (error: Exception) {
+      promise.reject("operational_alert_failed", error)
     }
   }
 
@@ -182,6 +223,7 @@ class ManeCombNotificationModule(
 
   private fun ensureChannels() {
     ManeCombPushNotificationRenderer.ensureChannels(reactContext)
+    ManeCombAlertPolicy.ensureChannels(reactContext)
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
     val manager = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -228,24 +270,23 @@ class ManeCombNotificationModule(
     manager.createNotificationChannel(sos)
   }
 
+  // Las categorias operativas las resuelve ManeCombAlertPolicy, la unica politica
+  // de feedback, para que este switch no pueda divergir del que aplica el
+  // renderer de FCM. Aqui solo quedan las categorias que la politica no gobierna.
   private fun channelIdForCategory(category: String): String =
-    when (category) {
-      "emergency", "emergencies", "emergencia", "emergencias" -> CHANNEL_EMERGENCIES
-      "incident", "incidents", "incidente", "incidencias" -> CHANNEL_INCIDENTS
-      "radio" -> CHANNEL_RADIO
-      "sos" -> CHANNEL_SOS
-      "chat" -> ManeCombPushNotificationRenderer.CHANNEL_CHAT
-      else -> CHANNEL_GENERAL
-    }
+    ManeCombAlertPolicy.resolve(category, null)?.channelId
+      ?: when (category) {
+        "radio" -> CHANNEL_RADIO
+        "chat" -> ManeCombPushNotificationRenderer.CHANNEL_CHAT
+        else -> CHANNEL_GENERAL
+      }
 
   private fun priorityForCategory(category: String): Int =
-    when (category) {
-      "emergency", "emergencies", "emergencia", "emergencias" -> NotificationCompat.PRIORITY_MAX
-      "incident", "incidents", "incidente", "incidencias" -> NotificationCompat.PRIORITY_HIGH
-      "radio", "chat" -> NotificationCompat.PRIORITY_HIGH
-      "sos" -> NotificationCompat.PRIORITY_MAX
-      else -> NotificationCompat.PRIORITY_DEFAULT
-    }
+    ManeCombAlertPolicy.resolve(category, null)?.priority
+      ?: when (category) {
+        "radio", "chat" -> NotificationCompat.PRIORITY_HIGH
+        else -> NotificationCompat.PRIORITY_DEFAULT
+      }
 
   companion object {
     const val KEY_REPLY_TEXT = "reply_text"
