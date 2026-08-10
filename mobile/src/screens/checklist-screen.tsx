@@ -185,12 +185,12 @@ export function ChecklistScreen() {
     const semanticSessionChanged = lastHistoryRefreshKeyRef.current !== historyRefreshKey;
     if (!hasCachedHistory || semanticSessionChanged) {
       lastHistoryRefreshKeyRef.current = historyRefreshKey;
-      void loadSessionHistory();
+      loadSessionHistory().catch(() => undefined);
       return;
     }
 
     setHistoryLoadError(false);
-  }, [historyRefreshKey, loadSessionHistory, user?.id]);
+  }, [historyRefreshKey, loadSessionHistory, user]);
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
   const selectedAssignedRoute = useMemo<AssignedRoute | null>(
