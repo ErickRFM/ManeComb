@@ -1,10 +1,12 @@
 package com.anonymous.combiscontrol
 
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import java.util.UUID
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -45,14 +47,18 @@ class MainActivity : ReactActivity() {
 
   /**
    * El scheme manecomb:// es publico por definicion de Android. Antes de que React/Linking
-   * vea una URL /call exigimos la marca que solo agregan nuestros PendingIntent/FCM internos.
-   * Otros deep links (chat, rutas, etc.) conservan su comportamiento publico.
+   * vea una URL /call exigimos un token aleatorio guardado en almacenamiento privado de la app.
+   * Un extra booleano no basta porque otra app podria falsificarlo. Otros deep links publicos
+   * (chat, rutas, etc.) conservan su comportamiento normal.
    */
   private fun sanitizeCallIntent(sourceIntent: Intent?) {
     val uri = sourceIntent?.data ?: return
     val isCallIntent = uri.path?.trim()?.equals("/call", ignoreCase = true) == true
-    val isInternalCallIntent = sourceIntent.getBooleanExtra(EXTRA_INTERNAL_CALL_INTENT, false)
-    if (isCallIntent && !isInternalCallIntent) {
+    if (!isCallIntent) return
+
+    val suppliedToken = sourceIntent.getStringExtra(EXTRA_INTERNAL_CALL_INTENT_TOKEN)
+    val expectedToken = internalCallIntentToken(this)
+    if (suppliedToken.isNullOrBlank() || suppliedToken != expectedToken) {
       sourceIntent.data = null
     }
   }
@@ -112,7 +118,19 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    const val EXTRA_INTERNAL_CALL_INTENT = "manecomb.internal.CALL_INTENT"
+    const val EXTRA_INTERNAL_CALL_INTENT_TOKEN = "manecomb.internal.CALL_INTENT_TOKEN"
+    private const val INTERNAL_CALL_PREFS = "manecomb_internal_call_intents"
+    private const val INTERNAL_CALL_TOKEN_KEY = "token"
     private const val INCOMING_CALL_WINDOW_MAX_MS = 45_000L
+
+    fun internalCallIntentToken(context: Context): String {
+      val preferences = context.getSharedPreferences(INTERNAL_CALL_PREFS, Context.MODE_PRIVATE)
+      val existing = preferences.getString(INTERNAL_CALL_TOKEN_KEY, null)
+      if (!existing.isNullOrBlank()) return existing
+
+      val created = UUID.randomUUID().toString()
+      preferences.edit().putString(INTERNAL_CALL_TOKEN_KEY, created).apply()
+      return created
+    }
   }
 }
