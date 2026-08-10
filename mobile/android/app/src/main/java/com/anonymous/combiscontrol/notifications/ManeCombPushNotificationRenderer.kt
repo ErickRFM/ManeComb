@@ -42,9 +42,7 @@ object ManeCombPushNotificationRenderer {
       "call_dismiss", "call_ended", "call_cancelled", "call_timeout" -> {
         dismissCall(context, data["callId"].orEmpty())
       }
-      "incoming_call" -> {
-        if (!isAppInForeground(context)) showIncomingCall(context, data)
-      }
+      "incoming_call" -> renderIncomingCall(context, data)
       else -> {
         if (!isAppInForeground(context)) showMessage(context, data)
       }
@@ -93,11 +91,37 @@ object ManeCombPushNotificationRenderer {
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
   }
 
+  private fun renderIncomingCall(context: Context, data: Map<String, String>) {
+    val callId = data["callId"].orEmpty().trim()
+    if (callId.isEmpty()) return
+    val deadline = resolveCallDeadline(data)
+    if (deadline.timeoutMs <= 0L) return
+
+    // Socket.IO sigue siendo el transporte normal. Si justo esta reconectando pero el proceso
+    // esta foreground, FCM entrega el mismo URI que CallOverlay ya consume via Linking. No se
+    // crea un segundo store/event bus y el backend sigue validando cualquier accept.
+    if (isAppInForeground(context) && deliverIncomingCallToForeground(context, data, deadline)) {
+      dismissCall(context, callId)
+      return
+    }
+
+    showIncomingCallNotification(context, data, callId, deadline)
+  }
+
   fun showIncomingCall(context: Context, data: Map<String, String>) {
     val callId = data["callId"].orEmpty().trim()
     if (callId.isEmpty()) return
     val deadline = resolveCallDeadline(data)
     if (deadline.timeoutMs <= 0L) return
+    showIncomingCallNotification(context, data, callId, deadline)
+  }
+
+  private fun showIncomingCallNotification(
+    context: Context,
+    data: Map<String, String>,
+    callId: String,
+    deadline: CallDeadline
+  ) {
     if (!canPostNotifications(context)) return
     ensureChannels(context)
 
@@ -145,6 +169,27 @@ object ManeCombPushNotificationRenderer {
     }
 
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+  }
+
+  private fun deliverIncomingCallToForeground(
+    context: Context,
+    data: Map<String, String>,
+    deadline: CallDeadline
+  ): Boolean {
+    val intent = Intent(context, MainActivity::class.java).apply {
+      action = Intent.ACTION_VIEW
+      this.data = callDeepLink(data, "incoming", deadline)
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+
+    return try {
+      context.startActivity(intent)
+      true
+    } catch (_: Exception) {
+      false
+    }
   }
 
   fun dismissCall(context: Context, callId: String) {
