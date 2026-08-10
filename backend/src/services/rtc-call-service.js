@@ -180,8 +180,9 @@ function createRtcCallService({
     queueCallDismiss(call, call.calleeIds, "timeout");
   }
 
-  async function startCall({ caller, conversationId, mode }) {
+  async function startCall({ caller, callerSocketId = null, conversationId, mode }) {
     const callerId = caller && caller.id;
+    const safeCallerSocketId = String(callerSocketId || "").trim() || null;
     const organizationId = getOrganizationId(caller);
     const safeConversationId = String(conversationId || "").trim();
 
@@ -215,10 +216,14 @@ function createRtcCallService({
       organizationId,
       mode: rawMode,
       callerId,
+      callerSocketId: safeCallerSocketId,
       calleeIds: [calleeIds[0]],
       status: "ringing",
       acceptedBy: null,
       acceptedSocketId: null,
+      disconnectingUserId: null,
+      disconnectingSocketId: null,
+      disconnectDeadlineAt: null,
       createdAt,
       connectedAt: null,
       endedAt: null,
@@ -400,64 +405,179 @@ function createRtcCallService({
     return { ok: true };
   }
 
-  function scheduleDisconnectCleanup(call, goneUserId, isUserConnected) {
-    const key = `${call.callId}:${goneUserId}`;
+  function socketOwnerField(call, userId) {
+    if (call?.callerId === userId) return "callerSocketId";
+    if (call?.acceptedBy === userId && call?.calleeIds?.includes(userId)) return "acceptedSocketId";
+    return null;
+  }
+
+  function socketOwnerId(call, userId) {
+    const field = socketOwnerField(call, userId);
+    if (!field) return null;
+    return String(call?.[field] || "").trim() || null;
+  }
+
+  function callParticipantIds(call) {
+    return [...new Set([call?.callerId, ...(Array.isArray(call?.calleeIds) ? call.calleeIds : [])].filter(Boolean))];
+  }
+
+  function disconnectDeadlineMs(call) {
+    const parsed = Date.parse(String(call?.disconnectDeadlineAt || ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function leaseTtlForCall(call) {
+    const deadline = disconnectDeadlineMs(call);
+    return deadline == null ? activeLeaseMs : Math.max(1, deadline - now());
+  }
+
+  async function finishDisconnectedCall(call, goneUserId) {
+    if (!call || call.status !== "active") return false;
+    if (!await authority.release(call)) return false;
+    clearLocalRingTimer(call.callId);
+    clearPendingDisconnectsForCall(call.callId);
+    const others = callParticipantIds(call).filter((id) => id !== goneUserId);
+    for (const id of others) {
+      emitToUser(id, "rtc:end", {
+        callId: call.callId,
+        conversationId: call.conversationId,
+        reason: "peer_disconnected",
+        endedBy: goneUserId
+      });
+    }
+    queueCallDismiss(call, callParticipantIds(call), "peer_disconnected");
+    return true;
+  }
+
+  function scheduleDisconnectCleanup(call, goneUserId, socketId) {
+    const safeSocketId = String(socketId || "").trim();
+    if (!call?.callId || !goneUserId || !safeSocketId) return;
+    const key = `${call.callId}:${goneUserId}:${safeSocketId}`;
     if (pendingDisconnects.has(key)) return;
+    const deadline = disconnectDeadlineMs(call);
+    const delayMs = deadline == null ? disconnectGraceMs : Math.max(1, deadline - now());
     const handle = setTimeoutFn(() => {
       pendingDisconnects.delete(key);
       void (async () => {
-        if (isUserConnected && await isUserConnected(goneUserId)) return;
         const current = await authority.getCallForUser(goneUserId);
         if (!current || current.callId !== call.callId || current.status !== "active") return;
-        if (!await authority.release(current)) return;
-        clearLocalRingTimer(current.callId);
-        clearPendingDisconnectsForCall(current.callId);
-        const others = [current.callerId, ...current.calleeIds].filter((id) => id !== goneUserId);
-        for (const id of others) {
-          emitToUser(id, "rtc:end", {
-            callId: current.callId,
-            conversationId: current.conversationId,
-            reason: "peer_disconnected",
-            endedBy: goneUserId
-          });
-        }
-        queueCallDismiss(current, [current.callerId, ...current.calleeIds], "peer_disconnected");
+        if (socketOwnerId(current, goneUserId) !== safeSocketId) return;
+        await finishDisconnectedCall(current, goneUserId);
       })().catch(() => undefined);
-    }, disconnectGraceMs);
+    }, delayMs);
     pendingDisconnects.set(key, handle);
   }
 
-  async function handleDisconnect(userId, { isUserConnected } = {}) {
-    if (!userId) return;
-    try {
-      const call = await authority.getCallForUser(userId);
-      if (!call || call.status !== "active") return;
-      const stillConnected = isUserConnected ? await isUserConnected(userId) : false;
-      if (stillConnected) return;
-      scheduleDisconnectCleanup(call, userId, isUserConnected);
-    } catch {
-      // Fail closed: Redis authority is unavailable, so do not make a local lifecycle decision.
+  async function markDisconnectGrace(callId, goneUserId, socketId) {
+    const safeSocketId = String(socketId || "").trim();
+    if (!callId || !goneUserId || !safeSocketId) return false;
+    for (let attempt = 0; attempt < MUTATION_RETRIES; attempt += 1) {
+      const current = await authority.getCall(callId);
+      if (!current || current.status !== "active") return false;
+      if (socketOwnerId(current, goneUserId) !== safeSocketId) return false;
+      if (current.disconnectingUserId && current.disconnectDeadlineAt) {
+        scheduleDisconnectCleanup(current, goneUserId, safeSocketId);
+        return true;
+      }
+      const deadlineAt = new Date(now() + disconnectGraceMs).toISOString();
+      const next = {
+        ...current,
+        disconnectingUserId: goneUserId,
+        disconnectingSocketId: safeSocketId,
+        disconnectDeadlineAt: deadlineAt
+      };
+      if (await authority.compareAndSet(current, next, { ttlMs: disconnectGraceMs })) {
+        scheduleDisconnectCleanup(next, goneUserId, safeSocketId);
+        return true;
+      }
     }
+    return false;
   }
 
-  async function refreshForUser(userId) {
-    if (!userId) return false;
+  async function handleDisconnect(userId, { socketId } = {}) {
+    const safeSocketId = String(socketId || "").trim();
+    if (!userId || !safeSocketId) return false;
     try {
       const call = await authority.getCallForUser(userId);
       if (!call || call.status !== "active") return false;
-      return await authority.refresh(call, { ttlMs: activeLeaseMs });
+      if (socketOwnerId(call, userId) !== safeSocketId) return false;
+      return await markDisconnectGrace(call.callId, userId, safeSocketId);
     } catch {
       return false;
     }
   }
 
-  async function noteUserReconnected(userId) {
-    for (const [key, handle] of Array.from(pendingDisconnects.entries())) {
-      if (!key.endsWith(`:${userId}`)) continue;
-      clearTimeoutFn(handle);
-      pendingDisconnects.delete(key);
+  async function refreshForSocket(userId, socketId, { isSocketConnected } = {}) {
+    const safeSocketId = String(socketId || "").trim();
+    if (!userId || !safeSocketId) return false;
+    try {
+      for (let attempt = 0; attempt < MUTATION_RETRIES; attempt += 1) {
+        const call = await authority.getCallForUser(userId);
+        if (!call || call.status !== "active") return false;
+        if (socketOwnerId(call, userId) !== safeSocketId) return false;
+
+        const markedUserId = call.disconnectingUserId || null;
+        if (markedUserId && call.disconnectDeadlineAt) {
+          const markedOwner = socketOwnerId(call, markedUserId) || String(call.disconnectingSocketId || "").trim() || null;
+          const markedIsLive = Boolean(
+            markedOwner &&
+            typeof isSocketConnected === "function" &&
+            await isSocketConnected(markedOwner)
+          );
+          if (markedIsLive) {
+            const next = {
+              ...call,
+              disconnectingUserId: null,
+              disconnectingSocketId: null,
+              disconnectDeadlineAt: null
+            };
+            if (await authority.compareAndSet(call, next, { ttlMs: activeLeaseMs })) return true;
+            continue;
+          }
+
+          const deadline = disconnectDeadlineMs(call);
+          if (deadline != null && deadline <= now()) {
+            await finishDisconnectedCall(call, markedUserId);
+            return false;
+          }
+          if (markedOwner) scheduleDisconnectCleanup(call, markedUserId, markedOwner);
+          if (await authority.refresh(call, { ttlMs: leaseTtlForCall(call) })) return false;
+          continue;
+        }
+
+        if (typeof isSocketConnected === "function") {
+          const peers = callParticipantIds(call).filter((id) => id !== userId);
+          let missingPeer = null;
+          for (const peerId of peers) {
+            const peerSocketId = socketOwnerId(call, peerId);
+            if (!peerSocketId || !(await isSocketConnected(peerSocketId))) {
+              missingPeer = { userId: peerId, socketId: peerSocketId };
+              break;
+            }
+          }
+          if (missingPeer) {
+            if (!missingPeer.socketId) return false;
+            const deadlineAt = new Date(now() + disconnectGraceMs).toISOString();
+            const next = {
+              ...call,
+              disconnectingUserId: missingPeer.userId,
+              disconnectingSocketId: missingPeer.socketId,
+              disconnectDeadlineAt: deadlineAt
+            };
+            if (await authority.compareAndSet(call, next, { ttlMs: disconnectGraceMs })) {
+              scheduleDisconnectCleanup(next, missingPeer.userId, missingPeer.socketId);
+              return false;
+            }
+            continue;
+          }
+        }
+
+        if (await authority.refresh(call, { ttlMs: activeLeaseMs })) return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
-    return await refreshForUser(userId);
   }
 
   async function getCall(callId) {
@@ -478,28 +598,69 @@ function createRtcCallService({
     };
   }
 
-  async function canJoinCall({ callId, userId, organizationId }) {
-    let call;
+  async function canJoinCall({
+    callId,
+    userId,
+    organizationId,
+    socketId = null,
+    isSocketConnected = null
+  }) {
+    const safeSocketId = String(socketId || "").trim() || null;
     try {
-      call = await authority.getCall(callId);
-    } catch {
-      return { ok: false, reason: "rtc_unavailable" };
-    }
-    if (!call) return { ok: false, reason: "unknown_call" };
-    if (call.status !== "active") return { ok: false, reason: "not_accepted" };
-    if (organizationId && call.organizationId !== organizationId) {
-      return { ok: false, reason: "forbidden" };
-    }
-    const isParticipant = userId === call.callerId || call.calleeIds.includes(userId);
-    if (!isParticipant) return { ok: false, reason: "forbidden" };
-    try {
-      if (!await authority.refresh(call, { ttlMs: activeLeaseMs })) {
-        return { ok: false, reason: "rtc_unavailable" };
+      for (let attempt = 0; attempt < MUTATION_RETRIES; attempt += 1) {
+        const call = await authority.getCall(callId);
+        if (!call) return { ok: false, reason: "unknown_call" };
+        if (call.status !== "active") return { ok: false, reason: "not_accepted" };
+        if (organizationId && call.organizationId !== organizationId) {
+          return { ok: false, reason: "forbidden" };
+        }
+        const field = socketOwnerField(call, userId);
+        if (!field) return { ok: false, reason: "forbidden" };
+
+        if (!safeSocketId) {
+          if (await authority.refresh(call, { ttlMs: leaseTtlForCall(call) })) {
+            return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
+          }
+          continue;
+        }
+
+        const currentOwner = socketOwnerId(call, userId);
+        if (currentOwner && currentOwner !== safeSocketId) {
+          if (typeof isSocketConnected !== "function") {
+            return { ok: false, reason: "already_connected_elsewhere" };
+          }
+          if (await isSocketConnected(currentOwner)) {
+            return { ok: false, reason: "already_connected_elsewhere" };
+          }
+        }
+
+        const clearingOwnGrace = call.disconnectingUserId === userId;
+        const next = {
+          ...call,
+          [field]: safeSocketId,
+          ...(clearingOwnGrace
+            ? {
+                disconnectingUserId: null,
+                disconnectingSocketId: null,
+                disconnectDeadlineAt: null
+              }
+            : {})
+        };
+        const ttlMs = clearingOwnGrace ? activeLeaseMs : leaseTtlForCall(call);
+        if (JSON.stringify(next) === JSON.stringify(call)) {
+          if (await authority.refresh(call, { ttlMs })) {
+            return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
+          }
+          continue;
+        }
+        if (await authority.compareAndSet(call, next, { ttlMs })) {
+          return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
+        }
       }
+      return { ok: false, reason: "rtc_unavailable" };
     } catch {
       return { ok: false, reason: "rtc_unavailable" };
     }
-    return { ok: true, roomId: `call:${callId}`, room: callRoom(callId) };
   }
 
   async function isCallMember(callId, userId) {
@@ -521,8 +682,7 @@ function createRtcCallService({
     cancel,
     end,
     handleDisconnect,
-    refreshForUser,
-    noteUserReconnected,
+    refreshForSocket,
     getCall,
     canJoinCall,
     isCallMember,

@@ -205,34 +205,25 @@ function fakeStore(conversation) {
     assert.equal(h.service._state.userState.size, 0);
   }
 
-  // Disconnect cleanup is keyed by authenticated user, not by a process-local socket binding.
+  // Active disconnect cleanup belongs to the media-owning socket, never every device of the user.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-
-    await h.service.handleDisconnect(admin.id, { isUserConnected: () => false });
-    assert.equal(h.service._state.pendingDisconnects.size, 1);
-    await h.service.noteUserReconnected(admin.id);
-    assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
-
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: (userId) => userId === driver.id
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-owner",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
     });
+    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });
+
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-sibling" }), false);
+    assert.equal(h.service._state.pendingDisconnects.size, 0);
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-owner" }), true);
     assert.equal(h.service._state.pendingDisconnects.size, 1);
     await h.runTimers();
     assert.equal(h.service._state.callsById.size, 0);
     assert.equal(h.payloadOf("rtc:end").reason, "peer_disconnected");
     assert.equal(h.payloadOf("rtc:end").endedBy, admin.id);
-  }
-  {
-    const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-    await h.service.handleDisconnect(admin.id, { isUserConnected: () => true });
-    assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
   }
 
   // Payload cannot choose caller/callee, and unsupported modes are rejected.
@@ -310,6 +301,29 @@ function fakeStore(conversation) {
     const joinBlock = socketSource.slice(joinStart, joinEnd);
     assert.ok(joinBlock.includes('reason: "already_connected_elsewhere"'));
     assert.equal(joinBlock.includes('socketsLeave'), false, "a live sibling socket must not evict the active device");
+  }
+
+  // Socket integration must never regress back to user-wide lease refresh/reconnect shortcuts.
+  {
+    const socketSource = require("node:fs").readFileSync(
+      require("node:path").join(__dirname, "../src/sockets/index.js"),
+      "utf8"
+    );
+    const heartbeatStart = socketSource.indexOf('socket.on("client:heartbeat"');
+    const heartbeatEnd = socketSource.indexOf('socket.on("conversation:join"', heartbeatStart);
+    const heartbeatBlock = socketSource.slice(heartbeatStart, heartbeatEnd);
+    assert.ok(heartbeatBlock.includes('refreshForSocket(authenticatedUser.id, socket.id'));
+    assert.equal(heartbeatBlock.includes('refreshForUser('), false);
+
+    const presenceStart = socketSource.indexOf('socket.on("presence:join"');
+    const presenceEnd = socketSource.indexOf('socket.on("client:heartbeat"', presenceStart);
+    assert.equal(socketSource.slice(presenceStart, presenceEnd).includes('noteUserReconnected'), false);
+
+    const disconnectStart = socketSource.indexOf('socket.on("disconnect", async () =>');
+    const disconnectEnd = socketSource.indexOf('  });\n\n  return io;', disconnectStart);
+    const disconnectBlock = socketSource.slice(disconnectStart, disconnectEnd);
+    assert.ok(disconnectBlock.includes('handleDisconnect(disconnectedUserId, { socketId: socket.id })'));
+    assert.equal(disconnectBlock.includes('isUserConnected:'), false);
   }
 
   console.log("ok - rtc-call-signaling async authority contract");

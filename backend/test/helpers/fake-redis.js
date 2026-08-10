@@ -36,9 +36,12 @@ function createFakeRedis(shared = new Map()) {
         return 1;
       }
 
-      // live-authority refresh.
-      if (script.includes('redis.call("pexpire", KEYS[1], ARGV[2])')) {
-        return shared.has(keys[0]) ? 1 : 0;
+      // live-authority compare-and-refresh.
+      if (script.includes('redis.call("pexpire", KEYS[1], ARGV[3])')) {
+        const current = shared.get(keys[0]);
+        if (!current) return 0;
+        if (current !== args[0]) return -1;
+        return 1;
       }
 
       // live-authority release: compare call JSON, then delete call + matching user reservations.

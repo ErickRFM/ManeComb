@@ -1,6 +1,5 @@
-// RC-RTC-RECONNECT-LIFECYCLE-20260809
-// Regression: an active call must remain cleanable after repeated reconnect/disconnect cycles,
-// even though live authority is no longer bound to a process-local socket id.
+// RC-RTC-SOCKET-LIFECYCLE-20260809
+// Active-call grace belongs to the media-owning socket, never to every device of the user.
 
 const assert = require("node:assert/strict");
 const { createRtcCallService } = require("../src/services/rtc-call-service");
@@ -11,12 +10,14 @@ const CONV_DIRECT = "conversation-101";
 function harness(store) {
   const emits = [];
   const timers = [];
+  let clock = Date.now();
   const service = createRtcCallService({
     store,
     emitToUser: (userId, event, payload) => emits.push({ userId, event, payload }),
     deliverNotification: async () => ({ ok: true }),
-    setTimeoutFn: (fn) => {
-      const handle = { fn, cleared: false };
+    now: () => clock,
+    setTimeoutFn: (fn, delay = 0) => {
+      const handle = { fn, delay, cleared: false };
       timers.push(handle);
       return handle;
     },
@@ -24,22 +25,18 @@ function harness(store) {
       if (handle && typeof handle === "object") handle.cleared = true;
     }
   });
-
   return {
     service,
     emits,
+    advance(ms) { clock += ms; },
     async runTimers() {
       for (const timer of timers) {
         if (timer.cleared) continue;
         timer.cleared = true;
+        clock += Math.max(0, Number(timer.delay) || 0);
         timer.fn();
       }
-      for (let index = 0; index < 4; index += 1) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-    },
-    payloads(eventName) {
-      return emits.filter((entry) => entry.event === eventName);
+      for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve));
     }
   };
 }
@@ -49,111 +46,104 @@ function harness(store) {
   const admin = store.getUserById("user-admin-01");
   const driver = store.getUserById("user-driver-01");
 
-  // Caller disconnects, reconnects, then disconnects again: second grace window must still clean.
+  // A sibling socket is presence only: it cannot refresh or start disconnect cleanup for the call.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
+      callerSocketId: "admin-owner",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
-    assert.equal(call.ok, true);
-    assert.equal((await h.service.accept({ user: driver, callId: call.callId })).ok, true);
+    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });
 
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: (userId) => userId === driver.id
-    });
-    assert.equal(h.service._state.pendingDisconnects.size, 1);
-
-    await h.service.noteUserReconnected(admin.id);
+    assert.equal(await h.service.refreshForSocket(admin.id, "admin-sibling", {
+      isSocketConnected: async () => true
+    }), false);
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-sibling" }), false);
     assert.equal(h.service._state.pendingDisconnects.size, 0);
-
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: (userId) => userId === driver.id
-    });
-    assert.equal(h.service._state.pendingDisconnects.size, 1);
-
-    await h.runTimers();
-    assert.equal(h.service._state.callsById.size, 0);
-    assert.equal(h.service._state.userState.size, 0);
-    const end = h.payloads("rtc:end");
-    assert.equal(end.length, 1);
-    assert.equal(end[0].userId, driver.id);
-    assert.equal(end[0].payload.reason, "peer_disconnected");
-    assert.equal(end[0].payload.endedBy, admin.id);
+    assert.equal(await h.service.refreshForSocket(admin.id, "admin-owner", {
+      isSocketConnected: async () => true
+    }), true);
   }
 
-  // Same regression from the callee side.
+  // Rejoin transfers socket ownership; an old disconnect timer cannot kill the recovered call.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
+      callerSocketId: "admin-old",
       conversationId: CONV_DIRECT,
       mode: "video"
     });
-    assert.equal(call.ok, true);
-    assert.equal((await h.service.accept({ user: driver, callId: call.callId })).ok, true);
+    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });
 
-    await h.service.handleDisconnect(driver.id, {
-      isUserConnected: (userId) => userId === admin.id
-    });
-    await h.service.noteUserReconnected(driver.id);
-
-    await h.service.handleDisconnect(driver.id, {
-      isUserConnected: (userId) => userId === admin.id
-    });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-old" }), true);
     assert.equal(h.service._state.pendingDisconnects.size, 1);
 
+    const liveOldOwner = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-new",
+      isSocketConnected: async (socketId) => socketId === "admin-old"
+    });
+    assert.equal(liveOldOwner.reason, "already_connected_elsewhere");
+
+    const recovered = await h.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-new",
+      isSocketConnected: async () => false
+    });
+    assert.equal(recovered.ok, true);
+
     await h.runTimers();
-    assert.equal(h.service._state.callsById.size, 0);
-    assert.equal(h.service._state.userState.size, 0);
-    const end = h.payloads("rtc:end");
-    assert.equal(end.length, 1);
-    assert.equal(end[0].userId, admin.id);
-    assert.equal(end[0].payload.endedBy, driver.id);
+    assert.equal((await h.service.getCall(call.callId)).status, "active");
+
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-new" }), true);
+    await h.runTimers();
+    assert.equal(await h.service.getCall(call.callId), null);
+    assert.ok(h.emits.some((entry) =>
+      entry.event === "rtc:end" && entry.userId === driver.id && entry.payload.endedBy === admin.id
+    ));
   }
 
-  // A recovered live presence must prevent cleanup from a stale disconnect observation.
+  // If the remote media socket vanishes with its node, the surviving owner's heartbeat starts grace.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
+      callerSocketId: "admin-crashed",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
-    await h.service.accept({ user: driver, callId: call.callId });
+    await h.service.accept({ user: driver, socketId: "driver-live", callId: call.callId });
 
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: (userId) => userId === driver.id
-    });
-    await h.service.noteUserReconnected(admin.id);
-
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: () => true
-    });
-    assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
-    assert.equal(h.service._state.userState.size, 2);
+    assert.equal(await h.service.refreshForSocket(driver.id, "driver-live", {
+      isSocketConnected: async (socketId) => socketId !== "admin-crashed"
+    }), false);
+    assert.equal(h.service._state.pendingDisconnects.size, 1);
+    await h.runTimers();
+    assert.equal(await h.service.getCall(call.callId), null);
   }
 
-  // Ringing calls are governed by their ring lease/timeout, not disconnect grace cleanup.
+  // Ringing remains governed only by its ringing deadline, not active-call disconnect ownership.
   {
     const h = harness(store);
     const call = await h.service.startCall({
       caller: admin,
+      callerSocketId: "admin-ring",
       conversationId: CONV_DIRECT,
       mode: "audio"
     });
-    assert.equal(call.ok, true);
-
-    await h.service.handleDisconnect(admin.id, {
-      isUserConnected: () => false
-    });
+    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-ring" }), false);
     assert.equal(h.service._state.pendingDisconnects.size, 0);
-    assert.equal(h.service._state.callsById.size, 1);
+    assert.equal((await h.service.getCall(call.callId)).status, "ringing");
   }
 
-  console.log("ok - repeated RTC reconnect/disconnect lifecycle has no ghost busy state");
+  console.log("ok - RTC socket-owned reconnect/disconnect lifecycle has no sibling ghost lease");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

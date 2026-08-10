@@ -34,6 +34,7 @@ function serviceHarness(store, redisClient) {
 
     const call = await nodeA.service.startCall({
       caller: admin,
+      callerSocketId: "admin-socket-a",
       conversationId: "conversation-101",
       mode: "audio"
     });
@@ -51,8 +52,39 @@ function serviceHarness(store, redisClient) {
     assert.equal(competing.ok, false);
     assert.equal(competing.code, "busy", "callee busy is global across backend instances");
 
-    const accepted = await nodeB.service.accept({ user: driver, callId: call.callId });
+    const accepted = await nodeB.service.accept({
+      user: driver,
+      socketId: "driver-socket-a",
+      callId: call.callId
+    });
     assert.equal(accepted.ok, true, "another node can atomically accept the same call");
+
+    assert.equal(await nodeB.service.refreshForSocket(driver.id, "driver-sibling", {
+      isSocketConnected: async () => true
+    }), false, "a sibling device cannot renew the active lease");
+    assert.equal(await nodeB.service.refreshForSocket(driver.id, "driver-socket-a", {
+      isSocketConnected: async () => true
+    }), true, "the media-owning socket can renew a healthy call");
+
+    assert.equal(await nodeB.service.refreshForSocket(driver.id, "driver-socket-a", {
+      isSocketConnected: async (socketId) => socketId !== "admin-socket-a"
+    }), false, "the surviving peer degrades the lease when the remote owner disappears");
+    const degraded = JSON.parse(shared.get(`manecomb:rtc:call:${call.callId}`));
+    assert.equal(degraded.disconnectingUserId, admin.id);
+    assert.equal(degraded.disconnectingSocketId, "admin-socket-a");
+    assert.ok(degraded.disconnectDeadlineAt);
+
+    const callerRejoin = await nodeA.service.canJoinCall({
+      callId: call.callId,
+      userId: admin.id,
+      organizationId: admin.organizationId,
+      socketId: "admin-socket-b",
+      isSocketConnected: async (socketId) => socketId !== "admin-socket-a"
+    });
+    assert.equal(callerRejoin.ok, true, "a reconnect transfers ownership after the old socket is gone");
+    const recovered = JSON.parse(shared.get(`manecomb:rtc:call:${call.callId}`));
+    assert.equal(recovered.callerSocketId, "admin-socket-b");
+    assert.equal(recovered.disconnectingUserId, null);
 
     const callerJoin = await nodeA.service.canJoinCall({
       callId: call.callId,
@@ -116,6 +148,8 @@ function serviceHarness(store, redisClient) {
     const active = { ...stale, status: "active", acceptedBy: driver.id, connectedAt: Date.now() };
     assert.equal(await authorityA.compareAndSet(stale, active), true);
     assert.equal(await authorityB.release(stale), false, "stale state cannot delete current authority");
+    assert.equal(await authorityB.refresh(stale), false, "stale heartbeat cannot extend a newer live-call state");
+    assert.equal(await authorityA.refresh(active), true, "exact current state can refresh its lease");
     assert.equal((await authorityA.getCall(ringing.callId)).status, "active");
     assert.equal(await authorityA.release(active), true);
   }
