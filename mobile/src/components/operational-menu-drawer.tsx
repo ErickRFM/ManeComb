@@ -58,7 +58,7 @@ export function OperationalMenuDrawer({
     }))
   );
 
-  const sections = useMemo(() => (user ? getAppSections(user.role) : []), [user]);
+  const sections = useMemo(() => (user ? getAppSections(user) : []), [user]);
   const activeIncidentCount = useMemo(
     () => incidents.filter((incident) => incident.status !== 'resolved').length,
     [incidents]
@@ -68,7 +68,7 @@ export function OperationalMenuDrawer({
       return activeKey;
     }
 
-    const currentSection = getSectionByPathname(pathname, user.role);
+    const currentSection = getSectionByPathname(pathname, user);
     return activeKey || currentSection.key;
   }, [activeKey, pathname, user]);
 

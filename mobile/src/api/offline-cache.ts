@@ -8,7 +8,6 @@ import type {
   Incident,
   LiveLocationsData,
   NotificationItem,
-  OperationalObservabilitySnapshot,
   AuthRoutingContext,
   ProfileMutationPayload,
   RouteSession,
@@ -30,7 +29,6 @@ export type OfflineCacheSnapshot = {
   messagesByConversation: Record<string, ChatMessage[]>;
   documents: DocumentItem[];
   notifications: NotificationItem[];
-  observability: OperationalObservabilitySnapshot | null;
   users: User[];
   activeRouteSession: RouteSession | null;
   routeSessionHistory: RouteSession[];

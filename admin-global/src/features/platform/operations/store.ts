@@ -3,6 +3,8 @@ import {
   platformAuditRequest,
   platformCommercialOrderRequest,
   platformCommercialOrdersRequest,
+  platformDeviceVersionStatsRequest,
+  platformSystemObservabilityRequest,
   platformSystemReadinessRequest,
 } from './api';
 import type {
@@ -90,9 +92,32 @@ export const usePlatformOperationsStore = create<OperationsStore>((set) => ({
     const requestId = ++readinessRequestId;
     set({ systemState: 'loading', systemError: null });
     try {
-      const readiness = await platformSystemReadinessRequest(token);
+      const [readiness, observability, deviceStats] = await Promise.all([
+        platformSystemReadinessRequest(token),
+        platformSystemObservabilityRequest(token),
+        platformDeviceVersionStatsRequest(token),
+      ]);
       if (requestId !== readinessRequestId) return;
-      set({ systemState: 'ready', readiness });
+
+      const snapshot: PlatformSystemReadiness = {
+        ...readiness,
+        observability: {
+          status: observability.apiErrors > 0 || observability.activeCriticalIncidents > 0 ? 'attention' : 'ok',
+          windowHours: observability.windowHours,
+          apiErrors: observability.apiErrors,
+          slowRequests: observability.slowRequests,
+          activeCriticalIncidents: observability.activeCriticalIncidents,
+          recentRtcSessions: observability.rtc.recentSessions,
+          averageRtcDurationSeconds: observability.rtc.averageDurationSeconds,
+        },
+        appVersions: {
+          status: deviceStats.total > 0 ? 'ok' : 'unknown',
+          total: deviceStats.total,
+          mostUsedVersion: deviceStats.mostUsedVersion || 'Sin datos',
+          lastPublication: deviceStats.lastPublication || 'Sin publicación',
+        },
+      };
+      set({ systemState: 'ready', readiness: snapshot });
     } catch (error) {
       if (requestId !== readinessRequestId) return;
       set({ systemState: 'error', systemError: errorMessage(error, 'No fue posible cargar el sistema') });

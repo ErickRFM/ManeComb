@@ -92,7 +92,7 @@ describe('resolveMobilePostLoginRoute', () => {
     expect(result.route).toBe('/mapa');
   });
 
-  it('no concede Mobile a un rol de Portal sin capacidad administrativa de app', () => {
+  it('no reinterpreta una decision positiva del backend con una tabla de roles del cliente', () => {
     const result = resolveMobilePostLoginRoute({
       authContext: authContext({
         accountChannel: 'company_portal',
@@ -105,9 +105,9 @@ describe('resolveMobilePostLoginRoute', () => {
       }),
     });
 
-    expect(result.destination).toBe('PlanBlocked');
-    expect(result.reason).toBe('wrong_channel');
-    expect(result.route).toBe('/plan-blocked');
+    expect(result.destination).toBe('HomeOperativo');
+    expect(result.reason).toBe('active_mobile_access');
+    expect(result.route).toBe('/mapa');
   });
 
   it('bloquea identidades marcadas por el backend como blocked', () => {

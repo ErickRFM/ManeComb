@@ -30,7 +30,7 @@ import { RadioScreen } from '@/src/screens/radio-screen';
 import { UsersScreen } from '@/src/screens/users-screen';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { navigationRef, Redirect, router } from '@/src/navigation/router';
-import { MODULE_ROUTE_NAMES, canRoleAccessRoute } from '@/src/navigation/route-registry';
+import { MODULE_ROUTE_NAMES, canUserAccessRoute } from '@/src/navigation/route-registry';
 import { linking } from '@/src/navigation/linking';
 import {
   LatestNavigationRequest,
@@ -38,6 +38,7 @@ import {
 } from '@/src/navigation/navigation-policy';
 import { useAppStore } from '@/src/store/use-app-store';
 import { CallOverlay } from '@/src/features/calls/call-overlay';
+import { canOwnVehicleTracking } from '@/src/screens/map/utils/location-eligibility';
 import { useLocationEngine } from '@/src/screens/map/hooks/use-location-engine';
 import { useLocationSync } from '@/src/screens/map/hooks/use-location-sync';
 import { useScheduleTick } from '@/src/screens/map/hooks/use-schedule-tick';
@@ -97,7 +98,12 @@ function OperationalBackgroundServices() {
   }, [location.backgroundPermission, location.coordinates, location.issue, location.lastUpdatedAt, location.loading, location.permission, location.refresh, location.retryCount, location.servicesEnabled]);
 
   useLocationSync({
-    enabled: Boolean(user?.vehicleId && authContext?.canAccessMobile === true),
+    // Publicar la posicion de una unidad es propiedad, no solo acceso movil.
+    // canOwnVehicleTracking es la autoridad; el servicio de background ya la usa
+    // (use-location-engine). Rederivarla aqui dejaba fuera la comprobacion de rol
+    // operativo y hacia que foreground y background discreparan sobre quien
+    // puede publicar.
+    enabled: canOwnVehicleTracking(user, authContext),
     connectionMode,
     coordinates: location.coordinates,
     isWithinSchedule: scheduleState.isWithinSchedule,
@@ -350,9 +356,9 @@ function withOperationalScreen(component: React.ReactNode) {
   return <OperationalRoute>{component}</OperationalRoute>;
 }
 
-function RoleProtectedOperationalRoute({ children, route }: { children: React.ReactNode; route: '/usuarios' | '/checklist' }) {
+function CapabilityProtectedOperationalRoute({ children, route }: { children: React.ReactNode; route: '/usuarios' | '/checklist' }) {
   const user = useAppStore((state) => state.user);
-  const allowed = Boolean(user && canRoleAccessRoute(route, user.role));
+  const allowed = Boolean(user && canUserAccessRoute(route, user));
 
   useEffect(() => {
     if (user && !allowed) {
@@ -376,11 +382,11 @@ function RoleProtectedOperationalRoute({ children, route }: { children: React.Re
 }
 
 function DirectoryRoute({ children }: { children: React.ReactNode }) {
-  return <RoleProtectedOperationalRoute route="/usuarios">{children}</RoleProtectedOperationalRoute>;
+  return <CapabilityProtectedOperationalRoute route="/usuarios">{children}</CapabilityProtectedOperationalRoute>;
 }
 
 function ControlRoute({ children }: { children: React.ReactNode }) {
-  return <RoleProtectedOperationalRoute route="/checklist">{children}</RoleProtectedOperationalRoute>;
+  return <CapabilityProtectedOperationalRoute route="/checklist">{children}</CapabilityProtectedOperationalRoute>;
 }
 
 const moduleScreenOptions = {
@@ -504,7 +510,6 @@ function AppStack() {
 
 export default function App() {
   const { navigationTheme, theme } = useAppTheme();
-  const splashHiddenRef = useRef(false);
   const pushNavigationRequestRef = useRef(new LatestNavigationRequest());
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const [bootIsSlow, setBootIsSlow] = useState(false);
@@ -520,9 +525,6 @@ export default function App() {
     }))
   );
 
-  const hideSplash = useCallback(() => {
-    splashHiddenRef.current = true;
-  }, []);
   const isReady = isHydrated && !isBootstrapping;
   const bootstrapFailed = !isReady && !isBootstrapping && Boolean(startupError);
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -551,11 +553,10 @@ export default function App() {
 
   useEffect(() => {
     if (isReady) {
-      hideSplash();
       setBootTimedOut(false);
       setBootIsSlow(false);
     }
-  }, [hideSplash, isReady]);
+  }, [isReady]);
 
   useEffect(() => {
     if (isReady) {
@@ -563,21 +564,13 @@ export default function App() {
     }
 
     const slowNotice = setTimeout(() => setBootIsSlow(true), BOOT_SLOW_NOTICE_MS);
-    const timeout = setTimeout(() => {
-      setBootTimedOut(true);
-      hideSplash();
-    }, BOOT_SYNC_TIMEOUT_MS);
+    const timeout = setTimeout(() => setBootTimedOut(true), BOOT_SYNC_TIMEOUT_MS);
 
     return () => {
       clearTimeout(slowNotice);
       clearTimeout(timeout);
     };
-  }, [hideSplash, isReady]);
-
-  useEffect(() => {
-    const timeout = setTimeout(hideSplash, 2500);
-    return () => clearTimeout(timeout);
-  }, [hideSplash]);
+  }, [isReady]);
 
   useEffect(() => {
     return addPushResponseListener(async (intent) => {
@@ -636,11 +629,6 @@ export default function App() {
 
   return (
     <GestureHandlerRootView
-      onLayout={() => {
-        if (isReady) {
-          hideSplash();
-        }
-      }}
       style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <KeyboardProvider preload={false}>
         <SafeAreaProvider>

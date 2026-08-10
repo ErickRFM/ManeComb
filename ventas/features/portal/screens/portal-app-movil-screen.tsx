@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { router } from '@/src/navigation/router';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
+import { useAppStore } from '@/src/store/use-app-store';
 import { useShallow } from 'zustand/react/shallow';
 import { PortalLayout } from '../components/portal-layout';
+import { PortalButton } from '../components/portal-button';
+import { PortalSectionCard } from '../cards';
+import { hasPortalPermission } from '../utils/access';
 import { usePortalStore } from '../store/use-portal-store';
-import { PortalAppAdmin } from '../components/portal-app-admin';
 import { useNovidadesScroll } from '../app-mobile/app-mobile.utils';
 import { styles } from '../app-mobile/app-mobile.styles';
 import { AppMobileHero } from '../app-mobile/components/app-mobile-hero';
@@ -19,6 +23,8 @@ import QRCode from 'qrcode';
 export function PortalAppMovilScreen() {
   const { width } = useWindowDimensions();
   const compact = width < 720;
+  const user = useAppStore((state) => state.user);
+  const canManageDrivers = hasPortalPermission(user, 'users');
   const { appInfo, error, isLoading, loadAppInfo } = usePortalStore(
     useShallow((state) => ({
       appInfo: state.appInfo,
@@ -88,7 +94,7 @@ export function PortalAppMovilScreen() {
   if (isLoading && !appInfo) {
     return (
       <PortalLayout title="App Móvil" subtitle="Centro de descarga de la aplicación ManeComb para conductores.">
-        <View style={styles.skeletonHero}>
+        <View style={styles.skeletonHero} accessibilityLabel="Cargando información de la aplicación">
           <View style={styles.skeletonHeroLeft}>
             <SkeletonBlock height={30} width={120} />
             <SkeletonBlock height={22} width="60%" />
@@ -131,7 +137,7 @@ export function PortalAppMovilScreen() {
   const versionHistory = appInfo.versionHistory || [];
 
   return (
-    <PortalLayout title="App Móvil" subtitle="Descarga, requisitos, versión publicada y administración del APK para conductores.">
+    <PortalLayout title="App Móvil" subtitle="Descarga, requisitos y versión publicada de ManeComb para conductores.">
       <AppMobileHero
         compact={compact}
         appName="ManeComb"
@@ -140,6 +146,22 @@ export function PortalAppMovilScreen() {
         onDownload={() => void handleDownload()}
         onNovidades={scrollToNovidades}
       />
+
+      {canManageDrivers ? (
+        <PortalSectionCard
+          compact
+          title="Activar conductores"
+          subtitle="Las keys de registro se administran en Activación para mantener una sola autoridad del flujo empresa → conductor.">
+          <PortalButton
+            accessibilityLabel="Abrir keys de activación"
+            icon="key-outline"
+            onPress={() => router.push('/portal/onboarding' as never)}
+            size="sm"
+            variant="secondary">
+            Administrar keys
+          </PortalButton>
+        </PortalSectionCard>
+      ) : null}
 
       {downloadMessage ? (
         <View style={styles.errorState}>
@@ -198,8 +220,6 @@ export function PortalAppMovilScreen() {
           />
         )
       ) : null}
-
-      {activeTab === 'admin' ? <PortalAppAdmin /> : null}
     </PortalLayout>
   );
 }

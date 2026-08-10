@@ -12,6 +12,7 @@ import { router } from '@/components/router';
 import { useAdminStore } from '@/features/auth/store';
 import { palette, Typography } from '@/styles/theme';
 import { AdminShell } from '../components/admin-shell';
+import { usePlatformStore } from '../store';
 import { usePlatformCompanyStore } from './store';
 import type { PlatformCompany } from './types';
 
@@ -53,6 +54,9 @@ function statusTone(status: string | null | undefined) {
 
 export function AdminCompaniesScreen() {
   const token = useAdminStore((state) => state.session?.token || '');
+  const canReadCommercial = usePlatformStore(
+    (state) => state.capabilities?.permissions.includes('platform.commercial.read') ?? false
+  );
   const { width } = useWindowDimensions();
   const listState = usePlatformCompanyStore((state) => state.listState);
   const listError = usePlatformCompanyStore((state) => state.listError);
@@ -74,7 +78,7 @@ export function AdminCompaniesScreen() {
       page,
       limit: 20,
       search,
-      paymentStatus,
+      paymentStatus: canReadCommercial ? paymentStatus : null,
       planId,
       sort: 'companyName',
       order: 'asc',
@@ -102,17 +106,21 @@ export function AdminCompaniesScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.filterLabel}>Estado de pago</Text>
-        <ScrollView contentContainerStyle={styles.chipRow} horizontal showsHorizontalScrollIndicator={false}>
-          {PAYMENT_FILTERS.map((filter) => (
-            <FilterChip
-              active={paymentStatus === filter.value}
-              key={filter.label}
-              label={filter.label}
-              onPress={() => { setPaymentStatus(filter.value); }}
-            />
-          ))}
-        </ScrollView>
+        {canReadCommercial ? (
+          <>
+            <Text style={styles.filterLabel}>Estado de pago</Text>
+            <ScrollView contentContainerStyle={styles.chipRow} horizontal showsHorizontalScrollIndicator={false}>
+              {PAYMENT_FILTERS.map((filter) => (
+                <FilterChip
+                  active={paymentStatus === filter.value}
+                  key={filter.label}
+                  label={filter.label}
+                  onPress={() => { setPaymentStatus(filter.value); }}
+                />
+              ))}
+            </ScrollView>
+          </>
+        ) : null}
 
         <Text style={styles.filterLabel}>Plan</Text>
         <ScrollView contentContainerStyle={styles.chipRow} horizontal showsHorizontalScrollIndicator={false}>
@@ -201,9 +209,11 @@ function CompanyCard({ company, width }: { company: PlatformCompany; width: stri
       <Text style={styles.ownerText}>{company.owner?.name || 'Propietario no identificado'}</Text>
       <Text style={styles.ownerEmail}>{company.owner?.email || 'Sin correo de propietario'}</Text>
       <View style={styles.cardFooter}>
-        <Text style={[styles.statusBadge, statusTone(company.commercial.paymentStatus)]}>
-          {company.commercial.paymentStatus || 'sin pago'}
-        </Text>
+        {company.commercialAccess ? (
+          <Text style={[styles.statusBadge, statusTone(company.commercial.paymentStatus)]}>
+            {company.commercial.paymentStatus || 'sin pago'}
+          </Text>
+        ) : null}
         <Text style={styles.lastAccess}>Último acceso: {formatDate(company.lastAccessAt)}</Text>
       </View>
     </Pressable>
@@ -233,7 +243,7 @@ export function AdminCompanyDetailScreen({ organizationId }: { organizationId: s
       title={company?.companyName || 'Detalle de empresa'}
       subtitle={company ? company.organizationId : 'Consulta global en modo lectura.'}
     >
-      {detailState === 'loading' || detailState === 'idle' ? <StateCard title="Cargando empresa…" body="Preparando usuarios, unidades y estado comercial." /> : null}
+      {detailState === 'loading' || detailState === 'idle' ? <StateCard title="Cargando empresa…" body="Preparando usuarios, unidades y estado autorizado." /> : null}
       {detailState === 'error' ? (
         <StateCard
           action="Reintentar"
@@ -252,7 +262,15 @@ function CompanyDetail({ company }: { company: PlatformCompany }) {
   return (
     <>
       <View style={styles.metricGrid}>
-        <Metric label="Plan" value={company.plan?.name || 'Sin plan'} detail={company.plan ? `${company.plan.units} unidades · ${formatMoney(company.plan.price)}` : 'No hay orden comercial asociada'} />
+        <Metric
+          label="Plan"
+          value={company.plan?.name || 'Sin plan'}
+          detail={company.plan
+            ? company.commercialAccess
+              ? `${company.plan.units} unidades · ${formatMoney(company.plan.price)}`
+              : `${company.plan.units} unidades`
+            : 'No hay plan asociado'}
+        />
         <Metric label="Usuarios" value={String(company.users.total)} detail={`${company.users.byStatus.active} activos · ${company.users.byStatus.pending} pendientes`} />
         <Metric label="Unidades activas" value={String(company.vehicles.active)} detail={`${company.vehicles.byStatus.on_route} en ruta · ${company.vehicles.byStatus.maintenance} en mantenimiento`} />
         <Metric label="Estado operativo" value={company.operationalStatus} detail={`Último acceso ${formatDate(company.lastAccessAt)}`} />
@@ -266,14 +284,16 @@ function CompanyDetail({ company }: { company: PlatformCompany }) {
           <KeyValue label="Último acceso" value={formatDate(company.owner?.lastAccessAt)} />
         </DetailSection>
 
-        <DetailSection title="Estado comercial">
-          <KeyValue label="Pago" value={company.commercial.paymentStatus || 'Sin estado'} />
-          <KeyValue label="Activación" value={company.commercial.activationStatus || 'Sin estado'} />
-          <KeyValue label="Onboarding" value={company.commercial.onboardingStatus || 'Sin estado'} />
-          <KeyValue label="Próxima facturación" value={formatDate(company.commercial.nextBillingAt)} />
-          <KeyValue label="Importe" value={formatMoney(company.billing.totalPrice)} />
-          <KeyValue label="Método" value={company.billing.paymentMethod || 'Sin método'} />
-        </DetailSection>
+        {company.commercialAccess ? (
+          <DetailSection title="Estado comercial">
+            <KeyValue label="Pago" value={company.commercial.paymentStatus || 'Sin estado'} />
+            <KeyValue label="Activación" value={company.commercial.activationStatus || 'Sin estado'} />
+            <KeyValue label="Onboarding" value={company.commercial.onboardingStatus || 'Sin estado'} />
+            <KeyValue label="Próxima facturación" value={formatDate(company.commercial.nextBillingAt)} />
+            <KeyValue label="Importe" value={formatMoney(company.billing.totalPrice)} />
+            <KeyValue label="Método" value={company.billing.paymentMethod || 'Sin método'} />
+          </DetailSection>
+        ) : null}
       </View>
 
       <DetailSection title={`Usuarios (${company.users.total})`} wide>

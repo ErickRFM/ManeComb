@@ -82,10 +82,10 @@ export function AppShell({
       return null;
     }
 
-    const sections = [getSectionByPathname(pathname, user.role)];
+    const sections = [getSectionByPathname(pathname, user)];
     const currentSection =
       sectionKey && sectionKey !== sections[0].key
-        ? getSectionByPathname(`/${sectionKey}`, user.role)
+        ? getSectionByPathname(`/${sectionKey}`, user)
         : sections[0];
 
     return currentSection;

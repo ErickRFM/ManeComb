@@ -10,6 +10,7 @@ const {
   getPlatformSystemReadiness,
   listPlatformAudit
 } = require("./operations-service");
+const { router: systemAuthorityRouter } = require("./system-authority-routes");
 
 const router = Router();
 const readLimiter = rateLimit({
@@ -127,5 +128,7 @@ router.get(
     }
   }
 );
+
+router.use(systemAuthorityRouter);
 
 module.exports = router;

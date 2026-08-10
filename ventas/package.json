@@ -8,9 +8,11 @@
     "build": "npm run verify:contracts && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:contracts": "npm run verify:mobile-layout && npm run verify:account-routing",
+    "verify:contracts": "npm run verify:mobile-layout && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage",
     "verify:mobile-layout": "node scripts/verify-mobile-sales-layout.cjs",
-    "verify:account-routing": "node scripts/verify-account-routing.cjs"
+    "verify:account-routing": "node scripts/verify-account-routing.cjs",
+    "verify:portal-capabilities": "node scripts/verify-portal-capability-ui.cjs",
+    "verify:session-storage": "node scripts/verify-session-storage.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

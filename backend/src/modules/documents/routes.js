@@ -55,7 +55,7 @@ function receiveDocumentFile(req, res, next) {
 
 function canAccessDocument(user, document) {
   if (!document || !canAccessTenantResource(user, document)) return false;
-  if (user.role !== "driver") return true;
+  if (user.role !== "driver") return hasPermission(user, "canManageDocuments");
   return (
     (document.ownerType === "driver" && document.ownerId === user.id) ||
     (document.ownerType === "vehicle" && document.ownerId === user.vehicleId)
@@ -180,6 +180,9 @@ router.get("/files/:storageKey", authenticate, requireOperationalAccess, async (
 });
 
 router.get("/", authenticate, requireOrganization, requireOperationalAccess, async (req, res) => {
+  if (req.user.role !== "driver" && !hasPermission(req.user, "canManageDocuments")) {
+    return res.status(403).json({ ok: false, message: "No tienes permiso para realizar esta accion" });
+  }
   return res.json({ ok: true, data: await req.app.locals.store.getDocumentsForUser(req.user) });
 });
 
@@ -214,6 +217,9 @@ router.post("/", authenticate, requireOrganization, requireOperationalAccess, up
   let createdDocument = null;
   try {
     if (!storedFile) return res.status(400).json({ ok: false, message: "Debes adjuntar un archivo" });
+    if (req.user.role !== "driver" && !hasPermission(req.user, "canManageDocuments")) {
+      return res.status(403).json({ ok: false, message: "No tienes permiso para realizar esta accion" });
+    }
     const { ownerId, ownerType } = resolveUploadOwner(req.user, req.body);
     if (!ownerId) return res.status(400).json({ ok: false, message: "No se encontro el propietario del documento" });
     if (!(await getAccessibleOwner(req, ownerType, ownerId))) {

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { Redirect, router, useLocalSearchParams } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -1004,9 +1004,11 @@ export function ChecklistScreen() {
     );
   }
 
-  if (user.role === 'driver' || user.role === 'viewer' || user.role === 'support' || user.role === 'billing_manager' || user.role === 'dispatcher') {
-    return <Redirect href="/mapa" />;
-  }
+  // Sin guarda de rol aqui: Control ya esta gobernado por canUseMobileControl a
+  // traves de ControlRoute, que es su unico punto de montaje. La lista negra que
+  // vivia aqui era una segunda autorizacion y ademas contradecia al modelo de
+  // capabilities: negaba a dispatcher, que si pertenece a la superficie Control
+  // cuando el backend le concede routes.manage.
 
   return (
     <AppShell

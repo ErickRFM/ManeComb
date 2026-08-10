@@ -46,4 +46,9 @@ jobs:
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
 
       - name: Audit runtime dependencies
+        if: matrix.directory != 'mobile'
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit Mobile runtime dependencies with expiring review gate
+        if: matrix.directory == 'mobile'
+        run: node ../.github/scripts/mobile-production-audit.mjs

@@ -7,11 +7,11 @@ type PortalUser = Pick<User, 'accountType' | 'role'> & {
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
 const LEGACY_ROLE_PERMISSIONS = {
-  owner: new Set(['users', 'billing', 'vehicles', 'routes']),
-  admin: new Set(['users', 'billing', 'vehicles', 'routes']),
-  billing_manager: new Set(['billing']),
-  support: new Set<string>(),
-  viewer: new Set<string>(),
+  owner: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics']),
+  admin: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics']),
+  billing_manager: new Set(['billing', 'analytics']),
+  support: new Set(['incidents', 'analytics']),
+  viewer: new Set(['analytics']),
 } as const;
 
 const PORTAL_CAPABILITIES = {
@@ -19,6 +19,9 @@ const PORTAL_CAPABILITIES = {
   billing: 'billing.manage',
   vehicles: 'vehicles.manage',
   routes: 'routes.manage',
+  documents: 'documents.manage',
+  incidents: 'incidents.manage',
+  analytics: 'analytics.view',
 } as const;
 
 export function isPortalRole(role: User['role'] | string | null | undefined) {
@@ -32,18 +35,20 @@ function hasExplicitCapabilities(user: PortalUser) {
 export function canAccessPortal(user: PortalUser | null | undefined) {
   if (!user) return false;
 
-  const explicitChannel = String(user.accountChannel || '').trim();
-
+  // Capabilities are the authoritative product contract emitted by the backend.
+  // accountChannel remains a preferred destination / compatibility hint, never
+  // a statement that the identity can use only one ManeComb product.
   if (hasExplicitCapabilities(user)) {
-    return explicitChannel === 'company_portal' && user.capabilities!.includes('portal.access');
+    return user.capabilities!.includes('portal.access');
   }
 
+  const explicitChannel = String(user.accountChannel || '').trim();
   if (explicitChannel) {
     return explicitChannel === 'company_portal';
   }
 
-  // Compatibilidad temporal para una sesión emitida antes del contrato de canal.
-  // Es deliberadamente AND y falla cerrada para combinaciones incompatibles.
+  // Compatibility only for sessions issued before capabilities/accountChannel.
+  // Deliberately AND and fail-closed for incompatible combinations.
   return user.accountType === 'company_owner' && isPortalRole(user.role);
 }
 

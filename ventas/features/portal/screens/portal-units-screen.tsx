@@ -15,6 +15,7 @@ import { PortalUnitsContinuityBanner } from '../units/components/portal-units-co
 import { PortalUnitsList } from '../units/components/portal-units-list';
 import type { UnitEditor } from '../units/units.types';
 import { createBlankEditor } from '../units/units.utils';
+import { hasPortalPermission } from '../utils/access';
 import { styles } from '../units/units.styles';
 
 export function PortalUnitsScreen() {
@@ -39,7 +40,7 @@ export function PortalUnitsScreen() {
       vehicles: state.vehicles,
     }))
   );
-  const canManageUnits = Boolean(user && ['owner', 'admin'].includes(user.role));
+  const canManageUnits = hasPortalPermission(user, 'vehicles');
   const [editor, setEditor] = useState<UnitEditor>(createBlankEditor);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [statusTouched, setStatusTouched] = useState(false);
@@ -82,6 +83,7 @@ export function PortalUnitsScreen() {
   };
 
   const startEdit = (vehicle: Vehicle) => {
+    if (!canManageUnits) return;
     setEditingId(vehicle.id);
     setStatusTouched(false);
     setEditor({
@@ -96,7 +98,7 @@ export function PortalUnitsScreen() {
   };
 
   const saveUnit = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || !canManageUnits) return;
     setMessage(null);
 
     const code = editor.code.trim();
@@ -159,6 +161,7 @@ export function PortalUnitsScreen() {
   };
 
   const prepareVehicleLifecycle = async (vehicle: Vehicle) => {
+    if (!canManageUnits) return;
     setDeleteTarget(vehicle);
     setLifecycleImpact(null);
     setRetirementReason('Renovacion de flota');
@@ -243,7 +246,7 @@ export function PortalUnitsScreen() {
       />
 
       <ConfirmModal
-        visible={Boolean(deleteTarget)}
+        visible={Boolean(canManageUnits && deleteTarget)}
         destructive
         title={`Preparar unidad ${deleteTarget?.code || ''} para retiro`}
         description={lifecycleImpact?.mustRetire
@@ -257,7 +260,7 @@ export function PortalUnitsScreen() {
           setMessage(null);
         }}
         onConfirm={async () => {
-          if (!deleteTarget) return;
+          if (!deleteTarget || !canManageUnits) return;
           if (!lifecycleImpact?.canDeletePermanently && !lifecycleImpact?.canRetire) {
             setMessage('Resuelve primero la jornada, el conductor y la ruta indicados.');
             return;

@@ -35,8 +35,8 @@ const BLOCK_COPY: Record<GateReason, {
     title: 'Plan no activo',
   },
   missing_tenant: {
-    action: 'Continuar configuración',
-    body: 'Tu plan está activo. Configura tu empresa para comenzar.',
+    action: 'Abrir activación en Portal',
+    body: 'Tu plan está activo. Completa la configuración de empresa y activación desde el Portal web.',
     icon: 'office-building-cog-outline',
     title: 'Completa tu configuración',
   },
@@ -142,11 +142,6 @@ export function MobileAccountGateScreen({ mode = 'blocked' }: { mode?: 'blocked'
       } else {
         handleSignOut();
       }
-      return;
-    }
-
-    if (reason === 'missing_tenant') {
-      router.replace('/perfil-editar');
       return;
     }
 

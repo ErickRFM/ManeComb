@@ -47,7 +47,11 @@ export const linking: LinkingOptions<any> = {
       [MODULE_ROUTE_NAMES.radio]: { screens: { '/radio': 'radio' } },
       [MODULE_ROUTE_NAMES.checklist]: { screens: { '/checklist': 'checklist' } },
       [MODULE_ROUTE_NAMES.profile]: {
-        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar', '/mis-documentos': 'mis-documentos' },
+        // `/mis-documentos` is a private driver self-service route. Internal
+        // navigation goes through route-registry authority; it is deliberately
+        // not exposed as an inbound public URL that React Navigation can resolve
+        // before our custom router guard executes.
+        screens: { '/perfil': 'perfil', '/perfil-editar': 'perfil-editar' },
       },
     },
   },

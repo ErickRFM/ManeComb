@@ -14,6 +14,7 @@ import { PortalIncidentsContextNotice } from '../incidents/components/portal-inc
 import { PortalIncidentsList } from '../incidents/components/portal-incidents-list';
 import { portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
+import { hasPortalPermission } from '../utils/access';
 
 export function PortalIncidentsScreen() {
   const { user } = useAppStore(
@@ -27,7 +28,7 @@ export function PortalIncidentsScreen() {
       updateIncidentStatus: state.updateIncidentStatus,
     }))
   );
-  const canManage = Boolean(user && ['owner', 'admin', 'supervisor'].includes(user.role));
+  const canManage = hasPortalPermission(user, 'incidents');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [detailTarget, setDetailTarget] = useState<Incident | null>(null);
   const [statusTarget, setStatusTarget] = useState<Incident | null>(null);
@@ -52,7 +53,7 @@ export function PortalIncidentsScreen() {
   }, [incidents, filterStatus]);
 
   const handleStatusChange = async () => {
-    if (!statusTarget) return;
+    if (!statusTarget || !canManage) return;
     const result = await updateIncidentStatus(statusTarget.id, selectedStatus as 'open' | 'in_progress' | 'resolved');
     setMessage(result.ok ? 'Estado actualizado.' : result.message || 'No fue posible actualizar.');
     if (result.ok) {
@@ -103,6 +104,7 @@ export function PortalIncidentsScreen() {
           incident={detailTarget}
           message={message}
           onChangeStatus={(incident) => {
+            if (!canManage) return;
             setStatusTarget(incident);
             setSelectedStatus(incident.status);
           }}
@@ -119,7 +121,7 @@ export function PortalIncidentsScreen() {
       )}
 
       <ConfirmModal
-        visible={Boolean(statusTarget)}
+        visible={Boolean(canManage && statusTarget)}
         title="Cambiar estado"
         description={statusTarget ? statusTarget.title : ''}
         confirmLabel="Guardar"

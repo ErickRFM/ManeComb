@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import type { Role } from '@/src/types/app';
-import { CONTROL_ALLOWED_ROLES, DIRECTORY_ALLOWED_ROLES } from '@/src/navigation/route-registry';
+import type { User } from '@/src/types/app';
+import { canUserAccessRoute } from '@/src/navigation/route-registry';
 
 export type AppSectionKey =
   | 'mapa'
@@ -30,7 +30,6 @@ export type AppSection = {
   title: string;
   description: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  roles?: Role[];
 };
 
 const appSections: AppSection[] = [
@@ -60,7 +59,6 @@ const appSections: AppSection[] = [
     title: 'Directorio operativo',
     description: 'Consulta personal, estado, unidad y ruta asignada.',
     icon: 'account-group',
-    roles: DIRECTORY_ALLOWED_ROLES,
   },
   {
     key: 'chat',
@@ -88,7 +86,6 @@ const appSections: AppSection[] = [
     title: 'Checklist de flota',
     description: 'Control automático de tiempos, aforo y estado de unidades al entrar o salir.',
     icon: 'clipboard-list-outline',
-    roles: CONTROL_ALLOWED_ROLES,
   },
   {
     key: 'perfil',
@@ -110,17 +107,17 @@ function normalizePathname(pathname: string) {
   return normalized || '/';
 }
 
-export function getAppSections(role: Role) {
-  return appSections.filter((section) => !section.roles || section.roles.includes(role));
+export function getAppSections(user: User) {
+  return appSections.filter((section) => canUserAccessRoute(section.href, user));
 }
 
-export function getOperationalMenuSections(role: Role) {
-  return getAppSections(role) as (AppSection & { key: OperationalSectionKey })[];
+export function getOperationalMenuSections(user: User) {
+  return getAppSections(user) as (AppSection & { key: OperationalSectionKey })[];
 }
 
-export function getSectionByPathname(pathname: string, role: Role) {
+export function getSectionByPathname(pathname: string, user: User) {
   const normalizedPath = normalizePathname(pathname);
-  const sections = getAppSections(role);
+  const sections = getAppSections(user);
 
   return (
     sections.find((section) => {

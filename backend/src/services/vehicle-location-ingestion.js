@@ -78,6 +78,29 @@ async function emitLocationUpdate({ io, store, vehicle, publicUpdate, organizati
   });
 }
 
+/**
+ * Unico predicado de propiedad para PUBLICAR telemetria GPS.
+ *
+ * Publicar la posicion de una unidad no es administrarla: es afirmar donde esta
+ * fisicamente el vehiculo. Solo puede hacerlo el actor que lo opera, es decir
+ * aquel al que la unidad esta asignada.
+ *
+ * Se expresa como identidad de asignacion y no como tabla de roles a proposito.
+ * El modelo de datos ya garantiza que solo un conductor recibe `vehicleId`
+ * (`data/store.js` y `data/mongo-store.js` fuerzan
+ * `role === "driver" ? payload.vehicleId : null`, y `changeDriverVehicle` filtra
+ * por `role: "driver"`), asi que la propiedad implica el rol sin necesidad de
+ * enumerarlo aqui.
+ *
+ * Ver/administrar tracking es otra autoridad y no pasa por aqui: la lectura va
+ * por `/locations/live` con `canViewAnalytics` y la administracion de rutas y
+ * asignaciones por `canManageRoutes`. Ninguna de las dos se ve afectada.
+ */
+function canPublishVehicleTelemetry(actor, vehicleId) {
+  const assignedVehicleId = String(actor?.vehicleId || "").trim();
+  return Boolean(assignedVehicleId) && assignedVehicleId === String(vehicleId || "").trim();
+}
+
 async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null, store, transport }) {
   incrementMetric("gps_packets_received", 1, { transport });
   const vehicleId = String(payload.vehicleId || "").trim();
@@ -96,7 +119,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   if (!canAccessTenantResource(actor, vehicle)) {
     throw new LocationIngestionError(403, "cross_tenant_vehicle", "No puedes actualizar unidades de otra organizacion");
   }
-  if (actor.role !== "admin" && actor.vehicleId !== vehicleId) {
+  if (!canPublishVehicleTelemetry(actor, vehicleId)) {
     throw new LocationIngestionError(403, "forbidden_vehicle", "No puedes actualizar la ubicacion de otra unidad");
   }
 
@@ -191,6 +214,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
 
 module.exports = {
   LocationIngestionError,
+  canPublishVehicleTelemetry,
   ingestVehicleLocation,
   normalizePoint
 };

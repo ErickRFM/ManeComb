@@ -1,10 +1,12 @@
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge } from '@/src/components/ui/status-badge';
+import { useAppStore } from '@/src/store/use-app-store';
 import { formatPortalStatus, getPortalStatusTone } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';
+import { hasPortalPermission } from '../../utils/access';
 import { styles } from '../dashboard.styles';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import {
@@ -63,6 +65,9 @@ export function VehicleSidePanel({
   users: User[];
   vehicle: Vehicle;
 }) {
+  const currentUser = useAppStore((state) => state.user);
+  const canChangeDriver = hasPortalPermission(currentUser, 'users');
+  const effectiveDriverSelectorOpen = canChangeDriver && driverSelectorOpen;
   const session = activeSession || latestSession;
   const activeDriver = getActiveDriver(users, vehicle);
   const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
@@ -105,15 +110,15 @@ export function VehicleSidePanel({
         <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
       </View>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
-      {assignedDrivers.length > 1 || driverSelectorOpen ? (
+      {assignedDrivers.length > 1 || effectiveDriverSelectorOpen ? (
         <View style={styles.assignedDriversPanel}>
           <View style={styles.inlineHeader}>
             <Text style={styles.panelTitle}>Choferes asignados ({assignedDrivers.length})</Text>
-            {driverSelectorOpen ? (
+            {effectiveDriverSelectorOpen ? (
               <PortalButton accessibilityLabel="Cerrar selector de chofer" icon="close" onPress={onCloseDriverSelector} size="sm" variant="icon" />
             ) : null}
           </View>
-          {driverSelectorOpen ? (
+          {effectiveDriverSelectorOpen ? (
             <View style={styles.driverSelector}>
               {assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).length ? (
                 assignedDrivers.filter((driver) => driver.id !== activeDriver?.id).map((driver) => (
@@ -136,10 +141,10 @@ export function VehicleSidePanel({
               <PortalDataRow key={driver.id} body={<Text style={styles.driverRowText} numberOfLines={1}>{driver.name}</Text>} meta={<StatusBadge label={driver.id === activeDriver?.id ? 'Activo' : driver.status || 'Asignado'} tone={driver.id === activeDriver?.id ? 'positive' : 'neutral'} />} />
             ))}</PortalDataList>
           )}
-          {driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
+          {canChangeDriver && driverChangeMessage ? <Text style={styles.noticeInline}>{driverChangeMessage}</Text> : null}
         </View>
       ) : null}
-      {driverChangeMessage && assignedDrivers.length <= 1 && !driverSelectorOpen ? (
+      {canChangeDriver && driverChangeMessage && assignedDrivers.length <= 1 && !effectiveDriverSelectorOpen ? (
         <Text style={styles.noticeInline}>{driverChangeMessage}</Text>
       ) : null}
       {session ? (
@@ -177,7 +182,7 @@ export function VehicleSidePanel({
         <View style={styles.quickActions}>
           <QuickAction icon="routes" label="Ver ruta" onPress={onRoute} />
           <QuickAction icon="history" label="Historial" onPress={onHistory} />
-          <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriverSelectorOpen} />
+          {canChangeDriver ? <QuickAction icon="account-switch-outline" label="Cambiar chofer" onPress={onDriverSelectorOpen} /> : null}
           <QuickAction icon="crosshairs-gps" label="Centrar unidad" onPress={onCenter} />
         </View>
       </View>

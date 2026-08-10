@@ -303,6 +303,22 @@ function buildInvoices(orders = []) {
     });
 }
 
+function buildLatestOrderSummary(order) {
+  if (!order) return null;
+
+  return {
+    id: order.id,
+    referenceCode: order.referenceCode,
+    companyName: order.companyName,
+    planId: order.planId,
+    planName: order.planName,
+    totalPrice: Number(order.totalPrice || 0),
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    createdAt: toIso(order.createdAt)
+  };
+}
+
 function buildPortalOverview({ user, orders = [], users = [], activationKeys = [] }) {
   const activeOrder = pickActiveOrder(orders);
   const subscription = buildSubscription(activeOrder);
@@ -334,7 +350,7 @@ function buildPortalOverview({ user, orders = [], users = [], activationKeys = [
     },
     activationTimeline: buildActivationTimeline(user, activeOrder, users),
     onboarding: buildOnboarding({ user, order: activeOrder, users, activationKeys }),
-    latestOrder: activeOrder || null
+    latestOrder: buildLatestOrderSummary(activeOrder)
   };
 }
 
@@ -344,6 +360,7 @@ function enrichOrdersForUser(orders, user) {
 
 module.exports = {
   buildInvoices,
+  buildLatestOrderSummary,
   buildOnboarding,
   buildPortalOverview,
   buildSubscription,

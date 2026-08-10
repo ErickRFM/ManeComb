@@ -32,6 +32,16 @@ describe('Mobile startup stability contract', () => {
     expect(request).not.toContain('_allowRetry: true');
   });
 
+  it('applies the same no-replay policy to the interceptor refresh path', () => {
+    // La recuperacion de 401 del interceptor golpea el mismo POST /auth/refresh
+    // rotatorio. Si aqui se permite reintento, un 502/504/429 replaya un token
+    // ya consumido y tira una sesion valida.
+    const refresh = section(client, 'async function refreshAccessToken', 'export const API_URL');
+    expect(refresh).toContain('_skipAuthRefresh: true');
+    expect(refresh).toContain('_skipNetworkRetry: true');
+    expect(refresh).not.toContain('_allowRetry: true');
+  });
+
   it('shows synchronization loading only while refreshAll is active', () => {
     expect(gate).toContain("reason === 'sync_error' && isRefreshing && !error");
     expect(gate).not.toContain('useSyncWaitStage');
@@ -41,6 +51,25 @@ describe('Mobile startup stability contract', () => {
     expect(app).toContain('bootTimedOut || bootstrapFailed');
     expect(app).not.toContain('continueWithoutLocation');
     expect(app).not.toContain('Continuar sin ubicacion');
+  });
+
+  it('closes the boot lifecycle when the session is cleared', () => {
+    // `initialize` marca `isBootstrapping: true` y luego abandona sus escrituras
+    // si el epoch cambio. Quien invalida el epoch es `clearSessionState`, asi que
+    // es esa funcion la que debe declarar el estado de arranque resultante. Sin
+    // esto la app se queda en el loader de arranque indefinidamente tras un
+    // logout concurrente con un `/auth/me` en vuelo.
+    const clear = section(store, 'async function clearSessionState', 'function isPlanRequiredError');
+    expect(clear).toContain('beginSessionEpoch();');
+    expect(clear).toContain('isBootstrapping: false');
+    expect(clear).toContain('isHydrated: true');
+  });
+
+  it('does not keep dead splash lifecycle in the root component', () => {
+    // No existe modulo de splash nativo en el proyecto; cualquier `hideSplash`
+    // es un efecto que no hace nada y confunde el diagnostico de arranque.
+    expect(app).not.toContain('hideSplash');
+    expect(app).not.toContain('splashHidden');
   });
 
   it('preserves cached authority and leaves optional operational hydration in background', () => {
