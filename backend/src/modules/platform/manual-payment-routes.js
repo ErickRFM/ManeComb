@@ -48,6 +48,11 @@ function normalizeTrackingKey(value) {
   return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
+function isCommercialOrderActivated(order) {
+  return ["paid", "approved"].includes(String(order?.paymentStatus || "").toLowerCase()) &&
+    String(order?.activationStatus || "").toLowerCase() === "active";
+}
+
 function serializeOrder(order) {
   if (!order) return null;
   return {
@@ -120,6 +125,7 @@ router.post(
   requirePlatformPermission("platform.commercial.manage"),
   async (req, res, next) => {
     let claim = null;
+    let approvalCommitted = false;
     try {
       let order = await req.app.locals.store.getCommercialOrderById(req.params.orderId);
       if (!order) return res.status(404).json({ ok: false, message: "Orden comercial no encontrada" });
@@ -130,6 +136,14 @@ router.post(
       const decision = String(req.body?.decision || "").trim().toLowerCase();
       const reviewNote = String(req.body?.note || "").trim();
       const evidenceVersion = Number(req.body?.evidenceVersion);
+      const orderAlreadyActivated = isCommercialOrderActivated(order);
+      if (decision === "reject" && orderAlreadyActivated) {
+        throw routeError(
+          "manual_payment_decision_conflict",
+          "La orden ya está pagada y activa; una revisión pendiente sólo puede recuperarse como aprobación.",
+          409
+        );
+      }
       if (decision === "approve") {
         const currentEvidence = await getManualPaymentEvidence(order.id);
         if (!currentEvidence) {
@@ -179,8 +193,12 @@ router.post(
           );
         }
 
-        const alreadyPaid = ["paid", "approved"].includes(String(order.paymentStatus || "").toLowerCase()) &&
-          String(order.activationStatus || "").toLowerCase() === "active";
+        const alreadyPaid = isCommercialOrderActivated(order);
+        // `alreadyPaid` may be a retry after the exact failure boundary this route
+        // guards: activation persisted but evidence finalization did not. From this
+        // point on, reopening the claim as pending_review would make an irreversible
+        // paid subscription rejectable, so the approval decision remains sticky.
+        approvalCommitted = alreadyPaid;
 
         if (!alreadyPaid) {
           const now = new Date();
@@ -205,6 +223,7 @@ router.post(
             ...buildCommercialActivationUpdate(paidOrder, "active", { now })
           });
           if (!order) throw routeError("manual_payment_activation_failed", "No fue posible activar la orden.", 409);
+          approvalCommitted = true;
         }
 
         evidence = await completeManualPaymentDecision({
@@ -288,7 +307,7 @@ router.post(
         }
       });
     } catch (error) {
-      if (claim?.claimed && claim.keyHash) {
+      if (claim?.claimed && claim.keyHash && !approvalCommitted) {
         await releaseManualPaymentDecision({
           orderId: req.params.orderId,
           keyHash: claim.keyHash

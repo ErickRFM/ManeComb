@@ -16,9 +16,33 @@ type PttAudioWaveProps = {
 const BAR_COUNT = 18;
 const BAR_WIDTH = 5;
 const MIN_HEIGHT = 5;
-const MAX_EXTRA_HEIGHT = 28;
-const VISUAL_DIAMETER_BOOST = 24;
-const WAVEFORM_DURATION_MS = 52;
+const MAX_EXTRA_HEIGHT = 34;
+const VISUAL_DIAMETER_BOOST = 28;
+const WAVEFORM_ATTACK_MS = 30;
+const WAVEFORM_RELEASE_MS = 82;
+const RING_ATTACK_MS = 34;
+const RING_RELEASE_MS = 96;
+
+function getReactiveLevel(samples: number[], index: number) {
+  'worklet';
+
+  const rawLevel = Math.max(0, Math.min(1, samples[index] || 0));
+  // Curva deliberadamente sensible: levanta voz baja sin inventar audio y
+  // mantiene margen para que los picos sigan viendose mas fuertes.
+  return Math.min(1, Math.pow(rawLevel, 0.52) * 1.18);
+}
+
+function getRecentEnergy(samples: number[]) {
+  'worklet';
+
+  const last = samples.length - 1;
+  const current = Math.max(0, Math.min(1, samples[last] || 0));
+  const previous = Math.max(0, Math.min(1, samples[last - 1] || 0));
+  const older = Math.max(0, Math.min(1, samples[last - 2] || 0));
+  const energy = Math.max(current, previous * 0.82, older * 0.62);
+
+  return Math.min(1, Math.pow(energy, 0.5) * 1.22);
+}
 
 export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
   const { theme } = useAppTheme();
@@ -30,6 +54,23 @@ export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
     <View
       pointerEvents="none"
       style={[styles.container, { width: visualDiameter, height: visualDiameter }]}>
+      <VoiceReactiveRing
+        color={theme.colors.danger}
+        diameter={visualDiameter - 8}
+        reducedMotion={reducedMotion}
+        samples={samples}
+        visualDiameter={visualDiameter}
+        strength={0.72}
+      />
+      <VoiceReactiveRing
+        color={theme.colors.danger}
+        diameter={visualDiameter + 8}
+        reducedMotion={reducedMotion}
+        samples={samples}
+        visualDiameter={visualDiameter}
+        strength={1}
+      />
+
       {Array.from({ length: BAR_COUNT }).map((_, index) => {
         const angle = (index / BAR_COUNT) * Math.PI * 2 - Math.PI / 2;
         const x = visualDiameter / 2 + Math.cos(angle) * radius - BAR_WIDTH / 2;
@@ -52,6 +93,70 @@ export function PttAudioWave({ diameter, samples }: PttAudioWaveProps) {
   );
 }
 
+function VoiceReactiveRing({
+  color,
+  diameter,
+  reducedMotion,
+  samples,
+  strength,
+  visualDiameter,
+}: {
+  color: string;
+  diameter: number;
+  reducedMotion: boolean;
+  samples: SharedValue<number[]>;
+  strength: number;
+  visualDiameter: number;
+}) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const level = getRecentEnergy(samples.value);
+    const targetScale = 0.985 + level * 0.105 * strength;
+    const targetOpacity = 0.055 + level * 0.24 * strength;
+
+    if (reducedMotion) {
+      return {
+        opacity: targetOpacity,
+        transform: [{ scale: targetScale }],
+      };
+    }
+
+    const duration = level > 0.08 ? RING_ATTACK_MS : RING_RELEASE_MS;
+    return {
+      opacity: withTiming(targetOpacity, {
+        duration,
+        easing: Easing.out(Easing.quad),
+      }),
+      transform: [
+        {
+          scale: withTiming(targetScale, {
+            duration,
+            easing: Easing.out(Easing.cubic),
+          }),
+        },
+      ],
+    };
+  }, [reducedMotion, strength]);
+
+  const offset = (visualDiameter - diameter) / 2;
+
+  return (
+    <Animated.View
+      style={[
+        styles.reactiveRing,
+        {
+          borderColor: color,
+          borderRadius: diameter / 2,
+          height: diameter,
+          left: offset,
+          top: offset,
+          width: diameter,
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
 function PttAudioWaveBar({
   color,
   index,
@@ -71,11 +176,9 @@ function PttAudioWaveBar({
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const rawLevel = Math.max(0, Math.min(1, samples.value[index] || 0));
-    // Levanta señales bajas sin falsear el metering: la geometría solo proyecta
-    // el nivel existente y hace que la respuesta visual sea perceptible antes.
-    const level = Math.min(1, Math.pow(rawLevel, 0.68) * 1.08);
+    const level = getReactiveLevel(samples.value, index);
     const targetHeight = MIN_HEIGHT + level * MAX_EXTRA_HEIGHT;
-    const targetOpacity = 0.34 + level * 0.66;
+    const targetOpacity = 0.3 + level * 0.7;
 
     if (reducedMotion) {
       return {
@@ -84,13 +187,14 @@ function PttAudioWaveBar({
       };
     }
 
+    const duration = rawLevel > 0.035 ? WAVEFORM_ATTACK_MS : WAVEFORM_RELEASE_MS;
     return {
       height: withTiming(targetHeight, {
-        duration: WAVEFORM_DURATION_MS,
-        easing: Easing.out(Easing.quad),
+        duration,
+        easing: Easing.out(Easing.cubic),
       }),
       opacity: withTiming(targetOpacity, {
-        duration: WAVEFORM_DURATION_MS,
+        duration,
         easing: Easing.out(Easing.quad),
       }),
     };
@@ -115,6 +219,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+  },
+  reactiveRing: {
+    position: 'absolute',
+    borderWidth: 2,
   },
   bar: {
     position: 'absolute',
