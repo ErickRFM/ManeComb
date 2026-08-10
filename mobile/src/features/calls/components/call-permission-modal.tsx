@@ -12,6 +12,8 @@ function statusCopy(status: string): string {
   switch (status) {
     case 'granted':
       return 'Permitido';
+    case 'denied':
+      return 'Denegado';
     case 'blocked':
       return 'Bloqueado en Ajustes';
     case 'not_required':
@@ -104,6 +106,7 @@ export function CallPermissionModal(): React.ReactElement | null {
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Cancelar recuperación de permisos"
               disabled={retrying}
               onPress={dismiss}
               style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
@@ -111,6 +114,7 @@ export function CallPermissionModal(): React.ReactElement | null {
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={needsSettings ? 'Abrir ajustes de ManeComb' : 'Volver a solicitar permisos'}
               disabled={retrying}
               onPress={() => void primaryAction()}
               style={({ pressed }) => [styles.primary, pressed && styles.pressed, retrying && styles.disabled]}>
