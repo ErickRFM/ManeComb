@@ -1,4 +1,4 @@
-const { applyAccountChannel } = require("../services/account-channel");
+const { applyAccountChannel, PORTAL_ROLES } = require("../services/account-channel");
 const { applyEnterpriseCapabilities } = require("../services/enterprise-capabilities");
 
 function toPlain(doc) {
@@ -16,13 +16,22 @@ function toPlain(doc) {
 }
 
 function normalizeAccountType(accountType, role = "driver") {
-  if (String(accountType || "").trim() === "company_owner") {
+  const normalizedAccountType = String(accountType || "").trim().toLowerCase();
+  const normalizedRole = String(role || "driver").trim().toLowerCase();
+
+  if (normalizedAccountType === "company_owner") {
     return "company_owner";
   }
 
-  return role === "supervisor" && String(accountType || "").trim() === "customer"
-    ? "company_owner"
-    : "operations";
+  // `customer` existed before accountChannel became authoritative. Normalize
+  // legacy records according to the current role matrix instead of preserving
+  // the old supervisor special-case, which would turn an operational
+  // supervisor into an incompatible Portal identity.
+  if (normalizedAccountType === "customer") {
+    return PORTAL_ROLES.has(normalizedRole) ? "company_owner" : "operations";
+  }
+
+  return "operations";
 }
 
 function normalizeUserStatus(value) {

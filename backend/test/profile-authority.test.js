@@ -7,6 +7,10 @@ const {
   pickSelfProfileFields
 } = require("../src/services/profile-authority");
 const {
+  ManagedUserProfilePolicyError,
+  assertManagedUserIdentityStable
+} = require("../src/services/managed-user-profile-policy");
+const {
   filterProfileDocumentsForViewer,
   sanitizeProfileForViewer
 } = require("../src/services/profile-visibility");
@@ -52,8 +56,6 @@ function testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule() {
     assert.equal(payload.name, "Company Admin");
     assert.deepEqual(payload.companyProfile, { companyName: "ManeComb Demo" });
     assert.deepEqual(payload.paymentProfile, { preferredMethod: "spei" });
-    // El horario pertenece al Directorio administrado; /users/me no es una
-    // segunda autoridad oculta para modificarlo desde Editar perfil.
     assert.equal(payload.operationalSchedule, undefined);
     assert.equal(payload.role, undefined);
     assert.equal(canManageOwnCompanyProfile({ accountType: "company_owner", role }), true);
@@ -100,60 +102,71 @@ function testFieldCatalogsRemainExplicit() {
   assert.deepEqual(getSelfProfileFields({ accountType: "company_owner", role: "viewer" }), PERSONAL_PROFILE_FIELDS);
 }
 
+function testProfileIdentityIsImmutableAfterCreation() {
+  const identities = [
+    { role: "owner", accountType: "company_owner" },
+    { role: "admin", accountType: "company_owner" },
+    { role: "admin", accountType: "operations" },
+    { role: "dispatcher", accountType: "operations" },
+    { role: "supervisor", accountType: "operations" },
+    { role: "billing_manager", accountType: "company_owner" },
+    { role: "support", accountType: "company_owner" },
+    { role: "viewer", accountType: "company_owner" },
+    { role: "driver", accountType: "operations" }
+  ];
+
+  for (const identity of identities) {
+    assert.doesNotThrow(() => assertManagedUserIdentityStable(identity, {}));
+    assert.doesNotThrow(() => assertManagedUserIdentityStable(identity, { ...identity }));
+    assert.throws(
+      () => assertManagedUserIdentityStable(identity, { role: identity.role === "admin" ? "viewer" : "admin" }),
+      (error) => error instanceof ManagedUserProfilePolicyError && error.code === "PROFILE_ROLE_IMMUTABLE"
+    );
+    assert.throws(
+      () => assertManagedUserIdentityStable(identity, {
+        accountType: identity.accountType === "operations" ? "company_owner" : "operations"
+      }),
+      (error) => error instanceof ManagedUserProfilePolicyError && error.code === "PROFILE_CHANNEL_IMMUTABLE"
+    );
+  }
+
+  assert.throws(
+    () => assertManagedUserIdentityStable(
+      { role: "admin", accountType: "operations" },
+      { role: "conductor" }
+    ),
+    (error) => error.code === "PROFILE_ROLE_IMMUTABLE"
+  );
+  assert.throws(
+    () => assertManagedUserIdentityStable(
+      { role: "viewer", accountType: "company_owner" },
+      { role: "not-a-role" }
+    ),
+    (error) => error.code === "PROFILE_ROLE_IMMUTABLE"
+  );
+}
+
 function testProfileDocumentsRemainTenantScoped() {
   const documents = [
-    {
-      id: "doc-own",
-      organizationId: "tenant-a",
-      ownerType: "driver",
-      ownerId: "driver-a"
-    },
-    {
-      id: "doc-same-tenant-other-driver",
-      organizationId: "tenant-a",
-      ownerType: "driver",
-      ownerId: "driver-b"
-    },
-    {
-      id: "doc-foreign",
-      organizationId: "tenant-b",
-      ownerType: "driver",
-      ownerId: "driver-c"
-    }
+    { id: "doc-own", organizationId: "tenant-a", ownerType: "driver", ownerId: "driver-a" },
+    { id: "doc-same-tenant-other-driver", organizationId: "tenant-a", ownerType: "driver", ownerId: "driver-b" },
+    { id: "doc-foreign", organizationId: "tenant-b", ownerType: "driver", ownerId: "driver-c" }
   ];
 
   const adminDocuments = filterProfileDocumentsForViewer(
-    {
-      id: "admin-a",
-      role: "admin",
-      accountType: "operations",
-      organizationId: "tenant-a"
-    },
+    { id: "admin-a", role: "admin", accountType: "operations", organizationId: "tenant-a" },
     documents
   );
-  assert.deepEqual(
-    adminDocuments.map((document) => document.id),
-    ["doc-own", "doc-same-tenant-other-driver"]
-  );
+  assert.deepEqual(adminDocuments.map((document) => document.id), ["doc-own", "doc-same-tenant-other-driver"]);
 
   const driverDocuments = filterProfileDocumentsForViewer(
-    {
-      id: "driver-a",
-      role: "driver",
-      accountType: "operations",
-      organizationId: "tenant-a"
-    },
+    { id: "driver-a", role: "driver", accountType: "operations", organizationId: "tenant-a" },
     documents
   );
   assert.deepEqual(driverDocuments.map((document) => document.id), ["doc-own"]);
 
   const hiddenForViewer = sanitizeProfileForViewer(
-    {
-      id: "viewer-a",
-      role: "viewer",
-      accountType: "company_owner",
-      organizationId: "tenant-a"
-    },
+    { id: "viewer-a", role: "viewer", accountType: "company_owner", organizationId: "tenant-a" },
     { user: { id: "viewer-a" }, documents }
   );
   assert.deepEqual(hiddenForViewer.documents, []);
@@ -165,8 +178,9 @@ function main() {
   testLimitedPortalRolesRemainPersonalOnly();
   testOperationalAdminDoesNotBecomeCompanyEditor();
   testFieldCatalogsRemainExplicit();
+  testProfileIdentityIsImmutableAfterCreation();
   testProfileDocumentsRemainTenantScoped();
-  console.log("ok - profile self-service authority");
+  console.log("ok - profile self-service and immutable identity authority");
 }
 
 main();
