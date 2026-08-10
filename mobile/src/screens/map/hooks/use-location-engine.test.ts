@@ -91,6 +91,13 @@ async function flushPromises() {
   await Promise.resolve();
 }
 
+const mountedRenderers: TestRenderer.ReactTestRenderer[] = [];
+
+function trackRenderer(renderer: TestRenderer.ReactTestRenderer) {
+  mountedRenderers.push(renderer);
+  return renderer;
+}
+
 describe('useLocationEngine capture ownership', () => {
   beforeAll(() => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
@@ -105,6 +112,7 @@ describe('useLocationEngine capture ownership', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mountedRenderers.splice(0, mountedRenderers.length);
     mockStoreState.activeRouteSession = null;
     mockStoreState.apiUrl = 'https://manecomb.test/api';
     mockStoreState.authContext = { canAccessMobile: true };
@@ -130,6 +138,12 @@ describe('useLocationEngine capture ownership', () => {
     });
   });
 
+  afterEach(() => {
+    act(() => {
+      mountedRenderers.splice(0, mountedRenderers.length).forEach((renderer) => renderer.unmount());
+    });
+  });
+
   it('starts once in foreground and releases its watcher in background', async () => {
     const result: { current: Snapshot | null } = { current: null };
     const onChange = (value: Snapshot) => {
@@ -138,7 +152,7 @@ describe('useLocationEngine capture ownership', () => {
     let renderer: TestRenderer.ReactTestRenderer;
 
     await act(async () => {
-      renderer = TestRenderer.create(React.createElement(Probe, { enabled: true, onChange }));
+      renderer = trackRenderer(TestRenderer.create(React.createElement(Probe, { enabled: true, onChange })));
     });
 
     expect(mockWatchNativeLocation).toHaveBeenCalledTimes(1);
@@ -162,7 +176,7 @@ describe('useLocationEngine capture ownership', () => {
 
   it('does not create a watcher while background owns capture', async () => {
     await act(async () => {
-      TestRenderer.create(React.createElement(Probe, { enabled: false, onChange: () => undefined }));
+      trackRenderer(TestRenderer.create(React.createElement(Probe, { enabled: false, onChange: () => undefined })));
     });
 
     expect(mockWatchNativeLocation).not.toHaveBeenCalled();
@@ -178,7 +192,7 @@ describe('useLocationEngine capture ownership', () => {
     };
 
     await act(async () => {
-      TestRenderer.create(React.createElement(Probe, { enabled: true, onChange: () => undefined }));
+      trackRenderer(TestRenderer.create(React.createElement(Probe, { enabled: true, onChange: () => undefined })));
     });
 
     expect(mockRequestForegroundPermission).toHaveBeenCalledTimes(1);
@@ -198,9 +212,9 @@ describe('useLocationEngine capture ownership', () => {
 
     let renderer: TestRenderer.ReactTestRenderer;
     act(() => {
-      renderer = TestRenderer.create(
+      renderer = trackRenderer(TestRenderer.create(
         React.createElement(Probe, { enabled: true, onChange: () => undefined })
-      );
+      ));
     });
     await act(flushPromises);
 
@@ -225,7 +239,7 @@ describe('useLocationEngine capture ownership', () => {
     let renderer: TestRenderer.ReactTestRenderer;
 
     await act(async () => {
-      renderer = TestRenderer.create(React.createElement(Probe, { enabled: true, onChange }));
+      renderer = trackRenderer(TestRenderer.create(React.createElement(Probe, { enabled: true, onChange })));
     });
     expect(mockWatchNativeLocation).toHaveBeenCalledTimes(1);
 
@@ -243,7 +257,7 @@ describe('useLocationEngine capture ownership', () => {
     mockStoreState.activeRouteSession = { id: 'session-1', status: 'RUNNING' };
 
     await act(async () => {
-      TestRenderer.create(React.createElement(Probe, { enabled: false, onChange: () => undefined }));
+      trackRenderer(TestRenderer.create(React.createElement(Probe, { enabled: false, onChange: () => undefined })));
     });
 
     expect(mockAcquireBackground).toHaveBeenCalledWith(
