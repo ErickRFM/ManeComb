@@ -43,6 +43,7 @@ export function ProfileScreen() {
   const scheduleState = getOperationalScheduleState(user.operationalSchedule);
   const scheduleLabel = formatOperationalSchedule(user.operationalSchedule);
   const presence = getPresenceStatus(presenceByUser, user.id);
+  const isDriver = user.role === 'driver';
 
   return (
     <AppShell
@@ -80,12 +81,24 @@ export function ProfileScreen() {
               <InfoTile icon="calendar-clock" label="Horario" value={`${scheduleLabel} - ${scheduleState.label}`} styles={styles} theme={theme} />
             </View>
 
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/perfil-editar')}
-              style={styles.documentUploadButton}>
-              <Text style={styles.documentUploadText}>Editar mi perfil</Text>
-            </Pressable>
+            <View style={styles.profileActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/perfil-editar')}
+                style={[styles.documentUploadButton, styles.profileActionButton]}>
+                <Text style={styles.documentUploadText}>Editar mi perfil</Text>
+              </Pressable>
+
+              {isDriver ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push('/mis-documentos')}
+                  style={[styles.profileActionButton, styles.documentSelfServiceButton]}>
+                  <MaterialCommunityIcons name="file-document-outline" size={18} color={theme.colors.accent} />
+                  <Text style={styles.documentSelfServiceText}>Mis documentos</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </AppCard>
 
