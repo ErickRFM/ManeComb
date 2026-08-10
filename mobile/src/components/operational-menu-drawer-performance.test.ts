@@ -1,3 +1,5 @@
+export {};
+
 const fs = jest.requireActual('fs') as {
   readFileSync: (filePath: string, encoding: string) => string;
 };
