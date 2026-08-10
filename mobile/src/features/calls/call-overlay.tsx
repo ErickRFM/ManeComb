@@ -8,7 +8,6 @@ import { Linking } from 'react-native';
 import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
 import { setIncomingCallWindowActive } from '@/src/native/call-service';
 import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
-import { ensureCallMediaPermissionsForUi } from './call-permission-ui';
 import {
   resetCallForegroundService,
   setCallForegroundServiceMode,
@@ -18,6 +17,7 @@ import { parsePushCallIntent, type PushCallIntent } from './call-push-intent';
 import { createNativeCallRuntime } from './call-runtime';
 import type { CallSocket } from './call-types';
 import { ActiveCallModal } from './components/active-call-modal';
+import { CallPermissionModal } from './components/call-permission-modal';
 import { IncomingCallModal } from './components/incoming-call-modal';
 
 setCallRuntimeFactory(createNativeCallRuntime);
@@ -30,6 +30,7 @@ export function CallOverlay(): React.ReactElement {
   const phase = useCallStore((state) => state.phase);
   const direction = useCallStore((state) => state.direction);
   const mode = useCallStore((state) => state.mode);
+  const localStream = useCallStore((state) => state.localStream);
   const [pendingPushCall, setPendingPushCall] = useState<PushCallIntent | null>(null);
   const consumedPushCalls = useRef(new Set<string>());
   const dismissedCallIds = useRef(new Set<string>());
@@ -110,25 +111,21 @@ export function CallOverlay(): React.ReactElement {
       return;
     }
 
-    const intent = pendingPushCall;
-    consumedPushCalls.current.add(intent.key);
+    consumedPushCalls.current.add(pendingPushCall.key);
     setPendingPushCall(null);
-
-    if (intent.action === 'accept') {
-      // El usuario ya pulsó Aceptar en la notificación, pero el backend no debe
-      // recibir accept hasta que Android haya concedido la media requerida.
-      void (async () => {
-        const granted = await ensureCallMediaPermissionsForUi(
-          intent.mode === 'video' ? 'video' : 'audio'
-        );
-        if (!granted) return;
-        await useCallStore.getState().acceptIncomingCall();
-      })().catch(() => undefined);
+    if (pendingPushCall.action === 'accept') {
+      // El store aplica el mismo preflight que el botón de llamada. El accept
+      // de un deep link no puede saltarse permisos ni adelantar CONNECTING.
+      useCallStore.getState().acceptIncomingCall().catch(() => undefined);
     }
   }, [pendingPushCall, socket, socketStatus]);
 
-  const needsForegroundService =
+  const hasActiveCallPhase =
     phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
+  // Android 14+ exige permiso concedido y captura válida antes de elevar el
+  // foreground service de micrófono/cámara. localStream prueba que el preflight
+  // y getUserMedia terminaron correctamente.
+  const needsForegroundService = hasActiveCallPhase && Boolean(localStream);
   const needsIncomingCallWindow =
     direction === 'incoming' &&
     (
@@ -176,6 +173,7 @@ export function CallOverlay(): React.ReactElement {
       <RadioLiveOverlay />
       <IncomingCallModal />
       <ActiveCallModal />
+      <CallPermissionModal />
     </>
   );
 }
