@@ -15,6 +15,23 @@ export function buildPaymentRoute(planId: string | undefined, requestTrial: bool
   return Object.keys(params).length ? { pathname: '/ventas/pago', params } : '/portal';
 }
 
+export function validateRegistrationPassword(password: string) {
+  const safePassword = String(password || '').trim();
+  const hasLetter = /[A-Za-z]/.test(safePassword);
+  const hasNumber = /\d/.test(safePassword);
+  const hasSpecial = /[^A-Za-z0-9]/.test(safePassword);
+
+  if (safePassword.length < 8) {
+    return 'La contraseña debe tener al menos 8 caracteres.';
+  }
+
+  if (!hasLetter || !hasNumber || !hasSpecial) {
+    return 'La contraseña debe incluir letras, números y al menos un carácter especial.';
+  }
+
+  return null;
+}
+
 export function normalizeIdentity(rawValue: string): AuthIdentity {
   const value = rawValue.trim();
   const normalizedEmail = value.toLowerCase();

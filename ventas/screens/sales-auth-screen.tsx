@@ -20,7 +20,7 @@ import { AuthFeedback } from './auth/components/auth-feedback';
 import { AuthSubmitButton } from './auth/components/auth-submit-button';
 import { AuthLegalLinks } from './auth/components/auth-legal-links';
 
-import { getFirstParam, normalizeIdentity, buildPaymentRoute } from './auth/auth.utils';
+import { buildPaymentRoute, getFirstParam, normalizeIdentity, validateRegistrationPassword } from './auth/auth.utils';
 import { authStyles as styles } from './auth/auth.styles';
 import { formatCurrency } from './shared/utils';
 import { setRecoveryEmail } from './password-recovery/password-recovery.session';
@@ -142,6 +142,12 @@ export function SalesAuthScreen({ mode }: Props) {
 
     if (registerPassword !== registerConfirmPassword) {
       setHelperMessage('Las contraseñas no coinciden.');
+      return;
+    }
+
+    const passwordValidationMessage = validateRegistrationPassword(registerPassword);
+    if (passwordValidationMessage) {
+      setHelperMessage(passwordValidationMessage);
       return;
     }
 

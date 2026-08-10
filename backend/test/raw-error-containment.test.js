@@ -3,6 +3,7 @@ const http = require("node:http");
 
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const { listSessionsForUser } = require("../src/services/sessions");
 const { signToken } = require("../src/utils/jwt");
 
 async function requestJson(url, { token, ...init } = {}) {
@@ -166,7 +167,104 @@ async function run() {
       );
     }
 
-    console.log("ok - 8 modulos preservan status, ocultan detalle tecnico y registran el error real");
+    const weakPasswordEmail = "registro-password-debil@prueba.test";
+    const weakPasswordResult = await requestJson(`${context.baseUrl}/auth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Password Debil",
+        email: weakPasswordEmail,
+        password: "Ruta1234",
+        accountType: "company_owner"
+      })
+    });
+    assert.equal(weakPasswordResult.status, 400);
+    assert.equal(
+      weakPasswordResult.body.message,
+      "La contraseña debe incluir letras, números y al menos un carácter especial"
+    );
+    assert.equal(await context.store.findUserByEmail(weakPasswordEmail), null);
+
+    const duplicateEmailResult = await requestJson(`${context.baseUrl}/auth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Correo Duplicado",
+        email: context.admin.email,
+        password: "Ruta123!",
+        accountType: "company_owner"
+      })
+    });
+    assert.equal(duplicateEmailResult.status, 409);
+    assert.equal(
+      duplicateEmailResult.body.message,
+      "Este correo ya esta registrado. Inicia sesion o recupera tu contrasena."
+    );
+
+    const rollbackEmail = "registro-rollback@prueba.test";
+    const rollbackMarker = "TECH_AUTH_POST_CREATE_709";
+    const originalRegisterUser = context.store.registerUser;
+    const originalListCommercialOrdersForUser = context.store.listCommercialOrdersForUser;
+    let rollbackUser = null;
+
+    context.store.registerUser = async (payload) => {
+      rollbackUser = await originalRegisterUser(payload);
+      return rollbackUser;
+    };
+    context.store.listCommercialOrdersForUser = async () => {
+      throw new Error(rollbackMarker);
+    };
+
+    let rollbackResult;
+    try {
+      rollbackResult = await requestJson(`${context.baseUrl}/auth/register`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Registro Rollback",
+          email: rollbackEmail,
+          password: "Ruta123!",
+          companyName: "Flotilla Rollback",
+          accountType: "company_owner"
+        })
+      });
+    } finally {
+      context.store.registerUser = originalRegisterUser;
+      context.store.listCommercialOrdersForUser = originalListCommercialOrdersForUser;
+    }
+
+    assert.ok(rollbackUser?.id, "El fallo debe ocurrir después de crear temporalmente la cuenta");
+    assert.equal(rollbackResult.status, 400);
+    assert.equal(rollbackResult.body.message, "No fue posible registrar la cuenta");
+    assert.equal(JSON.stringify(rollbackResult.body).includes(rollbackMarker), false);
+    assert.equal(await context.store.findUserByEmail(rollbackEmail), null);
+
+    const rollbackSessions = await listSessionsForUser(rollbackUser.id);
+    assert.equal(
+      rollbackSessions.some((session) => session.isActive),
+      false,
+      "Un registro revertido no debe conservar sesiones activas"
+    );
+    assert.ok(
+      technicalLogs.some((entry) => entry.includes(rollbackMarker)),
+      "La causa técnica del rollback debe conservarse en logs"
+    );
+
+    const successEmail = "registro-completo@prueba.test";
+    const successResult = await requestJson(`${context.baseUrl}/auth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Registro Completo",
+        email: successEmail,
+        password: "Ruta123!",
+        companyName: "Flotilla Completa",
+        accountType: "company_owner"
+      })
+    });
+    assert.equal(successResult.status, 201);
+    assert.equal(successResult.body.ok, true);
+    assert.equal(successResult.body.user.email, successEmail);
+    assert.ok(successResult.body.token);
+    assert.ok(await context.store.findUserByEmail(successEmail));
+
+    console.log("ok - errores contenidos y registro de ventas valida, revierte fallos parciales y permite reintento limpio");
   } finally {
     console.error = originalConsoleError;
     await context.close();

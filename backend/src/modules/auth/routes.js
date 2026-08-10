@@ -94,6 +94,134 @@ const passwordResetLimiter = enterpriseRateLimit({
 });
 const PASSWORD_RECOVERY_ACCEPTED_MESSAGE =
   "Solicitud recibida. Revisa tu correo para continuar con la recuperacion.";
+const REGISTRATION_PASSWORD_ERRORS = new Set([
+  "La contraseña debe tener al menos 8 caracteres",
+  "La contraseña debe incluir letras, números y al menos un carácter especial"
+]);
+
+function getRegistrationPublicError(error) {
+  const message = String(error?.message || "").trim();
+
+  if (message === "El correo ya existe") {
+    return {
+      statusCode: 409,
+      publicMessage: "Este correo ya esta registrado. Inicia sesion o recupera tu contrasena."
+    };
+  }
+
+  if (REGISTRATION_PASSWORD_ERRORS.has(message)) {
+    return {
+      statusCode: 400,
+      publicMessage: message
+    };
+  }
+
+  if (/Nombre, correo y contrase(?:n|ñ)a son obligatorios/i.test(message)) {
+    return {
+      statusCode: 400,
+      publicMessage: "Nombre, correo y contrasena son obligatorios"
+    };
+  }
+
+  return {
+    statusCode: 400,
+    publicMessage: "No fue posible registrar la cuenta"
+  };
+}
+
+async function sendWelcomeEmailBestEffort(user) {
+  try {
+    const delivery = await communication.sendEmail({
+      recipient: { email: user.email, name: user.name },
+      template: "welcome",
+      eventType: "WELCOME",
+      tenantScope: user.organizationId ? `organization:${user.organizationId}` : `user:${user.id}`,
+      organizationId: user.organizationId || undefined,
+      idempotencyKey: `welcome:${user.id}`,
+      data: {
+        name: user.name,
+        dashboardUrl: APP_URL,
+        userId: user.id,
+        organizationId: user.organizationId
+      }
+    });
+
+    if (isDeliveryFailed(delivery)) {
+      logger.error({
+        action: "WelcomeEmail",
+        module: "Auth",
+        message: "No fue posible confirmar el correo de bienvenida",
+        metadata: {
+          recipient: communication.security.maskEmail(user.email),
+          error: delivery.error,
+          provider: communication.getProviderName(),
+          template: "welcome"
+        }
+      });
+    }
+  } catch (error) {
+    logger.error({
+      action: "WelcomeEmail",
+      module: "Auth",
+      message: "Error enviando correo de bienvenida",
+      metadata: {
+        recipient: communication.security.maskEmail(user?.email),
+        error: communication.security.sanitizeProviderError(error),
+        provider: communication.getProviderName(),
+        template: "welcome"
+      }
+    });
+  }
+}
+
+async function rollbackCreatedRegistration(req, user, cause) {
+  if (!user?.id) {
+    return;
+  }
+
+  const store = req.app.locals.store;
+  let revokedCount = 0;
+  let userDeleted = false;
+  let sessionRollbackError = null;
+  let userRollbackError = null;
+
+  try {
+    revokedCount = await revokeAllSessions(user.id, null, "registration_rollback");
+  } catch (error) {
+    sessionRollbackError = communication.security.sanitizeProviderError(error);
+  }
+
+  try {
+    userDeleted = Boolean(await store.deleteUser?.(user.id));
+  } catch (error) {
+    userRollbackError = communication.security.sanitizeProviderError(error);
+  }
+
+  const rollbackComplete = userDeleted && !sessionRollbackError && !userRollbackError;
+  const logPayload = {
+    action: "RegistrationRollback",
+    module: "Auth",
+    organizationId: user.organizationId,
+    userId: user.id,
+    status: rollbackComplete ? "rolled_back" : "partial",
+    message: rollbackComplete
+      ? "Registro incompleto revertido; la cuenta puede intentarse nuevamente"
+      : "El rollback de un registro incompleto no pudo completarse",
+    metadata: {
+      cause: communication.security.sanitizeProviderError(cause),
+      revokedCount,
+      sessionRollbackError,
+      userDeleted,
+      userRollbackError
+    }
+  };
+
+  if (rollbackComplete) {
+    logger.warn(logPayload);
+  } else {
+    logger.error(logPayload);
+  }
+}
 
 function shouldLogAuthAccessDecision() {
   return process.env.AUTH_ACCESS_DEBUG === "true" || process.env.NODE_ENV === "development";
@@ -234,8 +362,10 @@ router.post("/register", authLimiter, async (req, res, next) => {
     });
   }
 
+  let createdUser = null;
+
   try {
-    const user = await req.app.locals.store.registerUser({
+    createdUser = await req.app.locals.store.registerUser({
       name,
       email,
       password,
@@ -244,44 +374,17 @@ router.post("/register", authLimiter, async (req, res, next) => {
       accountType
     });
 
-    {
-      const delivery = await communication.sendEmail({
-        recipient: { email: user.email, name: user.name },
-        template: "welcome",
-        eventType: "WELCOME",
-        tenantScope: user.organizationId ? `organization:${user.organizationId}` : `user:${user.id}`,
-        organizationId: user.organizationId || undefined,
-        idempotencyKey: `welcome:${user.id}`,
-        data: {
-          name: user.name,
-          dashboardUrl: APP_URL,
-          userId: user.id,
-          organizationId: user.organizationId
-        }
-      }).catch((error) => createDeliveryResult({
-        status: "failed",
-        error: communication.security.sanitizeProviderError(error)
-      }));
-
-      if (isDeliveryFailed(delivery)) {
-        logger.error({
-          action: "WelcomeEmail",
-          module: "Auth",
-          message: "No fue posible confirmar el correo de bienvenida",
-          metadata: {
-            recipient: communication.security.maskEmail(user.email),
-            error: delivery.error,
-            provider: communication.getProviderName(),
-            template: "welcome"
-          }
-        });
-      }
+    const response = await buildLoginResponse(req, res, createdUser, 201, "auth.register");
+    void sendWelcomeEmailBestEffort(createdUser);
+    return response;
+  } catch (error) {
+    if (createdUser?.id && !res.headersSent) {
+      await rollbackCreatedRegistration(req, createdUser, error);
     }
 
-    return buildLoginResponse(req, res, user, 201, "auth.register");
-  } catch (error) {
-    error.statusCode = error.message === "El correo ya existe" ? 409 : 400;
-    error.publicMessage = "No fue posible registrar la cuenta";
+    const registrationError = getRegistrationPublicError(error);
+    error.statusCode = registrationError.statusCode;
+    error.publicMessage = registrationError.publicMessage;
     return next(error);
   }
 });
