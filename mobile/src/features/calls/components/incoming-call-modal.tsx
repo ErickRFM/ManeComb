@@ -1,12 +1,11 @@
 // RC-MOBILE-CALLS-PRODUCTION-01 Bloque B — Modal global de llamada entrante.
 // Se monta en el root de la app (por encima de los navegadores). Accesible desde cualquier
-// pantalla. NO abre la conversacion, NO crea peer; el permiso de media se resuelve antes de aceptar.
+// pantalla. NO abre la conversacion, NO crea peer, NO pide microfono (eso es Bloque C/D).
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ensureCallMediaPermissionsForUi } from '../call-permission-ui';
 import { useCallStore } from '../call-store';
 
 export function IncomingCallModal(): React.ReactElement | null {
@@ -32,39 +31,17 @@ export function IncomingCallModal(): React.ReactElement | null {
 
   if (!visible) return null;
 
-  const reject = () => {
-    if (actingRef.current) return;
+  const guard = (fn: () => void) => () => {
+    if (actingRef.current) return; // bloquea doble tap
     actingRef.current = true;
     setActing(true);
-    rejectIncomingCall();
-  };
-
-  const accept = async () => {
-    if (actingRef.current) return;
-    actingRef.current = true;
-    setActing(true);
-
-    const granted = await ensureCallMediaPermissionsForUi(mode === 'video' ? 'video' : 'audio');
-    if (!granted) {
-      // La llamada sigue en INCOMING_RINGING: no se emitió accept al backend y
-      // el usuario puede conceder el permiso y volver a intentar mientras siga vigente.
-      actingRef.current = false;
-      setActing(false);
-      return;
-    }
-
-    try {
-      await acceptIncomingCall();
-    } catch {
-      actingRef.current = false;
-      setActing(false);
-    }
+    fn();
   };
 
   const modeLabel = mode === 'video' ? 'Videollamada' : 'Llamada de audio';
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={reject} statusBarTranslucent>
+    <Modal visible transparent animationType="fade" onRequestClose={guard(rejectIncomingCall)} statusBarTranslucent>
       <View style={styles.backdrop}>
         <View style={[styles.card, { marginTop: insets.top + 24, marginBottom: insets.bottom + 24 }]}>
           <View style={styles.avatar}>
@@ -82,7 +59,7 @@ export function IncomingCallModal(): React.ReactElement | null {
               accessibilityRole="button"
               accessibilityLabel="Rechazar llamada"
               disabled={acting}
-              onPress={reject}
+              onPress={guard(rejectIncomingCall)}
               style={({ pressed }) => [styles.button, styles.reject, pressed && styles.pressed]}>
               <Text style={styles.buttonText}>Rechazar</Text>
             </Pressable>
@@ -90,7 +67,7 @@ export function IncomingCallModal(): React.ReactElement | null {
               accessibilityRole="button"
               accessibilityLabel="Aceptar llamada"
               disabled={acting}
-              onPress={() => { void accept(); }}
+              onPress={guard(acceptIncomingCall)}
               style={({ pressed }) => [styles.button, styles.accept, pressed && styles.pressed]}>
               <Text style={styles.buttonText}>Aceptar</Text>
             </Pressable>
