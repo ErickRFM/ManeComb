@@ -242,6 +242,9 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
           zoomLevel: toZoom(initialRegion),
         }}
       />
+      {/* Antes que los hijos: garantiza la capa de anotaciones a la que se
+          anclan las lineas de ruta, aunque la pantalla no monte ningun pin. */}
+      <MapAnnotationAnchor />
       {children}
     </Mapbox.MapView>
   );
@@ -254,6 +257,42 @@ const lineLayerStyle = {
   lineOpacity: 0.78,
   lineWidth: 3,
 };
+
+/**
+ * Capa de anotaciones de @rnmapbox/maps.
+ *
+ * `PointAnnotation` no es una vista sobre el mapa: se rasteriza y se dibuja como
+ * simbolos en una capa del style graph, creada por
+ * `RNMBXPointAnnotationCoordinator` con este id fijo. Las `LineLayer` de ruta se
+ * insertaban despues, asi que quedaban POR ENCIMA de los pines de origen/destino
+ * y el trazado los atravesaba.
+ *
+ * Anclar las lineas debajo de esta capa impone el orden real del style graph. No
+ * es un zIndex de UI: `MarkerView` (paradas) y los overlays de React ya van sobre
+ * la superficie del mapa por construccion.
+ */
+export const MAP_ANNOTATION_LAYER_ID = 'RNMBX-mapview-annotations';
+
+/**
+ * Ancla invisible.
+ *
+ * `belowLayerID` se resuelve con `waitForLayer`, que encola la insercion sin
+ * timeout hasta que la capa exista. Un mapa que dibujara rutas sin ningun
+ * `PointAnnotation` montado no anadiria nunca la linea. Montar una anotacion
+ * vacia garantiza que la capa de anotaciones existe siempre; va en Null Island,
+ * fuera de cualquier area operativa.
+ */
+const ANNOTATION_ANCHOR_COORDINATE: [number, number] = [0, 0];
+
+export function MapAnnotationAnchor() {
+  return (
+    <Mapbox.PointAnnotation
+      id="manecomb-annotation-anchor"
+      coordinate={ANNOTATION_ANCHOR_COORDINATE}>
+      <View style={styles.annotationAnchor} />
+    </Mapbox.PointAnnotation>
+  );
+}
 
 export const AppMapPolyline = memo(function AppMapRouteLine({
   coordinates,
@@ -285,6 +324,7 @@ export const AppMapPolyline = memo(function AppMapRouteLine({
     <Mapbox.ShapeSource id={sourceId} shape={shape}>
       <Mapbox.LineLayer
         id={`${sourceId}-line`}
+        belowLayerID={MAP_ANNOTATION_LAYER_ID}
         style={{
           ...lineLayerStyle,
           lineBlur,
@@ -328,6 +368,10 @@ export const AppMapMarker = memo(function AppMapPointMarker({
 });
 
 const styles = StyleSheet.create({
+  annotationAnchor: {
+    height: 0,
+    width: 0,
+  },
   markerHost: {
     alignItems: 'center',
     justifyContent: 'center',
