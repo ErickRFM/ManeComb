@@ -298,6 +298,20 @@ function fakeStore(conversation) {
     assert.equal(await h.service.isCallMember(call.callId, admin.id), false);
   }
 
+  // A second live socket for the same logical user must never evict the winner from the RTC room.
+  {
+    const socketSource = require("node:fs").readFileSync(
+      require("node:path").join(__dirname, "../src/sockets/index.js"),
+      "utf8"
+    );
+    const joinStart = socketSource.indexOf('socket.on("rtc:join"');
+    const joinEnd = socketSource.indexOf('// C.1: leave/offer/answer/ICE/stats', joinStart);
+    assert.ok(joinStart >= 0 && joinEnd > joinStart, "rtc:join contract must remain discoverable");
+    const joinBlock = socketSource.slice(joinStart, joinEnd);
+    assert.ok(joinBlock.includes('reason: "already_connected_elsewhere"'));
+    assert.equal(joinBlock.includes('socketsLeave'), false, "a live sibling socket must not evict the active device");
+  }
+
   console.log("ok - rtc-call-signaling async authority contract");
 })().catch((error) => {
   console.error(error);
