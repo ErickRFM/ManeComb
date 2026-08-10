@@ -13,6 +13,7 @@ import {
 export function ChatScreen() {
   const controller = useChatController();
   const {
+    callNotice,
     handleOpenDirect: openDirectConversation,
     handleOpenGeneral: openGeneralConversation,
     handleSelectConversation: selectConversation,
@@ -27,12 +28,13 @@ export function ChatScreen() {
   const pinnedConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (permissionPrompt) {
-      // El modal global de permisos es la autoridad de recuperación. Evita que
-      // quede detrás un aviso genérico de "No fue posible iniciar la llamada".
+    if (permissionPrompt && callNotice) {
+      // El modal global de permisos es la autoridad de recuperación. callNotice
+      // también está en las dependencias para cubrir la carrera en la que
+      // startCall devuelve media_permission_required después del primer render.
       setCallNotice(null);
     }
-  }, [permissionPrompt, setCallNotice]);
+  }, [callNotice, permissionPrompt, setCallNotice]);
 
   useEffect(() => {
     const activeConversation = conversations.find(
