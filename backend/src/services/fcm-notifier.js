@@ -98,6 +98,11 @@ function buildDataPayload(payload = {}) {
     ...(payload.data || {}),
     type,
     category,
+    // `level` es la gravedad ya resuelta por backend (critical/warning/info).
+    // Sin reenviarla, el dispositivo tendria que volver a deducirla desde
+    // `severity` o desde el texto del titulo, creando una segunda autoridad de
+    // politica. Viaja para que Android la consuma, no la recalcule.
+    level: String(payload.level || payload.data?.level || "").trim(),
     title: String(payload.title || "").trim(),
     body: String(payload.body || "").trim(),
     deepLink: String(payload.deepLink || payload.data?.deepLink || "").trim(),
