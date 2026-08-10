@@ -3,6 +3,7 @@ const http = require("node:http");
 
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const { resolveAccountChannel } = require("../src/services/account-channel");
 const { signToken } = require("../src/utils/jwt");
 
 async function startServer() {
@@ -143,19 +144,19 @@ async function testManagedUserCreationUsesCanonicalProfiles() {
     assert.equal(supervisor.status, 201);
     assert.equal(supervisor.payload.data.role, "supervisor");
     assert.equal(supervisor.payload.data.accountType, "operations");
-    assert.equal(supervisor.payload.data.accountChannel, "mobile_operations");
+    assert.equal(resolveAccountChannel(supervisor.payload.data).channel, "mobile_operations");
 
     const billing = await create({ role: "billing_manager", accountType: "operations" });
     assert.equal(billing.status, 201);
     assert.equal(billing.payload.data.role, "billing_manager");
     assert.equal(billing.payload.data.accountType, "company_owner");
-    assert.equal(billing.payload.data.accountChannel, "company_portal");
+    assert.equal(resolveAccountChannel(billing.payload.data).channel, "company_portal");
 
     const admin = await create({ role: "admin" });
     assert.equal(admin.status, 201);
     assert.equal(admin.payload.data.role, "admin");
     assert.equal(admin.payload.data.accountType, "company_owner");
-    assert.equal(admin.payload.data.accountChannel, "company_portal");
+    assert.equal(resolveAccountChannel(admin.payload.data).channel, "company_portal");
 
     const createdDrivers = (await context.store.listUsers(owner)).filter((entry) => entry.role === "driver");
     assert.equal(createdDrivers.length, 0, "el CRUD administrativo nunca debe fabricar drivers");
