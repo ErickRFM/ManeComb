@@ -30,9 +30,9 @@ async function createEvidenceSession(store, {
   accuracy = 12, intervalMs = 30000, gapAfter = null
 }) {
   const start = new Date(Date.UTC(2026, 6, 1 + index, 12, 0, 0));
-  // Este helper genera evidencia geométrica sintética, no una operación física de
-  // un conductor. No inventar driverId: el guard de jornadas debe reservar esa
-  // relación para sesiones iniciadas por un driver real y asignado.
+  // Auto-route learning tests synthesize historical vehicle evidence. They do
+  // not model a live authenticated driver's journey, so they must not invent a
+  // driverId that violates the canonical route-session lifecycle guard.
   const created = await store.createRouteSession({
     organizationId, routeId: `recording:${vehicleId}`, vehicleId,
     startedAt: start.toISOString()
