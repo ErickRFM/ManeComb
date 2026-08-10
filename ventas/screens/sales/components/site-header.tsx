@@ -37,10 +37,11 @@ export function SiteHeader({
         return [
           styles.navItem,
           stacked ? styles.navItemPhone : undefined,
+          stacked ? { minHeight: 44, paddingHorizontal: 8 } : undefined,
           hovered ? styles.navItemHover : undefined,
           webStyle({
             cursor: 'pointer',
-            transitionDuration: '240ms',
+            transitionDuration: '220ms',
             transitionProperty: 'color, background-color, border-color, transform',
           }),
         ];
@@ -57,21 +58,21 @@ export function SiteHeader({
         styles.headerShell,
         compact ? styles.headerShellCompact : undefined,
         stacked ? styles.headerShellPhone : undefined,
-        stacked ? { minHeight: 100, paddingVertical: 8 } : undefined,
+        stacked ? { minHeight: 88, paddingVertical: 6 } : undefined,
         webStyle({
           backdropFilter: 'blur(22px) saturate(160%)',
           WebkitBackdropFilter: 'blur(22px) saturate(160%)',
           boxShadow: compact
-            ? '0 14px 42px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(245, 247, 255, 0.08)'
+            ? '0 12px 34px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(245, 247, 255, 0.08)'
             : '0 1px 0 rgba(245, 247, 255, 0.08)',
         }),
       ]}>
-      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined, stacked ? { gap: 7 } : undefined]}>
+      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined, stacked ? { gap: 4 } : undefined]}>
         <View style={styles.headerTopRow}>
           <BrandLogo size={stacked ? 'sm' : 'md'} align="left" plain />
           {stacked ? (
             <View style={styles.headerActions}>
-              <ActionButton label="Entrar" icon="login" variant="ghost" compact onPress={onLogin} />
+              <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
               <ActionButton label="Elegir plan" icon="arrow-right" compact onPress={onBuy} />
             </View>
           ) : null}
