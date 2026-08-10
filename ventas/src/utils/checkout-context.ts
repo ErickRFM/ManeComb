@@ -96,10 +96,12 @@ export function getOrCreateCheckoutIdempotencyKey(input: {
   selectedAddOns: string[];
 }) {
   const safeRequestTrial = normalizeTrialIntent(input.planId, input.requestTrial);
+  const requestedMethod = String(input.paymentMethod || '').trim().toLowerCase();
+  const normalizedTrialMethod = safeRequestTrial && requestedMethod === 'card' ? 'card' : 'trial';
   const normalized = {
     userId: String(input.userId || '').trim(),
     planId: String(input.planId || '').trim().toLowerCase(),
-    paymentMethod: String(safeRequestTrial ? 'trial' : input.paymentMethod || '').trim().toLowerCase(),
+    paymentMethod: safeRequestTrial ? normalizedTrialMethod : requestedMethod,
     requestTrial: safeRequestTrial,
     selectedAddOns: Array.from(new Set(input.selectedAddOns.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean))).sort(),
   };
