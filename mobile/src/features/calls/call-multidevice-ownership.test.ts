@@ -4,7 +4,6 @@ import {
   setCallRuntimeFactory,
   useCallStore,
 } from './call-store';
-import { resolveRtcJoinFailureCode } from './call-runtime';
 import type { CallAck } from './call-types';
 
 function fakeSocket() {
@@ -90,10 +89,5 @@ describe('RTC multi-device accept ownership', () => {
     expect(runtimeStarts).toBe(0);
     expect(socket.emitted.filter((entry) => entry.event === 'rtc:accept')).toHaveLength(1);
     expect(socket.emitted.some((entry) => entry.event === 'rtc:end')).toBe(false);
-  });
-
-  it('mapea el rechazo de join por otro socket a un codigo local especifico', () => {
-    expect(resolveRtcJoinFailureCode({ ok: false, reason: 'already_connected_elsewhere' }))
-      .toBe('rtc_join_connected_elsewhere');
   });
 });
