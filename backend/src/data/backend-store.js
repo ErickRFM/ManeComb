@@ -70,9 +70,9 @@ function buildBackendStore(baseStore, dependencies = {}) {
       }, {})
     : {};
 
-  // These methods enforce enterprise tenant boundaries independently of the
-  // persistence adapter. Keep them behind repositories in embedded/test too,
-  // while other legacy embedded domains migrate deliberately.
+  // These methods enforce enterprise tenant/identity boundaries independently
+  // of the persistence adapter. Keep them behind repositories in embedded/test
+  // too, while other legacy embedded domains migrate deliberately.
   const invariantMethods = {
     deleteRoute: services.fleet.deleteRoute.bind(services.fleet),
     getDashboardOverview: services.fleet.getDashboardOverview.bind(services.fleet),
@@ -81,7 +81,8 @@ function buildBackendStore(baseStore, dependencies = {}) {
     listRoutes: services.fleet.listRoutes.bind(services.fleet),
     listUsers: services.users.listUsers.bind(services.users),
     markNotificationAsRead: services.notifications.markNotificationAsRead.bind(services.notifications),
-    updateRoute: services.fleet.updateRoute.bind(services.fleet)
+    updateRoute: services.fleet.updateRoute.bind(services.fleet),
+    updateUser: services.users.updateUser.bind(services.users)
   };
 
   const backendStore = {
