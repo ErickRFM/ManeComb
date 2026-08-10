@@ -198,8 +198,10 @@ class ManeCombDocumentViewerActivity : Activity() {
         }
       }
     } finally {
+      // PdfRenderer toma propiedad del ParcelFileDescriptor y lo cierra aquí.
+      // No se debe cerrar el descriptor una segunda vez porque algunos OEM
+      // propagan EBADF y terminarían sustituyendo un PDF válido por la vista de error.
       renderer.close()
-      descriptor.close()
     }
   }
 
