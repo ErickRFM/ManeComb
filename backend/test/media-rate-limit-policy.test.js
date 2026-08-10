@@ -2,10 +2,26 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const {
+  AUTHENTICATED_API_MAX,
+  AUTHENTICATED_API_WINDOW_MS,
   GENERAL_API_MAX,
   MEDIA_READ_MAX,
-  isMediaReadRequest
+  authenticatedApiKey,
+  createRateLimitHandler,
+  getVerifiedBearerIdentity,
+  isAuthApiRequest,
+  isMediaReadRequest,
+  selectGeneralApiRateLimitScope,
+  shouldSkipGeneralApiRateLimit
 } = require("../src/middlewares/api-rate-limit");
+const { signToken } = require("../src/utils/jwt");
+
+const operationalToken = signToken({
+  id: "rate-limit-user",
+  role: "DRIVER",
+  email: "rate-limit@example.test",
+  organizationId: "rate-limit-org"
+});
 
 assert.equal(
   isMediaReadRequest({ method: "GET", originalUrl: "/api/chat/media/mongo__abc" }),
@@ -33,7 +49,102 @@ assert.equal(
 );
 
 assert.equal(GENERAL_API_MAX, 200);
+assert.equal(AUTHENTICATED_API_MAX, 120);
+assert.equal(AUTHENTICATED_API_WINDOW_MS, 60_000);
 assert.equal(MEDIA_READ_MAX, 180);
+
+assert.equal(isAuthApiRequest({ originalUrl: "/api/auth/login" }), true);
+assert.equal(isAuthApiRequest({ originalUrl: "/api/auth/me?appVersion=1.3.0" }), true);
+assert.equal(
+  selectGeneralApiRateLimitScope({ method: "POST", originalUrl: "/api/auth/login", headers: {} }),
+  "skip",
+  "Auth must only consume its explicit route limiter"
+);
+
+const authenticatedOperationalRequest = {
+  method: "GET",
+  originalUrl: "/api/locations/live",
+  headers: { authorization: `Bearer ${operationalToken}` }
+};
+assert.equal(
+  shouldSkipGeneralApiRateLimit(authenticatedOperationalRequest),
+  true,
+  "Authenticated operational traffic must not consume the anonymous perimeter bucket"
+);
+assert.equal(
+  selectGeneralApiRateLimitScope(authenticatedOperationalRequest),
+  "authenticated",
+  "Verified Bearer traffic must consume the bounded authenticated perimeter"
+);
+assert.deepEqual(getVerifiedBearerIdentity(authenticatedOperationalRequest), {
+  organizationId: "rate-limit-org",
+  sub: "rate-limit-user"
+});
+assert.equal(
+  authenticatedApiKey(authenticatedOperationalRequest),
+  "auth:rate-limit-org:rate-limit-user",
+  "Authenticated quota must be isolated per tenant and user"
+);
+
+const invalidBearerRequest = {
+  method: "GET",
+  originalUrl: "/api/locations/live",
+  headers: { authorization: "Bearer invalid-credential" }
+};
+assert.equal(
+  shouldSkipGeneralApiRateLimit(invalidBearerRequest),
+  false,
+  "Invalid Bearer text must not bypass the anonymous perimeter bucket"
+);
+assert.equal(selectGeneralApiRateLimitScope(invalidBearerRequest), "anonymous");
+assert.equal(
+  selectGeneralApiRateLimitScope({ method: "GET", originalUrl: "/api/public-probe", headers: {} }),
+  "anonymous",
+  "Unauthenticated non-Auth traffic remains protected by the general limiter"
+);
+
+// A representative reconciliation is about a dozen operational reads. The
+// authenticated burst perimeter intentionally permits at least ten of those in
+// a minute, while still imposing a hard per-user/tenant ceiling.
+const reconciliationBurstSize = 12;
+assert.ok(reconciliationBurstSize * 10 <= AUTHENTICATED_API_MAX);
+assert.equal(
+  Array.from({ length: reconciliationBurstSize }, () => authenticatedOperationalRequest)
+    .every((request) => selectGeneralApiRateLimitScope(request) === "authenticated"),
+  true
+);
+
+const responseHeaders = {};
+let limiterPayload = null;
+const limiterResponse = {
+  locals: { traceId: "trace-rate-limit-test" },
+  setHeader(name, value) { responseHeaders[name] = value; },
+  status(code) {
+    assert.equal(code, 429);
+    return this;
+  },
+  json(payload) {
+    limiterPayload = payload;
+    return payload;
+  }
+};
+createRateLimitHandler("auth-test", "Espera", 60_000)(
+  {
+    method: "POST",
+    originalUrl: "/api/auth/login",
+    rateLimit: { resetTime: new Date(Date.now() + 30_000) },
+    traceId: "trace-rate-limit-test"
+  },
+  limiterResponse
+);
+assert.ok(Number(responseHeaders["Retry-After"]) >= 29);
+assert.deepEqual(limiterPayload, {
+  ok: false,
+  message: "Espera",
+  retryAfterSeconds: Number(responseHeaders["Retry-After"]),
+  scope: "auth-test",
+  traceId: "trace-rate-limit-test"
+});
 
 const appSource = fs.readFileSync(path.resolve(__dirname, "../src/app.js"), "utf8");
 const mediaLimiterIndex = appSource.indexOf('app.use("/api", mediaReadRateLimit);');
@@ -43,13 +154,31 @@ assert.ok(mediaLimiterIndex >= 0, "Falta el rate limiter dedicado de multimedia"
 assert.ok(generalLimiterIndex >= 0, "Falta el rate limiter general");
 assert.ok(
   mediaLimiterIndex < generalLimiterIndex,
-  "El limiter dedicado debe ejecutarse antes de que el limiter general omita multimedia"
+  "El limiter dedicado debe ejecutarse antes de la autoridad de perímetro API"
 );
 
 const chatRoutes = fs.readFileSync(
   path.resolve(__dirname, "../src/modules/chat/routes.js"),
   "utf8"
 );
+const authRoutes = fs.readFileSync(
+  path.resolve(__dirname, "../src/modules/auth/routes.js"),
+  "utf8"
+);
+const enterpriseLimiter = fs.readFileSync(
+  path.resolve(__dirname, "../src/middlewares/enterprise-rate-limit.js"),
+  "utf8"
+);
+assert.ok(authRoutes.includes('scope: "auth"'));
+assert.ok(authRoutes.includes('scope: "auth-refresh"'));
+assert.ok(authRoutes.includes('scope: "auth-password-reset"'));
+assert.ok(authRoutes.includes('router.post("/login", authLimiter'));
+assert.ok(authRoutes.includes('router.post("/register", authLimiter'));
+assert.ok(authRoutes.includes('router.post("/refresh", refreshLimiter'));
+assert.ok(authRoutes.includes('router.post("/forgot-password", passwordResetLimiter'));
+assert.ok(enterpriseLimiter.includes("retryAfterSeconds"));
+assert.ok(enterpriseLimiter.includes("traceId"));
+assert.ok(enterpriseLimiter.includes("scope"));
 assert.ok(
   chatRoutes.includes('router.get("/media/:storageKey", authenticate'),
   "Separar la cuota nunca debe volver publica la multimedia de chat"
@@ -59,4 +188,4 @@ assert.ok(
   "La descarga debe conservar autorizacion por usuario/tenant"
 );
 
-console.log("ok - authenticated media reads use an independent rate limit budget");
+console.log("ok - anonymous, authenticated and media traffic use bounded independent rate limit budgets");

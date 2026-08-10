@@ -1,6 +1,10 @@
 import * as SecureStore from '@/src/native/secure-store';
 import * as Haptics from '@/src/native/haptics';
 import { AppState as NativeAppState, Platform } from 'react-native';
+import {
+  isAuthoritativeSessionFailure,
+  isTransientSessionFailure,
+} from './auth-session-failure-policy';
 import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
 import { isAxiosError } from 'axios';
@@ -159,6 +163,7 @@ let missedHeartbeatAcks = 0;
 let socketReconnectAttempts = 0;
 let socketAuthRetries = 0;
 let realtimeAuthRefreshInFlight: Promise<string | null> | null = null;
+let refreshAllInFlight: { epoch: number; promise: Promise<void> } | null = null;
 
 export function getSharedRealtimeSocket() {
   return socket;
@@ -1942,7 +1947,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Sesion invalidada mientras `/auth/me` estaba en vuelo. `clearSessionState`
         // es dueño del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
         if (isSessionEpochStale(epoch)) return;
-        if (isProbablyNetworkError(error)) {
+        if (isTransientSessionFailure(error)) {
           const startupError = getReadableErrorMessage(
             error,
             'No pudimos conectar con el servidor. Reintenta cuando responda.',
@@ -1961,7 +1966,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               themeMode: th === 'dark' ? 'dark' : 'light',
               isHydrated: true,
               isBootstrapping: false,
-              networkStatus: 'offline',
+              networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
               error: hasCachedAuthority ? null : startupError,
             });
             return;
@@ -1980,7 +1985,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             themeMode: th === 'dark' ? 'dark' : 'light',
             isHydrated: false,
             isBootstrapping: false,
-            networkStatus: 'offline',
+            networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
             error: startupError,
           });
           return;
@@ -2023,8 +2028,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (error) {
       logStoreError('initialize', error);
-      await clearSessionState(set, 'Sesion expirada.');
-      set({ isHydrated: true, isBootstrapping: false });
+      if (isAuthoritativeSessionFailure(error)) {
+        await clearSessionState(set, 'Sesion expirada.');
+      } else {
+        set({
+          error: getReadableErrorMessage(
+            error,
+            'No pudimos validar tu sesion. Reintenta cuando el servidor responda.',
+            get().networkSnapshot
+          ),
+          isHydrated: true,
+          isBootstrapping: false,
+          networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
+        });
+      }
     }
   },
   signIn: async (e, p, r = true) => {
@@ -2080,9 +2097,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
+    const refreshEpoch = getSessionEpoch();
+    if (refreshAllInFlight?.epoch === refreshEpoch) {
+      return refreshAllInFlight.promise;
+    }
+
+    const refreshOperation = (async () => {
     const { token, user: currentUser, isSigningOut } = get();
     if (!token || !currentUser || isSigningOut) return;
-    const epoch = getSessionEpoch();
+    const epoch = refreshEpoch;
     set({ isRefreshing: true });
     try {
       const refreshed = await refreshAuthSession(set, epoch);
@@ -2271,6 +2294,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           get().networkSnapshot
         ),
       });
+    }
+    })();
+
+    refreshAllInFlight = { epoch: refreshEpoch, promise: refreshOperation };
+    try {
+      await refreshOperation;
+    } finally {
+      if (refreshAllInFlight?.promise === refreshOperation) {
+        refreshAllInFlight = null;
+      }
     }
   },
   flushPendingSync: async () => {
