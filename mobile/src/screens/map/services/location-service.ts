@@ -129,7 +129,10 @@ export function watchNativeLocation(
   return Location.watchPositionAsync(
     {
       accuracy: Platform.OS === 'android' ? Location.Accuracy.High : Location.Accuracy.BestForNavigation,
-      distanceInterval: MIN_NATIVE_DISTANCE_METERS,
+      // El filtro de distancia vive en `shouldAcceptLocation`. Si tambien se
+      // aplica aqui, Android puede dejar de entregar callbacks cuando la combi
+      // esta estacionada y nunca existiría el heartbeat temporal.
+      distanceInterval: 0,
       timeInterval: MIN_NATIVE_INTERVAL_MS,
       mayShowUserSettingsDialog: true,
     },
