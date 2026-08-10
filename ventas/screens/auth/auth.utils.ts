@@ -16,7 +16,7 @@ export function buildPaymentRoute(planId: string | undefined, requestTrial: bool
 }
 
 export function validateRegistrationPassword(password: string) {
-  const safePassword = String(password || '');
+  const safePassword = String(password || '').trim();
   const hasLetter = /[A-Za-z]/.test(safePassword);
   const hasNumber = /\d/.test(safePassword);
   const hasSpecial = /[^A-Za-z0-9]/.test(safePassword);
