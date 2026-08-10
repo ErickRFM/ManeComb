@@ -64,8 +64,6 @@ function testCompanyPortalRoleMatrix() {
       "company_identity"
     );
     assert.equal(resolution.canAccessPortal, true);
-    // Este flag pertenece únicamente al clasificador de canal. La autorización
-    // Mobile real se resuelve por mobile.access en enterprise-capabilities.
     assert.equal(resolution.canUseMobileProduct, false);
   });
 
@@ -102,33 +100,42 @@ function testSerializerDecoratesEverySessionRead() {
   console.log("ok - serializer emite canal canónico sin datos sensibles");
 }
 
+function testLegacyCustomerNormalizationUsesCurrentRoleMatrix() {
+  const legacyCompanyOwner = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "owner"
+  }));
+  const legacySupervisor = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "supervisor"
+  }));
+  const legacyDriver = sanitizeUser(buildUser({
+    accountType: "customer",
+    role: "driver"
+  }));
+
+  assert.equal(legacyCompanyOwner.accountType, "company_owner");
+  assert.equal(legacyCompanyOwner.accountChannel, "company_portal");
+  assert.equal(legacySupervisor.accountType, "operations");
+  assert.equal(legacySupervisor.accountChannel, "mobile_operations");
+  assert.equal(legacySupervisor.capabilities.includes("documents.manage"), true);
+  assert.equal(legacyDriver.accountType, "operations");
+  assert.equal(legacyDriver.accountChannel, "mobile_operations");
+  assert.deepEqual(
+    legacyDriver.capabilities.filter((entry) => entry.endsWith(".manage") || entry === "analytics.view"),
+    []
+  );
+
+  console.log("ok - perfiles legacy customer se normalizan por la matriz actual sin bloquear supervisor/driver");
+}
+
 function testInvalidCombinationsFailClosed() {
   const invalidCases = [
-    {
-      accountType: "company_owner",
-      role: "driver",
-      reason: "incompatible_company_role"
-    },
-    {
-      accountType: "company_owner",
-      role: "supervisor",
-      reason: "incompatible_company_role"
-    },
-    {
-      accountType: "operations",
-      role: "billing_manager",
-      reason: "incompatible_operations_role"
-    },
-    {
-      accountType: "operations",
-      role: "viewer",
-      reason: "incompatible_operations_role"
-    },
-    {
-      accountType: "unknown",
-      role: "driver",
-      reason: "unknown_account_type"
-    }
+    { accountType: "company_owner", role: "driver", reason: "incompatible_company_role" },
+    { accountType: "company_owner", role: "supervisor", reason: "incompatible_company_role" },
+    { accountType: "operations", role: "billing_manager", reason: "incompatible_operations_role" },
+    { accountType: "operations", role: "viewer", reason: "incompatible_operations_role" },
+    { accountType: "unknown", role: "driver", reason: "unknown_account_type" }
   ];
 
   invalidCases.forEach(({ accountType, role, reason }) => {
@@ -223,6 +230,7 @@ async function run() {
   testCompanyPortalRoleMatrix();
   testMobileOperationsRoleMatrix();
   testSerializerDecoratesEverySessionRead();
+  testLegacyCustomerNormalizationUsesCurrentRoleMatrix();
   testInvalidCombinationsFailClosed();
   testSuspensionOverridesProductIdentity();
   testPlatformIdentityHasDedicatedChannel();
