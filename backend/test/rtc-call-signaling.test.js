@@ -12,12 +12,14 @@ const CONV_GROUP = "conversation-ops";
 function harness(store) {
   const emits = [];
   const timers = [];
+  let clock = Date.now();
   const service = createRtcCallService({
     store,
     emitToUser: (userId, event, payload) => emits.push({ userId, event, payload }),
     deliverNotification: async () => ({ ok: true }),
-    setTimeoutFn: (fn) => {
-      const handle = { fn, cleared: false };
+    now: () => clock,
+    setTimeoutFn: (fn, delay = 0) => {
+      const handle = { fn, delay, cleared: false };
       timers.push(handle);
       return handle;
     },
@@ -40,6 +42,7 @@ function harness(store) {
       for (const timer of timers) {
         if (timer.cleared) continue;
         timer.cleared = true;
+        clock += Math.max(0, Number(timer.delay) || 0);
         timer.fn();
       }
       await flushAsync();
@@ -194,13 +197,31 @@ function fakeStore(conversation) {
     assert.equal((await h.service.accept({ user: driver, callId: call.callId })).code, "unknown_call");
   }
 
-  // End is idempotent and frees both busy slots.
+  // End is idempotent, frees busy slots and only the media-owning socket can hang up active calls.
   {
     const h = harness(store);
-    const call = await h.service.startCall({ caller: admin, conversationId: CONV_DIRECT, mode: "audio" });
-    await h.service.accept({ user: driver, callId: call.callId });
-    assert.equal((await h.service.end({ user: admin, callId: call.callId })).ok, true);
-    assert.equal((await h.service.end({ user: admin, callId: call.callId })).idempotent, true);
+    const call = await h.service.startCall({
+      caller: admin,
+      callerSocketId: "admin-end-owner",
+      conversationId: CONV_DIRECT,
+      mode: "audio"
+    });
+    await h.service.accept({ user: driver, socketId: "driver-end-owner", callId: call.callId });
+    assert.deepEqual(
+      await h.service.end({ user: admin, socketId: "admin-sibling", callId: call.callId }),
+      { ok: false, code: "not_call_owner" }
+    );
+    assert.equal((await h.service.getCall(call.callId)).status, "active");
+    assert.equal((await h.service.end({
+      user: admin,
+      socketId: "admin-end-owner",
+      callId: call.callId
+    })).ok, true);
+    assert.equal((await h.service.end({
+      user: admin,
+      socketId: "admin-end-owner",
+      callId: call.callId
+    })).idempotent, true);
     assert.equal(h.usersReceiving("rtc:end").length, 1);
     assert.equal(h.service._state.userState.size, 0);
   }

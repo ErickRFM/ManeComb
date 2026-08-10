@@ -378,12 +378,20 @@ function createRtcCallService({
     return { ok: true };
   }
 
-  async function end({ user, callId }) {
+  async function end({ user, socketId = null, callId }) {
+    const safeSocketId = String(socketId || "").trim() || null;
     let result;
     try {
       result = await releaseCurrent(callId, (call) => {
         const isParty = call.callerId === user.id || call.calleeIds.includes(user.id);
-        return isParty ? { ok: true } : { ok: false, code: "forbidden" };
+        if (!isParty) return { ok: false, code: "forbidden" };
+        if (call.status === "active" && safeSocketId) {
+          const ownerSocketId = socketOwnerId(call, user.id);
+          if (!ownerSocketId || ownerSocketId !== safeSocketId) {
+            return { ok: false, code: "not_call_owner" };
+          }
+        }
+        return { ok: true };
       });
     } catch {
       return { ok: false, code: "rtc_unavailable" };
