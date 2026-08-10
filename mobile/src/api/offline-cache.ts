@@ -17,6 +17,7 @@ import type {
 const CACHE_KEY = 'manecomb:offline-cache:v1';
 const QUEUE_KEY = 'manecomb:pending-sync:v1';
 const MAX_QUEUE_ITEMS = 2000;
+const MAX_LOCATION_QUEUE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type OfflineCacheSnapshot = {
   savedAt: string;
@@ -147,6 +148,7 @@ export type PendingSyncOperation =
         timestamp?: string | null;
         packetId?: string | null;
         sessionId?: string | null;
+        clientQueueAgeMs?: number | null;
       };
     };
 
@@ -164,6 +166,28 @@ function safeJsonParse<T>(value: string | null): T | null {
 
 function createOperationId(type: string) {
   return `${type}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function hydratePendingSyncOperationForReplay(
+  operation: PendingSyncOperation,
+  nowMs = Date.now(),
+): PendingSyncOperation {
+  if (operation.type !== 'vehicle:location') {
+    return operation;
+  }
+
+  const createdAtMs = new Date(operation.createdAt).getTime();
+  const elapsedMs = Number.isFinite(createdAtMs)
+    ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, Math.max(0, nowMs - createdAtMs))
+    : 0;
+
+  return {
+    ...operation,
+    payload: {
+      ...operation.payload,
+      clientQueueAgeMs: elapsedMs,
+    },
+  };
 }
 
 // AsyncStorage no ofrece una operación read-modify-write atómica. Sin una cola
@@ -216,8 +240,13 @@ export async function clearOfflineCache() {
 export async function loadPendingSyncQueue() {
   // Una lectura pública observa únicamente un estado ya confirmado. No debe
   // adelantar una mutación en vuelo y reportar un pendingSyncCount obsoleto.
+  // Para GPS, la misma lectura es el boundary de replay: deriva edad de cola a
+  // partir de `createdAt` justo antes de enviar, sin confiar en el reloj servidor
+  // ni congelar la edad dentro del payload persistido.
   await pendingSyncMutationTail;
-  return readPendingSyncQueueUnsafe();
+  const queue = await readPendingSyncQueueUnsafe();
+  const nowMs = Date.now();
+  return queue.map((operation) => hydratePendingSyncOperationForReplay(operation, nowMs));
 }
 
 export async function savePendingSyncQueue(queue: PendingSyncOperation[]) {
