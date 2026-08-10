@@ -1,4 +1,8 @@
-const { getOrganizationId, getRolesWithPermission } = require("../middlewares/access-control");
+const {
+  filterTenantList,
+  getOrganizationId,
+  getRolesWithPermission
+} = require("../middlewares/access-control");
 const { listOperationalUnits } = require("./operational-units-service");
 const logger = require("./logger");
 
@@ -97,17 +101,8 @@ async function runOperationalFreshnessSweep({
   return { organizations: organizationIds.length, emitted };
 }
 
-function startOperationalFreshnessSweeper({
-  io,
-  store,
-  server,
-  intervalMs = OPERATIONAL_FRESHNESS_SWEEP_MS
-}) {
-  const signatures = new Map();
-  let running = false;
-  let stopped = false;
-
-  const loadUnits = async (organizationId, now) => {
+function createOperationalFreshnessLoader(store) {
+  return async (organizationId, now) => {
     const principal = {
       id: "system:gps-freshness",
       role: "owner",
@@ -118,9 +113,22 @@ function startOperationalFreshnessSweeper({
       store,
       user: principal,
       organizationId,
+      filterTenantList,
       now
     });
   };
+}
+
+function startOperationalFreshnessSweeper({
+  io,
+  store,
+  server,
+  intervalMs = OPERATIONAL_FRESHNESS_SWEEP_MS
+}) {
+  const signatures = new Map();
+  let running = false;
+  let stopped = false;
+  const loadUnits = createOperationalFreshnessLoader(store);
 
   const sweep = async () => {
     if (running || stopped) return;
@@ -164,6 +172,7 @@ function startOperationalFreshnessSweeper({
 module.exports = {
   FRESHNESS_SECONDS_BUCKET,
   OPERATIONAL_FRESHNESS_SWEEP_MS,
+  createOperationalFreshnessLoader,
   getAgeBucket,
   getConnectedOrganizationIds,
   getOperationalFreshnessSignature,
