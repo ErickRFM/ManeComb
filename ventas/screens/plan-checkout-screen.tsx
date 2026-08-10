@@ -206,7 +206,7 @@ export function PlanCheckoutScreen() {
       } as never);
 
       if (!result.ok) {
-        setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta demo.');
+        setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta.');
         return null;
       }
 
@@ -218,7 +218,7 @@ export function PlanCheckoutScreen() {
       };
       setDemoCardReceipt(safeReceipt);
       setCardDemoMessage(
-        `${brand} terminada en ${last4} validada para la demostración. El número completo y el CVV fueron descartados.`
+        `${brand} terminada en ${last4} validada correctamente. El número completo y el CVV fueron descartados.`
       );
       return safeReceipt;
     } finally {
@@ -291,17 +291,15 @@ export function PlanCheckoutScreen() {
   const goToPortal = () => {
     router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never);
   };
-  const doneTitle = demoCardReceipt && receiptIsActive
-    ? 'Pago demo aprobado · prueba activa.'
-    : effectiveRequestTrial && receiptIsActive
-      ? 'Prueba activada en tu cuenta.'
-      : receiptIsActive
-        ? 'Plan activado en tu cuenta.'
-        : receiptIsPending
-          ? 'Transferencia pendiente de validación.'
-          : 'Orden registrada.';
+  const doneTitle = effectiveRequestTrial && receiptIsActive
+    ? 'Prueba activada en tu cuenta.'
+    : receiptIsActive
+      ? 'Plan activado en tu cuenta.'
+      : receiptIsPending
+        ? 'Transferencia pendiente de validación.'
+        : 'Orden registrada.';
   const doneText = demoCardReceipt && receiptIsActive
-    ? `Cargo simulado de ${formatCurrency(demoCardReceipt.amount)} MXN aprobado con ${demoCardReceipt.brand} •••• ${demoCardReceipt.last4}. No se realizó ningún cargo real. La confirmación de la demo se enviará a ${demoCardReceipt.email} y tu prueba de ${selectedPlan.trialDays || 7} días ya está activa.`
+    ? `${demoCardReceipt.brand} •••• ${demoCardReceipt.last4} registrada correctamente. No se realizó ningún cargo. La confirmación se enviará a ${demoCardReceipt.email} y tu prueba de ${selectedPlan.trialDays || 7} días ya está activa.`
     : receipt?.nextStep ||
       (receiptIsActive
         ? `${receipt?.planName || selectedPlan.name} quedó ligado a tu portal ManeComb.`
@@ -370,11 +368,9 @@ export function PlanCheckoutScreen() {
 
               <CheckoutTrustStrip
                 buttonAmount={
-                  isTrialCardDemo
-                    ? `Cargo demo ${formatCurrency(selectedPlan.price)} MXN · sin cargo real`
-                    : effectiveRequestTrial
-                      ? `Demo ${selectedPlan.trialDays || 7} días · sin tarjeta`
-                      : buttonAmount
+                  effectiveRequestTrial
+                    ? `Prueba ${selectedPlan.trialDays || 7} días · sin cargo`
+                    : buttonAmount
                 }
               />
             </>
