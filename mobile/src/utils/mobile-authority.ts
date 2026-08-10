@@ -34,6 +34,8 @@ const LEGACY_OPERATIONAL_ROLES = new Set([
 const LEGACY_DIRECTORY_ROLES = new Set(['owner', 'admin', 'supervisor']);
 const LEGACY_INCIDENT_MANAGER_ROLES = new Set(['owner', 'admin', 'dispatcher', 'supervisor']);
 const LEGACY_DOCUMENT_MANAGER_ROLES = new Set(['owner', 'admin', 'supervisor']);
+const LEGACY_USER_MANAGER_ROLES = new Set(['owner', 'admin']);
+const LEGACY_VEHICLE_MANAGER_ROLES = new Set(['owner', 'admin']);
 
 export function getEnterpriseCapabilities(
   user: CapabilityAwareUser | null | undefined
@@ -99,6 +101,34 @@ export function canLoadMobileDirectory(user: CapabilityAwareUser | null | undefi
 }
 
 /**
+ * Autoridad para las acciones administrativas sobre conductores. El conductor
+ * sigue siendo dueño de la edición de su perfil; esta capacidad solo habilita
+ * baja, reactivación, eliminación segura y asignación/liberación de unidad.
+ */
+export function canManageMobileUsers(user: CapabilityAwareUser | null | undefined) {
+  if (!user) return false;
+
+  if (hasExplicitCapabilities(user)) {
+    return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.usersManage);
+  }
+
+  return LEGACY_USER_MANAGER_ROLES.has(String(user.role || ''));
+}
+
+/**
+ * Autoridad para crear, editar, retirar y eliminar unidades desde Mobile.
+ */
+export function canManageMobileVehicles(user: CapabilityAwareUser | null | undefined) {
+  if (!user) return false;
+
+  if (hasExplicitCapabilities(user)) {
+    return hasEnterpriseCapability(user, ENTERPRISE_CAPABILITY.vehiclesManage);
+  }
+
+  return LEGACY_VEHICLE_MANAGER_ROLES.has(String(user.role || ''));
+}
+
+/**
  * Autoridad para cambiar el estado de una incidencia. Backend protege PATCH
  * /incidents/:incidentId/status con canManageIncidents -> incidents.manage.
  */
@@ -134,7 +164,7 @@ export function canUseMobileControl(user: CapabilityAwareUser | null | undefined
 }
 
 /**
- * Autoridad para abrir administración documental desde Mobile hacia Portal.
+ * Autoridad para administración documental dentro de Mobile.
  * Backend protege las rutas administrativas con canManageDocuments.
  */
 export function canManageMobileDocuments(user: CapabilityAwareUser | null | undefined) {

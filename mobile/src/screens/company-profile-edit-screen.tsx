@@ -8,19 +8,12 @@ import { useShallow } from 'zustand/react/shallow';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
-import { StatusPill } from '@/src/components/status-pill';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
-import {
-  DEFAULT_ACTIVE_DAYS,
-  getOperationalScheduleState,
-  normalizeOperationalSchedule,
-} from '@/src/utils/operational-schedule';
 import { Field } from './profile-edit/components/field';
-import { DAY_OPTIONS } from './profile-edit/constants';
 import { createStyles } from './profile-edit/profile-edit-screen.styles';
 
 type ProfileForm = {
@@ -41,11 +34,6 @@ type ProfileForm = {
   cardExpMonth: string;
   cardExpYear: string;
   customerReference: string;
-  scheduleEnabled: boolean;
-  scheduleStartTime: string;
-  scheduleEndTime: string;
-  scheduleActiveDays: number[];
-  scheduleTimezone: string;
 };
 
 function createProfileForm(): ProfileForm {
@@ -67,16 +55,7 @@ function createProfileForm(): ProfileForm {
     cardExpMonth: '',
     cardExpYear: '',
     customerReference: '',
-    scheduleEnabled: true,
-    scheduleStartTime: '',
-    scheduleEndTime: '',
-    scheduleActiveDays: DEFAULT_ACTIVE_DAYS,
-    scheduleTimezone: '',
   };
-}
-
-function isValidScheduleTime(value: string) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value.trim());
 }
 
 export function ProfileEditScreen() {
@@ -104,9 +83,7 @@ export function ProfileEditScreen() {
   const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
     setProfileForm({
       name: user.name,
@@ -126,13 +103,6 @@ export function ProfileEditScreen() {
       cardExpMonth: user.paymentProfile?.cardExpMonth || '',
       cardExpYear: user.paymentProfile?.cardExpYear || '',
       customerReference: user.paymentProfile?.customerReference || '',
-      scheduleEnabled: user.operationalSchedule?.enabled ?? true,
-      scheduleStartTime: user.operationalSchedule?.startTime || '',
-      scheduleEndTime: user.operationalSchedule?.endTime || '',
-      scheduleActiveDays: user.operationalSchedule?.activeDays?.length
-        ? user.operationalSchedule.activeDays
-        : DEFAULT_ACTIVE_DAYS,
-      scheduleTimezone: user.operationalSchedule?.timezone || '',
     });
   }, [user]);
 
@@ -167,26 +137,11 @@ export function ProfileEditScreen() {
     }));
   };
 
-  const toggleScheduleDay = (day: number) => {
-    setProfileForm((current) => {
-      const exists = current.scheduleActiveDays.includes(day);
-      const nextDays = exists
-        ? current.scheduleActiveDays.filter((entry) => entry !== day)
-        : [...current.scheduleActiveDays, day];
-
-      return {
-        ...current,
-        scheduleActiveDays: nextDays.length ? nextDays : [day],
-      };
-    });
-  };
-
   const handlePhotoUpload = async () => {
     setMessage(null);
 
     if (Platform.OS === 'web') {
       const doc = globalThis.document as any;
-
       if (!doc?.createElement) {
         setMessage('No fue posible abrir el selector de imagen.');
         return;
@@ -197,10 +152,7 @@ export function ProfileEditScreen() {
       input.accept = 'image/*';
       input.onchange = () => {
         const file = input.files?.[0];
-
-        if (!file) {
-          return;
-        }
+        if (!file) return;
 
         const reader = new FileReader();
         reader.onload = () => {
@@ -220,9 +172,7 @@ export function ProfileEditScreen() {
       base64: true,
     });
 
-    if (result.canceled) {
-      return;
-    }
+    if (result.canceled) return;
 
     const asset = result.assets[0];
     updateField(
@@ -242,18 +192,6 @@ export function ProfileEditScreen() {
         `La nueva contrasena debe tener minimo ${PASSWORD_MIN_LENGTH} caracteres, letras, numeros y un caracter especial.`
       );
       return;
-    }
-
-    const hasSchedule =
-      profileForm.scheduleStartTime.trim() || profileForm.scheduleEndTime.trim();
-    if (hasSchedule) {
-      if (
-        !isValidScheduleTime(profileForm.scheduleStartTime) ||
-        !isValidScheduleTime(profileForm.scheduleEndTime)
-      ) {
-        setMessage('El horario operativo debe usar formato HH:mm.');
-        return;
-      }
     }
 
     const result = await updateProfile({
@@ -277,15 +215,6 @@ export function ProfileEditScreen() {
         cardExpYear: profileForm.cardExpYear.replace(/[^\d]/g, '').slice(-2),
         customerReference: profileForm.customerReference.trim(),
       },
-      operationalSchedule: hasSchedule
-        ? {
-            activeDays: profileForm.scheduleActiveDays,
-            enabled: profileForm.scheduleEnabled,
-            endTime: profileForm.scheduleEndTime.trim(),
-            startTime: profileForm.scheduleStartTime.trim(),
-            timezone: profileForm.scheduleTimezone.trim() || null,
-          }
-        : null,
       ...(profileForm.password.trim() ? { password: profileForm.password.trim() } : {}),
     });
 
@@ -294,10 +223,7 @@ export function ProfileEditScreen() {
       return;
     }
 
-    setProfileForm((current) => ({
-      ...current,
-      password: '',
-    }));
+    setProfileForm((current) => ({ ...current, password: '' }));
     setMessage('Informacion actualizada correctamente.', 'success');
   };
 
@@ -312,21 +238,10 @@ export function ProfileEditScreen() {
     );
   }
 
-  const scheduleState = getOperationalScheduleState(
-    normalizeOperationalSchedule({
-      activeDays: profileForm.scheduleActiveDays,
-      enabled: profileForm.scheduleEnabled,
-      endTime: profileForm.scheduleEndTime,
-      startTime: profileForm.scheduleStartTime,
-      timezone: profileForm.scheduleTimezone || null,
-    })
-  );
-
   return (
     <AppShell
       sectionKey="perfil"
       mobileTitle="Editar perfil"
-
       mobileBadges={[
         { label: formatRole(user.role), tone: 'info' },
         { label: 'Cuenta activa', tone: 'positive' },
@@ -349,7 +264,6 @@ export function ProfileEditScreen() {
             <Text style={styles.backButtonText}>Volver a perfil</Text>
           </Pressable>
           <Text style={styles.title}>Editar perfil</Text>
-
         </View>
       }>
       <AppCard style={styles.editorCard}>
@@ -369,7 +283,6 @@ export function ProfileEditScreen() {
           <View style={styles.identityBlock}>
             <Text style={styles.userName}>{profileForm.name || user.name}</Text>
             <Text style={styles.userMeta}>{formatRole(user.role)}</Text>
-
           </View>
         </View>
 
@@ -422,7 +335,6 @@ export function ProfileEditScreen() {
                 ]}>
                 {passwordStrength.label}
               </Text>
-
             </View>
           ) : null}
         </View>
@@ -486,10 +398,7 @@ export function ProfileEditScreen() {
               <Pressable
                 key={option.id}
                 onPress={() =>
-                  updateField(
-                    'preferredMethod',
-                    option.id as ProfileForm['preferredMethod']
-                  )
+                  updateField('preferredMethod', option.id as ProfileForm['preferredMethod'])
                 }
                 style={[
                   styles.methodChip,
@@ -530,18 +439,14 @@ export function ProfileEditScreen() {
             <Field
               label="Mes"
               value={profileForm.cardExpMonth}
-              onChangeText={(value) =>
-                updateField('cardExpMonth', value.replace(/[^\d]/g, '').slice(0, 2))
-              }
+              onChangeText={(value) => updateField('cardExpMonth', value.replace(/[^\d]/g, '').slice(0, 2))}
               placeholder="08"
               keyboardType="phone-pad"
             />
             <Field
               label="Ano"
               value={profileForm.cardExpYear}
-              onChangeText={(value) =>
-                updateField('cardExpYear', value.replace(/[^\d]/g, '').slice(-2))
-              }
+              onChangeText={(value) => updateField('cardExpYear', value.replace(/[^\d]/g, '').slice(-2))}
               placeholder="28"
               keyboardType="phone-pad"
             />
@@ -552,85 +457,6 @@ export function ProfileEditScreen() {
             onChangeText={(value) => updateField('customerReference', value)}
             placeholder="Ej. cus_001 o convenio interno"
           />
-        </View>
-
-        <View
-          style={styles.formGrid}
-          onLayout={(e) => {
-            // @ts-ignore
-            sectionsRef.current.schedule = e.target;
-          }}>
-          <Text style={styles.sectionHeading}>Horario operativo</Text>
-
-          <View style={styles.identityPills}>
-            <StatusPill
-              label={scheduleState.label}
-              tone={scheduleState.isWithinSchedule ? 'positive' : 'warning'}
-            />
-            <StatusPill
-              label={profileForm.scheduleEnabled ? 'Activo' : 'Pausado'}
-              tone={profileForm.scheduleEnabled ? 'info' : 'neutral'}
-            />
-          </View>
-          <View style={styles.inlineGrid}>
-            <Field
-              label="Hora inicio"
-              value={profileForm.scheduleStartTime}
-              onChangeText={(value) => updateField('scheduleStartTime', value)}
-              placeholder="08:00"
-              keyboardType="phone-pad"
-            />
-            <Field
-              label="Hora fin"
-              value={profileForm.scheduleEndTime}
-              onChangeText={(value) => updateField('scheduleEndTime', value)}
-              placeholder="18:00"
-              keyboardType="phone-pad"
-            />
-            <Field
-              label="Zona horaria"
-              value={profileForm.scheduleTimezone}
-              onChangeText={(value) => updateField('scheduleTimezone', value)}
-              placeholder="Local del dispositivo"
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.methodRow}>
-            {DAY_OPTIONS.map((day) => {
-              const selected = profileForm.scheduleActiveDays.includes(day.id);
-
-              return (
-                <Pressable
-                  key={day.id}
-                  onPress={() => toggleScheduleDay(day.id)}
-                  style={[styles.methodChip, selected ? styles.methodChipActive : undefined]}>
-                  <Text
-                    style={[
-                      styles.methodChipText,
-                      selected ? styles.methodChipTextActive : undefined,
-                    ]}>
-                    {day.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Pressable
-            onPress={() =>
-              setProfileForm((current) => ({
-                ...current,
-                scheduleEnabled: !current.scheduleEnabled,
-              }))
-            }
-            style={[styles.methodChip, profileForm.scheduleEnabled ? styles.methodChipActive : undefined]}>
-            <Text
-              style={[
-                styles.methodChipText,
-                profileForm.scheduleEnabled ? styles.methodChipTextActive : undefined,
-              ]}>
-              {profileForm.scheduleEnabled ? 'Horario habilitado' : 'Horario pausado'}
-            </Text>
-          </Pressable>
         </View>
 
         {helperMessage ? (
