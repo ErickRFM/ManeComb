@@ -35,8 +35,6 @@ export type LiveConsoleInput = {
   errorMessage: string | null;
 };
 
-const HOLD_HINT = 'Manten presionado para hablar';
-
 export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
   const {
     channelSynced,
@@ -70,7 +68,7 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
       tone: 'warning',
       variant: 'error',
       pttTitle: 'Microfono',
-      pttSubtitle: 'Toca para reintentar',
+      pttSubtitle: 'Presiona para reintentar',
       pttDisabled: false,
       capturing: false,
       pending: false,
@@ -110,7 +108,7 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
         tone: 'danger',
         variant: 'recording',
         pttTitle: 'Transmitiendo',
-        pttSubtitle: 'Soltar para finalizar',
+        pttSubtitle: 'Suelta para finalizar',
         pttDisabled: false,
         capturing: true,
         pending: false,
@@ -213,8 +211,8 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
         icon: 'access-point-check',
         tone: 'positive',
         variant: 'idle',
-        pttTitle: 'Listo',
-        pttSubtitle: HOLD_HINT,
+        pttTitle: 'Presiona',
+        pttSubtitle: 'para transmitir',
         pttDisabled: false,
         capturing: false,
         pending: false,
@@ -304,7 +302,7 @@ export function deriveNoteConsole(input: NoteConsoleInput): RadioConsoleState {
       tone: 'warning',
       variant: 'error',
       pttTitle: 'Microfono',
-      pttSubtitle: 'Toca para reintentar',
+      pttSubtitle: 'Presiona para reintentar',
       pttDisabled: false,
       capturing: false,
       pending: false,
@@ -319,7 +317,7 @@ export function deriveNoteConsole(input: NoteConsoleInput): RadioConsoleState {
       tone: 'danger',
       variant: 'recording',
       pttTitle: 'Grabando',
-      pttSubtitle: 'Soltar para enviar',
+      pttSubtitle: 'Suelta para enviar',
       pttDisabled: false,
       capturing: true,
       pending: false,
@@ -347,8 +345,8 @@ export function deriveNoteConsole(input: NoteConsoleInput): RadioConsoleState {
     icon: 'microphone-message',
     tone: 'neutral',
     variant: 'idle',
-    pttTitle: 'Nota de voz',
-    pttSubtitle: 'Manten presionado para grabar',
+    pttTitle: 'Presiona',
+    pttSubtitle: 'para grabar',
     pttDisabled: false,
     capturing: false,
     pending: false,

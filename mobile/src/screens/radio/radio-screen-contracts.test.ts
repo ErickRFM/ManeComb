@@ -56,17 +56,27 @@ describe('Radio Pro console projection contracts', () => {
   const viewSource = fs.readFileSync('src/screens/radio/radio-screen-view.tsx', 'utf8');
   const styleSource = fs.readFileSync('src/screens/radio/radio-screen.styles.ts', 'utf8');
 
-  it('projects a compact operational console instead of an empty flex layout', () => {
+  it('uses the available height for a direct PTT-first console and hides redundant chrome', () => {
     const heroCardStyles = styleSource.slice(
       styleSource.indexOf('heroCard:'),
       styleSource.indexOf('heroTopRow:')
+    );
+    const heroCopyStyles = styleSource.slice(
+      styleSource.indexOf('heroCopy:'),
+      styleSource.indexOf('heroEyebrow:')
+    );
+    const operationalBannerStyles = styleSource.slice(
+      styleSource.indexOf('operationalBanner:'),
+      styleSource.indexOf('operationalIcon:')
     );
 
     expect(viewSource).toContain('ManeComb Radio Pro');
     expect(viewSource).toContain('styles.operationalState');
     expect(styleSource).toContain('consolePageContent:');
-    expect(heroCardStyles).toContain('flexGrow: 0');
+    expect(heroCardStyles).toContain('flexGrow: 1');
     expect(heroCardStyles).not.toContain("justifyContent: 'space-between'");
+    expect(heroCopyStyles).toContain("display: 'none'");
+    expect(operationalBannerStyles).toContain("display: 'none'");
   });
 
   it('uses real TX metering and no fabricated RX waveform or duplicate player', () => {

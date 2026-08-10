@@ -296,7 +296,12 @@ export function useMapSelector({
   };
 
   return {
-    copy: getSelectorCopy(Boolean(selectorPoints.origin), Boolean(selectorPoints.destination), selectorStops.length),
+    copy: getSelectorCopy(
+      Boolean(selectorPoints.origin),
+      Boolean(selectorPoints.destination),
+      selectorStops.length,
+      Boolean(String(params.editingRouteId || '').trim())
+    ),
     handleConfirmSelection,
     handleSelectorPress,
     isPlanningSelectorRoute: isPlanningSelectorRoute || isResolvingPlaceNames,

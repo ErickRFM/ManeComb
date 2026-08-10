@@ -10,10 +10,16 @@ describe('Android runtime hardening', () => {
   it('provides Mapbox native configuration before Fabric creates MapView', () => {
     const gradle = fs.readFileSync(path.join(mobileRoot, 'android', 'app', 'build.gradle'), 'utf8');
     const releaseScript = fs.readFileSync(path.join(mobileRoot, 'scripts', 'build-android-apk.js'), 'utf8');
+    const releasePolicy = fs.readFileSync(path.join(mobileRoot, 'scripts', 'release-runtime-policy.js'), 'utf8');
 
     expect(gradle).toContain('resValue "string", "mapbox_access_token", mapboxAccessToken');
     expect(gradle).toContain("!mapboxAccessToken.startsWith('pk.')");
-    expect(releaseScript).toContain("fileEnv.MAPBOX_ACCESS_TOKEN || '').startsWith('pk.')");
+    expect(releaseScript).toContain("require('./release-runtime-policy')");
+    expect(releaseScript).toContain('validateReleaseRuntime(releaseEnv');
+    expect(releaseScript.indexOf('validateReleaseRuntime(releaseEnv')).toBeLessThan(
+      releaseScript.indexOf('withAndroidSdkEnv({')
+    );
+    expect(releasePolicy).toContain("!String(env.MAPBOX_ACCESS_TOKEN || '').trim().startsWith('pk.')");
   });
 
   it('does not access credential-encrypted preferences during locked boot', () => {
