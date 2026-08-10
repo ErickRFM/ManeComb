@@ -8,6 +8,7 @@ import { Linking } from 'react-native';
 import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
 import { setIncomingCallWindowActive } from '@/src/native/call-service';
 import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
+import { ensureCallMediaPermissionsForUi } from './call-permission-ui';
 import {
   resetCallForegroundService,
   setCallForegroundServiceMode,
@@ -109,10 +110,20 @@ export function CallOverlay(): React.ReactElement {
       return;
     }
 
-    consumedPushCalls.current.add(pendingPushCall.key);
+    const intent = pendingPushCall;
+    consumedPushCalls.current.add(intent.key);
     setPendingPushCall(null);
-    if (pendingPushCall.action === 'accept') {
-      useCallStore.getState().acceptIncomingCall().catch(() => undefined);
+
+    if (intent.action === 'accept') {
+      // El usuario ya pulsó Aceptar en la notificación, pero el backend no debe
+      // recibir accept hasta que Android haya concedido la media requerida.
+      void (async () => {
+        const granted = await ensureCallMediaPermissionsForUi(
+          intent.mode === 'video' ? 'video' : 'audio'
+        );
+        if (!granted) return;
+        await useCallStore.getState().acceptIncomingCall();
+      })().catch(() => undefined);
     }
   }, [pendingPushCall, socket, socketStatus]);
 
