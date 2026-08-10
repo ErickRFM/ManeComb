@@ -1,0 +1,51 @@
+name: TEMP RTC permission socket race fix
+
+on:
+  push:
+    branches:
+      - fix/rtc-media-permission-preflight-20260810
+    paths:
+      - scripts/temp-fix-rtc-permission-socket-race.mjs
+      - .github/workflows/temp-rtc-permission-socket-race.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Apply deterministic RTC race fix
+        run: node scripts/temp-fix-rtc-permission-socket-race.mjs
+      - name: Focused call-store regression
+        working-directory: mobile
+        run: npx jest --runInBand src/features/calls/call-store.test.ts src/features/calls/call-permission-preflight.test.ts
+      - name: Typecheck
+        working-directory: mobile
+        run: npm run typecheck
+      - name: Diff check
+        run: git diff --check
+      - name: Commit generated fix
+        run: |
+          git config user.name "ErickRFM"
+          git config user.email "55464579+ErickRFM@users.noreply.github.com"
+          git add mobile/src/features/calls/call-store.ts mobile/src/features/calls/call-store.test.ts
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "fix(rtc): signal on current socket after permission preflight"
+          git push origin HEAD:${{ github.ref_name }}
