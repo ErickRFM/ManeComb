@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "06909cca6814441386f7be25e6e5d5a0e9c636f8",
-    "capturedAt": "2026-08-06",
-    "phase": "0-system-inventory"
+    "commit": "3d1fa8ab6dab44cb0b4d565629567a38e9f2df91",
+    "capturedAt": "2026-08-10",
+    "phase": "post-integration-authority-refresh"
   },
   "products": [
     {
@@ -79,9 +79,10 @@
       "id": "account-channel",
       "decision": "Which product channel an authenticated account is allowed to use",
       "owner": "backend",
-      "status": "partial",
+      "status": "canonical",
       "sourcePaths": [
-        "backend/src/modules/auth",
+        "backend/src/services/account-channel.js",
+        "backend/src/services/auth-context.js",
         "ventas/src/utils/account-routing.ts",
         "ventas/features/portal/utils/access.ts",
         "mobile/src/utils/account-routing.ts"
@@ -104,6 +105,7 @@
       "owner": "backend",
       "status": "partial",
       "sourcePaths": [
+        "backend/src/services/enterprise-capabilities.js",
         "backend/src/middlewares",
         "ventas/features/portal/utils/access.ts",
         "admin-global/src/features/platform"
@@ -256,27 +258,6 @@
     }
   ],
   "knownDivergences": [
-    {
-      "id": "AUTH-CHANNEL-OR-AND",
-      "severity": "P0",
-      "phase": 1,
-      "summary": "Ventas redirects with accountType OR portal role, while Portal authorization requires accountType AND portal role.",
-      "sourcePaths": ["ventas/src/utils/account-routing.ts", "ventas/features/portal/utils/access.ts"]
-    },
-    {
-      "id": "PORTAL-GUARD-PARTIAL",
-      "severity": "P0",
-      "phase": 1,
-      "summary": "The global Portal guard checks for a user, but does not require the canonical Portal channel before mounting every Portal route.",
-      "sourcePaths": ["ventas/src/App.tsx", "ventas/features/portal/utils/access.ts"]
-    },
-    {
-      "id": "SALES-OPERATIONAL-HANDOFF-TEMPORARY",
-      "severity": "P1",
-      "phase": 1,
-      "summary": "Sales still exposes /mapa and /radio as temporary handoff routes. The target product boundary is to reject non-company accounts in Sales and keep operational runtime exclusively in Mobile.",
-      "sourcePaths": ["ventas/src/App.tsx", "ventas/src/utils/account-routing.ts"]
-    },
     {
       "id": "COMMUNICATION-HYBRID-BOUNDARY",
       "severity": "P1",
