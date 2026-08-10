@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const {
   FRESHNESS_SECONDS_BUCKET,
+  createOperationalFreshnessLoader,
   getConnectedOrganizationIds,
   getOperationalFreshnessSignature,
   runOperationalFreshnessSweep
@@ -41,6 +42,39 @@ function unit({ ageSeconds, connectionState, freshness }) {
 
 async function main() {
   assert.equal(FRESHNESS_SECONDS_BUCKET, 15);
+
+  const tenantLoader = createOperationalFreshnessLoader({
+    getLiveLocations: async () => ({
+      vehicles: [
+        {
+          id: "vehicle-org-1",
+          organizationId: "org-1",
+          code: "C-1",
+          location: { latitude: 19.31, longitude: -98.24 },
+          locationTimestamp: "2026-08-10T07:29:55.000Z",
+          locationReceivedAt: "2026-08-10T07:29:55.000Z"
+        },
+        {
+          id: "vehicle-org-2",
+          organizationId: "org-2",
+          code: "C-2",
+          location: { latitude: 19.32, longitude: -98.25 },
+          locationTimestamp: "2026-08-10T07:29:55.000Z",
+          locationReceivedAt: "2026-08-10T07:29:55.000Z"
+        }
+      ],
+      routes: []
+    }),
+    listIncidents: async () => [],
+    listUsers: async () => [],
+    listRouteSessions: async () => []
+  });
+  const tenantUnits = await tenantLoader("org-1", new Date("2026-08-10T07:30:00.000Z"));
+  assert.deepEqual(
+    tenantUnits.map((entry) => entry.unitId),
+    ["vehicle-org-1"],
+    "el sweeper nunca puede mezclar unidades de otra organizacion"
+  );
 
   const io = createIo([
     { id: "owner-1", role: "owner", organizationId: "org-1" },
@@ -133,7 +167,7 @@ async function main() {
   assert.equal(noSocketLoads, 0, "sin clientes conectados no se consulta la flota");
 
   assert.ok(loadCalls.includes("org-1") && loadCalls.includes("org-2"));
-  console.log("ok - freshness sweeper emite solo cambios utiles para organizaciones conectadas");
+  console.log("ok - freshness sweeper emite solo cambios utiles y mantiene aislamiento tenant");
 }
 
 main().catch((error) => {
