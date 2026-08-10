@@ -257,7 +257,7 @@ export function CheckoutPaymentSection({
           <Text style={s.panelTitle}>
             {requestTrial
               ? trialCardSelected
-                ? 'Tarjeta opcional'
+                ? 'Tarjeta'
                 : 'Prueba ManeComb'
               : isManualPaymentMode
                 ? 'Transferencia SPEI'
