@@ -19,6 +19,7 @@ const { PaymentStoreService } = require("../services/payment-store-service");
 const { SessionStoreService } = require("../services/session-store-service");
 const { TrackingService } = require("../services/tracking-service");
 const { UserService } = require("../services/user-service");
+const { installRouteSessionCreationGuard } = require("../services/route-session-creation-guard");
 
 function buildBackendStore(baseStore, dependencies = {}) {
   const models = dependencies.models || {};
@@ -83,13 +84,18 @@ function buildBackendStore(baseStore, dependencies = {}) {
     updateRoute: services.fleet.updateRoute.bind(services.fleet)
   };
 
-  return {
+  const backendStore = {
     ...baseStore,
     ...invariantMethods,
     ...serviceMethods,
     repositories,
     services
   };
+
+  // Route-session creation is a lifecycle boundary, not merely persistence.
+  // Install the guard once here so embedded and Mongo stores share the same
+  // pre/post driver-state invariant without duplicating it in HTTP handlers.
+  return installRouteSessionCreationGuard(backendStore);
 }
 
 module.exports = {
