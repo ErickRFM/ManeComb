@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { CommercialPlan } from '@/src/types/app';
@@ -112,11 +112,11 @@ function CardTestForm({
       <View style={s.testModeHeader}>
         <View style={s.testModeBadge}>
           <MaterialCommunityIcons name={productionDemo ? 'shield-check-outline' : 'shield-key-outline'} size={18} color={palette.lime} />
-          <Text style={s.testModeBadgeText}>{productionDemo ? 'Prueba 7 días' : 'Modo de pruebas'}</Text>
+          <Text style={s.testModeBadgeText}>{productionDemo ? 'Tarjeta opcional' : 'Modo de pruebas'}</Text>
         </View>
         <Text style={s.testModeText}>
           {productionDemo
-            ? 'Registra tu tarjeta para continuar. Durante el periodo de prueba no se realizará ningún cargo; solo conservamos marca, últimos 4, vencimiento y titular.'
+            ? 'Si prefieres dejar una tarjeta registrada, puedes hacerlo sin cargo durante la prueba. Solo conservamos marca, últimos 4, vencimiento y titular.'
             : 'Pago simulado sin cargo real. Este formulario solo se usa en el proveedor técnico de pruebas.'}
         </Text>
       </View>
@@ -195,15 +195,24 @@ export function CheckoutPaymentSection({
   );
   const effectiveMethod: PaymentMethod = !requestTrial && isManualPaymentMode ? 'spei' : selectedMethod;
   const trialCardSelected = requestTrial && demoCardAvailable && effectiveMethod === 'card';
+  const trialDefaultApplied = useRef(false);
   const legacyCardLabel = savedCard?.cardLast4
     ? `${savedCard.cardBrand || 'Tarjeta'} •••• ${savedCard.cardLast4}`
     : null;
 
   useEffect(() => {
+    if (requestTrial && demoCardAvailable && !trialDefaultApplied.current) {
+      trialDefaultApplied.current = true;
+      if (selectedMethod !== 'spei') {
+        onSelectMethod('spei');
+      }
+      return;
+    }
+
     if (!requestTrial && isManualPaymentMode && selectedMethod !== 'spei') {
       onSelectMethod('spei');
     }
-  }, [isManualPaymentMode, onSelectMethod, requestTrial, selectedMethod]);
+  }, [demoCardAvailable, isManualPaymentMode, onSelectMethod, requestTrial, selectedMethod]);
 
   const renderTrialWithoutCard = () => (
     <View style={s.speiPanel}>
@@ -211,7 +220,7 @@ export function CheckoutPaymentSection({
       <View style={s.speiCopy}>
         <Text style={s.speiTitle}>Prueba sin tarjeta</Text>
         <Text style={s.speiText}>
-          Puedes activar la prueba de {selectedPlan.trialDays || 7} días sin registrar ningún método de pago. La prueba está disponible una sola vez por organización.
+          Activa {selectedPlan.trialDays || 7} días sin registrar método de pago. No se realiza ningún cargo y la prueba está disponible una sola vez por organización.
         </Text>
       </View>
     </View>
@@ -248,7 +257,7 @@ export function CheckoutPaymentSection({
           <Text style={s.panelTitle}>
             {requestTrial
               ? trialCardSelected
-                ? 'Tarjeta'
+                ? 'Tarjeta opcional'
                 : 'Prueba ManeComb'
               : isManualPaymentMode
                 ? 'Transferencia SPEI'
@@ -257,7 +266,7 @@ export function CheckoutPaymentSection({
           <Text style={s.panelSubtitle}>
             {requestTrial
               ? trialCardSelected
-                ? `Registra tu tarjeta y activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis.`
+                ? `Registra una tarjeta opcional y activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis.`
                 : `Activa ${selectedPlan.trialDays || 7} días del plan de ${selectedPlan.units} combis sin registrar tarjeta.`
               : isManualPaymentMode
                 ? 'Genera una orden con importe y referencia únicos para tu cuenta.'
@@ -271,16 +280,16 @@ export function CheckoutPaymentSection({
           <>
             <View style={s.methodTabs}>
               <MethodTab
-                active={effectiveMethod === 'card'}
-                icon="credit-card-outline"
-                label="Tarjeta"
-                onPress={() => onSelectMethod('card')}
-              />
-              <MethodTab
                 active={effectiveMethod === 'spei'}
                 icon="shield-check-outline"
                 label="Sin tarjeta"
                 onPress={() => onSelectMethod('spei')}
+              />
+              <MethodTab
+                active={effectiveMethod === 'card'}
+                icon="credit-card-outline"
+                label="Tarjeta opcional"
+                onPress={() => onSelectMethod('card')}
               />
             </View>
             {trialCardSelected ? (
