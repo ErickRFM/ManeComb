@@ -54,9 +54,10 @@ describe('RTC media permission preflight placement', () => {
     expect(chatScreen).toContain('setCallNotice(null)');
   });
 
-  it('delays microphone/camera foreground service until local media exists', () => {
-    expect(callOverlay).toContain('const localStream = useCallStore');
-    expect(callOverlay).toContain('hasActiveCallPhase && Boolean(localStream)');
+  it('starts the media foreground service from permission-gated active phases', () => {
+    expect(callOverlay).toContain("phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING'");
+    expect(callOverlay).not.toContain('Boolean(localStream)');
+    expect(callOverlay).not.toContain('const localStream = useCallStore');
   });
 
   it('keeps a final permission defense at the actual getUserMedia invocation', () => {
