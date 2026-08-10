@@ -13,6 +13,20 @@ type MetricCardProps = {
   tone?: 'default' | 'success' | 'warning' | 'info';
 };
 
+const MODULE_LABELS: Record<string, string> = {
+  audit: 'Auditoría',
+  commercial: 'Comercial',
+  companies: 'Empresas',
+  sessions: 'Sesiones',
+  system: 'Sistema',
+  users: 'Personal',
+  actions: 'Acciones',
+};
+
+function formatModuleLabel(value: string) {
+  return MODULE_LABELS[value] || value.replaceAll('_', ' ');
+}
+
 function MetricCard({ label, value, detail, width, tone = 'default' }: MetricCardProps) {
   return (
     <View style={[styles.metricCard, { width: width as any }]}>
@@ -32,7 +46,7 @@ function MetricCard({ label, value, detail, width, tone = 'default' }: MetricCar
 
 function LoadingState() {
   return (
-    <View style={styles.loadingGrid}>
+    <View accessibilityLabel="Cargando resumen" style={styles.loadingGrid}>
       {[0, 1, 2, 3].map((item) => (
         <View key={item} style={styles.loadingCard}>
           <View style={styles.loadingLineSmall} />
@@ -61,6 +75,7 @@ export function AdminOverviewScreen() {
   const refreshAction = (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: !token || state === 'loading', busy: state === 'loading' }}
       disabled={!token || state === 'loading'}
       onPress={() => token && void load(token, true)}
       style={({ pressed }) => [
@@ -76,16 +91,16 @@ export function AdminOverviewScreen() {
   return (
     <AdminShell
       actions={refreshAction}
-      subtitle="Lectura operativa de alto nivel construida desde los endpoints protegidos de Platform. No consulta posiciones GPS ni ejecuta acciones sobre clientes."
+      subtitle="Vista general de empresas, usuarios, unidades y actividad comercial de ManeComb."
       title="Resumen global"
     >
       {state === 'loading' || state === 'idle' ? <LoadingState /> : null}
 
       {state === 'error' ? (
-        <View style={styles.errorCard}>
+        <View accessibilityRole="alert" style={styles.errorCard}>
           <Text style={styles.errorTitle}>No se pudo cargar el resumen</Text>
-          <Text style={styles.errorText}>{error || 'El servicio Platform no respondió correctamente.'}</Text>
-          <Pressable onPress={() => token && void load(token, true)} style={styles.retryButton}>
+          <Text style={styles.errorText}>{error || 'El servicio no respondió correctamente.'}</Text>
+          <Pressable accessibilityRole="button" onPress={() => token && void load(token, true)} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Reintentar</Text>
           </Pressable>
         </View>
@@ -94,7 +109,7 @@ export function AdminOverviewScreen() {
       {state === 'ready' && capabilities && !capabilities.modules.companies ? (
         <View style={styles.noticeCard}>
           <Text style={styles.noticeTitle}>Acceso limitado</Text>
-          <Text style={styles.noticeText}>Tu rol no incluye la capacidad platform.companies.read requerida por el resumen global.</Text>
+          <Text style={styles.noticeText}>Tu rol no tiene acceso al resumen de empresas.</Text>
         </View>
       ) : null}
 
@@ -102,7 +117,7 @@ export function AdminOverviewScreen() {
         <>
           <View style={styles.metricGrid}>
             <MetricCard
-              detail="Organizaciones detectadas en los datos empresariales actuales."
+              detail="Organizaciones registradas actualmente."
               label="Empresas"
               value={overview.companies.total}
               width={cardWidth}
@@ -131,7 +146,7 @@ export function AdminOverviewScreen() {
               />
             ) : (
               <MetricCard
-                detail="Tu rol no expone información comercial."
+                detail="Módulos disponibles para tu rol."
                 label="Módulos habilitados"
                 value={Object.values(capabilities.modules).filter(Boolean).length}
                 width={cardWidth}
@@ -142,9 +157,9 @@ export function AdminOverviewScreen() {
           <View style={styles.sectionGrid}>
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
-                <View>
+                <View style={styles.sectionHeading}>
                   <Text style={styles.sectionEyebrow}>USUARIOS</Text>
-                  <Text style={styles.sectionTitle}>Estado de cuentas empresariales</Text>
+                  <Text accessibilityRole="header" style={styles.sectionTitle}>Estado de cuentas empresariales</Text>
                 </View>
                 <Text style={styles.sectionTotal}>{overview.users.total}</Text>
               </View>
@@ -157,9 +172,9 @@ export function AdminOverviewScreen() {
 
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
-                <View>
+                <View style={styles.sectionHeading}>
                   <Text style={styles.sectionEyebrow}>FLOTILLA</Text>
-                  <Text style={styles.sectionTitle}>Distribución de unidades</Text>
+                  <Text accessibilityRole="header" style={styles.sectionTitle}>Distribución de unidades</Text>
                 </View>
                 <Text style={styles.sectionTotal}>{overview.vehicles.total}</Text>
               </View>
@@ -173,9 +188,9 @@ export function AdminOverviewScreen() {
             {overview.commercialOrders ? (
               <View style={styles.sectionCard}>
                 <View style={styles.sectionHeader}>
-                  <View>
+                  <View style={styles.sectionHeading}>
                     <Text style={styles.sectionEyebrow}>COMERCIAL</Text>
-                    <Text style={styles.sectionTitle}>Estado de órdenes</Text>
+                    <Text accessibilityRole="header" style={styles.sectionTitle}>Estado de órdenes</Text>
                   </View>
                   <Text style={styles.sectionTotal}>{overview.commercialOrders.total}</Text>
                 </View>
@@ -190,21 +205,20 @@ export function AdminOverviewScreen() {
 
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
-                <View>
-                  <Text style={styles.sectionEyebrow}>CAPACIDADES</Text>
-                  <Text style={styles.sectionTitle}>Acceso efectivo del rol</Text>
+                <View style={styles.sectionHeading}>
+                  <Text style={styles.sectionEyebrow}>ACCESO</Text>
+                  <Text accessibilityRole="header" style={styles.sectionTitle}>Módulos disponibles</Text>
                 </View>
-                <Text style={styles.roleText}>{capabilities.user.role.replace('platform_', '')}</Text>
               </View>
               <View style={styles.permissionWrap}>
                 {Object.entries(capabilities.modules)
                   .filter(([, enabled]) => enabled)
                   .map(([module]) => (
-                    <Text key={module} style={styles.permissionBadge}>{module}</Text>
+                    <Text key={module} style={styles.permissionBadge}>{formatModuleLabel(module)}</Text>
                   ))}
               </View>
               <Text style={styles.generatedAt}>
-                Generado {new Intl.DateTimeFormat('es-MX', {
+                Actualizado {new Intl.DateTimeFormat('es-MX', {
                   dateStyle: 'medium',
                   timeStyle: 'short',
                 }).format(new Date(overview.generatedAt))}
@@ -247,7 +261,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.accent,
     borderRadius: 10,
     justifyContent: 'center',
-    minHeight: 42,
+    minHeight: 44,
     paddingHorizontal: 18,
   },
   refreshButtonPressed: { opacity: 0.78 },
@@ -275,15 +289,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     flexGrow: 1,
-    minWidth: 290,
+    minWidth: 280,
     padding: 19,
     width: '48%',
   },
   sectionHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 14, justifyContent: 'space-between' },
+  sectionHeading: { flex: 1 },
   sectionEyebrow: { color: palette.accent, fontFamily: Typography.mono, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   sectionTitle: { color: palette.text, fontFamily: Typography.display, fontSize: 16, fontWeight: '900', marginTop: 5 },
   sectionTotal: { color: palette.text, fontFamily: Typography.display, fontSize: 24, fontWeight: '900' },
-  roleText: { color: palette.info, fontFamily: Typography.mono, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   statusList: { borderTopColor: palette.line, borderTopWidth: 1, gap: 13, marginTop: 17, paddingTop: 15 },
   statusRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   statusLabelRow: { alignItems: 'center', flexDirection: 'row', gap: 9 },
@@ -301,24 +315,23 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     color: palette.muted,
-    fontFamily: Typography.mono,
+    fontFamily: Typography.body,
     fontSize: 10,
     overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    textTransform: 'uppercase',
   },
   generatedAt: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 10, marginTop: 17 },
   errorCard: { backgroundColor: 'rgba(240, 106, 106, 0.08)', borderColor: 'rgba(240, 106, 106, 0.28)', borderRadius: 14, borderWidth: 1, padding: 20 },
   errorTitle: { color: palette.danger, fontFamily: Typography.display, fontSize: 17, fontWeight: '900' },
   errorText: { color: palette.muted, fontFamily: Typography.body, fontSize: 12, lineHeight: 18, marginTop: 7 },
-  retryButton: { alignSelf: 'flex-start', borderColor: 'rgba(240, 106, 106, 0.35)', borderRadius: 9, borderWidth: 1, marginTop: 14, paddingHorizontal: 14, paddingVertical: 9 },
+  retryButton: { alignItems: 'center', alignSelf: 'flex-start', borderColor: 'rgba(240, 106, 106, 0.35)', borderRadius: 9, borderWidth: 1, justifyContent: 'center', marginTop: 14, minHeight: 44, paddingHorizontal: 14 },
   retryButtonText: { color: palette.danger, fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
   noticeCard: { backgroundColor: 'rgba(240, 167, 37, 0.08)', borderColor: 'rgba(240, 167, 37, 0.28)', borderRadius: 14, borderWidth: 1, padding: 20 },
   noticeTitle: { color: palette.warning, fontFamily: Typography.display, fontSize: 17, fontWeight: '900' },
   noticeText: { color: palette.muted, fontFamily: Typography.body, fontSize: 12, lineHeight: 18, marginTop: 7 },
   loadingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  loadingCard: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, gap: 13, minHeight: 150, padding: 18, width: '48%' },
+  loadingCard: { backgroundColor: palette.card, borderColor: palette.line, borderRadius: 16, borderWidth: 1, flexGrow: 1, gap: 13, minHeight: 150, minWidth: 220, padding: 18, width: '48%' },
   loadingLineSmall: { backgroundColor: palette.surfaceAlt, borderRadius: 6, height: 10, width: '35%' },
   loadingLineLarge: { backgroundColor: palette.surfaceAlt, borderRadius: 8, height: 36, width: '48%' },
   loadingLineMedium: { backgroundColor: palette.surfaceAlt, borderRadius: 6, height: 10, width: '72%' },
