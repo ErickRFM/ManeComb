@@ -60,10 +60,15 @@ export function PlanCard({
     : compactCard
       ? 410
       : 442;
+  const radioFeature = plan.includesRadioModule
+    ? 'Radio incluido'
+    : plan.radioAddonEligible
+      ? `Radio opcional +${formatCurrency(plan.radioAddonPrice || 0)} MXN/mes`
+      : 'Radio no incluido';
   const features = [
     `${plan.units} unidades incluidas`,
     `${formatCurrency(plan.pricePerVehicle)} por unidad`,
-    plan.includesRadioModule ? 'Radio incluido' : 'Radio opcional',
+    radioFeature,
     'Activación directa',
   ];
   const revealDelay = Math.min(index * PLAN_REVEAL_STAGGER_MS, PLAN_REVEAL_MAX_DELAY_MS);
@@ -131,13 +136,14 @@ export function PlanCard({
       ref={cardRef as never}
       accessibilityRole="button"
       accessibilityLabel={`Seleccionar plan ${plan.name}`}
+      accessibilityState={{ selected: active }}
       onPress={onPress}
       style={(state) => {
         const pressed = state.pressed;
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
-        const hoverLift = compactCard ? -6 : -7;
-        const selectedLift = compactCard ? -4 : -6;
-        const hoverScale = compactCard ? 1.018 : 1.022;
+        const hoverLift = compactCard ? -4 : -5;
+        const selectedLift = compactCard ? -3 : -4;
+        const hoverScale = compactCard ? 1.01 : 1.014;
         const restingTranslateY = active ? selectedLift : hovered ? hoverLift : 0;
         const restingScale = hovered ? hoverScale : 1;
 
@@ -161,7 +167,7 @@ export function PlanCard({
               ? null
               : {
                   shadowColor: cardEdge,
-                  shadowOpacity: active ? 0.5 : hovered ? 0.34 : 0.15,
+                  shadowOpacity: active ? 0.4 : hovered ? 0.3 : 0.15,
                 }),
             transform: [
               { translateY: motionReady ? restingTranslateY : 28 },
@@ -176,7 +182,7 @@ export function PlanCard({
                       : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
                   boxShadow:
                     active || hovered
-                      ? `0 0 0 1px ${visual.edge}A8, 0 0 22px ${visual.edge}4A, 0 18px 34px rgba(0, 0, 0, 0.38)`
+                      ? `0 0 0 1px ${visual.edge}A8, 0 0 18px ${visual.edge}3D, 0 16px 30px rgba(0, 0, 0, 0.34)`
                       : `0 0 0 1px ${visual.edge}22, 0 12px 26px rgba(0, 0, 0, 0.24)`,
                   filter: motionReady ? 'blur(0px)' : 'blur(3px)',
                   transitionDelay: reducedMotion || entrySettled ? '0ms' : `${revealDelay}ms`,
@@ -184,8 +190,8 @@ export function PlanCard({
                     ? '0ms'
                     : entrySettled
                       ? compactCard
-                        ? '260ms'
-                        : '300ms'
+                        ? '240ms'
+                        : '270ms'
                       : `${PLAN_REVEAL_DURATION_MS}ms`,
                   transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
                   transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
@@ -206,33 +212,45 @@ export function PlanCard({
             {
               borderColor: `${visual.edge}D0`,
               backgroundColor: 'transparent',
-              opacity: 0.72,
+              opacity: 0.58,
             },
-            Platform.OS === 'web'
-              ? ({
-                  animation: reducedMotion ? undefined : 'manecombPlanHaloPulse 2.9s ease-in-out infinite',
-                  transformOrigin: 'center',
-                  willChange: reducedMotion ? undefined : 'transform, opacity, box-shadow',
-                } as any)
-              : null,
           ]}
         />
       ) : null}
       <View style={styles.planTop}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={[
-              styles.planBadge,
-              active ? styles.planBadgeActive : undefined,
-              {
-                color: cardEdge,
-              },
-              Platform.OS === 'web'
-                ? null
-                : { textShadowColor: active ? `${visual.edge}AA` : 'transparent' },
-            ]}>
-            {plan.badge}
-          </Text>
+          <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+            <Text
+              style={[
+                styles.planBadge,
+                {
+                  color: cardEdge,
+                },
+                Platform.OS === 'web'
+                  ? null
+                  : { textShadowColor: 'transparent' },
+              ]}>
+              {plan.badge}
+            </Text>
+            {active ? (
+              <Text
+                style={{
+                  backgroundColor: `${cardEdge}18`,
+                  borderColor: `${cardEdge}66`,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  color: cardEdge,
+                  fontSize: 9,
+                  fontWeight: '900',
+                  letterSpacing: 0.7,
+                  overflow: 'hidden',
+                  paddingHorizontal: 7,
+                  paddingVertical: 3,
+                }}>
+                SELECCIONADO
+              </Text>
+            ) : null}
+          </View>
           <Text
             numberOfLines={2}
             style={[
@@ -298,13 +316,13 @@ export function PlanCard({
               {
                 backgroundColor: neonPalette.accent,
                 borderColor: neonPalette.accent,
-                transform: [{ scale: hovered ? 1.018 : 1 }],
+                transform: [{ scale: hovered ? 1.012 : 1 }],
                 ...(Platform.OS === 'web'
                   ? ({
                       boxShadow: hovered
-                        ? `0 0 24px ${neonPalette.accentGlow}, 0 18px 40px rgba(255, 45, 122, 0.3)`
-                        : `0 0 16px ${neonPalette.accentGlow}, 0 12px 30px rgba(255, 45, 122, 0.2)`,
-                      transitionDuration: '240ms',
+                        ? `0 0 20px ${neonPalette.accentGlow}, 0 16px 34px rgba(255, 45, 122, 0.26)`
+                        : `0 0 14px ${neonPalette.accentGlow}, 0 10px 26px rgba(255, 45, 122, 0.18)`,
+                      transitionDuration: '220ms',
                       transitionProperty: 'transform, box-shadow',
                       cursor: 'pointer',
                     } as any)
@@ -334,11 +352,11 @@ export function PlanCard({
                 {
                   backgroundColor: hovered ? `${cardEdge}20` : 'rgba(255, 255, 255, 0.035)',
                   borderColor: `${cardEdge}A8`,
-                  transform: [{ scale: hovered ? 1.012 : 1 }],
+                  transform: [{ scale: hovered ? 1.008 : 1 }],
                   ...(Platform.OS === 'web'
                     ? ({
-                        boxShadow: hovered ? `0 0 18px ${cardEdge}30` : 'none',
-                        transitionDuration: '220ms',
+                        boxShadow: hovered ? `0 0 14px ${cardEdge}28` : 'none',
+                        transitionDuration: '200ms',
                         transitionProperty: 'transform, box-shadow, background-color',
                         cursor: 'pointer',
                       } as any)
