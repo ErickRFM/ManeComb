@@ -30,7 +30,6 @@ export function CallOverlay(): React.ReactElement {
   const phase = useCallStore((state) => state.phase);
   const direction = useCallStore((state) => state.direction);
   const mode = useCallStore((state) => state.mode);
-  const localStream = useCallStore((state) => state.localStream);
   const [pendingPushCall, setPendingPushCall] = useState<PushCallIntent | null>(null);
   const consumedPushCalls = useRef(new Set<string>());
   const dismissedCallIds = useRef(new Set<string>());
@@ -120,12 +119,11 @@ export function CallOverlay(): React.ReactElement {
     }
   }, [pendingPushCall, socket, socketStatus]);
 
-  const hasActiveCallPhase =
+  // CONNECTING sólo es alcanzable después del preflight autoritativo del store.
+  // En ese punto Android ya concedió la media requerida, así que el foreground
+  // service puede elevarse antes de que WebRTC intente producir localStream.
+  const needsForegroundService =
     phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
-  // Android 14+ exige permiso concedido y captura válida antes de elevar el
-  // foreground service de micrófono/cámara. localStream prueba que el preflight
-  // y getUserMedia terminaron correctamente.
-  const needsForegroundService = hasActiveCallPhase && Boolean(localStream);
   const needsIncomingCallWindow =
     direction === 'incoming' &&
     (
