@@ -189,6 +189,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
       damping: 18,
       stiffness: 220,
       mass: 0.75,
+      overshootClamping: true,
       useNativeDriver: true,
     }).start();
   }, [panelDragY, reduceMotionEnabled]);
