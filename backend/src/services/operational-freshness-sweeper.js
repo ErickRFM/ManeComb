@@ -3,6 +3,7 @@ const {
   getOrganizationId,
   getRolesWithPermission
 } = require("../middlewares/access-control");
+const { buildOrganizationSources } = require("../modules/platform/company-service");
 const { listOperationalUnits } = require("./operational-units-service");
 const logger = require("./logger");
 
@@ -16,6 +17,15 @@ function getConnectedOrganizationIds(io) {
     if (organizationId) organizations.add(String(organizationId));
   });
   return [...organizations];
+}
+
+function hasPlatformAdminObserver(io) {
+  let connected = false;
+  io?.sockets?.sockets?.forEach?.((socket) => {
+    if (connected) return;
+    if (socket?.rooms?.has?.("platform:admin")) connected = true;
+  });
+  return connected;
 }
 
 function getAgeBucket(ageSeconds) {
@@ -59,13 +69,26 @@ function emitFreshnessSnapshot(io, organizationId, unit, now = new Date()) {
   io.to("platform:admin").emit("operational-unit:updated", payload);
 }
 
+async function getObservedOrganizationIds({ io, loadOrganizationIds }) {
+  const organizations = new Set(getConnectedOrganizationIds(io));
+  if (!hasPlatformAdminObserver(io)) return [...organizations];
+
+  const platformOrganizationIds = await loadOrganizationIds();
+  for (const organizationId of Array.isArray(platformOrganizationIds) ? platformOrganizationIds : []) {
+    const normalized = String(organizationId || "").trim();
+    if (normalized) organizations.add(normalized);
+  }
+  return [...organizations];
+}
+
 async function runOperationalFreshnessSweep({
   io,
   loadUnits,
+  loadOrganizationIds = async () => [],
   signatures,
   now = new Date()
 }) {
-  const organizationIds = getConnectedOrganizationIds(io);
+  const organizationIds = await getObservedOrganizationIds({ io, loadOrganizationIds });
   if (!organizationIds.length) return { organizations: 0, emitted: 0 };
 
   let emitted = 0;
@@ -119,6 +142,18 @@ function createOperationalFreshnessLoader(store) {
   };
 }
 
+function createPlatformOrganizationIdsLoader(store) {
+  return async () => {
+    const [users, orders] = await Promise.all([
+      Promise.resolve(store.listUsers(null)),
+      Promise.resolve(store.listCommercialOrders())
+    ]);
+    return buildOrganizationSources(users || [], orders || [])
+      .map((source) => String(source.organizationId || "").trim())
+      .filter(Boolean);
+  };
+}
+
 function startOperationalFreshnessSweeper({
   io,
   store,
@@ -129,6 +164,7 @@ function startOperationalFreshnessSweeper({
   let running = false;
   let stopped = false;
   const loadUnits = createOperationalFreshnessLoader(store);
+  const loadOrganizationIds = createPlatformOrganizationIdsLoader(store);
 
   const sweep = async () => {
     if (running || stopped) return;
@@ -137,6 +173,7 @@ function startOperationalFreshnessSweeper({
       await runOperationalFreshnessSweep({
         io,
         loadUnits,
+        loadOrganizationIds,
         signatures,
         now: new Date()
       });
@@ -173,9 +210,12 @@ module.exports = {
   FRESHNESS_SECONDS_BUCKET,
   OPERATIONAL_FRESHNESS_SWEEP_MS,
   createOperationalFreshnessLoader,
+  createPlatformOrganizationIdsLoader,
   getAgeBucket,
   getConnectedOrganizationIds,
+  getObservedOrganizationIds,
   getOperationalFreshnessSignature,
+  hasPlatformAdminObserver,
   runOperationalFreshnessSweep,
   startOperationalFreshnessSweeper
 };
