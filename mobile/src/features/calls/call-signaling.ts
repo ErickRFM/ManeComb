@@ -2,6 +2,7 @@
 // Registra listeners puntuales, espera ACKs autoritativos y nunca crea otra conexion.
 
 import type { CallAck, CallSocket, IncomingCallPayload } from './call-types';
+import { calibrateRtcServerClock, normalizeRtcDeadline } from './rtc-clock';
 
 export interface CallSocketHandlers {
   onIncoming: (payload: IncomingCallPayload) => void;
@@ -14,14 +15,37 @@ export interface CallSocketHandlers {
 
 const ACK_TIMEOUT_MS = 12000;
 
+type TemporalPayload = {
+  expiresAt?: string | null;
+  serverTime?: string | null;
+  [key: string]: unknown;
+};
+
+function normalizeTemporalPayload<T extends TemporalPayload>(payload: T): T {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (payload.serverTime) calibrateRtcServerClock(payload.serverTime);
+  if (!payload.expiresAt) return payload;
+  const expiresAt = normalizeRtcDeadline(payload.expiresAt);
+  return expiresAt && expiresAt !== payload.expiresAt
+    ? { ...payload, expiresAt }
+    : payload;
+}
+
 export function bindCallSocket(socket: CallSocket, handlers: CallSocketHandlers): () => void {
+  const onIncoming = (payload: IncomingCallPayload & TemporalPayload): void => {
+    handlers.onIncoming(normalizeTemporalPayload(payload) as IncomingCallPayload);
+  };
+  const onServerPong = (payload: TemporalPayload): void => {
+    if (payload?.serverTime) calibrateRtcServerClock(payload.serverTime);
+  };
   const entries: Array<[string, (...args: any[]) => void]> = [
-    ['rtc:incoming-call', handlers.onIncoming as (...args: any[]) => void],
+    ['rtc:incoming-call', onIncoming as (...args: any[]) => void],
     ['rtc:call-accepted', handlers.onAccepted],
     ['rtc:call-rejected', handlers.onRejected],
     ['rtc:call-cancelled', handlers.onCancelled],
     ['rtc:call-timeout', handlers.onTimeout],
     ['rtc:end', handlers.onEnd],
+    ['server:pong', onServerPong as (...args: any[]) => void],
   ];
   entries.forEach(([event, handler]) => socket.on(event, handler));
   return () => entries.forEach(([event, handler]) => socket.off(event, handler));
@@ -40,11 +64,15 @@ function emitWithAck(
       resolve({ ok: false, code: 'ack_timeout' });
     }, ACK_TIMEOUT_MS);
 
-    socket.emit(event, payload, (ack: CallAck) => {
+    socket.emit(event, payload, (ack: CallAck & TemporalPayload) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(ack && typeof ack === 'object' ? ack : { ok: false, code: 'no_ack' });
+      resolve(
+        ack && typeof ack === 'object'
+          ? normalizeTemporalPayload(ack) as CallAck
+          : { ok: false, code: 'no_ack' }
+      );
     });
   });
 }
