@@ -91,7 +91,7 @@ function resolveManagedUserCreationIdentity(actor, payload = {}) {
 }
 
 function assertManagedUserIdentityStable(targetUser, payload = {}) {
-  if (!targetUser || normalize(targetUser.role) === "driver") {
+  if (!targetUser) {
     return;
   }
 
