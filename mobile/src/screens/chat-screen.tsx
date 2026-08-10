@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { BackHandler, Platform } from 'react-native';
 import type { ConversationChannelMode } from '@/src/types/app';
+import { useCallStore } from '@/src/features/calls/call-store';
 import { useAppStore } from '@/src/store/use-app-store';
 import { ChatScreenView } from './chat/components/chat-screen-view';
 import { useChatController } from './chat/hooks/use-chat-controller';
@@ -12,16 +13,28 @@ import {
 export function ChatScreen() {
   const controller = useChatController();
   const {
+    callNotice,
     handleOpenDirect: openDirectConversation,
     handleOpenGeneral: openGeneralConversation,
     handleSelectConversation: selectConversation,
     isCompact,
     mobilePane,
+    setCallNotice,
     setMobilePane: setControllerMobilePane,
   } = controller;
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const conversations = useAppStore((state) => state.conversations);
+  const permissionPrompt = useCallStore((state) => state.permissionPrompt);
   const pinnedConversationIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (permissionPrompt && callNotice) {
+      // El modal global de permisos es la autoridad de recuperación. callNotice
+      // también está en las dependencias para cubrir la carrera en la que
+      // startCall devuelve media_permission_required después del primer render.
+      setCallNotice(null);
+    }
+  }, [callNotice, permissionPrompt, setCallNotice]);
 
   useEffect(() => {
     const activeConversation = conversations.find(

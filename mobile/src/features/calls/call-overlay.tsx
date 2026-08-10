@@ -17,6 +17,7 @@ import { parsePushCallIntent, type PushCallIntent } from './call-push-intent';
 import { createNativeCallRuntime } from './call-runtime';
 import type { CallSocket } from './call-types';
 import { ActiveCallModal } from './components/active-call-modal';
+import { CallPermissionModal } from './components/call-permission-modal';
 import { IncomingCallModal } from './components/incoming-call-modal';
 
 setCallRuntimeFactory(createNativeCallRuntime);
@@ -112,12 +113,21 @@ export function CallOverlay(): React.ReactElement {
     consumedPushCalls.current.add(pendingPushCall.key);
     setPendingPushCall(null);
     if (pendingPushCall.action === 'accept') {
+      // El store aplica el mismo preflight que el botón de llamada. El accept
+      // de un deep link no puede saltarse permisos ni adelantar CONNECTING.
       useCallStore.getState().acceptIncomingCall().catch(() => undefined);
     }
   }, [pendingPushCall, socket, socketStatus]);
 
+  // OUTGOING_RINGING sólo existe después del preflight. Mantener el FGS desde
+  // aquí permite que una llamada iniciada en foreground continúe si el usuario
+  // manda la app a segundo plano antes de que el receptor acepte. Incoming no
+  // eleva el servicio durante ringing porque todavía puede estar sin permisos.
   const needsForegroundService =
-    phase === 'CONNECTING' || phase === 'CONNECTED' || phase === 'RECONNECTING';
+    phase === 'OUTGOING_RINGING' ||
+    phase === 'CONNECTING' ||
+    phase === 'CONNECTED' ||
+    phase === 'RECONNECTING';
   const needsIncomingCallWindow =
     direction === 'incoming' &&
     (
@@ -165,6 +175,7 @@ export function CallOverlay(): React.ReactElement {
       <RadioLiveOverlay />
       <IncomingCallModal />
       <ActiveCallModal />
+      <CallPermissionModal />
     </>
   );
 }
