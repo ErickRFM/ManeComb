@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  clearOfflineCache,
   enqueuePendingSyncOperation,
   loadPendingSyncQueue,
   removePendingSyncOperation,
@@ -41,5 +42,72 @@ describe('cola offline de Control', () => {
       restored[1].id,
       restored[2].id,
     ]);
+  });
+
+  it('no pierde acciones cuando varias se encolan al mismo tiempo', async () => {
+    const expectedTexts = Array.from({ length: 32 }, (_, index) => `offline-${index}`);
+
+    await Promise.all(
+      expectedTexts.map((text) =>
+        enqueuePendingSyncOperation({
+          type: 'chat:sendMessage',
+          payload: {
+            conversationId: 'conversation-concurrent',
+            text,
+          },
+        })
+      )
+    );
+
+    const restored = await loadPendingSyncQueue();
+    const restoredTexts = restored
+      .filter((entry) => entry.type === 'chat:sendMessage')
+      .map((entry) => entry.payload.text);
+
+    expect(restored).toHaveLength(expectedTexts.length);
+    expect(new Set(restoredTexts)).toEqual(new Set(expectedTexts));
+  });
+
+  it('serializa remove y enqueue para no resucitar ni borrar operaciones', async () => {
+    const first = await enqueuePendingSyncOperation({
+      type: 'chat:sendMessage',
+      payload: { conversationId: 'conversation-race', text: 'first' },
+    });
+    await enqueuePendingSyncOperation({
+      type: 'chat:sendMessage',
+      payload: { conversationId: 'conversation-race', text: 'second' },
+    });
+
+    await Promise.all([
+      removePendingSyncOperation(first.id),
+      enqueuePendingSyncOperation({
+        type: 'chat:sendMessage',
+        payload: { conversationId: 'conversation-race', text: 'third' },
+      }),
+    ]);
+
+    const restored = await loadPendingSyncQueue();
+    const restoredTexts = restored
+      .filter((entry) => entry.type === 'chat:sendMessage')
+      .map((entry) => entry.payload.text);
+
+    expect(restoredTexts).toEqual(['second', 'third']);
+  });
+
+  it('clearOfflineCache actua como barrera contra writes pendientes de la cola', async () => {
+    const pendingEnqueue = enqueuePendingSyncOperation({
+      type: 'incident:create',
+      payload: {
+        title: 'Incidencia offline',
+        type: 'mecanica',
+        description: 'Prueba de carrera',
+        severity: 'warning',
+      },
+    });
+
+    const pendingClear = clearOfflineCache();
+    await Promise.all([pendingEnqueue, pendingClear]);
+
+    expect(await loadPendingSyncQueue()).toEqual([]);
   });
 });
