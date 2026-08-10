@@ -141,12 +141,16 @@ export async function reactivateDriverRequest(userId: string) {
   return response.data.data;
 }
 
-export async function deleteDriverRequest(userId: string, reason: string) {
+export async function deleteDriverRequest(
+  userId: string,
+  reason: string,
+  confirmation: string
+) {
   const response = await apiClient.delete<{ ok: boolean; data: unknown }>(
     `/users/${encodeURIComponent(userId)}`,
     {
       data: {
-        confirmation: 'ELIMINAR',
+        confirmation,
         reason,
       },
     }

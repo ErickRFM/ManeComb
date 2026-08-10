@@ -27,7 +27,8 @@ describe('autoridad UI del horario operativo', () => {
     expect(usersScreen).toContain('label="Horario"');
     expect(usersScreen).toContain('setScheduleDriver(entry)');
     expect(usersScreen).toContain('<DriverScheduleModal');
-    expect(usersScreen).toContain("canManageUsers && entry.role === 'driver'");
+    expect(usersScreen).toContain("const isDriver = entry.role === 'driver'");
+    expect(usersScreen).toContain('canManageUsers && isDriver');
   });
 
   it('guarda por la autoridad existente PATCH /users/:id', () => {
