@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -163,6 +163,7 @@ export function UsersScreen() {
   const [driverActionSubmitting, setDriverActionSubmitting] = useState(false);
   const [driverReason, setDriverReason] = useState('');
   const [driverConfirmation, setDriverConfirmation] = useState('');
+  const driverImpactRequestId = useRef(0);
 
   const [vehicleEditor, setVehicleEditor] = useState<ManagedVehicle | 'new' | null>(null);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(createEmptyVehicleDraft());
@@ -173,6 +174,7 @@ export function UsersScreen() {
   const [vehicleImpactError, setVehicleImpactError] = useState<string | null>(null);
   const [vehicleActionSubmitting, setVehicleActionSubmitting] = useState(false);
   const [vehicleReason, setVehicleReason] = useState('');
+  const vehicleImpactRequestId = useRef(0);
 
   const [assignmentVehicle, setAssignmentVehicle] = useState<ManagedVehicle | null>(null);
   const [assignmentDriver, setAssignmentDriver] = useState<User | null>(null);
@@ -220,6 +222,11 @@ export function UsersScreen() {
     if (user) void refreshDirectory();
   }, [refreshDirectory, user]);
 
+  useEffect(() => () => {
+    driverImpactRequestId.current += 1;
+    vehicleImpactRequestId.current += 1;
+  }, []);
+
   const openDocuments = async (ownerType: 'driver' | 'vehicle', ownerId: string, name: string) => {
     setDocumentsOwner({ id: ownerId, name, ownerType });
     setDocuments([]);
@@ -255,15 +262,19 @@ export function UsersScreen() {
   };
 
   const loadDriverImpact = async (target: User) => {
+    const requestId = ++driverImpactRequestId.current;
     setDriverImpact(null);
     setDriverImpactError(null);
     setDriverImpactLoading(true);
     try {
-      setDriverImpact(await getDriverLifecycleImpactRequest(target.id));
+      const impact = await getDriverLifecycleImpactRequest(target.id);
+      if (requestId !== driverImpactRequestId.current) return;
+      setDriverImpact(impact);
     } catch (error) {
+      if (requestId !== driverImpactRequestId.current) return;
       setDriverImpactError(getApiErrorMessage(error, 'No fue posible revisar el impacto de la acción.'));
     } finally {
-      setDriverImpactLoading(false);
+      if (requestId === driverImpactRequestId.current) setDriverImpactLoading(false);
     }
   };
 
@@ -277,6 +288,7 @@ export function UsersScreen() {
 
   const closeDriverAction = () => {
     if (driverActionSubmitting) return;
+    driverImpactRequestId.current += 1;
     setDriverAction(null);
     setDriverImpact(null);
     setDriverImpactError(null);
@@ -384,15 +396,19 @@ export function UsersScreen() {
   };
 
   const loadVehicleImpact = async (target: ManagedVehicle) => {
+    const requestId = ++vehicleImpactRequestId.current;
     setVehicleImpact(null);
     setVehicleImpactError(null);
     setVehicleImpactLoading(true);
     try {
-      setVehicleImpact(await getVehicleDeletionImpactRequest(target.id));
+      const impact = await getVehicleDeletionImpactRequest(target.id);
+      if (requestId !== vehicleImpactRequestId.current) return;
+      setVehicleImpact(impact);
     } catch (error) {
+      if (requestId !== vehicleImpactRequestId.current) return;
       setVehicleImpactError(getApiErrorMessage(error, 'No fue posible revisar las dependencias de la unidad.'));
     } finally {
-      setVehicleImpactLoading(false);
+      if (requestId === vehicleImpactRequestId.current) setVehicleImpactLoading(false);
     }
   };
 
@@ -405,6 +421,7 @@ export function UsersScreen() {
 
   const closeVehicleAction = () => {
     if (vehicleActionSubmitting) return;
+    vehicleImpactRequestId.current += 1;
     setVehicleAction(null);
     setVehicleImpact(null);
     setVehicleImpactError(null);
