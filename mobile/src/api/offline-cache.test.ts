@@ -2,8 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
+  hydratePendingSyncOperationForReplay,
   loadPendingSyncQueue,
   removePendingSyncOperation,
+  type PendingSyncOperation,
 } from './offline-cache';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -42,6 +44,47 @@ describe('cola offline de Control', () => {
       restored[1].id,
       restored[2].id,
     ]);
+  });
+
+  it('deriva edad de transporte al reproducir una ubicacion offline', () => {
+    const queuedAt = Date.parse('2026-08-10T07:00:00.000Z');
+    const operation: PendingSyncOperation = {
+      id: 'vehicle:location:test',
+      type: 'vehicle:location',
+      createdAt: new Date(queuedAt).toISOString(),
+      attempts: 0,
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+        timestamp: '2026-08-10T01:00:00.000Z',
+      },
+    };
+
+    const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 30 * 60 * 1000);
+    expect(replay).toMatchObject({
+      type: 'vehicle:location',
+      payload: { clientQueueAgeMs: 30 * 60 * 1000 },
+    });
+    // The device wall clock/capture timestamp is preserved as evidence; replay
+    // age is a separate elapsed-duration authority.
+    expect(replay.payload.timestamp).toBe(operation.payload.timestamp);
+  });
+
+  it('acota edad GPS al mismo horizonte de retencion de 24 horas', () => {
+    const queuedAt = Date.parse('2026-08-09T07:00:00.000Z');
+    const operation: PendingSyncOperation = {
+      id: 'vehicle:location:max-age',
+      type: 'vehicle:location',
+      createdAt: new Date(queuedAt).toISOString(),
+      attempts: 0,
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+      },
+    };
+    const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 48 * 60 * 60 * 1000);
+    expect(replay.type === 'vehicle:location' ? replay.payload.clientQueueAgeMs : null)
+      .toBe(24 * 60 * 60 * 1000);
   });
 
   it('no pierde acciones cuando varias se encolan al mismo tiempo', async () => {
