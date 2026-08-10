@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { router } from '@/src/navigation/router';
 import type { CommercialPlan } from '@/src/types/app';
 import { palette } from '../checkout.constants';
 import { checkoutBenefits } from '../checkout.constants';
@@ -8,7 +9,6 @@ import { styles as s } from '../checkout.styles';
 
 type Props = {
   includeRadioAddon: boolean;
-  onChangePlan: () => void;
   plan: CommercialPlan;
   requestTrial: boolean;
   totalAmount: number;
@@ -23,7 +23,7 @@ function TotalRow({ label, strong, value }: { label: string; strong?: boolean; v
   );
 }
 
-export function OrderSummary({ includeRadioAddon, onChangePlan, plan, requestTrial, totalAmount }: Props) {
+export function OrderSummary({ includeRadioAddon, plan, requestTrial, totalAmount }: Props) {
   return (
     <View style={s.summaryPanel}>
       <View style={s.panelTitleRow}>
@@ -37,7 +37,7 @@ export function OrderSummary({ includeRadioAddon, onChangePlan, plan, requestTri
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Cambiar el plan seleccionado"
-          onPress={onChangePlan}
+          onPress={() => router.push('/ventas' as never)}
           style={({ pressed }) => ({
             alignItems: 'center',
             borderColor: palette.line,
