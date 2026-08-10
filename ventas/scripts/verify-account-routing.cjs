@@ -160,7 +160,9 @@ const trialCheckoutContracts = [
   "effectiveRequestTrial || providerMode !== 'unavailable'",
   'requestTrial={effectiveRequestTrial}',
   'const trialForSubmit = effectiveRequestTrial || demoTrial;',
-  "const paymentMethod = trialForSubmit ? 'trial' : method;",
+  'const paymentMethod: CheckoutPaymentMethod = demoTrial',
+  "? 'card'",
+  "? 'trial'",
   'const safeAddOns = trialForSubmit ? [] : selectedAddOns;',
   "router.replace((receiptIsActive ? '/portal/onboarding' : '/portal/plan') as never)",
 ];
@@ -176,10 +178,16 @@ const demoCardContracts = [
   "selectedPlan.trialEligible === true",
   "Number(selectedPlan.units) === 2",
   "Number(selectedPlan.trialDays) === 7",
-  "demoTrial: true",
-  "selectedAddOns: []",
+  "selectedMethod === 'card'",
+  'validateTestCard(testCard)',
+  'paymentProfile: {',
+  'cardLast4: last4',
+  'demoTrial: true',
+  'selectedAddOns: []',
   'Tarjeta demo',
-  'Activar demo ${selectedPlan.trialDays || 7} días · sin cargo',
+  'Sin tarjeta',
+  'Simular cobro ${formatCurrency(selectedPlan.price)} MXN y activar demo',
+  'El número completo y el CVV fueron descartados.',
 ];
 
 for (const contract of demoCardContracts) {
@@ -190,9 +198,9 @@ for (const contract of demoCardContracts) {
 
 const trialPaymentUiContracts = [
   "providerMode === 'unavailable' && !requestTrial",
-  'Acceso de prueba sin pago',
-  'No depende de Mercado Pago, tarjeta ni SPEI',
-  'La prueba se activa en tu cuenta sin cobro y sin depender del proveedor de pagos.',
+  'Acceso demo sin tarjeta',
+  'Cargo simulado únicamente para la demostración.',
+  'La prueba se activa sin cobro y sin guardar un método de pago.',
 ];
 
 for (const contract of trialPaymentUiContracts) {
@@ -225,4 +233,4 @@ for (const contract of recoveryContracts) {
   }
 }
 
-console.log('Canonical channels, capabilities, product boundaries, checkout intent, provider readiness and trial/demo → Portal verified.');
+console.log('Canonical channels, capabilities, product boundaries, checkout intent, provider readiness and trial/demo-card → Portal verified.');
