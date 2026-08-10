@@ -25,8 +25,7 @@ const COMPANY_PROFILE_FIELDS = Object.freeze([
   "cardExpYear",
   "customerReference",
   "companyProfile",
-  "paymentProfile",
-  "operationalSchedule"
+  "paymentProfile"
 ]);
 
 function pickAllowedFields(payload, allowedFields) {
