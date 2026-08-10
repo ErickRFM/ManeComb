@@ -138,7 +138,9 @@ async function runVehicleLifecycle() {
     organizationId, ownerType: 'vehicle', ownerId: historical.id, name: 'Tarjeta de circulacion',
     category: 'registration', expiresAt: '2030-01-01T00:00:00.000Z', storageKey: 'vehicles/tarjeta.jpg', mimeType: 'image/jpeg',
   });
-  const session = await store.createRouteSession({ organizationId, vehicleId: historical.id, driverId: owner.id });
+  // Este fixture sólo necesita historial de la unidad. No debe inventar al owner
+  // como conductor, porque la autoridad de jornada exige un driver real cuando driverId existe.
+  const session = await store.createRouteSession({ organizationId, vehicleId: historical.id });
   await store.updateRouteSession(session.id, { status: 'FINISHED', finishedAt: new Date().toISOString() });
   assert.equal((await previewVehicleDeletionImpact(store, { organizationId, vehicleId: historical.id })).mustRetire, true);
   await assert.rejects(() => deleteVehicleSafely(store, { organizationId, vehicleId: historical.id }), /retirarse/);
