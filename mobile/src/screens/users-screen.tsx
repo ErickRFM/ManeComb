@@ -49,6 +49,7 @@ import {
 import { getPresenceStatus } from '@/src/utils/presence';
 import { formatOperationalSchedule, getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { getDocumentStatus } from '@/src/screens/documents/documents.utils';
+import { DriverScheduleModal } from './users/DriverScheduleModal';
 
 type DirectoryTab = 'personal' | 'vehicles';
 type DriverActionKind = 'offboard' | 'reactivate' | 'delete';
@@ -136,6 +137,7 @@ export function UsersScreen() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null);
+  const [scheduleDriver, setScheduleDriver] = useState<User | null>(null);
 
   const [driverAction, setDriverAction] = useState<{ kind: DriverActionKind; target: User } | null>(null);
   const [driverImpact, setDriverImpact] = useState<DriverLifecycleImpact | null>(null);
@@ -193,9 +195,7 @@ export function UsersScreen() {
   }, [loadUsers, refreshAll, user]);
 
   useEffect(() => {
-    if (user) {
-      refreshDirectory().catch(() => undefined);
-    }
+    if (user) refreshDirectory().catch(() => undefined);
   }, [refreshDirectory, user]);
 
   const openDocuments = async (ownerType: 'driver' | 'vehicle', ownerId: string, name: string) => {
@@ -462,6 +462,7 @@ export function UsersScreen() {
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryText}>Unidad: {vehicle?.code || 'Sin unidad'}</Text>
                       <Text style={styles.summaryText}>Tel: {entry.phone || 'Sin teléfono'}</Text>
+                      {entry.role === 'driver' ? <Text style={styles.summaryText}>Horario: {scheduleLabel}</Text> : null}
                     </View>
 
                     <View style={styles.actionRow}>
@@ -470,12 +471,12 @@ export function UsersScreen() {
                         label={isExpanded ? 'Ocultar perfil' : 'Ver perfil'}
                         onPress={() => setExpandedUserId(isExpanded ? null : entry.id)}
                       />
-                      {canOpenDocuments && entry.role === 'driver' ? (
+                      {canManageUsers && entry.role === 'driver' ? (
                         <ActionButton
                           accent
-                          icon="file-document-multiple-outline"
-                          label="Documentos"
-                          onPress={() => void openDocuments('driver', entry.id, entry.name)}
+                          icon="calendar-clock"
+                          label="Horario"
+                          onPress={() => setScheduleDriver(entry)}
                         />
                       ) : null}
                       {canManageUsers && entry.role === 'driver' && entry.userStatus !== 'suspended' ? (
@@ -502,6 +503,14 @@ export function UsersScreen() {
                           />
                         </>
                       ) : null}
+                      {canOpenDocuments && entry.role === 'driver' ? (
+                        <ActionButton
+                          accent
+                          icon="file-document-multiple-outline"
+                          label="Documentos"
+                          onPress={() => void openDocuments('driver', entry.id, entry.name)}
+                        />
+                      ) : null}
                     </View>
 
                     {isExpanded ? (
@@ -518,7 +527,7 @@ export function UsersScreen() {
                           {entry.suspendedAt ? <DetailItem label="Suspendida desde" value={formatDateTime(entry.suspendedAt)} /> : null}
                         </View>
                         {entry.role === 'driver' ? (
-                          <Text style={styles.profileNote}>El conductor mantiene sus datos personales y documentos desde su perfil. El administrador solo consulta y aplica acciones operativas seguras.</Text>
+                          <Text style={styles.profileNote}>El conductor mantiene sus datos personales y documentos desde su perfil. El administrador consulta y aplica acciones operativas seguras; el horario se administra desde Directorio.</Text>
                         ) : null}
                       </View>
                     ) : null}
@@ -603,6 +612,15 @@ export function UsersScreen() {
           </View>
         </AppCard>
       )}
+
+      <DriverScheduleModal
+        driver={scheduleDriver}
+        onClose={() => setScheduleDriver(null)}
+        onSaved={async () => {
+          setMessage('Horario del conductor actualizado correctamente.');
+          await refreshDirectory();
+        }}
+      />
 
       <Modal visible={Boolean(documentsOwner)} transparent animationType="fade" onRequestClose={() => setDocumentsOwner(null)}>
         <View style={styles.overlay}>
