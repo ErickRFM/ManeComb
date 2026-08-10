@@ -41,11 +41,33 @@ service = replaceOnce(
 
 fs.writeFileSync(servicePath, service);
 
-const testPath = path.resolve(__dirname, '../backend/test/rtc-call-reconnect-lifecycle.test.js');
-let test = fs.readFileSync(testPath, 'utf8');
+const reconnectPath = path.resolve(__dirname, '../backend/test/rtc-call-reconnect-lifecycle.test.js');
+let reconnectTest = fs.readFileSync(reconnectPath, 'utf8');
 const marker = `  // Ringing remains governed only by its ringing deadline, not active-call disconnect ownership.\n`;
 const block = `  // A reconnect/heartbeat after the grace deadline cannot resurrect the call, even with the same socket id.\n  {\n    const h = harness(store);\n    const call = await h.service.startCall({\n      caller: admin,\n      callerSocketId: "admin-same-id",\n      conversationId: CONV_DIRECT,\n      mode: "audio"\n    });\n    await h.service.accept({ user: driver, socketId: "driver-owner", callId: call.callId });\n    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-same-id" }), true);\n    h.advance(15001);\n\n    assert.equal(await h.service.refreshForSocket(admin.id, "admin-same-id", {\n      isSocketConnected: async () => true\n    }), false);\n    assert.equal(await h.service.getCall(call.callId), null);\n\n    const next = await h.service.startCall({\n      caller: admin,\n      callerSocketId: "admin-late-join",\n      conversationId: CONV_DIRECT,\n      mode: "audio"\n    });\n    await h.service.accept({ user: driver, socketId: "driver-next", callId: next.callId });\n    assert.equal(await h.service.handleDisconnect(admin.id, { socketId: "admin-late-join" }), true);\n    h.advance(15001);\n    const lateJoin = await h.service.canJoinCall({\n      callId: next.callId,\n      userId: admin.id,\n      organizationId: admin.organizationId,\n      socketId: "admin-late-join",\n      isSocketConnected: async () => true\n    });\n    assert.equal(lateJoin.reason, "call_ended");\n    assert.equal(await h.service.getCall(next.callId), null);\n  }\n\n`;
-if (!test.includes(marker)) throw new Error('Reconnect test insertion marker not found');
-test = test.replace(marker, block + marker);
-fs.writeFileSync(testPath, test);
+if (!reconnectTest.includes(marker)) throw new Error('Reconnect test insertion marker not found');
+reconnectTest = reconnectTest.replace(marker, block + marker);
+fs.writeFileSync(reconnectPath, reconnectTest);
+
+const signalingPath = path.resolve(__dirname, '../backend/test/rtc-call-signaling.test.js');
+let signalingTest = fs.readFileSync(signalingPath, 'utf8');
+signalingTest = replaceOnce(
+  signalingTest,
+  `function harness(store) {\n  const emits = [];\n  const timers = [];\n  const service = createRtcCallService({`,
+  `function harness(store) {\n  const emits = [];\n  const timers = [];\n  let clock = Date.now();\n  const service = createRtcCallService({`,
+  'signaling fake clock declaration'
+);
+signalingTest = replaceOnce(
+  signalingTest,
+  `    deliverNotification: async () => ({ ok: true }),\n    setTimeoutFn: (fn) => {\n      const handle = { fn, cleared: false };`,
+  `    deliverNotification: async () => ({ ok: true }),\n    now: () => clock,\n    setTimeoutFn: (fn, delay = 0) => {\n      const handle = { fn, delay, cleared: false };`,
+  'signaling timer delay capture'
+);
+signalingTest = replaceOnce(
+  signalingTest,
+  `      for (const timer of timers) {\n        if (timer.cleared) continue;\n        timer.cleared = true;\n        timer.fn();\n      }`,
+  `      for (const timer of timers) {\n        if (timer.cleared) continue;\n        timer.cleared = true;\n        clock += Math.max(0, Number(timer.delay) || 0);\n        timer.fn();\n      }`,
+  'signaling timer clock advance'
+);
+fs.writeFileSync(signalingPath, signalingTest);
 console.log('RTC late reconnect deadline patch applied');
