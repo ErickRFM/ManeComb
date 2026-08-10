@@ -171,7 +171,7 @@ describe('Android runtime hardening', () => {
       .toBeGreaterThanOrEqual(3);
   });
 
-  it('bounds lockscreen visibility and lets terminal intents restore privacy', () => {
+  it('bounds lockscreen visibility without letting unrelated links mutate call state', () => {
     const mainActivity = fs.readFileSync(
       path.join(
         mobileRoot,
@@ -211,8 +211,9 @@ describe('Android runtime hardening', () => {
     expect(mainActivity).toContain('fun setIncomingCallWindowActive(active: Boolean)');
     expect(mainActivity).toContain('INCOMING_CALL_WINDOW_MAX_MS = 45_000L');
     expect(mainActivity).toContain('mainHandler.postDelayed(clearIncomingCallWindow, INCOMING_CALL_WINDOW_MAX_MS)');
+    expect(mainActivity).toContain('if (!isCallIntent) return');
     expect(mainActivity).toContain('getQueryParameter("action")?.equals("dismiss", ignoreCase = true)');
-    expect(mainActivity).toContain('setIncomingCallWindowActive(isCallIntent && !isTerminalIntent)');
+    expect(mainActivity).toContain('setIncomingCallWindowActive(!isTerminalIntent)');
     expect(callModule).toContain('fun setIncomingCallWindowActive(active: Boolean, promise: Promise)');
     expect(callModule).toContain('activity.setIncomingCallWindowActive(active)');
     expect(overlay).toContain('setIncomingCallWindowActive(false).catch(() => undefined)');
