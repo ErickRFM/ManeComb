@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { portalPalette } from '../portal-theme';
 
 export const styles = StyleSheet.create({
@@ -42,9 +42,12 @@ export const styles = StyleSheet.create({
     marginBottom: 12,
   },
   filterChip: {
+    alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     borderColor: portalPalette.lineStrong,
+    justifyContent: 'center',
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -90,9 +93,9 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: AppTheme.radius.xs,
     flexShrink: 0,
-    height: 32,
+    height: DesignSystem.control.touch,
     justifyContent: 'center',
-    width: 32,
+    width: DesignSystem.control.touch,
   },
   reviewSelector: {
     flexDirection: 'row',
@@ -102,10 +105,12 @@ export const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   reviewOption: {
+    alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexGrow: 1,
-    minHeight: 38,
+    justifyContent: 'center',
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
@@ -157,7 +162,7 @@ export const styles = StyleSheet.create({
     color: portalPalette.text,
     flexGrow: 1,
     fontFamily: Typography.body,
-    minHeight: 40,
+    minHeight: DesignSystem.control.touch,
     minWidth: 220,
     paddingHorizontal: AppTheme.spacing.md,
   },
