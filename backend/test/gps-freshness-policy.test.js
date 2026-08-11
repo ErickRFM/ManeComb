@@ -23,33 +23,40 @@ function vehicleAt(secondsAgo, overrides = {}) {
   };
 }
 
-assert.equal(GPS_LIVE_MAX_AGE_SECONDS, 15);
-assert.equal(GPS_FRESH_MAX_AGE_SECONDS, 30);
-assert.equal(GPS_STALE_MAX_AGE_SECONDS, 90);
+assert.equal(GPS_LIVE_MAX_AGE_SECONDS, 8);
+assert.equal(GPS_FRESH_MAX_AGE_SECONDS, 15);
+assert.equal(GPS_STALE_MAX_AGE_SECONDS, 30);
 
-const live = buildOperationalUnitSnapshot({ vehicle: vehicleAt(15), now: NOW });
+const live = buildOperationalUnitSnapshot({ vehicle: vehicleAt(8), now: NOW });
 assert.equal(live.gps.connectionState, "live");
 assert.equal(live.gps.freshness, "fresh");
-assert.equal(live.gps.ageSeconds, 15);
+assert.equal(live.gps.ageSeconds, 8);
+assert.equal(live.operationalState, "on_route");
 
-const delayed = buildOperationalUnitSnapshot({ vehicle: vehicleAt(16), now: NOW });
+const delayed = buildOperationalUnitSnapshot({ vehicle: vehicleAt(9), now: NOW });
 assert.equal(delayed.gps.connectionState, "delayed");
 assert.equal(delayed.gps.freshness, "fresh");
+assert.equal(
+  delayed.operationalState,
+  "unknown",
+  "un heartbeat vencido no puede seguir afirmando que la unidad esta en ruta o detenida"
+);
 
-const delayedBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(30), now: NOW });
+const delayedBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(15), now: NOW });
 assert.equal(delayedBoundary.gps.connectionState, "delayed");
 assert.equal(delayedBoundary.gps.freshness, "fresh");
+assert.equal(delayedBoundary.operationalState, "unknown");
 
-const stale = buildOperationalUnitSnapshot({ vehicle: vehicleAt(31), now: NOW });
+const stale = buildOperationalUnitSnapshot({ vehicle: vehicleAt(16), now: NOW });
 assert.equal(stale.gps.connectionState, "stale");
 assert.equal(stale.gps.freshness, "stale");
 assert.equal(stale.operationalState, "unknown");
 
-const staleBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(90), now: NOW });
+const staleBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(30), now: NOW });
 assert.equal(staleBoundary.gps.connectionState, "stale");
 assert.equal(staleBoundary.gps.freshness, "stale");
 
-const lost = buildOperationalUnitSnapshot({ vehicle: vehicleAt(91), now: NOW });
+const lost = buildOperationalUnitSnapshot({ vehicle: vehicleAt(31), now: NOW });
 assert.equal(lost.gps.connectionState, "lost");
 assert.equal(lost.gps.freshness, "missing");
 assert.equal(lost.gps.lat, 19.3139, "la ultima posicion conocida nunca desaparece");
@@ -97,11 +104,12 @@ assert.equal(queuedImmediate.gps.freshness, "fresh");
 
 // Compatibilidad con registros previos a locationReceivedAt.
 const legacy = buildOperationalUnitSnapshot({
-  vehicle: vehicleAt(20, { locationReceivedAt: undefined }),
+  vehicle: vehicleAt(12, { locationReceivedAt: undefined }),
   now: NOW
 });
-assert.equal(legacy.gps.ageSeconds, 20);
+assert.equal(legacy.gps.ageSeconds, 12);
 assert.equal(legacy.gps.connectionState, "delayed");
 assert.equal(legacy.gps.freshness, "fresh");
+assert.equal(legacy.operationalState, "unknown");
 
-console.log("ok - GPS freshness separa receive-time de captura offline y transicion live/delayed/stale/lost");
+console.log("ok - GPS freshness aplica lease rapido y no presenta datos retrasados como operacion activa");
