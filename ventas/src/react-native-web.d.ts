@@ -32,7 +32,11 @@ declare module 'react-native' {
 
   export const Easing: any;
   export const Linking: { openURL(url: string): Promise<unknown> };
-  export const Share: { share(content: { message: string }): Promise<unknown> };
+  export const Share: {
+    dismissedAction: string;
+    sharedAction: string;
+    share(content: { message: string }): Promise<{ action: string; activityType?: string | null }>;
+  };
   export const Platform: {
     OS: string;
     select<T>(options: Record<string, T>): T | undefined;
