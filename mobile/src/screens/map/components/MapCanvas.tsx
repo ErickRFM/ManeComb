@@ -4,7 +4,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapPadding, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import { formatFreshness, freshnessOpacity, stateColor } from '@shared/operational-contract';
+import { connectionOpacity, formatFreshness, stateColor } from '@shared/operational-contract';
 import type { GeoPoint, Incident, LiveLocationsData, NavigationPlaceResult, NavigationRouteOption, NavigationStop, Vehicle } from '@/src/types/app';
 import type { SelectorPointRole } from '../types';
 import { mapStyles as styles } from '../map-styles';
@@ -144,9 +144,9 @@ function RouteLayers({
 /**
  * Marcadores de unidad.
  *
- * El color sale de `operationalState` y la opacidad de `gps.freshness`, ambos
- * resueltos en backend. Una unidad con GPS vencido se dibuja atenuada; nunca
- * se omite. La unica exclusion es no tener coordenada que dibujar.
+ * El color sale de `operationalState` y la opacidad de `gps.connectionState`,
+ * ambos resueltos en backend. Desde `delayed` la unidad ya se representa como
+ * ultima ubicacion conocida; nunca se omite mientras exista una coordenada.
  */
 function UnitMarkers({
   onUnitPress,
@@ -164,13 +164,13 @@ function UnitMarkers({
       {units.map((unit) => {
         if (unit.gps.lat === null || unit.gps.lng === null) return null;
         const isSelected = unit.unitId === selectedUnit?.unitId;
-        // Una posicion que no es fresca sigue dibujandose, pero no puede
-        // parecer una lectura en vivo.
-        const isLastKnown = unit.gps.freshness !== 'fresh';
+        // `delayed` ya perdio el lease vivo. La ultima coordenada se conserva,
+        // pero no puede verse con la misma fuerza visual que una unidad activa.
+        const isLastKnown = unit.gps.connectionState !== 'live';
         const unitMarkerStyle = {
           backgroundColor: stateColor(unit.operationalState),
           borderColor: isSelected ? theme.colors.warning : '#FFF',
-          opacity: freshnessOpacity(unit.gps.freshness),
+          opacity: connectionOpacity(unit.gps.connectionState),
           transform: [{ scale: isSelected ? 1.18 : 1 }],
         };
 
@@ -196,8 +196,8 @@ function UnitMarkers({
               </View>
               {/*
                 El folio identifica al chofer de un vistazo. La antiguedad solo
-                aparece cuando la posicion no es fresca, para no repetir ruido
-                en las unidades que si estan reportando.
+                aparece cuando la conexion ya no es `live`, para que una unidad
+                retrasada no siga pareciendo activa aunque su posicion exista.
               */}
               <View style={styles.vehicleMarkerLabel}>
                 <Text style={styles.vehicleMarkerLabelText} numberOfLines={1}>
