@@ -1,14 +1,16 @@
 # RC-UX-UI-SYSTEM-02 — Auditoría avanzada de jerarquía, densidad y coherencia
 
-> Estado: AUDITORÍA BASE CERRADA / IMPLEMENTACIÓN VISUAL AÚN NO INICIADA
+> Estado: AUDITORÍA BASE CERRADA / IMPLEMENTACIÓN EJECUTADA EN SUPERFICIES NO CONFLICTIVAS
 >
 > Rama: `ux/global-polish-clean-20260811`
 >
-> Base: `main@d7d3ed1bbcc0afd958c1a8c69a6dab8905ca6466`
+> Base de implementación: `main@f30ad08fa34f876fde3702782a6cd7cef7f9d7b0`
+>
+> Evidencia de implementación: `RC-UX-UI-SYSTEM-03-IMPLEMENTATION.md`
 
 ## 1. Dictamen
 
-ManeComb **no necesita un rediseño global**. El sistema ya tiene identidad, tokens, patrones y varias pasadas de limpieza. El siguiente salto de calidad debe venir de:
+ManeComb **no necesita un rediseño global**. Ya existe identidad, tokens, patrones, contratos operacionales y varias pasadas de limpieza. El salto de calidad de esta RC viene de:
 
 - mejor jerarquía de información;
 - menos repetición;
@@ -18,187 +20,177 @@ ManeComb **no necesita un rediseño global**. El sistema ya tiene identidad, tok
 - conservar la acción principal limpia y obvia;
 - no agregar copy si no resuelve una duda real.
 
-La regla de esta RC es **editar primero por sustracción y reordenamiento**. Solo se agrega un componente o texto nuevo si falta una capacidad perceptible o una explicación necesaria.
+La regla aplicada fue **sustracción y reordenamiento antes de agregar**.
 
-## 2. Lo que ya está bien y se congela
+## 2. Base que se conserva
 
 ### Mobile
 
-El sistema visual móvil ya cuenta con una base canónica:
+Se congela el sistema visual canónico existente:
 
-- `DesignSystem` central para tipografía, spacing, radios, controles, motion y breakpoints;
-- breakpoints compartidos `phone=640` y `compact=1080`;
-- escala de radios ampliada para los valores realmente usados;
-- títulos, sheets, handles, chips y estados ya pasaron por normalización previa;
-- `StatusPill` y otros componentes compartidos ya cubren buena parte de los estados.
+- `DesignSystem` para tipografía, spacing, radios, controles, motion y breakpoints;
+- `phone=640` y `compact=1080` como breakpoints compartidos;
+- `AppShell`, `AppCard`, `StatusPill` y patrones comunes;
+- normalización previa de títulos, sheets, handles y chips.
 
-**Decisión:** no volver a hacer una migración masiva de tokens ni cambiar tamaños porque sí. Se tocarán valores solo cuando haya un problema perceptible demostrado.
+No se repitió una migración masiva de tokens.
 
 ### Modelo operacional
 
-El problema histórico de varias representaciones de una unidad ya tiene contrato compartido `OperationalUnitSnapshot`. Mobile consume `@shared/operational-contract` y el Portal actual también importa el snapshot y su reconciliación para realtime.
-
-**Decisión:** las mejoras de UI de Mapa, Seguimiento, Control, Unidades e Incidencias deben proyectar ese contrato; no crear otra interpretación local del estado.
+`OperationalUnitSnapshot` sigue siendo la autoridad compartida para el estado de las unidades. Mapa, Seguimiento, Control, Jornadas e Incidencias no reciben una nueva interpretación visual del estado.
 
 ### Ventas / Portal
 
-Ya existe una limpieza reciente de navegación y producto:
+Se conserva la limpieza previa de navegación, carga por ruta, lazy loading de Mapbox y separación entre Perfil, Plan, Pagos y Facturación.
 
-- se eliminaron destinos duplicados;
-- se redujo carga global indiscriminada;
-- Perfil concentra accesos de cuenta;
-- Mapbox sigue lazy;
-- no se añadieron librerías o widgets decorativos sin necesidad.
+La landing pública mantiene su identidad neón deliberada; no se obliga a usar exactamente la paleta sobria del Portal.
 
-**Decisión:** conservar esa dirección. La nueva pasada es de claridad, feedback local, densidad y responsive; no volver a inflar el Portal.
+## 3. Hallazgos y resolución
 
-## 3. Hallazgos actuales verificados
+### UX-P1-01 — Radio repetía contexto
 
-### UX-P1-01 — Radio repite el mismo contexto tres veces
+**Hallazgo:** canal, participantes y salida aparecían arriba y volvían a aparecer en una fila inferior.
 
-En la consola actual:
+**Resolución:** aplicada.
 
-- el nombre del canal ya aparece como título del header;
-- el header ya muestra el número de miembros;
-- el selector real de salida de audio ya está arriba y es interactivo;
-- la fila inferior vuelve a mostrar canal, conectados y salida.
+- se eliminó la fila inferior redundante;
+- título, miembros y audio route permanecen arriba;
+- PTT y última transmisión ganan prioridad;
+- prueba de contrato impide reintroducir `consoleMetaRow`.
 
-Además, `miembros` y `conectados` usan actualmente el mismo origen: `activeChannel.participants.length`.
+**Autoridades protegidas:** floor control, captura, playback, Socket.IO, lifecycle, haptics y audio route.
 
-**Impacto:** la fila inferior consume altura, repite contexto y hace que información secundaria compita con PTT y último audio.
+### UX-P1-02 — No crear nuevas autoridades operacionales
 
-**Corrección aprobada:** eliminar la repetición inferior, conservar la información superior y el selector de salida real, y redistribuir el espacio sin reducir la prioridad táctil del PTT.
+**Resolución:** cumplida por diseño.
 
-**No se toca:** floor control, captura, playback, lifecycle, Socket.IO, haptics, audio routing nativo ni la máquina de estados.
+No se añadieron estados, KPIs o badges de jornada/GPS/ruta basados en cálculos locales nuevos. Las superficies operacionales sin un problema visual demostrado se dejaron intactas.
 
-### UX-P1-02 — El trabajo visual no puede crear nuevas autoridades operacionales
+### UX-P2-01 — Admin Global forzaba copy secundario
 
-Mobile y Portal ya tienen contrato de snapshot/reconciliación. Cualquier tarjeta nueva, badge, contador o CTA que represente jornada/GPS/ruta/incidencia debe consumir la autoridad existente.
+**Hallazgo:** `AdminShell` exigía subtítulo y repetía `ADMIN GLOBAL` encima de cada título.
 
-**Corrección de proceso:** cada PR visual que toque operación debe identificar explícitamente de qué campo/selector proviene el estado mostrado.
+**Resolución:** aplicada.
 
-### UX-P2-01 — Admin Global fuerza copy secundario en el shell
+- `subtitle` es opcional;
+- se retiró el eyebrow repetitivo;
+- se conservaron explicaciones útiles de las pantallas que sí las necesitan.
 
-`AdminShell` exige `subtitle: string` para todas las pantallas y además muestra un eyebrow fijo `ADMIN GLOBAL`. Esto no es un bug por sí mismo, pero convierte el subtítulo en requisito estructural incluso cuando una pantalla puede explicarse solo con su título y acciones.
+### UX-P2-02 — Admin Global duplicaba “módulos”
 
-**Dirección:** auditar pantalla por pantalla. Hacer `subtitle` opcional solo si se demuestra copy de relleno. No eliminar explicaciones útiles de seguridad, MFA, acciones destructivas o alcance global.
+**Hallazgo:** sin órdenes comerciales, el cuarto KPI era `Módulos habilitados`, mientras una tarjeta inferior ya mostraba `Módulos disponibles`.
 
-### UX-P2-02 — Resumen de Admin Global puede repetir “módulos”
+**Resolución:** aplicada.
 
-Cuando no existe el bloque de órdenes comerciales, el cuarto KPI se convierte en `Módulos habilitados`; más abajo existe también la tarjeta `Módulos disponibles` con badges de capacidades.
+El KPI duplicado desaparece y el grid se adapta a tres o cuatro métricas reales.
 
-**Impacto:** dos superficies pueden responder la misma pregunta en la misma pantalla.
+### UX-P2-03 — Navegación Admin demasiado descriptiva
 
-**Dirección:** dejar una sola representación si la revisión visual confirma la duplicidad en ese estado de capabilities.
+**Hallazgo:** cada item mostraba label más hasta dos líneas explicativas aunque los destinos son inequívocos.
 
-### UX-P2-03 — Copy opcional debe seguir siendo opcional en Mobile
+**Resolución:** aplicada.
 
-`AppShell` ya permite `mobileSubtitle` opcional y headers propios. Esto encaja con la dirección de producto.
+- se conserva únicamente el label en el sidebar;
+- ancho de sidebar: 280 → 260 px;
+- item: 58 → 44 px mínimos;
+- se mantiene accesibilidad y selección activa.
 
-**Decisión:** no convertir subtítulos, badges o mensajes descriptivos en un estándar obligatorio. Una pantalla simple puede quedarse con título + estado + acción.
+### UX-P2-04 — Metadata móvil sin consumidor
 
-## 4. Arquitectura visual objetivo
+**Hallazgo:** algunas pantallas entregaban `mobileTitle`, `mobileSubtitle` o `mobileBadges` a `AppShell` al mismo tiempo que proporcionaban `header` propio. Por contrato del shell, ese metadata no se renderiza.
 
-El sistema se evaluará con una estructura común, no con un template visual rígido:
+**Resolución parcial focalizada:** aplicada en las pantallas tocadas por esta RC:
+
+- Alertas;
+- Perfil;
+- Documentos del conductor.
+
+No se hizo búsqueda-reemplazo global sobre pantallas con trabajo paralelo.
+
+### UX-P2-05 — Documentos mezclaba “reintentar” con actualización normal
+
+**Resolución:** aplicada.
+
+`Reintentar / actualizar` pasa a `Actualizar`. Los errores conservan feedback contextual propio.
+
+### UX-P2-06 — Portal repetía breadcrumb en móvil
+
+**Resolución:** aplicada.
+
+`Portal > pantalla` se conserva en escritorio y deja de competir con el título en layout compacto.
+
+### UX-P2-07 — Portal introducía acentos fuera de su paleta operativa
+
+**Resolución:** aplicada con alcance limitado.
+
+El CTA compartido del Portal conserva rojo/rosa y elimina la deriva violeta. Esto no modifica la landing pública de Ventas, cuya paleta neón sí es deliberada.
+
+## 4. Superficies verificadas sin cambio
+
+### Chat
+
+El hallazgo histórico de `directoryHelperText` ya está resuelto en el código actual: se renderiza en el encabezado de Conversaciones. No se parcheó de nuevo.
+
+### Mapa / Seguimiento / Control / Jornadas
+
+No se detectó una razón suficiente para reordenar el estado sin volver a abrir el modelo de información. Se mantiene el contrato operacional compartido como autoridad.
+
+### Calls
+
+El pulido de llamadas de PR #165 ya forma parte de la base integrada. El feedback nativo restante está siendo trabajado por #170, por lo que esta RC no crea una segunda implementación.
+
+### Directorio / Unidades
+
+Protegido por #166 y #168. Esta RC no toca `users-screen.tsx` ni las acciones de lifecycle de unidades.
+
+### Ventas / Checkout
+
+La fase #169 está cerrando precondiciones, feedback y catches de acciones visibles. Esta RC no duplica esa implementación y sus archivos no se solapan con el listado de #169 observado durante la auditoría.
+
+## 5. Regla de copy aplicada
+
+Se conserva texto cuando:
+
+1. identifica el objeto actual;
+2. explica un estado no obvio;
+3. evita una acción peligrosa;
+4. indica qué hacer después de un error/empty state;
+5. diferencia conceptos que podrían confundirse.
+
+Se elimina o evita cuando:
+
+- repite el título;
+- repite un badge o dato;
+- describe lo que ya muestra la UI;
+- es marketing dentro de una consola operativa;
+- usa nombres internos;
+- promete una capacidad no respaldada por autoridad real.
+
+## 6. Arquitectura visual resultante
+
+No se impone un template rígido. La lectura común queda:
 
 **Contexto → estado necesario → acción principal → información reciente/resultado → acciones secundarias.**
 
 Ejemplos:
 
 - Radio: canal/estado/salida → PTT → última transmisión → navegación.
-- Mapa: mapa/contexto → estado de unidad seleccionada → acción de jornada/seguimiento → detalle bajo demanda.
-- Chat: conversación → estado de conexión/llamada solo cuando aplica → mensajes → composer.
-- Portal: objetivo de pantalla → acción primaria → datos accionables → detalle.
-- Admin Global: alcance global → riesgo/estado → acción autorizada → evidencia/trazabilidad.
+- Mapa: mapa/contexto → estado de unidad → jornada/seguimiento → detalle bajo demanda.
+- Chat: conversación → estado relevante → mensajes → composer.
+- Portal: objetivo → acción primaria → datos accionables → detalle.
+- Admin Global: alcance → estado/riesgo → acción autorizada → trazabilidad.
 
-No todas las pantallas necesitan las cinco capas visibles.
+## 7. Validación y cierre
 
-## 5. Reglas de copy
+La implementación está documentada en `RC-UX-UI-SYSTEM-03-IMPLEMENTATION.md`.
 
-Se conserva texto solo cuando cumple al menos una condición:
+Para fusionar:
 
-1. identifica el objeto actual;
-2. explica un estado no obvio;
-3. evita una acción peligrosa;
-4. indica qué hacer después de un error/empty state;
-5. diferencia dos conceptos que visualmente podrían confundirse.
+- CI verde sobre el head final;
+- System audit verde;
+- Dependency audit verde;
+- Portal production certification verde;
+- reconsulta de `main` y PRs paralelos;
+- validación física/manual declarada como pendiente cuando corresponda.
 
-Se elimina o no se agrega cuando:
-
-- repite el título;
-- repite un badge;
-- describe lo que ya muestra la UI;
-- es marketing dentro de una consola operativa;
-- usa nombres internos del sistema;
-- promete una capacidad no respaldada por backend.
-
-## 6. Orden de implementación
-
-### Fase 1 — Mobile crítico
-
-- Radio.
-- Mapa / Seguimiento.
-- Control / jornadas / rutas.
-- Incidencias.
-
-### Fase 2 — Comunicación y personas
-
-- Chat / llamadas.
-- Directorio / unidades.
-- Perfil / documentos.
-
-Los archivos afectados por PRs paralelos no se pisan; se rebaselina después de su integración.
-
-### Fase 3 — Portal empresarial
-
-- Dashboard y centro de acción.
-- Equipo / Unidades.
-- Rutas / mapa.
-- Documentos / Incidencias.
-- Plan / Pagos / Facturación / Perfil.
-
-### Fase 4 — Ventas
-
-- Landing.
-- Login / registro / recovery.
-- Checkout / retornos.
-- Legal / 404.
-
-### Fase 5 — Admin Global
-
-- Shell/navegación.
-- Resumen global.
-- Empresas.
-- Operaciones.
-- Gobernanza.
-- Pagos manuales.
-- Auth/MFA.
-
-## 7. Validación por cambio
-
-Cada incremento debe pasar:
-
-- revisión de duplicidad de información;
-- revisión de copy nuevo;
-- touch targets y accesibilidad;
-- font scaling / texto largo;
-- estados loading, empty, error, offline/reconnect cuando apliquen;
-- responsive del producto;
-- typecheck/lint/tests/build;
-- `git diff --check`;
-- pruebas físicas cuando haya mapa, audio, teclado, gestos o ciclo de vida Android.
-
-## 8. Criterio de cierre
-
-El resultado correcto debe sentirse como **el mismo ManeComb, pero mejor ordenado**.
-
-No se considera mejora si únicamente:
-
-- agrega más tarjetas;
-- agrega más texto;
-- agrega más badges;
-- cambia radios/colores sin resolver una necesidad;
-- copia módulos de competidores que ManeComb no necesita;
-- mueve datos sin respetar su fuente de verdad.
-
-La mejora sí cuenta cuando el usuario entiende más rápido qué está pasando y qué puede hacer, con menos elementos compitiendo por su atención.
+El resultado buscado sigue siendo **el mismo ManeComb, mejor ordenado**, no una colección nueva de tarjetas, badges o textos.
