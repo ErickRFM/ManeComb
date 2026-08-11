@@ -57,7 +57,7 @@ import {
   type DirectoryVehicleActionKind,
 } from './users/directory-action-state';
 
-type DirectoryTab = 'personal' | 'vehicles';
+type DirectoryTab = 'personal' | 'vehicles' | 'archive';
 type DriverActionKind = DirectoryDriverActionKind;
 type VehicleActionKind = DirectoryVehicleActionKind;
 type VehicleDraft = {
@@ -191,6 +191,14 @@ export function UsersScreen() {
   const canOpenDocuments = canManageMobileDocuments(user);
   const canManageUsers = canManageMobileUsers(user);
   const canManageVehicles = canManageMobileVehicles(user);
+  const activeManagedVehicles = useMemo(
+    () => managedVehicles.filter((vehicle) => !vehicle.retiredAt),
+    [managedVehicles]
+  );
+  const archivedVehicles = useMemo(
+    () => managedVehicles.filter((vehicle) => Boolean(vehicle.retiredAt)),
+    [managedVehicles]
+  );
   const liveVehicles = useMemo(() => mapData?.vehicles || [], [mapData?.vehicles]);
   const vehicleById = useMemo(() => {
     const entries = new Map<string, Vehicle>();
@@ -437,6 +445,7 @@ export function UsersScreen() {
       submitting: vehicleActionSubmitting,
       canRetire: vehicleImpact.canRetire,
       canDeletePermanently: vehicleImpact.canDeletePermanently,
+      mustRetire: vehicleImpact.mustRetire,
       reason: vehicleReason,
     });
     if (!canConfirm) return;
@@ -444,12 +453,24 @@ export function UsersScreen() {
     setVehicleActionSubmitting(true);
     setMessage(null);
     try {
-      if (vehicleAction.kind === 'retire') {
+      const shouldArchive =
+        vehicleAction.kind === 'retire' ||
+        (vehicleAction.kind === 'delete' && vehicleImpact.mustRetire && !vehicleAction.target.retiredAt);
+
+      if (shouldArchive) {
         await retireVehicleRequest(vehicleAction.target.id, vehicleReason.trim());
-        setMessage('Unidad dada de baja. Su historial permanece disponible.');
+        setMessage(
+          vehicleAction.kind === 'delete'
+            ? 'Unidad eliminada de la flotilla activa y movida a Archivo. Su historial permanece disponible.'
+            : 'Unidad dada de baja y movida a Archivo. Su historial permanece disponible.'
+        );
       } else {
         await deleteManagedVehicleRequest(vehicleAction.target.id);
-        setMessage('Unidad sin historial eliminada correctamente.');
+        setMessage(
+          vehicleAction.target.retiredAt
+            ? 'Unidad eliminada del Archivo. Los registros operativos históricos no se reescribieron.'
+            : 'Unidad sin historial eliminada correctamente.'
+        );
       }
       setVehicleAction(null);
       setVehicleImpact(null);
@@ -530,6 +551,7 @@ export function UsersScreen() {
         submitting: vehicleActionSubmitting,
         canRetire: vehicleImpact?.canRetire,
         canDeletePermanently: vehicleImpact?.canDeletePermanently,
+        mustRetire: vehicleImpact?.mustRetire,
         reason: vehicleReason,
       })
     : false;
@@ -566,6 +588,12 @@ export function UsersScreen() {
           <MaterialCommunityIcons name="bus-multiple" size={18} color={activeTab === 'vehicles' ? theme.colors.accent : theme.colors.muted} />
           <Text style={[styles.tabText, activeTab === 'vehicles' ? styles.tabTextActive : undefined]}>Unidades</Text>
         </Pressable>
+        {canManageVehicles ? (
+          <Pressable onPress={() => setActiveTab('archive')} style={[styles.tab, activeTab === 'archive' ? styles.tabActive : undefined]}>
+            <MaterialCommunityIcons name="archive-outline" size={18} color={activeTab === 'archive' ? theme.colors.accent : theme.colors.muted} />
+            <Text style={[styles.tabText, activeTab === 'archive' ? styles.tabTextActive : undefined]}>Archivo</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {message ? <View style={styles.messageBox}><Text style={styles.messageText}>{message}</Text></View> : null}
@@ -695,12 +723,12 @@ export function UsersScreen() {
             )}
           </View>
         </AppCard>
-      ) : (
+      ) : activeTab === 'vehicles' ? (
         <AppCard style={styles.directoryCard}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionCopy}>
               <Text style={styles.sectionTitle}>Unidades</Text>
-              <Text style={styles.sectionSubtitle}>{managedVehicles.length} unidades visibles</Text>
+              <Text style={styles.sectionSubtitle}>{activeManagedVehicles.length} unidades activas visibles</Text>
             </View>
             {canManageVehicles ? (
               <Pressable onPress={() => openVehicleEditor()} style={styles.primaryButton}>
@@ -712,13 +740,13 @@ export function UsersScreen() {
 
           {vehiclesLoading ? <ActivityIndicator color={theme.colors.accent} /> : null}
           <View style={styles.usersList}>
-            {!vehiclesLoading && !managedVehicles.length ? (
+            {!vehiclesLoading && !activeManagedVehicles.length ? (
               <View style={styles.emptyState}>
                 <MaterialCommunityIcons name="bus-alert" size={26} color={theme.colors.muted} />
-                <Text style={styles.sectionSubtitle}>No hay unidades registradas.</Text>
+                <Text style={styles.sectionSubtitle}>No hay unidades activas registradas.</Text>
               </View>
             ) : null}
-            {managedVehicles.map((vehicle) => {
+            {activeManagedVehicles.map((vehicle) => {
               const driver = vehicle.driverId ? userById.get(vehicle.driverId) : undefined;
               return (
                 <View key={vehicle.id} style={styles.userRow}>
@@ -741,9 +769,8 @@ export function UsersScreen() {
                     <DetailItem label="Kilometraje" value={typeof vehicle.currentKilometers === 'number' ? `${vehicle.currentKilometers.toLocaleString('es-MX')} km` : 'Sin registro'} />
                     <DetailItem label="Actualizada" value={formatDateTime(vehicle.updatedAt)} />
                   </View>
-                  {vehicle.retiredAt ? <Text style={styles.profileNote}>Retirada: {formatDateTime(vehicle.retiredAt)}{vehicle.retirementReason ? ` · ${vehicle.retirementReason}` : ''}</Text> : null}
                   <View style={styles.actionRow}>
-                    {canManageVehicles && !vehicle.retiredAt ? (
+                    {canManageVehicles ? (
                       <>
                         <ActionButton icon="pencil-outline" label="Editar" onPress={() => openVehicleEditor(vehicle)} />
                         {canManageUsers ? (
@@ -762,6 +789,56 @@ export function UsersScreen() {
                 </View>
               );
             })}
+          </View>
+        </AppCard>
+      ) : (
+        <AppCard style={styles.directoryCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionCopy}>
+              <Text style={styles.sectionTitle}>Archivo de unidades</Text>
+              <Text style={styles.sectionSubtitle}>{archivedVehicles.length} unidades archivadas · fuera de la flotilla activa</Text>
+            </View>
+          </View>
+
+          {vehiclesLoading ? <ActivityIndicator color={theme.colors.accent} /> : null}
+          <View style={styles.usersList}>
+            {!vehiclesLoading && !archivedVehicles.length ? (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons name="archive-check-outline" size={26} color={theme.colors.muted} />
+                <Text style={styles.sectionSubtitle}>No hay unidades archivadas.</Text>
+              </View>
+            ) : null}
+            {archivedVehicles.map((vehicle) => (
+              <View key={vehicle.id} style={styles.userRow}>
+                <View style={styles.vehicleHeader}>
+                  <View style={styles.vehicleIcon}>
+                    <MaterialCommunityIcons name="archive-outline" size={26} color={theme.colors.muted} />
+                  </View>
+                  <View style={styles.userMeta}>
+                    <Text style={styles.userName}>{vehicle.code}</Text>
+                    <Text style={styles.userEmail}>{vehicle.plate || 'Sin placas'}</Text>
+                    <View style={styles.pillsRow}>
+                      <StatusPill label="Archivada" tone="neutral" />
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.detailsGrid}>
+                  <DetailItem label="Retirada" value={formatDateTime(vehicle.retiredAt)} />
+                  <DetailItem label="Motivo" value={vehicle.retirementReason || 'Sin motivo registrado'} />
+                  <DetailItem label="Kilometraje" value={typeof vehicle.currentKilometers === 'number' ? `${vehicle.currentKilometers.toLocaleString('es-MX')} km` : 'Sin registro'} />
+                  <DetailItem label="Última actualización" value={formatDateTime(vehicle.updatedAt)} />
+                </View>
+                <Text style={styles.profileNote}>La unidad ya no participa en la operación. Su ficha permanece aquí para consultar documentos e historial antes de decidir si también se elimina del Archivo.</Text>
+                <View style={styles.actionRow}>
+                  {canOpenDocuments ? (
+                    <ActionButton accent icon="file-document-multiple-outline" label="Documentos" onPress={() => void openDocuments('vehicle', vehicle.id, vehicle.code)} />
+                  ) : null}
+                  {canManageVehicles ? (
+                    <ActionButton danger icon="delete-outline" label="Eliminar del archivo" onPress={() => openVehicleAction('delete', vehicle)} />
+                  ) : null}
+                </View>
+              </View>
+            ))}
           </View>
         </AppCard>
       )}
@@ -923,7 +1000,15 @@ export function UsersScreen() {
       <Modal visible={Boolean(vehicleAction)} transparent animationType="fade" onRequestClose={closeVehicleAction}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{vehicleAction?.kind === 'retire' ? 'Dar de baja la unidad' : 'Eliminar unidad'}</Text>
+            <Text style={styles.modalTitle}>
+              {vehicleAction?.kind === 'retire'
+                ? 'Dar de baja la unidad'
+                : vehicleAction?.target.retiredAt
+                  ? 'Eliminar del archivo'
+                  : vehicleImpact?.mustRetire
+                    ? 'Eliminar y archivar unidad'
+                    : 'Eliminar unidad'}
+            </Text>
             <Text style={styles.sectionSubtitle}>{vehicleAction?.target.code} · {vehicleAction?.target.plate}</Text>
 
             {vehicleImpactLoading ? (
@@ -947,14 +1032,19 @@ export function UsersScreen() {
                 {vehicleImpact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
                 {vehicleImpact.actionsRequired.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• Requiere: {entry}</Text>)}
                 <Text style={styles.sectionSubtitle}>Historial: {vehicleImpact.history?.total || 0} registros · Documentos: {vehicleImpact.documents?.count || 0}</Text>
-                {vehicleAction?.kind === 'delete' && vehicleImpact.mustRetire ? <Text style={styles.dangerText}>Esta unidad conserva historial; debe darse de baja en lugar de eliminarse.</Text> : null}
+                {vehicleAction?.kind === 'delete' && vehicleImpact.mustRetire ? (
+                  <Text style={styles.sectionSubtitle}>Esta unidad conserva historial. Al confirmar saldrá de Unidades y pasará a Archivo en lugar de perder esa evidencia.</Text>
+                ) : null}
+                {vehicleAction?.kind === 'delete' && vehicleAction.target.retiredAt ? (
+                  <Text style={styles.dangerText}>Se eliminará la ficha del Archivo. Las jornadas, posiciones, incidencias y demás registros operativos históricos no se reescriben.</Text>
+                ) : null}
               </View>
             ) : null}
 
-            {vehicleAction?.kind === 'retire' ? (
+            {vehicleAction?.kind === 'retire' || (vehicleAction?.kind === 'delete' && vehicleImpact?.mustRetire) ? (
               <>
                 <Text style={styles.inputLabel}>Motivo</Text>
-                <TextInput value={vehicleReason} onChangeText={setVehicleReason} editable={!vehicleActionSubmitting} multiline placeholder="Ej. fin de vida útil" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
+                <TextInput value={vehicleReason} onChangeText={setVehicleReason} editable={!vehicleActionSubmitting} multiline placeholder="Ej. renovación de flota" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
               </>
             ) : null}
 
@@ -964,7 +1054,19 @@ export function UsersScreen() {
                 disabled={!vehicleConfirmEnabled}
                 onPress={() => void executeVehicleAction()}
                 style={[styles.primaryButton, styles.dangerButton, !vehicleConfirmEnabled ? styles.disabledButton : undefined]}>
-                {vehicleActionSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{vehicleAction?.kind === 'retire' ? 'Dar de baja' : 'Eliminar'}</Text>}
+                {vehicleActionSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {vehicleAction?.kind === 'retire'
+                      ? 'Dar de baja'
+                      : vehicleImpact?.mustRetire
+                        ? 'Eliminar y archivar'
+                        : vehicleAction?.target.retiredAt
+                          ? 'Eliminar del archivo'
+                          : 'Eliminar'}
+                  </Text>
+                )}
               </Pressable>
             </View>
           </View>
@@ -1108,9 +1210,9 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = 
     title: { color: theme.colors.text, fontFamily: Typography.display, fontSize: isPhone ? 24 : 30, fontWeight: '900' },
     subtitle: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: isPhone ? 13 : 14, lineHeight: isPhone ? 20 : 21 },
     tabs: { flexDirection: 'row', gap: 8 },
-    tab: { alignItems: 'center', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 11 },
+    tab: { alignItems: 'center', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', paddingHorizontal: isPhone ? 8 : 14, paddingVertical: 11 },
     tabActive: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
-    tabText: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
+    tabText: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: isPhone ? 12 : 13, fontWeight: '800' },
     tabTextActive: { color: theme.colors.accent },
     messageBox: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, padding: 12 },
     messageText: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
