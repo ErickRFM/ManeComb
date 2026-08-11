@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "e3f5ddd8494a962c6cba4655a249e14e00880e14",
-    "capturedAt": "2026-08-10",
-    "phase": "post-final-operational-mobile-consolidation"
+    "commit": "817b526e0a7673c9909a6710a96cea53c4a21fef",
+    "capturedAt": "2026-08-11",
+    "phase": "post-20260811-consolidated-main"
   },
   "products": [
     {
@@ -177,7 +177,7 @@
     },
     {
       "id": "fleet",
-      "decision": "Lifecycle and operational identity of vehicles, drivers and units, including the offboarding barrier that blocks new journey creation",
+      "decision": "Lifecycle and operational identity of vehicles, drivers and units, including offboarding barriers, retirement/archive state and release of operational assignments",
       "owner": "backend",
       "status": "canonical",
       "sourcePaths": [
@@ -250,6 +250,19 @@
       "owner": "communication-service",
       "status": "partial",
       "sourcePaths": ["communication-service/src", "backend/src/sockets"],
+      "consumers": ["backend", "mobile", "sales-portal"],
+      "targetPhase": 7
+    },
+    {
+      "id": "operational-communications-eligibility",
+      "decision": "Which tenant users may remain visible, addressable or connected to live Chat, Radio and push after lifecycle transitions such as suspension or deletion",
+      "owner": "backend",
+      "status": "canonical",
+      "sourcePaths": [
+        "backend/src/services/operational-communications-guard.js",
+        "backend/src/services/driver-lifecycle.js",
+        "backend/src/sockets/index.js"
+      ],
       "consumers": ["backend", "mobile", "sales-portal"],
       "targetPhase": 7
     },
