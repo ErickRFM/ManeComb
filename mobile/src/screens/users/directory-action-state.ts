@@ -19,6 +19,7 @@ type VehicleActionGuardInput = {
   submitting: boolean;
   canRetire?: boolean;
   canDeletePermanently?: boolean;
+  mustRetire?: boolean;
   reason: string;
 };
 
@@ -49,13 +50,20 @@ export function canConfirmDirectoryVehicleAction({
   submitting,
   canRetire,
   canDeletePermanently,
+  mustRetire,
   reason,
 }: VehicleActionGuardInput) {
   if (submitting || impactLoading || !impactReady) return false;
+
   if (kind === 'retire') {
     if (reason.trim().length < 3) return false;
     if (canRetire === false) return false;
+    return true;
   }
-  if (kind === 'delete' && canDeletePermanently === false) return false;
-  return true;
+
+  if (canDeletePermanently === true) return true;
+  if (mustRetire === true && canRetire !== false) {
+    return reason.trim().length >= 3;
+  }
+  return false;
 }

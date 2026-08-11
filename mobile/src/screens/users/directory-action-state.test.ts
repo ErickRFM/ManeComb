@@ -67,4 +67,41 @@ describe('directory action guards', () => {
       reason: 'Fin de vida útil',
     })).toBe(true);
   });
+
+  it('lets delete archive a historical active unit only after a reason is provided', () => {
+    expect(canConfirmDirectoryVehicleAction({
+      kind: 'delete',
+      impactLoading: false,
+      impactReady: true,
+      submitting: false,
+      canDeletePermanently: false,
+      mustRetire: true,
+      canRetire: true,
+      reason: '',
+    })).toBe(false);
+
+    expect(canConfirmDirectoryVehicleAction({
+      kind: 'delete',
+      impactLoading: false,
+      impactReady: true,
+      submitting: false,
+      canDeletePermanently: false,
+      mustRetire: true,
+      canRetire: true,
+      reason: 'Renovación de flota',
+    })).toBe(true);
+  });
+
+  it('allows deleting an archived vehicle record without rewriting its historical records', () => {
+    expect(canConfirmDirectoryVehicleAction({
+      kind: 'delete',
+      impactLoading: false,
+      impactReady: true,
+      submitting: false,
+      canDeletePermanently: true,
+      mustRetire: false,
+      canRetire: false,
+      reason: '',
+    })).toBe(true);
+  });
 });

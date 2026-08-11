@@ -172,14 +172,30 @@ async function runVehicleLifecycle() {
   assert.equal(routedImpact.canRetire, true);
   assert.equal(routedImpact.canDeletePermanently, false);
   assert.equal(routedImpact.actionsRequired.some((entry) => entry.includes('automáticamente')), true);
-  await assert.rejects(() => deleteVehicleSafely(store, { organizationId, vehicleId: historical.id }), /retirarse/);
+  await assert.rejects(() => deleteVehicleSafely(store, { organizationId, vehicleId: historical.id }), /Archívala/);
 
   const retired = await retireVehicle(store, { actorId: owner.id, organizationId, reason: 'Renovacion de flota', vehicleId: historical.id });
   assert.ok(retired.vehicle.retiredAt);
+  assert.equal(retired.archived, true);
   assert.equal(retired.vehicle.routeId, null);
   assert.equal(retired.vehicle.assignedRoute, null);
   assert.equal((await store.listVehiclesForOrganization(organizationId)).some((entry) => entry.id === historical.id), false);
   assert.equal((await store.listVehiclesForOrganization(organizationId, { includeRetired: true })).some((entry) => entry.id === historical.id), true);
+  assert.equal(store.listDocuments({ organizationId }).some((entry) => entry.id === vehicleDocument.id), true);
+
+  const archivedImpact = await previewVehicleDeletionImpact(store, { organizationId, vehicleId: historical.id });
+  assert.equal(archivedImpact.isArchived, true);
+  assert.equal(archivedImpact.mustRetire, false);
+  assert.equal(archivedImpact.canDeleteArchive, true);
+  assert.equal(archivedImpact.canDeletePermanently, true);
+  assert.equal(archivedImpact.history.total, 1);
+
+  const archiveDeleted = await deleteVehicleSafely(store, { organizationId, vehicleId: historical.id });
+  assert.equal(archiveDeleted.archiveDeleted, true);
+  assert.equal(archiveDeleted.preservedHistory.total, 1);
+  assert.equal(archiveDeleted.preservedDocuments.count, 1);
+  assert.equal(await store.getVehicleById(historical.id), null);
+  assert.ok(await store.getRouteSessionById(session.id));
   assert.equal(store.listDocuments({ organizationId }).some((entry) => entry.id === vehicleDocument.id), true);
 }
 
@@ -203,7 +219,7 @@ async function main() {
   await runLifecycleFlow();
   await runVehicleLifecycle();
   await runAssignmentRace();
-  console.log('ok - ciclo de conductor, cupos, keys, retiro y concurrencia protegido');
+  console.log('ok - ciclo de conductor, cupos, keys, archivo de unidad y concurrencia protegido');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
