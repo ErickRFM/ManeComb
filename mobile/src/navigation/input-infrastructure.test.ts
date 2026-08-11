@@ -53,6 +53,16 @@ describe('shared input infrastructure', () => {
     expect(chatView).toContain('behavior="translate-with-padding"');
   });
 
+  it('keeps the phone chat path and normalizes wide Android layouts to flex-safe keyboard padding', () => {
+    const keyboardLayout = fs.readFileSync(path.join(mobileRoot, 'src', 'components', 'keyboard-safe-layout.tsx'), 'utf8');
+
+    expect(keyboardLayout).toContain('useWindowDimensions');
+    expect(keyboardLayout).toContain('width >= DesignSystem.breakpoints.phone');
+    expect(keyboardLayout).toContain("Platform.OS === 'android' && behavior === 'translate-with-padding' && isLargeScreen");
+    expect(keyboardLayout).toContain("? 'padding'");
+    expect(keyboardLayout).toContain('behavior={resolvedBehavior}');
+  });
+
   it('renders the existing login illustration instead of reserving empty space', () => {
     const authScreen = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'customer-auth-screen.tsx'), 'utf8');
     expect(fs.existsSync(path.join(mobileRoot, 'assets', 'images', 'faster.png'))).toBe(true);
