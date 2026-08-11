@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { portalPalette } from '../portal-theme';
 
 export const styles = StyleSheet.create({
@@ -16,8 +16,8 @@ export const styles = StyleSheet.create({
   contextText: { fontFamily: Typography.body, fontSize: 12, lineHeight: 18 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   filterChip: {
-    borderRadius: AppTheme.radius.sm, borderWidth: 1, borderColor: portalPalette.lineStrong,
-    paddingHorizontal: 12, paddingVertical: 8,
+    alignItems: 'center', borderRadius: AppTheme.radius.sm, borderWidth: 1, borderColor: portalPalette.lineStrong,
+    justifyContent: 'center', minHeight: DesignSystem.control.touch, paddingHorizontal: 12, paddingVertical: 8,
   },
   filterChipActive: { backgroundColor: portalPalette.accent, borderColor: portalPalette.accent },
   filterChipText: { color: portalPalette.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
@@ -50,17 +50,17 @@ export const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: 'center', alignSelf: 'flex-start', borderRadius: AppTheme.radius.sm,
-    flexDirection: 'row', gap: 6, minHeight: 38, paddingHorizontal: 14,
+    flexDirection: 'row', gap: 6, minHeight: DesignSystem.control.touch, paddingHorizontal: 14,
   },
   actionButtonText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   iconAction: {
     alignItems: 'center', borderRadius: AppTheme.radius.xs, flexShrink: 0,
-    height: 32, justifyContent: 'center', width: 32,
+    height: DesignSystem.control.touch, justifyContent: 'center', width: DesignSystem.control.touch,
   },
   statusSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minWidth: 0, paddingVertical: 8 },
   statusOption: {
-    borderRadius: AppTheme.radius.sm, borderWidth: 1, flexGrow: 1,
-    minHeight: 38, paddingHorizontal: 12, paddingVertical: 9,
+    alignItems: 'center', borderRadius: AppTheme.radius.sm, borderWidth: 1, flexGrow: 1,
+    justifyContent: 'center', minHeight: DesignSystem.control.touch, paddingHorizontal: 12, paddingVertical: 9,
   },
   statusOptionText: {
     fontFamily: Typography.body, fontSize: 12, fontWeight: '900', textAlign: 'center',
