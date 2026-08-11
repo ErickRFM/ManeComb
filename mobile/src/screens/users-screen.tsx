@@ -4,7 +4,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -51,6 +50,7 @@ import { getPresenceStatus } from '@/src/utils/presence';
 import { DriverScheduleModal } from './users/DriverScheduleModal';
 import { createDirectoryStyles } from './users/users-screen.styles';
 import { DirectoryImpactActionModal } from './users/components/DirectoryImpactActionModal';
+import { DirectorySheetModal } from './users/components/DirectorySheetModal';
 import {
   canConfirmDirectoryDriverAction,
   canConfirmDirectoryVehicleAction,
@@ -705,19 +705,12 @@ export function UsersScreen() {
         }}
       />
 
-      <Modal visible={Boolean(documentsOwner)} transparent animationType="fade" onRequestClose={() => setDocumentsOwner(null)}>
-        <View style={styles.overlay}>
-          <View style={styles.modalLarge}>
-            <View style={styles.modalHeader}>
-              <View style={styles.sectionCopy}>
-                <Text style={styles.modalTitle}>Documentos · {documentsOwner?.name}</Text>
-                <Text style={styles.sectionSubtitle}>Consulta protegida dentro de ManeComb.</Text>
-              </View>
-              <Pressable onPress={() => setDocumentsOwner(null)} style={styles.iconButton}>
-                <MaterialCommunityIcons name="close" size={22} color={theme.colors.text} />
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={styles.modalScroll}>
+      <DirectorySheetModal
+        visible={Boolean(documentsOwner)}
+        title={`Documentos · ${documentsOwner?.name || ''}`}
+        subtitle="Consulta protegida dentro de ManeComb."
+        onClose={() => setDocumentsOwner(null)}
+        styles={styles}>
               {documentsLoading ? <ActivityIndicator color={theme.colors.accent} /> : null}
               {!documentsLoading && !documents.length ? <Text style={styles.sectionSubtitle}>No hay documentos registrados para este elemento.</Text> : null}
               {documents.map((document) => {
@@ -736,10 +729,7 @@ export function UsersScreen() {
                   </View>
                 );
               })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      </DirectorySheetModal>
 
       <DirectoryImpactActionModal
         visible={Boolean(driverFlow.action)}
@@ -857,17 +847,13 @@ export function UsersScreen() {
         ) : null}
       </DirectoryImpactActionModal>
 
-      <Modal visible={Boolean(assignmentDriver)} transparent animationType="fade" onRequestClose={() => !assignmentLoading && setAssignmentDriver(null)}>
-        <View style={styles.overlay}>
-          <View style={styles.modalLarge}>
-            <View style={styles.modalHeader}>
-              <View style={styles.sectionCopy}>
-                <Text style={styles.modalTitle}>Unidad · {assignmentDriver?.name}</Text>
-                <Text style={styles.sectionSubtitle}>Misma transición operativa del portal de Ventas: el conductor puede quedar activo sin unidad o cambiar a una disponible.</Text>
-              </View>
-              <Pressable disabled={assignmentLoading} onPress={() => setAssignmentDriver(null)} style={styles.iconButton}><MaterialCommunityIcons name="close" size={22} color={theme.colors.text} /></Pressable>
-            </View>
-            <ScrollView contentContainerStyle={styles.modalScroll}>
+      <DirectorySheetModal
+        visible={Boolean(assignmentDriver)}
+        title={`Unidad · ${assignmentDriver?.name || ''}`}
+        subtitle="Misma transición operativa del portal de Ventas: el conductor puede quedar activo sin unidad o cambiar a una disponible."
+        closeDisabled={assignmentLoading}
+        onClose={() => setAssignmentDriver(null)}
+        styles={styles}>
               <Pressable disabled={assignmentLoading || !assignmentDriver?.vehicleId} onPress={() => void assignVehicleToDriver(null)} style={[styles.driverChoice, assignmentDriver?.vehicleId ? styles.dangerChoice : styles.selectedChoice]}>
                 <MaterialCommunityIcons name="bus-stop-uncovered" size={20} color={assignmentDriver?.vehicleId ? theme.colors.danger : theme.colors.accent} />
                 <View style={styles.sectionCopy}>
@@ -899,22 +885,15 @@ export function UsersScreen() {
                 </View>
               ) : null}
               {assignmentLoading ? <ActivityIndicator color={theme.colors.accent} /> : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      </DirectorySheetModal>
 
-      <Modal visible={Boolean(assignmentVehicle)} transparent animationType="fade" onRequestClose={() => !assignmentLoading && setAssignmentVehicle(null)}>
-        <View style={styles.overlay}>
-          <View style={styles.modalLarge}>
-            <View style={styles.modalHeader}>
-              <View style={styles.sectionCopy}>
-                <Text style={styles.modalTitle}>Conductor · {assignmentVehicle?.code}</Text>
-                <Text style={styles.sectionSubtitle}>{assignmentVehicle?.driverId ? 'Libera primero al conductor actual antes de reasignar.' : 'Selecciona un conductor activo.'}</Text>
-              </View>
-              <Pressable disabled={assignmentLoading} onPress={() => setAssignmentVehicle(null)} style={styles.iconButton}><MaterialCommunityIcons name="close" size={22} color={theme.colors.text} /></Pressable>
-            </View>
-            <ScrollView contentContainerStyle={styles.modalScroll}>
+      <DirectorySheetModal
+        visible={Boolean(assignmentVehicle)}
+        title={`Conductor · ${assignmentVehicle?.code || ''}`}
+        subtitle={assignmentVehicle?.driverId ? 'Libera primero al conductor actual antes de reasignar.' : 'Selecciona un conductor activo.'}
+        closeDisabled={assignmentLoading}
+        onClose={() => setAssignmentVehicle(null)}
+        styles={styles}>
               {assignmentVehicle?.driverId ? (
                 <Pressable disabled={assignmentLoading} onPress={() => void assignDriverToVehicle(null)} style={[styles.driverChoice, styles.dangerChoice]}>
                   <MaterialCommunityIcons name="account-minus-outline" size={20} color={theme.colors.danger} />
@@ -939,10 +918,7 @@ export function UsersScreen() {
                 })
               )}
               {assignmentLoading ? <ActivityIndicator color={theme.colors.accent} /> : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      </DirectorySheetModal>
     </AppShell>
   );
 
