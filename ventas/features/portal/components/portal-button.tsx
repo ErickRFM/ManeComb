@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sizeSm: {
-    minHeight: DesignSystem.control.sm,
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: AppTheme.spacing.sm,
   },
   sizeMd: {
