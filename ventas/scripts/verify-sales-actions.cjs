@@ -65,13 +65,12 @@ for (const styleName of ['secondary', 'danger', 'icon']) {
   assert.match(block[1], /borderWidth: 1/);
 }
 
-// ACTION-06: destinos literales de botones/enlaces deben existir en el router de Ventas.
-const routeMapMatch = app.match(/const routeMap:[\s\S]*?= \{([\s\S]*?)\n\};/);
-assert.ok(routeMapMatch, 'No se pudo leer routeMap de Ventas');
+// ACTION-06: destinos literales de botones/enlaces deben existir en el switch autoritativo de Ventas.
 const knownRoutes = new Set();
-for (const match of routeMapMatch[1].matchAll(/^\s*['"]([^'"]+)['"]\s*:/gm)) {
+for (const match of app.matchAll(/case\s+['"]([^'"]+)['"]\s*:/g)) {
   knownRoutes.add(normalizeRoute(match[1]));
 }
+assert.ok(knownRoutes.has('/ventas') && knownRoutes.has('/portal'), 'No se pudo leer el switch de rutas de Ventas');
 
 for (const match of portalRegistry.matchAll(/^\s*['"](\/portal[^'"]*)['"]\s*:/gm)) {
   assert.ok(knownRoutes.has(normalizeRoute(match[1])), `Ruta del portal sin pantalla registrada: ${match[1]}`);
