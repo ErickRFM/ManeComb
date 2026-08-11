@@ -74,13 +74,7 @@ object ManeCombCallFeedback {
     // Si MainActivity acaba de abrirse desde CallStyle, deja terminar el primer
     // golpe del canal antes de iniciar el loop foreground. Asi no se superponen
     // dos timbres/vibraciones durante la transicion background -> full-screen.
-    val delayMs = if (
-      ManeCombPushNotificationRenderer.hasActiveIncomingCallNotification(context, callId)
-    ) {
-      1_200L
-    } else {
-      0L
-    }
+    val delayMs = if (hasActiveCallNotification(context)) 1_200L else 0L
 
     val task = Runnable {
       synchronized(this@ManeCombCallFeedback) {
@@ -204,6 +198,22 @@ object ManeCombCallFeedback {
     ringbackTone = null
     runCatching { tone.stopTone() }
     runCatching { tone.release() }
+  }
+
+  private fun hasActiveCallNotification(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+    return try {
+      val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+      manager.activeNotifications.any { status ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          status.notification.channelId == ManeCombPushNotificationRenderer.CHANNEL_CALLS
+        } else {
+          status.notification.category == android.app.Notification.CATEGORY_CALL
+        }
+      }
+    } catch (_: Exception) {
+      false
+    }
   }
 
   private fun resolveVibrator(context: Context): Vibrator? {
