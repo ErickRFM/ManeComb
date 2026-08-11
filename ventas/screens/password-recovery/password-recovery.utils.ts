@@ -1,4 +1,8 @@
 import type { CheckoutContext } from '@/src/utils/checkout-context';
+import {
+  getRegistrationPasswordChecks,
+  isRegistrationPasswordAllowed,
+} from '@/screens/auth/auth.utils';
 
 export const PASSWORD_RECOVERY_RESEND_SECONDS = 45;
 
@@ -21,17 +25,11 @@ export function maskRecoveryEmail(value: string) {
 }
 
 export function getPasswordChecks(password: string) {
-  const safePassword = String(password || '');
-  return {
-    minLength: safePassword.length >= 8,
-    hasLetter: /[A-Za-z]/.test(safePassword),
-    hasNumber: /\d/.test(safePassword),
-    hasSpecial: /[^A-Za-z0-9]/.test(safePassword),
-  };
+  return getRegistrationPasswordChecks(password);
 }
 
 export function isPasswordAllowed(password: string) {
-  return Object.values(getPasswordChecks(password)).every(Boolean);
+  return isRegistrationPasswordAllowed(password);
 }
 
 export function normalizeRecoveryToken(value: string | string[] | undefined) {

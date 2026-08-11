@@ -14,6 +14,9 @@ const faqItem = read('screens/sales/components/faq-item.tsx');
 const sectionHeading = read('screens/sales/components/section-heading.tsx');
 const immersiveBackground = read('screens/sales/components/immersive-background.tsx');
 const authScreen = read('screens/sales-auth-screen.tsx');
+const authUtils = read('screens/auth/auth.utils.ts');
+const passwordRequirements = read('screens/auth/components/auth-password-requirements.tsx');
+const passwordRecoveryUtils = read('screens/password-recovery/password-recovery.utils.ts');
 const paymentSection = read('screens/checkout/components/checkout-payment-section.tsx');
 const checkoutStepper = read('screens/checkout/components/checkout-stepper.tsx');
 const checkoutSummary = read('screens/checkout/components/checkout-order-summary.tsx');
@@ -32,6 +35,24 @@ assert.match(authScreen, /selectedPlan\.name/);
 assert.match(authScreen, /formatCurrency\(selectedPlan\.price\)/);
 assert.match(authScreen, /label="Correo o teléfono"/);
 assert.match(authScreen, /Crear cuenta y continuar/);
+
+// UX-02B: la contraseña se explica y diagnostica por requisito con semántica Unicode.
+assert.match(authUtils, /8 caracteres o más/);
+assert.match(authUtils, /Una letra \(incluye ñ y acentos\)/);
+assert.match(authUtils, /Un número/);
+assert.match(authUtils, /Un carácter especial, como ! @ # \$ % _ -/);
+assert.match(authUtils, /const safePassword = String\(password \|\| ''\);/);
+assert.ok(authUtils.includes("hasLetter: /\\p{L}/u.test(safePassword)"));
+assert.ok(authUtils.includes("hasNumber: /\\p{N}/u.test(safePassword)"));
+assert.ok(authUtils.includes("hasSpecial: /[\\p{P}\\p{S}]/u.test(safePassword)"));
+assert.doesNotMatch(authUtils, /\[A-Za-z\]|\[\^A-Za-z0-9\]/);
+assert.doesNotMatch(authUtils, /hasUppercase|mayúscula obligatoria/i);
+assert.match(authScreen, /<AuthPasswordRequirements/);
+assert.match(authScreen, /autoComplete=\{isRegister \? 'new-password' : 'current-password'\}/);
+assert.match(passwordRequirements, /Las contraseñas no coinciden/);
+assert.match(passwordRequirements, /check-circle-outline/);
+assert.match(passwordRecoveryUtils, /getRegistrationPasswordChecks/);
+assert.match(passwordRecoveryUtils, /isRegistrationPasswordAllowed/);
 
 // UX-03: la App aparece antes del pricing y Planes es el CTA primario del hero.
 assert.match(salesScreen, /import \{ AppDownloadSection \}/);
@@ -69,4 +90,4 @@ assert.match(immersiveBackground, /length: isPhone \? 4 : 6/);
 assert.match(immersiveBackground, /length: isPhone \? 8 : 16/);
 assert.match(immersiveBackground, /manecombGradientShift 20s/);
 
-console.log('ok - funnel, landing, pricing, accesibilidad, confianza y motion de Ventas están protegidos');
+console.log('ok - funnel, landing, pricing, accesibilidad, confianza, auth y motion de Ventas están protegidos');

@@ -198,6 +198,41 @@ export const authStyles = StyleSheet.create({
     paddingHorizontal: 2,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
+  passwordRequirements: {
+    backgroundColor: 'rgba(8, 13, 27, 0.58)',
+    borderColor: c.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  passwordRequirementsTitle: {
+    color: c.fieldLabel,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 1,
+  },
+  passwordRequirementRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    minHeight: 18,
+  },
+  passwordRequirementText: {
+    color: c.muted,
+    flex: 1,
+    fontFamily: Typography.body,
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  passwordRequirementMet: {
+    color: '#9AE6B4',
+  },
+  passwordRequirementError: {
+    color: c.messageText,
+  },
   sessionRow: {
     minHeight: 22,
     flexDirection: 'row',
