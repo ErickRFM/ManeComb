@@ -66,7 +66,10 @@ export function AdminOverviewScreen() {
   const error = usePlatformStore((store) => store.error);
   const capabilities = usePlatformStore((store) => store.capabilities);
   const overview = usePlatformStore((store) => store.overview);
-  const cardWidth = width >= 1180 ? '23.5%' : width >= 720 ? '48.5%' : '100%';
+  const hasCommercialOrders = Boolean(overview?.commercialOrders);
+  const cardWidth = width >= 1180
+    ? hasCommercialOrders ? '23.5%' : '31.8%'
+    : width >= 720 ? '48.5%' : '100%';
 
   useEffect(() => {
     if (token) void load(token);
@@ -144,14 +147,7 @@ export function AdminOverviewScreen() {
                 value={overview.commercialOrders.total}
                 width={cardWidth}
               />
-            ) : (
-              <MetricCard
-                detail="Módulos disponibles para tu rol."
-                label="Módulos habilitados"
-                value={Object.values(capabilities.modules).filter(Boolean).length}
-                width={cardWidth}
-              />
-            )}
+            ) : null}
           </View>
 
           <View style={styles.sectionGrid}>
