@@ -555,7 +555,6 @@ export function UsersScreen() {
       header={
         <View style={styles.header}>
           <Text style={styles.title}>Directorio</Text>
-          <Text style={styles.subtitle}>Personal registrado y unidades de la empresa.</Text>
         </View>
       }>
       <View style={styles.tabs}>
