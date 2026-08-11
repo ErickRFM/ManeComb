@@ -53,21 +53,33 @@ class ManeCombReplyReceiver : BroadcastReceiver() {
 
   companion object {
     private const val TAG = "ManeCombReplyReceiver"
+    private const val SENT_STATUS_TIMEOUT_MS = 1_800L
     const val EXTRA_TEXT = "replyText"
 
     /**
-     * Reemplaza la tarjeta por un estado final sin accion de responder, como hace WhatsApp.
+     * Reemplaza temporalmente la tarjeta por el estado del envio sin volver a
+     * sonar/vibrar. Un envio exitoso desaparece solo; un error permanece para
+     * que el usuario sepa que debe abrir ManeComb y reintentar.
      */
     fun updateNotification(context: Context, notificationId: Int, status: String) {
+      ManeCombPushNotificationRenderer.ensureChannels(context)
+      val sent = status.equals("Enviado", ignoreCase = true)
       val notification = NotificationCompat.Builder(
         context,
-        ManeCombNotificationModule.CHANNEL_GENERAL
+        ManeCombPushNotificationRenderer.CHANNEL_CHAT
       )
-        .setContentTitle("Respuesta")
+        .setContentTitle(if (sent) "Respuesta enviada" else "ManeComb")
         .setContentText(status)
         .setSmallIcon(R.drawable.notification_icon)
         .setAutoCancel(true)
+        .setOnlyAlertOnce(true)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .setGroup(ManeCombPushNotificationRenderer.GROUP_CHAT)
+        .apply {
+          if (sent) setTimeoutAfter(SENT_STATUS_TIMEOUT_MS)
+        }
         .build()
 
       try {
