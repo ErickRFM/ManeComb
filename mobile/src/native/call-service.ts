@@ -4,6 +4,8 @@ type ManeCombCallNativeModule = {
   startCallForegroundService: (isVideo: boolean) => Promise<void>;
   stopCallForegroundService: () => Promise<void>;
   setIncomingCallWindowActive?: (active: boolean) => Promise<boolean | void>;
+  setCallSpeakerEnabled?: (enabled: boolean) => Promise<boolean | void>;
+  resetCallAudioRoute?: () => Promise<boolean | void>;
 };
 
 const nativeModule: ManeCombCallNativeModule | null =
@@ -41,5 +43,25 @@ export async function setIncomingCallWindowActive(active: boolean): Promise<void
     await nativeModule.setIncomingCallWindowActive(active);
   } catch {
     // MainActivity mantiene un autocierre nativo; este bridge es un cierre temprano best-effort.
+  }
+}
+
+export async function setCallSpeakerEnabled(enabled: boolean): Promise<boolean> {
+  if (!nativeModule?.setCallSpeakerEnabled) return false;
+
+  try {
+    return (await nativeModule.setCallSpeakerEnabled(enabled)) !== false;
+  } catch {
+    return false;
+  }
+}
+
+export async function resetCallAudioRoute(): Promise<void> {
+  if (!nativeModule?.resetCallAudioRoute) return;
+
+  try {
+    await nativeModule.resetCallAudioRoute();
+  } catch {
+    // El cleanup de WebRTC debe continuar aunque el cambio de salida falle.
   }
 }

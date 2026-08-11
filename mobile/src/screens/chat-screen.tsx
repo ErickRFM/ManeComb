@@ -25,7 +25,10 @@ export function ChatScreen() {
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const conversations = useAppStore((state) => state.conversations);
   const permissionPrompt = useCallStore((state) => state.permissionPrompt);
-  const pinnedConversationIdRef = useRef<string | null>(null);
+  // Un remount del Chat (por ejemplo al volver de la ventana nativa de llamada)
+  // no debe olvidar el directo que ya era autoridad antes de que el bootstrap
+  // intente normalizar la pantalla hacia General.
+  const pinnedConversationIdRef = useRef<string | null>(activeConversationId);
 
   useEffect(() => {
     if (permissionPrompt && callNotice) {

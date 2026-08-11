@@ -1,6 +1,9 @@
 package com.anonymous.combiscontrol.calls
 
+import android.content.Context
 import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import com.anonymous.combiscontrol.MainActivity
 import com.facebook.react.bridge.Promise
@@ -56,6 +59,57 @@ class ManeCombCallModule(
       } catch (_: Exception) {
         promise.resolve(false)
       }
+    }
+  }
+
+  @ReactMethod
+  fun setCallSpeakerEnabled(enabled: Boolean, promise: Promise) {
+    try {
+      val manager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+      if (manager == null) {
+        promise.resolve(false)
+        return
+      }
+
+      manager.mode = AudioManager.MODE_IN_COMMUNICATION
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (enabled) {
+          val speaker = manager.availableCommunicationDevices.firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+          }
+          promise.resolve(speaker != null && manager.setCommunicationDevice(speaker))
+        } else {
+          manager.clearCommunicationDevice()
+          promise.resolve(true)
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        manager.isSpeakerphoneOn = enabled
+        promise.resolve(true)
+      }
+    } catch (_: Exception) {
+      promise.resolve(false)
+    }
+  }
+
+  @ReactMethod
+  fun resetCallAudioRoute(promise: Promise) {
+    try {
+      val manager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+      if (manager == null) {
+        promise.resolve(false)
+        return
+      }
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        manager.clearCommunicationDevice()
+      } else {
+        @Suppress("DEPRECATION")
+        run { manager.isSpeakerphoneOn = false }
+      }
+      promise.resolve(true)
+    } catch (_: Exception) {
+      promise.resolve(false)
     }
   }
 }

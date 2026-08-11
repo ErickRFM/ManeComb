@@ -1,10 +1,11 @@
 // RC-RTC-FINALIZATION-20260805 — UI global de llamada activa.
 // No depende de Chat: puede mostrarse desde Mapa, Checklist, Radio, Perfil o cualquier navegador.
 
-import React, { createElement, useEffect, useRef } from 'react';
+import React, { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { resetCallAudioRoute, setCallSpeakerEnabled } from '@/src/native/call-service';
 import { RTCViewComponent } from '@/src/native/webrtc';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -71,24 +72,25 @@ function VideoSurface({
   muted,
   mirror,
   label,
+  zOrder,
 }: {
   stream: any | null;
   muted: boolean;
   mirror: boolean;
   label: string;
+  zOrder: number;
 }): React.ReactElement {
   const webVideoRef = useRef<any>(null);
-  const videoTracks = stream?.getVideoTracks?.() || [];
-  const hasLiveVideo = videoTracks.some((track: any) => track?.readyState !== 'ended');
+  const hasStream = Boolean(stream);
   const RTCView = Platform.OS === 'web' ? null : RTCViewComponent;
 
   useEffect(() => {
-    if (webVideoRef.current) webVideoRef.current.srcObject = hasLiveVideo ? stream : null;
-  }, [hasLiveVideo, stream]);
+    if (webVideoRef.current) webVideoRef.current.srcObject = hasStream ? stream : null;
+  }, [hasStream, stream]);
 
   return (
     <View style={styles.videoSurface}>
-      {Platform.OS === 'web' && hasLiveVideo
+      {Platform.OS === 'web' && hasStream
         ? createElement('video', {
             autoPlay: true,
             playsInline: true,
@@ -104,12 +106,12 @@ function VideoSurface({
               transform: mirror ? 'scaleX(-1)' : undefined,
             },
           })
-        : RTCView && hasLiveVideo
+        : RTCView && hasStream
           ? createElement(RTCView as any, {
               streamURL: stream?.toURL?.() || '',
               objectFit: 'cover',
               mirror,
-              zOrder: 0,
+              zOrder,
               style: StyleSheet.absoluteFillObject,
             })
           : (
@@ -129,6 +131,7 @@ export function ActiveCallModal(): React.ReactElement | null {
   const insets = useSafeAreaInsets();
   const phase = useCallStore((state) => state.phase);
   const mode = useCallStore((state) => state.mode);
+  const callId = useCallStore((state) => state.callId);
   const callerName = useCallStore((state) => state.callerName);
   const conversationId = useCallStore((state) => state.conversationId);
   const conversations = useAppStore((state) => state.conversations);
@@ -142,6 +145,34 @@ export function ActiveCallModal(): React.ReactElement | null {
   const toggleMute = useCallStore((state) => state.toggleMute);
   const toggleCamera = useCallStore((state) => state.toggleCamera);
   const endCall = useCallStore((state) => state.endCall);
+  const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [speakerChanging, setSpeakerChanging] = useState(false);
+
+  useEffect(() => {
+    setSpeakerEnabled(false);
+    setSpeakerChanging(false);
+    void resetCallAudioRoute();
+  }, [callId]);
+
+  useEffect(
+    () => () => {
+      void resetCallAudioRoute();
+    },
+    []
+  );
+
+  const toggleSpeaker = useCallback(async () => {
+    if (speakerChanging) return;
+    const nextEnabled = !speakerEnabled;
+    setSpeakerChanging(true);
+    try {
+      if (await setCallSpeakerEnabled(nextEnabled)) {
+        setSpeakerEnabled(nextEnabled);
+      }
+    } finally {
+      setSpeakerChanging(false);
+    }
+  }, [speakerChanging, speakerEnabled]);
 
   const visible =
     phase !== 'IDLE' &&
@@ -178,10 +209,10 @@ export function ActiveCallModal(): React.ReactElement | null {
 
         {isVideo ? (
           <View style={styles.videoStage}>
-            <VideoSurface stream={remoteStream} muted={false} mirror={false} label={title} />
+            <VideoSurface stream={remoteStream} muted={false} mirror={false} label={title} zOrder={0} />
             {localStream && isCameraEnabled ? (
               <View style={styles.localPreview}>
-                <VideoSurface stream={localStream} muted mirror label="Tú" />
+                <VideoSurface stream={localStream} muted mirror label="Tú" zOrder={1} />
               </View>
             ) : null}
           </View>
@@ -233,6 +264,27 @@ export function ActiveCallModal(): React.ReactElement | null {
               />
               <Text style={styles.controlText}>{isMuted ? 'Activar' : 'Silenciar'}</Text>
             </Pressable>
+
+            {!isVideo && Platform.OS === 'android' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={speakerEnabled ? 'Desactivar altavoz' : 'Activar altavoz'}
+                onPress={() => { void toggleSpeaker(); }}
+                disabled={phase === 'OUTGOING_RINGING' || speakerChanging}
+                style={({ pressed }) => [
+                  styles.control,
+                  speakerEnabled ? styles.controlActive : undefined,
+                  phase === 'OUTGOING_RINGING' || speakerChanging ? styles.controlDisabled : undefined,
+                  pressed ? styles.pressed : undefined,
+                ]}>
+                <MaterialCommunityIcons
+                  name={speakerEnabled ? 'volume-high' : 'volume-medium'}
+                  size={25}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.controlText}>{speakerEnabled ? 'Auricular' : 'Altavoz'}</Text>
+              </Pressable>
+            ) : null}
 
             {isVideo ? (
               <Pressable
@@ -369,6 +421,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.72)',
     backgroundColor: '#171D27',
+    zIndex: 2,
   },
   statusBlock: { alignItems: 'center', minHeight: 58, justifyContent: 'center', paddingHorizontal: 8 },
   status: { color: '#DCE2EB', fontSize: 15, fontWeight: '700', textAlign: 'center' },
