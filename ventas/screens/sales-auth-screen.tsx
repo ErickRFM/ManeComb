@@ -15,12 +15,19 @@ import { AuthBackground } from './auth/components/auth-shell';
 import { AuthHeader } from './auth/components/auth-header';
 import { AuthModeSelector } from './auth/components/auth-mode-selector';
 import { AuthField } from './auth/components/auth-field';
+import { AuthPasswordRequirements } from './auth/components/auth-password-requirements';
 import { AuthSessionBar } from './auth/components/auth-session-bar';
 import { AuthFeedback } from './auth/components/auth-feedback';
 import { AuthSubmitButton } from './auth/components/auth-submit-button';
 import { AuthLegalLinks } from './auth/components/auth-legal-links';
 
-import { buildPaymentRoute, getFirstParam, normalizeIdentity, validateRegistrationPassword } from './auth/auth.utils';
+import {
+  buildPaymentRoute,
+  getFirstParam,
+  getRegistrationPasswordChecks,
+  normalizeIdentity,
+  validateRegistrationPassword,
+} from './auth/auth.utils';
 import { authStyles as styles } from './auth/auth.styles';
 import { formatCurrency } from './shared/utils';
 import { setRecoveryEmail } from './password-recovery/password-recovery.session';
@@ -63,6 +70,10 @@ export function SalesAuthScreen({ mode }: Props) {
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.id === selectedPlanId) || null,
     [plans, selectedPlanId]
+  );
+  const registrationPasswordChecks = useMemo(
+    () => getRegistrationPasswordChecks(registerPassword),
+    [registerPassword]
   );
   const isRegister = mode === 'register';
   const isShortViewport = height < 720;
@@ -116,6 +127,16 @@ export function SalesAuthScreen({ mode }: Props) {
     } as never);
   };
 
+  const updateRegisterPassword = (value: string) => {
+    setRegisterPassword(value);
+    if (helperMessage) setHelperMessage(null);
+  };
+
+  const updateRegisterConfirmation = (value: string) => {
+    setRegisterConfirmPassword(value);
+    if (helperMessage) setHelperMessage(null);
+  };
+
   const handleSubmit = async () => {
     setHelperMessage(null);
 
@@ -135,19 +156,19 @@ export function SalesAuthScreen({ mode }: Props) {
       return;
     }
 
-    if (!registerIdentity.trim() || !registerPassword.trim() || !registerConfirmPassword.trim()) {
-      setHelperMessage('Completa correo o teléfono y contraseña.');
-      return;
-    }
-
-    if (registerPassword !== registerConfirmPassword) {
-      setHelperMessage('Las contraseñas no coinciden.');
+    if (!registerIdentity.trim() || !registerPassword || !registerConfirmPassword) {
+      setHelperMessage('Completa correo o teléfono, contraseña y confirmación.');
       return;
     }
 
     const passwordValidationMessage = validateRegistrationPassword(registerPassword);
     if (passwordValidationMessage) {
       setHelperMessage(passwordValidationMessage);
+      return;
+    }
+
+    if (registerPassword !== registerConfirmPassword) {
+      setHelperMessage('Las contraseñas no coinciden. Revisa la confirmación.');
       return;
     }
 
@@ -259,22 +280,33 @@ export function SalesAuthScreen({ mode }: Props) {
                 label="Contraseña"
                 placeholder="Contraseña"
                 value={isRegister ? registerPassword : loginPassword}
-                onChangeText={isRegister ? setRegisterPassword : setLoginPassword}
+                onChangeText={isRegister ? updateRegisterPassword : setLoginPassword}
                 secureTextEntry
                 autoCapitalize="none"
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
                 autoCorrect={false}
+                textContentType={isRegister ? 'newPassword' : 'password'}
               />
               {isRegister ? (
-                <AuthField
-                  icon="lock-check-outline"
-                  label="Confirmar contraseña"
-                  placeholder="Repite la contraseña"
-                  value={registerConfirmPassword}
-                  onChangeText={setRegisterConfirmPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+                <>
+                  <AuthField
+                    icon="lock-check-outline"
+                    label="Confirmar contraseña"
+                    placeholder="Repite la contraseña"
+                    value={registerConfirmPassword}
+                    onChangeText={updateRegisterConfirmation}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoComplete="new-password"
+                    autoCorrect={false}
+                    textContentType="newPassword"
+                  />
+                  <AuthPasswordRequirements
+                    checks={registrationPasswordChecks}
+                    password={registerPassword}
+                    confirmation={registerConfirmPassword}
+                  />
+                </>
               ) : null}
             </View>
 
