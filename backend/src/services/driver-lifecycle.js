@@ -104,7 +104,7 @@ async function previewVehicleDeletionImpact(store, { organizationId, vehicleId }
     actionsRequired.push("Finalizar jornada");
   }
   if (vehicle.driverId) actionsRequired.push("Liberar conductor");
-  if (vehicle.routeId || vehicle.assignedRoute) actionsRequired.push("Desasignar ruta");
+  if (vehicle.routeId || vehicle.assignedRoute) actionsRequired.push("Desasignar ruta automáticamente al confirmar");
   if (dependencies.documentCount > 0) actionsRequired.push("Revisar documentos");
 
   const historyCount =
@@ -113,6 +113,7 @@ async function previewVehicleDeletionImpact(store, { organizationId, vehicleId }
   const hasCurrentDependencies = Boolean(
     vehicle.driverId || vehicle.routeId || vehicle.assignedRoute || dependencies.activeSession
   );
+  const hasRetirementBlockers = Boolean(vehicle.driverId || dependencies.activeSession);
 
   return {
     vehicle,
@@ -135,7 +136,7 @@ async function previewVehicleDeletionImpact(store, { organizationId, vehicleId }
     documents: { count: dependencies.documentCount },
     canDeletePermanently: !hasCurrentDependencies && !hasHistory,
     mustRetire: hasHistory,
-    canRetire: !hasCurrentDependencies,
+    canRetire: !hasRetirementBlockers,
     blockers,
     actionsRequired
   };
@@ -348,6 +349,17 @@ async function deleteDriverSafely(store, { actorId, confirmation, organizationId
 
 async function retireVehicle(store, { actorId, organizationId, reason, vehicleId }) {
   const safeReason = assertReason(reason, "El motivo de retiro");
+  const impact = await previewVehicleDeletionImpact(store, { organizationId, vehicleId });
+
+  // Una ruta asignada es una relación operativa pasiva, no un motivo para dejar
+  // atrapada la baja. La transición de retiro es dueña de limpiarla, igual que
+  // la baja de conductor libera su unidad. Conductor y jornada activa siguen
+  // siendo bloqueos duros y el store los revalida ante cualquier carrera.
+  if (impact.canRetire && (impact.vehicle.routeId || impact.vehicle.assignedRoute)) {
+    const clearedVehicle = await store.clearAssignedRouteFromVehicle(vehicleId);
+    if (!clearedVehicle) throwStoreError({ code: "not_found" });
+  }
+
   const result = await store.retireVehicle({ actorId, organizationId, reason: safeReason, vehicleId });
   if (!result?.ok) throwStoreError(result);
   return result;
