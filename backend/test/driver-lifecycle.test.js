@@ -142,10 +142,42 @@ async function runVehicleLifecycle() {
   // como conductor, porque la autoridad de jornada exige un driver real cuando driverId existe.
   const session = await store.createRouteSession({ organizationId, vehicleId: historical.id });
   await store.updateRouteSession(session.id, { status: 'FINISHED', finishedAt: new Date().toISOString() });
-  assert.equal((await previewVehicleDeletionImpact(store, { organizationId, vehicleId: historical.id })).mustRetire, true);
+
+  const routeOrigin = { latitude: 19.31, longitude: -98.24 };
+  const routeDestination = { latitude: 19.32, longitude: -98.23 };
+  const assignedRoute = await store.createRoute({
+    organizationId,
+    name: 'Ruta de retiro',
+    code: 'RET-01',
+    origin: routeOrigin,
+    destination: routeDestination,
+    originLabel: 'Origen retiro',
+    destinationLabel: 'Destino retiro',
+    stops: [],
+    distanceMeters: 1500,
+    durationSeconds: 600,
+    durationInTrafficSeconds: 720,
+    polyline: [routeOrigin, routeDestination],
+    createdBy: owner.id,
+  });
+  await store.assignRouteToVehicle({
+    vehicleId: historical.id,
+    routeId: assignedRoute.id,
+    assignment: {},
+    assignedBy: owner.id,
+  });
+
+  const routedImpact = await previewVehicleDeletionImpact(store, { organizationId, vehicleId: historical.id });
+  assert.equal(routedImpact.mustRetire, true);
+  assert.equal(routedImpact.canRetire, true);
+  assert.equal(routedImpact.canDeletePermanently, false);
+  assert.equal(routedImpact.actionsRequired.some((entry) => entry.includes('automáticamente')), true);
   await assert.rejects(() => deleteVehicleSafely(store, { organizationId, vehicleId: historical.id }), /retirarse/);
+
   const retired = await retireVehicle(store, { actorId: owner.id, organizationId, reason: 'Renovacion de flota', vehicleId: historical.id });
   assert.ok(retired.vehicle.retiredAt);
+  assert.equal(retired.vehicle.routeId, null);
+  assert.equal(retired.vehicle.assignedRoute, null);
   assert.equal((await store.listVehiclesForOrganization(organizationId)).some((entry) => entry.id === historical.id), false);
   assert.equal((await store.listVehiclesForOrganization(organizationId, { includeRetired: true })).some((entry) => entry.id === historical.id), true);
   assert.equal(store.listDocuments({ organizationId }).some((entry) => entry.id === vehicleDocument.id), true);
