@@ -31,14 +31,21 @@ const live = buildOperationalUnitSnapshot({ vehicle: vehicleAt(15), now: NOW });
 assert.equal(live.gps.connectionState, "live");
 assert.equal(live.gps.freshness, "fresh");
 assert.equal(live.gps.ageSeconds, 15);
+assert.equal(live.operationalState, "on_route");
 
 const delayed = buildOperationalUnitSnapshot({ vehicle: vehicleAt(16), now: NOW });
 assert.equal(delayed.gps.connectionState, "delayed");
 assert.equal(delayed.gps.freshness, "fresh");
+assert.equal(
+  delayed.operationalState,
+  "unknown",
+  "una lectura retrasada no puede conservar movimiento ni detencion del paquete anterior"
+);
 
 const delayedBoundary = buildOperationalUnitSnapshot({ vehicle: vehicleAt(30), now: NOW });
 assert.equal(delayedBoundary.gps.connectionState, "delayed");
 assert.equal(delayedBoundary.gps.freshness, "fresh");
+assert.equal(delayedBoundary.operationalState, "unknown");
 
 const stale = buildOperationalUnitSnapshot({ vehicle: vehicleAt(31), now: NOW });
 assert.equal(stale.gps.connectionState, "stale");
@@ -103,5 +110,6 @@ const legacy = buildOperationalUnitSnapshot({
 assert.equal(legacy.gps.ageSeconds, 20);
 assert.equal(legacy.gps.connectionState, "delayed");
 assert.equal(legacy.gps.freshness, "fresh");
+assert.equal(legacy.operationalState, "unknown");
 
-console.log("ok - GPS freshness separa receive-time de captura offline y transicion live/delayed/stale/lost");
+console.log("ok - GPS freshness separa receive-time de captura offline y corta estado operacional desde delayed");
