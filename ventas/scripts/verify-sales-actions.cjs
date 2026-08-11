@@ -31,6 +31,7 @@ const units = read('features/portal/screens/portal-units-screen.tsx');
 const onboarding = read('features/portal/screens/portal-onboarding-screen.tsx');
 const documents = read('features/portal/documents/portal-documents-admin.tsx');
 const checkout = read('features/commercial/hooks/use-checkout-experience.ts');
+const commercialExperience = read('features/commercial/hooks/use-commercial-experience.ts');
 const portalRegistry = read('features/portal/navigation/portal-route-registry.ts');
 const usersStyles = read('features/portal/users/users.styles.ts');
 const unitsStyles = read('features/portal/units/units.styles.ts');
@@ -134,4 +135,17 @@ for (const relativePath of sourceFiles) {
 
 assert.deepEqual(unresolved, [], `Hay botones/enlaces con rutas literales no registradas:\n${unresolved.join('\n')}`);
 
-console.log(`ok - ${sourceFiles.length} archivos de Ventas: rutas, confirmaciones, checkout, accesibilidad y botones protegidos`);
+// ACTION-09: una cuenta recién creada sin snapshot de onboarding no puede romper Plan.
+// Backend moderno siempre lo devuelve, pero el frontend debe tolerar la ventana de
+// reconciliación y payloads previos durante despliegues sin convertirla en un crash.
+assert.match(
+  commercialExperience,
+  /onboarding\?\.status \?\? overview\?\.onboarding\?\.status \?\? 'pending'/
+);
+assert.doesNotMatch(
+  commercialExperience,
+  /overview\?\.onboarding\.status/,
+  'Plan volvió a asumir que overview.onboarding existe en cuentas recién creadas'
+);
+
+console.log(`ok - ${sourceFiles.length} archivos de Ventas: rutas, confirmaciones, checkout, accesibilidad, botones y cuenta nueva protegidos`);
