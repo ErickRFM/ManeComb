@@ -90,6 +90,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
       decision: result.decision,
       data: result.publicUpdate,
       packetId: result.packetId,
+      positionDecision: result.positionDecision,
       trackingDecision: result.temporal
     });
   } catch (error) {
