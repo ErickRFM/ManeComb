@@ -27,53 +27,67 @@ function sameOrganization(left, right) {
   );
 }
 
-async function resolveUser(store, userOrId) {
+function isPromiseLike(value) {
+  return Boolean(value && typeof value.then === "function");
+}
+
+function mapMaybe(value, mapper) {
+  return isPromiseLike(value) ? value.then(mapper) : mapper(value);
+}
+
+function allMaybe(values) {
+  return values.some(isPromiseLike) ? Promise.all(values) : values;
+}
+
+function resolveUser(store, userOrId) {
   if (userOrId && typeof userOrId === "object") return userOrId;
   const userId = getUserId(userOrId);
   if (!userId || typeof store.getUserById !== "function") return null;
-  return Promise.resolve(store.getUserById(userId));
+  return store.getUserById(userId);
 }
 
-async function filterConversationSummary(store, conversation, currentUser) {
+function filterConversationSummary(store, conversation, currentUser) {
   if (!conversation || typeof conversation !== "object") return null;
 
-  const participants = [];
-  for (const participant of Array.isArray(conversation.participants) ? conversation.participants : []) {
-    const user = await resolveUser(store, participant);
-    if (
-      isOperationalCommunicationUser(user) &&
-      sameOrganization(currentUser, user)
-    ) {
-      participants.push(user);
-    }
-  }
+  const participantResults = (Array.isArray(conversation.participants)
+    ? conversation.participants
+    : [])
+    .map((participant) => resolveUser(store, participant));
 
-  if (conversation.kind === "direct") {
-    const participantIds = new Set(participants.map(getUserId).filter(Boolean));
-    if (participants.length !== 2 || !participantIds.has(getUserId(currentUser))) {
-      return null;
-    }
-  }
+  return mapMaybe(allMaybe(participantResults), (resolvedParticipants) => {
+    const participants = resolvedParticipants.filter(
+      (user) =>
+        isOperationalCommunicationUser(user) &&
+        sameOrganization(currentUser, user)
+    );
 
-  return {
-    ...conversation,
-    participants
-  };
+    if (conversation.kind === "direct") {
+      const participantIds = new Set(participants.map(getUserId).filter(Boolean));
+      if (participants.length !== 2 || !participantIds.has(getUserId(currentUser))) {
+        return null;
+      }
+    }
+
+    return {
+      ...conversation,
+      participants
+    };
+  });
 }
 
-async function filterSubscriptions(store, entries) {
+function filterSubscriptions(store, entries) {
   const subscriptions = Array.isArray(entries) ? entries : [];
   const userIds = [...new Set(subscriptions.map((entry) => getUserId(entry?.userId)).filter(Boolean))];
-  const eligibilityByUserId = new Map();
+  const userResults = userIds.map((userId) => resolveUser(store, userId));
 
-  await Promise.all(
-    userIds.map(async (userId) => {
-      const user = await resolveUser(store, userId);
-      eligibilityByUserId.set(userId, isOperationalCommunicationUser(user));
-    })
-  );
-
-  return subscriptions.filter((entry) => eligibilityByUserId.get(getUserId(entry?.userId)) === true);
+  return mapMaybe(allMaybe(userResults), (users) => {
+    const eligibilityByUserId = new Map(
+      userIds.map((userId, index) => [userId, isOperationalCommunicationUser(users[index])])
+    );
+    return subscriptions.filter(
+      (entry) => eligibilityByUserId.get(getUserId(entry?.userId)) === true
+    );
+  });
 }
 
 function installOperationalCommunicationsGuard(store) {
@@ -128,155 +142,171 @@ function installOperationalCommunicationsGuard(store) {
         : null
   };
 
-  async function getEligibleCurrentUser(userId) {
-    const user = await resolveUser(store, userId);
-    return isOperationalCommunicationUser(user) ? user : null;
+  function getEligibleCurrentUser(userId) {
+    return mapMaybe(resolveUser(store, userId), (user) =>
+      isOperationalCommunicationUser(user) ? user : null
+    );
   }
 
   if (original.listChatContactsForUser) {
-    store.listChatContactsForUser = async (userId) => {
-      const currentUser = await getEligibleCurrentUser(userId);
-      if (!currentUser) return [];
-      const contacts = await Promise.resolve(original.listChatContactsForUser(userId));
-      return (Array.isArray(contacts) ? contacts : []).filter(
-        (contact) =>
-          isOperationalCommunicationUser(contact) &&
-          sameOrganization(currentUser, contact)
-      );
-    };
+    store.listChatContactsForUser = (userId) =>
+      mapMaybe(getEligibleCurrentUser(userId), (currentUser) => {
+        if (!currentUser) return [];
+        return mapMaybe(original.listChatContactsForUser(userId), (contacts) =>
+          (Array.isArray(contacts) ? contacts : []).filter(
+            (contact) =>
+              isOperationalCommunicationUser(contact) &&
+              sameOrganization(currentUser, contact)
+          )
+        );
+      });
   }
 
   if (original.ensureDirectConversation) {
-    store.ensureDirectConversation = async (userId, targetUserId, options) => {
-      const [sourceUser, targetUser] = await Promise.all([
-        getEligibleCurrentUser(userId),
-        resolveUser(store, targetUserId)
-      ]);
-
-      if (
-        !sourceUser ||
-        !isOperationalCommunicationUser(targetUser) ||
-        !sameOrganization(sourceUser, targetUser)
-      ) {
-        throw new Error("Participante no encontrado");
-      }
-
-      return original.ensureDirectConversation(userId, targetUserId, options);
-    };
+    store.ensureDirectConversation = (userId, targetUserId, options) =>
+      mapMaybe(
+        allMaybe([
+          getEligibleCurrentUser(userId),
+          resolveUser(store, targetUserId)
+        ]),
+        ([sourceUser, targetUser]) => {
+          if (
+            !sourceUser ||
+            !isOperationalCommunicationUser(targetUser) ||
+            !sameOrganization(sourceUser, targetUser)
+          ) {
+            throw new Error("Participante no encontrado");
+          }
+          return original.ensureDirectConversation(userId, targetUserId, options);
+        }
+      );
   }
 
   if (original.ensureGeneralConversation) {
-    store.ensureGeneralConversation = async (userId, channelMode) => {
-      const currentUser = await getEligibleCurrentUser(userId);
-      if (!currentUser) throw new Error("Usuario operativo no disponible");
-      const conversation = await Promise.resolve(
-        original.ensureGeneralConversation(userId, channelMode)
-      );
-      return filterConversationSummary(store, conversation, currentUser);
-    };
+    store.ensureGeneralConversation = (userId, channelMode) =>
+      mapMaybe(getEligibleCurrentUser(userId), (currentUser) => {
+        if (!currentUser) throw new Error("Usuario operativo no disponible");
+        return mapMaybe(
+          original.ensureGeneralConversation(userId, channelMode),
+          (conversation) => filterConversationSummary(store, conversation, currentUser)
+        );
+      });
   }
 
   if (original.getConversationsForUser) {
-    store.getConversationsForUser = async (userId) => {
-      const currentUser = await getEligibleCurrentUser(userId);
-      if (!currentUser) return [];
-      const conversations = await Promise.resolve(original.getConversationsForUser(userId));
-      const filtered = await Promise.all(
-        (Array.isArray(conversations) ? conversations : []).map((conversation) =>
-          filterConversationSummary(store, conversation, currentUser)
-        )
-      );
-      return filtered.filter(Boolean);
-    };
+    store.getConversationsForUser = (userId) =>
+      mapMaybe(getEligibleCurrentUser(userId), (currentUser) => {
+        if (!currentUser) return [];
+        return mapMaybe(original.getConversationsForUser(userId), (conversations) => {
+          const filteredResults = (Array.isArray(conversations) ? conversations : []).map(
+            (conversation) => filterConversationSummary(store, conversation, currentUser)
+          );
+          return mapMaybe(allMaybe(filteredResults), (filtered) => filtered.filter(Boolean));
+        });
+      });
   }
 
   if (original.canUserAccessConversation) {
-    store.canUserAccessConversation = async (userId, conversationOrId) => {
-      const currentUser = await getEligibleCurrentUser(userId);
-      if (!currentUser) return false;
+    store.canUserAccessConversation = (userId, conversationOrId) =>
+      mapMaybe(getEligibleCurrentUser(userId), (currentUser) => {
+        if (!currentUser) return false;
 
-      const allowed = await Promise.resolve(
-        original.canUserAccessConversation(userId, conversationOrId)
-      );
-      if (!allowed) return false;
+        return mapMaybe(
+          original.canUserAccessConversation(userId, conversationOrId),
+          (allowed) => {
+            if (!allowed) return false;
 
-      const conversation =
-        typeof conversationOrId === "string"
-          ? await Promise.resolve(original.getConversationById?.(conversationOrId))
-          : conversationOrId;
+            const conversationResult =
+              typeof conversationOrId === "string"
+                ? original.getConversationById?.(conversationOrId)
+                : conversationOrId;
 
-      if (!conversation || conversation.kind !== "direct") return true;
+            return mapMaybe(conversationResult, (conversation) => {
+              if (!conversation || conversation.kind !== "direct") return true;
 
-      const participantIds = (Array.isArray(conversation.participants)
-        ? conversation.participants
-        : [])
-        .map(getUserId)
-        .filter(Boolean);
+              const participantIds = (Array.isArray(conversation.participants)
+                ? conversation.participants
+                : [])
+                .map(getUserId)
+                .filter(Boolean);
 
-      if (participantIds.length !== 2 || !participantIds.includes(getUserId(currentUser))) {
-        return false;
-      }
+              if (
+                participantIds.length !== 2 ||
+                !participantIds.includes(getUserId(currentUser))
+              ) {
+                return false;
+              }
 
-      const participants = await Promise.all(
-        participantIds.map((participantId) => resolveUser(store, participantId))
-      );
-
-      return participants.every(
-        (participant) =>
-          isOperationalCommunicationUser(participant) &&
-          sameOrganization(currentUser, participant)
-      );
-    };
+              const participantResults = participantIds.map((participantId) =>
+                resolveUser(store, participantId)
+              );
+              return mapMaybe(allMaybe(participantResults), (participants) =>
+                participants.every(
+                  (participant) =>
+                    isOperationalCommunicationUser(participant) &&
+                    sameOrganization(currentUser, participant)
+                )
+              );
+            });
+          }
+        );
+      });
   }
 
   if (original.getMessages) {
-    store.getMessages = async (conversationId, userId, options) => {
-      if (!(await store.canUserAccessConversation(userId, conversationId))) return null;
-      return original.getMessages(conversationId, userId, options);
-    };
+    store.getMessages = (conversationId, userId, options) =>
+      mapMaybe(store.canUserAccessConversation(userId, conversationId), (allowed) =>
+        allowed ? original.getMessages(conversationId, userId, options) : null
+      );
   }
 
   if (original.addMessage) {
-    store.addMessage = async (conversationId, senderId, input) => {
-      if (!(await store.canUserAccessConversation(senderId, conversationId))) return null;
-      return original.addMessage(conversationId, senderId, input);
-    };
+    store.addMessage = (conversationId, senderId, input) =>
+      mapMaybe(store.canUserAccessConversation(senderId, conversationId), (allowed) =>
+        allowed ? original.addMessage(conversationId, senderId, input) : null
+      );
   }
 
   if (original.markConversationMessageRead) {
-    store.markConversationMessageRead = async (conversationId, messageId, userId) => {
-      if (!(await store.canUserAccessConversation(userId, conversationId))) return null;
-      return original.markConversationMessageRead(conversationId, messageId, userId);
-    };
+    store.markConversationMessageRead = (conversationId, messageId, userId) =>
+      mapMaybe(store.canUserAccessConversation(userId, conversationId), (allowed) =>
+        allowed ? original.markConversationMessageRead(conversationId, messageId, userId) : null
+      );
   }
 
   if (original.markConversationMessageDelivered) {
-    store.markConversationMessageDelivered = async (conversationId, messageId, userId) => {
-      if (!(await store.canUserAccessConversation(userId, conversationId))) return null;
-      return original.markConversationMessageDelivered(conversationId, messageId, userId);
-    };
+    store.markConversationMessageDelivered = (conversationId, messageId, userId) =>
+      mapMaybe(store.canUserAccessConversation(userId, conversationId), (allowed) =>
+        allowed
+          ? original.markConversationMessageDelivered(conversationId, messageId, userId)
+          : null
+      );
   }
 
   if (original.canUserAccessChatMedia) {
-    store.canUserAccessChatMedia = async (userId, storageKey) => {
-      if (!(await getEligibleCurrentUser(userId))) return false;
-      return Boolean(await Promise.resolve(original.canUserAccessChatMedia(userId, storageKey)));
-    };
+    store.canUserAccessChatMedia = (userId, storageKey) =>
+      mapMaybe(getEligibleCurrentUser(userId), (currentUser) => {
+        if (!currentUser) return false;
+        return mapMaybe(
+          original.canUserAccessChatMedia(userId, storageKey),
+          (allowed) => Boolean(allowed)
+        );
+      });
   }
 
   if (original.listPushSubscriptionsForUsers) {
-    store.listPushSubscriptionsForUsers = async (userIds) =>
-      filterSubscriptions(
-        store,
-        await Promise.resolve(original.listPushSubscriptionsForUsers(userIds))
+    store.listPushSubscriptionsForUsers = (userIds) =>
+      mapMaybe(
+        original.listPushSubscriptionsForUsers(userIds),
+        (entries) => filterSubscriptions(store, entries)
       );
   }
 
   if (original.listPushSubscriptionsForRoles) {
-    store.listPushSubscriptionsForRoles = async (roles, organizationId) =>
-      filterSubscriptions(
-        store,
-        await Promise.resolve(original.listPushSubscriptionsForRoles(roles, organizationId))
+    store.listPushSubscriptionsForRoles = (roles, organizationId) =>
+      mapMaybe(
+        original.listPushSubscriptionsForRoles(roles, organizationId),
+        (entries) => filterSubscriptions(store, entries)
       );
   }
 
