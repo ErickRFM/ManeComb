@@ -1,9 +1,8 @@
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { DesignSystem } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import * as ImagePicker from '@/src/native/image-picker';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, type ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, type ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
@@ -13,6 +12,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
+import { pickProfileAvatarDataUrl } from '@/src/utils/profile-avatar';
 import { Field } from './profile-edit/components/field';
 import { createStyles } from './profile-edit/profile-edit-screen.styles';
 
@@ -63,6 +63,7 @@ export function ProfileEditScreen() {
   const { section } = useLocalSearchParams<{ section: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const sectionsRef = useRef<Record<string, View | null>>({});
+  const initializedUserIdRef = useRef<string | null>(null);
 
   const { isSubmitting, updateProfile, user } = useAppStore(
     useShallow((state) => ({
@@ -73,6 +74,9 @@ export function ProfileEditScreen() {
   );
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
   const [helperTone, setHelperTone] = useState<'danger' | 'success'>('danger');
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [photoTone, setPhotoTone] = useState<'danger' | 'success'>('success');
+  const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm>(createProfileForm);
   const passwordStrength = useMemo(
     () => getPasswordStrength(profileForm.password),
@@ -83,8 +87,13 @@ export function ProfileEditScreen() {
   const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      initializedUserIdRef.current = null;
+      return;
+    }
+    if (initializedUserIdRef.current === user.id) return;
 
+    initializedUserIdRef.current = user.id;
     setProfileForm({
       name: user.name,
       email: user.email,
@@ -138,47 +147,34 @@ export function ProfileEditScreen() {
   };
 
   const handlePhotoUpload = async () => {
-    setMessage(null);
+    if (!user || isPhotoSaving || isSubmitting) return;
 
-    if (Platform.OS === 'web') {
-      const doc = globalThis.document as any;
-      if (!doc?.createElement) {
-        setMessage('No fue posible abrir el selector de imagen.');
+    const previousAvatarUrl = profileForm.avatarUrl || user.avatarUrl || null;
+    setPhotoMessage(null);
+    setIsPhotoSaving(true);
+
+    try {
+      const avatarUrl = await pickProfileAvatarDataUrl();
+      if (!avatarUrl) return;
+
+      updateField('avatarUrl', avatarUrl);
+      const result = await updateProfile({ avatarUrl });
+      if (!result.ok) {
+        updateField('avatarUrl', previousAvatarUrl);
+        setPhotoTone('danger');
+        setPhotoMessage(result.message || 'No se pudo guardar la foto.');
         return;
       }
 
-      const input = doc.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = () => {
-        const file = input.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-          updateField('avatarUrl', typeof reader.result === 'string' ? reader.result : null);
-        };
-        reader.readAsDataURL(file);
-      };
-      input.click();
-      return;
+      setPhotoTone('success');
+      setPhotoMessage('Foto guardada y sincronizada.');
+    } catch (error) {
+      updateField('avatarUrl', previousAvatarUrl);
+      setPhotoTone('danger');
+      setPhotoMessage(error instanceof Error ? error.message : 'No se pudo preparar la foto.');
+    } finally {
+      setIsPhotoSaving(false);
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-      base64: true,
-    });
-
-    if (result.canceled) return;
-
-    const asset = result.assets[0];
-    updateField(
-      'avatarUrl',
-      asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
-    );
   };
 
   const handleProfileSave = async () => {
@@ -277,7 +273,21 @@ export function ProfileEditScreen() {
               }}
               size={104}
             />
-            <PrimaryButton label="Cambiar foto" variant="ghost" onPress={() => { handlePhotoUpload(); }} />
+            <PrimaryButton
+              label={isPhotoSaving ? 'Guardando foto...' : 'Cambiar foto'}
+              variant="ghost"
+              disabled={isPhotoSaving || isSubmitting}
+              onPress={() => void handlePhotoUpload()}
+            />
+            {photoMessage ? (
+              <Text
+                style={[
+                  styles.userMeta,
+                  { color: photoTone === 'success' ? theme.colors.success : theme.colors.danger },
+                ]}>
+                {photoMessage}
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.identityBlock}>
@@ -478,8 +488,8 @@ export function ProfileEditScreen() {
         <View style={styles.actionRow}>
           <PrimaryButton
             label={isSubmitting ? 'Guardando...' : 'Guardar cambios'}
-            onPress={() => { handleProfileSave(); }}
-            disabled={isSubmitting}
+            onPress={() => { void handleProfileSave(); }}
+            disabled={isSubmitting || isPhotoSaving}
           />
         </View>
       </AppCard>
