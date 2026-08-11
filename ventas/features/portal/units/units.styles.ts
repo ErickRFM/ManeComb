@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { portalPalette } from '../portal-theme';
 
 export const styles = StyleSheet.create({
@@ -10,21 +10,21 @@ export const styles = StyleSheet.create({
   },
   segmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minWidth: 0 },
   segment: {
-    borderRadius: AppTheme.radius.sm, borderWidth: 1, flexShrink: 1,
-    minHeight: 38, paddingHorizontal: 12, paddingVertical: 9,
+    alignItems: 'center', borderRadius: AppTheme.radius.sm, borderWidth: 1, flexShrink: 1,
+    justifyContent: 'center', minHeight: DesignSystem.control.touch, paddingHorizontal: 12, paddingVertical: 9,
   },
   segmentText: { fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', minWidth: 0 },
   primaryButton: {
     alignItems: 'center', borderRadius: AppTheme.radius.sm, flexDirection: 'row', flexShrink: 0,
-    gap: 8, justifyContent: 'center', minHeight: 42, paddingHorizontal: 14,
+    gap: 8, justifyContent: 'center', minHeight: DesignSystem.control.touch, paddingHorizontal: 14,
   },
   primaryText: {
     color: '#FFFFFF', flexShrink: 1, fontFamily: Typography.body, fontSize: 13, fontWeight: '900',
   },
   secondaryButton: {
     alignItems: 'center', borderRadius: AppTheme.radius.sm, borderWidth: 1, flexShrink: 0,
-    justifyContent: 'center', minHeight: 42, paddingHorizontal: 14,
+    justifyContent: 'center', minHeight: DesignSystem.control.touch, paddingHorizontal: 14,
   },
   secondaryText: { fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
   list: { gap: 10, minWidth: 0 },
@@ -42,13 +42,13 @@ export const styles = StyleSheet.create({
   rowActions: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 8 },
   iconAction: {
     alignItems: 'center', borderRadius: AppTheme.radius.xs, flexShrink: 0,
-    height: 36, justifyContent: 'center', width: 36,
+    height: DesignSystem.control.touch, justifyContent: 'center', width: DesignSystem.control.touch,
   },
   operationalFacts: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, minWidth: 0 },
   quickAction: {
     alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderColor: 'rgba(255, 255, 255, 0.12)', borderRadius: AppTheme.radius.xs,
-    borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 34, paddingHorizontal: 9,
+    borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: DesignSystem.control.touch, paddingHorizontal: 9,
   },
   quickActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   quickActionText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 11, fontWeight: '900' },
@@ -76,7 +76,7 @@ export const styles = StyleSheet.create({
   },
   continuityButton: {
     alignItems: 'center', borderRadius: AppTheme.radius.sm, flexDirection: 'row',
-    flexShrink: 0, gap: 6, minHeight: 36, paddingHorizontal: 12,
+    flexShrink: 0, gap: 6, minHeight: DesignSystem.control.touch, paddingHorizontal: 12,
   },
   continuityButtonText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 12, fontWeight: '900' },
   disabledButton: { opacity: 0.55 },
