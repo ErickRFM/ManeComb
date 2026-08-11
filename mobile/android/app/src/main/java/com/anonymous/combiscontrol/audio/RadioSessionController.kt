@@ -296,7 +296,10 @@ class RadioSessionController(
   private fun remoteFrameOnSession(transmissionId: String, sequence: Int, data: String) {
     if (state.phase != RadioPhase.RECEIVING || state.transmissionId != transmissionId) return
     if (audio.enqueueFrame(transmissionId, sequence, data)) {
-      dispatch(RadioEvent.RemoteFrame(transmissionId, clock()))
+      // `lastFrameAt` es bookkeeping interno. Publicarlo por cada paquete haria
+      // que cada frame RX cruzara al hilo principal y al bridge de React,
+      // exactamente lo que la arquitectura nativa pretende evitar.
+      applyState(RadioEvent.RemoteFrame(transmissionId, clock()), publish = false)
     }
   }
 
@@ -396,12 +399,14 @@ class RadioSessionController(
     }
   }
 
-  private fun dispatch(event: RadioEvent) {
+  private fun applyState(event: RadioEvent, publish: Boolean = true) {
     val next = RadioSessionReducer.reduce(state, event)
     if (next == state) return
     state = next
-    onStateChanged(next)
+    if (publish) onStateChanged(next)
   }
+
+  private fun dispatch(event: RadioEvent) = applyState(event)
 
   private companion object {
     /** El backend responde esto cuando el socket ya no esta en la sala del canal. */

@@ -65,6 +65,14 @@ describe('Radio transport ownership lives in Android', () => {
     }
   });
 
+  it('keeps RX frame bookkeeping off main-thread and React publications', () => {
+    const controller = kotlinSources.find(({ file }) => file.endsWith('RadioSessionController.kt'));
+    expect(controller.source).toContain(
+      'applyState(RadioEvent.RemoteFrame(transmissionId, clock()), publish = false)'
+    );
+    expect(controller.source).toContain('if (publish) onStateChanged(next)');
+  });
+
   it('keeps a single Socket.IO Radio client, implemented natively', () => {
     const kotlinTransports = kotlinFilesContaining(/io\.socket\.client\.Socket/);
     expect(kotlinTransports).toEqual([
