@@ -38,6 +38,7 @@ assert.match(confirmModal, /confirmDisabled\?: boolean/);
 assert.match(confirmModal, /const confirmInactive = processing \|\| confirmDisabled/);
 assert.match(confirmModal, /accessibilityState=\{\{ busy: processing, disabled: confirmInactive \}\}/);
 assert.match(confirmModal, /disabled=\{confirmInactive\}/);
+assert.match(confirmModal, /minHeight: DesignSystem\.control\.touch/);
 
 // ACTION-02: el Directorio no deja disparar acciones sabidamente inválidas.
 assert.match(users, /confirmDisabled=\{deleteTarget\?\.role === 'owner'\}/);
@@ -78,12 +79,13 @@ assert.match(checkout, /service\.confirmPaymentReturn[\s\S]*?\.catch\(\(\) =>/);
 assert.match(checkout, /status: 'error'/);
 assert.match(checkout, /Tu selección se conserva/);
 
-// ACTION-07: variantes visuales que anuncian borde realmente tienen borde.
+// ACTION-07: variantes visuales que anuncian borde realmente tienen borde y el tamaño compacto conserva 44 px.
 for (const styleName of ['secondary', 'danger', 'icon']) {
   const block = portalButton.match(new RegExp(`${styleName}: \\{([\\s\\S]*?)\\n  \\},`));
   assert.ok(block, `No se encontró el estilo ${styleName} de PortalButton`);
   assert.match(block[1], /borderWidth: 1/);
 }
+assert.match(portalButton, /sizeSm:\s*\{[\s\S]*?minHeight: DesignSystem\.control\.touch/);
 
 // ACTION-08: destinos literales de botones/enlaces deben existir en el switch autoritativo de Ventas.
 const knownRoutes = new Set();
