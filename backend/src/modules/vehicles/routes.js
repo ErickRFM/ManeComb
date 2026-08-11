@@ -244,11 +244,17 @@ router.delete("/:vehicleId", authenticate, requireOrganization, requirePermissio
       organizationId: getOrganizationId(req.user),
       vehicleId
     });
-    await recordVehicleAudit(req, "vehicle_deleted", vehicleId);
+    const auditAction = deleted.archiveDeleted ? "vehicle_archive_deleted" : "vehicle_deleted";
+    await recordVehicleAudit(req, auditAction, vehicleId, {
+      archiveDeleted: Boolean(deleted.archiveDeleted),
+      preservedHistory: deleted.preservedHistory || null,
+      preservedDocuments: deleted.preservedDocuments || null
+    });
 
     getRolesWithPermission("canManageVehicles").forEach((role) => {
       req.app.locals.io?.to(`org:${getOrganizationId(req.user)}:role:${role}`).emit("vehicle:deleted", {
         vehicleId,
+        archiveDeleted: Boolean(deleted.archiveDeleted),
         organizationId: getOrganizationId(req.user),
         deletedAt: new Date().toISOString()
       });
