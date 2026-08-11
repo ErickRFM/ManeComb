@@ -9,6 +9,7 @@ type ConfirmModalProps = {
   cancelLabel?: string;
   destructive?: boolean;
   processing?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: React.ReactNode;
@@ -22,10 +23,13 @@ export function ConfirmModal({
   cancelLabel = 'Cancelar',
   destructive = false,
   processing = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
   children,
 }: ConfirmModalProps) {
+  const cancelInactive = processing;
+  const confirmInactive = processing || confirmDisabled;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={processing ? undefined : onCancel} accessibilityViewIsModal>
@@ -35,17 +39,23 @@ export function ConfirmModal({
           {description ? <Text style={[styles.description, { color: palette.muted }]}>{description}</Text> : null}
           {children}
           <View style={styles.actions}>
-            <Pressable accessibilityRole="button" disabled={processing} onPress={onCancel} style={[styles.button, processing ? styles.disabled : undefined, { borderColor: palette.line }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ busy: processing, disabled: cancelInactive }}
+              disabled={cancelInactive}
+              onPress={onCancel}
+              style={[styles.button, cancelInactive ? styles.disabled : undefined, { borderColor: palette.line }]}>
               <Text style={[styles.cancelText, { color: palette.text }]}>{cancelLabel}</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              disabled={processing}
+              accessibilityState={{ busy: processing, disabled: confirmInactive }}
+              disabled={confirmInactive}
               onPress={onConfirm}
               style={[
                 styles.button,
                 styles.confirmButton,
-                processing ? styles.disabled : undefined,
+                confirmInactive ? styles.disabled : undefined,
                 { backgroundColor: destructive ? palette.danger : palette.accent },
               ]}>
               <Text style={styles.confirmText}>{confirmLabel}</Text>
@@ -97,7 +107,7 @@ const styles = StyleSheet.create({
     borderRadius: DesignSystem.radius.control,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: DesignSystem.control.sm,
+    minHeight: DesignSystem.control.touch,
     flexGrow: 1,
     minWidth: 112,
     paddingHorizontal: 16,

@@ -72,6 +72,15 @@ export function PortalUnitsScreen() {
     maintenance: vehicles.filter((item) => !item.retiredAt && item.status === 'maintenance').length,
     retired: vehicles.filter((item) => Boolean(item.retiredAt)).length,
   }), [vehicles]);
+  const hasAssignedRoute = Boolean(lifecycleImpact?.vehicle.routeId || lifecycleImpact?.vehicle.assignedRoute);
+  const lifecycleConfirmDisabled = !lifecycleImpact || (
+    !lifecycleImpact.canDeletePermanently &&
+    (
+      !lifecycleImpact.canRetire ||
+      retirementReason.trim().length < 3
+    )
+  );
+
   const setField = <T extends keyof UnitEditor>(field: T, value: UnitEditor[T]) => {
     setEditor((current) => ({ ...current, [field]: value }));
   };
@@ -253,6 +262,7 @@ export function PortalUnitsScreen() {
           ? 'Esta unidad conserva historial y se retirara sin borrar su evidencia.'
           : 'Revisa las dependencias antes de eliminar o retirar la unidad.'}
         confirmLabel={lifecycleImpact?.canDeletePermanently ? 'Eliminar sin historial' : 'Retirar unidad'}
+        confirmDisabled={lifecycleConfirmDisabled}
         processing={isSubmitting}
         onCancel={() => {
           setDeleteTarget(null);
@@ -260,11 +270,7 @@ export function PortalUnitsScreen() {
           setMessage(null);
         }}
         onConfirm={async () => {
-          if (!deleteTarget || !canManageUnits) return;
-          if (!lifecycleImpact?.canDeletePermanently && !lifecycleImpact?.canRetire) {
-            setMessage('Resuelve primero la jornada, el conductor y la ruta indicados.');
-            return;
-          }
+          if (!deleteTarget || !canManageUnits || lifecycleConfirmDisabled || !lifecycleImpact) return;
           const result = lifecycleImpact.canDeletePermanently
             ? await deleteVehicle(deleteTarget.id)
             : await retireVehicle(deleteTarget.id, retirementReason);
@@ -280,14 +286,13 @@ export function PortalUnitsScreen() {
           <Text style={[styles.unitMeta, { color: lifecycleImpact.driver ? palette.danger : palette.success }]}>
             {lifecycleImpact.driver ? '!' : '✓'} Conductor liberado
           </Text>
-          <Text style={[styles.unitMeta, { color: lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? palette.danger : palette.success }]}>
-            {lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? '!' : '✓'} Ruta desasignada
+          <Text style={[styles.unitMeta, { color: hasAssignedRoute ? palette.muted : palette.success }]}>
+            {hasAssignedRoute ? '↻ Ruta se liberará automáticamente al retirar' : '✓ Ruta desasignada'}
           </Text>
           <Text style={[styles.unitMeta, { color: palette.muted }]}>✓ Documentos identificados: {lifecycleImpact.documents.count}</Text>
           <Text style={[styles.unitMeta, { color: palette.muted }]}>✓ Registros historicos: {lifecycleImpact.history.total}</Text>
           {lifecycleImpact.actionsRequired.length ? <View style={styles.filterBar}>
             {lifecycleImpact.driver ? <PortalButton onPress={() => router.push('/portal/usuarios' as never)} size="sm" variant="secondary">Liberar conductor</PortalButton> : null}
-            {lifecycleImpact.vehicle.routeId || lifecycleImpact.vehicle.assignedRoute ? <PortalButton onPress={() => router.push('/portal/rutas' as never)} size="sm" variant="secondary">Desasignar ruta</PortalButton> : null}
             {lifecycleImpact.activeRouteSession ? <PortalButton onPress={() => router.push('/portal' as never)} size="sm" variant="secondary">Abrir jornada</PortalButton> : null}
           </View> : null}
           {!lifecycleImpact.canDeletePermanently ? (
