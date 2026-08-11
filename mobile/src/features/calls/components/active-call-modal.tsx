@@ -11,6 +11,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
 import { useCallStore } from '../call-store';
 import type { CallPhase } from '../call-types';
+import { CallAmbientBackground } from './call-ambient-background';
 
 function formatDuration(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds || 0));
@@ -197,6 +198,8 @@ export function ActiveCallModal(): React.ReactElement | null {
           styles.screen,
           { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 18 },
         ]}>
+        <CallAmbientBackground />
+
         <View style={styles.topRow}>
           <View style={styles.securePill}>
             <MaterialCommunityIcons name="shield-lock-outline" size={15} color="#9EE5B0" />
@@ -327,7 +330,7 @@ export function ActiveCallModal(): React.ReactElement | null {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#080B11',
+    backgroundColor: '#070A10',
     paddingHorizontal: 20,
   },
   topRow: {
@@ -342,7 +345,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
     borderRadius: 999,
-    backgroundColor: '#14221A',
+    borderWidth: 1,
+    borderColor: 'rgba(158,229,176,0.12)',
+    backgroundColor: 'rgba(20,34,26,0.92)',
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -355,12 +360,14 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   avatarHalo: {
-    width: 146,
-    height: 146,
-    borderRadius: 73,
+    width: 154,
+    height: 154,
+    borderRadius: 77,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(227,30,36,0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(236,70,74,0.2)',
+    backgroundColor: 'rgba(227,30,36,0.12)',
     marginBottom: 24,
   },
   avatar: {
@@ -379,7 +386,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderRadius: 999,
-    backgroundColor: '#141A24',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(20,26,36,0.92)',
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
@@ -438,7 +447,9 @@ const styles = StyleSheet.create({
     width: 76,
     minHeight: 68,
     borderRadius: 22,
-    backgroundColor: '#1D2531',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.045)',
+    backgroundColor: 'rgba(29,37,49,0.94)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
