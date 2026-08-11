@@ -1,4 +1,5 @@
 const { hasCapability } = require("./enterprise-capabilities");
+const { normalizeProfileAvatar } = require("./profile-avatar");
 
 const PERSONAL_PROFILE_FIELDS = Object.freeze([
   "name",
@@ -49,7 +50,11 @@ function getSelfProfileFields(user) {
 }
 
 function pickSelfProfileFields(user, payload) {
-  return pickAllowedFields(payload, getSelfProfileFields(user));
+  const profile = pickAllowedFields(payload, getSelfProfileFields(user));
+  if (Object.prototype.hasOwnProperty.call(profile, "avatarUrl")) {
+    profile.avatarUrl = normalizeProfileAvatar(profile.avatarUrl);
+  }
+  return profile;
 }
 
 module.exports = {
