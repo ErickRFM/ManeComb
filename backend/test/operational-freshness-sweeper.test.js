@@ -45,7 +45,11 @@ function unit({ ageSeconds, connectionState, freshness }) {
 }
 
 async function main() {
-  assert.equal(OPERATIONAL_FRESHNESS_SWEEP_MS, 1000, "el lease se revisa cada segundo por defecto");
+  assert.equal(
+    OPERATIONAL_FRESHNESS_SWEEP_MS,
+    5000,
+    "el sweep global queda como respaldo; los deadlines por unidad hacen la transicion precisa"
+  );
   assert.equal(FRESHNESS_SECONDS_BUCKET, 15);
 
   const tenantLoader = createOperationalFreshnessLoader({
@@ -152,7 +156,7 @@ async function main() {
         entry.payload.reason === "freshness_tick" &&
         entry.payload.unit.gps.connectionState === "delayed"
     ),
-    "el cliente recibe la transicion casi al vencer el lease aunque no llegue una posicion nueva"
+    "el reconciliador conserva la transicion aunque el deadline por unidad se pierda"
   );
   assert.ok(
     io.emitted.some((entry) => entry.room === "user:driver-1"),
@@ -226,7 +230,7 @@ async function main() {
   assert.equal(noSocketOrganizationLoads, 0, "sin observador global no se enumera el universo de tenants");
 
   assert.ok(loadCalls.includes("org-1") && loadCalls.includes("org-2") && loadCalls.includes("org-3"));
-  console.log("ok - freshness sweeper publica el lease rapido sin mezclar autoridades");
+  console.log("ok - freshness sweeper queda como reconciliador sin polling global agresivo");
 }
 
 main().catch((error) => {
