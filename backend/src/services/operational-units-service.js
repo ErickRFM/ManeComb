@@ -1,5 +1,8 @@
 const {
   ACTIVE_SESSION_STATUSES,
+  GPS_FRESH_MAX_AGE_SECONDS,
+  GPS_LIVE_MAX_AGE_SECONDS,
+  GPS_STALE_MAX_AGE_SECONDS,
   buildOperationalUnitSnapshot
 } = require("../domain/operational-unit-snapshot");
 const { attachOperationalJourney } = require("../domain/operational-journey-snapshot");
@@ -12,6 +15,7 @@ const { attachOperationalJourney } = require("../domain/operational-journey-snap
  */
 
 const MAX_SESSION_LOOKUP = 500;
+const freshnessDeadlineTimers = new Map();
 
 function indexById(items, key) {
   const index = new Map();
@@ -44,6 +48,91 @@ function pickActiveSession(sessions) {
           new Date(left.updatedAt || left.startedAt || left.scheduledStartAt || 0)
       )[0] || null
   );
+}
+
+function toTime(value) {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Instante exacto en que el snapshot debe degradar su siguiente estado de GPS.
+ *
+ * Esto evita convertir el problema de presencia en polling de toda la flota.
+ * Mientras llegan heartbeats, cada paquete reemplaza un unico timer por unidad.
+ * Si dejan de llegar, ese timer despierta solo a esa unidad en el limite exacto
+ * y publica delayed -> stale -> lost. El sweeper global queda como reconciliador
+ * de respaldo para reinicios o timers perdidos.
+ */
+function getNextGpsFreshnessDeadline(vehicle, snapshot) {
+  const gps = snapshot?.gps;
+  if (!gps || gps.ageSeconds === null || gps.connectionState === "lost") return null;
+
+  const source = String(vehicle?.locationTimestampSource || "").trim();
+  const authorityTime = source === "transport_queue_age"
+    ? toTime(gps.recordedAt)
+    : toTime(gps.receivedAt) ?? toTime(gps.recordedAt);
+  if (authorityTime === null) return null;
+
+  const thresholdSeconds = gps.connectionState === "live"
+    ? GPS_LIVE_MAX_AGE_SECONDS
+    : gps.connectionState === "delayed"
+      ? GPS_FRESH_MAX_AGE_SECONDS
+      : gps.connectionState === "stale"
+        ? GPS_STALE_MAX_AGE_SECONDS
+        : null;
+  if (thresholdSeconds === null) return null;
+
+  // `buildGps` redondea ageSeconds. Un segundo de guarda cruza claramente el
+  // limite sin oscilar por milisegundos alrededor del mismo estado.
+  return new Date(authorityTime + (thresholdSeconds + 1) * 1000);
+}
+
+function clearGpsFreshnessDeadline(organizationId, unitId) {
+  const key = `${String(organizationId || "").trim()}:${String(unitId || "").trim()}`;
+  const timer = freshnessDeadlineTimers.get(key);
+  if (timer) clearTimeout(timer);
+  freshnessDeadlineTimers.delete(key);
+}
+
+function scheduleGpsFreshnessDeadline({
+  io,
+  store,
+  vehicle,
+  snapshot,
+  organizationId,
+  getRolesWithPermission
+}) {
+  const org = String(organizationId || vehicle?.organizationId || "").trim();
+  const unitId = String(snapshot?.unitId || vehicle?.id || vehicle?._id || "").trim();
+  if (!io || !store || !unitId) return null;
+
+  clearGpsFreshnessDeadline(org, unitId);
+  if (snapshot?.visibility !== "visible") return null;
+
+  const deadline = getNextGpsFreshnessDeadline(vehicle, snapshot);
+  if (!deadline) return null;
+
+  const key = `${org}:${unitId}`;
+  const delayMs = Math.max(0, deadline.getTime() - Date.now());
+  const timer = setTimeout(async () => {
+    freshnessDeadlineTimers.delete(key);
+    const latestVehicle = await Promise.resolve(store.getVehicleById(unitId)).catch(() => null);
+    if (!latestVehicle) return;
+
+    await emitOperationalUnitUpdate({
+      io,
+      store,
+      vehicle: latestVehicle,
+      organizationId: String(latestVehicle.organizationId || org).trim(),
+      getRolesWithPermission,
+      reason: "freshness_deadline"
+    });
+  }, delayMs);
+  timer.unref?.();
+  freshnessDeadlineTimers.set(key, timer);
+  return deadline;
 }
 
 /**
@@ -170,7 +259,14 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
  * Emite `operational-unit:updated` con el snapshot completo.
  * No se emiten merges parciales: el consumidor reemplaza la unidad entera.
  */
-async function emitOperationalUnitUpdate({ io, store, vehicle, organizationId, getRolesWithPermission }) {
+async function emitOperationalUnitUpdate({
+  io,
+  store,
+  vehicle,
+  organizationId,
+  getRolesWithPermission,
+  reason = null
+}) {
   if (!io || !vehicle) return null;
 
   let snapshot = null;
@@ -183,7 +279,12 @@ async function emitOperationalUnitUpdate({ io, store, vehicle, organizationId, g
   if (!snapshot) return null;
 
   const org = String(organizationId || vehicle.organizationId || "").trim();
-  const payload = { unit: snapshot, organizationId: org, emittedAt: new Date().toISOString() };
+  const payload = {
+    unit: snapshot,
+    organizationId: org,
+    emittedAt: new Date().toISOString(),
+    ...(reason ? { reason } : {})
+  };
 
   if (org && typeof getRolesWithPermission === "function") {
     getRolesWithPermission("canViewAnalytics").forEach((role) => {
@@ -195,16 +296,27 @@ async function emitOperationalUnitUpdate({ io, store, vehicle, organizationId, g
   }
 
   io.to("platform:admin").emit("operational-unit:updated", payload);
+  scheduleGpsFreshnessDeadline({
+    io,
+    store,
+    vehicle,
+    snapshot,
+    organizationId: org,
+    getRolesWithPermission
+  });
   return snapshot;
 }
 
 module.exports = {
   buildSnapshotForVehicle,
+  clearGpsFreshnessDeadline,
   emitOperationalUnitUpdate,
+  getNextGpsFreshnessDeadline,
   getOperationalUnit,
   listOperationalUnits,
   loadOperationalContext,
   pickActiveSession,
   resolveOperationalRouteId,
+  scheduleGpsFreshnessDeadline,
   snapshotFromContext
 };
