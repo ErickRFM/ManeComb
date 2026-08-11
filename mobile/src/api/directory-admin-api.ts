@@ -41,6 +41,8 @@ export type VehicleDeletionImpact = {
     total: number;
   };
   documents?: { count: number };
+  isArchived: boolean;
+  canDeleteArchive: boolean;
   canDeletePermanently: boolean;
   mustRetire: boolean;
   canRetire: boolean;
