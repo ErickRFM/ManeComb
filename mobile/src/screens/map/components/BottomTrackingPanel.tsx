@@ -296,6 +296,15 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   );
   const statusLabel = selectedUnit ? stateLabel(selectedUnit.operationalState) : 'Sin estado';
   const gpsLabel = selectedUnit ? formatFreshness(selectedUnit.gps) : locationStatus.hudLabel;
+  const gpsStatusColor = selectedUnit
+    ? selectedUnit.gps.connectionState === 'live'
+      ? theme.colors.success
+      : selectedUnit.gps.connectionState === 'delayed'
+        ? theme.colors.warning
+        : selectedUnit.gps.connectionState === 'stale'
+          ? theme.colors.warning
+          : theme.colors.danger
+    : locationStatusColor;
   const speedLabel = selectedUnit ? formatSpeed(selectedUnit.gps) : 'GPS pendiente';
   const kilometersLabel = useMemo(
     () => formatKilometers(getSessionDistanceMeters(vehicleSession)),
@@ -309,13 +318,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
     () => formatLastUpdate(selectedUnit?.lastEventAt || lastSyncedAt),
     [lastSyncedAt, selectedUnit?.lastEventAt]
   );
-  const statusTone = selectedUnit?.operationalState === 'stopped'
-    ? 'warning'
-    : selectedUnit?.status === 'maintenance'
-      ? 'danger'
-      : selectedUnit?.status === 'offline'
-        ? 'neutral'
-        : 'positive';
+  const statusTone = selectedUnit?.operationalState === 'on_route'
+    ? 'positive'
+    : selectedUnit?.operationalState === 'stopped'
+      ? 'warning'
+      : selectedUnit?.operationalState === 'maintenance'
+        ? 'danger'
+        : 'neutral';
   const compactHeight = Math.min(
     isNarrow ? 150 : 170,
     Math.max(isNarrow ? 120 : 128, Math.round(screenHeight * (isNarrow ? 0.18 : 0.2)))
@@ -511,7 +520,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
 
         <View style={[styles.compactStatusRow, isNarrow ? responsiveStyles.compactStatusRowNarrow : undefined]}>
           <View style={styles.compactGpsStatus}>
-            <MaterialCommunityIcons name="crosshairs-gps" size={16} color={locationStatusColor} />
+            <MaterialCommunityIcons name="crosshairs-gps" size={16} color={gpsStatusColor} />
             <Text style={[styles.compactGpsText, { color: theme.colors.text }]} numberOfLines={1}>{gpsLabel}</Text>
           </View>
           <Pressable
@@ -587,7 +596,11 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                       isNarrow ? responsiveStyles.metricCardNarrow : undefined,
                       { backgroundColor: theme.colors.surfaceAlt },
                     ]}>
-                    <MaterialCommunityIcons name={icon as keyof typeof MaterialCommunityIcons.glyphMap} size={16} color={theme.colors.accent} />
+                    <MaterialCommunityIcons
+                      name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
+                      size={16}
+                      color={label === 'GPS' ? gpsStatusColor : theme.colors.accent}
+                    />
                     <Text style={[styles.metricLabel, { color: theme.colors.muted }]}>{label}</Text>
                     <Text
                       style={[styles.metricValue, { color: theme.colors.text }]}
