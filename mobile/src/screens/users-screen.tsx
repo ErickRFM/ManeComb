@@ -5,14 +5,13 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
-import { AppTheme, DesignSystem, Typography, type DesignTone as Tone } from '@/constants/theme';
+import { DesignSystem, type DesignTone as Tone } from '@/constants/theme';
 import {
   assignDriverVehicleRequest,
   createManagedVehicleRequest,
@@ -50,6 +49,8 @@ import {
 import { formatOperationalSchedule, getOperationalScheduleState } from '@/src/utils/operational-schedule';
 import { getPresenceStatus } from '@/src/utils/presence';
 import { DriverScheduleModal } from './users/DriverScheduleModal';
+import { createDirectoryStyles } from './users/users-screen.styles';
+import { DirectoryImpactActionModal } from './users/components/DirectoryImpactActionModal';
 import {
   canConfirmDirectoryDriverAction,
   canConfirmDirectoryVehicleAction,
@@ -143,7 +144,7 @@ export function UsersScreen() {
       users: state.users,
     }))
   );
-  const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
+  const styles = useMemo(() => createDirectoryStyles(theme, isPhone), [theme, isPhone]);
   const [activeTab, setActiveTab] = useState<DirectoryTab>('personal');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
@@ -740,87 +741,62 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={Boolean(driverFlow.action)} transparent animationType="fade" onRequestClose={driverFlow.close}>
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{driverActionTitle(driverFlow.action?.kind)}</Text>
-            <Text style={styles.sectionSubtitle}>{driverFlow.action?.target.name}</Text>
-
-            {driverFlow.impactLoading ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator color={theme.colors.accent} />
-                <Text style={styles.sectionSubtitle}>Revisando jornada, unidad, documentos y dependencias…</Text>
-              </View>
-            ) : null}
-
-            {driverFlow.impactError ? (
-              <View style={styles.impactErrorBox}>
-                <Text style={styles.dangerText}>{driverFlow.impactError}</Text>
-                <Pressable disabled={driverFlow.impactLoading} onPress={() => driverFlow.action && void driverFlow.reload(driverFlow.action.target)} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryButtonText}>Reintentar revisión</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {driverFlow.impact ? (
-              <View style={styles.impactBox}>
-                {driverFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
-                {driverFlow.impact.warnings.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• {entry}</Text>)}
-                <Text style={styles.sectionSubtitle}>Unidad actual: {driverFlow.impact.assignedVehicle?.code || 'Sin unidad'}</Text>
-                <Text style={styles.sectionSubtitle}>Sesiones a revocar: {driverFlow.impact.sessionsToRevoke || 0}</Text>
-                <Text style={styles.sectionSubtitle}>Documentos relacionados: {driverFlow.impact.relatedDocuments?.count || 0}</Text>
-              </View>
-            ) : null}
-
-            {driverFlow.action?.kind !== 'reactivate' ? (
-              <>
-                <Text style={styles.inputLabel}>Motivo</Text>
-                <TextInput
-                  value={driverFlow.reason}
-                  onChangeText={driverFlow.setReason}
-                  editable={!driverFlow.submitting}
-                  multiline
-                  placeholder="Ej. baja administrativa"
-                  placeholderTextColor={theme.colors.muted}
-                  style={[styles.input, styles.textArea]}
-                />
-              </>
-            ) : null}
-
-            {driverFlow.action?.kind === 'delete' ? (
-              <>
-                <Text style={styles.dangerText}>La eliminación definitiva solo procede después de la baja, sin unidad ni jornada activa. El historial operativo se conserva.</Text>
-                <Text style={styles.inputLabel}>Escribe ELIMINAR para confirmar</Text>
-                <TextInput
-                  value={driverConfirmation}
-                  onChangeText={setDriverConfirmation}
-                  editable={!driverFlow.submitting}
-                  autoCapitalize="characters"
-                  placeholder="ELIMINAR"
-                  placeholderTextColor={theme.colors.muted}
-                  style={styles.input}
-                />
-              </>
-            ) : null}
-
-            <View style={styles.modalActions}>
-              <Pressable disabled={driverFlow.submitting} onPress={driverFlow.close} style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                disabled={!driverConfirmEnabled}
-                onPress={() => void executeDriverAction()}
-                style={[
-                  styles.primaryButton,
-                  driverFlow.action?.kind === 'delete' || driverFlow.action?.kind === 'offboard' ? styles.dangerButton : undefined,
-                  !driverConfirmEnabled ? styles.disabledButton : undefined,
-                ]}>
-                {driverFlow.submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{driverActionConfirmLabel(driverFlow.action?.kind)}</Text>}
-              </Pressable>
-            </View>
+      <DirectoryImpactActionModal
+        visible={Boolean(driverFlow.action)}
+        title={driverActionTitle(driverFlow.action?.kind)}
+        subtitle={driverFlow.action?.target.name || ''}
+        loading={driverFlow.impactLoading}
+        loadingLabel="Revisando jornada, unidad, documentos y dependencias…"
+        error={driverFlow.impactError}
+        onRetry={() => driverFlow.action && void driverFlow.reload(driverFlow.action.target)}
+        submitting={driverFlow.submitting}
+        confirmEnabled={driverConfirmEnabled}
+        confirmLabel={driverActionConfirmLabel(driverFlow.action?.kind)}
+        danger={driverFlow.action?.kind === 'delete' || driverFlow.action?.kind === 'offboard'}
+        onCancel={driverFlow.close}
+        onConfirm={() => void executeDriverAction()}
+        styles={styles}>
+        {driverFlow.impact ? (
+          <View style={styles.impactBox}>
+            {driverFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
+            {driverFlow.impact.warnings.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• {entry}</Text>)}
+            <Text style={styles.sectionSubtitle}>Unidad actual: {driverFlow.impact.assignedVehicle?.code || 'Sin unidad'}</Text>
+            <Text style={styles.sectionSubtitle}>Sesiones a revocar: {driverFlow.impact.sessionsToRevoke || 0}</Text>
+            <Text style={styles.sectionSubtitle}>Documentos relacionados: {driverFlow.impact.relatedDocuments?.count || 0}</Text>
           </View>
-        </View>
-      </Modal>
+        ) : null}
+
+        {driverFlow.action?.kind !== 'reactivate' ? (
+          <>
+            <Text style={styles.inputLabel}>Motivo</Text>
+            <TextInput
+              value={driverFlow.reason}
+              onChangeText={driverFlow.setReason}
+              editable={!driverFlow.submitting}
+              multiline
+              placeholder="Ej. baja administrativa"
+              placeholderTextColor={theme.colors.muted}
+              style={[styles.input, styles.textArea]}
+            />
+          </>
+        ) : null}
+
+        {driverFlow.action?.kind === 'delete' ? (
+          <>
+            <Text style={styles.dangerText}>La eliminación definitiva solo procede después de la baja, sin unidad ni jornada activa. El historial operativo se conserva.</Text>
+            <Text style={styles.inputLabel}>Escribe ELIMINAR para confirmar</Text>
+            <TextInput
+              value={driverConfirmation}
+              onChangeText={setDriverConfirmation}
+              editable={!driverFlow.submitting}
+              autoCapitalize="characters"
+              placeholder="ELIMINAR"
+              placeholderTextColor={theme.colors.muted}
+              style={styles.input}
+            />
+          </>
+        ) : null}
+      </DirectoryImpactActionModal>
 
       <Modal visible={Boolean(vehicleEditor)} transparent animationType="fade" onRequestClose={() => !vehicleSaving && setVehicleEditor(null)}>
         <View style={styles.overlay}>
@@ -849,56 +825,37 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={Boolean(vehicleFlow.action)} transparent animationType="fade" onRequestClose={vehicleFlow.close}>
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{vehicleFlow.action?.kind === 'retire' ? 'Dar de baja la unidad' : 'Eliminar unidad'}</Text>
-            <Text style={styles.sectionSubtitle}>{vehicleFlow.action?.target.code} · {vehicleFlow.action?.target.plate}</Text>
-
-            {vehicleFlow.impactLoading ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator color={theme.colors.accent} />
-                <Text style={styles.sectionSubtitle}>Revisando conductor, ruta, jornada e historial…</Text>
-              </View>
-            ) : null}
-
-            {vehicleFlow.impactError ? (
-              <View style={styles.impactErrorBox}>
-                <Text style={styles.dangerText}>{vehicleFlow.impactError}</Text>
-                <Pressable disabled={vehicleFlow.impactLoading} onPress={() => vehicleFlow.action && void vehicleFlow.reload(vehicleFlow.action.target)} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryButtonText}>Reintentar revisión</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {vehicleFlow.impact ? (
-              <View style={styles.impactBox}>
-                {vehicleFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
-                {vehicleFlow.impact.actionsRequired.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• Requiere: {entry}</Text>)}
-                <Text style={styles.sectionSubtitle}>Historial: {vehicleFlow.impact.history?.total || 0} registros · Documentos: {vehicleFlow.impact.documents?.count || 0}</Text>
-                {vehicleFlow.action?.kind === 'delete' && vehicleFlow.impact.mustRetire ? <Text style={styles.dangerText}>Esta unidad conserva historial; debe darse de baja en lugar de eliminarse.</Text> : null}
-              </View>
-            ) : null}
-
-            {vehicleFlow.action?.kind === 'retire' ? (
-              <>
-                <Text style={styles.inputLabel}>Motivo</Text>
-                <TextInput value={vehicleFlow.reason} onChangeText={vehicleFlow.setReason} editable={!vehicleFlow.submitting} multiline placeholder="Ej. fin de vida útil" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
-              </>
-            ) : null}
-
-            <View style={styles.modalActions}>
-              <Pressable disabled={vehicleFlow.submitting} onPress={vehicleFlow.close} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancelar</Text></Pressable>
-              <Pressable
-                disabled={!vehicleConfirmEnabled}
-                onPress={() => void executeVehicleAction()}
-                style={[styles.primaryButton, styles.dangerButton, !vehicleConfirmEnabled ? styles.disabledButton : undefined]}>
-                {vehicleFlow.submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{vehicleFlow.action?.kind === 'retire' ? 'Dar de baja' : 'Eliminar'}</Text>}
-              </Pressable>
-            </View>
+      <DirectoryImpactActionModal
+        visible={Boolean(vehicleFlow.action)}
+        title={vehicleFlow.action?.kind === 'retire' ? 'Dar de baja la unidad' : 'Eliminar unidad'}
+        subtitle={vehicleFlow.action ? `${vehicleFlow.action.target.code} · ${vehicleFlow.action.target.plate}` : ''}
+        loading={vehicleFlow.impactLoading}
+        loadingLabel="Revisando conductor, ruta, jornada e historial…"
+        error={vehicleFlow.impactError}
+        onRetry={() => vehicleFlow.action && void vehicleFlow.reload(vehicleFlow.action.target)}
+        submitting={vehicleFlow.submitting}
+        confirmEnabled={vehicleConfirmEnabled}
+        confirmLabel={vehicleFlow.action?.kind === 'retire' ? 'Dar de baja' : 'Eliminar'}
+        danger
+        onCancel={vehicleFlow.close}
+        onConfirm={() => void executeVehicleAction()}
+        styles={styles}>
+        {vehicleFlow.impact ? (
+          <View style={styles.impactBox}>
+            {vehicleFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
+            {vehicleFlow.impact.actionsRequired.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• Requiere: {entry}</Text>)}
+            <Text style={styles.sectionSubtitle}>Historial: {vehicleFlow.impact.history?.total || 0} registros · Documentos: {vehicleFlow.impact.documents?.count || 0}</Text>
+            {vehicleFlow.action?.kind === 'delete' && vehicleFlow.impact.mustRetire ? <Text style={styles.dangerText}>Esta unidad conserva historial; debe darse de baja en lugar de eliminarse.</Text> : null}
           </View>
-        </View>
-      </Modal>
+        ) : null}
+
+        {vehicleFlow.action?.kind === 'retire' ? (
+          <>
+            <Text style={styles.inputLabel}>Motivo</Text>
+            <TextInput value={vehicleFlow.reason} onChangeText={vehicleFlow.setReason} editable={!vehicleFlow.submitting} multiline placeholder="Ej. fin de vida útil" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
+          </>
+        ) : null}
+      </DirectoryImpactActionModal>
 
       <Modal visible={Boolean(assignmentDriver)} transparent animationType="fade" onRequestClose={() => !assignmentLoading && setAssignmentDriver(null)}>
         <View style={styles.overlay}>
@@ -1005,7 +962,7 @@ function ActionButton({
   onPress: () => void;
 }) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const styles = useMemo(() => createDirectoryStyles(theme), [theme]);
   const color = danger ? theme.colors.danger : accent ? theme.colors.accent : theme.colors.text;
 
   return (
@@ -1021,7 +978,7 @@ function ActionButton({
 
 function DetailItem({ label, value }: { label: string; value: string }) {
   const { theme } = useAppTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const styles = useMemo(() => createDirectoryStyles(theme), [theme]);
 
   return (
     <View style={styles.detailItem}>
@@ -1031,75 +988,3 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function createStyles(theme: ReturnType<typeof useAppTheme>['theme'], isPhone = false) {
-  return StyleSheet.create({
-    header: { gap: 8, maxWidth: 760, paddingTop: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md },
-    title: { color: theme.colors.text, fontFamily: Typography.display, fontSize: isPhone ? 24 : 30, fontWeight: '900' },
-    subtitle: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: isPhone ? 13 : 14, lineHeight: isPhone ? 20 : 21 },
-    tabs: { flexDirection: 'row', gap: 8 },
-    tab: { alignItems: 'center', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 11 },
-    tabActive: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
-    tabText: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
-    tabTextActive: { color: theme.colors.accent },
-    messageBox: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, padding: 12 },
-    messageText: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
-    directoryCard: { width: '100%' },
-    sectionHeader: { alignItems: isPhone ? 'stretch' : 'center', flexDirection: isPhone ? 'column' : 'row', gap: 12, justifyContent: 'space-between' },
-    sectionCopy: { flex: 1, gap: 6, minWidth: 0 },
-    sectionTitle: { color: theme.colors.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900' },
-    sectionSubtitle: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: isPhone ? 13 : 14, lineHeight: isPhone ? 20 : 22 },
-    usersList: { gap: AppTheme.spacing.md },
-    userRow: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, gap: isPhone ? 10 : 12, padding: isPhone ? AppTheme.spacing.sm : AppTheme.spacing.md },
-    userTop: { alignItems: 'flex-start', flexDirection: isPhone ? 'column' : 'row', gap: 12 },
-    userMeta: { flex: 1, gap: 6, minWidth: 0 },
-    userName: { color: theme.colors.text, fontFamily: Typography.display, fontSize: isPhone ? 17 : 19, fontWeight: '900' },
-    userEmail: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: isPhone ? 13 : 14 },
-    pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    summaryText: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 12, fontWeight: '700' },
-    actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    actionButton: { alignItems: 'center', backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 12, paddingVertical: 9 },
-    actionButtonPressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
-    actionText: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
-    profileDetail: { borderTopColor: theme.colors.line, borderTopWidth: 1, gap: 10, paddingTop: 12 },
-    detailsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    detailItem: { backgroundColor: theme.colors.card, borderRadius: AppTheme.radius.md, flex: 1, gap: 6, minWidth: isPhone ? '100%' : 150, padding: AppTheme.spacing.sm },
-    detailLabel: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
-    detailValue: { color: theme.colors.text, fontFamily: Typography.body, fontSize: isPhone ? 13 : 14, fontWeight: '800' },
-    profileNote: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 12, lineHeight: 18 },
-    emptyState: { alignItems: 'center', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, gap: 10, padding: AppTheme.spacing.md },
-    primaryButton: { alignItems: 'center', alignSelf: isPhone ? 'stretch' : 'auto', backgroundColor: theme.colors.accent, borderRadius: AppTheme.radius.md, flexDirection: 'row', gap: 7, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
-    primaryButtonText: { color: '#FFFFFF', fontFamily: Typography.body, fontSize: 13, fontWeight: '900' },
-    secondaryButton: { alignItems: 'center', backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, justifyContent: 'center', minHeight: 40, paddingHorizontal: 14, paddingVertical: 9 },
-    secondaryButtonText: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
-    dangerButton: { backgroundColor: theme.colors.danger },
-    disabledButton: { opacity: 0.45 },
-    dangerText: { color: theme.colors.danger, fontFamily: Typography.body, fontSize: 12, fontWeight: '800', lineHeight: 18 },
-    vehicleHeader: { alignItems: 'center', flexDirection: 'row', gap: 12 },
-    vehicleIcon: { alignItems: 'center', backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: 18, borderWidth: 1, height: 56, justifyContent: 'center', width: 56 },
-    overlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.72)', flex: 1, justifyContent: 'center', padding: 18 },
-    modal: { backgroundColor: theme.colors.surface, borderColor: theme.colors.line, borderRadius: AppTheme.radius.lg, borderWidth: 1, gap: 12, maxHeight: '90%', maxWidth: 560, padding: isPhone ? 16 : 20, width: '100%' },
-    modalLarge: { backgroundColor: theme.colors.surface, borderColor: theme.colors.line, borderRadius: AppTheme.radius.lg, borderWidth: 1, maxHeight: '86%', maxWidth: 680, padding: isPhone ? 16 : 20, width: '100%' },
-    modalHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
-    modalTitle: { color: theme.colors.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900' },
-    modalActions: { flexDirection: isPhone ? 'column-reverse' : 'row', gap: 10, justifyContent: 'flex-end' },
-    modalScroll: { gap: 10, paddingTop: 14 },
-    iconButton: { alignItems: 'center', backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: 20, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
-    documentRow: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, gap: 10, padding: 12 },
-    documentTitle: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 14, fontWeight: '900' },
-    impactBox: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, gap: 7, padding: 12 },
-    impactErrorBox: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.danger, borderRadius: AppTheme.radius.md, borderWidth: 1, gap: 10, padding: 12 },
-    loadingRow: { alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 40 },
-    inputLabel: { color: theme.colors.text, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
-    input: { backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, color: theme.colors.text, fontFamily: Typography.body, fontSize: 14, minHeight: 46, paddingHorizontal: 12, paddingVertical: 10 },
-    textArea: { minHeight: 82, textAlignVertical: 'top' },
-    segmentRow: { flexDirection: 'row', gap: 8 },
-    segment: { alignItems: 'center', backgroundColor: theme.colors.card, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flex: 1, padding: 10 },
-    segmentActive: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
-    segmentText: { color: theme.colors.muted, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
-    segmentTextActive: { color: theme.colors.accent },
-    driverChoice: { alignItems: 'center', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line, borderRadius: AppTheme.radius.md, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
-    dangerChoice: { borderColor: theme.colors.danger },
-    selectedChoice: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
-  });
-}
