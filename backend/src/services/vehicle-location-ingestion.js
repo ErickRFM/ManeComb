@@ -6,6 +6,7 @@ const {
 const { emitOperationalUnitUpdate } = require("./operational-units-service");
 const { classifyGpsQuality, processRoutePosition } = require("./route-event-engine");
 const { calculateAndPersistRouteMetrics } = require("./route-metrics-engine");
+const { stabilizeGpsPosition } = require("./gps-position-stabilizer");
 const { getOperationalScheduleState } = require("../utils/operational-schedule");
 const { buildGpsFreshness, normalizeTrackingTime } = require("./tracking-time");
 const { incrementMetric } = require("./metrics");
@@ -128,6 +129,14 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     throw new LocationIngestionError(409, "outside_operational_schedule", "GPS pausado fuera del horario operativo");
   }
 
+  // La posicion y la prueba de vida son dos autoridades distintas. Un paquete
+  // dentro del radio de jitter conserva la ultima coordenada estable, pero se
+  // persiste igualmente con timestamp/recepcion nuevos. Asi el pin no "baila"
+  // estando detenido y `connectionState` sigue pasando en tiempo real por
+  // live -> delayed/stale/lost si dejan de llegar paquetes.
+  const positionDecision = stabilizeGpsPosition(vehicle.location, coordinates);
+  const liveCoordinates = positionDecision.coordinates;
+
   // `clientQueueAgeMs` is an elapsed-duration signal produced at send time by
   // the client queue. Unlike the device wall clock, elapsed queue age can tell
   // us that a packet was captured long ago even when the phone clock is skewed.
@@ -143,12 +152,20 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     userId: actor.id,
     organizationId: getOrganizationId(actor),
     status: temporal.discardReason ? "normalized" : "accepted",
-    metadata: { vehicleId, packetId, origin: transport, ...temporal }
+    metadata: {
+      vehicleId,
+      packetId,
+      origin: transport,
+      positionKind: positionDecision.kind,
+      positionDistanceMeters: positionDecision.distanceMeters,
+      positionStabilized: positionDecision.stabilized,
+      ...temporal
+    }
   });
 
   const update = await store.updateVehicleLocation({
     vehicleId,
-    coordinates,
+    coordinates: liveCoordinates,
     heading,
     speed,
     timestamp: temporal.processedTimestamp,
@@ -164,6 +181,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
         accepted: false,
         decision,
         packetId,
+        positionDecision,
         publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
         temporal,
         vehicleId
@@ -173,13 +191,16 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
 
   const trackingSession = await resolveTrackingSession(store, vehicleId, requestedSessionId, temporal.processedTimestamp);
   if (canSessionAcceptPosition(trackingSession, vehicleId, requestedSessionId, temporal.processedTimestamp)) {
+    // Un paquete historico/out-of-order conserva su coordenada capturada para
+    // reconstruccion de jornada. Solo la proyeccion viva se estabiliza.
+    const sessionCoordinates = update.locationUpdateApplied === false ? coordinates : liveCoordinates;
     const position = await store.createRouteSessionPosition({
       organizationId: String(vehicle.organizationId || getOrganizationId(actor)).trim(),
       sessionId: trackingSession.id,
       vehicleId,
       packetId,
-      latitude: coordinates.latitude,
-      longitude: coordinates.longitude,
+      latitude: sessionCoordinates.latitude,
+      longitude: sessionCoordinates.longitude,
       timestamp: temporal.processedTimestamp,
       heading,
       speed,
@@ -206,6 +227,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       accepted: false,
       decision,
       packetId,
+      positionDecision,
       publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
       temporal,
       vehicleId
@@ -216,7 +238,15 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   const organizationId = String(vehicle.organizationId || getOrganizationId(actor)).trim();
   await emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId });
   incrementMetric("gps_packets_accepted", 1, { transport });
-  return { accepted: true, decision: "accepted", packetId, publicUpdate, temporal, vehicleId };
+  return {
+    accepted: true,
+    decision: "accepted",
+    packetId,
+    positionDecision,
+    publicUpdate,
+    temporal,
+    vehicleId
+  };
 }
 
 module.exports = {
