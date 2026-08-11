@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
-import { ActivationTimeline, PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../cards';
+import { ActivationTimeline, PortalSectionCard } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { PortalDataList } from '../components/portal-data-list';
@@ -126,19 +126,23 @@ export function PortalOnboardingScreen() {
   const handleShareKey = async (activationKey: PortalActivationKey) => {
     setFeedback(null);
 
-    const result = await shareActivationKey(activationKey.id);
-    if (!result.ok) {
-      setFeedback(result.message || 'No fue posible registrar la compartición.');
-      return;
-    }
-
     try {
-      await Share.share({
+      const shareResult = await Share.share({
         message: `Soy conductor ManeComb. Usa esta clave para activar tu cuenta: ${activationKey.key}`,
       });
-      setFeedback('Key compartida.');
+      if (shareResult.action === Share.dismissedAction) {
+        setFeedback('Compartir cancelado. La key sigue disponible y no se marcó como compartida.');
+        return;
+      }
+
+      const result = await shareActivationKey(activationKey.id);
+      setFeedback(
+        result.ok
+          ? 'Key compartida.'
+          : result.message || 'La key se compartió, pero no fue posible registrar el evento en ManeComb.'
+      );
     } catch {
-      setFeedback('Key registrada como compartida, pero no se pudo abrir el diálogo de compartir. Copia la key manualmente.');
+      setFeedback('No se pudo abrir el diálogo de compartir. Copia la key manualmente.');
     }
   };
 
