@@ -15,6 +15,8 @@ type ImagePickerOptions = {
   aspect?: [number, number];
   quality?: number;
   base64?: boolean;
+  maxWidth?: number;
+  maxHeight?: number;
 };
 
 type PickerAsset = {
@@ -58,6 +60,8 @@ export async function launchImageLibraryAsync(options: ImagePickerOptions = {}) 
     mediaType: toMediaType(options.mediaTypes),
     includeBase64: Boolean(options.base64),
     quality: options.quality as ImageLibraryOptions['quality'],
+    maxWidth: options.maxWidth,
+    maxHeight: options.maxHeight,
     selectionLimit: 1,
   });
 
@@ -99,6 +103,8 @@ export async function launchCameraAsync(options: ImagePickerOptions = {}) {
     mediaType: toMediaType(options.mediaTypes) as CameraOptions['mediaType'],
     includeBase64: Boolean(options.base64),
     quality: options.quality as CameraOptions['quality'],
+    maxWidth: options.maxWidth,
+    maxHeight: options.maxHeight,
   });
 
   if (response.didCancel) {
