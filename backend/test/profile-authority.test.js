@@ -7,6 +7,10 @@ const {
   pickSelfProfileFields
 } = require("../src/services/profile-authority");
 const {
+  MAX_PROFILE_AVATAR_BYTES,
+  ProfileAvatarError
+} = require("../src/services/profile-avatar");
+const {
   ManagedUserProfilePolicyError,
   assertManagedUserIdentityStable
 } = require("../src/services/managed-user-profile-policy");
@@ -16,13 +20,14 @@ const {
 } = require("../src/services/profile-visibility");
 
 function testOperationalSelfServiceIsPersonalOnly() {
+  const avatarUrl = "data:image/jpeg;base64,dGVzdA==";
   const payload = pickSelfProfileFields(
     { accountType: "operations", role: "driver" },
     {
       name: "Conductor Actualizado",
       email: "conductor@example.com",
       phone: "+52 55 1111 2222",
-      avatarUrl: "data:image/jpeg;base64,test",
+      avatarUrl,
       password: "Ruta123!",
       companyProfile: { companyName: "No permitido" },
       paymentProfile: { preferredMethod: "card" },
@@ -33,11 +38,39 @@ function testOperationalSelfServiceIsPersonalOnly() {
   );
 
   assert.deepEqual(Object.keys(payload).sort(), ["avatarUrl", "email", "name", "password", "phone"].sort());
+  assert.equal(payload.avatarUrl, avatarUrl);
   assert.equal(payload.companyProfile, undefined);
   assert.equal(payload.paymentProfile, undefined);
   assert.equal(payload.operationalSchedule, undefined);
   assert.equal(payload.role, undefined);
   assert.equal(payload.vehicleId, undefined);
+}
+
+function testAvatarAuthorityRejectsEphemeralAndOversizedValues() {
+  const driver = { accountType: "operations", role: "driver" };
+
+  for (const avatarUrl of [
+    "file:///data/user/0/com.manecomb/cache/avatar.jpg",
+    "content://media/external/images/media/42",
+    "blob:https://manecomb.com/avatar"
+  ]) {
+    assert.throws(
+      () => pickSelfProfileFields(driver, { avatarUrl }),
+      (error) => error instanceof ProfileAvatarError && error.statusCode === 400
+    );
+  }
+
+  const oversized = Buffer.alloc(MAX_PROFILE_AVATAR_BYTES + 1, 1).toString("base64");
+  assert.throws(
+    () => pickSelfProfileFields(driver, { avatarUrl: `data:image/jpeg;base64,${oversized}` }),
+    (error) => error instanceof ProfileAvatarError && /pesada/i.test(error.message)
+  );
+
+  const normalized = pickSelfProfileFields(driver, {
+    avatarUrl: " data:image/png;base64, ZGF0YQ== \n"
+  });
+  assert.equal(normalized.avatarUrl, "data:image/png;base64,ZGF0YQ==");
+  assert.equal(pickSelfProfileFields(driver, { avatarUrl: null }).avatarUrl, null);
 }
 
 function testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule() {
@@ -174,13 +207,14 @@ function testProfileDocumentsRemainTenantScoped() {
 
 function main() {
   testOperationalSelfServiceIsPersonalOnly();
+  testAvatarAuthorityRejectsEphemeralAndOversizedValues();
   testCompanyAdministratorKeepsCommercialSelfServiceWithoutSchedule();
   testLimitedPortalRolesRemainPersonalOnly();
   testOperationalAdminDoesNotBecomeCompanyEditor();
   testFieldCatalogsRemainExplicit();
   testProfileIdentityIsImmutableAfterCreation();
   testProfileDocumentsRemainTenantScoped();
-  console.log("ok - profile self-service and immutable identity authority");
+  console.log("ok - profile self-service, avatar persistence and immutable identity authority");
 }
 
 main();
