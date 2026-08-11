@@ -9,6 +9,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -28,6 +29,8 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   @Volatile private var requestedRoute: String = ROUTE_AUTO
   @Volatile private var watching = false
+  @Volatile private var liveTrackRef: WeakReference<AudioTrack>? = null
+  @Volatile private var historyPlayerRef: WeakReference<MediaPlayer>? = null
 
   private val deviceCallback = object : AudioDeviceCallback() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = notifyRoute()
@@ -81,15 +84,35 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   fun applyTo(track: AudioTrack) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    liveTrackRef = WeakReference(track)
     runCatching { track.preferredDevice = resolveDevice() }
   }
 
   fun applyTo(player: MediaPlayer) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    historyPlayerRef = WeakReference(player)
     runCatching { player.setPreferredDevice(resolveDevice()) }
   }
 
+  private fun reconcileRequestedRoute() {
+    val current = requestedRoute
+    if (current != ROUTE_AUTO && !availableRoutes().contains(current)) {
+      requestedRoute = ROUTE_AUTO
+    }
+  }
+
+  private fun reapplyBoundOutputs() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val device = resolveDevice()
+    liveTrackRef?.get()?.let { track -> runCatching { track.preferredDevice = device } }
+    historyPlayerRef?.get()?.let { player -> runCatching { player.setPreferredDevice(device) } }
+  }
+
   private fun notifyRoute() {
+    // Una conexion/desconexion debe afectar tambien al audio que ya esta sonando,
+    // no solo al siguiente AudioTrack/MediaPlayer que se cree.
+    reconcileRequestedRoute()
+    reapplyBoundOutputs()
     val route = activeRoute()
     listeners.forEach { listener -> listener(route) }
   }
@@ -109,10 +132,15 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   private fun routeOf(device: AudioDeviceInfo): String? = when (device.type) {
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> ROUTE_BLUETOOTH
+    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+    AudioDeviceInfo.TYPE_HEARING_AID,
+    AudioDeviceInfo.TYPE_BLE_HEADSET,
+    AudioDeviceInfo.TYPE_BLE_SPEAKER,
+    AudioDeviceInfo.TYPE_BLE_BROADCAST -> ROUTE_BLUETOOTH
     AudioDeviceInfo.TYPE_WIRED_HEADSET,
     AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-    AudioDeviceInfo.TYPE_USB_HEADSET -> ROUTE_WIRED
+    AudioDeviceInfo.TYPE_USB_HEADSET,
+    AudioDeviceInfo.TYPE_USB_DEVICE -> ROUTE_WIRED
     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> ROUTE_SPEAKER
     AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> ROUTE_EARPIECE
     else -> null
