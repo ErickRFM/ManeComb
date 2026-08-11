@@ -159,10 +159,22 @@ class RadioSessionController(
 
     transport.requestFloor(channelId) { ack ->
       confine {
-        if (requestGeneration != generation) {
-          // El canal cambio mientras el backend arbitraba: liberar de inmediato
-          // para no dejarlo ocupado por una sesion que ya no existe.
-          RadioLog.warn("floor_stale", "channelId" to channelId)
+        val requestStillCurrent =
+          requestGeneration == generation &&
+          state.channelId == channelId &&
+          state.phase == RadioPhase.REQUESTING &&
+          state.connected
+
+        if (!requestStillCurrent) {
+          // Un ACK puede llegar despues de perder y recuperar el socket. La
+          // reconexion nunca reanuda un PTT anterior: si el backend alcanzo a
+          // conceder el piso, se devuelve sin abrir el microfono.
+          RadioLog.warn(
+            "floor_stale",
+            "channelId" to channelId,
+            "phase" to state.phase.name,
+            "connected" to state.connected
+          )
           ack.transmissionId?.let { transport.endFloor(channelId, it) { } }
           return@confine
         }
