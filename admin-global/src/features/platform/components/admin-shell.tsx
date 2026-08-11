@@ -18,7 +18,7 @@ import { usePlatformGovernanceStore } from '../governance/store';
 
 type AdminShellProps = {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: ReactNode;
   actions?: ReactNode;
 };
@@ -190,9 +190,8 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageHeading}>
-            <Text style={styles.eyebrow}>ADMIN GLOBAL</Text>
             <Text accessibilityRole="header" style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
+            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
           </View>
           {actions ? <View style={[styles.pageActions, !isDesktop && styles.pageActionsMobile]}>{actions}</View> : null}
         </View>
@@ -291,8 +290,7 @@ const styles = StyleSheet.create({
   pageContentMobile: { gap: 18, padding: 16 },
   pageHeader: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 18, justifyContent: 'space-between' },
   pageHeading: { flex: 1, minWidth: 260 },
-  eyebrow: { color: palette.accent, fontFamily: Typography.mono, fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
-  title: { color: palette.text, fontFamily: Typography.display, fontSize: 30, fontWeight: '900', marginTop: 6 },
+  title: { color: palette.text, fontFamily: Typography.display, fontSize: 30, fontWeight: '900' },
   subtitle: { color: palette.muted, fontFamily: Typography.body, fontSize: 14, lineHeight: 21, marginTop: 6, maxWidth: 720 },
   pageActions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   pageActionsMobile: { width: '100%' },
