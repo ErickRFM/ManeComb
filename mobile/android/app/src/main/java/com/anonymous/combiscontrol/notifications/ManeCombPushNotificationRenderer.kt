@@ -28,7 +28,7 @@ object ManeCombPushNotificationRenderer {
   const val CHANNEL_CHAT = "manecomb-chat-messages"
   const val CHANNEL_CALLS = "manecomb-incoming-calls"
   const val GROUP_CHAT = "manecomb-chat"
-  private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
+  private const val E2EE_REPLY_SUBTEXT = "Cifrado de extremo a extremo"
   private const val DEFAULT_CALL_RING_TIMEOUT_MS = 35_000L
   private const val CLOCK_SKEW_FALLBACK_RING_MS = 10_000L
 
@@ -129,6 +129,7 @@ object ManeCombPushNotificationRenderer {
     NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     return true
   }
+
   fun showMessage(context: Context, data: Map<String, String>) {
     if (!canPostNotifications(context)) return
     ensureChannels(context)
@@ -136,7 +137,9 @@ object ManeCombPushNotificationRenderer {
     val title = data["title"].orEmpty().ifBlank { "ManeComb" }
     val body = data["body"].orEmpty().ifBlank { "Tienes una notificación nueva." }
     val conversationId = data["conversationId"].orEmpty().trim()
-    // Bandera ausente o desconocida => cifrado. Solo un `false` explicito habilita RemoteInput.
+    // Esta bandera solo presenta contexto visual. La autoridad real para decidir
+    // si la respuesta debe cifrarse vive en el Headless JS task y consulta la
+    // conversacion + llave local; nunca se confia en el push para seguridad.
     val encrypted = !data["encrypted"].orEmpty().equals("false", ignoreCase = true)
     val notificationId = stableId("chat:${conversationId.ifBlank { title }}")
     val contentIntent = activityIntent(
@@ -159,12 +162,12 @@ object ManeCombPushNotificationRenderer {
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setAutoCancel(true)
       .setGroup(GROUP_CHAT)
+      .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
 
     if (conversationId.isNotEmpty()) {
+      builder.addAction(buildReplyAction(context, notificationId, conversationId))
       if (encrypted) {
-        builder.setSubText(ENCRYPTED_REPLY_HINT)
-      } else {
-        builder.addAction(buildReplyAction(context, notificationId, conversationId))
+        builder.setSubText(E2EE_REPLY_SUBTEXT)
       }
     }
 

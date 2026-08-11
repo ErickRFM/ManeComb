@@ -164,12 +164,13 @@ class ManeCombNotificationModule(
       }
 
       if (normalizedCategory == "chat" && safeConversationId.isNotEmpty()) {
-        builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        builder
+          .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+          .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+          .addAction(buildReplyAction(notificationId, safeConversationId))
 
         if (encrypted) {
-          builder.setSubText(ENCRYPTED_REPLY_HINT)
-        } else {
-          builder.addAction(buildReplyAction(notificationId, safeConversationId))
+          builder.setSubText(E2EE_REPLY_SUBTEXT)
         }
       }
 
@@ -295,7 +296,7 @@ class ManeCombNotificationModule(
     const val EXTRA_NOTIFICATION_ID = "notificationId"
     const val CHANNEL_GENERAL = "operacion-general"
     private const val REPLY_LABEL = "Responder"
-    private const val ENCRYPTED_REPLY_HINT = "Chat cifrado: abre la app para responder"
+    private const val E2EE_REPLY_SUBTEXT = "Cifrado de extremo a extremo"
     private const val CHANNEL_RADIO = "operacion-radio"
     private const val CHANNEL_INCIDENTS = "operacion-incidentes"
     private const val CHANNEL_EMERGENCIES = "operacion-emergencias"
