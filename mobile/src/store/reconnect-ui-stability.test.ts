@@ -68,7 +68,7 @@ describe('mobile reconnect UI stability', () => {
     const checklist = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'checklist-screen.tsx'), 'utf8');
     const routeSheetScroll = sourceBetween(
       checklist,
-      '<ScrollView style={[styles.modalScroll',
+      'style={[styles.modalScroll',
       '</ScrollView>'
     );
 
