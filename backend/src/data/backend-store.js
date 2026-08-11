@@ -19,6 +19,7 @@ const { PaymentStoreService } = require("../services/payment-store-service");
 const { SessionStoreService } = require("../services/session-store-service");
 const { TrackingService } = require("../services/tracking-service");
 const { UserService } = require("../services/user-service");
+const { installOperationalCommunicationsGuard } = require("../services/operational-communications-guard");
 const { installRouteSessionCreationGuard } = require("../services/route-session-creation-guard");
 
 function buildBackendStore(baseStore, dependencies = {}) {
@@ -93,10 +94,15 @@ function buildBackendStore(baseStore, dependencies = {}) {
     services
   };
 
+  // Communication eligibility is a backend boundary shared by Mongo and the
+  // embedded/test adapter. Persistence may retain historical membership, but
+  // only active, non-deleted users can be projected into live Chat/Radio/push.
+  const communicationsGuardedStore = installOperationalCommunicationsGuard(backendStore);
+
   // Route-session creation is a lifecycle boundary, not merely persistence.
   // Install the guard once here so embedded and Mongo stores share the same
   // pre/post driver-state invariant without duplicating it in HTTP handlers.
-  return installRouteSessionCreationGuard(backendStore);
+  return installRouteSessionCreationGuard(communicationsGuardedStore);
 }
 
 module.exports = {
