@@ -21,12 +21,10 @@ import { canManageMobileIncidents } from '@/src/utils/mobile-authority';
 import {
   INCIDENT_TYPES,
   INITIAL_VISIBLE_EVENTS,
-  SEVERITY_STYLES,
   type IncidentFilterKey,
 } from './constants/alerts.constants';
 import {
   getIncidentContext,
-  getSeverityStyle,
   isIncidentActive,
   matchesFilter,
   matchesSearch,
@@ -86,14 +84,10 @@ export function AlertsScreen() {
   const [showAllEvents, setShowAllEvents] = useState(false);
   const descriptionInputRef = useRef<TextInput>(null);
 
-  const summary = useMemo(() => {
-    const activeIncidents = incidents.filter(isIncidentActive);
-
-    return {
-      critical: activeIncidents.filter((incident) => getSeverityStyle(incident.severity) === SEVERITY_STYLES.critical).length,
-      open: activeIncidents.length,
-    };
-  }, [incidents]);
+  const openIncidentCount = useMemo(
+    () => incidents.filter(isIncidentActive).length,
+    [incidents]
+  );
 
   const orderedIncidents = useMemo(() => {
     const focusId = params.incidentId || focusedIncidentId;
@@ -154,18 +148,12 @@ export function AlertsScreen() {
       onRefresh={refreshAll}
       refreshing={isRefreshing}
       sectionKey="incidencias"
-      mobileTitle="Alertas"
-      mobileSubtitle="Reportes y seguimiento"
-      mobileBadges={[
-        { label: `${summary.open} activas`, tone: summary.open ? 'warning' : 'positive' },
-        { label: `${summary.critical} criticas`, tone: summary.critical ? 'danger' : 'neutral' },
-      ]}
       header={
         <AlertsHeader
           isSubmitting={isSubmitting}
           onPanic={() => { handleQuickSos('security'); }}
           onUnit={() => { handleQuickSos('maintenance'); }}
-          open={summary.open}
+          open={openIncidentCount}
           styles={screenStyles}
           theme={theme}
         />
@@ -191,7 +179,6 @@ export function AlertsScreen() {
           <View style={screenStyles.timelineHeaderRow}>
             <View style={screenStyles.timelineHeaderCopy}>
               <Text style={screenStyles.panelTitle}>Historial de alertas</Text>
-
             </View>
             <Text style={screenStyles.resultCount}>
               {filteredIncidents.length} {filteredIncidents.length === 1 ? 'alerta' : 'alertas'}

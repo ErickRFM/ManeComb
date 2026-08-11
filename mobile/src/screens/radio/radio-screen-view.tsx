@@ -1097,7 +1097,6 @@ export function RadioScreen() {
             ? theme.colors.success
             : theme.colors.muted;
   const activeOperatorCount = activeChannel?.participants.length || 0;
-  const activeRouteLabel = audioRoute ? getRadioRouteLabel(audioRoute.active) : 'Sistema';
   const lastTransmission = loadedVoiceNotes[0] || null;
   const lastTransmissionDuration = lastTransmission?.message.durationSeconds
     ? formatDuration(lastTransmission.message.durationSeconds)
@@ -1439,36 +1438,6 @@ export function RadioScreen() {
                 <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.accent} />
               </View>
             </Pressable>
-
-            <View style={styles.consoleMetaRow}>
-              <View style={styles.consoleMetaItem}>
-                <MaterialCommunityIcons name="access-point" size={18} color={theme.colors.muted} />
-                <View style={styles.consoleMetaCopy}>
-                  <Text style={styles.consoleMetaLabel}>Canal activo</Text>
-                  <Text style={styles.consoleMetaValue} numberOfLines={1}>{activeChannel?.title || 'Sin canal'}</Text>
-                </View>
-              </View>
-              <View style={styles.consoleMetaDivider} />
-              <View style={styles.consoleMetaItem}>
-                <MaterialCommunityIcons name="account-group" size={18} color={theme.colors.muted} />
-                <View style={styles.consoleMetaCopy}>
-                  <Text style={styles.consoleMetaLabel}>Miembros</Text>
-                  <Text style={styles.consoleMetaValue} numberOfLines={1}>
-                    {activeOperatorCount || 0} conectados
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.consoleMetaDivider} />
-              <View style={styles.consoleMetaItem}>
-                <MaterialCommunityIcons name={audioRoute ? getRadioRouteIcon(audioRoute.active) as any : 'volume-high'} size={18} color={theme.colors.muted} />
-                <View style={styles.consoleMetaCopy}>
-                  <Text style={styles.consoleMetaLabel}>Salida</Text>
-                  <Text style={styles.consoleMetaValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
-                    {activeRouteLabel}
-                  </Text>
-                </View>
-              </View>
-            </View>
           </View>
           </ScrollView>
           </View>

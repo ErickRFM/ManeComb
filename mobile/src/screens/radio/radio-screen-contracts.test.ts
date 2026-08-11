@@ -79,6 +79,13 @@ describe('Radio Pro console projection contracts', () => {
     expect(operationalBannerStyles).toContain("display: 'none'");
   });
 
+  it('keeps channel, members and audio route in the upper context without a duplicate footer row', () => {
+    expect(viewSource).toContain("{activeChannel?.title || 'Radio operativo'}");
+    expect(viewSource).toContain('{activeOperatorCount || \'--\'} miembros');
+    expect(viewSource).toContain('getRadioRouteLabel(audioRoute.active)');
+    expect(viewSource).not.toContain('styles.consoleMetaRow');
+  });
+
   it('uses real TX metering and no fabricated RX waveform or duplicate player', () => {
     expect(viewSource).toContain('{isCapturing ? (');
     expect(viewSource).toContain('<PttAudioWave');

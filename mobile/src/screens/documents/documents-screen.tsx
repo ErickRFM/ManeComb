@@ -160,7 +160,7 @@ export function DriverDocumentsScreen() {
   if (!user) return null;
 
   return (
-    <AppShell scroll sectionKey="perfil" mobileTitle="Mis documentos" header={
+    <AppShell scroll sectionKey="perfil" header={
       <View style={styles.header}>
         <Text style={styles.title}>Mis documentos</Text>
         <Text style={styles.subtitle}>Carga, consulta y conserva el historial de tu licencia.</Text>
@@ -168,7 +168,7 @@ export function DriverDocumentsScreen() {
     }>
       <View style={styles.toolbar}>
         <Text style={styles.subtitle}>{networkStatus === 'offline' ? 'Sin conexión · mostrando la última información disponible' : message || `${documents.length} documento${documents.length === 1 ? '' : 's'} activo${documents.length === 1 ? '' : 's'}`}</Text>
-        <Pressable accessibilityRole="button" disabled={loading} onPress={() => void refresh()} style={styles.secondaryButton}><Text style={styles.secondaryText}>Reintentar / actualizar</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={loading} onPress={() => void refresh()} style={styles.secondaryButton}><Text style={styles.secondaryText}>Actualizar</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={() => openEditor('create')} style={styles.primaryButton}>
           <MaterialCommunityIcons name="file-plus-outline" size={20} color="#FFFFFF" />
           <Text style={styles.primaryText}>Subir documento</Text>

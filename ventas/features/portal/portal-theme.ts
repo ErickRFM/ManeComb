@@ -53,8 +53,8 @@ export function portalGlass(overrides?: Record<string, unknown>) {
 export function portalButtonGradient() {
   if (Platform.OS === 'web') {
     return {
-      backgroundImage: 'linear-gradient(135deg, #E31E24, #F0445F 66%, #8B5CF6)',
-      boxShadow: '0 10px 22px rgba(240, 68, 95, 0.2)',
+      backgroundImage: 'linear-gradient(135deg, #E31E24, #F0445F)',
+      boxShadow: '0 10px 22px rgba(227, 30, 36, 0.2)',
     } as any;
   }
 

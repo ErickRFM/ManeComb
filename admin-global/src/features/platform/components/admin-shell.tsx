@@ -18,7 +18,7 @@ import { usePlatformGovernanceStore } from '../governance/store';
 
 type AdminShellProps = {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: ReactNode;
   actions?: ReactNode;
 };
@@ -115,11 +115,6 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
           <Text style={[styles.navigationLabel, active && styles.navigationLabelActive]}>
             {isDesktop ? item.label : item.shortLabel}
           </Text>
-          {isDesktop ? (
-            <Text numberOfLines={2} style={styles.navigationDescription}>
-              {item.description}
-            </Text>
-          ) : null}
         </View>
       </Pressable>
     );
@@ -190,9 +185,8 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
       >
         <View style={styles.pageHeader}>
           <View style={styles.pageHeading}>
-            <Text style={styles.eyebrow}>ADMIN GLOBAL</Text>
             <Text accessibilityRole="header" style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
+            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
           </View>
           {actions ? <View style={[styles.pageActions, !isDesktop && styles.pageActionsMobile]}>{actions}</View> : null}
         </View>
@@ -217,9 +211,9 @@ const styles = StyleSheet.create({
     minHeight: '100vh' as any,
     paddingHorizontal: 18,
     paddingVertical: 22,
-    width: 280,
+    width: 260,
   },
-  brandBlock: { borderBottomColor: palette.line, borderBottomWidth: 1, paddingBottom: 20 },
+  brandBlock: { borderBottomColor: palette.line, borderBottomWidth: 1, paddingBottom: 18 },
   brandRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   brand: { color: palette.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900' },
   adminBadge: {
@@ -237,7 +231,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   brandCaption: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 12, marginTop: 5 },
-  sidebarNavigation: { gap: 8, paddingVertical: 18 },
+  sidebarNavigation: { gap: 6, paddingVertical: 16 },
   navigationItem: {
     alignItems: 'center',
     borderColor: 'transparent',
@@ -246,9 +240,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     justifyContent: 'space-between',
-    minHeight: 58,
+    minHeight: 44,
     paddingHorizontal: 13,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   navigationItemActive: { backgroundColor: palette.accentSoft, borderColor: 'rgba(227, 30, 36, 0.3)' },
   navigationItemPressed: { opacity: 0.72 },
@@ -256,7 +250,6 @@ const styles = StyleSheet.create({
   navigationCopy: { flex: 1 },
   navigationLabel: { color: palette.muted, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
   navigationLabelActive: { color: palette.text },
-  navigationDescription: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 10, lineHeight: 14, marginTop: 3 },
   accountBlock: { borderTopColor: palette.line, borderTopWidth: 1, gap: 5, paddingTop: 18 },
   accountName: { color: palette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
   accountEmail: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 11 },
@@ -291,8 +284,7 @@ const styles = StyleSheet.create({
   pageContentMobile: { gap: 18, padding: 16 },
   pageHeader: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 18, justifyContent: 'space-between' },
   pageHeading: { flex: 1, minWidth: 260 },
-  eyebrow: { color: palette.accent, fontFamily: Typography.mono, fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
-  title: { color: palette.text, fontFamily: Typography.display, fontSize: 30, fontWeight: '900', marginTop: 6 },
+  title: { color: palette.text, fontFamily: Typography.display, fontSize: 30, fontWeight: '900' },
   subtitle: { color: palette.muted, fontFamily: Typography.body, fontSize: 14, lineHeight: 21, marginTop: 6, maxWidth: 720 },
   pageActions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   pageActionsMobile: { width: '100%' },
