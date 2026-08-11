@@ -8,6 +8,7 @@ import {
   getUnknownStateCount,
   getVisibleUnits,
   resolveTrackingSyncUnit,
+  shouldShowDeviceLocationMarker,
 } from './tracking';
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
@@ -173,5 +174,12 @@ describe('selectores del mapa de seguimiento', () => {
     expect(resolveTrackingSyncUnit('driver', ownUnit, selectedUnit)?.unitId).toBe('own');
     expect(resolveTrackingSyncUnit('fleet', null, selectedUnit)?.unitId).toBe('selected');
     expect(resolveTrackingSyncUnit('fleet', ownUnit, selectedUnit)?.unitId).toBe('selected');
+  });
+
+  it('no duplica el GPS local cuando ya hay una unidad operativa en el mapa', () => {
+    expect(shouldShowDeviceLocationMarker(false, 1)).toBe(false);
+    expect(shouldShowDeviceLocationMarker(false, 12)).toBe(false);
+    expect(shouldShowDeviceLocationMarker(false, 0)).toBe(true);
+    expect(shouldShowDeviceLocationMarker(true, 1)).toBe(true);
   });
 });
