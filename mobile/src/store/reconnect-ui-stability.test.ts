@@ -63,4 +63,17 @@ describe('mobile reconnect UI stability', () => {
     expect(checklist).toContain('bounces={false}');
     expect(checklist).toContain('overScrollMode="never"');
   });
+
+  it('keeps the route details sheet scroll firm without edge bounce', () => {
+    const checklist = fs.readFileSync(path.join(mobileRoot, 'src', 'screens', 'checklist-screen.tsx'), 'utf8');
+    const routeSheetScroll = sourceBetween(
+      checklist,
+      'style={[styles.modalScroll',
+      '</ScrollView>'
+    );
+
+    expect(routeSheetScroll).toContain('bounces={false}');
+    expect(routeSheetScroll).toContain('alwaysBounceVertical={false}');
+    expect(routeSheetScroll).toContain('overScrollMode="never"');
+  });
 });
