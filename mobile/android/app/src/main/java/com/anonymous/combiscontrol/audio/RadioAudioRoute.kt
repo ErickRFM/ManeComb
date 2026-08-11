@@ -89,7 +89,17 @@ class RadioAudioRoute private constructor(private val context: Context) {
     runCatching { player.setPreferredDevice(resolveDevice()) }
   }
 
+  private fun reconcileRequestedRoute() {
+    val current = requestedRoute
+    if (current != ROUTE_AUTO && !availableRoutes().contains(current)) {
+      requestedRoute = ROUTE_AUTO
+    }
+  }
+
   private fun notifyRoute() {
+    // Si Bluetooth/cable desaparece, la autoridad se autocorrige antes de
+    // publicar. React nunca conserva una preferencia hacia un accesorio ausente.
+    reconcileRequestedRoute()
     val route = activeRoute()
     listeners.forEach { listener -> listener(route) }
   }
