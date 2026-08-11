@@ -12,6 +12,15 @@ import type { Incident, LiveLocationsData, Vehicle } from '@/src/types/app';
  * se dibuja siempre, atenuada segun `gps.freshness`.
  */
 
+export type TrackingAudience = 'driver' | 'fleet';
+
+export type TrackingEmptyState = {
+  title: string;
+  meta: string;
+  statusLabel: string;
+  listLabel: string;
+};
+
 export function hasUnitPosition(unit: OperationalUnitSnapshot | null | undefined) {
   return Boolean(unit && unit.gps.lat !== null && unit.gps.lng !== null);
 }
@@ -32,6 +41,43 @@ export function getSelectedUnit(
   return selectedUnitId
     ? unitById.get(selectedUnitId) || prioritizedUnits[0] || null
     : prioritizedUnits[0] || null;
+}
+
+/**
+ * La misma pantalla de mapa sirve a dos experiencias legitimas:
+ * - conductor: sigue su unidad asignada;
+ * - administracion/supervision: observa una unidad de la flota.
+ *
+ * Mantener esta diferencia en presentacion evita que una cuenta administrativa
+ * parezca haberse autenticado como conductor cuando la empresa aun no tiene flota.
+ */
+export function getTrackingAudience(role: string | null | undefined): TrackingAudience {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  return normalizedRole === 'driver' || normalizedRole === 'conductor' ? 'driver' : 'fleet';
+}
+
+export function getTrackingEmptyState(audience: TrackingAudience): TrackingEmptyState {
+  return audience === 'driver'
+    ? {
+        title: 'Sin unidad',
+        meta: 'No tienes una unidad asignada',
+        statusLabel: 'Sin unidad',
+        listLabel: 'Sin unidad asignada',
+      }
+    : {
+        title: 'Flota sin unidades',
+        meta: 'Aún no hay unidades registradas en la empresa',
+        statusLabel: 'Flota vacía',
+        listLabel: 'Sin unidades registradas',
+      };
+}
+
+export function resolveTrackingSyncUnit(
+  audience: TrackingAudience,
+  ownUnit: OperationalUnitSnapshot | null,
+  selectedUnit: OperationalUnitSnapshot | null
+) {
+  return audience === 'driver' ? ownUnit : selectedUnit;
 }
 
 /**

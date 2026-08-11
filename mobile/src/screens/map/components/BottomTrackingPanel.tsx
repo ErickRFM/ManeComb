@@ -20,6 +20,7 @@ import { formatEta, formatFreshness, formatSpeed, routeLabel as formatRoute, sta
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, RouteSession, Vehicle } from '@/src/types/app';
 import type { LocationStatusSnapshot } from '../types';
+import { getTrackingEmptyState, type TrackingEmptyState } from '../utils/tracking';
 import { mapStyles as styles } from '../map-styles';
 import {
   getSessionDistanceMeters,
@@ -60,8 +61,8 @@ function formatSessionStatus(status?: string | null) {
   return sessionStatusLabels[status] || status.replace(/[-_]/g, ' ');
 }
 
-function formatCompactUnitMeta(unit: OperationalUnitSnapshot | null) {
-  if (!unit) return 'No tienes una unidad asignada';
+function formatCompactUnitMeta(unit: OperationalUnitSnapshot | null, emptyMeta: string) {
+  if (!unit) return emptyMeta;
   return unit.plates ? `Placas ${unit.plates}` : formatRoute(unit.route);
 }
 
@@ -103,6 +104,7 @@ type BottomTrackingPanelProps = {
   activeIncident: Incident | null;
   activeIncidentUnit: OperationalUnitSnapshot | null;
   bottomPadding: number;
+  emptyState?: TrackingEmptyState;
   locationStatus: LocationStatusSnapshot;
   locationStatusColor: string;
   onRetryLocation: () => void;
@@ -127,6 +129,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   activeIncident,
   activeIncidentUnit,
   bottomPadding,
+  emptyState,
   locationStatus,
   locationStatusColor,
   onRetryLocation,
@@ -143,6 +146,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
 }: BottomTrackingPanelProps) {
   const { theme } = useAppTheme();
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const resolvedEmptyState = emptyState ?? getTrackingEmptyState(canViewVehicleDetails ? 'fleet' : 'driver');
   const isNarrow = screenWidth < NARROW_PANEL_BREAKPOINT;
   const [isExpanded, setIsExpanded] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -286,7 +290,10 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   // Estado, GPS, ruta, conductor y ETA vienen resueltos del backend.
   // Este componente solo los formatea.
   const routeLabel = useMemo(() => formatRoute(selectedUnit?.route ?? null), [selectedUnit?.route]);
-  const compactMeta = useMemo(() => formatCompactUnitMeta(selectedUnit), [selectedUnit]);
+  const compactMeta = useMemo(
+    () => formatCompactUnitMeta(selectedUnit, resolvedEmptyState.meta),
+    [resolvedEmptyState.meta, selectedUnit]
+  );
   const statusLabel = selectedUnit ? stateLabel(selectedUnit.operationalState) : 'Sin estado';
   const gpsLabel = selectedUnit ? formatFreshness(selectedUnit.gps) : locationStatus.hudLabel;
   const speedLabel = selectedUnit ? formatSpeed(selectedUnit.gps) : 'GPS pendiente';
@@ -493,13 +500,13 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         <View style={styles.followHeader}>
           <View style={styles.followIdentity}>
             <Text style={[styles.followTitle, { color: theme.colors.text }]} numberOfLines={1}>
-              {selectedUnit?.label || 'Sin unidad'}
+              {selectedUnit?.label || resolvedEmptyState.title}
             </Text>
             <Text style={[styles.followMeta, { color: theme.colors.muted }]} numberOfLines={1}>
               {compactMeta}
             </Text>
           </View>
-          <StatusPill label={selectedUnit ? statusLabel : 'Sin unidad'} tone={selectedUnit ? statusTone : 'neutral'} />
+          <StatusPill label={selectedUnit ? statusLabel : resolvedEmptyState.statusLabel} tone={selectedUnit ? statusTone : 'neutral'} />
         </View>
 
         <View style={[styles.compactStatusRow, isNarrow ? responsiveStyles.compactStatusRowNarrow : undefined]}>
@@ -675,7 +682,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
               {!trackingUnits.length && !selectedUnit ? (
                 <View style={styles.emptyTrackState}>
                   <MaterialCommunityIcons name="bus-clock" size={18} color={theme.colors.muted} />
-                  <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>Sin unidades disponibles</Text>
+                  <Text style={[styles.emptyTrackText, { color: theme.colors.muted }]}>{resolvedEmptyState.listLabel}</Text>
                 </View>
               ) : null}
             </View> : null}

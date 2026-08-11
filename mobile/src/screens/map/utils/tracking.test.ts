@@ -2,9 +2,12 @@ import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   getActiveRouteCount,
   getMappableUnits,
+  getTrackingAudience,
+  getTrackingEmptyState,
   getTrackingHudRouteSummary,
   getUnknownStateCount,
   getVisibleUnits,
+  resolveTrackingSyncUnit,
 } from './tracking';
 
 function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnitSnapshot {
@@ -140,5 +143,35 @@ describe('selectores del mapa de seguimiento', () => {
       active: { label: 'En ruta', value: '2' },
       unknown: { label: 'Sin datos', value: '1' },
     });
+  });
+
+  it('distingue una cuenta administrativa de un conductor sin cambiar autoridad', () => {
+    expect(getTrackingAudience('admin')).toBe('fleet');
+    expect(getTrackingAudience('owner')).toBe('fleet');
+    expect(getTrackingAudience('supervisor')).toBe('fleet');
+    expect(getTrackingAudience('driver')).toBe('driver');
+    expect(getTrackingAudience('conductor')).toBe('driver');
+
+    expect(getTrackingEmptyState('fleet')).toEqual({
+      title: 'Flota sin unidades',
+      meta: 'Aún no hay unidades registradas en la empresa',
+      statusLabel: 'Flota vacía',
+      listLabel: 'Sin unidades registradas',
+    });
+    expect(getTrackingEmptyState('driver')).toEqual({
+      title: 'Sin unidad',
+      meta: 'No tienes una unidad asignada',
+      statusLabel: 'Sin unidad',
+      listLabel: 'Sin unidad asignada',
+    });
+  });
+
+  it('usa la unidad propia para conductor y la seleccionada para vista de flota', () => {
+    const ownUnit = unit({ unitId: 'own' });
+    const selectedUnit = unit({ unitId: 'selected' });
+
+    expect(resolveTrackingSyncUnit('driver', ownUnit, selectedUnit)?.unitId).toBe('own');
+    expect(resolveTrackingSyncUnit('fleet', null, selectedUnit)?.unitId).toBe('selected');
+    expect(resolveTrackingSyncUnit('fleet', ownUnit, selectedUnit)?.unitId).toBe('selected');
   });
 });
