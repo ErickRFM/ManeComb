@@ -191,13 +191,15 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
 
       <View nativeID="portal-header" style={[styles.header, fadeInUp(0)]}>
         <View nativeID="portal-header-text" style={styles.headerText}>
-          <View nativeID="portal-breadcrumb" style={styles.breadcrumb}>
-            <Pressable accessibilityRole="link" onPress={() => router.push('/portal' as never)}>
-              <Text style={styles.breadcrumbMuted}>Portal</Text>
-            </Pressable>
-            <MaterialCommunityIcons name="chevron-right" size={14} color={portalPalette.mutedSoft} />
-            <Text style={styles.breadcrumbCurrent}>{title}</Text>
-          </View>
+          {isWide ? (
+            <View nativeID="portal-breadcrumb" style={styles.breadcrumb}>
+              <Pressable accessibilityRole="link" onPress={() => router.push('/portal' as never)}>
+                <Text style={styles.breadcrumbMuted}>Portal</Text>
+              </Pressable>
+              <MaterialCommunityIcons name="chevron-right" size={14} color={portalPalette.mutedSoft} />
+              <Text style={styles.breadcrumbCurrent}>{title}</Text>
+            </View>
+          ) : null}
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
@@ -330,7 +332,7 @@ const styles = StyleSheet.create({
     width: 480,
     height: 480,
     borderRadius: 240,
-    backgroundColor: 'rgba(35, 213, 255, 0.055)',
+    backgroundColor: 'rgba(227, 30, 36, 0.035)',
   },
   shell: {
     flex: 1,
