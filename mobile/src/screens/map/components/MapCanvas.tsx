@@ -8,6 +8,7 @@ import { formatFreshness, freshnessOpacity, stateColor } from '@shared/operation
 import type { GeoPoint, Incident, LiveLocationsData, NavigationPlaceResult, NavigationRouteOption, NavigationStop, Vehicle } from '@/src/types/app';
 import type { SelectorPointRole } from '../types';
 import { mapStyles as styles } from '../map-styles';
+import { shouldShowDeviceLocationMarker } from '../utils/tracking';
 
 type SelectorPoints = Record<SelectorPointRole, NavigationPlaceResult | null>;
 
@@ -64,6 +65,7 @@ export function MapCanvas({
     initialUnit && initialUnit.gps.lat !== null && initialUnit.gps.lng !== null
       ? { latitude: initialUnit.gps.lat, longitude: initialUnit.gps.lng }
       : coordinates || mapData.center;
+  const showDeviceLocationMarker = shouldShowDeviceLocationMarker(selectorMode, mapUnits.length);
 
   return (
     <AppMap
@@ -108,11 +110,11 @@ export function MapCanvas({
           stops={selectorStops}
         />
       ) : null}
-      {coordinates && (
+      {showDeviceLocationMarker && coordinates ? (
         <AppMapMarker id="user-location" coordinate={coordinates}>
           <View style={[styles.userMarker, { backgroundColor: theme.colors.info }]} />
         </AppMapMarker>
-      )}
+      ) : null}
     </AppMap>
   );
 }
