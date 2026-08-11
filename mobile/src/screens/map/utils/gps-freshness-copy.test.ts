@@ -1,4 +1,4 @@
-import { formatFreshness } from '@shared/operational-contract';
+import { connectionOpacity, formatFreshness } from '@shared/operational-contract';
 import type { OperationalGps } from '@shared/operational-contract';
 
 function gps(overrides: Partial<OperationalGps>): OperationalGps {
@@ -19,7 +19,14 @@ function gps(overrides: Partial<OperationalGps>): OperationalGps {
 describe('GPS freshness copy', () => {
   it('keeps live and delayed states concise', () => {
     expect(formatFreshness(gps({ connectionState: 'live', ageSeconds: 5 }))).toBe('GPS en vivo');
-    expect(formatFreshness(gps({ connectionState: 'delayed', ageSeconds: 20 }))).toBe('GPS retrasado');
+    expect(formatFreshness(gps({ connectionState: 'delayed', ageSeconds: 9 }))).toBe('GPS retrasado');
+  });
+
+  it('attenuates a delayed marker before the position becomes stale', () => {
+    expect(connectionOpacity('live')).toBe(1);
+    expect(connectionOpacity('delayed')).toBeLessThan(connectionOpacity('live'));
+    expect(connectionOpacity('stale')).toBeLessThan(connectionOpacity('delayed'));
+    expect(connectionOpacity('lost')).toBeLessThan(connectionOpacity('stale'));
   });
 
   it('makes stale signal loss explicit without hiding the last location', () => {
@@ -27,9 +34,9 @@ describe('GPS freshness copy', () => {
       formatFreshness(gps({
         connectionState: 'stale',
         freshness: 'stale',
-        ageSeconds: 31,
+        ageSeconds: 16,
       }))
-    ).toBe('GPS sin señal · hace 31 s');
+    ).toBe('GPS sin señal · hace 16 s');
   });
 
   it('makes hard GPS loss explicit and preserves its age', () => {
@@ -37,9 +44,9 @@ describe('GPS freshness copy', () => {
       formatFreshness(gps({
         connectionState: 'lost',
         freshness: 'missing',
-        ageSeconds: 91,
+        ageSeconds: 31,
       }))
-    ).toBe('GPS perdido · hace 1 min');
+    ).toBe('GPS perdido · hace 31 s');
   });
 
   it('uses Sin GPS when the unit has never produced a dated position', () => {
