@@ -3,10 +3,14 @@
 // RC-PUSH-CALLS-ANDROID-01 — rehidrata callId desde notificacion con la app cerrada.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking } from 'react-native';
+import { AppState as NativeAppState, Linking, type AppStateStatus } from 'react-native';
 
 import { RadioLiveOverlay } from '@/src/features/radio-live/radio-live-overlay';
-import { setIncomingCallWindowActive } from '@/src/native/call-service';
+import {
+  setCallFeedbackMode,
+  setIncomingCallWindowActive,
+  type CallFeedbackMode,
+} from '@/src/native/call-service';
 import { useAppStore, useSharedRealtimeSocket } from '@/src/store/use-app-store';
 import {
   resetCallForegroundService,
@@ -30,10 +34,14 @@ export function CallOverlay(): React.ReactElement {
   const phase = useCallStore((state) => state.phase);
   const direction = useCallStore((state) => state.direction);
   const mode = useCallStore((state) => state.mode);
+  const callId = useCallStore((state) => state.callId);
   const [pendingPushCall, setPendingPushCall] = useState<PushCallIntent | null>(null);
+  const [appState, setAppState] = useState<AppStateStatus>(NativeAppState.currentState);
   const consumedPushCalls = useRef(new Set<string>());
   const dismissedCallIds = useRef(new Set<string>());
   const callWindowManaged = useRef(false);
+  const feedbackMode = useRef<CallFeedbackMode>('none');
+  const feedbackCallId = useRef<string | null>(null);
 
   const receivePushUrl = useCallback((url: string | null | undefined) => {
     const intent = parsePushCallIntent(url);
@@ -78,6 +86,11 @@ export function CallOverlay(): React.ReactElement {
   }, [receivePushUrl]);
 
   useEffect(() => {
+    const subscription = NativeAppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
     bindSocket(socket);
   }, [bindSocket, socket]);
 
@@ -118,6 +131,37 @@ export function CallOverlay(): React.ReactElement {
       useCallStore.getState().acceptIncomingCall().catch(() => undefined);
     }
   }, [pendingPushCall, socket, socketStatus]);
+
+  // Feedback de llamada, con una unica autoridad nativa. Incoming solo se inicia
+  // desde React si la llamada llega mientras la app esta visible o cuando el
+  // full-screen intent trae la app al frente. Una vez iniciado, sigue sonando si
+  // el usuario manda la app a background hasta que la maquina salga de ringing.
+  // Ringback pertenece al caller y puede continuar aunque este cambie de app.
+  useEffect(() => {
+    let nextFeedback: CallFeedbackMode = 'none';
+    let nextFeedbackCallId: string | null = null;
+
+    if (phase === 'OUTGOING_RINGING' && direction === 'outgoing') {
+      nextFeedback = 'ringback';
+    } else if (phase === 'INCOMING_RINGING' && direction === 'incoming' && callId) {
+      const incomingAlreadyStarted = feedbackMode.current === 'incoming';
+      if (appState === 'active' || incomingAlreadyStarted) {
+        nextFeedback = 'incoming';
+        nextFeedbackCallId = callId;
+      }
+    }
+
+    if (
+      feedbackMode.current === nextFeedback &&
+      feedbackCallId.current === nextFeedbackCallId
+    ) {
+      return;
+    }
+
+    feedbackMode.current = nextFeedback;
+    feedbackCallId.current = nextFeedbackCallId;
+    setCallFeedbackMode(nextFeedback, nextFeedbackCallId).catch(() => undefined);
+  }, [appState, callId, direction, phase]);
 
   // OUTGOING_RINGING sólo existe después del preflight. Mantener el FGS desde
   // aquí permite que una llamada iniciada en foreground continúe si el usuario
@@ -162,6 +206,9 @@ export function CallOverlay(): React.ReactElement {
   useEffect(
     () => () => {
       const store = useCallStore.getState();
+      feedbackMode.current = 'none';
+      feedbackCallId.current = null;
+      setCallFeedbackMode('none').catch(() => undefined);
       store.unbindSocket();
       store.reset();
       setIncomingCallWindowActive(false).catch(() => undefined);
