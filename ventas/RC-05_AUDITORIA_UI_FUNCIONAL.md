@@ -56,9 +56,11 @@ El evento de backend se registraba antes de abrir el share sheet. Si el usuario 
 - Descarga no capturaba rechazo para mostrar error.
 - Se completaron roles/estados accesibles de filtros y revisión.
 
-### 7. Jerarquía visual de botones
+### 7. Jerarquía y superficie táctil de botones
 
 Las variantes `secondary`, `danger` e `icon` declaraban color de borde pero no ancho de borde. Se restablece el límite visual para diferenciar acciones secundarias/destructivas sin rediseñar el Portal.
+
+Además había controles compactos de 30–42 px en superficies de uso frecuente. Se estandarizaron a la autoridad `DesignSystem.control.touch` (44 px) en el botón compartido, modales y las superficies de Equipo, Unidades, Documentos e Incidencias, incluyendo iconos de acción, filtros, selectores y acciones rápidas. Se mantiene la densidad visual con padding compacto; solo crece el área utilizable/táctil.
 
 ## Gate permanente
 
@@ -71,7 +73,8 @@ Se agrega `ventas/scripts/verify-sales-actions.cjs` y se ejecuta dentro de `veri
 - que Activación no marque una key antes de compartir;
 - que Documentos mantenga validación y feedback;
 - que checkout cierre errores asíncronos;
-- que las variantes visuales de PortalButton mantengan sus bordes.
+- que las variantes visuales de PortalButton mantengan sus bordes;
+- que las superficies de acción auditadas no reintroduzcan targets menores de 44 px.
 
 ## Estado de certificación
 
