@@ -1,8 +1,11 @@
 import { NativeModules, Platform } from 'react-native';
 
+export type CallFeedbackMode = 'none' | 'incoming' | 'ringback';
+
 type ManeCombCallNativeModule = {
   startCallForegroundService: (isVideo: boolean) => Promise<void>;
   stopCallForegroundService: () => Promise<void>;
+  setCallFeedbackMode?: (mode: CallFeedbackMode, callId: string | null) => Promise<boolean | void>;
   setIncomingCallWindowActive?: (active: boolean) => Promise<boolean | void>;
   setCallSpeakerEnabled?: (enabled: boolean) => Promise<boolean | void>;
   resetCallAudioRoute?: () => Promise<boolean | void>;
@@ -33,6 +36,24 @@ export async function stopCallForegroundService(): Promise<void> {
     await nativeModule.stopCallForegroundService();
   } catch {
     // Detener el servicio nunca debe bloquear el cierre de la llamada.
+  }
+}
+
+/**
+ * La maquina de llamada solo expresa el modo. Android conserva una sola autoridad
+ * para ringtone, vibracion y ringback, de modo que no haya MediaPlayer/Vibration
+ * paralelos compitiendo con CallStyle o con WebRTC.
+ */
+export async function setCallFeedbackMode(
+  mode: CallFeedbackMode,
+  callId: string | null = null
+): Promise<void> {
+  if (!nativeModule?.setCallFeedbackMode) return;
+
+  try {
+    await nativeModule.setCallFeedbackMode(mode, callId);
+  } catch {
+    // Feedback nunca debe bloquear signaling ni el cleanup de una llamada.
   }
 }
 
