@@ -89,10 +89,12 @@ const styles = StyleSheet.create({
   secondary: {
     backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.lineStrong,
+    borderWidth: 1,
   },
   danger: {
     backgroundColor: portalPalette.dangerSoft,
     borderColor: portalPalette.danger,
+    borderWidth: 1,
   },
   ghost: {
     backgroundColor: portalPalette.surfaceSoft,
@@ -101,6 +103,7 @@ const styles = StyleSheet.create({
     backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.xs,
+    borderWidth: 1,
   },
   iconOnly: {
     aspectRatio: 1,

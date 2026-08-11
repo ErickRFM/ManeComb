@@ -57,7 +57,12 @@ export function useCheckoutExperience({
 
   useEffect(() => {
     void loadPlans();
-    void service.getProviderMode().then(setProviderMode);
+    void service.getProviderMode()
+      .then(setProviderMode)
+      .catch(() => {
+        setProviderMode('unavailable');
+        setMessage('No pudimos consultar el servicio de pago. Tu selección permanece guardada y puedes reintentar más tarde.');
+      });
   }, [loadPlans, service]);
 
   const selectedPlan = useMemo(
@@ -241,6 +246,12 @@ export function usePublicCommercialFlow({
           message: nextResult.message,
           paymentStatus: nextResult.rawPaymentStatus,
           status: nextResult.ok ? 'confirmed' : 'error',
+        });
+      })
+      .catch(() => {
+        setConfirmation({
+          status: 'error',
+          message: 'No pudimos confirmar el pago con el servidor. Tu selección se conserva; revisa Pagos en el portal o recarga para reintentar.',
         });
       });
   }, [externalReference, paymentId, service]);

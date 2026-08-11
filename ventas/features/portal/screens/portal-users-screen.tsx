@@ -60,12 +60,28 @@ export function PortalUsersScreen() {
     [users]
   );
   const availableVehicles = useMemo(
-    () => vehicles.filter((vehicle) => !vehicle.retiredAt && vehicle.status === 'available' && !vehicle.driverId),
-    [vehicles]
+    () => vehicles.filter((vehicle) =>
+      !vehicle.retiredAt &&
+      (
+        vehicle.id === driverTarget?.vehicleId ||
+        (vehicle.status === 'available' && !vehicle.driverId)
+      )
+    ),
+    [driverTarget?.vehicleId, vehicles]
+  );
+  const driverReasonValid = reason.trim().length >= 3;
+  const driverConfirmDisabled = !driverTarget || (
+    driverAction === 'assign'
+      ? selectedVehicleId === (driverTarget.vehicleId || null)
+      : driverAction === 'offboard'
+        ? !driverImpact?.canOffboard || !driverReasonValid
+        : driverAction === 'delete'
+          ? !driverImpact?.canDelete || !driverReasonValid || confirmation.trim().toUpperCase() !== 'ELIMINAR'
+          : false
   );
 
   const confirmDelete = async () => {
-    if (!deleteTarget || !canManageUsers) return;
+    if (!deleteTarget || deleteTarget.role === 'owner' || !canManageUsers) return;
     const result = await deleteUser(deleteTarget.id);
     setMessage(result.ok ? 'Usuario eliminado.' : result.message || 'No fue posible eliminar el usuario.');
     if (result.ok) setDeleteTarget(null);
@@ -94,7 +110,7 @@ export function PortalUsersScreen() {
   };
 
   const confirmDriverAction = async () => {
-    if (!driverTarget || !canManageUsers) return;
+    if (!driverTarget || !canManageUsers || driverConfirmDisabled) return;
     const currentVehicle = vehicles.find((entry) => entry.id === driverTarget.vehicleId);
     let result;
     if (driverAction === 'assign') result = await updateUser(driverTarget.id, { vehicleId: selectedVehicleId });
@@ -165,6 +181,7 @@ export function PortalUsersScreen() {
             : `Esta acción eliminará a ${deleteTarget?.name || 'este usuario'} de la cuenta.`
         }
         confirmLabel="Eliminar"
+        confirmDisabled={deleteTarget?.role === 'owner'}
         processing={isSubmitting}
         onCancel={() => { setDeleteTarget(null); setMessage(null); }}
         onConfirm={confirmDelete}
@@ -189,6 +206,7 @@ export function PortalUsersScreen() {
           ? driverImpact.blockers.join(' ')
           : `Unidad actual: ${driverImpact?.assignedVehicle?.code || 'Sin unidad'}. Sesiones a revocar: ${driverImpact?.sessionsToRevoke || 0}.`}
         confirmLabel={driverAction === 'assign' ? 'Confirmar asignacion' : driverAction === 'offboard' ? 'Dar de baja' : driverAction === 'reactivate' ? 'Reactivar' : 'Eliminar definitivamente'}
+        confirmDisabled={driverConfirmDisabled}
         processing={isSubmitting}
         onCancel={() => setDriverTarget(null)}
         onConfirm={() => void confirmDriverAction()}>
@@ -206,7 +224,7 @@ export function PortalUsersScreen() {
             <PortalButton onPress={() => setSelectedVehicleId(null)} size="sm" variant={selectedVehicleId === null ? 'primary' : 'secondary'}>Sin unidad</PortalButton>
             {availableVehicles.map((vehicle) => (
               <PortalButton key={vehicle.id} onPress={() => setSelectedVehicleId(vehicle.id)} size="sm" variant={selectedVehicleId === vehicle.id ? 'primary' : 'secondary'}>
-                {vehicle.code} / {vehicle.plate}
+                {vehicle.code} / {vehicle.plate}{vehicle.id === driverTarget?.vehicleId ? ' · actual' : ''}
               </PortalButton>
             ))}
           </View>
