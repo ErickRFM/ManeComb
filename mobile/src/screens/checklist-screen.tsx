@@ -597,7 +597,6 @@ export function ChecklistScreen() {
 
   const createRouteFromMap = () => {
     if (!selectedVehicle) return;
-
     pendingStopPersistRef.current = false;
     setRouteNameDraft('');
     setEditingRouteId(null);
@@ -1214,7 +1213,13 @@ export function ChecklistScreen() {
               </Animated.View>
             </PanGestureHandler>
 
-            <ScrollView style={[styles.modalScroll, { maxHeight: Math.round(height * 0.78) }]} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={[styles.modalScroll, { maxHeight: Math.round(height * 0.78) }]}
+              contentContainerStyle={styles.modalScrollContent}
+              bounces={false}
+              alwaysBounceVertical={false}
+              overScrollMode="never"
+              showsVerticalScrollIndicator={false}>
               {routeUiState === 'empty' || routeLibraryOpen ? (
                 <View style={styles.configCard}>
                     {savedRoutes.length ? (
