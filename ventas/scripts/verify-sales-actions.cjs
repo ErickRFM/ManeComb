@@ -32,6 +32,10 @@ const onboarding = read('features/portal/screens/portal-onboarding-screen.tsx');
 const documents = read('features/portal/documents/portal-documents-admin.tsx');
 const checkout = read('features/commercial/hooks/use-checkout-experience.ts');
 const portalRegistry = read('features/portal/navigation/portal-route-registry.ts');
+const usersStyles = read('features/portal/users/users.styles.ts');
+const unitsStyles = read('features/portal/units/units.styles.ts');
+const documentsStyles = read('features/portal/documents/documents.styles.ts');
+const incidentsStyles = read('features/portal/incidents/incidents.styles.ts');
 
 // ACTION-01: toda confirmación destructiva puede expresar precondiciones reales en UI.
 assert.match(confirmModal, /confirmDisabled\?: boolean/);
@@ -79,13 +83,22 @@ assert.match(checkout, /service\.confirmPaymentReturn[\s\S]*?\.catch\(\(\) =>/);
 assert.match(checkout, /status: 'error'/);
 assert.match(checkout, /Tu selección se conserva/);
 
-// ACTION-07: variantes visuales que anuncian borde realmente tienen borde y el tamaño compacto conserva 44 px.
+// ACTION-07: botones compartidos y superficies de acción intensiva conservan targets táctiles de 44 px.
 for (const styleName of ['secondary', 'danger', 'icon']) {
   const block = portalButton.match(new RegExp(`${styleName}: \\{([\\s\\S]*?)\\n  \\},`));
   assert.ok(block, `No se encontró el estilo ${styleName} de PortalButton`);
   assert.match(block[1], /borderWidth: 1/);
 }
 assert.match(portalButton, /sizeSm:\s*\{[\s\S]*?minHeight: DesignSystem\.control\.touch/);
+for (const [name, source] of [
+  ['Equipo', usersStyles],
+  ['Unidades', unitsStyles],
+  ['Documentos', documentsStyles],
+  ['Incidencias', incidentsStyles],
+]) {
+  assert.match(source, /DesignSystem\.control\.touch/, `${name} perdió sus targets táctiles canónicos`);
+  assert.doesNotMatch(source, /(?:iconAction|statusOption|assignmentChip|quickAction|actionButton):\s*\{[^}]*?(?:height|minHeight):\s*(?:3[0-9]|4[0-3])\b/s, `${name} reintrodujo una acción táctil menor de 44 px`);
+}
 
 // ACTION-08: destinos literales de botones/enlaces deben existir en el switch autoritativo de Ventas.
 const knownRoutes = new Set();
@@ -121,4 +134,4 @@ for (const relativePath of sourceFiles) {
 
 assert.deepEqual(unresolved, [], `Hay botones/enlaces con rutas literales no registradas:\n${unresolved.join('\n')}`);
 
-console.log(`ok - ${sourceFiles.length} archivos de Ventas: rutas, confirmaciones, checkout y botones protegidos`);
+console.log(`ok - ${sourceFiles.length} archivos de Ventas: rutas, confirmaciones, checkout, accesibilidad y botones protegidos`);
