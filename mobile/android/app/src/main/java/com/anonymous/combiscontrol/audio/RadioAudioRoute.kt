@@ -132,10 +132,15 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   private fun routeOf(device: AudioDeviceInfo): String? = when (device.type) {
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> ROUTE_BLUETOOTH
+    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+    AudioDeviceInfo.TYPE_HEARING_AID,
+    AudioDeviceInfo.TYPE_BLE_HEADSET,
+    AudioDeviceInfo.TYPE_BLE_SPEAKER,
+    AudioDeviceInfo.TYPE_BLE_BROADCAST -> ROUTE_BLUETOOTH
     AudioDeviceInfo.TYPE_WIRED_HEADSET,
     AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-    AudioDeviceInfo.TYPE_USB_HEADSET -> ROUTE_WIRED
+    AudioDeviceInfo.TYPE_USB_HEADSET,
+    AudioDeviceInfo.TYPE_USB_DEVICE -> ROUTE_WIRED
     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> ROUTE_SPEAKER
     AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> ROUTE_EARPIECE
     else -> null
