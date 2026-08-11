@@ -81,6 +81,19 @@ export function resolveTrackingSyncUnit(
 }
 
 /**
+ * El GPS local del dispositivo es una fuente de captura, no otra unidad.
+ *
+ * En el mapa operacional, si ya existe al menos un marcador de unidad, dibujar
+ * tambien el punto local representa dos veces el mismo objeto fisico para el
+ * conductor y hace visible el drift normal del GPS como si la combi se moviera.
+ * Conservamos el punto local solo como fallback cuando aun no existe una unidad
+ * mapeable y durante el selector de ruta, donde si funciona como referencia.
+ */
+export function shouldShowDeviceLocationMarker(selectorMode: boolean, mapUnitCount: number) {
+  return selectorMode || mapUnitCount <= 0;
+}
+
+/**
  * Unidades que se dibujan en el mapa.
  *
  * Se incluyen las que no tienen GPS fresco e incluso las que nunca reportaron
