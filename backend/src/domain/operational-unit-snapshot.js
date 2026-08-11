@@ -12,12 +12,13 @@
  *    Una unidad dada de alta es visible aunque no tenga GPS, sesion ni ruta.
  */
 
-// Politica operacional de frescura. Con heartbeat movil de 5-10 s, 15 s
-// mantiene margen para jitter de red. A los 31 s la senal ya es stale y exige
-// atencion; a los 90 s pasa a perdida dura sin esperar los 15 min anteriores.
-const GPS_LIVE_MAX_AGE_SECONDS = 15;
-const GPS_FRESH_MAX_AGE_SECONDS = 30;
-const GPS_STALE_MAX_AGE_SECONDS = 90;
+// El foreground GPS reporta aproximadamente cada 5 s. Un lease de 8 s deja
+// margen para jitter de una entrega sin permitir que una unidad desconectada
+// parezca viva durante decenas de segundos. La ultima posicion se conserva,
+// pero desde el primer heartbeat vencido deja de afirmar movimiento/parada.
+const GPS_LIVE_MAX_AGE_SECONDS = 8;
+const GPS_FRESH_MAX_AGE_SECONDS = 15;
+const GPS_STALE_MAX_AGE_SECONDS = 30;
 
 /** Estados de vehiculo que retiran la unidad del inventario visible. */
 const HIDDEN_VEHICLE_STATUSES = new Set(["archived", "deleted", "retired"]);
@@ -288,13 +289,11 @@ function buildOperationalState({ status, route, gps, activeSession }) {
   const sessionStatus = String(activeSession?.status ?? "").trim().toUpperCase();
   if (sessionStatus === "PAUSED") return "stopped";
 
-  // La frescura se evalua ANTES que la velocidad. Una lectura de velocidad
-  // pertenece al mismo paquete GPS que la posicion: si la posicion es vieja,
-  // la velocidad tambien lo es. Ademas el esquema de vehiculo declara
-  // `speed: default 0`, asi que una unidad que nunca reporto trae 0 —no null—
-  // y evaluar la velocidad primero la clasificaba como "Detenida" en vez de
-  // reconocer que no hay dato.
-  if (gps.freshness !== "fresh") return "unknown";
+  // Solo una conexion GPS realmente `live` puede afirmar movimiento o parada.
+  // `delayed` conserva una ultima coordenada util, pero ya perdio el lease de
+  // presencia: reutilizar su velocidad haria que una unidad desconectada siguiera
+  // apareciendo como "Detenida" o "En ruta" hasta el siguiente umbral.
+  if (gps.connectionState !== "live") return "unknown";
 
   const speedKmh = gps.speedKmh;
   if (speedKmh !== null && speedKmh < STOPPED_SPEED_KMH) return "stopped";

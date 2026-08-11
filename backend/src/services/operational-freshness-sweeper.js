@@ -7,7 +7,14 @@ const { buildOrganizationSources } = require("../modules/platform/company-servic
 const { listOperationalUnits } = require("./operational-units-service");
 const logger = require("./logger");
 
-const OPERATIONAL_FRESHNESS_SWEEP_MS = 5000;
+// La transicion normal de presencia se programa por unidad desde el ultimo
+// heartbeat. Este sweep de 5 s queda como reconciliador de respaldo para
+// reinicios del proceso, timers perdidos y observadores que ya estaban vivos;
+// no convertimos la frescura GPS en polling global cada segundo.
+const OPERATIONAL_FRESHNESS_SWEEP_MS = Math.max(
+  1000,
+  Number(process.env.OPERATIONAL_FRESHNESS_SWEEP_MS) || 5000
+);
 const FRESHNESS_SECONDS_BUCKET = 15;
 
 function getConnectedOrganizationIds(io) {

@@ -10,6 +10,7 @@
  */
 
 import type {
+  GpsConnectionState,
   GpsFreshness,
   OperationalState,
   OperationalUnitSnapshot
@@ -98,11 +99,27 @@ const FRESHNESS_OPACITY: Record<GpsFreshness, number> = {
 };
 
 /**
- * Atenuacion del marcador segun frescura.
- * Sustituye al filtro que ocultaba unidades: se atenua, no se esconde.
+ * Atenuacion heredada por frescura de posicion. Se conserva para superficies
+ * que aun no necesitan distinguir el lease de conectividad.
  */
 export function freshnessOpacity(freshness: GpsFreshness): number {
   return FRESHNESS_OPACITY[freshness] ?? 1;
+}
+
+const CONNECTION_OPACITY: Record<GpsConnectionState, number> = {
+  live: 1,
+  delayed: 0.58,
+  stale: 0.4,
+  lost: 0.25
+};
+
+/**
+ * Atenuacion por estado de conexion ya resuelto por backend. `delayed` se ve
+ * distinto desde el primer heartbeat vencido aunque la ultima coordenada siga
+ * siendo util; asi una unidad sin reporte no conserva apariencia de activa.
+ */
+export function connectionOpacity(connectionState: GpsConnectionState): number {
+  return CONNECTION_OPACITY[connectionState] ?? CONNECTION_OPACITY.lost;
 }
 
 export function driverLabel(driver: OperationalUnitSnapshot['driver']): string {
