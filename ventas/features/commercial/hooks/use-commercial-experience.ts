@@ -58,8 +58,13 @@ function useCommercialRuntime() {
     void reloadPlans();
   }, [reloadPlans]);
 
+  // Una cuenta recién creada puede llegar a Plan mientras las superficies de
+  // overview/onboarding todavía se están reconciliando (o con un payload legacy
+  // sin onboarding). Esa ausencia significa "pendiente", nunca un error de render.
+  const onboardingStatus = onboarding?.status ?? overview?.onboarding?.status ?? 'pending';
+
   return {
-    activationComplete: (onboarding?.status || overview?.onboarding.status) === 'completed',
+    activationComplete: onboardingStatus === 'completed',
     cancelPlan,
     changePlan,
     isLoading: isLoading || !plansLoaded,
