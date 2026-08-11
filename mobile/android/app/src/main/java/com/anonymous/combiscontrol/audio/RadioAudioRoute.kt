@@ -9,6 +9,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -28,6 +29,8 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   @Volatile private var requestedRoute: String = ROUTE_AUTO
   @Volatile private var watching = false
+  @Volatile private var liveTrackRef: WeakReference<AudioTrack>? = null
+  @Volatile private var historyPlayerRef: WeakReference<MediaPlayer>? = null
 
   private val deviceCallback = object : AudioDeviceCallback() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = notifyRoute()
@@ -81,11 +84,13 @@ class RadioAudioRoute private constructor(private val context: Context) {
 
   fun applyTo(track: AudioTrack) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    liveTrackRef = WeakReference(track)
     runCatching { track.preferredDevice = resolveDevice() }
   }
 
   fun applyTo(player: MediaPlayer) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    historyPlayerRef = WeakReference(player)
     runCatching { player.setPreferredDevice(resolveDevice()) }
   }
 
@@ -96,10 +101,18 @@ class RadioAudioRoute private constructor(private val context: Context) {
     }
   }
 
+  private fun reapplyBoundOutputs() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val device = resolveDevice()
+    liveTrackRef?.get()?.let { track -> runCatching { track.preferredDevice = device } }
+    historyPlayerRef?.get()?.let { player -> runCatching { player.setPreferredDevice(device) } }
+  }
+
   private fun notifyRoute() {
-    // Si Bluetooth/cable desaparece, la autoridad se autocorrige antes de
-    // publicar. React nunca conserva una preferencia hacia un accesorio ausente.
+    // Una conexion/desconexion debe afectar tambien al audio que ya esta sonando,
+    // no solo al siguiente AudioTrack/MediaPlayer que se cree.
     reconcileRequestedRoute()
+    reapplyBoundOutputs()
     val route = activeRoute()
     listeners.forEach { listener -> listener(route) }
   }
