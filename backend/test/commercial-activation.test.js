@@ -3,6 +3,7 @@ const {
   getCommercialPlanById,
   listCommercialPlans
 } = require("../src/config/commercial-plans");
+const { CommercialLeadModel } = require("../src/data/models");
 const {
   addUtcCalendarMonths,
   buildCommercialActivationUpdate,
@@ -129,6 +130,14 @@ function main() {
   assert.equal(Array.isArray(demoOrder.starterFleet), true);
   assert.equal(demoOrder.starterFleet.length, 12);
   assert.equal(isInternalDemoOrder(demoOrder), true);
+
+  const demoDocument = new CommercialLeadModel(demoOrder);
+  const demoValidationError = demoDocument.validateSync();
+  assert.equal(
+    demoValidationError,
+    undefined,
+    `La orden demo interna debe cumplir el schema de commercial_leads: ${demoValidationError?.message || ""}`
+  );
 
   console.log("commercial activation policy tests passed");
 }
