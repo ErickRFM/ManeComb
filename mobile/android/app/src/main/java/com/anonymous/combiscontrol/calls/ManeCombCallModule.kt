@@ -44,6 +44,21 @@ class ManeCombCallModule(
     }
   }
 
+  /**
+   * Unico bridge de feedback de ringing. JS solo expresa el estado de la maquina
+   * (incoming/ringback/none); sonido, vibracion y respeto a ajustes Android viven
+   * en ManeCombCallFeedback y no se duplican en React.
+   */
+  @ReactMethod
+  fun setCallFeedbackMode(mode: String, callId: String?, promise: Promise) {
+    try {
+      promise.resolve(ManeCombCallFeedback.setMode(reactContext, mode, callId))
+    } catch (_: Exception) {
+      ManeCombCallFeedback.stopAll()
+      promise.resolve(false)
+    }
+  }
+
   @ReactMethod
   fun setIncomingCallWindowActive(active: Boolean, promise: Promise) {
     val activity = reactContext.currentActivity as? MainActivity
@@ -111,5 +126,10 @@ class ManeCombCallModule(
     } catch (_: Exception) {
       promise.resolve(false)
     }
+  }
+
+  override fun invalidate() {
+    ManeCombCallFeedback.stopAll()
+    super.invalidate()
   }
 }
