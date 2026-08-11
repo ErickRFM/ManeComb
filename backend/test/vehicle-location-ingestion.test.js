@@ -50,6 +50,15 @@ async function main() {
     .flatMap((session) => store.listRouteSessionPositions({ sessionId: session.id, limit: 100 }));
   assert.equal(positionsAfter.length, positionsBefore.length);
 
+  // La duplicidad se prueba antes de avanzar el reloj de la unidad: un mismo
+  // packetId/timestamp debe seguir siendo duplicate, no confundirse con el
+  // out-of-order legítimo que se prueba más abajo.
+  const eventCountBeforeDuplicate = io.events.length;
+  const duplicate = await ingestVehicleLocation({ actor, io, payload: base, store, transport: "socket" });
+  assert.equal(duplicate.accepted, false);
+  assert.equal(duplicate.decision, "duplicate");
+  assert.equal(io.events.length, eventCountBeforeDuplicate);
+
   const anchor = { ...store.getVehicleById("vehicle-101").location };
   const smallDrift = {
     latitude: anchor.latitude + 0.00002,
@@ -83,12 +92,6 @@ async function main() {
   assert.equal(liveHeartbeatEvent.payload.unit.gps.connectionState, "live");
   assert.equal(liveHeartbeatEvent.payload.unit.gps.lat, anchor.latitude);
   assert.equal(liveHeartbeatEvent.payload.unit.gps.lng, anchor.longitude);
-
-  const eventCount = io.events.length;
-  const duplicate = await ingestVehicleLocation({ actor, io, payload: base, store, transport: "socket" });
-  assert.equal(duplicate.accepted, false);
-  assert.equal(duplicate.decision, "duplicate");
-  assert.equal(io.events.length, eventCount);
 
   const realMovement = {
     latitude: anchor.latitude + 0.0002,
