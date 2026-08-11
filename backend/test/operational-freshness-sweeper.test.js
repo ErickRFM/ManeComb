@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const {
   FRESHNESS_SECONDS_BUCKET,
+  OPERATIONAL_FRESHNESS_SWEEP_MS,
   createOperationalFreshnessLoader,
   createPlatformOrganizationIdsLoader,
   getConnectedOrganizationIds,
@@ -44,6 +45,7 @@ function unit({ ageSeconds, connectionState, freshness }) {
 }
 
 async function main() {
+  assert.equal(OPERATIONAL_FRESHNESS_SWEEP_MS, 1000, "el lease se revisa cada segundo por defecto");
   assert.equal(FRESHNESS_SECONDS_BUCKET, 15);
 
   const tenantLoader = createOperationalFreshnessLoader({
@@ -132,14 +134,14 @@ async function main() {
 
   state = {
     ...state,
-    "org-1": [unit({ ageSeconds: 10, connectionState: "live", freshness: "fresh" })]
+    "org-1": [unit({ ageSeconds: 7, connectionState: "live", freshness: "fresh" })]
   };
   const sameBucket = await runOperationalFreshnessSweep({ io, loadUnits, loadOrganizationIds: organizationLoader, signatures });
   assert.equal(sameBucket.emitted, 0, "no se emite ruido dentro del mismo bucket vivo");
 
   state = {
     ...state,
-    "org-1": [unit({ ageSeconds: 16, connectionState: "delayed", freshness: "fresh" })]
+    "org-1": [unit({ ageSeconds: 9, connectionState: "delayed", freshness: "fresh" })]
   };
   const delayed = await runOperationalFreshnessSweep({ io, loadUnits, loadOrganizationIds: organizationLoader, signatures });
   assert.equal(delayed.emitted, 1);
@@ -150,7 +152,7 @@ async function main() {
         entry.payload.reason === "freshness_tick" &&
         entry.payload.unit.gps.connectionState === "delayed"
     ),
-    "el cliente recibe la transicion aunque no llegue una posicion nueva"
+    "el cliente recibe la transicion casi al vencer el lease aunque no llegue una posicion nueva"
   );
   assert.ok(
     io.emitted.some((entry) => entry.room === "user:driver-1"),
@@ -160,7 +162,7 @@ async function main() {
   const emittedAfterDelayed = io.emitted.length;
   state = {
     ...state,
-    "org-1": [unit({ ageSeconds: 20, connectionState: "delayed", freshness: "fresh" })]
+    "org-1": [unit({ ageSeconds: 12, connectionState: "delayed", freshness: "fresh" })]
   };
   const repeated = await runOperationalFreshnessSweep({ io, loadUnits, loadOrganizationIds: organizationLoader, signatures });
   assert.equal(repeated.emitted, 0);
@@ -168,13 +170,13 @@ async function main() {
 
   state = {
     ...state,
-    "org-1": [unit({ ageSeconds: 31, connectionState: "stale", freshness: "stale" })]
+    "org-1": [unit({ ageSeconds: 16, connectionState: "stale", freshness: "stale" })]
   };
   const stale = await runOperationalFreshnessSweep({ io, loadUnits, loadOrganizationIds: organizationLoader, signatures });
   assert.equal(stale.emitted, 1);
   assert.equal(
     getOperationalFreshnessSignature(state["org-1"][0]),
-    "stale|stale|seconds:2"
+    "stale|stale|seconds:1"
   );
 
   const platformOnlyIo = createIo([{ id: "platform-only", role: "admin" }]);
@@ -183,7 +185,7 @@ async function main() {
     ["org-1:vehicle-1", "fresh|live|seconds:0"]
   ]);
   const platformOnlyState = {
-    "org-1": [unit({ ageSeconds: 31, connectionState: "stale", freshness: "stale" })],
+    "org-1": [unit({ ageSeconds: 16, connectionState: "stale", freshness: "stale" })],
     "org-2": [],
     "org-3": []
   };
@@ -224,7 +226,7 @@ async function main() {
   assert.equal(noSocketOrganizationLoads, 0, "sin observador global no se enumera el universo de tenants");
 
   assert.ok(loadCalls.includes("org-1") && loadCalls.includes("org-2") && loadCalls.includes("org-3"));
-  console.log("ok - freshness sweeper cubre tenants y Admin Global sin mezclar autoridades");
+  console.log("ok - freshness sweeper publica el lease rapido sin mezclar autoridades");
 }
 
 main().catch((error) => {
