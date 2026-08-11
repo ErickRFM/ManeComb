@@ -62,6 +62,12 @@ function emitOrganizationEvent(req, eventName, payload) {
   if (payload?.user?.id) req.app.locals.io?.to(`user:${payload.user.id}`).emit(eventName, payload);
 }
 
+function disconnectUserRealtime(req, userId) {
+  const safeUserId = String(userId || "").trim();
+  if (!safeUserId) return;
+  req.app.locals.io?.in(`user:${safeUserId}`).disconnectSockets(true);
+}
+
 function handleLifecycleError(res, next, error) {
   if (error instanceof DriverLifecycleError) {
     return res.status(error.statusCode).json({
@@ -191,6 +197,7 @@ router.post("/:userId/offboard", authenticate, requireOrganization, requirePermi
       metadata: { targetUserId: data.user.id, vehicleId: data.releasedVehicle?.id || null, reason: String(req.body?.reason || "").trim() }
     });
     emitDriverLifecycle(req, "driver:offboarded", data);
+    disconnectUserRealtime(req, data.user.id);
     if (data.changed) await sendAccountLifecycleEmail(data.user, "ACCOUNT_SUSPENDED");
     return res.json({ ok: true, data });
   } catch (error) { return handleLifecycleError(res, next, error); }
@@ -307,6 +314,7 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
         metadata: { reason: String(req.body?.reason || "").trim(), preservedActivationKeyId: targetUser.activationKeyId || null }
       });
       emitOrganizationEvent(req, "user:deleted", { userId: targetUser.id, organizationId: getOrganizationId(req.user), deletedAt: data.user.deletedAt });
+      disconnectUserRealtime(req, targetUser.id);
       return res.json({ ok: true, data });
     } catch (error) { return handleLifecycleError(res, next, error); }
   }
@@ -330,6 +338,7 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
     metadata: { targetRole: targetUser.role, targetUserStatus: targetUser.userStatus }
   });
   emitOrganizationEvent(req, "user:deleted", { userId: req.params.userId, organizationId: getOrganizationId(req.user), deletedAt: new Date().toISOString() });
+  disconnectUserRealtime(req, req.params.userId);
 
   for (const vehicleId of affectedVehicleIds) {
     const affectedVehicle = await req.app.locals.store.getVehicleById(vehicleId);
