@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     borderRadius: DesignSystem.radius.control,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: DesignSystem.control.sm,
+    minHeight: DesignSystem.control.touch,
     flexGrow: 1,
     minWidth: 112,
     paddingHorizontal: 16,
