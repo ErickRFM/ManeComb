@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 
 export const styles = StyleSheet.create({
   contextNotice: {
@@ -51,7 +51,7 @@ export const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 8,
     justifyContent: 'center',
-    minHeight: 42,
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 14,
   },
   primaryText: {
@@ -96,10 +96,12 @@ export const styles = StyleSheet.create({
     minWidth: 0,
   },
   assignmentChip: {
+    alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexShrink: 1,
-    minHeight: 36,
+    justifyContent: 'center',
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 11,
     paddingVertical: 8,
   },
@@ -148,9 +150,9 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: AppTheme.radius.xs,
     flexShrink: 0,
-    height: 36,
+    height: DesignSystem.control.touch,
     justifyContent: 'center',
-    width: 36,
+    width: DesignSystem.control.touch,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -159,10 +161,12 @@ export const styles = StyleSheet.create({
     minWidth: 0,
   },
   segment: {
+    alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexShrink: 1,
-    minHeight: 38,
+    justifyContent: 'center',
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
@@ -179,10 +183,12 @@ export const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   statusOption: {
+    alignItems: 'center',
     borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexGrow: 1,
-    minHeight: 38,
+    justifyContent: 'center',
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
@@ -208,7 +214,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     fontFamily: Typography.body,
     fontSize: 13,
-    minHeight: 42,
+    minHeight: DesignSystem.control.touch,
     paddingHorizontal: AppTheme.spacing.sm,
     paddingVertical: AppTheme.spacing.sm,
   },
