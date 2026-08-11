@@ -1,3 +1,4 @@
+const assert = require("assert");
 const {
   installOperationalCommunicationsGuard,
   isOperationalCommunicationUser
@@ -13,6 +14,10 @@ function buildUser(id, overrides = {}) {
     deletedAt: null,
     ...overrides
   };
+}
+
+function isPromiseLike(value) {
+  return Boolean(value && typeof value.then === "function");
 }
 
 function buildStore() {
@@ -81,7 +86,10 @@ function buildStore() {
         typeof conversationOrId === "string"
           ? conversations.get(conversationOrId)
           : conversationOrId;
-      return Boolean(conversation?.participants.includes(userId));
+      const participantIds = (conversation?.participants || []).map((participant) =>
+        typeof participant === "string" ? participant : participant?.id
+      );
+      return participantIds.includes(userId);
     },
     ensureDirectConversation(userId, targetUserId) {
       calls.ensureDirectConversation += 1;
@@ -126,67 +134,85 @@ function buildStore() {
   };
 }
 
-describe("operational communications guard", () => {
-  test("defines one eligibility rule for active/pending versus suspended/deleted users", () => {
-    expect(isOperationalCommunicationUser(buildUser("active"))).toBe(true);
-    expect(isOperationalCommunicationUser(buildUser("pending", { userStatus: "pending" }))).toBe(true);
-    expect(isOperationalCommunicationUser(buildUser("suspended", { userStatus: "suspended" }))).toBe(false);
-    expect(isOperationalCommunicationUser(buildUser("deleted", { deletedAt: new Date() }))).toBe(false);
-  });
+async function run() {
+  assert.strictEqual(isOperationalCommunicationUser(buildUser("active")), true);
+  assert.strictEqual(
+    isOperationalCommunicationUser(buildUser("pending", { userStatus: "pending" })),
+    true
+  );
+  assert.strictEqual(
+    isOperationalCommunicationUser(buildUser("suspended", { userStatus: "suspended" })),
+    false
+  );
+  assert.strictEqual(
+    isOperationalCommunicationUser(buildUser("deleted", { deletedAt: new Date() })),
+    false
+  );
 
-  test("removes suspended, deleted and cross-tenant users from Nuevo chat", async () => {
-    const store = installOperationalCommunicationsGuard(buildStore());
+  const store = installOperationalCommunicationsGuard(buildStore());
 
-    const contacts = await store.listChatContactsForUser("admin");
+  const contacts = store.listChatContactsForUser("admin");
+  assert.strictEqual(isPromiseLike(contacts), false, "embedded contact contract stays synchronous");
+  assert.deepStrictEqual(contacts.map((entry) => entry.id), ["active", "pending"]);
 
-    expect(contacts.map((entry) => entry.id)).toEqual(["active", "pending"]);
-  });
+  assert.throws(
+    () => store.ensureDirectConversation("admin", "deleted"),
+    /Participante no encontrado/
+  );
+  assert.throws(
+    () => store.ensureDirectConversation("admin", "suspended"),
+    /Participante no encontrado/
+  );
+  assert.throws(
+    () => store.ensureDirectConversation("admin", "other-org"),
+    /Participante no encontrado/
+  );
+  assert.strictEqual(store.calls.ensureDirectConversation, 0);
 
-  test("prevents opening a new direct channel to a deleted or suspended user", async () => {
-    const store = installOperationalCommunicationsGuard(buildStore());
+  const active = store.ensureDirectConversation("admin", "active");
+  assert.strictEqual(isPromiseLike(active), false, "embedded direct contract stays synchronous");
+  assert.deepStrictEqual(active.participants.map((entry) => entry.id), ["admin", "active"]);
+  assert.strictEqual(store.calls.ensureDirectConversation, 1);
 
-    await expect(store.ensureDirectConversation("admin", "deleted")).rejects.toThrow("Participante no encontrado");
-    await expect(store.ensureDirectConversation("admin", "suspended")).rejects.toThrow("Participante no encontrado");
-    await expect(store.ensureDirectConversation("admin", "other-org")).rejects.toThrow("Participante no encontrado");
-    expect(store.calls.ensureDirectConversation).toBe(0);
+  const conversations = store.getConversationsForUser("admin");
+  assert.strictEqual(isPromiseLike(conversations), false, "embedded conversation contract stays synchronous");
+  assert.deepStrictEqual(conversations.map((entry) => entry.id), ["direct-active", "general"]);
+  assert.deepStrictEqual(
+    conversations.find((entry) => entry.id === "general").participants.map((entry) => entry.id),
+    ["admin", "active"]
+  );
 
-    const active = await store.ensureDirectConversation("admin", "active");
-    expect(active.participants.map((entry) => entry.id)).toEqual(["admin", "active"]);
-    expect(store.calls.ensureDirectConversation).toBe(1);
-  });
+  assert.strictEqual(store.canUserAccessConversation("admin", "direct-deleted"), false);
+  assert.strictEqual(store.getMessages("direct-deleted", "admin"), null);
+  assert.strictEqual(store.addMessage("direct-deleted", "admin", { text: "hola" }), null);
+  assert.strictEqual(store.calls.getMessages, 0);
+  assert.strictEqual(store.calls.addMessage, 0);
 
-  test("keeps historical membership stored but removes it from the live conversation projection", async () => {
-    const store = installOperationalCommunicationsGuard(buildStore());
+  assert.strictEqual(store.canUserAccessConversation("admin", "direct-active"), true);
+  assert.deepStrictEqual(store.getMessages("direct-active", "admin"), [
+    { id: "message-1", conversationId: "direct-active" }
+  ]);
 
-    const conversations = await store.getConversationsForUser("admin");
+  const directTargets = store.listPushSubscriptionsForUsers(["active", "suspended", "deleted"]);
+  const roleTargets = store.listPushSubscriptionsForRoles(["driver"], "org-1");
+  assert.deepStrictEqual(directTargets.map((entry) => entry.userId), ["active"]);
+  assert.deepStrictEqual(roleTargets.map((entry) => entry.userId), ["active"]);
 
-    expect(conversations.map((entry) => entry.id)).toEqual(["direct-active", "general"]);
-    expect(conversations.find((entry) => entry.id === "general").participants.map((entry) => entry.id))
-      .toEqual(["admin", "active"]);
-  });
+  const asyncBase = buildStore();
+  const syncGetUserById = asyncBase.getUserById.bind(asyncBase);
+  const syncListContacts = asyncBase.listChatContactsForUser.bind(asyncBase);
+  asyncBase.getUserById = async (userId) => syncGetUserById(userId);
+  asyncBase.listChatContactsForUser = async (userId) => syncListContacts(userId);
+  const asyncStore = installOperationalCommunicationsGuard(asyncBase);
+  const asyncContactsResult = asyncStore.listChatContactsForUser("admin");
+  assert.strictEqual(isPromiseLike(asyncContactsResult), true, "Mongo-style async contract stays asynchronous");
+  const asyncContacts = await asyncContactsResult;
+  assert.deepStrictEqual(asyncContacts.map((entry) => entry.id), ["active", "pending"]);
 
-  test("blocks stale direct deep-links and message writes after the counterpart is deleted", async () => {
-    const store = installOperationalCommunicationsGuard(buildStore());
+  console.log("operational communications lifecycle guard tests passed");
+}
 
-    await expect(store.canUserAccessConversation("admin", "direct-deleted")).resolves.toBe(false);
-    await expect(store.getMessages("direct-deleted", "admin")).resolves.toBeNull();
-    await expect(store.addMessage("direct-deleted", "admin", { text: "hola" })).resolves.toBeNull();
-    expect(store.calls.getMessages).toBe(0);
-    expect(store.calls.addMessage).toBe(0);
-
-    await expect(store.canUserAccessConversation("admin", "direct-active")).resolves.toBe(true);
-    await expect(store.getMessages("direct-active", "admin")).resolves.toEqual([
-      { id: "message-1", conversationId: "direct-active" }
-    ]);
-  });
-
-  test("does not deliver push notifications to suspended or deleted accounts", async () => {
-    const store = installOperationalCommunicationsGuard(buildStore());
-
-    const directTargets = await store.listPushSubscriptionsForUsers(["active", "suspended", "deleted"]);
-    const roleTargets = await store.listPushSubscriptionsForRoles(["driver"], "org-1");
-
-    expect(directTargets.map((entry) => entry.userId)).toEqual(["active"]);
-    expect(roleTargets.map((entry) => entry.userId)).toEqual(["active"]);
-  });
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
