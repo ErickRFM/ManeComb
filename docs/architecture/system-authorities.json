@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "6ff529c87f74df1b78a7905c080b6fc599025b1e",
+    "commit": "e3f5ddd8494a962c6cba4655a249e14e00880e14",
     "capturedAt": "2026-08-10",
-    "phase": "post-consolidated-runtime-profile-and-race-hardening"
+    "phase": "post-final-operational-mobile-consolidation"
   },
   "products": [
     {
