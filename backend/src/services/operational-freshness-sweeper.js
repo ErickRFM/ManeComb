@@ -7,13 +7,13 @@ const { buildOrganizationSources } = require("../modules/platform/company-servic
 const { listOperationalUnits } = require("./operational-units-service");
 const logger = require("./logger");
 
-// El GPS foreground emite cada ~5 s. Revisar cada segundo permite publicar el
-// vencimiento del lease casi en el umbral exacto sin pedir polling al cliente.
-// El sweep solo carga organizaciones que tienen observadores conectados (o todas
-// si Admin Global esta observando), y solo emite cuando cambia la firma.
+// La transicion normal de presencia se programa por unidad desde el ultimo
+// heartbeat. Este sweep de 5 s queda como reconciliador de respaldo para
+// reinicios del proceso, timers perdidos y observadores que ya estaban vivos;
+// no convertimos la frescura GPS en polling global cada segundo.
 const OPERATIONAL_FRESHNESS_SWEEP_MS = Math.max(
   1000,
-  Number(process.env.OPERATIONAL_FRESHNESS_SWEEP_MS) || 1000
+  Number(process.env.OPERATIONAL_FRESHNESS_SWEEP_MS) || 5000
 );
 const FRESHNESS_SECONDS_BUCKET = 15;
 
