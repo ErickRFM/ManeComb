@@ -28,6 +28,8 @@ const confirmModal = read('src/components/ui/confirm-modal.tsx');
 const portalButton = read('features/portal/components/portal-button.tsx');
 const users = read('features/portal/screens/portal-users-screen.tsx');
 const units = read('features/portal/screens/portal-units-screen.tsx');
+const onboarding = read('features/portal/screens/portal-onboarding-screen.tsx');
+const documents = read('features/portal/documents/portal-documents-admin.tsx');
 const checkout = read('features/commercial/hooks/use-checkout-experience.ts');
 const portalRegistry = read('features/portal/navigation/portal-route-registry.ts');
 
@@ -52,20 +54,38 @@ assert.match(units, /retirementReason\.trim\(\)\.length < 3/);
 assert.match(units, /Ruta se liberará automáticamente al retirar/);
 assert.doesNotMatch(units, />Desasignar ruta<\/PortalButton>/);
 
-// ACTION-04: los fallos asíncronos del checkout no dejan pantallas eternamente "checking".
+// ACTION-04: una key no se marca como compartida antes de una compartición real.
+const shareHandler = onboarding.match(/const handleShareKey[\s\S]*?\n  };/)?.[0] || '';
+assert.match(shareHandler, /Share\.share/);
+assert.match(shareHandler, /Share\.dismissedAction/);
+assert.match(shareHandler, /shareActivationKey/);
+assert.ok(
+  shareHandler.indexOf('Share.share') < shareHandler.indexOf('shareActivationKey'),
+  'La key se está registrando como compartida antes de abrir/completar Share.share'
+);
+
+// ACTION-05: Documentos bloquea confirmaciones inválidas y entrega feedback al fallar descarga.
+assert.match(documents, /confirmDisabled=\{dialogConfirmDisabled\}/);
+assert.match(documents, /dialog === 'delete' && notes\.trim\(\)\.length < 3/);
+assert.match(documents, /reviewStatus === 'rejected' && !notes\.trim\(\)/);
+assert.match(documents, /const downloadDocument = async/);
+assert.match(documents, /No fue posible descargar el documento/);
+assert.match(documents, /accessibilityRole="radio"/);
+
+// ACTION-06: los fallos asíncronos del checkout no dejan pantallas eternamente "checking".
 assert.match(checkout, /service\.getProviderMode\(\)[\s\S]*?\.catch\(\(\) =>/);
 assert.match(checkout, /service\.confirmPaymentReturn[\s\S]*?\.catch\(\(\) =>/);
 assert.match(checkout, /status: 'error'/);
 assert.match(checkout, /Tu selección se conserva/);
 
-// ACTION-05: variantes visuales que anuncian borde realmente tienen borde.
+// ACTION-07: variantes visuales que anuncian borde realmente tienen borde.
 for (const styleName of ['secondary', 'danger', 'icon']) {
   const block = portalButton.match(new RegExp(`${styleName}: \\{([\\s\\S]*?)\\n  \\},`));
   assert.ok(block, `No se encontró el estilo ${styleName} de PortalButton`);
   assert.match(block[1], /borderWidth: 1/);
 }
 
-// ACTION-06: destinos literales de botones/enlaces deben existir en el switch autoritativo de Ventas.
+// ACTION-08: destinos literales de botones/enlaces deben existir en el switch autoritativo de Ventas.
 const knownRoutes = new Set();
 for (const match of app.matchAll(/case\s+['"]([^'"]+)['"]\s*:/g)) {
   knownRoutes.add(normalizeRoute(match[1]));
