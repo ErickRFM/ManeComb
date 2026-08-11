@@ -157,7 +157,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
 // --- Ruta activa: etaAt es el unico ETA ----------------------------------
 {
   const snapshot = buildOperationalUnitSnapshot({
-    vehicle: vehicleAt(15, {
+    vehicle: vehicleAt(5, {
       status: "on-route",
       speed: 12,
       assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" },
@@ -308,20 +308,20 @@ function vehicleAt(secondsAgo, overrides = {}) {
   );
 }
 
-// Con GPS fresco, la velocidad si manda.
+// Con GPS realmente live, la velocidad si manda.
 {
   const detenida = buildOperationalUnitSnapshot({
-    vehicle: vehicleAt(30, {
+    vehicle: vehicleAt(5, {
       speed: 0,
       assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
     }),
     now: NOW
   });
-  assert.equal(detenida.gps.freshness, "fresh");
+  assert.equal(detenida.gps.connectionState, "live");
   assert.equal(detenida.operationalState, "stopped");
 
   const circulando = buildOperationalUnitSnapshot({
-    vehicle: vehicleAt(30, {
+    vehicle: vehicleAt(5, {
       status: "on-route",
       speed: 12,
       assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
@@ -334,7 +334,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
 // GPS vencido tampoco sostiene una afirmacion de movimiento.
 {
   const snapshot = buildOperationalUnitSnapshot({
-    vehicle: vehicleAt(GPS_FRESH_MAX_AGE_SECONDS + 60, {
+    vehicle: vehicleAt(GPS_FRESH_MAX_AGE_SECONDS + 1, {
       assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" }
     }),
     now: NOW
@@ -363,7 +363,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
 // --- Unidad detenida sobre ruta -----------------------------------------
 {
   const snapshot = buildOperationalUnitSnapshot({
-    vehicle: vehicleAt(10, {
+    vehicle: vehicleAt(5, {
       status: "on-route",
       speed: 0.2,
       assignedRoute: { routeId: "rt-1", routeName: "Santa Ana" },
