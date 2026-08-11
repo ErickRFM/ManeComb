@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -56,6 +56,7 @@ import {
   type DirectoryDriverActionKind,
   type DirectoryVehicleActionKind,
 } from './users/directory-action-state';
+import { useDirectoryImpactAction } from './users/use-directory-impact-action';
 
 type DirectoryTab = 'personal' | 'vehicles';
 type DriverActionKind = DirectoryDriverActionKind;
@@ -156,25 +157,22 @@ export function UsersScreen() {
   const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null);
   const [scheduleDriver, setScheduleDriver] = useState<User | null>(null);
 
-  const [driverAction, setDriverAction] = useState<{ kind: DriverActionKind; target: User } | null>(null);
-  const [driverImpact, setDriverImpact] = useState<DriverLifecycleImpact | null>(null);
-  const [driverImpactLoading, setDriverImpactLoading] = useState(false);
-  const [driverImpactError, setDriverImpactError] = useState<string | null>(null);
-  const [driverActionSubmitting, setDriverActionSubmitting] = useState(false);
-  const [driverReason, setDriverReason] = useState('');
+  // La confirmacion escrita es propia del dominio conductor, asi que no vive en
+  // la maquina compartida; se limpia con su `onReset`.
   const [driverConfirmation, setDriverConfirmation] = useState('');
-  const driverImpactRequestId = useRef(0);
+  const driverFlow = useDirectoryImpactAction<DriverActionKind, User, DriverLifecycleImpact>({
+    loadImpact: (target) => getDriverLifecycleImpactRequest(target.id),
+    impactErrorMessage: 'No fue posible revisar el impacto de la acción.',
+    onReset: () => setDriverConfirmation(''),
+  });
 
   const [vehicleEditor, setVehicleEditor] = useState<ManagedVehicle | 'new' | null>(null);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(createEmptyVehicleDraft());
   const [vehicleSaving, setVehicleSaving] = useState(false);
-  const [vehicleAction, setVehicleAction] = useState<{ kind: VehicleActionKind; target: ManagedVehicle } | null>(null);
-  const [vehicleImpact, setVehicleImpact] = useState<VehicleDeletionImpact | null>(null);
-  const [vehicleImpactLoading, setVehicleImpactLoading] = useState(false);
-  const [vehicleImpactError, setVehicleImpactError] = useState<string | null>(null);
-  const [vehicleActionSubmitting, setVehicleActionSubmitting] = useState(false);
-  const [vehicleReason, setVehicleReason] = useState('');
-  const vehicleImpactRequestId = useRef(0);
+  const vehicleFlow = useDirectoryImpactAction<VehicleActionKind, ManagedVehicle, VehicleDeletionImpact>({
+    loadImpact: (target) => getVehicleDeletionImpactRequest(target.id),
+    impactErrorMessage: 'No fue posible revisar las dependencias de la unidad.',
+  });
 
   const [assignmentVehicle, setAssignmentVehicle] = useState<ManagedVehicle | null>(null);
   const [assignmentDriver, setAssignmentDriver] = useState<User | null>(null);
@@ -222,10 +220,6 @@ export function UsersScreen() {
     if (user) void refreshDirectory();
   }, [refreshDirectory, user]);
 
-  useEffect(() => () => {
-    driverImpactRequestId.current += 1;
-    vehicleImpactRequestId.current += 1;
-  }, []);
 
   const openDocuments = async (ownerType: 'driver' | 'vehicle', ownerId: string, name: string) => {
     setDocumentsOwner({ id: ownerId, name, ownerType });
@@ -261,83 +255,49 @@ export function UsersScreen() {
     }
   };
 
-  const loadDriverImpact = async (target: User) => {
-    const requestId = ++driverImpactRequestId.current;
-    setDriverImpact(null);
-    setDriverImpactError(null);
-    setDriverImpactLoading(true);
-    try {
-      const impact = await getDriverLifecycleImpactRequest(target.id);
-      if (requestId !== driverImpactRequestId.current) return;
-      setDriverImpact(impact);
-    } catch (error) {
-      if (requestId !== driverImpactRequestId.current) return;
-      setDriverImpactError(getApiErrorMessage(error, 'No fue posible revisar el impacto de la acción.'));
-    } finally {
-      if (requestId === driverImpactRequestId.current) setDriverImpactLoading(false);
-    }
-  };
-
   const openDriverAction = (kind: DriverActionKind, target: User) => {
-    setDriverAction({ kind, target });
-    setDriverReason('');
-    setDriverConfirmation('');
     setMessage(null);
-    void loadDriverImpact(target);
-  };
-
-  const closeDriverAction = () => {
-    if (driverActionSubmitting) return;
-    driverImpactRequestId.current += 1;
-    setDriverAction(null);
-    setDriverImpact(null);
-    setDriverImpactError(null);
-    setDriverReason('');
-    setDriverConfirmation('');
+    driverFlow.open(kind, target);
   };
 
   const executeDriverAction = async () => {
-    if (!driverAction || !driverImpact) return;
+    const { action, impact } = driverFlow;
+    if (!action || !impact) return;
     const canConfirm = canConfirmDirectoryDriverAction({
-      kind: driverAction.kind,
-      impactLoading: driverImpactLoading,
-      impactReady: Boolean(driverImpact),
-      submitting: driverActionSubmitting,
-      canOffboard: driverImpact.canOffboard,
-      canDelete: driverImpact.canDelete,
-      reason: driverReason,
+      kind: action.kind,
+      impactLoading: driverFlow.impactLoading,
+      impactReady: Boolean(impact),
+      submitting: driverFlow.submitting,
+      canOffboard: impact.canOffboard,
+      canDelete: impact.canDelete,
+      reason: driverFlow.reason,
       confirmation: driverConfirmation,
     });
     if (!canConfirm) return;
 
-    setDriverActionSubmitting(true);
+    driverFlow.setSubmitting(true);
     setMessage(null);
     try {
-      if (driverAction.kind === 'offboard') {
-        await offboardDriverRequest(driverAction.target.id, driverReason.trim());
+      if (action.kind === 'offboard') {
+        await offboardDriverRequest(action.target.id, driverFlow.reason.trim());
         setMessage('Conductor dado de baja. La unidad y el cupo del plan quedaron disponibles.');
-      } else if (driverAction.kind === 'reactivate') {
-        await reactivateDriverRequest(driverAction.target.id);
+      } else if (action.kind === 'reactivate') {
+        await reactivateDriverRequest(action.target.id);
         setMessage('Conductor reactivado. Puedes asignarle una unidad disponible desde Directorio.');
       } else {
         await deleteDriverRequest(
-          driverAction.target.id,
-          driverReason.trim(),
+          action.target.id,
+          driverFlow.reason.trim(),
           driverConfirmation.trim().toUpperCase()
         );
         setMessage('Conductor eliminado de forma segura. El historial operativo se conservó.');
       }
-      setDriverAction(null);
-      setDriverImpact(null);
-      setDriverImpactError(null);
-      setDriverReason('');
-      setDriverConfirmation('');
-      setDriverActionSubmitting(false);
+      driverFlow.complete();
       await refreshDirectory();
     } catch (error) {
       setMessage(getApiErrorMessage(error, 'No fue posible completar la acción sobre el conductor.'));
-      setDriverActionSubmitting(false);
-      await loadDriverImpact(driverAction.target);
+      driverFlow.setSubmitting(false);
+      await driverFlow.reload(action.target);
     }
   };
 
@@ -395,72 +355,41 @@ export function UsersScreen() {
     }
   };
 
-  const loadVehicleImpact = async (target: ManagedVehicle) => {
-    const requestId = ++vehicleImpactRequestId.current;
-    setVehicleImpact(null);
-    setVehicleImpactError(null);
-    setVehicleImpactLoading(true);
-    try {
-      const impact = await getVehicleDeletionImpactRequest(target.id);
-      if (requestId !== vehicleImpactRequestId.current) return;
-      setVehicleImpact(impact);
-    } catch (error) {
-      if (requestId !== vehicleImpactRequestId.current) return;
-      setVehicleImpactError(getApiErrorMessage(error, 'No fue posible revisar las dependencias de la unidad.'));
-    } finally {
-      if (requestId === vehicleImpactRequestId.current) setVehicleImpactLoading(false);
-    }
-  };
-
   const openVehicleAction = (kind: VehicleActionKind, target: ManagedVehicle) => {
-    setVehicleAction({ kind, target });
-    setVehicleReason('');
     setMessage(null);
-    void loadVehicleImpact(target);
-  };
-
-  const closeVehicleAction = () => {
-    if (vehicleActionSubmitting) return;
-    vehicleImpactRequestId.current += 1;
-    setVehicleAction(null);
-    setVehicleImpact(null);
-    setVehicleImpactError(null);
-    setVehicleReason('');
+    vehicleFlow.open(kind, target);
   };
 
   const executeVehicleAction = async () => {
-    if (!vehicleAction || !vehicleImpact) return;
+    const { action, impact } = vehicleFlow;
+    if (!action || !impact) return;
     const canConfirm = canConfirmDirectoryVehicleAction({
-      kind: vehicleAction.kind,
-      impactLoading: vehicleImpactLoading,
-      impactReady: Boolean(vehicleImpact),
-      submitting: vehicleActionSubmitting,
-      canRetire: vehicleImpact.canRetire,
-      canDeletePermanently: vehicleImpact.canDeletePermanently,
-      reason: vehicleReason,
+      kind: action.kind,
+      impactLoading: vehicleFlow.impactLoading,
+      impactReady: Boolean(impact),
+      submitting: vehicleFlow.submitting,
+      canRetire: impact.canRetire,
+      canDeletePermanently: impact.canDeletePermanently,
+      reason: vehicleFlow.reason,
     });
     if (!canConfirm) return;
 
-    setVehicleActionSubmitting(true);
+    vehicleFlow.setSubmitting(true);
     setMessage(null);
     try {
-      if (vehicleAction.kind === 'retire') {
-        await retireVehicleRequest(vehicleAction.target.id, vehicleReason.trim());
+      if (action.kind === 'retire') {
+        await retireVehicleRequest(action.target.id, vehicleFlow.reason.trim());
         setMessage('Unidad dada de baja. Su historial permanece disponible.');
       } else {
-        await deleteManagedVehicleRequest(vehicleAction.target.id);
+        await deleteManagedVehicleRequest(action.target.id);
         setMessage('Unidad sin historial eliminada correctamente.');
       }
-      setVehicleAction(null);
-      setVehicleImpact(null);
-      setVehicleImpactError(null);
-      setVehicleReason('');
-      setVehicleActionSubmitting(false);
+      vehicleFlow.complete();
       await refreshDirectory();
     } catch (error) {
       setMessage(getApiErrorMessage(error, 'No fue posible completar la acción sobre la unidad.'));
-      setVehicleActionSubmitting(false);
-      await loadVehicleImpact(vehicleAction.target);
+      vehicleFlow.setSubmitting(false);
+      await vehicleFlow.reload(action.target);
     }
   };
 
@@ -509,28 +438,28 @@ export function UsersScreen() {
     }
   };
 
-  const driverConfirmEnabled = driverAction
+  const driverConfirmEnabled = driverFlow.action
     ? canConfirmDirectoryDriverAction({
-        kind: driverAction.kind,
-        impactLoading: driverImpactLoading,
-        impactReady: Boolean(driverImpact),
-        submitting: driverActionSubmitting,
-        canOffboard: driverImpact?.canOffboard,
-        canDelete: driverImpact?.canDelete,
-        reason: driverReason,
+        kind: driverFlow.action.kind,
+        impactLoading: driverFlow.impactLoading,
+        impactReady: Boolean(driverFlow.impact),
+        submitting: driverFlow.submitting,
+        canOffboard: driverFlow.impact?.canOffboard,
+        canDelete: driverFlow.impact?.canDelete,
+        reason: driverFlow.reason,
         confirmation: driverConfirmation,
       })
     : false;
 
-  const vehicleConfirmEnabled = vehicleAction
+  const vehicleConfirmEnabled = vehicleFlow.action
     ? canConfirmDirectoryVehicleAction({
-        kind: vehicleAction.kind,
-        impactLoading: vehicleImpactLoading,
-        impactReady: Boolean(vehicleImpact),
-        submitting: vehicleActionSubmitting,
-        canRetire: vehicleImpact?.canRetire,
-        canDeletePermanently: vehicleImpact?.canDeletePermanently,
-        reason: vehicleReason,
+        kind: vehicleFlow.action.kind,
+        impactLoading: vehicleFlow.impactLoading,
+        impactReady: Boolean(vehicleFlow.impact),
+        submitting: vehicleFlow.submitting,
+        canRetire: vehicleFlow.impact?.canRetire,
+        canDeletePermanently: vehicleFlow.impact?.canDeletePermanently,
+        reason: vehicleFlow.reason,
       })
     : false;
 
@@ -811,45 +740,45 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={Boolean(driverAction)} transparent animationType="fade" onRequestClose={closeDriverAction}>
+      <Modal visible={Boolean(driverFlow.action)} transparent animationType="fade" onRequestClose={driverFlow.close}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{driverActionTitle(driverAction?.kind)}</Text>
-            <Text style={styles.sectionSubtitle}>{driverAction?.target.name}</Text>
+            <Text style={styles.modalTitle}>{driverActionTitle(driverFlow.action?.kind)}</Text>
+            <Text style={styles.sectionSubtitle}>{driverFlow.action?.target.name}</Text>
 
-            {driverImpactLoading ? (
+            {driverFlow.impactLoading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={theme.colors.accent} />
                 <Text style={styles.sectionSubtitle}>Revisando jornada, unidad, documentos y dependencias…</Text>
               </View>
             ) : null}
 
-            {driverImpactError ? (
+            {driverFlow.impactError ? (
               <View style={styles.impactErrorBox}>
-                <Text style={styles.dangerText}>{driverImpactError}</Text>
-                <Pressable disabled={driverImpactLoading} onPress={() => driverAction && void loadDriverImpact(driverAction.target)} style={styles.secondaryButton}>
+                <Text style={styles.dangerText}>{driverFlow.impactError}</Text>
+                <Pressable disabled={driverFlow.impactLoading} onPress={() => driverFlow.action && void driverFlow.reload(driverFlow.action.target)} style={styles.secondaryButton}>
                   <Text style={styles.secondaryButtonText}>Reintentar revisión</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {driverImpact ? (
+            {driverFlow.impact ? (
               <View style={styles.impactBox}>
-                {driverImpact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
-                {driverImpact.warnings.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• {entry}</Text>)}
-                <Text style={styles.sectionSubtitle}>Unidad actual: {driverImpact.assignedVehicle?.code || 'Sin unidad'}</Text>
-                <Text style={styles.sectionSubtitle}>Sesiones a revocar: {driverImpact.sessionsToRevoke || 0}</Text>
-                <Text style={styles.sectionSubtitle}>Documentos relacionados: {driverImpact.relatedDocuments?.count || 0}</Text>
+                {driverFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
+                {driverFlow.impact.warnings.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• {entry}</Text>)}
+                <Text style={styles.sectionSubtitle}>Unidad actual: {driverFlow.impact.assignedVehicle?.code || 'Sin unidad'}</Text>
+                <Text style={styles.sectionSubtitle}>Sesiones a revocar: {driverFlow.impact.sessionsToRevoke || 0}</Text>
+                <Text style={styles.sectionSubtitle}>Documentos relacionados: {driverFlow.impact.relatedDocuments?.count || 0}</Text>
               </View>
             ) : null}
 
-            {driverAction?.kind !== 'reactivate' ? (
+            {driverFlow.action?.kind !== 'reactivate' ? (
               <>
                 <Text style={styles.inputLabel}>Motivo</Text>
                 <TextInput
-                  value={driverReason}
-                  onChangeText={setDriverReason}
-                  editable={!driverActionSubmitting}
+                  value={driverFlow.reason}
+                  onChangeText={driverFlow.setReason}
+                  editable={!driverFlow.submitting}
                   multiline
                   placeholder="Ej. baja administrativa"
                   placeholderTextColor={theme.colors.muted}
@@ -858,14 +787,14 @@ export function UsersScreen() {
               </>
             ) : null}
 
-            {driverAction?.kind === 'delete' ? (
+            {driverFlow.action?.kind === 'delete' ? (
               <>
                 <Text style={styles.dangerText}>La eliminación definitiva solo procede después de la baja, sin unidad ni jornada activa. El historial operativo se conserva.</Text>
                 <Text style={styles.inputLabel}>Escribe ELIMINAR para confirmar</Text>
                 <TextInput
                   value={driverConfirmation}
                   onChangeText={setDriverConfirmation}
-                  editable={!driverActionSubmitting}
+                  editable={!driverFlow.submitting}
                   autoCapitalize="characters"
                   placeholder="ELIMINAR"
                   placeholderTextColor={theme.colors.muted}
@@ -875,7 +804,7 @@ export function UsersScreen() {
             ) : null}
 
             <View style={styles.modalActions}>
-              <Pressable disabled={driverActionSubmitting} onPress={closeDriverAction} style={styles.secondaryButton}>
+              <Pressable disabled={driverFlow.submitting} onPress={driverFlow.close} style={styles.secondaryButton}>
                 <Text style={styles.secondaryButtonText}>Cancelar</Text>
               </Pressable>
               <Pressable
@@ -883,10 +812,10 @@ export function UsersScreen() {
                 onPress={() => void executeDriverAction()}
                 style={[
                   styles.primaryButton,
-                  driverAction?.kind === 'delete' || driverAction?.kind === 'offboard' ? styles.dangerButton : undefined,
+                  driverFlow.action?.kind === 'delete' || driverFlow.action?.kind === 'offboard' ? styles.dangerButton : undefined,
                   !driverConfirmEnabled ? styles.disabledButton : undefined,
                 ]}>
-                {driverActionSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{driverActionConfirmLabel(driverAction?.kind)}</Text>}
+                {driverFlow.submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{driverActionConfirmLabel(driverFlow.action?.kind)}</Text>}
               </Pressable>
             </View>
           </View>
@@ -920,51 +849,51 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={Boolean(vehicleAction)} transparent animationType="fade" onRequestClose={closeVehicleAction}>
+      <Modal visible={Boolean(vehicleFlow.action)} transparent animationType="fade" onRequestClose={vehicleFlow.close}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{vehicleAction?.kind === 'retire' ? 'Dar de baja la unidad' : 'Eliminar unidad'}</Text>
-            <Text style={styles.sectionSubtitle}>{vehicleAction?.target.code} · {vehicleAction?.target.plate}</Text>
+            <Text style={styles.modalTitle}>{vehicleFlow.action?.kind === 'retire' ? 'Dar de baja la unidad' : 'Eliminar unidad'}</Text>
+            <Text style={styles.sectionSubtitle}>{vehicleFlow.action?.target.code} · {vehicleFlow.action?.target.plate}</Text>
 
-            {vehicleImpactLoading ? (
+            {vehicleFlow.impactLoading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={theme.colors.accent} />
                 <Text style={styles.sectionSubtitle}>Revisando conductor, ruta, jornada e historial…</Text>
               </View>
             ) : null}
 
-            {vehicleImpactError ? (
+            {vehicleFlow.impactError ? (
               <View style={styles.impactErrorBox}>
-                <Text style={styles.dangerText}>{vehicleImpactError}</Text>
-                <Pressable disabled={vehicleImpactLoading} onPress={() => vehicleAction && void loadVehicleImpact(vehicleAction.target)} style={styles.secondaryButton}>
+                <Text style={styles.dangerText}>{vehicleFlow.impactError}</Text>
+                <Pressable disabled={vehicleFlow.impactLoading} onPress={() => vehicleFlow.action && void vehicleFlow.reload(vehicleFlow.action.target)} style={styles.secondaryButton}>
                   <Text style={styles.secondaryButtonText}>Reintentar revisión</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {vehicleImpact ? (
+            {vehicleFlow.impact ? (
               <View style={styles.impactBox}>
-                {vehicleImpact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
-                {vehicleImpact.actionsRequired.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• Requiere: {entry}</Text>)}
-                <Text style={styles.sectionSubtitle}>Historial: {vehicleImpact.history?.total || 0} registros · Documentos: {vehicleImpact.documents?.count || 0}</Text>
-                {vehicleAction?.kind === 'delete' && vehicleImpact.mustRetire ? <Text style={styles.dangerText}>Esta unidad conserva historial; debe darse de baja en lugar de eliminarse.</Text> : null}
+                {vehicleFlow.impact.blockers.map((entry) => <Text key={entry} style={styles.dangerText}>• {entry}</Text>)}
+                {vehicleFlow.impact.actionsRequired.map((entry) => <Text key={entry} style={styles.sectionSubtitle}>• Requiere: {entry}</Text>)}
+                <Text style={styles.sectionSubtitle}>Historial: {vehicleFlow.impact.history?.total || 0} registros · Documentos: {vehicleFlow.impact.documents?.count || 0}</Text>
+                {vehicleFlow.action?.kind === 'delete' && vehicleFlow.impact.mustRetire ? <Text style={styles.dangerText}>Esta unidad conserva historial; debe darse de baja en lugar de eliminarse.</Text> : null}
               </View>
             ) : null}
 
-            {vehicleAction?.kind === 'retire' ? (
+            {vehicleFlow.action?.kind === 'retire' ? (
               <>
                 <Text style={styles.inputLabel}>Motivo</Text>
-                <TextInput value={vehicleReason} onChangeText={setVehicleReason} editable={!vehicleActionSubmitting} multiline placeholder="Ej. fin de vida útil" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
+                <TextInput value={vehicleFlow.reason} onChangeText={vehicleFlow.setReason} editable={!vehicleFlow.submitting} multiline placeholder="Ej. fin de vida útil" placeholderTextColor={theme.colors.muted} style={[styles.input, styles.textArea]} />
               </>
             ) : null}
 
             <View style={styles.modalActions}>
-              <Pressable disabled={vehicleActionSubmitting} onPress={closeVehicleAction} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancelar</Text></Pressable>
+              <Pressable disabled={vehicleFlow.submitting} onPress={vehicleFlow.close} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Cancelar</Text></Pressable>
               <Pressable
                 disabled={!vehicleConfirmEnabled}
                 onPress={() => void executeVehicleAction()}
                 style={[styles.primaryButton, styles.dangerButton, !vehicleConfirmEnabled ? styles.disabledButton : undefined]}>
-                {vehicleActionSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{vehicleAction?.kind === 'retire' ? 'Dar de baja' : 'Eliminar'}</Text>}
+                {vehicleFlow.submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{vehicleFlow.action?.kind === 'retire' ? 'Dar de baja' : 'Eliminar'}</Text>}
               </Pressable>
             </View>
           </View>
