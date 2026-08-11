@@ -7,15 +7,16 @@ export {};
 describe('chat and call physical regressions', () => {
   const mobileRoot = nodeProcess.cwd();
 
-  it('preserves the selected direct conversation across a Chat remount', () => {
+  it('preserves the selected or calling direct conversation across a Chat remount', () => {
     const chatScreen = fs.readFileSync(
       path.join(mobileRoot, 'src', 'screens', 'chat-screen.tsx'),
       'utf8'
     );
 
-    expect(chatScreen).toContain(
-      'const pinnedConversationIdRef = useRef<string | null>(activeConversationId);'
-    );
+    expect(chatScreen).toContain('const callConversationId = useCallStore');
+    expect(chatScreen).toContain('callConversationId || activeConversationId');
+    expect(chatScreen).toContain("callConversation?.kind === 'direct'");
+    expect(chatScreen).toContain('pinnedConversationIdRef.current = callConversation.id;');
     expect(chatScreen).toContain('shouldRestorePinnedConversation({');
   });
 

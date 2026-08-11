@@ -25,10 +25,13 @@ export function ChatScreen() {
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const conversations = useAppStore((state) => state.conversations);
   const permissionPrompt = useCallStore((state) => state.permissionPrompt);
-  // Un remount del Chat (por ejemplo al volver de la ventana nativa de llamada)
-  // no debe olvidar el directo que ya era autoridad antes de que el bootstrap
-  // intente normalizar la pantalla hacia General.
-  const pinnedConversationIdRef = useRef<string | null>(activeConversationId);
+  const callConversationId = useCallStore((state) => state.conversationId);
+  // Conserva tanto el contexto que ya estaba abierto como el directo autoritativo
+  // de una llamada activa. Si Android remonta Chat al cerrar la ventana nativa,
+  // el bootstrap no puede degradar ese contexto a General Operativo.
+  const pinnedConversationIdRef = useRef<string | null>(
+    callConversationId || activeConversationId
+  );
 
   useEffect(() => {
     if (permissionPrompt && callNotice) {
@@ -38,6 +41,19 @@ export function ChatScreen() {
       setCallNotice(null);
     }
   }, [callNotice, permissionPrompt, setCallNotice]);
+
+  useEffect(() => {
+    if (!callConversationId) return;
+    const callConversation = conversations.find(
+      (conversation) => conversation.id === callConversationId
+    );
+    if (
+      callConversation?.kind === 'direct' &&
+      callConversation.channelMode === 'chat'
+    ) {
+      pinnedConversationIdRef.current = callConversation.id;
+    }
+  }, [callConversationId, conversations]);
 
   useEffect(() => {
     const activeConversation = conversations.find(
