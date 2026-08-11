@@ -49,10 +49,6 @@ export function ProfileScreen() {
     <AppShell
       scroll
       sectionKey="perfil"
-      mobileTitle="Perfil"
-      mobileBadges={[
-        { label: roleLabel, tone: 'info' },
-      ]}
       header={
         <View style={styles.header}>
           <Text style={styles.title}>Perfil</Text>
