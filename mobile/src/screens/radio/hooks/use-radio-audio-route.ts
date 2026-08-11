@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getRadioAudioRoute,
   setRadioAudioRoute,
@@ -13,9 +13,11 @@ import { getNextRadioRoute } from '../utils/radio-audio-route';
  */
 export function useRadioAudioRoute(enabled: boolean) {
   const [status, setStatus] = useState<RadioAudioRouteStatus | null>(null);
+  const switchingRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
+      switchingRef.current = false;
       setStatus(null);
       return undefined;
     }
@@ -33,19 +35,26 @@ export function useRadioAudioRoute(enabled: boolean) {
     const removeListener = subscribeToRadioAudioRoute(sync);
     return () => {
       cancelled = true;
+      switchingRef.current = false;
       removeListener();
     };
   }, [enabled]);
 
   const cycleRoute = useCallback(async () => {
+    if (switchingRef.current) return;
+
     const nextRoute = getNextRadioRoute(status);
     if (!nextRoute) return;
+
+    switchingRef.current = true;
     try {
       setStatus(await setRadioAudioRoute(nextRoute));
     } catch {
-      // La salida desaparecio entre el render y el toque: la proxima
-      // notificacion del nativo repone el estado real.
+      // La salida desaparecio entre el render y el toque: releemos la autoridad
+      // nativa en lugar de dejar una seleccion fantasma en pantalla.
       setStatus(await getRadioAudioRoute().catch(() => status));
+    } finally {
+      switchingRef.current = false;
     }
   }, [status]);
 
