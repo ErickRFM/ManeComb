@@ -110,10 +110,10 @@ async function previewVehicleDeletionImpact(store, { organizationId, vehicleId }
   const historyCount =
     dependencies.routeSessionCount + dependencies.positionCount + dependencies.incidentCount + dependencies.tripLogCount;
   const hasHistory = historyCount > 0 || dependencies.documentCount > 0;
-  const hasCurrentDependencies = Boolean(
-    vehicle.driverId || vehicle.routeId || vehicle.assignedRoute || dependencies.activeSession
-  );
-  const hasRetirementBlockers = Boolean(vehicle.driverId || dependencies.activeSession);
+  const isArchived = Boolean(vehicle.retiredAt);
+  const hasHardBlockers = Boolean(vehicle.driverId || dependencies.activeSession);
+  const canDeleteArchive = isArchived && !hasHardBlockers;
+  const canDeleteUnused = !isArchived && !hasHardBlockers && !hasHistory;
 
   return {
     vehicle,
@@ -134,9 +134,11 @@ async function previewVehicleDeletionImpact(store, { organizationId, vehicleId }
       total: historyCount
     },
     documents: { count: dependencies.documentCount },
-    canDeletePermanently: !hasCurrentDependencies && !hasHistory,
-    mustRetire: hasHistory,
-    canRetire: !hasRetirementBlockers,
+    isArchived,
+    canDeleteArchive,
+    canDeletePermanently: canDeleteArchive || canDeleteUnused,
+    mustRetire: !isArchived && hasHistory,
+    canRetire: !isArchived && !hasHardBlockers,
     blockers,
     actionsRequired
   };
@@ -351,18 +353,30 @@ async function retireVehicle(store, { actorId, organizationId, reason, vehicleId
   const safeReason = assertReason(reason, "El motivo de retiro");
   const impact = await previewVehicleDeletionImpact(store, { organizationId, vehicleId });
 
+  if (!impact.canRetire) {
+    throw new DriverLifecycleError(
+      impact.isArchived
+        ? "La unidad ya está archivada."
+        : "Libera al conductor y finaliza la jornada antes de archivar la unidad.",
+      409,
+      "vehicle_retire_blocked",
+      impact
+    );
+  }
+
   // Una ruta asignada es una relación operativa pasiva, no un motivo para dejar
-  // atrapada la baja. La transición de retiro es dueña de limpiarla, igual que
-  // la baja de conductor libera su unidad. Conductor y jornada activa siguen
-  // siendo bloqueos duros y el store los revalida ante cualquier carrera.
-  if (impact.canRetire && (impact.vehicle.routeId || impact.vehicle.assignedRoute)) {
+  // atrapado el archivo. La transición limpia la ruta y conserva el historial.
+  if (impact.vehicle.routeId || impact.vehicle.assignedRoute) {
     const clearedVehicle = await store.clearAssignedRouteFromVehicle(vehicleId);
     if (!clearedVehicle) throwStoreError({ code: "not_found" });
   }
 
   const result = await store.retireVehicle({ actorId, organizationId, reason: safeReason, vehicleId });
   if (!result?.ok) throwStoreError(result);
-  return result;
+  return {
+    ...result,
+    archived: true
+  };
 }
 
 async function deleteVehicleSafely(store, { organizationId, vehicleId }) {
@@ -370,16 +384,40 @@ async function deleteVehicleSafely(store, { organizationId, vehicleId }) {
   if (!impact.canDeletePermanently) {
     throw new DriverLifecycleError(
       impact.mustRetire
-        ? "La unidad conserva historial y debe retirarse en lugar de eliminarse."
-        : "Resuelve las dependencias de la unidad antes de eliminarla.",
+        ? "La unidad conserva historial. Archívala para retirarla de la flotilla activa."
+        : "Libera al conductor y finaliza la jornada antes de eliminar la unidad.",
       409,
       "vehicle_delete_blocked",
       impact
     );
   }
+
+  if (impact.vehicle.routeId || impact.vehicle.assignedRoute) {
+    const clearedVehicle = await store.clearAssignedRouteFromVehicle(vehicleId);
+    if (!clearedVehicle) throwStoreError({ code: "not_found" });
+  }
+
+  if (impact.isArchived) {
+    // El archivo conserva la ficha de la unidad mientras el administrador la necesita.
+    // Al eliminarla del Archivo se borra únicamente esa ficha; jornadas, posiciones,
+    // incidencias, trip logs y documentos históricos no se reescriben ni se purgan.
+    const vehicle = await Promise.resolve(store.deleteVehicle(vehicleId));
+    if (!vehicle) throwStoreError({ code: "not_found" });
+    return {
+      ok: true,
+      vehicle,
+      archiveDeleted: true,
+      preservedHistory: impact.history,
+      preservedDocuments: impact.documents
+    };
+  }
+
   const result = await store.deleteUnusedVehicle({ organizationId, vehicleId });
   if (!result?.ok) throwStoreError(result);
-  return result;
+  return {
+    ...result,
+    archiveDeleted: false
+  };
 }
 
 module.exports = {
