@@ -292,20 +292,31 @@ class RadioSessionControllerTest {
   }
 
   @Test
-  fun `la recepcion reproduce sin pasar por react`() {
+  fun `la recepcion reproduce sin pasar frames por react`() {
     val harness = listeningHarness()
 
     harness.transport.events?.onRemoteTransmissionStarted("tx-remote", remote)
     assertEquals(RadioPhase.RECEIVING, harness.phase())
     assertEquals("tx-remote", harness.audio.playingTransmissionId)
 
-    harness.transport.events?.onRemoteFrame("tx-remote", 0, "AAAA")
-    harness.transport.events?.onRemoteFrame("tx-remote", 1, "BBBB")
-    assertEquals(2, harness.audio.enqueued.size)
+    val publicationsAfterStart = harness.states.size
+    repeat(200) { sequence ->
+      harness.now = 1_000L + sequence
+      harness.transport.events?.onRemoteFrame("tx-remote", sequence, "AAAA")
+    }
+
+    assertEquals(200, harness.audio.enqueued.size)
+    assertEquals(
+      "los paquetes PCM permanecen en nativo y no pueden saturar el hilo JS",
+      publicationsAfterStart,
+      harness.states.size
+    )
+    assertEquals(1_199L, harness.controller.snapshot().lastFrameAt)
 
     harness.transport.events?.onRemoteTransmissionEnded("tx-remote", null)
     assertEquals(RadioPhase.LISTENING, harness.phase())
     assertNull(harness.audio.playingTransmissionId)
+    assertEquals("inicio y fin siguen publicados a la UI", publicationsAfterStart + 1, harness.states.size)
   }
 
   @Test
