@@ -288,13 +288,13 @@ function buildOperationalState({ status, route, gps, activeSession }) {
   const sessionStatus = String(activeSession?.status ?? "").trim().toUpperCase();
   if (sessionStatus === "PAUSED") return "stopped";
 
-  // La frescura se evalua ANTES que la velocidad. Una lectura de velocidad
-  // pertenece al mismo paquete GPS que la posicion: si la posicion es vieja,
-  // la velocidad tambien lo es. Ademas el esquema de vehiculo declara
-  // `speed: default 0`, asi que una unidad que nunca reporto trae 0 —no null—
-  // y evaluar la velocidad primero la clasificaba como "Detenida" en vez de
-  // reconocer que no hay dato.
-  if (gps.freshness !== "fresh") return "unknown";
+  // El estado de movimiento solo es valido mientras la telemetria esta EN VIVO.
+  // `fresh` incluye el tramo `delayed` (16-30 s), pero en ese tramo velocidad y
+  // heading ya pertenecen a un paquete anterior. Mantener "Detenida" o "En ruta"
+  // durante ese hueco hace parecer activa una unidad que dejo de reportar.
+  // Conservamos la ultima posicion en el mapa, pero el estado pasa a `unknown`
+  // desde el primer snapshot `delayed`.
+  if (gps.connectionState !== "live") return "unknown";
 
   const speedKmh = gps.speedKmh;
   if (speedKmh !== null && speedKmh < STOPPED_SPEED_KMH) return "stopped";
