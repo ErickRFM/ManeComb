@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import * as ImagePicker from '@/src/native/image-picker';
 import { router } from '@/src/navigation/router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
@@ -13,6 +12,7 @@ import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRole } from '@/src/utils/format';
 import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
+import { pickProfileAvatarDataUrl } from '@/src/utils/profile-avatar';
 import { Field } from './profile-edit/components/field';
 
 type PersonalProfileForm = {
@@ -42,14 +42,24 @@ export function DriverProfileEditScreen() {
       user: state.user,
     }))
   );
+  const initializedUserIdRef = useRef<string | null>(null);
   const [form, setForm] = useState<PersonalProfileForm>(createPersonalProfileForm);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [photoSuccess, setPhotoSuccess] = useState(false);
+  const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(form.password), [form.password]);
   const styles = useMemo(createStyles, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      initializedUserIdRef.current = null;
+      return;
+    }
+    if (initializedUserIdRef.current === user.id) return;
+
+    initializedUserIdRef.current = user.id;
     setForm({
       name: user.name || '',
       email: user.email || '',
@@ -64,24 +74,33 @@ export function DriverProfileEditScreen() {
   };
 
   const handlePhotoUpload = async () => {
-    setMessage(null);
-    setSuccess(false);
+    if (!user || isPhotoSaving || isSubmitting) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-      base64: true,
-    });
+    const previousAvatarUrl = form.avatarUrl || user.avatarUrl || null;
+    setPhotoMessage(null);
+    setPhotoSuccess(false);
+    setIsPhotoSaving(true);
 
-    if (result.canceled) return;
+    try {
+      const avatarUrl = await pickProfileAvatarDataUrl();
+      if (!avatarUrl) return;
 
-    const asset = result.assets[0];
-    updateField(
-      'avatarUrl',
-      asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
-    );
+      updateField('avatarUrl', avatarUrl);
+      const result = await updateProfile({ avatarUrl });
+      if (!result.ok) {
+        updateField('avatarUrl', previousAvatarUrl);
+        setPhotoMessage(result.message || 'No se pudo guardar la foto.');
+        return;
+      }
+
+      setPhotoSuccess(true);
+      setPhotoMessage('Foto guardada y sincronizada.');
+    } catch (error) {
+      updateField('avatarUrl', previousAvatarUrl);
+      setPhotoMessage(error instanceof Error ? error.message : 'No se pudo preparar la foto.');
+    } finally {
+      setIsPhotoSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -153,7 +172,17 @@ export function DriverProfileEditScreen() {
           <View style={styles.identityCopy}>
             <Text style={[styles.name, { color: theme.colors.text }]}>{form.name || user.name}</Text>
             <Text style={[styles.meta, { color: theme.colors.muted }]}>{roleLabel}{isDriver ? ` · ${user.vehicleId ? 'Unidad asignada' : 'Sin unidad asignada'}` : ''}</Text>
-            <PrimaryButton label="Cambiar foto" variant="ghost" onPress={() => void handlePhotoUpload()} />
+            <PrimaryButton
+              label={isPhotoSaving ? 'Guardando foto...' : 'Cambiar foto'}
+              variant="ghost"
+              disabled={isPhotoSaving || isSubmitting}
+              onPress={() => void handlePhotoUpload()}
+            />
+            {photoMessage ? (
+              <Text style={[styles.message, { color: photoSuccess ? theme.colors.success : theme.colors.danger }]}>
+                {photoMessage}
+              </Text>
+            ) : null}
           </View>
         </View>
       </AppCard>
@@ -172,7 +201,7 @@ export function DriverProfileEditScreen() {
           ) : null}
           <Text style={[styles.scopeNote, { color: theme.colors.muted, borderColor: theme.colors.line }]}>{isDriver ? 'La unidad, turno, horario operativo y rol los administra tu empresa. Tus documentos se gestionan desde “Mis documentos”.' : 'El rol, asignaciones y configuración de la empresa se administran con las herramientas de la cuenta empresarial.'}</Text>
           {message ? <Text style={[styles.message, { color: success ? theme.colors.success : theme.colors.danger }]}>{message}</Text> : null}
-          <PrimaryButton label={isSubmitting ? 'Guardando...' : 'Guardar cambios'} disabled={isSubmitting} onPress={() => void handleSave()} />
+          <PrimaryButton label={isSubmitting ? 'Guardando...' : 'Guardar cambios'} disabled={isSubmitting || isPhotoSaving} onPress={() => void handleSave()} />
         </View>
       </AppCard>
     </AppShell>
