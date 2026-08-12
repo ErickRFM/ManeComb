@@ -3,6 +3,8 @@ const multer = require("multer");
 const { authenticate } = require("../../middlewares/authenticate");
 const { getOrganizationId } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
+const { requireEnterpriseCapability } = require("../../middlewares/enterprise-capability-access");
+const { ENTERPRISE_CAPABILITY } = require("../../services/enterprise-capabilities");
 const { streamChatMediaAsset, uploadChatAudioAsset, uploadChatMediaAsset } = require("../../services/chat-media");
 const { transcribeAudioBuffer } = require("../../services/audio-transcription");
 const { deliverOperationalNotification } = require("../../services/notification-delivery");
@@ -14,6 +16,8 @@ const logger = require("../../services/logger");
 
 const router = Router();
 const MAX_VOICE_NOTE_SECONDS = 60;
+const requireChatAccess = requireEnterpriseCapability(ENTERPRISE_CAPABILITY.CHAT_ACCESS);
+
 function isValidE2eePublicKey(value) {
   try {
     return Buffer.from(String(value || "").trim(), "base64").length === 32;
@@ -57,7 +61,7 @@ const mediaUpload = multer({
   }
 });
 
-router.use(authenticate, requireOperationalAccess);
+router.use(authenticate, requireOperationalAccess, requireChatAccess);
 
 function emitConversationUpdate(req, conversationOrId, message) {
   const conversationId =
