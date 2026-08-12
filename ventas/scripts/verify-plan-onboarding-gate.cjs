@@ -7,6 +7,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const planScreen = read('features/portal/screens/portal-plan-screen.tsx');
 const planCard = read('features/portal/plan/components/plan-comparison-card.tsx');
 const layout = read('features/portal/components/portal-layout.tsx');
+const app = read('src/App.tsx');
 const subscriptionGate = read('features/portal/navigation/portal-subscription-access.ts');
 const checkout = read('screens/plan-checkout-screen.tsx');
 const checkoutExperience = read('features/commercial/hooks/use-checkout-experience.ts');
@@ -27,9 +28,16 @@ expect(planScreen, '<PlanPurchasePreview', 'No-plan selection must use purchase 
 
 expect(planCard, "const actionLabel = mode === 'purchase' ? 'Comprar' : 'Comparar';", 'Plan card CTA must say Comprar for no-plan accounts.');
 
-expect(layout, 'getPortalNavSectionsBySubscription', 'Portal layout must filter navigation by subscription authority.');
-expect(layout, 'isPortalRouteAllowedBySubscription', 'Portal layout must guard direct routes by subscription authority.');
-expect(layout, "return <Redirect href={'/portal/plan' as never} />;", 'Blocked Portal routes must return to plan activation.');
+expect(layout, 'getPortalNavSectionsBySubscription', 'Portal layout must project navigation from subscription authority.');
+if (layout.includes('isPortalRouteAllowedBySubscription')) {
+  throw new Error('PortalLayout must not duplicate the route subscription gate.');
+}
+expect(app, 'isPortalRouteAllowedBySubscription(pathname, resolvedSubscription, true)', 'App must own the subscription route gate.');
+expect(app, '<Redirect href="/portal/plan" />', 'Blocked Portal routes must return to plan activation.');
+expect(app, "case '/portal/plan':\n      return <OperationalPortalGate>", 'Plan route must pass through the single subscription gate.');
+expect(app, "case '/portal/pagos':\n      return <OperationalPortalGate>", 'Payments route must pass through the single subscription gate.');
+expect(app, "case '/portal/facturacion':\n      return <OperationalPortalGate>", 'Billing route must pass through the single subscription gate.');
+expect(app, "case '/portal/perfil':\n      return <OperationalPortalGate>", 'Profile route must pass through the single subscription gate.');
 
 expect(subscriptionGate, "subscription?.isActive === true", 'Operational unlock must use backend isActive authority.');
 expect(subscriptionGate, "'/portal/plan'", 'Plan must remain available while operation is locked.');
