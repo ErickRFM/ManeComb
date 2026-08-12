@@ -496,6 +496,7 @@ export function PortalRoutesScreen() {
     <PortalLayout
       actions={showRouteEditor ? editorActions : <PortalButton icon="plus" onPress={openNewRouteEditor} size="sm">Nueva ruta</PortalButton>}
       compact
+      compactScrollable
       wide
       title={showRouteEditor ? 'Editor de ruta' : 'Rutas'}
       subtitle={showRouteEditor ? 'Crea y edita la ruta agregando paradas y checkpoints.' : 'Asignación real de origen y destino por unidad.'}>

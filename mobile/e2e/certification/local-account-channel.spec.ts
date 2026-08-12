@@ -376,3 +376,79 @@ test.describe('PHASE-1 — matriz local de canal autenticado', () => {
     });
   }
 });
+
+test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
+  test.beforeEach(() => {
+    test.skip(Boolean(String(process.env.CERT_BASE_URL || '').trim()), 'La cuenta nueva se certifica con contratos locales controlados.');
+  });
+
+  test('Rutas conserva estados vacíos, scroll y acceso al editor', async ({ page }, testInfo) => {
+    const companyIdentity = cases.find((entry) => entry.identity.accountChannel === 'company_portal')?.identity;
+    expect(companyIdentity, 'Debe existir la identidad empresarial de certificación').toBeDefined();
+    if (!companyIdentity) return;
+
+    await installAuthenticatedContract(page, companyIdentity);
+    const probe = attachRuntimeProbe(page);
+
+    try {
+      const response = await page.goto('/portal/rutas', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      });
+
+      expect(response).not.toBeNull();
+      expect(response?.status()).toBeLessThan(500);
+      await expect(page).toHaveURL(/\/portal\/rutas(?:\/|$)/);
+      await expect(page.locator('body')).not.toHaveText(/Error en esta pantalla|Application error/i);
+
+      await expect(page.getByText('Aún no hay unidades', { exact: true })).toBeVisible();
+      await expect(page.getByText('Registra la primera unidad desde Gestión > Unidades para asignarle una ruta.', { exact: true })).toBeVisible();
+      await expect(page.getByText('Aún no hay rutas', { exact: true })).toBeVisible();
+      await expect(page.getByText('Selecciona una ruta', { exact: true })).toBeVisible();
+
+      const contentScroll = page.locator('#portal-content-scroll');
+      await expect(contentScroll).toBeVisible();
+      const scrollState = await contentScroll.evaluate((node) => {
+        const style = window.getComputedStyle(node);
+        return {
+          clientHeight: node.clientHeight,
+          overflowY: style.overflowY,
+          scrollHeight: node.scrollHeight,
+        };
+      });
+      expect(scrollState.overflowY, 'La vista compacta de Rutas debe permitir desplazamiento vertical').toMatch(/auto|scroll/);
+      expect(scrollState.scrollHeight).toBeGreaterThanOrEqual(scrollState.clientHeight);
+
+      const assignmentHint = page.getByText(
+        'La asignación se crea aquí sin sobrescribir automáticamente la ruta operativa.',
+        { exact: true }
+      );
+      await assignmentHint.scrollIntoViewIfNeeded();
+      await expect(assignmentHint).toBeVisible();
+
+      await page.getByRole('button', { name: 'Nueva ruta' }).click();
+      await expect(page.getByRole('heading', { name: 'Editor de ruta', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Guardar ruta' })).toBeVisible();
+
+      const editorInputHeights = await Promise.all(
+        ['Nombre de la ruta', 'Origen de la ruta', 'Destino de la ruta'].map((label) =>
+          page.getByLabel(label).evaluate((node) => node.getBoundingClientRect().height)
+        )
+      );
+      for (const height of editorInputHeights) {
+        expect(height, 'Los campos del editor deben conservar altura de input y no llenar toda la columna').toBeLessThanOrEqual(56);
+      }
+
+      await page.getByRole('button', { name: 'Cancelar' }).click();
+      await expect(page.getByRole('heading', { name: 'Rutas', exact: true })).toBeVisible();
+
+      await assertNoDocumentOverflow(page);
+      await attachFullPageScreenshot(page, testInfo, 'routes-empty-account');
+
+      expect(probe.pageErrors).toEqual([]);
+      expect(probe.serverErrors).toEqual([]);
+    } finally {
+      probe.dispose();
+    }
+  });
+});

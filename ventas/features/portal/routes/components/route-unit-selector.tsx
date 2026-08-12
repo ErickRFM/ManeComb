@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { EmptyState } from '@/src/components/ui/empty-state';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';
 import type { Vehicle } from '@/src/types/app';
@@ -39,32 +40,40 @@ export function RouteUnitSelector({
         <Text style={styles.panelTitle}>Selecciona una unidad</Text>
         <Text style={styles.panelCount}>{vehicles.length}</Text>
       </View>
-      <PortalDataList>
-        {vehicles.map((vehicle) => {
-          const active = selectedVehicleId === vehicle.id;
-          return (
-            <PortalDataRow
-              key={vehicle.id}
-              selected={active}
-              onPress={() => onSelectVehicle(vehicle.id)}
-              leading={
-                <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}>
-                  <MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} />
-                </View>
-              }
-              body={
-                <>
-                  <Text style={styles.unitCode}>{vehicle.code}</Text>
-                  <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
-                  <Text style={styles.unitStatus}>
-                    ● {getSelectorStatusLabel(vehicle)}
-                  </Text>
-                </>
-              }
-            />
-          );
-        })}
-      </PortalDataList>
+      {vehicles.length ? (
+        <PortalDataList>
+          {vehicles.map((vehicle) => {
+            const active = selectedVehicleId === vehicle.id;
+            return (
+              <PortalDataRow
+                key={vehicle.id}
+                selected={active}
+                onPress={() => onSelectVehicle(vehicle.id)}
+                leading={
+                  <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}>
+                    <MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} />
+                  </View>
+                }
+                body={
+                  <>
+                    <Text style={styles.unitCode}>{vehicle.code}</Text>
+                    <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
+                    <Text style={styles.unitStatus}>
+                      ● {getSelectorStatusLabel(vehicle)}
+                    </Text>
+                  </>
+                }
+              />
+            );
+          })}
+        </PortalDataList>
+      ) : (
+        <EmptyState
+          icon="bus"
+          title="Aún no hay unidades"
+          description="Registra la primera unidad desde Gestión > Unidades para asignarle una ruta."
+        />
+      )}
     </View>
   );
 }

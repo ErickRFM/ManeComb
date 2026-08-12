@@ -30,6 +30,7 @@ type PortalLayoutProps = PropsWithChildren<{
   subtitle?: string;
   actions?: ReactNode;
   compact?: boolean;
+  compactScrollable?: boolean;
   wide?: boolean;
 }>;
 
@@ -49,7 +50,7 @@ function isActive(pathname: string, href: string, currentSection?: string, itemS
   return pathname.startsWith(href);
 }
 
-export function PortalLayout({ title, subtitle, actions, children, compact = false, wide = false }: PortalLayoutProps) {
+export function PortalLayout({ title, subtitle, actions, children, compact = false, compactScrollable = false, wide = false }: PortalLayoutProps) {
   const { height, width } = useWindowDimensions();
   const isWide = width >= 980;
   // Desplazamiento del drawer bajo la barra superior movil (barra ~44 + aire).
@@ -220,7 +221,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               <Text style={styles.breadcrumbCurrent}>{title}</Text>
             </View>
           ) : null}
-          <Text style={styles.title}>{title}</Text>
+          <Text accessibilityRole="header" style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
         {actions ? <View nativeID="portal-header-actions" style={styles.actions}>{actions}</View> : null}
@@ -270,8 +271,8 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         ) : null}
 
         {isWeb ? (
-          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-content-scroll" style={[styles.contentScroll, compact ? styles.contentScrollDense : undefined]}>
-            <View nativeID="portal-content" style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, !isWide ? styles.contentCompact : undefined]}>
+          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-content-scroll" style={[styles.contentScroll, compact && !compactScrollable ? styles.contentScrollDense : undefined]}>
+            <View nativeID="portal-content" style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, compact && compactScrollable ? styles.contentDenseScrollable : undefined, !isWide ? styles.contentCompact : undefined]}>
               {contentBody}
             </View>
           </View>
@@ -493,6 +494,10 @@ const styles = StyleSheet.create({
   },
   contentWide: {
     maxWidth: 1640,
+  },
+  contentDenseScrollable: {
+    overflow: 'visible',
+    paddingBottom: AppTheme.spacing.lg,
   },
   contentDense: {
     flex: 1,

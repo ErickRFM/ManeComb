@@ -50,9 +50,9 @@ export function RouteEditorDetails({
   return (
     <View style={styles.editorDetails}>
       <Text style={styles.editorTitle}>Detalles de la ruta</Text>
-      <TextInput value={routeName} onChangeText={onRouteNameChange} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
-      <TextInput value={originLabel} onChangeText={onOriginLabelChange} placeholder="Origen" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
-      <TextInput value={destinationLabel} onChangeText={onDestinationLabelChange} placeholder="Destino" placeholderTextColor={palette.muted} style={[styles.input, { borderColor: palette.lineStrong, color: palette.text }]} />
+      <TextInput accessibilityLabel="Nombre de la ruta" value={routeName} onChangeText={onRouteNameChange} placeholder="Nombre de la ruta" placeholderTextColor={palette.muted} style={[styles.input, styles.editorInput, { borderColor: palette.lineStrong, color: palette.text }]} />
+      <TextInput accessibilityLabel="Origen de la ruta" value={originLabel} onChangeText={onOriginLabelChange} placeholder="Origen" placeholderTextColor={palette.muted} style={[styles.input, styles.editorInput, { borderColor: palette.lineStrong, color: palette.text }]} />
+      <TextInput accessibilityLabel="Destino de la ruta" value={destinationLabel} onChangeText={onDestinationLabelChange} placeholder="Destino" placeholderTextColor={palette.muted} style={[styles.input, styles.editorInput, { borderColor: palette.lineStrong, color: palette.text }]} />
       <View style={styles.metricsRow}>
         <Text style={styles.metricText}>{(editorMetrics.distanceMeters / 1000).toFixed(1)} km</Text>
         <Text style={styles.metricText}>{Math.round(editorMetrics.durationSeconds / 60)} min</Text>
