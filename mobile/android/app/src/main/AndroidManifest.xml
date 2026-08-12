@@ -84,6 +84,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="https" android:host="manecomb.com" android:path="/reset-password"/>
+        <data android:scheme="https" android:host="www.manecomb.com" android:path="/reset-password"/>
       </intent-filter>
     </activity>
   </application>
