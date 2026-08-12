@@ -8,7 +8,7 @@
     "build": "npm run verify:contracts && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:routes-empty-state && npm run verify:portal-communication",
+    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:routes-empty-state && npm run verify:portal-realtime && npm run verify:portal-communication",
     "verify:mobile-layout": "node scripts/verify-mobile-sales-layout.cjs",
     "verify:sales-ux": "node scripts/verify-sales-ux.cjs",
     "verify:sales-actions": "node scripts/verify-sales-actions.cjs",
@@ -20,6 +20,7 @@
     "verify:portal-load-policy": "node scripts/verify-portal-load-policy.mjs",
     "verify:plan-onboarding": "node scripts/verify-plan-onboarding-gate.cjs",
     "verify:routes-empty-state": "node scripts/verify-routes-empty-state.mjs",
+    "verify:portal-realtime": "node scripts/verify-portal-realtime-recovery.mjs",
     "verify:portal-communication": "node scripts/verify-portal-communication.mjs"
   },
   "dependencies": {
