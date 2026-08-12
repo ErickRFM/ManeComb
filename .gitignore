@@ -6,6 +6,19 @@
 **/.env.local
 **/.env.*.local
 
+# Private credentials and signing material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+**/service-account*.json
+**/service_account*.json
+**/credentials*.json
+**/firebase-adminsdk*.json
+
 # Local Firebase project configuration
 mobile/android/app/google-services.json
 
@@ -29,8 +42,6 @@ backend/uploads/
 *.tsbuildinfo
 *.apk
 *.aab
-*.jks
-*.keystore
 
 # Temporary RC worktrees and generated staging directories
 .tmp-*/
