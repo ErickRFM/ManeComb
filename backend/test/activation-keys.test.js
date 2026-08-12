@@ -261,7 +261,11 @@ async function runActivationKeyFlow() {
     });
 
     assert.equal(ownerAsDriver.status, 409);
-    assert.equal(ownerAsDriver.payload.message, "No se pudo activar la cuenta. Intenta nuevamente.");
+    assert.equal(ownerAsDriver.payload.code, "activation_account_role_conflict");
+    assert.equal(
+      ownerAsDriver.payload.message,
+      "Este correo ya está registrado como cuenta administrativa. Para el conductor usa otro correo o número."
+    );
 
     const firstDriver = await requestJson(`${context.url}/driver/activation/register`, {
       body: JSON.stringify({

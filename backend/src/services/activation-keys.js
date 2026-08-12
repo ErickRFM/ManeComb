@@ -5,6 +5,28 @@ const { buildSubscription, pickActiveOrder } = require("./portal-account");
 
 const DEFAULT_KEY_TTL_DAYS = 14;
 
+const ACTIVATION_ERROR_CODES = Object.freeze({
+  accountExists: "activation_account_exists",
+  accountRoleConflict: "activation_account_role_conflict",
+  accountSuspended: "activation_account_suspended",
+  accountTenantConflict: "activation_account_tenant_conflict",
+  accountVehicleConflict: "activation_account_vehicle_conflict",
+  activationConflict: "activation_conflict",
+  activationFailed: "activation_failed",
+  identityInvalid: "activation_identity_invalid",
+  keyExpired: "activation_key_expired",
+  keyInvalidState: "activation_key_invalid_state",
+  keyNotFound: "activation_key_not_found",
+  keyRevoked: "activation_key_revoked",
+  keyUsed: "activation_key_used",
+  passwordInvalid: "activation_password_invalid",
+  planInactive: "activation_plan_inactive",
+  planLimitReached: "activation_plan_limit_reached",
+  unitNotFound: "activation_unit_not_found",
+  unitRequired: "activation_unit_required",
+  unitTaken: "activation_unit_taken"
+});
+
 const ACTIVATION_ERRORS = {
   keyNotFound: "La key de activación no existe.",
   keyUsed: "Esta key ya fue usada.",
@@ -13,16 +35,23 @@ const ACTIVATION_ERRORS = {
   planInactive: "El plan de la empresa no está activo.",
   limitReached: "Ya se alcanzó el límite de conductores del plan.",
   activationFailed: "No se pudo activar la cuenta. Intenta nuevamente.",
+  accountExists: "Este correo ya tiene una cuenta de conductor. Inicia sesión o recupera tu contraseña.",
+  accountRoleConflict: "Este correo ya está registrado como cuenta administrativa. Para el conductor usa otro correo o número.",
+  accountSuspended: "Esta cuenta de conductor está suspendida. Pide al administrador que la reactive.",
+  accountTenantConflict: "Este correo ya pertenece a otra cuenta ManeComb. Usa otro correo o inicia sesión.",
+  accountVehicleConflict: "La cuenta existente tiene una asignación incompatible. Pide al administrador revisar al conductor.",
+  infrastructureUnavailable: "No fue posible completar la activación. Intenta nuevamente.",
   unitNotFound: "La unidad seleccionada no está disponible.",
   unitTaken: "Esta unidad ya no está disponible, elige otra.",
   unitRequired: "Selecciona una unidad disponible para continuar."
 };
 
 class ActivationKeyError extends Error {
-  constructor(message, statusCode = 400) {
+  constructor(message, statusCode = 400, code = ACTIVATION_ERROR_CODES.activationFailed) {
     super(message);
     this.name = "ActivationKeyError";
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -127,7 +156,11 @@ function getPlanLimit(order) {
 
 function assertPlanCanActivate(order) {
   if (!buildSubscription(order).isActive) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.planInactive, 403);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.planInactive,
+      403,
+      ACTIVATION_ERROR_CODES.planInactive
+    );
   }
 }
 
@@ -138,7 +171,11 @@ function assertActivationKeyMatchesOrder(activationKey, order) {
   const orderPlanId = String(order?.planId || "").trim();
 
   if (!keyCompanyId || !orderCompanyId || keyCompanyId !== orderCompanyId || !keyPlanId || keyPlanId !== orderPlanId) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.planInactive, 403);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.planInactive,
+      403,
+      ACTIVATION_ERROR_CODES.planInactive
+    );
   }
 }
 
@@ -258,7 +295,11 @@ async function generateActivationKeyForAdmin(store, user, options = {}) {
   assertPlanCanActivate(context.order);
 
   if (summary.availableSlots <= 0) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.limitReached, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.limitReached,
+      409,
+      ACTIVATION_ERROR_CODES.planLimitReached
+    );
   }
 
   let activationKey = null;
@@ -280,7 +321,11 @@ async function generateActivationKeyForAdmin(store, user, options = {}) {
         : { capacityExceeded: false, activationKey: await store.createActivationKey(payload) };
 
       if (claimed.capacityExceeded) {
-        throw new ActivationKeyError(ACTIVATION_ERRORS.limitReached, 409);
+        throw new ActivationKeyError(
+          ACTIVATION_ERRORS.limitReached,
+          409,
+          ACTIVATION_ERROR_CODES.planLimitReached
+        );
       }
       activationKey = claimed.activationKey;
     } catch (error) {
@@ -419,25 +464,45 @@ async function revokeActivationKeyForAdmin(store, user, activationKeyId) {
 
 function assertActivationKeyCanBeUsed(activationKey) {
   if (!activationKey) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.keyNotFound, 404);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.keyNotFound,
+      404,
+      ACTIVATION_ERROR_CODES.keyNotFound
+    );
   }
 
   const status = getEffectiveKeyStatus(activationKey);
 
   if (status === "used") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.keyUsed, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.keyUsed,
+      409,
+      ACTIVATION_ERROR_CODES.keyUsed
+    );
   }
 
   if (status === "revoked") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.keyRevoked, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.keyRevoked,
+      409,
+      ACTIVATION_ERROR_CODES.keyRevoked
+    );
   }
 
   if (status === "expired") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.keyExpired, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.keyExpired,
+      409,
+      ACTIVATION_ERROR_CODES.keyExpired
+    );
   }
 
   if (status !== "available") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 400);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.activationFailed,
+      400,
+      ACTIVATION_ERROR_CODES.keyInvalidState
+    );
   }
 }
 
@@ -472,17 +537,29 @@ async function claimSelectedUnit(store, payload, companyId, driverId) {
   const vehicleId = String(payload?.unit?.vehicleId || "").trim();
 
   if (!vehicleId) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.unitRequired, 400);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.unitRequired,
+      400,
+      ACTIVATION_ERROR_CODES.unitRequired
+    );
   }
 
   const vehicle = await store.getVehicleById(vehicleId);
 
   if (!vehicle || String(vehicle.organizationId || "").trim() !== String(companyId || "").trim()) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.unitNotFound, 404);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.unitNotFound,
+      404,
+      ACTIVATION_ERROR_CODES.unitNotFound
+    );
   }
 
   if (typeof store.claimVehicleForDriver !== "function") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 500);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.infrastructureUnavailable,
+      500,
+      ACTIVATION_ERROR_CODES.activationFailed
+    );
   }
 
   // Update condicional: solo tiene efecto si la unidad sigue libre. Devuelve
@@ -493,7 +570,11 @@ async function claimSelectedUnit(store, payload, companyId, driverId) {
   });
 
   if (!claimed) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.unitTaken, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.unitTaken,
+      409,
+      ACTIVATION_ERROR_CODES.unitTaken
+    );
   }
 
   return claimed;
@@ -512,7 +593,11 @@ async function validateDriverActivationKey(store, keyValue) {
   assertPlanCanActivate(context.order);
 
   if (summary.remainingDriverSlots <= 0) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.limitReached, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.limitReached,
+      409,
+      ACTIVATION_ERROR_CODES.planLimitReached
+    );
   }
 
   return {
@@ -537,13 +622,17 @@ function normalizeDriverIdentity(payload) {
   const password = String(payload?.password || "").trim();
 
   if (!name || !email || !password) {
-    throw new ActivationKeyError("Nombre, correo o teléfono, contraseña y key son obligatorios", 400);
+    throw new ActivationKeyError(
+      "Nombre, correo o teléfono, contraseña y key son obligatorios",
+      400,
+      ACTIVATION_ERROR_CODES.identityInvalid
+    );
   }
 
   const passwordError = validatePasswordStrength(password);
 
   if (passwordError) {
-    throw new ActivationKeyError(passwordError, 400);
+    throw new ActivationKeyError(passwordError, 400, ACTIVATION_ERROR_CODES.passwordInvalid);
   }
 
   return {
@@ -552,6 +641,26 @@ function normalizeDriverIdentity(payload) {
     phone: rawPhone || phoneDigits || "Pendiente",
     password
   };
+}
+
+function normalizeRegistrationWriteError(error) {
+  if (error instanceof ActivationKeyError) {
+    return error;
+  }
+
+  const duplicateEmail =
+    (error?.code === 11000 && (error?.keyPattern?.email || error?.keyValue?.email)) ||
+    /correo ya existe|duplicate key.*email|email.*duplicate/i.test(String(error?.message || ""));
+
+  if (duplicateEmail) {
+    return new ActivationKeyError(
+      ACTIVATION_ERRORS.accountExists,
+      409,
+      ACTIVATION_ERROR_CODES.accountExists
+    );
+  }
+
+  return error;
 }
 
 async function updateStarterFleet(store, order, user, vehicle) {
@@ -597,32 +706,69 @@ async function registerDriverWithActivationKey(store, payload = {}) {
   assertPlanCanActivate(context.order);
 
   if (summary.remainingDriverSlots <= 0) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.limitReached, 409);
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.limitReached,
+      409,
+      ACTIVATION_ERROR_CODES.planLimitReached
+    );
   }
 
   const identity = normalizeDriverIdentity(payload);
   const existingUser = await store.findUserByEmail(identity.email);
 
-  if (existingUser?.organizationId && existingUser.organizationId !== context.companyId) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
+  if (existingUser) {
+    const existingOrganizationId = String(existingUser.organizationId || "").trim();
+
+    if (existingOrganizationId !== context.companyId) {
+      throw new ActivationKeyError(
+        ACTIVATION_ERRORS.accountTenantConflict,
+        409,
+        ACTIVATION_ERROR_CODES.accountTenantConflict
+      );
+    }
+
+    if (String(existingUser.role || "") !== "driver") {
+      throw new ActivationKeyError(
+        ACTIVATION_ERRORS.accountRoleConflict,
+        409,
+        ACTIVATION_ERROR_CODES.accountRoleConflict
+      );
+    }
+
+    if (String(existingUser.userStatus || "active") === "suspended") {
+      throw new ActivationKeyError(
+        ACTIVATION_ERRORS.accountSuspended,
+        409,
+        ACTIVATION_ERROR_CODES.accountSuspended
+      );
+    }
+
+    if (existingUser.vehicleId) {
+      const existingVehicle = await store.getVehicleById(existingUser.vehicleId);
+      if (
+        !existingVehicle ||
+        String(existingVehicle.organizationId || "").trim() !== context.companyId ||
+        existingVehicle.driverId !== existingUser.id
+      ) {
+        throw new ActivationKeyError(
+          ACTIVATION_ERRORS.accountVehicleConflict,
+          409,
+          ACTIVATION_ERROR_CODES.accountVehicleConflict
+        );
+      }
+    }
+
+    // El registro por key crea una identidad nueva. Reactivar, reasignar o
+    // cambiar credenciales de una cuenta existente pertenece al lifecycle del
+    // administrador, nunca a este endpoint anonimo.
+    throw new ActivationKeyError(
+      ACTIVATION_ERRORS.accountExists,
+      409,
+      ACTIVATION_ERROR_CODES.accountExists
+    );
   }
 
-  if (existingUser && String(existingUser.role || "") !== "driver") {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
-  }
-
-  const existingVehicle = existingUser?.vehicleId
-    ? await store.getVehicleById(existingUser.vehicleId)
-    : null;
-
-  if (
-    existingUser?.vehicleId &&
-    (!existingVehicle || String(existingVehicle.organizationId || "").trim() !== context.companyId)
-  ) {
-    throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
-  }
-
-  const driverId = existingUser?.id || randomUUID();
+  const driverId = randomUUID();
   // La unidad se reclama de forma atomica ANTES de consumir la key: si dos
   // conductores eligen la misma unidad, solo uno gana y el perdedor conserva
   // su key intacta para volver a intentar con otra unidad.
@@ -638,7 +784,11 @@ async function registerDriverWithActivationKey(store, payload = {}) {
     if (!claimedKey) {
       const latestKey = await store.findActivationKeyByKey(normalizedKey);
       assertActivationKeyCanBeUsed(latestKey);
-      throw new ActivationKeyError(ACTIVATION_ERRORS.activationFailed, 409);
+      throw new ActivationKeyError(
+        ACTIVATION_ERRORS.activationFailed,
+        409,
+        ACTIVATION_ERROR_CODES.activationConflict
+      );
     }
 
     const nowIso = new Date().toISOString();
@@ -654,13 +804,11 @@ async function registerDriverWithActivationKey(store, payload = {}) {
       organizationId: context.companyId,
       userStatus: "active",
       status: "offline",
-      vehicleId: vehicle?.id || existingUser?.vehicleId || null,
+      vehicleId: vehicle?.id || null,
       activationKeyId: activationKey.id,
       activatedAt: nowIso
     };
-    const user = existingUser
-      ? await store.updateUser(existingUser.id, userPayload)
-      : await store.createUser(userPayload, "driver");
+    const user = await store.createUser(userPayload, "driver");
     userPersisted = true;
 
     try {
@@ -734,11 +882,12 @@ async function registerDriverWithActivationKey(store, payload = {}) {
     }
 
     await Promise.allSettled(compensations);
-    throw error;
+    throw normalizeRegistrationWriteError(error);
   }
 }
 
 module.exports = {
+  ACTIVATION_ERROR_CODES,
   ACTIVATION_ERRORS,
   ActivationKeyError,
   buildActivationSummary,

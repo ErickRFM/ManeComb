@@ -43,6 +43,16 @@ describe('Mobile startup stability contract', () => {
     }
   });
 
+  it('never automatically replays driver activation after a committed account write', () => {
+    const activation = section(
+      client,
+      'export async function registerDriverActivationRequest',
+      'export async function updateProfileRequest'
+    );
+    expect(activation).toContain('_skipNetworkRetry: true');
+    expect(activation).not.toContain('_allowRetry: true');
+  });
+
   it('preflights the backend before an interactive login without replaying credentials', () => {
     const loginFlow = section(authScreen, "if (mode === 'login')", "if (!driverActivationKey.trim()");
     const readinessIndex = loginFlow.indexOf('await ensureLoginBackendReady()');

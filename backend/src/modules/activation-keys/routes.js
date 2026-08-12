@@ -22,6 +22,7 @@ const { createSessionForRequest } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
 const { sendWelcomeEmail } = require("../../services/domain-email-events");
+const logger = require("../../services/logger");
 
 const adminActivationKeyRoutes = Router();
 const driverActivationRoutes = Router();
@@ -39,13 +40,25 @@ function handleActivationError(res, error) {
   if (error instanceof ActivationKeyError) {
     return res.status(error.statusCode || 400).json({
       ok: false,
+      code: error.code,
       message: error.message
     });
   }
 
-  return res.status(400).json({
+  logger.error({
+    action: "ActivationRequest",
+    module: "ActivationKeys",
+    status: "failed",
+    message: "Fallo inesperado durante la activación",
+    metadata: {
+      errorName: String(error?.name || "Error").slice(0, 80)
+    }
+  });
+
+  return res.status(500).json({
     ok: false,
-    message: error.message || "No se pudo activar la cuenta. Intenta nuevamente."
+    code: "activation_unavailable",
+    message: "No fue posible completar la activación. Intenta nuevamente."
   });
 }
 
