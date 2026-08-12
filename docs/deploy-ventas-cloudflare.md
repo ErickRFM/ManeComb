@@ -1,6 +1,6 @@
 # Ventas/Portal en Cloudflare Pages
 
-Ultima revision: 2026-08-05.
+Ultima revision: 2026-08-12.
 
 La aplicacion estatica vive en `ventas/`. No usa el build de Mobile ni debe compartir variables entre Preview y Produccion.
 
@@ -74,7 +74,11 @@ En Render, `CLIENT_ORIGIN` debe incluir exactamente los clientes autorizados del
 CLIENT_ORIGIN=https://manecomb.com,https://www.manecomb.com,https://manecomb1.pages.dev,https://*.manecomb1.pages.dev
 ```
 
-El patrón `https://*.manecomb1.pages.dev` autoriza previews del proyecto, no cualquier dominio de Internet. No usar `CLIENT_ORIGIN=*` en Produccion.
+CORS conserva el patrón `https://*.manecomb1.pages.dev` para que el ambiente Preview/Sandbox pueda responder a previews controlados del proyecto. Sin embargo, el perímetro adicional de **producción** es más estricto: solo acepta los dominios canónicos y el deployment exacto `https://manecomb1.pages.dev`; un preview aleatorio como `https://branch.manecomb1.pages.dev` no puede consumir el backend productivo.
+
+Mientras `manecomb1.pages.dev` siga siendo la superficie productiva usada por usuarios, debe permanecer en el `production-origin-guard`. Cuando `manecomb.com` / `www.manecomb.com` sustituyan completamente ese deployment, se puede retirar el host `pages.dev` en un cambio coordinado con Cloudflare y Render.
+
+No usar `CLIENT_ORIGIN=*` en Produccion.
 
 ## Validacion local
 
