@@ -72,6 +72,14 @@ export async function sendCommunicationTextMessage(
   ).data;
 }
 
+function getVoiceFileExtension(mimeType: string) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('mp4') || normalized.includes('m4a')) return 'm4a';
+  if (normalized.includes('ogg')) return 'ogg';
+  if (normalized.includes('wav')) return 'wav';
+  return 'webm';
+}
+
 export async function sendCommunicationVoiceMessage(
   conversationId: string,
   file: Blob,
@@ -79,15 +87,14 @@ export async function sendCommunicationVoiceMessage(
   caption = ''
 ) {
   const formData = new FormData();
-  formData.append('file', file, `voice-${Date.now()}.webm`);
+  const extension = getVoiceFileExtension(file.type);
+  formData.append('file', file, `voice-${Date.now()}.${extension}`);
   formData.append('durationSeconds', String(Math.max(1, Math.round(durationSeconds))));
   if (caption.trim()) formData.append('caption', caption.trim());
 
   return (
     await unwrapData<CommunicationMessage>(
-      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/audio`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/audio`, formData)
     )
   ).data;
 }
@@ -103,9 +110,7 @@ export async function sendCommunicationMediaMessage(
 
   return (
     await unwrapData<CommunicationMessage>(
-      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/media`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/media`, formData)
     )
   ).data;
 }
