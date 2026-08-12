@@ -378,7 +378,7 @@ test.describe('PHASE-1 — matriz local de canal autenticado', () => {
 });
 
 test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
-  test.beforeEach(async ({}, testInfo) => {
+  test.beforeEach(() => {
     test.skip(Boolean(String(process.env.CERT_BASE_URL || '').trim()), 'La cuenta nueva se certifica con contratos locales controlados.');
   });
 
