@@ -47,7 +47,7 @@ export async function getCommunicationMessages(
   conversationId: string,
   options: { before?: string | null; limit?: number } = {}
 ) {
-  const response = await unwrapData<CommunicationMessage[]>(
+  return await unwrapData<CommunicationMessage[]>(
     apiClient.get(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
       params: {
         limit: Math.max(1, Math.min(100, Number(options.limit) || 50)),
@@ -55,7 +55,6 @@ export async function getCommunicationMessages(
       },
     })
   );
-  return response;
 }
 
 export async function sendCommunicationTextMessage(
@@ -69,10 +68,7 @@ export async function sendCommunicationTextMessage(
 ) {
   return (
     await unwrapData<CommunicationMessage>(
-      apiClient.post(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/messages`,
-        payload
-      )
+      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, payload)
     )
   ).data;
 }
@@ -90,11 +86,9 @@ export async function sendCommunicationVoiceMessage(
 
   return (
     await unwrapData<CommunicationMessage>(
-      apiClient.post(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/audio`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
-      )
+      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/audio`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
     )
   ).data;
 }
@@ -110,11 +104,9 @@ export async function sendCommunicationMediaMessage(
 
   return (
     await unwrapData<CommunicationMessage>(
-      apiClient.post(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/media`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
-      )
+      apiClient.post(`/chat/conversations/${encodeURIComponent(conversationId)}/media`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
     )
   ).data;
 }
@@ -158,8 +150,17 @@ export async function putPortalE2eeBackup(payload: {
   label?: string;
   restoredAt?: string;
 }) {
+  return (await unwrapData<PortalE2eeBackupRecord>(apiClient.put('/auth/e2ee-backup', payload))).data;
+}
+
+export async function setPortalE2eePublicKey(publicKey: string) {
   return (
-    await unwrapData<PortalE2eeBackupRecord>(apiClient.put('/auth/e2ee-backup', payload))
+    await unwrapData<Record<string, unknown>>(
+      apiClient.patch('/users/me', {
+        e2eePublicKey: publicKey,
+        e2eeKeyRotatedAt: new Date().toISOString(),
+      })
+    )
   ).data;
 }
 
