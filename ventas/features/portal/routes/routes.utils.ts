@@ -18,8 +18,8 @@ export function getDriverName(vehicle: Vehicle) {
   return vehicle.driver?.name || vehicle.driverName || 'Sin conductor';
 }
 
-export function getRouteLabel(vehicle: Vehicle) {
-  const assignment = vehicle.assignedRoute;
+export function getRouteLabel(vehicle?: Vehicle | null) {
+  const assignment = vehicle?.assignedRoute;
 
   if (!assignment) {
     return 'Sin ruta asignada';
