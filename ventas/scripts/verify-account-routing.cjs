@@ -96,8 +96,13 @@ if (app.includes('const protectedPortalRoutes')) {
   throw new Error('Regresó una segunda tabla de permisos dentro de App.tsx.');
 }
 
-if (!portalLayout.includes('PORTAL_NAV_SECTIONS.map')) {
-  throw new Error('El menú desktop/mobile no consume el mismo registro de navegación.');
+if (!portalLayout.includes('getPortalNavSectionsBySubscription(\n    PORTAL_NAV_SECTIONS,')) {
+  throw new Error('El menú debe proyectarse desde el único registro PORTAL_NAV_SECTIONS.');
+}
+
+const projectedNavUses = portalLayout.match(/visibleNavSections\.map/g) || [];
+if (projectedNavUses.length !== 2) {
+  throw new Error('Los menús desktop y mobile deben consumir la misma proyección de navegación.');
 }
 
 if (portalLayout.includes('const navSections')) {
@@ -290,7 +295,7 @@ for (const contract of trialPaymentUiContracts) {
 
 const operationalGateContracts = [
   'function OperationalPortalGate',
-  'resolvedSubscription?.isActive',
+  'isPortalRouteAllowedBySubscription(pathname, resolvedSubscription, true)',
   '<Redirect href="/portal/plan" />',
 ];
 
