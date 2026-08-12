@@ -1,4 +1,5 @@
 const comm = require("../../../communication-service/src");
+const logger = require("./communication.logger");
 
 module.exports = {
   configure: comm.configure,
@@ -22,7 +23,7 @@ module.exports = {
   metrics: comm.metrics,
   events: comm.events,
   retry: comm.retry,
-  logger: comm.logger,
+  logger,
   security: comm.security,
   deliveryResults: comm.deliveryResults,
   deliveryEngine: comm.deliveryEngine

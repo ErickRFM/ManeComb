@@ -43,6 +43,9 @@ jobs:
       - name: Validate audit gates and baseline freshness
         run: node scripts/validate-system-audit-gates.mjs
 
+      - name: Validate repository integration hygiene
+        run: node scripts/validate-repo-integration-hygiene.mjs
+
       - name: Test physical merge policy
         run: node --test scripts/validate-pr-physical-gate.test.mjs
 
