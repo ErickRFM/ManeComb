@@ -8,8 +8,7 @@ import { API_ORIGIN, apiClient } from '@/src/lib/api';
 
 export type CommunicationMessagePageInfo = {
   hasMore?: boolean;
-  nextBefore?: string | null;
-  oldestMessageId?: string | null;
+  nextCursor?: string | null;
 };
 
 async function unwrapData<T>(request: Promise<{ data: { data?: T; pageInfo?: CommunicationMessagePageInfo } | T }>) {
