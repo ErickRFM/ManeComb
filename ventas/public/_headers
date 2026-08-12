@@ -17,6 +17,44 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Las rutas de autenticacion, recuperacion, checkout y Portal deben poder
+# rastrearse para que los buscadores reciban y respeten esta directiva.
+/login
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/registro
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/reset-password
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/acceso-operativo
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/login
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/registro
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/recuperar-contrasena
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/recuperacion-enviada
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/contrasena-actualizada
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/ventas/pago
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/portal
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/portal/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
 https://manecomb1.pages.dev/*
   X-Robots-Tag: noindex, nofollow, noarchive
 
