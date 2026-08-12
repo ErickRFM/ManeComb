@@ -4,6 +4,7 @@ import './portal-polish.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/error-boundary';
+import { SingleBrowserAccountGuard } from './session/single-browser-account-guard';
 
 const root = document.getElementById('root');
 
@@ -13,6 +14,8 @@ if (!root) {
 
 createRoot(root).render(
   <ErrorBoundary>
-    <App />
+    <SingleBrowserAccountGuard>
+      <App />
+    </SingleBrowserAccountGuard>
   </ErrorBoundary>
 );
