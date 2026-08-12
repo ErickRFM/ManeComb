@@ -24,7 +24,7 @@ export type PortalCommunicationMessage = CommunicationMessage & {
   clientMessageId?: string;
 };
 
-type MessageBucket = {
+export type PortalCommunicationMessageBucket = {
   items: PortalCommunicationMessage[];
   pageInfo?: CommunicationMessagePageInfo;
   loaded: boolean;
@@ -32,9 +32,10 @@ type MessageBucket = {
 };
 
 type CommunicationState = {
+  currentUserId: string | null;
   conversations: CommunicationConversation[];
   contacts: CommunicationContact[];
-  messagesByConversation: Record<string, MessageBucket>;
+  messagesByConversation: Record<string, PortalCommunicationMessageBucket>;
   selectedConversationId: string | null;
   onlineUserIds: string[];
   typingByConversation: Record<string, string[]>;
@@ -44,24 +45,40 @@ type CommunicationState = {
   _socket: Socket | null;
   _socketCleanup: (() => void) | null;
 
-  initialize: () => Promise<void>;
+  initialize: (currentUserId: string) => Promise<void>;
   reset: () => void;
   bindSocket: (socket: Socket | null) => void;
   selectConversation: (conversationId: string | null) => Promise<void>;
   openDirect: (targetUserId: string) => Promise<string | null>;
   loadMore: (conversationId: string) => Promise<void>;
+  refreshDirectory: () => Promise<void>;
   sendText: (
     conversationId: string,
     text: string,
     encrypted?: { e2eeEnvelope: DirectMessageEnvelope; textPreview?: string } | null
   ) => Promise<{ ok: boolean; message?: string }>;
-  sendMedia: (conversationId: string, file: File, caption?: string) => Promise<{ ok: boolean; message?: string }>;
-  sendVoice: (conversationId: string, blob: Blob, durationSeconds: number) => Promise<{ ok: boolean; message?: string }>;
-  retryText: (conversationId: string, clientMessageId: string) => Promise<{ ok: boolean; message?: string }>;
+  sendMedia: (
+    conversationId: string,
+    file: File,
+    caption?: string
+  ) => Promise<{ ok: boolean; message?: string }>;
+  sendVoice: (
+    conversationId: string,
+    blob: Blob,
+    durationSeconds: number
+  ) => Promise<{ ok: boolean; message?: string }>;
+  retryText: (
+    conversationId: string,
+    clientMessageId: string
+  ) => Promise<{ ok: boolean; message?: string }>;
   setTyping: (conversationId: string, typing: boolean) => void;
 };
 
-const emptyBucket = (): MessageBucket => ({ items: [], loaded: false, loading: false });
+const emptyBucket = (): PortalCommunicationMessageBucket => ({
+  items: [],
+  loaded: false,
+  loading: false,
+});
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
@@ -92,13 +109,26 @@ function upsertMessage(
   const existingIndex = items.findIndex((entry) => entry.id === message.id);
   const index = existingIndex >= 0 ? existingIndex : optimisticIndex;
   if (index < 0) return sortMessages([...items, message]);
+
   const next = [...items];
-  next[index] = { ...next[index], ...message, localStatus: message.localStatus || message.status || 'sent', localError: null };
+  next[index] = {
+    ...next[index],
+    ...message,
+    localStatus: message.localStatus || message.status || 'sent',
+    localError: null,
+  };
   return sortMessages(next);
 }
 
-function getConversationIdFromMessage(message: CommunicationMessage) {
-  return String(message.conversationId || '').trim();
+function normalizeIncomingMessage(payload: unknown): CommunicationMessage | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const wrapper = payload as { message?: CommunicationMessage; conversationId?: string };
+  const message = wrapper.message || (payload as CommunicationMessage);
+  if (!message?.id) return null;
+  if (!message.conversationId && wrapper.conversationId) {
+    return { ...message, conversationId: wrapper.conversationId };
+  }
+  return message;
 }
 
 function humanizeError(error: unknown, fallback: string) {
@@ -121,7 +151,14 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
             ...bucket,
             items: bucket.items.map((message) =>
               message.id === messageId
-                ? { ...message, status: status === 'sending' ? message.status : status as CommunicationMessage['status'], localStatus: status }
+                ? {
+                    ...message,
+                    status:
+                      status === 'sending'
+                        ? message.status
+                        : (status as CommunicationMessage['status']),
+                    localStatus: status,
+                  }
                 : message
             ),
           },
@@ -139,8 +176,16 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
 
   const acknowledgeMessage = (message: CommunicationMessage, asRead = false) => {
     const socket = get()._socket;
-    const conversationId = getConversationIdFromMessage(message);
-    if (!socket || !conversationId || !message.id) return;
+    const conversationId = String(message.conversationId || '').trim();
+    const currentUserId = get().currentUserId;
+    if (
+      !socket ||
+      !conversationId ||
+      !message.id ||
+      !currentUserId ||
+      message.senderId === currentUserId
+    ) return;
+
     socket.emit('chat:delivered', { conversationId, messageId: message.id });
     if (asRead) socket.emit('chat:read', { conversationId, messageId: message.id });
   };
@@ -155,12 +200,16 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
   };
 
   const bindSocket = (socket: Socket | null) => {
-    const current = get()._socket;
-    if (current === socket) return;
+    if (get()._socket === socket) return;
     get()._socketCleanup?.();
 
     if (!socket) {
-      set({ _socket: null, _socketCleanup: null, onlineUserIds: [], typingByConversation: {} });
+      set({
+        _socket: null,
+        _socketCleanup: null,
+        onlineUserIds: [],
+        typingByConversation: {},
+      });
       return;
     }
 
@@ -178,12 +227,15 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
             : state.onlineUserIds.filter((entry) => entry !== userId),
       }));
     };
-    const onMessage = (message: CommunicationMessage) => {
-      const conversationId = getConversationIdFromMessage(message);
+    const onMessage = (payload: unknown) => {
+      const message = normalizeIncomingMessage(payload);
+      if (!message) return;
+      const conversationId = String(message.conversationId || '').trim();
       if (!conversationId) {
         void refreshDirectory().catch(() => undefined);
         return;
       }
+
       set((state) => {
         const bucket = state.messagesByConversation[conversationId] || emptyBucket();
         return {
@@ -191,13 +243,15 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
             ...state.messagesByConversation,
             [conversationId]: {
               ...bucket,
-              items: upsertMessage(bucket.items, { ...message, localStatus: message.status || 'sent' }),
+              items: upsertMessage(bucket.items, {
+                ...message,
+                localStatus: message.status || 'sent',
+              }),
             },
           },
         };
       });
-      const selected = get().selectedConversationId === conversationId;
-      acknowledgeMessage(message, selected);
+      acknowledgeMessage(message, get().selectedConversationId === conversationId);
       void refreshDirectory().catch(() => undefined);
     };
     const onDelivered = (payload: { conversationId?: string; messageId?: string } = {}) => {
@@ -211,7 +265,7 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
       }
     };
     const onTyping = (payload: { conversationId?: string; userId?: string } = {}) => {
-      if (!payload.conversationId || !payload.userId) return;
+      if (!payload.conversationId || !payload.userId || payload.userId === get().currentUserId) return;
       set((state) => ({
         typingByConversation: {
           ...state.typingByConversation,
@@ -233,6 +287,9 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
         },
       }));
     };
+    const onDirectoryChanged = () => {
+      void refreshDirectory().catch(() => undefined);
+    };
 
     const handlers: Array<[string, (...args: any[]) => void]> = [
       ['connect', onConnect],
@@ -243,7 +300,12 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
       ['chat:read', onRead],
       ['chat:typing', onTyping],
       ['chat:typing:stop', onTypingStop],
+      ['user:updated', onDirectoryChanged],
+      ['user:deleted', onDirectoryChanged],
+      ['driver:offboarded', onDirectoryChanged],
+      ['driver:reactivated', onDirectoryChanged],
     ];
+
     handlers.forEach(([event, handler]) => socket.on(event, handler));
     const cleanup = () => handlers.forEach(([event, handler]) => socket.off(event, handler));
     set({ _socket: socket, _socketCleanup: cleanup });
@@ -253,12 +315,14 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
   const loadConversation = async (conversationId: string, before?: string | null) => {
     const current = get().messagesByConversation[conversationId] || emptyBucket();
     if (current.loading) return;
+
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
         [conversationId]: { ...current, loading: true },
       },
     }));
+
     try {
       const response = await getCommunicationMessages(conversationId, { before, limit: 50 });
       set((state) => {
@@ -278,8 +342,8 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
           },
         };
       });
-      const socket = get()._socket;
-      socket?.emit('conversation:join', conversationId);
+
+      get()._socket?.emit('conversation:join', conversationId);
       if (get().selectedConversationId === conversationId) {
         response.data.forEach((message) => acknowledgeMessage(message, true));
       }
@@ -309,11 +373,14 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
       return { ok: false, message: 'Escribe un mensaje.' };
     }
 
+    const currentUserId = get().currentUserId;
+    if (!currentUserId) return { ok: false, message: 'La sesión de Comunicación no está lista.' };
+
     if (!reuseOptimistic) {
       const optimistic: PortalCommunicationMessage = {
         id: `local:${clientMessageId}`,
         clientMessageId,
-        senderId: '',
+        senderId: currentUserId,
         conversationId,
         kind: 'text',
         text: encrypted ? '' : trimmed,
@@ -323,6 +390,7 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
         createdAt: new Date().toISOString(),
         localStatus: 'sending',
       };
+
       set((state) => {
         const bucket = state.messagesByConversation[conversationId] || emptyBucket();
         return {
@@ -362,6 +430,7 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
         clientMessageId,
         e2eeEnvelope: encrypted?.e2eeEnvelope || null,
       });
+
       set((state) => {
         const bucket = state.messagesByConversation[conversationId] || emptyBucket();
         return {
@@ -404,6 +473,7 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
   };
 
   return {
+    currentUserId: null,
     conversations: [],
     contacts: [],
     messagesByConversation: {},
@@ -416,9 +486,10 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
     _socket: null,
     _socketCleanup: null,
 
-    initialize: async () => {
-      if (get().loading) return;
-      set({ loading: true, error: null });
+    initialize: async (currentUserId) => {
+      if (!currentUserId) return;
+      if (get().currentUserId && get().currentUserId !== currentUserId) get().reset();
+      set({ currentUserId, loading: true, error: null });
       try {
         await refreshDirectory();
       } catch (error) {
@@ -431,6 +502,7 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
     reset: () => {
       get()._socketCleanup?.();
       set({
+        currentUserId: null,
         conversations: [],
         contacts: [],
         messagesByConversation: {},
@@ -446,15 +518,19 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
     },
 
     bindSocket,
+    refreshDirectory,
 
     selectConversation: async (conversationId) => {
       set({ selectedConversationId: conversationId, error: null });
       if (!conversationId) return;
-      const bucket = get().messagesByConversation[conversationId];
+
       get()._socket?.emit('conversation:join', conversationId);
+      const bucket = get().messagesByConversation[conversationId];
       if (!bucket?.loaded) await loadConversation(conversationId);
-      const current = get().messagesByConversation[conversationId]?.items || [];
-      current.forEach((message) => acknowledgeMessage(message, true));
+
+      (get().messagesByConversation[conversationId]?.items || []).forEach((message) => {
+        acknowledgeMessage(message, true);
+      });
     },
 
     openDirect: async (targetUserId) => {
@@ -479,9 +555,8 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
 
     loadMore: async (conversationId) => {
       const bucket = get().messagesByConversation[conversationId];
-      const before = bucket?.pageInfo?.nextBefore || bucket?.items[0]?.id || null;
-      if (!before) return;
-      await loadConversation(conversationId, before);
+      if (!bucket?.pageInfo?.hasMore || !bucket.pageInfo.nextCursor) return;
+      await loadConversation(conversationId, bucket.pageInfo.nextCursor);
     },
 
     sendText: async (conversationId, text, encrypted = null) => {
@@ -492,7 +567,10 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
       const entry = get().messagesByConversation[conversationId]?.items.find(
         (message) => message.clientMessageId === clientMessageId
       );
-      if (!entry || entry.localStatus !== 'failed') return { ok: false, message: 'Mensaje no disponible.' };
+      if (!entry || entry.localStatus !== 'failed') {
+        return { ok: false, message: 'Mensaje no disponible.' };
+      }
+
       return await sendTextInternal(
         conversationId,
         entry.text || '',
@@ -516,7 +594,10 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
               ...state.messagesByConversation,
               [conversationId]: {
                 ...bucket,
-                items: upsertMessage(bucket.items, { ...message, localStatus: message.status || 'sent' }),
+                items: upsertMessage(bucket.items, {
+                  ...message,
+                  localStatus: message.status || 'sent',
+                }),
               },
             },
           };
@@ -544,7 +625,10 @@ export const usePortalCommunicationStore = create<CommunicationState>((set, get)
               ...state.messagesByConversation,
               [conversationId]: {
                 ...bucket,
-                items: upsertMessage(bucket.items, { ...message, localStatus: message.status || 'sent' }),
+                items: upsertMessage(bucket.items, {
+                  ...message,
+                  localStatus: message.status || 'sent',
+                }),
               },
             },
           };
