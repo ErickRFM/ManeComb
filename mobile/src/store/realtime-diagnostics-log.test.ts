@@ -99,7 +99,8 @@ describe('instrumentation does not change realtime behaviour', () => {
     expect(diagModule).not.toContain('socket.io-client');
     expect(diagModule).not.toMatch(/\bio\(/);
     // root-store sigue siendo el unico que construye el socket compartido.
-    expect((rootStore.match(/=\s*io\(SOCKET_URL/g) || []).length).toBe(1);
+    const canonicalSocketPattern = new RegExp('=\\s*io\\(SOCKET_URL', 'g');
+    expect((rootStore.match(canonicalSocketPattern) || []).length).toBe(1);
     expect(appStore).not.toMatch(/\bio\(/);
     expect(callStore).not.toMatch(/\bio\(/);
   });
@@ -163,5 +164,4 @@ describe('instrumentation does not change realtime behaviour', () => {
     expect(rootStore).toContain('options: { forceFreshTransport?: boolean; diagTrigger?: string } = {}');
   });
 });
-
 
