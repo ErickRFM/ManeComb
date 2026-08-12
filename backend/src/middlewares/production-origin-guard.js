@@ -25,6 +25,16 @@ function isTrustedProductionBrowserOrigin(value) {
   return Boolean(origin && TRUSTED_PRODUCTION_BROWSER_ORIGINS.has(origin));
 }
 
+function getRejectedOriginMetadata(req, transport) {
+  const rawOrigin = String(req?.headers?.origin || "").trim();
+  return {
+    method: req?.method || null,
+    origin: normalizeOrigin(rawOrigin) || "invalid",
+    path: req?.url || req?.path || null,
+    transport
+  };
+}
+
 function productionOriginGuard(req, res, next) {
   if (!IS_PRODUCTION_RUNTIME) return next();
 
@@ -40,11 +50,7 @@ function productionOriginGuard(req, res, next) {
     module: "Security",
     status: "403",
     requestId: req.traceId || null,
-    metadata: {
-      method: req.method,
-      origin: normalizeOrigin(rawOrigin) || "invalid",
-      path: req.path
-    }
+    metadata: getRejectedOriginMetadata(req, "http")
   });
 
   return res.status(403).json({
@@ -54,9 +60,30 @@ function productionOriginGuard(req, res, next) {
   });
 }
 
+function productionRealtimeOriginGuard(req, res, next) {
+  if (!IS_PRODUCTION_RUNTIME) return next();
+
+  const rawOrigin = String(req?.headers?.origin || "").trim();
+  if (!rawOrigin || isTrustedProductionBrowserOrigin(rawOrigin)) return next();
+
+  logger.warn({
+    action: "ProductionRealtimeOriginRejected",
+    module: "Security",
+    status: "rejected",
+    metadata: getRejectedOriginMetadata(req, "socket.io")
+  });
+
+  // Engine.IO middleware errors terminate the handshake before Socket.IO auth.
+  // Native clients are unaffected because they normally omit Origin.
+  const error = new Error("Origen no permitido");
+  error.data = { code: "ORIGIN_NOT_ALLOWED" };
+  return next(error);
+}
+
 module.exports = {
   TRUSTED_PRODUCTION_BROWSER_ORIGINS,
   isTrustedProductionBrowserOrigin,
   normalizeOrigin,
-  productionOriginGuard
+  productionOriginGuard,
+  productionRealtimeOriginGuard
 };
