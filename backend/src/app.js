@@ -54,6 +54,7 @@ const { errorHandler } = require("./middlewares/error-handler");
 const { notFound } = require("./middlewares/not-found");
 const { platformAuth } = require("./middlewares/platform-auth");
 const { platformAccess, requirePlatformPermission } = require("./middlewares/platform-access");
+const { productionOriginGuard } = require("./middlewares/production-origin-guard");
 
 function createApp({ store, getDbState }) {
   const app = express();
@@ -69,6 +70,9 @@ function createApp({ store, getDbState }) {
   app.locals.io = null;
   app.set("trust proxy", TRUST_PROXY ? 1 : false);
 
+  // Production rejects browser origins outside the canonical ManeComb domains
+  // before CORS can answer a preflight. Native clients do not send Origin.
+  app.use(productionOriginGuard);
   app.use(cors(corsOptions));
   app.options(/.*/, cors(corsOptions));
   app.use(
@@ -84,6 +88,16 @@ function createApp({ store, getDbState }) {
   );
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Authentication, account and platform responses must never be cached by
+  // browsers, shared proxies or a CDN. Static web assets own their cache policy
+  // independently at Cloudflare.
+  app.use(["/api/auth", "/api/account", "/api/users/me", "/api/platform"], (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    next();
+  });
+
   app.use((req, res, next) => {
     const traceId = getOrCreateTraceId(req.headers["x-trace-id"] || randomUUID());
     const startedAt = Date.now();
