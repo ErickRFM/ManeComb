@@ -148,7 +148,7 @@ export function useCommercialExperience() {
       return { kind: 'continue' as const, label: comparison.validation.actionLabel, href: null };
     }
     if (comparison.validation.code === 'NO_ACTIVE_SUBSCRIPTION') {
-      return { kind: 'checkout' as const, label: 'Contratar plan', href: null };
+      return { kind: 'checkout' as const, label: 'Continuar al pago', href: null };
     }
     if (comparison.validation.action === 'REVIEW_PAYMENT') {
       return { kind: 'navigate' as const, label: comparison.validation.actionLabel, href: '/portal/pagos' as const };

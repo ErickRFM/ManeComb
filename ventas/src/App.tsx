@@ -10,6 +10,7 @@ import {
   hasPortalPermission,
 } from '@/features/portal/utils/access';
 import { getPortalRoutePermission } from '@/features/portal/navigation/portal-route-registry';
+import { isPortalRouteAllowedBySubscription } from '@/features/portal/navigation/portal-subscription-access';
 import {
   getAccountChannel,
   getAuthenticatedHome,
@@ -58,7 +59,13 @@ function StaticPage({ title, body }: { title: string; body: string }) {
   );
 }
 
+/**
+ * Única autoridad de acceso por estado de suscripción para rutas del Portal.
+ * La policy compartida decide qué rutas siguen disponibles sin plan; el layout
+ * únicamente proyecta esa misma policy en el menú.
+ */
 function OperationalPortalGate({ children }: { children: ReactNode }) {
+  const pathname = usePathname().replace(/\/+$/, '') || '/portal';
   const { error, isLoading, loadOverview, overview, subscription } = usePortalStore(
     useShallow((state) => ({
       error: state.error,
@@ -69,18 +76,19 @@ function OperationalPortalGate({ children }: { children: ReactNode }) {
     }))
   );
   const resolvedSubscription = subscription || overview?.subscription || null;
+  const authorityReady = Boolean(subscription || overview || error);
 
   useEffect(() => {
-    if (!resolvedSubscription && !isLoading && !error) {
+    if (!authorityReady && !isLoading) {
       void loadOverview();
     }
-  }, [error, isLoading, loadOverview, resolvedSubscription]);
+  }, [authorityReady, isLoading, loadOverview]);
 
-  if (!resolvedSubscription && !error) {
+  if (!authorityReady) {
     return <BootScreen />;
   }
 
-  if (!resolvedSubscription?.isActive) {
+  if (!isPortalRouteAllowedBySubscription(pathname, resolvedSubscription, true)) {
     return <Redirect href="/portal/plan" />;
   }
 
@@ -193,13 +201,13 @@ function Routes() {
     case '/portal/rutas':
       return <OperationalPortalGate><ScreenErrorBoundary name="Rutas"><PortalRoutesScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/plan':
-      return <ScreenErrorBoundary name="Plan"><PortalPlanScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Plan"><PortalPlanScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/facturacion':
-      return <ScreenErrorBoundary name="Facturación"><PortalBillingScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Facturación"><PortalBillingScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/pagos':
-      return <ScreenErrorBoundary name="Pagos"><PortalPaymentsScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Pagos"><PortalPaymentsScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/perfil':
-      return <ScreenErrorBoundary name="Perfil"><PortalProfileScreen /></ScreenErrorBoundary>;
+      return <OperationalPortalGate><ScreenErrorBoundary name="Perfil"><PortalProfileScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/onboarding':
       return <OperationalPortalGate><ScreenErrorBoundary name="Activación"><PortalOnboardingScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/documentos':

@@ -16,6 +16,8 @@ import { styles } from '../plan/plan.styles';
 import { PlanCurrentSummary } from '../plan/components/plan-current-summary';
 import { PlanComparisonCard } from '../plan/components/plan-comparison-card';
 import { PlanChangePreview } from '../plan/components/plan-change-preview';
+import { PlanPurchasePreview } from '../plan/components/plan-purchase-preview';
+import { PlanTrialEntry } from '../plan/components/plan-trial-entry';
 
 export function PortalPlanScreen() {
   const { width } = useWindowDimensions();
@@ -42,6 +44,26 @@ export function PortalPlanScreen() {
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
   const canCancel = workspace?.state.state === 'ACTIVE' || workspace?.state.state === 'TRIAL';
   const hasOperationalPlan = subscription?.isActive === true;
+  const hasSubscriptionRecord = Boolean(subscription?.id || subscription?.planId);
+  const isFreshAccount = workspace?.state.state === 'INACTIVE' && !hasSubscriptionRecord;
+  const trialPlan = plans.find((plan) =>
+    plan.trialEligible === true
+    && Number(plan.units) === 2
+    && Number(plan.trialDays) === 7
+  ) || null;
+  const canStartTrial = Boolean(isFreshAccount && trialPlan);
+  const purchaseMode = !hasOperationalPlan;
+
+  const pageTitle = hasOperationalPlan
+    ? 'Mi plan'
+    : isFreshAccount
+      ? 'Elige tu plan'
+      : 'Activa tu plan';
+  const pageSubtitle = hasOperationalPlan
+    ? 'Conoce tu cobertura actual y compara opciones antes de tomar una decisión.'
+    : canStartTrial
+      ? 'Compra un plan o inicia la prueba de 7 días.'
+      : 'Elige el plan que necesitas para activar ManeComb.';
 
   const runPrimaryAction = () => {
     if (!comparisonAction) return;
@@ -60,23 +82,44 @@ export function PortalPlanScreen() {
     if (comparisonAction.kind === 'select') clearSelection();
   };
 
-  return (
-    <PortalLayout title="Mi plan" subtitle="Conoce tu cobertura actual y compara opciones antes de tomar una decisión.">
-      <PortalSectionCard title="Tu suscripción" subtitle="La información esencial de tu plan, sin cargos ni cambios ocultos.">
-        {workspace ? (
-          <View style={styles.subscriptionContent}>
-            <PlanCurrentSummary currentPlan={currentPlan} state={workspace.state} subscription={subscription} canCancel={canCancel} onCancel={() => setCancelOpen(true)} />
-          </View>
-        ) : (
-          <View style={styles.currentPlanCard}>
-            <SkeletonBlock height={22} width="35%" />
-            <SkeletonBlock height={38} width="55%" />
-            <SkeletonBlock height={80} />
-          </View>
-        )}
-      </PortalSectionCard>
+  const startTrial = () => {
+    if (!trialPlan) return;
+    clearSelection();
+    router.push({
+      pathname: '/ventas/pago',
+      params: { planId: trialPlan.id, trial: '1' },
+    } as never);
+  };
 
-      <PortalSectionCard title="Compara planes" subtitle="Cada plan conserva la misma identidad visual de la landing y muestra exactamente qué cambiaría.">
+  return (
+    <PortalLayout title={pageTitle} subtitle={pageSubtitle}>
+      {hasSubscriptionRecord ? (
+        <PortalSectionCard title="Tu suscripción" subtitle="La información esencial de tu plan, sin cargos ni cambios ocultos.">
+          {workspace ? (
+            <View style={styles.subscriptionContent}>
+              <PlanCurrentSummary currentPlan={currentPlan} state={workspace.state} subscription={subscription} canCancel={canCancel} onCancel={() => setCancelOpen(true)} />
+            </View>
+          ) : (
+            <View style={styles.currentPlanCard}>
+              <SkeletonBlock height={22} width="35%" />
+              <SkeletonBlock height={38} width="55%" />
+              <SkeletonBlock height={80} />
+            </View>
+          )}
+        </PortalSectionCard>
+      ) : null}
+
+      {canStartTrial && trialPlan ? (
+        <PlanTrialEntry plan={trialPlan} onStart={startTrial} />
+      ) : null}
+
+      <PortalSectionCard
+        title={purchaseMode ? 'Elige un plan' : 'Compara planes'}
+        subtitle={
+          purchaseMode
+            ? 'Selecciona la capacidad que necesitas para continuar al pago.'
+            : 'Revisa exactamente qué cambiaría antes de modificar tu suscripción.'
+        }>
         {actionMessage ? (
           <View style={styles.actionFeedback}>
             <MaterialCommunityIcons name="information-outline" size={18} color={portalPalette.info} />
@@ -116,6 +159,7 @@ export function PortalPlanScreen() {
                   key={plan.id}
                   active={hasOperationalPlan && plan.id === currentPlan?.id}
                   index={index}
+                  mode={purchaseMode ? 'purchase' : 'compare'}
                   plan={plan}
                   selected={plan.id === selectedPlanId}
                   onSelect={() => void selectPlan(plan.id)}
@@ -127,29 +171,44 @@ export function PortalPlanScreen() {
           <EmptyState
             icon="clipboard-list-outline"
             title="No hay planes disponibles por ahora"
-            description="Vuelve a intentarlo más tarde. Tu suscripción actual no sufrirá cambios."
+            description="Vuelve a intentarlo más tarde."
           />
         )}
       </PortalSectionCard>
 
       {selectedPlan && comparison && comparisonAction ? (
-        <PlanChangePreview
-          action={comparisonAction}
-          compact={compact}
-          comparison={comparison}
-          isSubmitting={isSubmitting}
-          onClose={clearSelection}
-          onPrimary={runPrimaryAction}
-        />
+        purchaseMode ? (
+          <PlanPurchasePreview
+            actionLabel={comparisonAction.label}
+            compact={compact}
+            isSubmitting={isSubmitting}
+            onClose={clearSelection}
+            onPrimary={runPrimaryAction}
+            plan={selectedPlan}
+          />
+        ) : (
+          <PlanChangePreview
+            action={comparisonAction}
+            compact={compact}
+            comparison={comparison}
+            isSubmitting={isSubmitting}
+            onClose={clearSelection}
+            onPrimary={runPrimaryAction}
+          />
+        )
       ) : (
         <View style={styles.comparisonEmpty}>
           <View style={styles.comparisonEmptyIcon}>
-            <MaterialCommunityIcons name="compare-horizontal" size={24} color={portalPalette.info} />
+            <MaterialCommunityIcons name={purchaseMode ? 'cart-outline' : 'compare-horizontal'} size={24} color={portalPalette.info} />
           </View>
           <View style={styles.comparisonEmptyCopy}>
-            <Text style={styles.comparisonEmptyTitle}>Selecciona un plan para compararlo</Text>
+            <Text style={styles.comparisonEmptyTitle}>
+              {purchaseMode ? 'Selecciona el plan que quieres comprar' : 'Selecciona un plan para compararlo'}
+            </Text>
             <Text style={styles.comparisonEmptyText}>
-              Verás capacidad, mensualidad y beneficios antes de continuar. No aplicaremos ningún cambio.
+              {purchaseMode
+                ? 'Verás capacidad, mensualidad y beneficios antes de continuar al pago.'
+                : 'Verás capacidad, mensualidad y beneficios antes de continuar. No aplicaremos ningún cambio.'}
             </Text>
           </View>
         </View>
