@@ -96,7 +96,7 @@ if (app.includes('const protectedPortalRoutes')) {
   throw new Error('Regresó una segunda tabla de permisos dentro de App.tsx.');
 }
 
-if (!portalLayout.includes('getPortalNavSectionsBySubscription(\n    PORTAL_NAV_SECTIONS,')) {
+if (!/getPortalNavSectionsBySubscription\(\r?\n    PORTAL_NAV_SECTIONS,/.test(portalLayout)) {
   throw new Error('El menú debe proyectarse desde el único registro PORTAL_NAV_SECTIONS.');
 }
 
