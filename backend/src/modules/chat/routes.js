@@ -84,6 +84,36 @@ function emitConversationUpdate(req, conversationOrId, message) {
 
 }
 
+function getParticipantId(participant) {
+  if (typeof participant === "string") return String(participant).trim();
+  return String(participant?.id || participant?._id || "").trim();
+}
+
+async function getEligibleNotificationRecipientIds(store, conversation, senderId) {
+  const safeSenderId = String(senderId || "").trim();
+  const candidateIds = (Array.isArray(conversation?.participants) ? conversation.participants : [])
+    .map(getParticipantId)
+    .filter((participantId) => participantId && participantId !== safeSenderId);
+
+  if (!candidateIds.length) return [];
+
+  // Direct conversations already pass the canonical conversation guard, which
+  // validates both participants against tenant/lifecycle/chat capability.
+  if (conversation?.kind === "direct") return candidateIds;
+
+  // Legacy group records may still contain users whose role no longer has Chat.
+  // Reuse the guarded contact directory so push metadata never reaches an
+  // identity that cannot actually open the conversation.
+  const contacts = await store.listChatContactsForUser(safeSenderId);
+  const eligibleIds = new Set(
+    (Array.isArray(contacts) ? contacts : [])
+      .map(getParticipantId)
+      .filter(Boolean)
+  );
+
+  return candidateIds.filter((participantId) => eligibleIds.has(participantId));
+}
+
 router.get("/conversations", authenticate, async (req, res) => {
   return res.json({
     ok: true,
@@ -223,7 +253,11 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
 
   if (!deduplicated) emitConversationUpdate(req, conversation, responseMessage);
 
-  const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
+  const recipientIds = await getEligibleNotificationRecipientIds(
+    req.app.locals.store,
+    conversation,
+    req.user.id
+  );
   const isDirectChat = conversation.kind === "direct" && conversation.channelMode !== "radio";
   if (!deduplicated && recipientIds.length) {
     await deliverOperationalNotification({
@@ -312,7 +346,11 @@ router.post(
 
       emitConversationUpdate(req, conversation, message);
 
-      const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
+      const recipientIds = await getEligibleNotificationRecipientIds(
+        req.app.locals.store,
+        conversation,
+        req.user.id
+      );
 
       if (recipientIds.length) {
         await deliverOperationalNotification({
@@ -405,7 +443,11 @@ router.post(
 
       emitConversationUpdate(req, conversation, message);
 
-      const recipientIds = conversation.participants.filter((participantId) => participantId !== req.user.id);
+      const recipientIds = await getEligibleNotificationRecipientIds(
+        req.app.locals.store,
+        conversation,
+        req.user.id
+      );
 
       if (recipientIds.length) {
         await deliverOperationalNotification({
