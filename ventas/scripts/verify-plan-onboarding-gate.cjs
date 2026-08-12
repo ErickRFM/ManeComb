@@ -9,6 +9,8 @@ const planCard = read('features/portal/plan/components/plan-comparison-card.tsx'
 const layout = read('features/portal/components/portal-layout.tsx');
 const subscriptionGate = read('features/portal/navigation/portal-subscription-access.ts');
 const checkout = read('screens/plan-checkout-screen.tsx');
+const checkoutExperience = read('features/commercial/hooks/use-checkout-experience.ts');
+const checkoutAuthority = `${checkout}\n${checkoutExperience}`;
 
 function expect(source, needle, message) {
   if (!source.includes(needle)) {
@@ -37,7 +39,10 @@ expect(subscriptionGate, "item.href === '/portal/pagos' && allowPaymentRecovery"
 expect(subscriptionGate, "label: 'Elegir plan'", 'Locked navigation must use onboarding semantics.');
 expect(subscriptionGate, 'if (hasOperationalPortalSubscription(subscription)) return sections;', 'Full navigation must only unlock from the canonical operational subscription authority.');
 
-expect(checkout, 'normalizeTrialIntent', 'Trial must continue through the established checkout authority.');
-expect(checkout, 'effectiveRequestTrial', 'Checkout must preserve canonical trial eligibility checks.');
+expect(checkoutAuthority, 'normalizeTrialIntent', 'Trial must continue through the established checkout authority.');
+expect(checkoutAuthority, 'effectiveRequestTrial', 'Checkout must preserve canonical trial eligibility checks.');
+expect(checkoutAuthority, "selectedPlan.trialEligible === true", 'Checkout must keep backend/catalog trial eligibility as a hard precondition.');
+expect(checkoutAuthority, 'Number(selectedPlan.units) === 2', 'Trial must remain limited to the 2-combi plan.');
+expect(checkoutAuthority, 'Number(selectedPlan.trialDays) === 7', 'Trial must remain limited to 7 days.');
 
 console.log('Plan onboarding gate contract: OK');
