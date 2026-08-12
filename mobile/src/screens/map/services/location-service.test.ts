@@ -13,6 +13,10 @@ import {
 } from './location-service';
 import { shouldSyncVehicleLocation } from './tracking-service';
 
+const { GPS_LIVE_MAX_AGE_SECONDS } = require(
+  '../../../../../backend/src/domain/operational-unit-snapshot'
+) as { GPS_LIVE_MAX_AGE_SECONDS: number };
+
 jest.mock('@/src/native/location', () => ({
   Accuracy: {
     BestForNavigation: 6,
@@ -93,7 +97,10 @@ describe('location engine services', () => {
         LOCATION_HEARTBEAT_INTERVAL_MS
       )
     ).toBe(true);
-    expect(LOCATION_HEARTBEAT_INTERVAL_MS).toBe(10000);
+    expect(LOCATION_HEARTBEAT_INTERVAL_MS).toBe(4000);
+    expect(LOCATION_HEARTBEAT_INTERVAL_MS).toBeLessThan(
+      GPS_LIVE_MAX_AGE_SECONDS * 1000
+    );
   });
 
   it('never turns a low-accuracy fix into a heartbeat', () => {
