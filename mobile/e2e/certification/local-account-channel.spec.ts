@@ -427,7 +427,7 @@ test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
       await expect(assignmentHint).toBeVisible();
 
       await page.getByRole('button', { name: 'Nueva ruta' }).click();
-      await expect(page.locator('#portal-header-text').getByText('Editor de ruta', { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Editor de ruta', exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Guardar ruta' })).toBeVisible();
 
       const editorInputHeights = await Promise.all(
@@ -440,7 +440,7 @@ test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
       }
 
       await page.getByRole('button', { name: 'Cancelar' }).click();
-      await expect(page.locator('#portal-header-text').getByText('Rutas', { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Rutas', exact: true })).toBeVisible();
 
       await assertNoDocumentOverflow(page);
       await attachFullPageScreenshot(page, testInfo, 'routes-empty-account');
@@ -452,4 +452,3 @@ test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
     }
   });
 });
-
