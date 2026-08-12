@@ -32,8 +32,10 @@ expect(layout, "return <Redirect href={'/portal/plan' as never} />;", 'Blocked P
 expect(subscriptionGate, "subscription?.isActive === true", 'Operational unlock must use backend isActive authority.');
 expect(subscriptionGate, "'/portal/plan'", 'Plan must remain available while operation is locked.');
 expect(subscriptionGate, "'/portal/perfil'", 'Account/profile must remain available while operation is locked.');
-expect(subscriptionGate, "item.href === '/portal/pagos' && needsPaymentRecovery(subscription)", 'Payments must only surface for recovery states while locked.');
+expect(subscriptionGate, 'const allowPaymentRecovery = authorityReady && needsPaymentRecovery(subscription);', 'Payments must remain hidden until subscription authority is ready.');
+expect(subscriptionGate, "item.href === '/portal/pagos' && allowPaymentRecovery", 'Payments must only surface for recovery states while locked.');
 expect(subscriptionGate, "label: 'Elegir plan'", 'Locked navigation must use onboarding semantics.');
+expect(subscriptionGate, 'if (hasOperationalPortalSubscription(subscription)) return sections;', 'Full navigation must only unlock from the canonical operational subscription authority.');
 
 expect(checkout, 'normalizeTrialIntent', 'Trial must continue through the established checkout authority.');
 expect(checkout, 'effectiveRequestTrial', 'Checkout must preserve canonical trial eligibility checks.');
