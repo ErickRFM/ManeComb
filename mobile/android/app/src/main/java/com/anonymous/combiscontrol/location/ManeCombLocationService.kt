@@ -23,6 +23,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -50,8 +51,7 @@ class ManeCombLocationService : Service(), LocationListener {
   private var locationManager: LocationManager? = null
   private var connectivityManager: ConnectivityManager? = null
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
-  private var lastSentAt: Long = 0L
-  private var lastSentLocation: Location? = null
+  private var lastEnqueuedElapsedRealtimeMs: Long = 0L
   private val pendingLocations = ArrayDeque<JSONObject>()
   private val queueLock = Object()
   private val scheduleHandler = Handler(Looper.getMainLooper())
@@ -135,13 +135,13 @@ class ManeCombLocationService : Service(), LocationListener {
 
   override fun onLocationChanged(location: Location) {
     if (hardStopped) return
-    val now = System.currentTimeMillis()
-    val distanceFromLast = lastSentLocation?.distanceTo(location) ?: Float.MAX_VALUE
-
-    if (
-      now - lastSentAt < LOCATION_INTERVAL_MS &&
-      distanceFromLast < LOCATION_DISTANCE_METERS
-    ) {
+    val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+    val accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+    if (!ManeCombLocationCadence.shouldEnqueue(
+        nowElapsedRealtimeMs,
+        lastEnqueuedElapsedRealtimeMs,
+        accuracyMeters
+      )) {
       return
     }
 
@@ -150,8 +150,7 @@ class ManeCombLocationService : Service(), LocationListener {
       return
     }
 
-    lastSentAt = now
-    lastSentLocation = Location(location)
+    lastEnqueuedElapsedRealtimeMs = nowElapsedRealtimeMs
     enqueueLocation(location)
   }
 
@@ -206,12 +205,22 @@ class ManeCombLocationService : Service(), LocationListener {
       manager.removeUpdates(this)
 
       if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-        manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+        manager.requestLocationUpdates(
+          LocationManager.GPS_PROVIDER,
+          ManeCombLocationCadence.REQUEST_INTERVAL_MS,
+          0f,
+          this
+        )
         registeredProvider = true
       }
 
       if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-        manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_INTERVAL_MS, 0f, this)
+        manager.requestLocationUpdates(
+          LocationManager.NETWORK_PROVIDER,
+          ManeCombLocationCadence.REQUEST_INTERVAL_MS,
+          0f,
+          this
+        )
         registeredProvider = true
       }
 
@@ -836,11 +845,10 @@ class ManeCombLocationService : Service(), LocationListener {
     private const val WAKE_LOCK_TAG = "ManeComb:LocationUpload"
     private const val HTTP_TIMEOUT_MS = 10000L
     private const val WAKE_LOCK_TIMEOUT_MS = 15000L
-    private const val LOCATION_INTERVAL_MS = 5000L
-    private const val LOCATION_DISTANCE_METERS = 20f
     private const val RETRY_BASE_MS = 5000L
     private const val RETRY_MAX_MS = 60000L
-    private const val SCHEDULE_RECHECK_MS = 60000L
+    private const val SCHEDULE_RECHECK_MS =
+      ManeCombLocationCadence.PROVIDER_RECOVERY_INTERVAL_MS
     private const val MAX_PENDING_LOCATIONS = 1440
     private const val MAX_PENDING_AGE_MS = 24L * 60L * 60L * 1000L
     const val PREFS_NAME = "manecomb-location-service"
