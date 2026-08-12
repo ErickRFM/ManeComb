@@ -26,6 +26,7 @@ import { getAuthenticatedHome } from '@/src/utils/account-routing';
 import { setRecoveryEmail } from '@/src/screens/password-recovery/password-recovery.session';
 import type { DriverActivationUnit } from '@/src/types/app';
 import { AuthField } from './auth/components/auth-field';
+import { ensureLoginBackendReady } from './auth/login-readiness';
 import { SegmentButton } from './auth/components/segment-button';
 import { UnitSelector } from './auth/components/unit-selector';
 import { styles } from './auth/customer-auth-screen.styles';
@@ -90,6 +91,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
   const [rememberSession, setRememberSession] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
+  const [isPreparingLogin, setIsPreparingLogin] = useState(false);
   const [isValidatingDriverKey, setIsValidatingDriverKey] = useState(false);
   const driverNameInputRef = useRef<TextInput>(null);
   const identityInputRef = useRef<TextInput>(null);
@@ -195,19 +197,40 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     setHelperMessage(null);
 
     if (mode === 'login') {
+      if (isPreparingLogin || isSubmitting) {
+        return;
+      }
+
       if (!loginIdentity.trim() || !loginPassword.trim()) {
         setHelperMessage('Ingresa correo o número y contraseña.');
         return;
       }
 
-      const identity = normalizeIdentity(loginIdentity);
-      const result = await signIn(identity.email, loginPassword, rememberSession);
+      setIsPreparingLogin(true);
 
-      if (!result.ok) {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        setHelperMessage(result.message || 'No fue posible iniciar sesión.');
-      } else {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      try {
+        // No reintentamos credenciales. Primero comprobamos la radio del
+        // dispositivo y despertamos el backend con un GET idempotente. Esto
+        // cubre el cambio de cuenta inmediato despues de logout sin obligar a
+        // cerrar/abrir ManeComb si Render o la red tuvieron un hueco transitorio.
+        const readiness = await ensureLoginBackendReady();
+        if (!readiness.ok) {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          setHelperMessage(readiness.message);
+          return;
+        }
+
+        const identity = normalizeIdentity(loginIdentity);
+        const result = await signIn(identity.email, loginPassword, rememberSession);
+
+        if (!result.ok) {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          setHelperMessage(result.message || 'No fue posible iniciar sesión.');
+        } else {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      } finally {
+        setIsPreparingLogin(false);
       }
 
       return;
@@ -273,6 +296,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     paddingTop: Math.max(18, sizing.contentPadding),
     paddingBottom: 22,
   };
+  const authBusy = isSubmitting || isValidatingDriverKey || isPreparingLogin;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -428,13 +452,13 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
 
               <Pressable
                 onPress={() => { handleSubmit(); }}
-                disabled={isSubmitting || isValidatingDriverKey}
+                disabled={authBusy}
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  pressed && !isSubmitting && !isValidatingDriverKey ? styles.pressed : undefined,
-                  isSubmitting || isValidatingDriverKey ? styles.disabled : undefined,
+                  pressed && !authBusy ? styles.pressed : undefined,
+                  authBusy ? styles.disabled : undefined,
                 ]}>
-                {isSubmitting || isValidatingDriverKey ? (
+                {authBusy ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.primaryButtonText}>
