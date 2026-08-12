@@ -9,12 +9,14 @@ import type { CommercialPlanView } from '@/features/commercial';
 export function PlanComparisonCard({
   active,
   index,
+  mode = 'compare',
   plan,
   selected,
   onSelect,
 }: {
   active: boolean;
   index: number;
+  mode?: 'compare' | 'purchase';
   plan: CommercialPlanView;
   selected: boolean;
   onSelect: () => void;
@@ -23,6 +25,7 @@ export function PlanComparisonCard({
   const indicatorTone: StatusBadgeTone = active ? 'positive' : plan.id === 'value-4' ? 'info' : 'neutral';
   const visual = planVisualTones[index % planVisualTones.length];
   const emphasized = selected || active;
+  const actionLabel = mode === 'purchase' ? 'Comprar' : 'Comparar';
 
   return (
     <View
@@ -95,7 +98,7 @@ export function PlanComparisonCard({
       ) : (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Comparar plan ${plan.displayName}`}
+          accessibilityLabel={`${actionLabel} plan ${plan.displayName}`}
           accessibilityState={{ selected }}
           onPress={onSelect}
           style={[
@@ -109,7 +112,7 @@ export function PlanComparisonCard({
               : { borderColor: `${visual.edge}77`, backgroundColor: 'rgba(255,255,255,0.035)' },
           ]}>
           <Text style={[styles.compareButtonText, selected ? styles.compareButtonTextSelected : { color: visual.edge }]}>
-            {selected ? 'Seleccionado' : 'Comparar'}
+            {selected ? 'Seleccionado' : actionLabel}
           </Text>
           <MaterialCommunityIcons
             name={selected ? 'check' : 'arrow-right'}
