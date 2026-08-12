@@ -18,6 +18,8 @@ describe('Mobile startup stability contract', () => {
   const store = source('src/store/root-store.ts');
   const app = source('App.tsx');
   const gate = source('src/screens/mobile-account-gate-screen.tsx');
+  const authScreen = source('src/screens/customer-auth-screen.tsx');
+  const loginReadiness = source('src/screens/auth/login-readiness.ts');
 
   it('bounds cold-start session validation to one network request policy', () => {
     const request = section(client, 'export async function getSessionRequest', 'export async function refreshSessionRequest');
@@ -39,6 +41,21 @@ describe('Mobile startup stability contract', () => {
       expect(request).toContain('_skipNetworkRetry: true');
       expect(request).not.toContain('_allowRetry: true');
     }
+  });
+
+  it('preflights the backend before an interactive login without replaying credentials', () => {
+    const loginFlow = section(authScreen, "if (mode === 'login')", "if (!driverActivationKey.trim()");
+    const readinessIndex = loginFlow.indexOf('await ensureLoginBackendReady()');
+    const signInIndex = loginFlow.indexOf('await signIn(');
+
+    expect(readinessIndex).toBeGreaterThanOrEqual(0);
+    expect(signInIndex).toBeGreaterThan(readinessIndex);
+    expect(authScreen).toContain('isPreparingLogin');
+    expect(loginReadiness).toContain('setAuthToken(null);');
+    expect(loginReadiness).toContain('getMobileNetworkSnapshot()');
+    expect(loginReadiness).toContain('isNetworkReachable(snapshot)');
+    expect(loginReadiness).toContain('await healthRequest();');
+    expect(loginReadiness).not.toContain('loginRequest');
   });
 
   it('applies the same no-replay policy to the interceptor refresh path', () => {
