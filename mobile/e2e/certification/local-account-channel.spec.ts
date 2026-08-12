@@ -429,6 +429,16 @@ test.describe('CERT-RUTAS-EMPTY — cuenta nueva responsive', () => {
       await page.getByRole('button', { name: 'Nueva ruta' }).click();
       await expect(page.locator('#portal-header-text').getByText('Editor de ruta', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Guardar ruta' })).toBeVisible();
+
+      const editorInputHeights = await Promise.all(
+        ['Nombre de la ruta', 'Origen de la ruta', 'Destino de la ruta'].map((label) =>
+          page.getByLabel(label).evaluate((node) => node.getBoundingClientRect().height)
+        )
+      );
+      for (const height of editorInputHeights) {
+        expect(height, 'Los campos del editor deben conservar altura de input y no llenar toda la columna').toBeLessThanOrEqual(56);
+      }
+
       await page.getByRole('button', { name: 'Cancelar' }).click();
       await expect(page.locator('#portal-header-text').getByText('Rutas', { exact: true })).toBeVisible();
 
