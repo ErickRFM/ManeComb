@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const read = (relativePath) => fs
+  .readFileSync(path.join(root, relativePath), 'utf8')
+  .replace(/\r\n/g, '\n');
 
 const planScreen = read('features/portal/screens/portal-plan-screen.tsx');
 const planCard = read('features/portal/plan/components/plan-comparison-card.tsx');
