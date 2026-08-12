@@ -56,7 +56,9 @@
   },
   "nodemonConfig": {
     "watch": [
-      "src"
+      "src",
+      "modules",
+      "../communication-service/src"
     ],
     "ext": "js,json",
     "ignore": [
