@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { CommunicationConversation, CommunicationMessage } from '@shared/communication';
 import {
   buildDirectChatMessagePayload,
   decryptDirectChatText,
@@ -7,11 +8,10 @@ import {
   generateE2eeDeviceId,
   generateStoredChatKeyPair,
   isDirectChatEncryptionActive,
-  type CommunicationConversation,
-  type CommunicationMessage,
+  isE2eeCapablePublicKey,
   type EncryptedChatKeyBackup,
   type StoredChatKeyPair,
-} from '@shared/communication';
+} from './chat-e2ee';
 import {
   getPortalE2eeBackup,
   putPortalE2eeBackup,
@@ -25,7 +25,7 @@ type VaultRecord = {
   userId: string;
   publicKey: string;
   wrappingKey: CryptoKey;
-  iv: Uint8Array;
+  iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
 };
 
@@ -60,6 +60,12 @@ type PortalE2eeState = {
   }): string;
 };
 
+function cloneArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(value.byteLength);
+  copy.set(value);
+  return copy.buffer;
+}
+
 function openVaultDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!globalThis.indexedDB || !globalThis.crypto?.subtle) {
@@ -70,7 +76,9 @@ function openVaultDb(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error || new Error('No fue posible abrir el almacén cifrado.'));
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE, { keyPath: 'userId' });
+      if (!db.objectStoreNames.contains(VAULT_STORE)) {
+        db.createObjectStore(VAULT_STORE, { keyPath: 'userId' });
+      }
     };
     request.onsuccess = () => resolve(request.result);
   });
@@ -93,16 +101,24 @@ async function saveVaultKeyPair(userId: string, keyPair: StoredChatKeyPair) {
     false,
     ['encrypt', 'decrypt']
   );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ivBytes = crypto.getRandomValues(new Uint8Array(12));
+  const iv = cloneArrayBuffer(ivBytes);
+  const plaintext = new TextEncoder().encode(JSON.stringify(keyPair));
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     wrappingKey,
-    new TextEncoder().encode(JSON.stringify(keyPair))
+    cloneArrayBuffer(plaintext)
   );
   const db = await openVaultDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(VAULT_STORE, 'readwrite');
-    tx.objectStore(VAULT_STORE).put({ userId, publicKey: keyPair.publicKey, wrappingKey, iv, ciphertext } satisfies VaultRecord);
+    tx.objectStore(VAULT_STORE).put({
+      userId,
+      publicKey: keyPair.publicKey,
+      wrappingKey,
+      iv,
+      ciphertext,
+    } satisfies VaultRecord);
     tx.onerror = () => reject(tx.error || new Error('No fue posible guardar la llave local.'));
     tx.oncomplete = () => {
       db.close();
@@ -151,24 +167,39 @@ export const usePortalE2eeStore = create<PortalE2eeState>((set, get) => ({
       if (record) {
         const keyPair = await decryptVaultRecord(record);
         if (!serverPublicKey || keyPair.publicKey === serverPublicKey) {
-          set({ status: 'ready', keyPair, serverPublicKey: serverPublicKey || keyPair.publicKey });
+          set({
+            status: 'ready',
+            keyPair,
+            serverPublicKey: serverPublicKey || keyPair.publicKey,
+            error: null,
+          });
           return;
         }
       }
-      set({ status: serverPublicKey ? 'restore_required' : 'setup_required', keyPair: null });
+      set({
+        status: serverPublicKey ? 'restore_required' : 'setup_required',
+        keyPair: null,
+        error: null,
+      });
     } catch (error) {
       if (!globalThis.indexedDB || !globalThis.crypto?.subtle) {
         set({ status: 'unavailable', error: readableError(error, 'Cifrado no disponible.') });
         return;
       }
-      set({ status: serverPublicKey ? 'restore_required' : 'setup_required', keyPair: null, error: null });
+      set({
+        status: serverPublicKey ? 'restore_required' : 'setup_required',
+        keyPair: null,
+        error: null,
+      });
     }
   },
 
   setup: async (password) => {
     const userId = get().userId;
     if (!userId || !password) return { ok: false, message: 'Escribe tu contraseña.' };
-    if (get().serverPublicKey) return { ok: false, message: 'Esta cuenta ya tiene una llave E2EE. Restáurala.' };
+    if (get().serverPublicKey) {
+      return { ok: false, message: 'Esta cuenta ya tiene una llave E2EE. Restáurala.' };
+    }
     set({ status: 'working', error: null });
     try {
       const keyPair = generateStoredChatKeyPair();
@@ -196,7 +227,9 @@ export const usePortalE2eeStore = create<PortalE2eeState>((set, get) => ({
   restore: async (password) => {
     const userId = get().userId;
     const expectedPublicKey = get().serverPublicKey;
-    if (!userId || !expectedPublicKey || !password) return { ok: false, message: 'Escribe tu contraseña.' };
+    if (!userId || !expectedPublicKey || !password) {
+      return { ok: false, message: 'Escribe tu contraseña.' };
+    }
     set({ status: 'working', error: null });
     try {
       const record = await getPortalE2eeBackup();
@@ -225,7 +258,13 @@ export const usePortalE2eeStore = create<PortalE2eeState>((set, get) => ({
     }
   },
 
-  reset: () => set({ status: 'idle', userId: null, serverPublicKey: null, keyPair: null, error: null }),
+  reset: () => set({
+    status: 'idle',
+    userId: null,
+    serverPublicKey: null,
+    keyPair: null,
+    error: null,
+  }),
 
   buildMessagePayload: ({ text, currentUserId, conversation }) => {
     const encryptionActive = isDirectChatEncryptionActive({ currentUserId, conversation });
@@ -242,14 +281,22 @@ export const usePortalE2eeStore = create<PortalE2eeState>((set, get) => ({
   },
 
   decryptMessage: ({ message, currentUserId, conversation }) => {
-    if (!message.e2eeEnvelope?.ciphertext) return message.text || '';
+    const envelope = message.e2eeEnvelope;
+    if (!envelope?.ciphertext) return message.text || '';
     const keyPair = get().keyPair;
     if (!keyPair) throw new Error('Cifrado bloqueado en este navegador.');
+
     const peer = conversation.participants.find((participant) => participant.id !== currentUserId);
-    if (!peer?.e2eePublicKey) throw new Error('No se encontró la llave pública del contacto.');
+    const peerPublicKey = message.senderId === currentUserId
+      ? peer?.e2eePublicKey
+      : envelope.senderPublicKey || peer?.e2eePublicKey;
+    if (!isE2eeCapablePublicKey(peerPublicKey)) {
+      throw new Error('No se encontró la llave pública válida para este mensaje.');
+    }
+
     return decryptDirectChatText({
-      envelope: message.e2eeEnvelope,
-      peerPublicKey: peer.e2eePublicKey,
+      envelope,
+      peerPublicKey: peerPublicKey!,
       currentUserSecretKey: keyPair.secretKey,
     });
   },
