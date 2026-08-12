@@ -216,6 +216,7 @@ export type AppState = {
   apiUrl: string;
   token: string | null;
   refreshToken: string | null;
+  sessionPersistence: 'memory' | 'persistent';
   connectionMode: ConnectionMode;
   networkStatus: NetworkStatus;
   socketStatus: SocketStatus;
@@ -375,6 +376,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     ...getEmptyOperationalState(),
     token: null,
     refreshToken: null,
+    sessionPersistence: 'memory',
     authContext: null,
     user: null,
     isSigningOut: false,
@@ -674,6 +676,8 @@ async function persistSession(
   await setStoredItem(MODE_KEY, mode);
   if (refreshToken) {
     await setStoredItem(REFRESH_TOKEN_KEY, refreshToken);
+  } else {
+    await deleteStoredItem(REFRESH_TOKEN_KEY);
   }
 }
 
@@ -854,6 +858,9 @@ async function replaceSessionFromBackend(
   await clearTenantCache();
   setAuthToken(token);
 
+  const sessionPersistence = rememberSession ? 'persistent' : 'memory';
+  set({ sessionPersistence });
+
   if (rememberSession) {
     await persistSession(token, 'online', refreshToken);
   } else {
@@ -869,6 +876,7 @@ async function replaceSessionFromBackend(
     documents: session.profile.documents,
     networkStatus: 'online',
     refreshToken: refreshToken || null,
+    sessionPersistence,
     token,
     user: session.profile.user,
     error: null,
@@ -1617,7 +1625,11 @@ async function applyRefreshedSession(
   const nextRefreshToken = result.refreshToken || get().refreshToken;
   const authContext = getAuthContextFromPayload(result);
   setAuthToken(result.token);
-  await persistSession(result.token, get().connectionMode, nextRefreshToken);
+  if (get().sessionPersistence === 'persistent') {
+    await persistSession(result.token, get().connectionMode, nextRefreshToken);
+  } else {
+    await persistSession(null, null);
+  }
   set({
     authContext,
     token: result.token,
@@ -1887,14 +1899,18 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
     if (!token || !refreshToken) return;
     setAuthToken(token);
-    await persistSession(token, get().connectionMode, refreshToken);
+    if (get().sessionPersistence === 'persistent') {
+      await persistSession(token, get().connectionMode, refreshToken);
+    } else {
+      await persistSession(null, null);
+    }
     set({ token, refreshToken });
   },
   activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
@@ -1945,6 +1961,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         networkSnapshot,
         networkStatus: isNetworkReachable(networkSnapshot) ? 'online' : 'offline',
         pendingSyncCount: queue.length,
+        sessionPersistence: t ? 'persistent' : 'memory',
       });
       if (!t) {
         await clearTenantCache();
@@ -1953,6 +1970,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           connectionMode,
           token: null,
           refreshToken: null,
+          sessionPersistence: 'memory',
           authContext: null,
           user: null,
           isHydrated: true,
