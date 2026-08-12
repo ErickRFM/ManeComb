@@ -1,14 +1,24 @@
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
+  X-Permitted-Cross-Domain-Policies: none
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(self), payment=(), usb=()
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self), payment=(), usb=(), browsing-topics=()
   Cross-Origin-Opener-Policy: same-origin
-  Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.mapbox.com https://*.tiles.mapbox.com; font-src 'self' data:; connect-src 'self' https://manecomb.onrender.com wss://manecomb.onrender.com https://manecomb-backend-sandbox.onrender.com wss://manecomb-backend-sandbox.onrender.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://cloudflareinsights.com https://*.cloudflareinsights.com https://*.manecomb.com wss://*.manecomb.com; worker-src 'self' blob:
+  Cross-Origin-Resource-Policy: same-site
+  Origin-Agent-Cluster: ?1
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'none'; form-action 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.mapbox.com https://*.tiles.mapbox.com; font-src 'self' data:; media-src 'self' blob: https://manecomb.onrender.com https://api.manecomb.com; connect-src 'self' https://manecomb.onrender.com wss://manecomb.onrender.com https://api.manecomb.com wss://api.manecomb.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://cloudflareinsights.com https://*.cloudflareinsights.com; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests
 
 /index.html
-  Cache-Control: no-store, max-age=0
+  Cache-Control: no-store, max-age=0, must-revalidate
+  Pragma: no-cache
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+https://manecomb1.pages.dev/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+https://*.manecomb1.pages.dev/*
+  X-Robots-Tag: noindex, nofollow, noarchive

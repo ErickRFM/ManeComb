@@ -1,11 +1,31 @@
 import type { AuthIdentity } from './auth.types';
 export { getFirstParam } from '../shared/utils';
 
+const COMMON_PASSWORD_FINGERPRINTS = new Set([
+  'password1',
+  'password123',
+  'qwerty123',
+  'admin123',
+  'admin1234',
+  'manecomb123',
+  'manecomb1234',
+  'combis123',
+  'combis1234',
+  'welcome123',
+  'bienvenido123',
+  'changeme123',
+]);
+
 export const REGISTRATION_PASSWORD_REQUIREMENTS = [
   {
     key: 'minLength',
     label: '8 caracteres o más',
     error: 'Usa al menos 8 caracteres.',
+  },
+  {
+    key: 'withinMaxLength',
+    label: '64 caracteres o menos',
+    error: 'Usa como máximo 64 caracteres.',
   },
   {
     key: 'hasLetter',
@@ -21,6 +41,11 @@ export const REGISTRATION_PASSWORD_REQUIREMENTS = [
     key: 'hasSpecial',
     label: 'Un carácter especial, como ! @ # $ % _ -',
     error: 'Agrega al menos un carácter especial, por ejemplo !, @, # o _.',
+  },
+  {
+    key: 'notCommon',
+    label: 'No usar una contraseña común o predecible',
+    error: 'Usa una contraseña única que no sea una variante obvia de ManeComb, admin o password.',
   },
 ] as const;
 
@@ -41,6 +66,13 @@ export function buildPaymentRoute(planId: string | undefined, requestTrial: bool
   return Object.keys(params).length ? { pathname: '/ventas/pago', params } : '/portal';
 }
 
+function getPasswordFingerprint(password: string) {
+  return String(password || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+}
+
 export function getRegistrationPasswordChecks(password: string): RegistrationPasswordChecks {
   // Mantener esta política semánticamente equivalente a backend/src/utils/password-policy.js.
   // Unicode Letter/Number evita tratar ñ o vocales acentuadas como símbolos.
@@ -48,9 +80,11 @@ export function getRegistrationPasswordChecks(password: string): RegistrationPas
   const safePassword = String(password || '');
   return {
     minLength: safePassword.length >= 8,
+    withinMaxLength: safePassword.length <= 64,
     hasLetter: /\p{L}/u.test(safePassword),
     hasNumber: /\p{N}/u.test(safePassword),
     hasSpecial: /[\p{P}\p{S}]/u.test(safePassword),
+    notCommon: !COMMON_PASSWORD_FINGERPRINTS.has(getPasswordFingerprint(safePassword)),
   };
 }
 
