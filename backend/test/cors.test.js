@@ -5,6 +5,9 @@ process.env.CLIENT_ORIGIN = "https://example-client.test";
 
 const createApp = require("../src/app");
 const { CLIENT_ORIGINS, isClientOriginAllowed } = require("../src/config/env");
+const {
+  isTrustedProductionBrowserOrigin
+} = require("../src/middlewares/production-origin-guard");
 const { createEmbeddedStore } = require("../src/data/store");
 
 async function createTestServer() {
@@ -66,6 +69,13 @@ async function testCorsOrigins() {
   assert.equal(isClientOriginAllowed("https://preview.manecomb1.pages.dev"), true);
   assert.equal(isClientOriginAllowed("http://localhost:5173"), true);
   assert.equal(isClientOriginAllowed("https://evil.example.com"), false);
+
+  // El perímetro de producción es deliberadamente más estricto que CORS:
+  // admite el deployment real de Pages, pero no cualquier preview del proyecto.
+  assert.equal(isTrustedProductionBrowserOrigin("https://manecomb1.pages.dev"), true);
+  assert.equal(isTrustedProductionBrowserOrigin("https://preview.manecomb1.pages.dev"), false);
+  assert.equal(isTrustedProductionBrowserOrigin("https://evil.example.com"), false);
+  assert.equal(isTrustedProductionBrowserOrigin("http://localhost:5173"), false);
 
   const origins = [
     "https://manecomb1.pages.dev",

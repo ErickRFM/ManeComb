@@ -4,7 +4,11 @@ const logger = require("../services/logger");
 const TRUSTED_PRODUCTION_BROWSER_ORIGINS = new Set([
   "https://manecomb.com",
   "https://www.manecomb.com",
-  "https://admin.manecomb.com"
+  "https://admin.manecomb.com",
+  // Cloudflare Pages sigue siendo la superficie productiva desplegada mientras
+  // termina la migración al dominio canónico. Se autoriza únicamente el host
+  // exacto del proyecto; previews aleatorios (*.pages.dev) continúan bloqueados.
+  "https://manecomb1.pages.dev"
 ]);
 
 function normalizeOrigin(value) {
@@ -40,7 +44,7 @@ function productionOriginGuard(req, res, next) {
 
   // React Native and server-to-server clients do not send a browser Origin.
   // CORS is not an authentication boundary, but rejecting unexpected browser
-  // origins removes old previews, localhost and sandbox surfaces from Production.
+  // origins removes unknown previews, localhost and sandbox surfaces from Production.
   const rawOrigin = String(req.headers.origin || "").trim();
   if (!rawOrigin) return next();
   if (isTrustedProductionBrowserOrigin(rawOrigin)) return next();
