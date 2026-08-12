@@ -22,10 +22,7 @@ import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
 import { canAccessPortal, hasPortalPermission } from '../utils/access';
 import { PORTAL_NAV_SECTIONS, type PortalNavItem } from '../navigation/portal-route-registry';
-import {
-  getPortalNavSectionsBySubscription,
-  isPortalRouteAllowedBySubscription,
-} from '../navigation/portal-subscription-access';
+import { getPortalNavSectionsBySubscription } from '../navigation/portal-subscription-access';
 import { getPortalRouteLoadScope } from '../store/portal-load-policy';
 
 type PortalLayoutProps = PropsWithChildren<{
@@ -110,14 +107,6 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
     }
   }, [loadAll, loadBilling, loadOverview, loadScope, userId]);
 
-  // Overview contiene la autoridad de suscripción que decide si el Portal debe
-  // exponer operación. Las rutas que antes no lo cargaban lo consultan una sola
-  // vez para que escribir una URL manual no salte el gate visual.
-  useEffect(() => {
-    if (!userId || overview || (loadScope !== 'none' && loadScope !== 'billing')) return;
-    void loadOverview();
-  }, [loadOverview, loadScope, overview, userId]);
-
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.title = title ? `ManeComb — ${title}` : 'ManeComb';
@@ -133,15 +122,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   }
 
   const effectiveSubscription = subscription || overview?.subscription || null;
-  const subscriptionAuthorityReady = overview !== null;
-
-  if (
-    subscriptionAuthorityReady
-    && !isPortalRouteAllowedBySubscription(pathname, effectiveSubscription, true)
-  ) {
-    return <Redirect href={'/portal/plan' as never} />;
-  }
-
+  const subscriptionAuthorityReady = Boolean(subscription || overview);
   const visibleNavSections = getPortalNavSectionsBySubscription(
     PORTAL_NAV_SECTIONS,
     effectiveSubscription,
