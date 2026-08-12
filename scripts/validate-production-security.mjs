@@ -34,6 +34,13 @@ const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' 
   .split(/\r?\n/)
   .filter(Boolean);
 
+// Este keystore es el certificado debug estándar de Android (password/alias
+// públicos `android`/`androiddebugkey`) y jamás se usa para Release. El build de
+// release falla cerrado si no recibe el keystore privado por fuera del repo.
+const allowedNonProductionCredentialFixtures = new Set([
+  'mobile/android/app/debug.keystore',
+]);
+
 const forbiddenCredentialFiles = [
   /(^|\/)google-services\.json$/i,
   /(^|\/)(service[-_]?account|credentials)[^/]*\.json$/i,
@@ -46,6 +53,7 @@ const forbiddenCredentialFiles = [
 ];
 
 for (const relativePath of tracked) {
+  if (allowedNonProductionCredentialFixtures.has(relativePath)) continue;
   if (forbiddenCredentialFiles.some((pattern) => pattern.test(relativePath))) {
     fail(`Git contiene material privado versionado: ${relativePath}`);
   }
@@ -68,6 +76,9 @@ for (const relativePath of tracked) {
   if (!scanRoots.some((prefix) => relativePath.startsWith(prefix))) continue;
   if (relativePath.endsWith('package-lock.json')) continue;
   if (relativePath.includes('/node_modules/')) continue;
+  // Tests may intentionally contain fake credentials to verify rejection. They
+  // are kept outside this literal scan; production source/config remains gated.
+  if (relativePath.includes('/test/') || relativePath.includes('/tests/')) continue;
 
   const absolutePath = file(relativePath);
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) continue;
@@ -152,6 +163,11 @@ requireContains(
   'mobile/android/app/src/main/AndroidManifest.xml',
   /android:host="www\.manecomb\.com" android:path="\/reset-password"/,
   'el dominio www debe resolver el flujo seguro de recuperación móvil'
+);
+requireContains(
+  'mobile/android/app/build.gradle',
+  /needsReleaseSigning[\s\S]*!hasReleaseSigningConfig[\s\S]*GradleException/,
+  'Release debe fallar si falta el keystore privado externo'
 );
 
 const ventasHeaders = read('ventas/public/_headers');
