@@ -31,9 +31,9 @@ function reconcileAccountTheme(userId: string | null, isHydrated: boolean) {
     (previousUserId === undefined || previousUserId === null);
   legacyMigrationAvailable = false;
 
-  // During an account switch never render the previous account's appearance
-  // while the new preference is loading. A remembered cold-start session may
-  // keep the legacy value briefly so it can be migrated to that same account.
+  // During an account switch never persist the previous account's appearance
+  // into the new identity. A remembered cold-start session may keep the legacy
+  // value briefly so it can be migrated to that same account.
   if (!allowLegacyMigration) {
     useAppStore.setState({ themeMode: 'light' });
   }
@@ -57,6 +57,16 @@ export function useAppTheme() {
     }))
   );
 
+  const isLoggedOut = isHydrated && !userId;
+  const isAccountTransition =
+    isHydrated &&
+    Boolean(userId) &&
+    reconciledUserId !== undefined &&
+    reconciledUserId !== userId &&
+    !legacyMigrationAvailable;
+  const effectiveThemeMode: ThemeMode =
+    isLoggedOut || isAccountTransition ? 'light' : themeMode;
+
   useEffect(() => {
     reconcileAccountTheme(userId, isHydrated);
   }, [isHydrated, userId]);
@@ -73,15 +83,18 @@ export function useAppTheme() {
     await writeAccountThemePreference(activeUserId, mode);
   }, []);
 
-  const theme = useMemo(() => getAppTheme(themeMode), [themeMode]);
-  const navigationTheme = useMemo(() => getNavigationTheme(themeMode), [themeMode]);
+  const theme = useMemo(() => getAppTheme(effectiveThemeMode), [effectiveThemeMode]);
+  const navigationTheme = useMemo(
+    () => getNavigationTheme(effectiveThemeMode),
+    [effectiveThemeMode]
+  );
 
   return {
-    isDark: themeMode === 'dark',
+    isDark: effectiveThemeMode === 'dark',
     navigationTheme,
     setThemeMode,
     theme,
-    themeMode,
+    themeMode: effectiveThemeMode,
   } as const;
 }
 
