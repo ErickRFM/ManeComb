@@ -92,6 +92,28 @@ type AppState = {
 
 let socket: Socket | null = null;
 let socketSessionKey: string | null = null;
+type PortalRealtimeSocketSubscriber = (nextSocket: Socket | null) => void;
+const portalRealtimeSocketSubscribers = new Set<PortalRealtimeSocketSubscriber>();
+
+function publishPortalRealtimeSocket() {
+  portalRealtimeSocketSubscribers.forEach((subscriber) => subscriber(socket));
+}
+
+/**
+ * Comunicación, llamadas y operación consumen exactamente el mismo Socket.IO.
+ * Ningún feature del Portal debe crear una segunda conexión autenticada.
+ */
+export function getSharedPortalRealtimeSocket(): Socket | null {
+  return socket;
+}
+
+export function subscribeSharedPortalRealtimeSocket(
+  subscriber: PortalRealtimeSocketSubscriber
+): () => void {
+  portalRealtimeSocketSubscribers.add(subscriber);
+  subscriber(socket);
+  return () => portalRealtimeSocketSubscribers.delete(subscriber);
+}
 
 function extractVehicleFromRealtimePayload(payload: unknown): Vehicle | null {
   const candidate = (payload && typeof payload === 'object' && 'vehicle' in payload ? (payload as { vehicle?: unknown }).vehicle : payload) as Vehicle | null;
@@ -203,6 +225,7 @@ function disconnectSocket() {
     socket.io.removeAllListeners();
     socket.disconnect();
     socket = null;
+    publishPortalRealtimeSocket();
   }
 
   socketSessionKey = null;
@@ -241,6 +264,7 @@ function connectSocket(get: () => AppState) {
     reconnectionDelayMax: 10000,
     autoConnect: false,
   });
+  publishPortalRealtimeSocket();
 
   socket.on('connect', () => {
     useAppStore.setState({ socketStatus: 'connected' });
