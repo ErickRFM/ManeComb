@@ -7,8 +7,8 @@ type PortalUser = Pick<User, 'accountType' | 'role'> & {
 
 const PORTAL_ROLES = new Set(['owner', 'admin', 'billing_manager', 'support', 'viewer']);
 const LEGACY_ROLE_PERMISSIONS = {
-  owner: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics']),
-  admin: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics']),
+  owner: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics', 'communication']),
+  admin: new Set(['users', 'billing', 'vehicles', 'routes', 'documents', 'incidents', 'analytics', 'communication']),
   billing_manager: new Set(['billing', 'analytics']),
   support: new Set(['incidents', 'analytics']),
   viewer: new Set(['analytics']),
@@ -22,6 +22,7 @@ const PORTAL_CAPABILITIES = {
   documents: 'documents.manage',
   incidents: 'incidents.manage',
   analytics: 'analytics.view',
+  communication: 'communication.chat.access',
 } as const;
 
 export function isPortalRole(role: User['role'] | string | null | undefined) {
@@ -66,4 +67,12 @@ export function hasPortalPermission(
 
   const role = String(user?.role || '');
   return LEGACY_ROLE_PERMISSIONS[role as keyof typeof LEGACY_ROLE_PERMISSIONS]?.has(permission) || false;
+}
+
+export function hasPortalRtcAccess(user: PortalUser | null | undefined) {
+  if (!canAccessPortal(user)) return false;
+  if (hasExplicitCapabilities(user)) {
+    return user!.capabilities!.includes('communication.rtc.access');
+  }
+  return user?.role === 'owner' || user?.role === 'admin';
 }
