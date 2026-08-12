@@ -295,7 +295,7 @@ for (const contract of trialPaymentUiContracts) {
 
 const operationalGateContracts = [
   'function OperationalPortalGate',
-  'resolvedSubscription?.isActive',
+  'isPortalRouteAllowedBySubscription(pathname, resolvedSubscription, true)',
   '<Redirect href="/portal/plan" />',
 ];
 
