@@ -14,6 +14,7 @@ const {
 const { assertPlatformSecurityConfiguration } = require("./config/platform-security");
 const { assertPlatformAccessConfiguration } = require("./config/platform-access");
 const { createEmbeddedStore, createMongoStore } = require("./data/store");
+const { productionRealtimeOriginGuard } = require("./middlewares/production-origin-guard");
 const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
 const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
@@ -108,6 +109,10 @@ async function startServer() {
   });
   const server = http.createServer(app);
   const io = registerSocketServer(server, store);
+  // Socket.IO is attached directly to the HTTP server and does not traverse
+  // Express middleware during its Engine.IO handshake. Apply the same canonical
+  // production-origin perimeter explicitly at the realtime transport boundary.
+  io.engine.use(productionRealtimeOriginGuard);
 
   app.locals.io = io;
   startOperationalFreshnessSweeper({ io, store, server });
