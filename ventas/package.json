@@ -8,7 +8,7 @@
     "build": "npm run verify:contracts && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:route-plan-authority && npm run verify:portal-load-policy",
+    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:routes-empty-state",
     "verify:mobile-layout": "node scripts/verify-mobile-sales-layout.cjs",
     "verify:sales-ux": "node scripts/verify-sales-ux.cjs",
     "verify:sales-actions": "node scripts/verify-sales-actions.cjs",
@@ -16,7 +16,8 @@
     "verify:portal-capabilities": "node scripts/verify-portal-capability-ui.cjs",
     "verify:session-storage": "node scripts/verify-session-storage.cjs",
     "verify:route-plan-authority": "node scripts/verify-route-plan-authority.mjs",
-    "verify:portal-load-policy": "node scripts/verify-portal-load-policy.mjs"
+    "verify:portal-load-policy": "node scripts/verify-portal-load-policy.mjs",
+    "verify:routes-empty-state": "node scripts/verify-routes-empty-state.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
