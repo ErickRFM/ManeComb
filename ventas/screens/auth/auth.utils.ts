@@ -77,14 +77,15 @@ export function getRegistrationPasswordChecks(password: string): RegistrationPas
   // Mantener esta política semánticamente equivalente a backend/src/utils/password-policy.js.
   // Unicode Letter/Number evita tratar ñ o vocales acentuadas como símbolos.
   // Punctuation/Symbol exige un carácter especial real; el espacio no cuenta como especial.
-  const safePassword = String(password || '').normalize('NFKC');
+  const safePassword = String(password || '');
+  const normalizedPassword = safePassword.normalize('NFKC');
   return {
-    minLength: safePassword.length >= 8,
-    withinMaxLength: safePassword.length <= 64,
-    hasLetter: /\p{L}/u.test(safePassword),
-    hasNumber: /\p{N}/u.test(safePassword),
-    hasSpecial: /[\p{P}\p{S}]/u.test(safePassword),
-    notCommon: !COMMON_PASSWORD_FINGERPRINTS.has(getPasswordFingerprint(safePassword)),
+    minLength: normalizedPassword.length >= 8,
+    withinMaxLength: normalizedPassword.length <= 64,
+    hasLetter: /\p{L}/u.test(normalizedPassword),
+    hasNumber: /\p{N}/u.test(normalizedPassword),
+    hasSpecial: /[\p{P}\p{S}]/u.test(normalizedPassword),
+    notCommon: !COMMON_PASSWORD_FINGERPRINTS.has(getPasswordFingerprint(normalizedPassword)),
   };
 }
 
