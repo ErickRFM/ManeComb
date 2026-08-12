@@ -71,6 +71,7 @@ import {
   getMobileNetworkSnapshot,
   isNetworkReachable,
   mobileLog,
+  refreshMobileNetworkSnapshot,
   subscribeMobileNetwork,
   type MobileNetworkSnapshot,
 } from '@/src/api/mobile-runtime';
@@ -127,7 +128,14 @@ import {
 import { normalizeLiveLocationsData, normalizeVehicle } from '@/src/utils/navigation-data';
 import { buildPresenceSnapshot, markAllPresenceUnknown, type PresenceMap } from '@/src/utils/presence';
 import { beginSessionEpoch, getSessionEpoch, isSessionEpochStale } from '@/src/store/session-epoch';
-import { isRealtimeAuthError } from '@/src/utils/realtime-state';
+import {
+  isRealtimeAuthError,
+  shouldRestartRealtimeAfterForeground,
+} from '@/src/utils/realtime-state';
+import {
+  getForegroundNetworkSignal,
+  hasPhysicalNetworkLink,
+} from '@/src/utils/network-recovery-policy';
 import { createClientMessageId, normalizeClientMessageId } from '@/src/utils/chat-message-id';
 import {
   canLoadDirectoryUsers,
@@ -169,6 +177,7 @@ let socketReconnectAttempts = 0;
 let socketAuthRetries = 0;
 let realtimeAuthRefreshInFlight: Promise<string | null> | null = null;
 let refreshAllInFlight: { epoch: number; promise: Promise<void> } | null = null;
+let foregroundRecoveryInFlight: Promise<void> | null = null;
 
 export function getSharedRealtimeSocket() {
   return socket;
@@ -1063,13 +1072,21 @@ function setSocketTransition(
   });
 }
 
-function connectSocket(set: StoreSet, get: () => AppState) {
+function connectSocket(
+  set: StoreSet,
+  get: () => AppState,
+  options: { forceFreshTransport?: boolean } = {}
+) {
   const { token, user } = get();
   if (!user) return disconnectSocket();
   const nextSessionKey = `${SOCKET_URL}:${user.id}:${token || 'anonymous'}`;
 
   if (socket && socketSessionKey === nextSessionKey) {
-    if (!socket.connected) {
+    if (options.forceFreshTransport) {
+      socket.disconnect();
+      setSocketTransition(set, 'connecting', 'socket_foreground_recovery_requested');
+      socket.connect();
+    } else if (!socket.connected) {
       socket.connect();
       setSocketTransition(set, 'connecting', 'socket_reconnect_requested');
     } else {
@@ -1691,6 +1708,97 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
   return realtimeAuthRefreshInFlight;
 }
 
+function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState) {
+  if (foregroundRecoveryInFlight) {
+    return foregroundRecoveryInFlight;
+  }
+
+  const epoch = getSessionEpoch();
+  const recovery = (async () => {
+    const snapshot = await refreshMobileNetworkSnapshot()
+      .catch(() => get().networkSnapshot);
+
+    if (
+      isSessionEpochStale(epoch) ||
+      !get().user ||
+      NativeAppState.currentState !== 'active'
+    ) {
+      return;
+    }
+
+    setNetworkSignal(set, getForegroundNetworkSignal(snapshot), snapshot);
+
+    if (!hasPhysicalNetworkLink(snapshot)) {
+      return;
+    }
+
+    const current = get();
+    connectSocket(set, get, {
+      forceFreshTransport: shouldRestartRealtimeAfterForeground({
+        lastPongAt: current.realtimeDiagnostics.lastPongAt,
+        missedHeartbeatAcks: current.realtimeDiagnostics.missedHeartbeatAcks,
+        socketConnected: Boolean(socket?.connected),
+        socketStatus: current.socketStatus,
+      }),
+    });
+
+    try {
+      await healthRequest();
+    } catch (error) {
+      if (
+        isSessionEpochStale(epoch) ||
+        !get().user ||
+        NativeAppState.currentState !== 'active'
+      ) {
+        return;
+      }
+
+      if (socket?.connected) {
+        setNetworkSignal(set, 'online', snapshot);
+      } else if (isProbablyNetworkError(error)) {
+        setNetworkSignal(set, 'offline', snapshot);
+      }
+      return;
+    }
+
+    if (
+      isSessionEpochStale(epoch) ||
+      !get().user ||
+      NativeAppState.currentState !== 'active'
+    ) {
+      return;
+    }
+
+    setNetworkSignal(set, 'online', snapshot);
+    const afterProbe = get();
+    if (shouldRestartRealtimeAfterForeground({
+      lastPongAt: afterProbe.realtimeDiagnostics.lastPongAt,
+      missedHeartbeatAcks: afterProbe.realtimeDiagnostics.missedHeartbeatAcks,
+      socketConnected: Boolean(socket?.connected),
+      socketStatus: afterProbe.socketStatus,
+    })) {
+      // Si el intento iniciado arriba sigue activo, `connect()` es idempotente y
+      // no cancela su handshake. Solo se fuerza un transporte nuevo cuando el
+      // socket afirma estar conectado pero el heartbeat demuestra que quedo viejo.
+      connectSocket(set, get, { forceFreshTransport: Boolean(socket?.connected) });
+    }
+
+    await Promise.allSettled([
+      get().flushPendingSync(),
+      get().refreshAll(),
+    ]);
+  })();
+
+  foregroundRecoveryInFlight = recovery;
+  void recovery.finally(() => {
+    if (foregroundRecoveryInFlight === recovery) {
+      foregroundRecoveryInFlight = null;
+    }
+  });
+
+  return recovery;
+}
+
 function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!recoveryConfigured) {
     configureApiSessionRecovery({
@@ -1726,17 +1834,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
     appStateSubscription = NativeAppState.addEventListener('change', (state) => {
       if (state === 'active' && get().user) {
         set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
-        getMobileNetworkSnapshot()
-          .then((snapshot) => {
-            set({
-              networkSnapshot: snapshot,
-              networkStatus: isNetworkReachable(snapshot) ? 'online' : 'offline',
-            });
-          })
-          .catch(() => undefined);
-        get().flushPendingSync();
-        connectSocket(set, get);
-        get().refreshAll();
+        void recoverMobileRuntimeAfterForeground(set, get);
       } else if (state !== 'active') {
         set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
       }
@@ -1751,7 +1849,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       // state the banner stayed pinned until the app was killed and reopened.
       // Gate only on the device-level radio being unreachable, where an HTTP
       // probe cannot succeed anyway.
-      if (!get().user || isNetworkReachable(get().networkSnapshot) === false) {
+      if (!get().user || !hasPhysicalNetworkLink(get().networkSnapshot)) {
         return;
       }
 
@@ -1786,12 +1884,12 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
               current.realtimeDiagnostics.missedHeartbeatAcks > 0 ||
               current.socketStatus !== 'connected';
             if (needHeartbeat) {
-              socket.disconnect().connect();
+              connectSocket(set, get, { forceFreshTransport: true });
             }
           }
         })
         .catch((error) => {
-          if (isProbablyNetworkError(error)) {
+          if (isProbablyNetworkError(error) && !socket?.connected) {
             setNetworkSignal(set, 'offline');
           }
         });

@@ -12,6 +12,37 @@ export type RealtimeMachineState =
 
 export type RealtimeMachineTone = 'positive' | 'warning' | 'danger' | 'info' | 'neutral';
 
+export const REALTIME_HEARTBEAT_HEALTH_WINDOW_MS = 55000;
+
+type RealtimeHeartbeatInputs = {
+  lastPongAt?: string | null;
+  missedHeartbeatAcks?: number;
+  now?: number;
+};
+
+export function isRealtimeHeartbeatHealthy({
+  lastPongAt,
+  missedHeartbeatAcks = 0,
+  now = Date.now(),
+}: RealtimeHeartbeatInputs) {
+  if (!lastPongAt || missedHeartbeatAcks > 0) {
+    return false;
+  }
+
+  const lastPongMs = new Date(lastPongAt).getTime();
+  return Number.isFinite(lastPongMs) &&
+    now - lastPongMs <= REALTIME_HEARTBEAT_HEALTH_WINDOW_MS;
+}
+
+export function shouldRestartRealtimeAfterForeground(input: RealtimeHeartbeatInputs & {
+  socketConnected: boolean;
+  socketStatus: string;
+}) {
+  return !input.socketConnected ||
+    input.socketStatus !== 'connected' ||
+    !isRealtimeHeartbeatHealthy(input);
+}
+
 type RealtimeInputs = {
   heartbeatHealthy?: boolean;
   hasUser?: boolean;

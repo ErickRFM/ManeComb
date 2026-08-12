@@ -41,6 +41,10 @@ export async function getMobileNetworkSnapshot() {
   return toNetworkSnapshot(await NetInfo.fetch());
 }
 
+export async function refreshMobileNetworkSnapshot() {
+  return toNetworkSnapshot(await NetInfo.refresh());
+}
+
 export function isNetworkReachable(snapshot: MobileNetworkSnapshot | null | undefined) {
   if (!snapshot) {
     return true;

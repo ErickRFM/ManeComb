@@ -40,6 +40,28 @@ describe('mobile reconnect UI stability', () => {
     expect(banner).toContain("? 'Reconectando...'");
   });
 
+  it('recovers foreground realtime through stale Android reachability', () => {
+    const rootStore = fs.readFileSync(path.join(mobileRoot, 'src', 'store', 'root-store.ts'), 'utf8');
+    const foregroundRecovery = sourceBetween(
+      rootStore,
+      'function recoverMobileRuntimeAfterForeground',
+      'function configureMobileRuntime'
+    );
+    const healthRecovery = sourceBetween(
+      rootStore,
+      'if (!apiHealthcheckTimer)',
+      'async function processPendingSyncQueue'
+    );
+
+    expect(foregroundRecovery).toContain('refreshMobileNetworkSnapshot()');
+    expect(foregroundRecovery).toContain('getForegroundNetworkSignal(snapshot)');
+    expect(foregroundRecovery).toContain('hasPhysicalNetworkLink(snapshot)');
+    expect(foregroundRecovery).toContain('shouldRestartRealtimeAfterForeground');
+    expect(foregroundRecovery).toContain('forceFreshTransport');
+    expect(healthRecovery).toContain('!hasPhysicalNetworkLink(get().networkSnapshot)');
+    expect(healthRecovery).not.toContain('isNetworkReachable(get().networkSnapshot) === false');
+  });
+
   it('renders the mobile connection notice outside normal page flow', () => {
     const shell = fs.readFileSync(path.join(mobileRoot, 'src', 'components', 'app-shell.tsx'), 'utf8');
 

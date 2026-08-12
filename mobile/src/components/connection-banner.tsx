@@ -5,7 +5,10 @@ import { useShallow } from 'zustand/react/shallow';
 import { Typography } from '@/constants/theme';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { getRealtimeSnapshot } from '@/src/utils/realtime-state';
+import {
+  getRealtimeSnapshot,
+  isRealtimeHeartbeatHealthy,
+} from '@/src/utils/realtime-state';
 
 export const TRANSIENT_CONNECTION_NOTICE_DELAY_MS = 3500;
 
@@ -25,11 +28,7 @@ export function ConnectionBanner() {
     }))
   );
 
-  const heartbeatHealthy = Boolean(
-    realtimeDiagnostics.lastPongAt &&
-    realtimeDiagnostics.missedHeartbeatAcks === 0 &&
-    Date.now() - new Date(realtimeDiagnostics.lastPongAt).getTime() <= 55000
-  );
+  const heartbeatHealthy = isRealtimeHeartbeatHealthy(realtimeDiagnostics);
   const realtime = getRealtimeSnapshot({
     heartbeatHealthy,
     hasUser: Boolean(user),
