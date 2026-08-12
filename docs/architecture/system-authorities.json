@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "1677572ab39856b04d3ca1b9ccd6cc50e3caee86",
+    "commit": "6acac2f1298ec7cd2c227a3066df225ef3aa365c",
     "capturedAt": "2026-08-12",
-    "phase": "post-20260812-browser-identity-and-integration-audit"
+    "phase": "post-20260812-production-origin-and-integration-reconciliation"
   },
   "products": [
     {
