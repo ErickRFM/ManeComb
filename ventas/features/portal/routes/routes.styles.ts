@@ -202,6 +202,12 @@ export const styles = StyleSheet.create({
     minWidth: 0,
     paddingHorizontal: 12,
   },
+  editorInput: {
+    flexBasis: 40,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 40,
+  },
   segmentRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
