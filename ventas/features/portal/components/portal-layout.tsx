@@ -22,6 +22,10 @@ import { usePortalStore } from '../store/use-portal-store';
 import { useAppStore } from '@/src/store/use-app-store';
 import { canAccessPortal, hasPortalPermission } from '../utils/access';
 import { PORTAL_NAV_SECTIONS, type PortalNavItem } from '../navigation/portal-route-registry';
+import {
+  getPortalNavSectionsBySubscription,
+  isPortalRouteAllowedBySubscription,
+} from '../navigation/portal-subscription-access';
 import { getPortalRouteLoadScope } from '../store/portal-load-policy';
 
 type PortalLayoutProps = PropsWithChildren<{
@@ -55,6 +59,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   const mobileMenuTop = AppTheme.spacing.xxl + AppTheme.spacing.xl;
   const isWeb = Platform.OS === 'web';
   const pathname = usePathname();
+  const loadScope = getPortalRouteLoadScope(pathname);
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const currentSection = getParam(params.section);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -64,13 +69,23 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
       user: state.user,
     }))
   );
-  const { clearError, error, loadAll, loadBilling, loadOverview } = usePortalStore(
+  const {
+    clearError,
+    error,
+    loadAll,
+    loadBilling,
+    loadOverview,
+    overview,
+    subscription,
+  } = usePortalStore(
     useShallow((state) => ({
       clearError: state.clearError,
       error: state.error,
       loadAll: state.loadAll,
       loadBilling: state.loadBilling,
       loadOverview: state.loadOverview,
+      overview: state.overview,
+      subscription: state.subscription,
     }))
   );
 
@@ -80,7 +95,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   useEffect(() => {
     if (!userId) return;
 
-    switch (getPortalRouteLoadScope(pathname)) {
+    switch (loadScope) {
       case 'account':
         void loadAll({ includeBilling: false });
         break;
@@ -93,7 +108,15 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
       default:
         break;
     }
-  }, [loadAll, loadBilling, loadOverview, pathname, userId]);
+  }, [loadAll, loadBilling, loadOverview, loadScope, userId]);
+
+  // Overview contiene la autoridad de suscripción que decide si el Portal debe
+  // exponer operación. Las rutas que antes no lo cargaban lo consultan una sola
+  // vez para que escribir una URL manual no salte el gate visual.
+  useEffect(() => {
+    if (!userId || overview || (loadScope !== 'none' && loadScope !== 'billing')) return;
+    void loadOverview();
+  }, [loadOverview, loadScope, overview, userId]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -108,6 +131,22 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   if (!canAccessPortal(user)) {
     return <Redirect href={'/ventas' as never} />;
   }
+
+  const effectiveSubscription = subscription || overview?.subscription || null;
+  const subscriptionAuthorityReady = overview !== null;
+
+  if (
+    subscriptionAuthorityReady
+    && !isPortalRouteAllowedBySubscription(pathname, effectiveSubscription, true)
+  ) {
+    return <Redirect href={'/portal/plan' as never} />;
+  }
+
+  const visibleNavSections = getPortalNavSectionsBySubscription(
+    PORTAL_NAV_SECTIONS,
+    effectiveSubscription,
+    subscriptionAuthorityReady
+  );
 
   const goToItem = (item: PortalNavItem) => {
     setMobileMenuOpen(false);
@@ -230,7 +269,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               contentContainerStyle={styles.sidebarScrollContent}
               showsVerticalScrollIndicator={false}>
               <View style={styles.navList}>
-                {PORTAL_NAV_SECTIONS.map((section) => (
+                {visibleNavSections.map((section) => (
                   <View key={section.title} style={styles.navSection}>
                     <Text style={styles.navSectionTitle}>{section.title}</Text>
                     {section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item))}
@@ -280,7 +319,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
             style={styles.mobileMenuScrim}
           />
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-mobile-menu" style={[styles.mobileMenuPanel, { maxHeight: height - mobileMenuTop - AppTheme.spacing.lg }, portalGlass()]}>
-            {PORTAL_NAV_SECTIONS.map((section) => (
+            {visibleNavSections.map((section) => (
               <View key={section.title} style={styles.mobileNavSection}>
                 <Text style={styles.navSectionTitle}>{section.title}</Text>
                 <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
