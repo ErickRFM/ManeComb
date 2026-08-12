@@ -1,4 +1,9 @@
-import { getRealtimeSnapshot, isRealtimeAuthError } from './realtime-state';
+import {
+  getRealtimeSnapshot,
+  isRealtimeAuthError,
+  isRealtimeHeartbeatHealthy,
+  shouldRestartRealtimeAfterForeground,
+} from './realtime-state';
 
 describe('realtime state machine', () => {
   it('classifies authentication failures separately from transport failures', () => {
@@ -55,5 +60,37 @@ describe('realtime state machine', () => {
     });
     expect(snapshot.state).toBe('RECONNECTING');
     expect(snapshot.detail).toBe('Esperando heartbeat');
+  });
+
+  it('restarts a socket that Android left stale while the tablet was locked', () => {
+    const now = Date.parse('2026-08-12T15:00:00.000Z');
+
+    expect(
+      shouldRestartRealtimeAfterForeground({
+        lastPongAt: '2026-08-12T14:30:00.000Z',
+        missedHeartbeatAcks: 0,
+        now,
+        socketConnected: true,
+        socketStatus: 'connected',
+      })
+    ).toBe(true);
+  });
+
+  it('preserves a connected socket with a recent acknowledged heartbeat', () => {
+    const now = Date.parse('2026-08-12T15:00:00.000Z');
+    const input = {
+      lastPongAt: '2026-08-12T14:59:40.000Z',
+      missedHeartbeatAcks: 0,
+      now,
+    };
+
+    expect(isRealtimeHeartbeatHealthy(input)).toBe(true);
+    expect(
+      shouldRestartRealtimeAfterForeground({
+        ...input,
+        socketConnected: true,
+        socketStatus: 'connected',
+      })
+    ).toBe(false);
   });
 });
