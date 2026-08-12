@@ -26,11 +26,15 @@ import java.util.TimeZone
 
 object ManeCombPushNotificationRenderer {
   const val CHANNEL_CHAT = "manecomb-chat-messages"
-  const val CHANNEL_CALLS = "manecomb-incoming-calls"
+  // NotificationChannel conserva sonido/importancia despues de crearse. El canal v2
+  // evita que una instalacion que tuvo el canal historico silencioso siga heredando
+  // esa configuracion cuando recibe una llamada con la app en background o cerrada.
+  const val CHANNEL_CALLS = "manecomb-incoming-calls-v2"
   const val GROUP_CHAT = "manecomb-chat"
   private const val E2EE_REPLY_SUBTEXT = "Cifrado de extremo a extremo"
   private const val DEFAULT_CALL_RING_TIMEOUT_MS = 35_000L
   private const val CLOCK_SKEW_FALLBACK_RING_MS = 10_000L
+  private val CALL_VIBRATION_PATTERN = longArrayOf(0, 700, 350, 700, 350, 900)
 
   private data class CallDeadline(
     val timeoutMs: Long,
@@ -246,6 +250,12 @@ object ManeCombPushNotificationRenderer {
       .setOngoing(true)
       .setTimeoutAfter(deadline.timeoutMs)
 
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+      builder
+        .setSound(defaultIncomingCallSound())
+        .setVibrate(CALL_VIBRATION_PATTERN)
+    }
+
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, rejectIntent, acceptIntent))
     } else {
@@ -342,18 +352,21 @@ object ManeCombPushNotificationRenderer {
     }
     manager.createNotificationChannel(chat)
 
-    val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+    // El ID se versiona a proposito: Android conserva sonido/importancia del canal
+    // ya creado y no permite que una actualizacion de la app repare un canal viejo
+    // que quedo silencioso. Las nuevas llamadas usan exclusivamente este canal v2.
     val calls = NotificationChannel(
       CHANNEL_CALLS,
       "Llamadas entrantes",
-      NotificationManager.IMPORTANCE_HIGH
+      NotificationManager.IMPORTANCE_MAX
     ).apply {
       description = "Llamadas de audio y video de ManeComb"
       enableVibration(true)
-      vibrationPattern = longArrayOf(0, 700, 350, 700, 350, 900)
+      vibrationPattern = CALL_VIBRATION_PATTERN
       setSound(
-        ringtone,
+        defaultIncomingCallSound(),
         AudioAttributes.Builder()
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
           .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
           .build()
       )
@@ -452,6 +465,9 @@ object ManeCombPushNotificationRenderer {
     val manager = context.getSystemService(NotificationManager::class.java)
     return manager.canUseFullScreenIntent()
   }
+
+  private fun defaultIncomingCallSound(): Uri =
+    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
   private fun parseUtcMillis(value: String?): Long? {
     val raw = value.orEmpty().trim()
