@@ -1083,8 +1083,8 @@ export async function registerDriverActivationRequest(payload: DriverActivationR
     '/driver/activation/register',
     payload,
     {
-      _allowRetry: true,
       _skipAuthRefresh: true,
+      _skipNetworkRetry: true,
     } as RetryableRequestConfig
   );
   return response.data;
