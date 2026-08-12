@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, extname, resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -108,6 +108,26 @@ requireContains(
   'falta bloqueo de contraseñas comunes'
 );
 
+const originGuard = read('backend/src/middlewares/production-origin-guard.js');
+for (const origin of ['https://manecomb.com', 'https://www.manecomb.com', 'https://admin.manecomb.com']) {
+  if (!originGuard.includes(origin)) fail(`production-origin-guard: falta ${origin}`);
+}
+for (const forbiddenOrigin of ['localhost', 'manecomb1.pages.dev', 'manecomb-backend-sandbox.onrender.com']) {
+  if (originGuard.includes(`"https://${forbiddenOrigin}`) || originGuard.includes(`"http://${forbiddenOrigin}`)) {
+    fail(`production-origin-guard: producción no debe confiar en ${forbiddenOrigin}`);
+  }
+}
+requireContains(
+  'backend/src/app.js',
+  /app\.use\(productionOriginGuard\);/,
+  'el perímetro HTTP debe rechazar orígenes browser no canónicos antes de CORS'
+);
+requireContains(
+  'backend/src/app.js',
+  /Cache-Control", "no-store, max-age=0"/,
+  'auth/account/platform deben marcarse no-store'
+);
+
 requireContains(
   'mobile/src/native/secure-store.ts',
   /WHEN_UNLOCKED_THIS_DEVICE_ONLY/,
@@ -127,6 +147,11 @@ requireContains(
   'mobile/android/app/src/main/AndroidManifest.xml',
   /android:allowBackup="false"/,
   'la aplicación debe impedir backups del contenedor privado'
+);
+requireContains(
+  'mobile/android/app/src/main/AndroidManifest.xml',
+  /android:host="www\.manecomb\.com" android:path="\/reset-password"/,
+  'el dominio www debe resolver el flujo seguro de recuperación móvil'
 );
 
 const ventasHeaders = read('ventas/public/_headers');
