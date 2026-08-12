@@ -15,6 +15,7 @@ on:
       - "audit/**"
       - "codex/**"
       - "claude/**"
+      - "security/**"
   workflow_dispatch:
 
 permissions:
@@ -45,6 +46,9 @@ jobs:
 
       - name: Validate repository integration hygiene
         run: node scripts/validate-repo-integration-hygiene.mjs
+
+      - name: Validate production security posture
+        run: node scripts/validate-production-security.mjs
 
       - name: Test physical merge policy
         run: node --test scripts/validate-pr-physical-gate.test.mjs
