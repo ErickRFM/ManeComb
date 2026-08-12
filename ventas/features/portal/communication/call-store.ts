@@ -18,6 +18,7 @@ import {
   type CallState,
   type IncomingCallPayload,
 } from '@shared/communication';
+import { preflightBrowserCallMedia } from './browser-call-permissions';
 import { createWebCallRuntime, type WebCallRuntime } from './web-call-runtime';
 
 const RESULT_DISPLAY_MS = 1_600;
@@ -286,7 +287,15 @@ export const usePortalCallStore = create<PortalCallStore>((set, get) => {
       const state = get();
       if (!isIdle(state) || state._starting) return { ok: false, code: 'busy' };
       if (!state._socket) return { ok: false, code: 'socket_unavailable' };
-      set({ _starting: true });
+
+      set({ _starting: true, failureCode: null });
+      const preflight = await preflightBrowserCallMedia(mode);
+      if (!get()._starting) return { ok: false, code: 'cancelled' };
+      if (!preflight.ok) {
+        set({ _starting: false, failureCode: preflight.code || 'media_capture_failed' });
+        return { ok: false, code: preflight.code || 'media_capture_failed' };
+      }
+
       const ack = await emitStartCall(state._socket, { conversationId, mode });
       if (!get()._starting) return { ok: false, code: 'cancelled' };
       set({ _starting: false });
@@ -309,7 +318,18 @@ export const usePortalCallStore = create<PortalCallStore>((set, get) => {
       if (state.phase !== 'INCOMING_RINGING' || !state.callId || !state._socket || state._accepting) {
         return { ok: false, code: 'not_ringing' };
       }
-      set({ _accepting: true });
+
+      set({ _accepting: true, failureCode: null });
+      const preflight = await preflightBrowserCallMedia(state.mode || 'audio');
+      if (!matchesCall(get(), state.callId)) {
+        set({ _accepting: false });
+        return { ok: false, code: 'call_changed' };
+      }
+      if (!preflight.ok) {
+        set({ _accepting: false, failureCode: preflight.code || 'media_capture_failed' });
+        return { ok: false, code: preflight.code || 'media_capture_failed' };
+      }
+
       const ack = await emitAccept(state._socket, state.callId);
       if (!matchesCall(get(), state.callId)) {
         set({ _accepting: false });
@@ -322,7 +342,7 @@ export const usePortalCallStore = create<PortalCallStore>((set, get) => {
       }
       clearTimer('_ringTimer');
       dispatch({ type: 'LOCAL_ACCEPT', now: now() });
-      set({ roomId: ack.roomId || get().roomId });
+      set({ roomId: ack.roomId || get().roomId, failureCode: null });
       startRuntime();
       return { ok: true };
     },
