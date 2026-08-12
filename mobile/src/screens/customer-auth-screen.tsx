@@ -282,7 +282,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
         password: registerPassword,
         unit: { vehicleId: unitId },
       },
-      rememberSession
+      true
     );
 
     if (!result.ok) {
@@ -422,6 +422,10 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
               {!isRegister ? (
                 <View style={styles.sessionRow}>
                   <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityLabel="Recordarme"
+                    accessibilityState={{ checked: rememberSession }}
+                    disabled={authBusy}
                     onPress={() => setRememberSession((current) => !current)}
                     style={styles.rememberButton}>
                     <View style={[styles.checkbox, rememberSession ? styles.checkboxActive : undefined]}>

@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const store = fs.readFileSync(path.join(root, 'src/store/use-app-store.ts'), 'utf8').replace(/\r\n/g, '\n');
+const authScreen = fs.readFileSync(path.join(root, 'screens/sales-auth-screen.tsx'), 'utf8').replace(/\r\n/g, '\n');
 
 const required = [
   ['try {\n    return window.localStorage.getItem(key);', 'La lectura de localStorage debe fallar cerrada sin bloquear la hidratación.'],
@@ -24,6 +25,11 @@ if (legacyConditionalPersistence.test(store)) {
 
 if (!store.includes("set({ isBootstrapping: false, isHydrated: true });")) {
   throw new Error('La inicialización sin sesión debe terminar hidratación explícitamente.');
+}
+
+const registerCall = authScreen.match(/const result = await register\(([\s\S]*?)\n    \);/m)?.[0] || '';
+if (!/},\s*true\s*\)/m.test(registerCall)) {
+  throw new Error('El registro debe crear una sesión persistente porque esa pantalla no muestra Recordarme.');
 }
 
 console.log('Ventas session storage and remember-session contracts verified.');

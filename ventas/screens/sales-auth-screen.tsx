@@ -185,7 +185,7 @@ export function SalesAuthScreen({ mode }: Props) {
         accountType: 'company_owner',
         customerReference: cleanCompany,
       },
-      rememberSession
+      true
     );
 
     if (!result.ok) {

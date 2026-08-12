@@ -108,6 +108,39 @@ describe('Mobile startup stability contract', () => {
     expect(signIn).not.toContain('await get().refreshAll();');
   });
 
+  it('keeps non-remembered sessions memory-only across token rotation', () => {
+    const establishSession = section(
+      store,
+      'async function replaceSessionFromBackend',
+      'async function persistOfflineSnapshot'
+    );
+    const refreshSession = section(
+      store,
+      'async function applyRefreshedSession',
+      'function refreshRealtimeAuth'
+    );
+    const backgroundCredentials = section(
+      store,
+      'syncBackgroundLocationCredentials: async',
+      'activeConversationId: null'
+    );
+
+    expect(establishSession).toContain("rememberSession ? 'persistent' : 'memory'");
+    for (const sessionUpdate of [refreshSession, backgroundCredentials]) {
+      expect(sessionUpdate).toContain("sessionPersistence === 'persistent'");
+      expect(sessionUpdate).toContain('await persistSession(null, null);');
+    }
+  });
+
+  it('persists a newly activated account because registration has no remember control', () => {
+    const registration = section(
+      authScreen,
+      'const result = await activateDriverWithKey(',
+      'if (!result.ok)'
+    );
+    expect(registration).toMatch(/},\s*true\s*\)/);
+  });
+
   it('keeps bootstrap credentials for transient HTTP failures', () => {
     const initialize = section(store, 'initialize: async () =>', 'signIn: async');
     expect(initialize).toContain('isTransientSessionFailure(error)');
