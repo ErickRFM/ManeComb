@@ -8,7 +8,7 @@
     "build": "vite build",
     "postbuild": "node test/private-build-smoke.mjs",
     "preview": "vite preview",
-    "test": "node test/p1-contract.test.mjs && node test/p2-companies-contract.test.mjs && node test/p3-operations-contract.test.mjs && node test/p4-governance-contract.test.mjs && node test/p5-private-access-contract.test.mjs && node test/ux-contract.test.mjs",
+    "test": "node test/p1-contract.test.mjs && node test/p2-companies-contract.test.mjs && node test/p3-operations-contract.test.mjs && node test/p4-governance-contract.test.mjs && node test/p5-private-access-contract.test.mjs && node test/ux-contract.test.mjs && node test/single-account-browser-contract.test.mjs",
     "test:ux": "node test/ux-contract.test.mjs",
     "typecheck": "tsc --noEmit"
   },
@@ -16,7 +16,7 @@
     "axios": "^1.15.0",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "react-dom": "^19.1.0",
     "react-native-web": "^0.21.2",
     "zustand": "^5.0.12"
   },
