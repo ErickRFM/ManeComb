@@ -120,11 +120,21 @@ requireContains(
 );
 
 const originGuard = read('backend/src/middlewares/production-origin-guard.js');
-for (const origin of ['https://manecomb.com', 'https://www.manecomb.com', 'https://admin.manecomb.com']) {
+for (const origin of [
+  'https://manecomb.com',
+  'https://www.manecomb.com',
+  'https://admin.manecomb.com',
+  'https://manecomb1.pages.dev',
+]) {
   if (!originGuard.includes(origin)) fail(`production-origin-guard: falta ${origin}`);
 }
-for (const forbiddenOrigin of ['localhost', 'manecomb1.pages.dev', 'manecomb-backend-sandbox.onrender.com']) {
-  if (originGuard.includes(`"https://${forbiddenOrigin}`) || originGuard.includes(`"http://${forbiddenOrigin}`)) {
+for (const forbiddenOrigin of [
+  'http://localhost',
+  'https://localhost',
+  'https://*.manecomb1.pages.dev',
+  'https://manecomb-backend-sandbox.onrender.com',
+]) {
+  if (originGuard.includes(`"${forbiddenOrigin}`) || originGuard.includes(`'${forbiddenOrigin}`)) {
     fail(`production-origin-guard: producción no debe confiar en ${forbiddenOrigin}`);
   }
 }
