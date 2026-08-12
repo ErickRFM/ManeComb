@@ -58,7 +58,12 @@ export function getPortalNavSectionsBySubscription(
   subscription: PortalSubscription | null,
   authorityReady: boolean
 ): PortalNavSection[] {
-  if (!authorityReady || hasOperationalPortalSubscription(subscription)) return sections;
+  if (hasOperationalPortalSubscription(subscription)) return sections;
+
+  // Mientras overview todavía no responde, el menú falla cerrado: nunca enseña
+  // operación por un instante y después la retira. Al llegar la autoridad real,
+  // una suscripción activa recupera el menú completo automáticamente.
+  const allowPaymentRecovery = authorityReady && needsPaymentRecovery(subscription);
 
   return sections
     .map((section) => ({
@@ -66,7 +71,7 @@ export function getPortalNavSectionsBySubscription(
       items: section.items
         .filter((item) =>
           BASE_ACCOUNT_ROUTES.has(item.href)
-          || (item.href === '/portal/pagos' && needsPaymentRecovery(subscription))
+          || (item.href === '/portal/pagos' && allowPaymentRecovery)
         )
         .map(relabelEntryItem),
     }))
