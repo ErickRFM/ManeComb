@@ -351,7 +351,7 @@ function connectSocket(get: () => AppState) {
             const appliedAtMs = Date.now();
             return {
               operationalUnits: upsertOperationalUnit(state.operationalUnits, unit),
-              operationalResource: applyIncrementalResourceEvent(state.operationalResource),
+              operationalResource: applyIncrementalResourceEvent(state.operationalResource, { hasDataAfterMutation: true }),
               operationalApplyDiagnostics: {
                 socketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
                 appliedAt: new Date(appliedAtMs).toISOString(),

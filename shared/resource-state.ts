@@ -61,9 +61,16 @@ export function failResourceAttempt(
   };
 }
 
-export function applyIncrementalResourceEvent(current: ResourceState): ResourceState {
+export function applyIncrementalResourceEvent(
+  current: ResourceState,
+  options: { hasDataAfterMutation: boolean },
+): ResourceState {
   if (!current.lastSuccessfulAt || current.status === 'stale' || current.status === 'error') {
     return current;
   }
-  return { ...current, source: 'realtime' };
+  return {
+    ...current,
+    status: current.status === 'empty' && options.hasDataAfterMutation ? 'ready' : current.status,
+    source: 'realtime',
+  };
 }

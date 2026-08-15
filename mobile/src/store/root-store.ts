@@ -1522,7 +1522,7 @@ function connectSocket(
           : [...s.operationalUnits, unit],
         resources: {
           ...s.resources,
-          operationalUnits: applyIncrementalResourceEvent(s.resources.operationalUnits),
+          operationalUnits: applyIncrementalResourceEvent(s.resources.operationalUnits, { hasDataAfterMutation: true }),
         },
         realtimeDiagnostics: {
           ...s.realtimeDiagnostics,
@@ -1638,7 +1638,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
-      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents) },
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
   socket.on('incident:updated', (i: Incident) => set(s => {
@@ -1646,7 +1646,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
-      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents) },
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
 

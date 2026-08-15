@@ -212,3 +212,30 @@ Se mantienen `gps_ingestion_duration_ms`, `gps_transport_queue_age_ms`, `operati
 - `git diff --check`: ejecutado al cierre.
 
 Estado: **CODE_AUTOMATED_PASS**, **ANDROID_UNIT_PASS**, **PHYSICAL_GATE=ACCEPTED_PENDING**. No se declara `PHYSICAL_PASS`; GPS/background/batería y pruebas físicas siguen pendientes.
+
+---
+
+# Corte 3.1 — Resource State concurrency hardening
+
+## Coherencia incremental
+
+`applyIncrementalResourceEvent` recibe ahora `hasDataAfterMutation`. Sólo una colección con baseline completo (`ready` o `empty`) puede conservar/cambiar completitud: `empty + create/upsert → ready`, `ready + update → ready`. Los estados `idle`, `stale` y `error` permanecen iguales, por lo que un evento incremental nunca certifica una colección incompleta. Aplica a incidencias Portal/Mobile y snapshots incrementales de unidades operacionales Mobile/Portal.
+
+## Concurrencia same-domain
+
+Se reemplazó el contador sin identidad por generaciones monotónicas por dominio. Cada carga cuenta para el `isLoading` global derivado, pero sólo la generación más reciente puede escribir datos o resolver el ResourceState. Una respuesta vieja jamás pisa una nueva; una carga exitosa seguida por un fallo vigente conserva datos y termina `stale`, nunca `error` con datos utilizables.
+
+Pruebas conductuales cubren:
+
+- A success, B fail: datos previos + stale.
+- A fail, B success: datos nuevos + ready.
+- B success antes que A: A se ignora.
+- `loadBilling` y `loadAll` concurrentes sobre billing.
+- dos `loadOverview` concurrentes sobre account.
+- empty + upsert, ready + update, y preservación de stale/idle/error.
+
+`isLoading` se conserva únicamente como compatibilidad derivada del conjunto de intentos activos; no decide loading, empty, error ni stale de ninguna pantalla.
+
+## Certificación
+
+Se reejecutan en este corte las suites Mobile, Portal, Backend, Communication y Android, además de `git diff --check`. Los resultados finales se publican en el Draft PR #198. Estado físico permanece **PHYSICAL_GATE=ACCEPTED_PENDING**; no se declara `PHYSICAL_PASS`.

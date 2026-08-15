@@ -2,6 +2,7 @@ import type { PortalResourceDomain, PortalStore } from './portal-types';
 import { PORTAL_LOAD_TTL_MS, emptyPortalState } from './portal-initial-state';
 import { getErrorCode, getOptionalActivationKeys, getMessage } from './portal-api';
 import { applyIncrementalResourceEvent, beginResourceAttempt, completeResourceAttempt, failResourceAttempt } from '@shared/resource-state';
+import { createResourceLoadCoordinator } from '@shared/resource-load-coordinator';
 import { needsFullCommercialReload } from './portal-utils';
 import {
   cancelAccountSubscriptionRequest,
@@ -34,13 +35,13 @@ import type {
 let fullLoadPromise: Promise<void> | null = null;
 let lastFullLoadAt = 0;
 let lastFullLoadIncludedBilling = false;
-const activeLoads = new Map<PortalResourceDomain, number>();
+const loadCoordinator = createResourceLoadCoordinator<PortalResourceDomain>();
 
 function beginResourceLoad(
   set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
   domain: PortalResourceDomain,
 ) {
-  activeLoads.set(domain, (activeLoads.get(domain) || 0) + 1);
+  const generation = loadCoordinator.begin(domain);
   set((state) => ({
     isLoading: true,
     resources: {
@@ -50,21 +51,21 @@ function beginResourceLoad(
       },
     },
   }));
+  return generation;
 }
 
 function finishResourceLoad(
   set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
   domain: PortalResourceDomain,
+  generation: number,
   outcome: { empty?: boolean; errorCode?: string; errorMessage?: string; source?: 'rest' | 'realtime' | 'cache' } = {},
 ) {
-  const remaining = Math.max(0, (activeLoads.get(domain) || 1) - 1);
-  if (remaining) activeLoads.set(domain, remaining);
-  else activeLoads.delete(domain);
+  const completion = loadCoordinator.finish(domain, generation);
   set((state) => ({
-    isLoading: activeLoads.size > 0,
+    isLoading: completion.isLoading,
     resources: {
       ...state.resources,
-      [domain]: remaining
+      [domain]: !completion.isLatest
         ? state.resources[domain]
         : outcome.errorMessage
           ? failResourceAttempt(state.resources[domain], {
@@ -77,6 +78,15 @@ function finishResourceLoad(
             }),
     },
   }));
+}
+
+function setLatestResourceData(
+  set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
+  domain: PortalResourceDomain,
+  generation: number,
+  partial: Partial<PortalStore>,
+) {
+  if (loadCoordinator.isLatest(domain, generation)) set(partial);
 }
 
 function resourceFailure(error: unknown, fallback: string) {
@@ -93,7 +103,7 @@ function markIncrementalRealtime(
   set((state) => ({
     resources: {
       ...state.resources,
-      [domain]: applyIncrementalResourceEvent(state.resources[domain]),
+      [domain]: applyIncrementalResourceEvent(state.resources[domain], { hasDataAfterMutation: true }),
     },
   }));
 }
@@ -118,13 +128,13 @@ export function createPortalActions(
       fullLoadPromise = null;
       lastFullLoadAt = 0;
       lastFullLoadIncludedBilling = false;
-      activeLoads.clear();
+      loadCoordinator.reset();
       set(emptyPortalState);
     },
     clearError: () => set({ error: null }),
     loadOverview: async () => {
-      beginResourceLoad(set, 'account');
-      beginResourceLoad(set, 'activationKeys');
+      const accountGeneration = beginResourceLoad(set, 'account');
+      const activationKeysGeneration = beginResourceLoad(set, 'activationKeys');
       set({ error: null });
       const [overviewResult, subscriptionResult, onboardingResult, activationKeysResult] = await Promise.allSettled([
           getPortalOverviewRequest(),
@@ -133,10 +143,12 @@ export function createPortalActions(
           getOptionalActivationKeys(),
         ]);
       const accountResults = [overviewResult, subscriptionResult, onboardingResult];
-      set({
+      setLatestResourceData(set, 'account', accountGeneration, {
         ...(overviewResult.status === 'fulfilled' ? { overview: overviewResult.value } : {}),
         ...(subscriptionResult.status === 'fulfilled' ? { subscription: subscriptionResult.value } : {}),
         ...(onboardingResult.status === 'fulfilled' ? { onboarding: onboardingResult.value } : {}),
+      });
+      setLatestResourceData(set, 'activationKeys', activationKeysGeneration, {
         ...(activationKeysResult.status === 'fulfilled' ? {
           activationKeys: activationKeysResult.value.keys,
           activationSummary: activationKeysResult.value.summary,
@@ -146,29 +158,29 @@ export function createPortalActions(
       if (accountFailure?.status === 'rejected') {
         const failure = resourceFailure(accountFailure.reason, 'No fue posible actualizar la cuenta.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'account', failure);
+        finishResourceLoad(set, 'account', accountGeneration, failure);
       } else {
-        finishResourceLoad(set, 'account');
+        finishResourceLoad(set, 'account', accountGeneration);
       }
       if (activationKeysResult.status === 'rejected') {
         const failure = resourceFailure(activationKeysResult.reason, 'No fue posible cargar keys de activación.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'activationKeys', failure);
+        finishResourceLoad(set, 'activationKeys', activationKeysGeneration, failure);
       } else {
-        finishResourceLoad(set, 'activationKeys', { empty: activationKeysResult.value.keys.length === 0 });
+        finishResourceLoad(set, 'activationKeys', activationKeysGeneration, { empty: activationKeysResult.value.keys.length === 0 });
       }
     },
     loadAppInfo: async () => {
-      beginResourceLoad(set, 'appInfo');
+      const generation = beginResourceLoad(set, 'appInfo');
       set({ error: null });
       try {
         const appInfo = await getAppInfoRequest();
-        set({ appInfo });
-        finishResourceLoad(set, 'appInfo', { empty: !appInfo });
+        setLatestResourceData(set, 'appInfo', generation, { appInfo });
+        finishResourceLoad(set, 'appInfo', generation, { empty: !appInfo });
       } catch (error) {
         const failure = resourceFailure(error, 'No fue posible cargar info de la app.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'appInfo', failure);
+        finishResourceLoad(set, 'appInfo', generation, failure);
       }
     },
     updateAppInfo: async (payload) => {
@@ -185,71 +197,71 @@ export function createPortalActions(
       }
     },
     loadActivationKeys: async () => {
-      beginResourceLoad(set, 'activationKeys');
+      const generation = beginResourceLoad(set, 'activationKeys');
       set({ error: null });
       try {
         const activationKeysResponse = await getAdminActivationKeysRequest();
-        set({
+        setLatestResourceData(set, 'activationKeys', generation, {
           activationKeys: activationKeysResponse.keys,
           activationSummary: activationKeysResponse.summary,
         });
-        finishResourceLoad(set, 'activationKeys', { empty: activationKeysResponse.keys.length === 0 });
+        finishResourceLoad(set, 'activationKeys', generation, { empty: activationKeysResponse.keys.length === 0 });
       } catch (error) {
         const failure = resourceFailure(error, 'No fue posible cargar keys de activación.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'activationKeys', failure);
+        finishResourceLoad(set, 'activationKeys', generation, failure);
       }
     },
     loadBilling: async () => {
-      beginResourceLoad(set, 'billing');
+      const generation = beginResourceLoad(set, 'billing');
       set({ error: null });
       try {
         const invoices = await getAccountInvoicesRequest();
-        set({ invoices });
-        finishResourceLoad(set, 'billing', { empty: invoices.length === 0 });
+        setLatestResourceData(set, 'billing', generation, { invoices });
+        finishResourceLoad(set, 'billing', generation, { empty: invoices.length === 0 });
       } catch (error) {
         const message = getMessage(error, 'No fue posible cargar facturacion.');
         set({ error: message });
-        finishResourceLoad(set, 'billing', { errorCode: getErrorCode(error), errorMessage: message });
+        finishResourceLoad(set, 'billing', generation, { errorCode: getErrorCode(error), errorMessage: message });
       }
     },
     loadSessions: async () => {
-      beginResourceLoad(set, 'sessions');
+      const generation = beginResourceLoad(set, 'sessions');
       set({ error: null });
       try {
         const sessions = await getAccountSessionsRequest();
-        set({ sessions });
-        finishResourceLoad(set, 'sessions', { empty: sessions.length === 0 });
+        setLatestResourceData(set, 'sessions', generation, { sessions });
+        finishResourceLoad(set, 'sessions', generation, { empty: sessions.length === 0 });
       } catch (error) {
         const failure = resourceFailure(error, 'No fue posible cargar sesiones.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'sessions', failure);
+        finishResourceLoad(set, 'sessions', generation, failure);
       }
     },
     loadDocuments: async () => {
-      beginResourceLoad(set, 'documents');
+      const generation = beginResourceLoad(set, 'documents');
       set({ error: null });
       try {
         const documents = await getDocumentsRequest();
-        set({ documents });
-        finishResourceLoad(set, 'documents', { empty: documents.length === 0 });
+        setLatestResourceData(set, 'documents', generation, { documents });
+        finishResourceLoad(set, 'documents', generation, { empty: documents.length === 0 });
       } catch (error) {
         const failure = resourceFailure(error, 'No fue posible cargar los documentos.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'documents', failure);
+        finishResourceLoad(set, 'documents', generation, failure);
       }
     },
     loadIncidents: async () => {
-      beginResourceLoad(set, 'incidents');
+      const generation = beginResourceLoad(set, 'incidents');
       set({ error: null });
       try {
         const incidents = await getIncidentsRequest();
-        set({ incidents });
-        finishResourceLoad(set, 'incidents', { empty: incidents.length === 0 });
+        setLatestResourceData(set, 'incidents', generation, { incidents });
+        finishResourceLoad(set, 'incidents', generation, { empty: incidents.length === 0 });
       } catch (error) {
         const failure = resourceFailure(error, 'No fue posible cargar las incidencias.');
         set({ error: failure.errorMessage });
-        finishResourceLoad(set, 'incidents', failure);
+        finishResourceLoad(set, 'incidents', generation, failure);
       }
     },
     loadAll: async (options) => {
@@ -267,10 +279,10 @@ export function createPortalActions(
       ) return;
 
       fullLoadPromise = (async () => {
-        beginResourceLoad(set, 'account');
-        beginResourceLoad(set, 'activationKeys');
-        beginResourceLoad(set, 'sessions');
-        if (includeBilling) beginResourceLoad(set, 'billing');
+        const accountGeneration = beginResourceLoad(set, 'account');
+        const activationKeysGeneration = beginResourceLoad(set, 'activationKeys');
+        const sessionsGeneration = beginResourceLoad(set, 'sessions');
+        const billingGeneration = includeBilling ? beginResourceLoad(set, 'billing') : null;
         set({ error: null });
         try {
           const [overviewResult, subscriptionResult, onboardingResult, activationKeysResult, invoicesResult, sessionsResult] =
@@ -285,17 +297,21 @@ export function createPortalActions(
 
           lastFullLoadAt = Date.now();
           lastFullLoadIncludedBilling = includeBilling;
-          set({
+          setLatestResourceData(set, 'account', accountGeneration, {
             ...(overviewResult.status === 'fulfilled' ? { overview: overviewResult.value } : {}),
             ...(subscriptionResult.status === 'fulfilled' ? { subscription: subscriptionResult.value } : {}),
             ...(onboardingResult.status === 'fulfilled' ? { onboarding: onboardingResult.value } : {}),
+          });
+          setLatestResourceData(set, 'activationKeys', activationKeysGeneration, {
             ...(activationKeysResult.status === 'fulfilled' ? {
               activationKeys: activationKeysResult.value.keys,
               activationSummary: activationKeysResult.value.summary,
             } : {}),
-            ...(includeBilling && invoicesResult.status === 'fulfilled'
-              ? { invoices: invoicesResult.value }
-              : {}),
+          });
+          if (billingGeneration !== null && invoicesResult.status === 'fulfilled') {
+            setLatestResourceData(set, 'billing', billingGeneration, { invoices: invoicesResult.value });
+          }
+          setLatestResourceData(set, 'sessions', sessionsGeneration, {
             ...(sessionsResult.status === 'fulfilled' ? { sessions: sessionsResult.value } : {}),
           });
 
@@ -305,28 +321,28 @@ export function createPortalActions(
           if (accountFailure?.status === 'rejected') {
             const failure = resourceFailure(accountFailure.reason, 'No fue posible actualizar la cuenta.');
             failures.push(failure.errorMessage);
-            finishResourceLoad(set, 'account', failure);
-          } else finishResourceLoad(set, 'account');
+            finishResourceLoad(set, 'account', accountGeneration, failure);
+          } else finishResourceLoad(set, 'account', accountGeneration);
 
           if (activationKeysResult.status === 'rejected') {
             const failure = resourceFailure(activationKeysResult.reason, 'No fue posible actualizar keys de activación.');
             failures.push(failure.errorMessage);
-            finishResourceLoad(set, 'activationKeys', failure);
-          } else finishResourceLoad(set, 'activationKeys', { empty: activationKeysResult.value.keys.length === 0 });
+            finishResourceLoad(set, 'activationKeys', activationKeysGeneration, failure);
+          } else finishResourceLoad(set, 'activationKeys', activationKeysGeneration, { empty: activationKeysResult.value.keys.length === 0 });
 
           if (includeBilling) {
             if (invoicesResult.status === 'rejected') {
               const failure = resourceFailure(invoicesResult.reason, 'No fue posible actualizar facturación.');
               failures.push(failure.errorMessage);
-              finishResourceLoad(set, 'billing', failure);
-            } else finishResourceLoad(set, 'billing', { empty: (invoicesResult.value || []).length === 0 });
+              finishResourceLoad(set, 'billing', billingGeneration!, failure);
+            } else finishResourceLoad(set, 'billing', billingGeneration!, { empty: invoicesResult.value.length === 0 });
           }
 
           if (sessionsResult.status === 'rejected') {
             const failure = resourceFailure(sessionsResult.reason, 'No fue posible actualizar sesiones.');
             failures.push(failure.errorMessage);
-            finishResourceLoad(set, 'sessions', failure);
-          } else finishResourceLoad(set, 'sessions', { empty: sessionsResult.value.length === 0 });
+            finishResourceLoad(set, 'sessions', sessionsGeneration, failure);
+          } else finishResourceLoad(set, 'sessions', sessionsGeneration, { empty: sessionsResult.value.length === 0 });
 
           if (failures.length) set({ error: failures[0] });
         } catch (error) {
@@ -334,10 +350,10 @@ export function createPortalActions(
           // terminate every resource attempt without discarding prior data.
           const failure = resourceFailure(error, 'No fue posible cargar los datos de cuenta.');
           set({ error: failure.errorMessage });
-          finishResourceLoad(set, 'account', failure);
-          finishResourceLoad(set, 'activationKeys', failure);
-          finishResourceLoad(set, 'sessions', failure);
-          if (includeBilling) finishResourceLoad(set, 'billing', failure);
+          finishResourceLoad(set, 'account', accountGeneration, failure);
+          finishResourceLoad(set, 'activationKeys', activationKeysGeneration, failure);
+          finishResourceLoad(set, 'sessions', sessionsGeneration, failure);
+          if (billingGeneration !== null) finishResourceLoad(set, 'billing', billingGeneration, failure);
         } finally {
           fullLoadPromise = null;
         }

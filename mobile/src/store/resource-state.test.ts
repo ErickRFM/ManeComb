@@ -23,8 +23,17 @@ describe('ResourceState authority', () => {
   });
 
   it('does not let an incremental realtime event certify an unloaded or stale collection', () => {
-    expect(applyIncrementalResourceEvent(idleResourceState()).status).toBe('idle');
+    expect(applyIncrementalResourceEvent(idleResourceState(), { hasDataAfterMutation: true }).status).toBe('idle');
     const stale = { ...idleResourceState(), status: 'stale' as const, lastSuccessfulAt: '2026-08-15T10:00:00.000Z' };
-    expect(applyIncrementalResourceEvent(stale)).toEqual(stale);
+    expect(applyIncrementalResourceEvent(stale, { hasDataAfterMutation: true })).toEqual(stale);
+  });
+
+  it('preserves a complete baseline and promotes authoritative empty after an upsert', () => {
+    const empty = completeResourceAttempt(beginResourceAttempt(idleResourceState()), { empty: true, source: 'rest' });
+    const ready = completeResourceAttempt(beginResourceAttempt(idleResourceState()), { empty: false, source: 'rest' });
+    expect(applyIncrementalResourceEvent(empty, { hasDataAfterMutation: true }).status).toBe('ready');
+    expect(applyIncrementalResourceEvent(ready, { hasDataAfterMutation: true }).status).toBe('ready');
+    const error = failResourceAttempt(beginResourceAttempt(idleResourceState()), { errorCode: '500', errorMessage: 'boom' });
+    expect(applyIncrementalResourceEvent(error, { hasDataAfterMutation: true }).status).toBe('error');
   });
 });
