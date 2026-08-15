@@ -58,7 +58,7 @@ async function testSalesFunnelIntake() {
   const baseUrl = `http://127.0.0.1:${address.port}/api`;
 
   try {
-    const accepted = await fetch(`${baseUrl}/commercial/events`, {
+    const accepted = await fetch(`${baseUrl}/sales-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -82,7 +82,7 @@ async function testSalesFunnelIntake() {
     assert.equal(funnelEvent.metadata.email, undefined);
     assert.equal(funnelEvent.metadata.cardNumber, undefined);
 
-    const rejected = await fetch(`${baseUrl}/commercial/events`, {
+    const rejected = await fetch(`${baseUrl}/sales-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
