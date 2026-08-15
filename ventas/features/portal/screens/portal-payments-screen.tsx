@@ -7,6 +7,7 @@ import { AppTheme, Typography } from '@/constants/theme';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { SkeletonBlock } from '@/src/components/ui/skeleton';
+import { canRetryCommercialPayment, isCommercialPaymentPending } from '@/features/commercial/status/commercial-status';
 import { PortalSectionCard, formatPortalStatus, getPortalStatusTone } from '../cards';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
@@ -47,10 +48,8 @@ export function PortalPaymentsScreen() {
   );
 
   const status = subscription?.status || '';
-  const normalizedStatus = status.toLowerCase();
-  const pendingStatuses = ['pending', 'pending_payment', 'payment_pending', 'pending_manual_confirmation'];
-  const canRetry = ['failed', 'payment_failed', ...pendingStatuses].includes(normalizedStatus);
-  const isPending = pendingStatuses.includes(normalizedStatus);
+  const canRetry = canRetryCommercialPayment(status);
+  const isPending = isCommercialPaymentPending(status);
   const nextChargeDate = subscription?.currentPeriodEnd;
   const nextChargeAmount = subscription?.monthlyPrice;
   const [message, setMessage] = useState<string | null>(null);

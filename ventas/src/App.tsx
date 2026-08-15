@@ -24,6 +24,7 @@ const PasswordRecoveryRequestScreen = lazy(() => import('@/screens/password-reco
 const PasswordRecoverySentScreen = lazy(() => import('@/screens/password-recovery/password-recovery-sent-screen').then((module) => ({ default: module.PasswordRecoverySentScreen })));
 const PasswordUpdatedScreen = lazy(() => import('@/screens/password-recovery/password-updated-screen').then((module) => ({ default: module.PasswordUpdatedScreen })));
 const PlanCheckoutScreen = lazy(() => import('@/screens/plan-checkout-screen').then((module) => ({ default: module.PlanCheckoutScreen })));
+const LegalScreen = lazy(() => import('@/screens/legal-screen').then((module) => ({ default: module.LegalScreen })));
 const PortalBillingScreen = lazy(() => import('@/features/portal/screens/portal-billing-screen').then((module) => ({ default: module.PortalBillingScreen })));
 const PortalDashboardScreen = lazy(() => import('@/features/portal/screens/portal-dashboard-screen').then((module) => ({ default: module.PortalDashboardScreen })));
 const PortalOnboardingScreen = lazy(() => import('@/features/portal/screens/portal-onboarding-screen').then((module) => ({ default: module.PortalOnboardingScreen })));
@@ -233,9 +234,9 @@ function Routes() {
         />
       );
     case '/terminos':
-      return <StaticPage title="Términos" body="Condiciones de uso, soporte comercial y acceso al servicio ManeComb." />;
+      return <LegalScreen kind="terms" />;
     case '/privacidad':
-      return <StaticPage title="Privacidad" body="Información de privacidad y canales de contacto para cuentas ManeComb." />;
+      return <LegalScreen kind="privacy" />;
     default:
       return <StaticPage title="Página no encontrada" body="La ruta solicitada no existe en Ventas ni en el Portal." />;
   }
