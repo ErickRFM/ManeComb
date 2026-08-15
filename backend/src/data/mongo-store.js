@@ -1,4 +1,5 @@
 const bcrypt = require("bcryptjs");
+const { isLearnedRouteReadyForReview, learnedRouteConfidence } = require("../domain/learned-route-evidence");
 const { createHash, randomBytes, randomUUID } = require("crypto");
 const {
   getCommercialPlanById,
@@ -4316,9 +4317,15 @@ async function createMongoStore() {
       },
       $addToSet: {
         evidenceSessionIds: payload.sessionId,
-        evidenceVehicleIds: payload.vehicleId
+        evidenceVehicleIds: payload.vehicleId,
+        // Dia operativo (zona de operacion) en que se observo el corredor.
+        // `$addToSet` deja que varias vueltas del mismo turno cuenten como un
+        // solo dia, que es justo lo que distingue un patron de un servicio.
+        ...(payload.serviceDate ? { evidenceServiceDates: payload.serviceDate } : {})
       },
-      $inc: { evidenceCount: 1 }
+      $inc: { evidenceCount: 1 },
+      $min: { firstSeenAt: payload.observedAt ? new Date(payload.observedAt) : new Date() },
+      $max: { lastSeenAt: payload.observedAt ? new Date(payload.observedAt) : new Date() }
     };
     let doc;
     let evidenceApplied = true;
@@ -4342,15 +4349,20 @@ async function createMongoStore() {
     if (!evidenceApplied) return { ...doc, id: String(doc._id), _id: undefined };
     const evidenceCount = Number(doc.evidenceCount) || doc.evidenceSessionIds?.length || 0;
     const vehicleCount = doc.evidenceVehicleIds?.length || 0;
+    const distinctServiceDays = doc.evidenceServiceDates?.length || 0;
+    // Misma regla que el store embebido: la autoridad vive en
+    // domain/learned-route-evidence.js para que memoria y produccion no deriven.
+    const maturity = { evidenceCount, distinctServiceDays };
     const finalized = await LearnedRouteCandidateModel.findByIdAndUpdate(
       doc._id,
       {
         $set: {
           distanceMeters: Math.round(((Number(doc.distanceMeters) || 0) * Math.max(0, evidenceCount - 1) + payload.distanceMeters) / Math.max(1, evidenceCount)),
           durationSeconds: Math.round(((Number(doc.durationSeconds) || 0) * Math.max(0, evidenceCount - 1) + payload.durationSeconds) / Math.max(1, evidenceCount)),
-          confidence: Math.min(1, evidenceCount / payload.minimumEvidenceCount),
+          confidence: learnedRouteConfidence(maturity, payload),
           vehicleCount,
-          ...(evidenceCount >= payload.minimumEvidenceCount && doc.status === "COLLECTING"
+          distinctServiceDays,
+          ...(doc.status === "COLLECTING" && isLearnedRouteReadyForReview(maturity, payload)
             ? { status: "READY_FOR_REVIEW" }
             : {})
         }

@@ -5,6 +5,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
+import { formatGpsAge } from '@shared/operational-contract';
+import { getVehicleGpsConnectionState } from '../utils/tracking';
 import { portalPalette } from '../portal-theme';
 import { RouteGeometryThumbnail } from './route-geometry-thumbnail';
 
@@ -83,9 +85,24 @@ function getDriverName(vehicle: Vehicle) {
 function getMarkerTone(vehicle: Vehicle, selectedVehicleId?: string | null): { background: string; border: string } {
   if (vehicle.id === selectedVehicleId) return { background: portalPalette.accent, border: '#fff' };
   if (vehicle.activeRouteProgress?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
-  if (vehicle.gpsFreshness?.state === 'stale' || vehicle.gpsFreshness?.state === 'missing') return { background: '#757575', border: '#fff' };
+  // Solo un enlace vivo sostiene el color operativo. `delayed` en adelante se
+  // atenua a gris: la ultima posicion sigue dibujandose, pero no afirma salud.
+  if (getVehicleGpsConnectionState(vehicle) !== 'live') return { background: '#757575', border: '#fff' };
   if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: portalPalette.warning, border: '#fff' };
   return { background: portalPalette.info, border: '#fff' };
+}
+
+/**
+ * Sufijo de telemetria del marcador. Presenta la taxonomia canonica; no la
+ * recalcula. `never_reported` no lleva marcador con posicion, pero el sufijo se
+ * mantiene exhaustivo por si el vehiculo llega sin coordenada resuelta.
+ */
+function getMarkerGpsSuffix(vehicle: Vehicle) {
+  const connectionState = getVehicleGpsConnectionState(vehicle);
+  if (connectionState === 'live') return '';
+  if (connectionState === 'never_reported') return ' · esperando primera ubicación';
+  const age = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+  return age ? ` · sin señal, última posición ${age}` : ' · sin señal, última posición';
 }
 
 function createMarkerElement({ background, border, label, title, shape }: { background: string; border: string; label: string; title?: string; shape: 'pill' | 'circle' }) {
@@ -519,7 +536,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         const element = createMarkerElement({
           ...markerTone,
           label: vehicle.code,
-          title: `${vehicle.code} · ${getDriverName(vehicle)}${vehicle.gpsFreshness?.isFresh === false ? ' · sin señal, última posición' : ''}`,
+          title: `${vehicle.code} · ${getDriverName(vehicle)}${getMarkerGpsSuffix(vehicle)}`,
           shape: 'pill',
         });
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -534,7 +551,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         marker.setLngLat(toLngLat(point));
         const element = marker.getElement();
         element.textContent = vehicle.code;
-        element.title = `${vehicle.code} · ${getDriverName(vehicle)}${vehicle.gpsFreshness?.isFresh === false ? ' · sin señal, última posición' : ''}`;
+        element.title = `${vehicle.code} · ${getDriverName(vehicle)}${getMarkerGpsSuffix(vehicle)}`;
         element.style.background = markerTone.background;
         element.style.border = `2px solid ${markerTone.border}`;
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);

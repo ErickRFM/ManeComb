@@ -88,13 +88,20 @@ describe('executeRouteSessionAction', () => {
         ...defaultParams,
       });
 
+      // `startedAt` viaja con el inicio encolado: al reconciliar, el servidor
+      // debe sellar la jornada con su inicio REAL y no con la hora de reconexion,
+      // o todos los puntos capturados sin Internet caen por debajo del inicio de
+      // sesion y se descartan del historial.
       expect(enqueuePendingSyncOperation).toHaveBeenCalledWith({
         type: 'control:sessionStart',
-        payload: { vehicleId: 'vehicle-1' },
+        payload: { vehicleId: 'vehicle-1', startedAt: expect.any(String) },
       });
+      const [[enqueued]] = (enqueuePendingSyncOperation as jest.Mock).mock.calls;
+      expect(Number.isNaN(new Date(enqueued.payload.startedAt).getTime())).toBe(false);
       expect(result.offline).toBe(true);
       expect(result.session).toBeDefined();
       expect(result.session!.id).toBe('pending:vehicle-1');
+      expect(result.session!.startedAt).toBe(enqueued.payload.startedAt);
       expect(result.session!.status).toBe('RUNNING');
       expect(result.record).toBeNull();
     });

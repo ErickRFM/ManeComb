@@ -37,6 +37,18 @@ function finiteOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Resuelve la jornada a la que pertenece un paquete.
+ *
+ * `pending:{vehicleId}` es la identidad LOCAL que Mobile usa para una jornada
+ * iniciada sin Internet, y viaja tal cual en los puntos que se encolaron. Nunca
+ * existe en el servidor, asi que `getRouteSessionById` devuelve null; su valor
+ * esta en ser truthy: afirma que el cliente atribuye el punto a una jornada
+ * concreta de esta unidad. Eso habilita la busqueda historica de abajo y, en
+ * `canSessionAcceptPosition`, la aceptacion de una jornada ya FINISHED, que es lo
+ * que permite que un backlog offline aterrice en la jornada correcta aunque el
+ * conductor ya la haya cerrado.
+ */
 async function resolveTrackingSession(store, vehicleId, requestedSessionId, processedTimestamp) {
   const activeSession = await store.getActiveRouteSession(vehicleId);
   const requestedSession = requestedSessionId
@@ -182,7 +194,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
         decision,
         packetId,
         positionDecision,
-        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
         temporal,
         vehicleId
       };
@@ -228,13 +240,13 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       decision,
       packetId,
       positionDecision,
-      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
       temporal,
       vehicleId
     };
   }
 
-  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
+  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update) };
   const organizationId = String(vehicle.organizationId || getOrganizationId(actor)).trim();
   await emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId });
   incrementMetric("gps_packets_accepted", 1, { transport });

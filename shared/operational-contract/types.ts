@@ -9,8 +9,30 @@
  * de Jornada por su cuenta: todo lo que se muestra viene resuelto aqui.
  */
 
+/**
+ * Proyeccion legada de tres estados. DERIVADA de `GpsConnectionState`, nunca
+ * calculada aparte. Se conserva para consumidores en migracion.
+ * @deprecated Presenta `GpsConnectionState`.
+ */
 export type GpsFreshness = 'fresh' | 'stale' | 'missing';
-export type GpsConnectionState = 'live' | 'delayed' | 'stale' | 'lost';
+
+/**
+ * Taxonomia canonica del enlace GPS. Autoridad:
+ * `backend/src/domain/gps-telemetry-state.js`.
+ *
+ * Ningun cliente recalcula umbrales ni re-deriva estos valores: solo los presenta.
+ *
+ *  never_reported -> "Esperando primera ubicacion"
+ *  live           -> "GPS en vivo"
+ *  delayed        -> "GPS retrasado - hace X"
+ *  stale          -> "GPS sin senal - hace X"
+ *  lost           -> "GPS perdido - ultima ubicacion hace X"
+ *
+ * `never_reported` es distinto de `lost`: el primero significa que jamas llego un
+ * paquete de esta unidad; el segundo, que hubo telemetria y se perdio la senal.
+ * Confundirlos hacia que una unidad recien dada de alta dijera "GPS vencido".
+ */
+export type GpsConnectionState = 'never_reported' | 'live' | 'delayed' | 'stale' | 'lost';
 export type OperationalUnitStatus = 'active' | 'idle' | 'maintenance' | 'offline';
 export type OperationalState = 'on_route' | 'stopped' | 'no_route' | 'maintenance' | 'unknown';
 export type DriverSource = 'session' | 'assignment' | 'none';

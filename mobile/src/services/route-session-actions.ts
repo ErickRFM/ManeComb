@@ -78,7 +78,14 @@ export async function executeRouteSessionAction({
 
     const now = new Date().toISOString();
     if (action === 'start') {
-      await enqueuePendingSyncOperation({ type: 'control:sessionStart', payload: { vehicleId } });
+      // `startedAt` viaja para que la jornada reconciliada cubra el corte de red.
+      // Sin el, el servidor sella el inicio con la hora de reconexion y todos los
+      // puntos capturados sin Internet quedan por debajo del inicio de sesion, de
+      // modo que el backend los descarta y el recorrido no queda en el historial.
+      await enqueuePendingSyncOperation({
+        type: 'control:sessionStart',
+        payload: { vehicleId, startedAt: now },
+      });
       return {
         offline: true,
         record: null,

@@ -26,6 +26,19 @@ module.exports = Object.freeze({
   minDistanceMeters: positiveNumber("AUTO_ROUTE_MIN_DISTANCE_METERS", 500),
   minDurationSeconds: positiveNumber("AUTO_ROUTE_MIN_DURATION_SECONDS", 120),
   minEvidenceCount: Math.max(2, Math.round(positiveNumber("AUTO_ROUTE_MIN_EVIDENCE_COUNT", 3))),
+  /**
+   * Dias operativos DISTINTOS que debe abarcar la evidencia.
+   *
+   * "Uso habitual" es un hecho temporal, no solo un conteo. Tres vueltas la misma
+   * manana son un servicio; tres vueltas en dos dias distintos son un patron. Sin
+   * este minimo, un unico turno cerraba la evidencia y proponia como ruta oficial
+   * lo que podia ser un desvio puntual.
+   *
+   * El dia se calcula en la zona horaria de operacion (`utils/service-date.js`),
+   * no en UTC: un turno nocturno no puede partirse en dos dias por el cambio de
+   * fecha del meridiano.
+   */
+  minDistinctServiceDays: Math.max(1, Math.round(positiveNumber("AUTO_ROUTE_MIN_DISTINCT_SERVICE_DAYS", 2))),
   minPointCount: Math.max(3, Math.round(positiveNumber("AUTO_ROUTE_MIN_POINT_COUNT", 10))),
   simplifyToleranceMeters: positiveNumber("AUTO_ROUTE_SIMPLIFY_TOLERANCE_METERS", 20)
 });

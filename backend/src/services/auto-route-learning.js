@@ -1,5 +1,6 @@
 const { createHash } = require("crypto");
 const config = require("../config/auto-route");
+const { toServiceDate } = require("../utils/service-date");
 const { incrementMetric, observeDuration } = require("./metrics");
 const logger = require("./logger");
 
@@ -255,7 +256,13 @@ async function processCompletedRouteSession(store, sessionId) {
       algorithmVersion: config.algorithmVersion,
       geometryVersion: config.geometryVersion,
       representativeSessionId: matchingCandidate?.representativeSessionId || sessionId,
-      minimumEvidenceCount: config.minEvidenceCount
+      // El dia operativo se toma del INICIO de la jornada y en la zona de
+      // operacion: un turno nocturno pertenece al dia en que arranco, no al que
+      // impone el cambio de fecha UTC a media jornada.
+      serviceDate: toServiceDate(session.startedAt || positions[0].timestamp),
+      observedAt: new Date(session.startedAt || positions[0].timestamp).toISOString(),
+      minimumEvidenceCount: config.minEvidenceCount,
+      minimumDistinctServiceDays: config.minDistinctServiceDays
     });
     await store.completeAutoRouteProcessing(claim.id, { status: "COMPLETED", candidateId: candidate.id });
     incrementMetric("auto_route_evidence_accepted", 1);

@@ -39,6 +39,19 @@ import { RouteAssignedPanel } from '../routes/components/route-assigned-panel';
 
 const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
 
+/**
+ * "3 recorridos en 2 días": lo que sostiene la sugerencia es evidencia repetida
+ * EN EL TIEMPO, no solo un conteo. Los umbrales los decide el backend
+ * (domain/learned-route-evidence.js); aquí solo se presentan sus números.
+ */
+function formatCandidateEvidence(candidate: LearnedRouteCandidate) {
+  const runs = candidate.evidenceCount || 0;
+  const days = candidate.distinctServiceDays || 0;
+  const runLabel = `${runs} ${runs === 1 ? 'recorrido' : 'recorridos'}`;
+  if (!days) return runLabel;
+  return `${runLabel} en ${days} ${days === 1 ? 'día' : 'días'}`;
+}
+
 export function PortalRoutesScreen() {
   const {
     assignRoute,
@@ -132,6 +145,9 @@ export function PortalRoutesScreen() {
   const [learnedCandidates, setLearnedCandidates] = useState<LearnedRouteCandidate[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [candidateBusy, setCandidateBusy] = useState(false);
+  // Oferta de asignacion posterior a aprobar. Guardar una ruta y asignarla a una
+  // unidad son dos decisiones distintas; la segunda siempre la toma el operador.
+  const [approvedRouteOffer, setApprovedRouteOffer] = useState<{ routeId: string; vehicleId: string } | null>(null);
   const routePlanAuthorityRef = useRef(createLatestRoutePlanAuthority());
 
   useEffect(() => {
@@ -160,9 +176,19 @@ export function PortalRoutesScreen() {
     setCandidateBusy(true);
     try {
       if (decision === 'approve') {
-        await approveLearnedRouteCandidateRequest(selectedCandidate.id);
+        const approved = await approveLearnedRouteCandidateRequest(selectedCandidate.id);
         setSavedRoutes(await getSavedRoutesRequest());
-        setMessage('Ruta sugerida aprobada y agregada al catálogo sin asignarla a ninguna unidad.');
+        // Aprobar crea la ruta oficial; asignarla es una decision aparte y
+        // explicita del administrador. Se ofrece, nunca se hace sola.
+        if (approved?.approvedRouteId) {
+          setApprovedRouteOffer({
+            routeId: approved.approvedRouteId,
+            vehicleId: selectedCandidate.vehicleId,
+          });
+          setMessage(null);
+        } else {
+          setMessage('Ruta sugerida aprobada y agregada al catálogo sin asignarla a ninguna unidad.');
+        }
       } else {
         await rejectLearnedRouteCandidateRequest(selectedCandidate.id);
         setMessage('Ruta sugerida rechazada.');
@@ -174,6 +200,32 @@ export function PortalRoutesScreen() {
     } finally {
       setCandidateBusy(false);
     }
+  };
+
+  const approvedOfferVehicle = useMemo(
+    () => routeVehicles.find((vehicle) => vehicle.id === approvedRouteOffer?.vehicleId) || null,
+    [approvedRouteOffer, routeVehicles]
+  );
+
+  /** Asigna la ruta recien aprobada, solo si el administrador lo pide. */
+  const acceptApprovedRouteAssignment = async () => {
+    if (!approvedRouteOffer) return;
+    const route = savedRoutes.find((entry) => entry.id === approvedRouteOffer.routeId);
+    if (!route?.origin || !route?.destination) {
+      setApprovedRouteOffer(null);
+      return setMessage('La ruta quedó guardada en el catálogo. Asígnala desde el catálogo cuando lo necesites.');
+    }
+    const result = await assignRoute({
+      vehicleId: approvedRouteOffer.vehicleId,
+      routeId: route.id,
+      originLabel: route.originLabel || route.name,
+      destinationLabel: route.destinationLabel || '',
+      origin: route.origin,
+      destination: route.destination,
+    });
+    setApprovedRouteOffer(null);
+    setMessage(result.ok ? 'Ruta guardada y asignada.' : result.message || 'No fue posible asignar la ruta.');
+    if (result.ok) setShowAssignmentBanner(true);
   };
 
   const selectedSavedRoute = useMemo(
@@ -513,6 +565,23 @@ export function PortalRoutesScreen() {
 
       {message && !showRouteEditor ? <View style={styles.inlineFeedback}><MaterialCommunityIcons name="information-outline" size={16} color={portalPalette.info} /><Text style={styles.inlineFeedbackText}>{message}</Text></View> : null}
 
+      {approvedRouteOffer && !showRouteEditor ? (
+        <View style={styles.inlineFeedback}>
+          <MaterialCommunityIcons name="check-circle-outline" size={16} color={portalPalette.info} />
+          <Text style={styles.inlineFeedbackText}>
+            Ruta guardada.{approvedOfferVehicle ? ` ¿Deseas asignarla a ${approvedOfferVehicle.code}?` : ''}
+          </Text>
+          {approvedOfferVehicle ? (
+            <PortalButton onPress={() => void acceptApprovedRouteAssignment()} size="sm">
+              Asignar
+            </PortalButton>
+          ) : null}
+          <PortalButton onPress={() => setApprovedRouteOffer(null)} size="sm" variant="secondary">
+            Ahora no
+          </PortalButton>
+        </View>
+      ) : null}
+
       {!showRouteEditor && canManageRoutes && learnedCandidates.length > 0 ? (
         <PortalSectionCard
           title="Rutas aprendidas pendientes"
@@ -530,7 +599,7 @@ export function PortalRoutesScreen() {
                         ? `1 unidad de evidencia`
                         : `${candidate.vehicleCount || candidate.evidenceVehicleIds?.length || 1} unidades de evidencia`}
                     </Text>
-                    <StatusBadge label={`${candidate.evidenceCount} recorridos`} tone="info" />
+                    <StatusBadge label={formatCandidateEvidence(candidate)} tone="info" />
                   </View>
                   <Text style={styles.assignedDate}>
                     {(candidate.distanceMeters / 1000).toFixed(1)} km · {Math.round(candidate.durationSeconds / 60)} min · confianza {Math.round(candidate.confidence * 100)}%

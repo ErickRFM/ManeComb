@@ -663,6 +663,14 @@ export type Vehicle = {
   location: GeoPoint | null;
   locationTimestamp?: string | null;
   gpsFreshness?: {
+    /**
+     * Taxonomia canonica resuelta por backend
+     * (`domain/gps-telemetry-state.js`). Mobile solo la presenta.
+     */
+    connectionState?: 'never_reported' | 'live' | 'delayed' | 'stale' | 'lost';
+    ageSeconds?: number | null;
+    hasEverReported?: boolean;
+    /** @deprecated Proyeccion legada de tres estados. Usa `connectionState`. */
     state: 'fresh' | 'stale' | 'missing'; isFresh: boolean; thresholdMs: number;
     evaluatedAt: string; freshUntil: string | null;
   };
