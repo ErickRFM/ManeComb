@@ -8,7 +8,7 @@ const card = fs.readFileSync(path.resolve(__dirname, '../screens/sales/component
 
 // Mobile keeps one full-width card and preserves desktop-scale visual hierarchy
 // on standard 360 px phones. The card may also compact itself when its real
-// rendered width is narrow, which is needed by the denser desktop comparison.
+// rendered width is narrow, which is needed by the desktop comparison.
 assert.match(screen, /const planCardGap = isPhone \? 12 : 18/);
 assert.match(screen, /Math\.max\(0, width - 32\)/);
 assert.match(screen, /const compactPlanCard = cardWidth < 288/);
@@ -27,9 +27,10 @@ assert.match(card, /styles\.planActions, \{ gap: 9, flexShrink: 0, width: '100%'
 assert.match(card, /compactCard \? \{ fontSize: 24, lineHeight: 28 \} : undefined/);
 assert.match(card, /compactCard \? \{ fontSize: 34, lineHeight: 40 \} : undefined/);
 
-// Desktop prioritizes comparison: up to five cards are visible on wide screens,
-// four on standard desktop, and controls disappear when the full catalog fits.
-assert.match(screen, /const desktopVisibleCards = width >= 1180 \? 5 : width >= 1024 \? 4 : 3/);
+// Desktop prioritizes comparison without compressing the commercial hierarchy:
+// four cards only when there is enough width, otherwise three. The fifth plan
+// remains one interaction away instead of forcing price/features/CTAs into ~220 px.
+assert.match(screen, /const desktopVisibleCards = width >= 1180 \? 4 : 3/);
 assert.match(screen, /const showPlanControls = !isDesktop \|\| plans\.length > desktopVisibleCards/);
 assert.match(screen, /Math\.min\(width, 1240\) - 44/);
 assert.match(screen, /desktopCarouselWidth - planCardGap \* \(desktopVisibleCards - 1\)/);
