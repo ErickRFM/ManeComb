@@ -1,4 +1,3 @@
-const { RouteModel } = require("../data/models");
 const {
   polylineLengthMeters,
   slicePolyline,
@@ -73,60 +72,38 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
   if (Number(current.revision) !== metadata.routeRevision) {
     return { applied: false, reason: "candidate_stale", route: current, metadata };
   }
+  if (typeof store.updateRouteIfRevision !== "function") {
+    return { applied: false, reason: "revision_writer_unavailable", route: current, metadata };
+  }
+
   const previousRoute = cloneRouteSnapshot(current);
   const update = calculateSegmentRouteUpdate(current, candidate, metadata);
   if (!update) return { applied: false, reason: "invalid_segment_geometry", route: current, metadata };
 
-  const operationalUpdate = {
-    polyline: update.polyline,
-    distanceMeters: update.distanceMeters,
-    durationSeconds: update.durationSeconds,
-    durationInTrafficSeconds: update.durationInTrafficSeconds
-  };
-  let route = null;
+  const route = await store.updateRouteIfRevision(
+    metadata.routeId,
+    metadata.routeRevision,
+    {
+      polyline: update.polyline,
+      distanceMeters: update.distanceMeters,
+      durationSeconds: update.durationSeconds,
+      durationInTrafficSeconds: update.durationInTrafficSeconds
+    },
+    actor
+  );
 
-  // Produccion: compare-and-swap sobre Route.revision. Si un admin edita la ruta
-  // entre la revision visual y el click de aplicar, esta consulta deja de hacer
-  // match y el candidato queda stale sin pisar el cambio humano.
-  if (RouteModel?.db?.readyState === 1) {
-    const atomic = await RouteModel.findOneAndUpdate(
-      {
-        _id: metadata.routeId,
-        organizationId: candidate.organizationId,
-        revision: metadata.routeRevision
-      },
-      {
-        $set: {
-          ...operationalUpdate,
-          revision: metadata.routeRevision + 1,
-          updatedAt: new Date()
-        }
-      },
-      { returnDocument: "after" }
-    ).lean();
-    if (!atomic) {
-      return {
-        applied: false,
-        reason: "candidate_stale",
-        route: await store.getRouteById(metadata.routeId),
-        metadata
-      };
-    }
-    // No-op canónico: refresca las proyecciones assignedRoute existentes sin
-    // volver a incrementar revision porque la ruta ya quedó persistida.
-    route = await store.updateRoute(metadata.routeId, {}, actor);
-  } else {
-    // Embedded/test es single-process. Relee el token justo antes del escritor.
-    const latest = await store.getRouteById(metadata.routeId);
-    if (!latest || Number(latest.revision) !== metadata.routeRevision) {
-      return { applied: false, reason: "candidate_stale", route: latest, metadata };
-    }
-    route = await store.updateRoute(metadata.routeId, operationalUpdate, actor);
+  if (!route) {
+    return {
+      applied: false,
+      reason: "candidate_stale",
+      route: await store.getRouteById(metadata.routeId),
+      metadata
+    };
   }
-
-  if (!route || Number(route.revision) !== metadata.routeRevision + 1) {
+  if (Number(route.revision) !== metadata.routeRevision + 1) {
     return { applied: false, reason: "route_update_failed", route, metadata };
   }
+
   return {
     applied: true,
     route,
