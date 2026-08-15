@@ -6,7 +6,7 @@ import { StatusBar } from '@/src/native/status-bar';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
-import { useCheckoutExperience, validateTestCard, type TestCardInput } from '@/features/commercial';
+import { PAYMENT_SESSION_STATUSES, useCheckoutExperience, validateTestCard, type TestCardInput } from '@/features/commercial';
 import { trackSalesEvent } from '@/features/commercial/analytics/sales-analytics';
 import {
   buildCheckoutParams,
@@ -334,7 +334,7 @@ export function PlanCheckoutScreen() {
       await loadAll({ force: true });
       clearCheckoutContext();
       setStep('done');
-      trackSalesEvent(nextResult.status === 'pending' ? 'payment_pending' : 'checkout_completed', {
+      trackSalesEvent(nextResult.status === PAYMENT_SESSION_STATUSES.PENDING ? 'payment_pending' : 'checkout_completed', {
         planId: selectedPlan.id,
         requestTrial: effectiveRequestTrial,
         paymentMethod: selectedMethod,
