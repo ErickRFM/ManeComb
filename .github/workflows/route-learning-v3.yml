@@ -3,6 +3,7 @@ name: Route learning V3
 on:
   pull_request:
     paths:
+      - 'RC-ROUTE-LEARNING-V3-01.md'
       - 'backend/.env.example'
       - 'backend/src/config/auto-route.js'
       - 'backend/src/config/route-corridor.js'
@@ -10,13 +11,13 @@ on:
       - 'backend/src/domain/route-context.js'
       - 'backend/src/domain/route-geometry.js'
       - 'backend/src/services/auto-route-learning.js'
-      - 'backend/src/services/auto-route-learning-base.js'
+      - 'backend/src/services/auto-route-learning-core.js'
       - 'backend/src/services/route-event-engine.js'
-      - 'backend/src/services/route-event-engine-base.js'
+      - 'backend/src/services/route-event-engine-core.js'
       - 'backend/src/services/route-progress.js'
       - 'backend/src/services/route-segment-approval.js'
       - 'backend/src/services/route-segment-learning.js'
-      - 'backend/src/services/route-segment-learning-base.js'
+      - 'backend/src/services/route-segment-learning-core.js'
       - 'backend/src/modules/navigation/route-write-guard.js'
       - 'backend/src/modules/navigation/segment-routes.js'
       - 'backend/src/modules/navigation/segment-review-routes.js'

@@ -1,4 +1,4 @@
-const base = require("./route-event-engine-base");
+const core = require("./route-event-engine-core");
 const { buildRouteContext, isTechnicalRouteId } = require("../domain/route-context");
 
 async function recordSessionEvent(store, session, eventType, metadata = {}) {
@@ -15,10 +15,10 @@ async function recordSessionEvent(store, session, eventType, metadata = {}) {
     }
   }
 
-  return base.recordSessionEvent(store, session, eventType, nextMetadata);
+  return core.recordSessionEvent(store, session, eventType, nextMetadata);
 }
 
 module.exports = {
-  ...base,
+  ...core,
   recordSessionEvent
 };

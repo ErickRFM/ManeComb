@@ -1,5 +1,6 @@
-const base = require("./route-segment-learning-base");
+const core = require("./route-segment-learning-core");
 const { routeContextMatches } = require("../domain/route-context");
+const { incrementMetric } = require("./metrics");
 
 /**
  * La geometría de evidencia solo puede compararse contra la misma Route que
@@ -11,12 +12,13 @@ async function persistDeviationSegments(args) {
   if (!store?.getLastRouteEvent || !session?.id) return [];
   const startedEvent = await store.getLastRouteEvent(session.id, "SESSION_STARTED");
   if (!routeContextMatches(startedEvent?.metadata?.routeContext, route)) {
+    incrementMetric("auto_route_segment_context_rejected", 1, { reason: "route_context_mismatch" });
     return [];
   }
-  return base.persistDeviationSegments(args);
+  return core.persistDeviationSegments(args);
 }
 
 module.exports = {
-  ...base,
+  ...core,
   persistDeviationSegments
 };

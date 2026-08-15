@@ -1,4 +1,4 @@
-const base = require("./auto-route-learning-base");
+const core = require("./auto-route-learning-core");
 const config = require("../config/auto-route");
 const { isTechnicalRouteId } = require("../domain/route-context");
 const { incrementMetric } = require("./metrics");
@@ -40,10 +40,10 @@ async function processCompletedRouteSession(store, sessionId) {
       }
     }
   }
-  return base.processCompletedRouteSession(store, sessionId);
+  return core.processCompletedRouteSession(store, sessionId);
 }
 
 module.exports = {
-  ...base,
+  ...core,
   processCompletedRouteSession
 };
