@@ -91,5 +91,5 @@ export function trackSalesEvent(eventName: SalesEventName, metadata: SalesEventM
     metadata: sanitizeMetadata(metadata),
   };
 
-  void apiClient.post('/commercial/events', payload, { timeout: 3500 }).catch(() => undefined);
+  void apiClient.post('/sales-events', payload, { timeout: 3500 }).catch(() => undefined);
 }
