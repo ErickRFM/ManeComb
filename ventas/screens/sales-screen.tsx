@@ -14,6 +14,7 @@ import { useLocalSearchParams, router } from '@/src/navigation/router';
 import { StatusBar } from '@/src/native/status-bar';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { usePublicCommercialFlow } from '@/features/commercial';
+import { trackSalesEvent } from '@/features/commercial/analytics/sales-analytics';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { CommercialPlan } from '@/src/types/app';
 import { saveCheckoutContext } from '@/src/utils/checkout-context';
@@ -69,7 +70,7 @@ export function SalesScreen() {
   const isTablet = !isDesktop && !isPhone;
   const heroSideBySide = width >= 880;
   const planCardGap = isPhone ? 12 : 18;
-  const desktopVisibleCards = width >= 1320 ? 4 : 3;
+  const desktopVisibleCards = width >= 1180 ? 5 : width >= 1024 ? 4 : 3;
   const desktopCarouselWidth = Math.max(0, Math.min(width, 1240) - 44);
   const cardWidth = isPhone
     ? Math.max(0, width - 32)
@@ -84,11 +85,18 @@ export function SalesScreen() {
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef<ScrollView>(null);
   const nativeSectionOffsets = useRef<Record<string, number>>({});
+  const landingTracked = useRef(false);
   const user = useAppStore((state) => state.user);
   const [activePlanIndex, setActivePlanIndex] = useState(0);
   const [openFaqIndex, setOpenFaqIndex] = useState(-1);
   const [headerCompact, setHeaderCompact] = useState(false);
   const [nativeScrollY, setNativeScrollY] = useState(0);
+
+  useEffect(() => {
+    if (landingTracked.current) return;
+    landingTracked.current = true;
+    trackSalesEvent('landing_view', { route: '/ventas', source: 'sales_landing' });
+  }, []);
 
   const getPlanScrollOffset = useCallback(
     (planIndex: number) => {
@@ -155,7 +163,6 @@ export function SalesScreen() {
     };
   }, []);
 
-  const activePlan = plans[activePlanIndex] || plans[0] || null;
   const providerReturnStatus = getFirstParam(routeParams.collection_status) || getFirstParam(routeParams.status);
   const checkoutReturnStatus =
     normalizePaymentReturnStatus(checkoutConfirm.paymentStatus) ||
@@ -166,6 +173,12 @@ export function SalesScreen() {
     const safeRequestTrial = requestTrial && isPublicDemoPlan(plan);
     const params = buildPlanParams(plan, safeRequestTrial);
     saveCheckoutContext(plan.id, safeRequestTrial);
+    trackSalesEvent(safeRequestTrial ? 'trial_selected' : 'plan_selected', {
+      planId: plan.id,
+      requestTrial: safeRequestTrial,
+      route: '/ventas',
+      source: 'plan_card',
+    });
 
     // La compra manda: cualquier cuenta autenticada continúa al pago (antes, una cuenta no-cliente
     // era desviada y perdía el plan elegido).
@@ -250,6 +263,7 @@ export function SalesScreen() {
   const loginLabel = user ? 'Abrir portal' : 'Iniciar sesión';
   const loginAction = () => router.push((user ? getAuthenticatedHome(user) : '/ventas/login') as never);
   const buyLabel = 'Elegir plan';
+  const showPlanControls = !isDesktop || plans.length > desktopVisibleCards;
 
   return (
     <View style={styles.screen}>
@@ -260,7 +274,7 @@ export function SalesScreen() {
         compact={headerCompact}
         stacked={isPhone || isTablet}
         loginLabel={loginLabel}
-        onBuy={() => (activePlan ? goToPlanCheckout(activePlan) : scrollToSection('planes'))}
+        onBuy={() => scrollToSection('planes')}
         onLogin={loginAction}
         onNavigate={scrollToSection}
       />
@@ -270,7 +284,7 @@ export function SalesScreen() {
           style={[
             styles.container,
             isPhone ? styles.containerPhone : undefined,
-            isPhone ? { paddingTop: 108, gap: 52 } : undefined,
+            isPhone ? { paddingTop: 108, gap: 64 } : undefined,
           ]}>
           <CheckoutReturnBanner
             confirmation={checkoutConfirm}
@@ -298,9 +312,9 @@ export function SalesScreen() {
                 Platform.OS === 'web'
                   ? ({
                       backgroundImage:
-                        'linear-gradient(135deg, rgba(5, 8, 22, 0.54), rgba(10, 18, 45, 0.72)), radial-gradient(circle at 18% 20%, rgba(255, 45, 122, 0.18), transparent 28%), radial-gradient(circle at 78% 18%, rgba(0, 194, 255, 0.17), transparent 34%)',
+                        'linear-gradient(135deg, rgba(5, 8, 22, 0.64), rgba(10, 18, 45, 0.76)), radial-gradient(circle at 18% 20%, rgba(255, 45, 122, 0.14), transparent 28%), radial-gradient(circle at 78% 18%, rgba(0, 194, 255, 0.14), transparent 34%)',
                       boxShadow:
-                        '0 0 0 1px rgba(245, 247, 255, 0.08), 0 36px 120px rgba(0, 0, 0, 0.46)',
+                        '0 0 0 1px rgba(245, 247, 255, 0.08), 0 30px 100px rgba(0, 0, 0, 0.4)',
                       scrollMarginTop: 108,
                     } as any)
                   : undefined,
@@ -308,7 +322,7 @@ export function SalesScreen() {
               <View style={[styles.heroCopy, isPhone ? styles.heroCopyPhone : undefined]}>
                 <View style={styles.heroKicker}>
                   <MaterialCommunityIcons name="transit-connection-variant" size={14} color={neonPalette.accent} />
-                  <Text style={styles.heroKickerText}>CONTROL TOTAL DE LA OPERACIÓN</Text>
+                  <Text style={styles.heroKickerText}>OPERACIÓN CONECTADA DE PUNTA A PUNTA</Text>
                 </View>
                 <Text
                   accessibilityRole="header"
@@ -317,7 +331,7 @@ export function SalesScreen() {
                     isPhone ? styles.heroTitlePhone : undefined,
                     isTablet ? styles.heroTitleTablet : undefined,
                   ]}>
-                  Tu flotilla, tu equipo y tus rutas. Todo bajo control.
+                  Controla tu flotilla desde una sola operación conectada.
                 </Text>
                 <Text
                   style={[
@@ -325,17 +339,17 @@ export function SalesScreen() {
                     isPhone ? styles.heroSubtitlePhone : undefined,
                     isTablet ? styles.heroSubtitleTablet : undefined,
                   ]}>
-                  Portal y app conectados para supervisar la operación, coordinar al equipo y conservar evidencia sin brincar entre sistemas.
+                  Supervisa rutas y unidades, coordina al equipo y conserva evidencia desde portal y app sin brincar entre sistemas.
                 </Text>
                 <HeroSignalRow compact={isPhone} />
                 <View style={styles.heroActions}>
                   <ActionButton
-                    label="Explorar planes"
+                    label="Ver planes"
                     icon="arrow-down"
                     onPress={() => scrollToSection('planes')}
                   />
                   <ActionButton
-                    label="Conocer la plataforma"
+                    label="Explorar plataforma"
                     icon="view-dashboard-outline"
                     variant="ghost"
                     onPress={() => scrollToSection('funcionalidades')}
@@ -353,50 +367,46 @@ export function SalesScreen() {
             </RevealView>
           </View>
 
-          <View onLayout={registerNativeSection('descargar')}>
-            <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
-              <AppDownloadSection onPortalPress={loginAction} />
-            </RevealView>
-          </View>
-
           <View onLayout={registerNativeSection('planes')}>
-            <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+            <RevealView index={2} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
               <View nativeID="planes" style={styles.anchorOffset}>
                 <View style={styles.plansHeader}>
                   <SectionHeading
-                    eyebrow="PLANES CLAROS, SIN LETRA CHIQUITA"
-                    title="Elige la capacidad de tu flotilla"
-                    intro="Compara mensualidad, unidades incluidas y módulos antes de crear tu cuenta. Tu selección se conserva durante todo el proceso."
+                    eyebrow="CAPACIDAD Y PRECIO ANTES DE REGISTRARTE"
+                    title="Elige el tamaño que corresponde a tu flotilla"
+                    intro="Compara mensualidad, unidades incluidas y módulos antes de crear tu cuenta. Tu selección se conserva durante registro y checkout."
                   />
-                  <View style={styles.carouselControls}>
-                    {plans.length ? (
-                      <Text
-                        accessibilityLiveRegion="polite"
-                        style={[
-                          styles.sectionEyebrow,
-                          {
-                            color: neonPalette.mutedStrong,
-                            letterSpacing: 0.4,
-                            minWidth: 42,
-                            textAlign: 'center',
-                          },
-                        ]}>
-                        {activePlanIndex + 1} / {plans.length}
-                      </Text>
-                    ) : null}
-                    <RoundIconButton
-                      accessibilityLabel="Plan anterior"
-                      icon="chevron-left"
-                      onPress={() => jumpToPlan(activePlanIndex - 1)}
-                      disabled={!plans.length || activePlanIndex === 0}
-                    />
-                    <RoundIconButton
-                      accessibilityLabel="Plan siguiente"
-                      icon="chevron-right"
-                      onPress={() => jumpToPlan(activePlanIndex + 1)}
-                      disabled={!plans.length || activePlanIndex === plans.length - 1}
-                    />
-                  </View>
+                  {showPlanControls ? (
+                    <View style={styles.carouselControls}>
+                      {plans.length ? (
+                        <Text
+                          accessibilityLiveRegion="polite"
+                          style={[
+                            styles.sectionEyebrow,
+                            {
+                              color: neonPalette.mutedStrong,
+                              letterSpacing: 0.4,
+                              minWidth: 42,
+                              textAlign: 'center',
+                            },
+                          ]}>
+                          {activePlanIndex + 1} / {plans.length}
+                        </Text>
+                      ) : null}
+                      <RoundIconButton
+                        accessibilityLabel="Plan anterior"
+                        icon="chevron-left"
+                        onPress={() => jumpToPlan(activePlanIndex - 1)}
+                        disabled={!plans.length || activePlanIndex === 0}
+                      />
+                      <RoundIconButton
+                        accessibilityLabel="Plan siguiente"
+                        icon="chevron-right"
+                        onPress={() => jumpToPlan(activePlanIndex + 1)}
+                        disabled={!plans.length || activePlanIndex === plans.length - 1}
+                      />
+                    </View>
+                  ) : null}
                 </View>
 
                 {plansLoading ? (
@@ -479,7 +489,7 @@ export function SalesScreen() {
             </RevealView>
           </View>
 
-          <RevealView index={4} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+          <RevealView index={3} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
             <SectionHeading
               eyebrow="DE LA COMPRA A LA OPERACIÓN"
               title="Del plan elegido a una flotilla operando"
@@ -499,6 +509,12 @@ export function SalesScreen() {
             </View>
           </RevealView>
 
+          <View onLayout={registerNativeSection('descargar')}>
+            <RevealView index={4} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
+              <AppDownloadSection onPortalPress={loginAction} />
+            </RevealView>
+          </View>
+
           <View onLayout={registerNativeSection('confianza')}>
             <RevealView index={5} scrollY={nativeScrollY} viewportHeight={height} style={styles.section}>
               <View
@@ -508,17 +524,17 @@ export function SalesScreen() {
                   Platform.OS === 'web'
                     ? ({
                         backgroundImage:
-                          'linear-gradient(135deg, rgba(9, 15, 34, 0.8), rgba(10, 17, 39, 0.92)), radial-gradient(circle at 15% 20%, rgba(0, 194, 255, 0.14), transparent 34%), radial-gradient(circle at 85% 55%, rgba(255, 45, 122, 0.12), transparent 35%)',
-                        boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 24px 80px rgba(0,0,0,0.34)',
+                          'linear-gradient(135deg, rgba(9, 15, 34, 0.86), rgba(10, 17, 39, 0.94)), radial-gradient(circle at 15% 20%, rgba(0, 194, 255, 0.1), transparent 34%), radial-gradient(circle at 85% 55%, rgba(255, 45, 122, 0.08), transparent 35%)',
+                        boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 24px 70px rgba(0,0,0,0.3)',
                         backdropFilter: 'blur(18px)',
                         scrollMarginTop: 108,
                       } as any)
                     : undefined,
                 ]}>
                 <SectionHeading
-                  eyebrow="UNA SOLA FUENTE DE INFORMACIÓN"
-                  title="Lo que configuras en el portal llega a la operación"
-                  intro="Unidades, rutas, equipo, comunicación y evidencia comparten la misma cuenta para reducir capturas repetidas y herramientas aisladas."
+                  eyebrow="CONFIANZA OPERATIVA"
+                  title="Control de acceso, pagos y operación con una sola autoridad"
+                  intro="Roles por organización, continuidad de sesión, capacidad real del plan y checkout protegido se resuelven desde el estado del sistema, no desde cifras decorativas en la interfaz."
                   centered
                 />
                 <View
@@ -550,8 +566,8 @@ export function SalesScreen() {
                 Platform.OS === 'web'
                   ? ({
                       backgroundImage:
-                        'linear-gradient(135deg, rgba(8, 13, 30, 0.86), rgba(10, 17, 39, 0.8)), radial-gradient(circle at 10% 45%, rgba(122, 60, 255, 0.16), transparent 31%)',
-                      boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 22px 70px rgba(0, 0, 0, 0.34)',
+                        'linear-gradient(135deg, rgba(8, 13, 30, 0.9), rgba(10, 17, 39, 0.84)), radial-gradient(circle at 10% 45%, rgba(122, 60, 255, 0.1), transparent 31%)',
+                      boxShadow: '0 0 0 1px rgba(245, 247, 255, 0.1), 0 22px 60px rgba(0, 0, 0, 0.3)',
                       backdropFilter: 'blur(18px)',
                       scrollMarginTop: 108,
                     } as any)
