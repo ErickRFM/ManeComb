@@ -14,9 +14,15 @@ function itemsFromList(result) {
   return Array.isArray(result?.items) ? result.items : [];
 }
 
+function requireSegmentGuard(req, res, next) {
+  if (!autoRouteConfig.segmentLearningEnabled) {
+    return next("route");
+  }
+  return next();
+}
+
 async function guardRouteMutation(req, res, next) {
   try {
-    if (!autoRouteConfig.segmentLearningEnabled) return next();
     if (!hasPermission(req.user, "canManageRoutes")) return next();
 
     const routeId = String(req.params.routeId || "").trim();
@@ -51,7 +57,9 @@ async function guardRouteMutation(req, res, next) {
   }
 }
 
-router.patch("/routes/:routeId", authenticate, requireOperationalAccess, guardRouteMutation);
-router.delete("/routes/:routeId", authenticate, requireOperationalAccess, guardRouteMutation);
+// El gate se evalúa antes de autenticar: con V3 apagado este router no añade
+// trabajo al contrato legacy y deja que el router canónico procese la petición.
+router.patch("/routes/:routeId", requireSegmentGuard, authenticate, requireOperationalAccess, guardRouteMutation);
+router.delete("/routes/:routeId", requireSegmentGuard, authenticate, requireOperationalAccess, guardRouteMutation);
 
 module.exports = router;
