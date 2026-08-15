@@ -2,7 +2,15 @@ import type { StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPortalStatus, getPortalStatusTone } from '../cards';
 import { getVehicleGpsConnectionState } from '../utils/tracking';
-import { formatGpsAge, stateLabel, type OperationalState, type OperationalUnitSnapshot } from '@shared/operational-contract';
+import {
+  RECORDING_JOURNEY_LABEL,
+  formatGpsAge,
+  isRecordingRouteId,
+  isTechnicalRouteId,
+  stateLabel,
+  type OperationalState,
+  type OperationalUnitSnapshot,
+} from '@shared/operational-contract';
 import type { RouteEvent, RouteSession, RouteSessionPosition, User, Vehicle } from '@/src/types/app';
 import type { RouteInfo, JourneyState, SessionMetricsView } from './dashboard.types';
 import { maxRenderedReplayPoints, opaqueIdPattern } from './dashboard.constants';
@@ -115,9 +123,19 @@ export function getRouteInfo(vehicle?: Vehicle | null, session?: RouteSession | 
   const assignedRoute = vehicle?.assignedRoute || null;
   const route = assignedRoute?.route || null;
   const rawCode = vehicle?.routeCode || vehicle?.routeId || session?.routeId || '';
-  const routeCode = isOpaqueId(rawCode) ? '' : rawCode;
+  // `recording:{vehicleId}` y `assigned:{...}` son identidades tecnicas del
+  // backend, no rutas. Sin esta guarda el Portal mostraba literalmente
+  // "Ruta recording:vehicle-101" y "Codigo recording:vehicle-101" en cada
+  // jornada libre.
+  const routeCode = isOpaqueId(rawCode) || isTechnicalRouteId(rawCode) ? '' : rawCode;
+  // Una jornada libre en curso no es "sin ruta": esta grabando recorrido. Es un
+  // hecho operativo util, y sigue sin afirmar que exista una ruta oficial.
+  const isRecordingJourney = isRecordingRouteId(session?.routeId) &&
+    (session?.status === 'RUNNING' || session?.status === 'PAUSED');
   const rawLabel = route?.label || vehicle?.routeName || assignedRoute?.destinationLabel || routeCode || 'Sin ruta asignada';
-  const label = /^sin ruta/i.test(String(rawLabel).trim()) ? 'Sin ruta asignada' : String(rawLabel);
+  const label = isRecordingJourney
+    ? RECORDING_JOURNEY_LABEL
+    : /^sin ruta/i.test(String(rawLabel).trim()) ? 'Sin ruta asignada' : String(rawLabel);
   const origin = assignedRoute?.originLabel || '';
   const destination = assignedRoute?.destinationLabel || '';
   const direction = origin && destination ? `${origin} → ${destination}` : destination || origin || '';
@@ -134,7 +152,9 @@ export function getRouteInfo(vehicle?: Vehicle | null, session?: RouteSession | 
   return {
     code: routeCode ? `Codigo ${routeCode}` : '',
     direction,
-    label: label === 'Sin ruta asignada' || label.startsWith('Ruta') ? label : `Ruta ${label}`,
+    label: isRecordingJourney || label === 'Sin ruta asignada' || label.startsWith('Ruta')
+      ? label
+      : `Ruta ${label}`,
     status,
   };
 }

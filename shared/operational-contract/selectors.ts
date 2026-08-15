@@ -30,6 +30,35 @@ export function formatEta(route: OperationalUnitSnapshot['route'], locale = 'es-
 }
 
 /**
+ * Identidades TECNICAS de ruta que el backend usa en `RouteSession.routeId`
+ * cuando no hay una ruta oficial del catalogo:
+ *
+ *  - `recording:{vehicleId}`  jornada libre grabando recorrido.
+ *  - `assigned:{vehicleId}:{assignedAt}`  asignacion sin ruta del catalogo.
+ *
+ * Fuente: backend/src/modules/navigation/routes.js (`/sessions/start`).
+ *
+ * Nunca pueden presentarse como nombre o codigo de ruta. El snapshot operacional
+ * ya las descarta (`buildRoute` devuelve null), pero las superficies que leen
+ * `session.routeId` en crudo tienen que reconocerlas aqui y no inventar una ruta
+ * fantasma con el identificador tecnico dentro.
+ */
+const TECHNICAL_ROUTE_ID_PREFIXES = ['recording:', 'assigned:'];
+
+export function isTechnicalRouteId(routeId: string | null | undefined): boolean {
+  const value = String(routeId ?? '').trim();
+  return TECHNICAL_ROUTE_ID_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
+
+/** Una jornada libre esta grabando recorrido, no siguiendo una ruta. */
+export function isRecordingRouteId(routeId: string | null | undefined): boolean {
+  return String(routeId ?? '').trim().startsWith('recording:');
+}
+
+/** Etiqueta unica para una jornada sin ruta oficial. */
+export const RECORDING_JOURNEY_LABEL = 'Grabando recorrido';
+
+/**
  * Formato unico de antiguedad GPS. Exportado para que ninguna superficie
  * escriba su propia version de "hace X".
  */
@@ -140,8 +169,25 @@ export function driverLabel(driver: OperationalUnitSnapshot['driver']): string {
   return driver?.name ?? 'Sin conductor asignado';
 }
 
-export function routeLabel(route: OperationalUnitSnapshot['route']): string {
-  return route?.name ?? 'Sin ruta asignada';
+/**
+ * Una jornada libre en curso no es "Sin ruta asignada": esta grabando recorrido.
+ *
+ * El snapshot deja `route` en null tanto cuando no hay ruta como cuando la
+ * jornada usa la identidad tecnica `recording:*`, asi que la Jornada es lo unico
+ * que permite distinguirlos. El identificador tecnico NUNCA se muestra.
+ */
+export function routeLabel(
+  route: OperationalUnitSnapshot['route'],
+  journey?: OperationalUnitSnapshot['journey']
+): string {
+  if (route?.name) return route.name;
+  if (
+    isRecordingRouteId(journey?.routeId) &&
+    (journey?.status === 'RUNNING' || journey?.status === 'PAUSED')
+  ) {
+    return RECORDING_JOURNEY_LABEL;
+  }
+  return 'Sin ruta asignada';
 }
 
 /**
