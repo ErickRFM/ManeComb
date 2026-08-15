@@ -36,8 +36,9 @@ function parseTimestamp(value, fallback = new Date()) {
 
 /**
  * Compatibility projection used by older callers/tests. The geometry authority is
- * route-geometry; this wrapper preserves the historical progress fields while
- * moving the alert decision to the stateful corridor engine below.
+ * route-geometry; this wrapper preserves the historical progress fields. A single
+ * projection only claims OFF_ROUTE for an obviously large separation; medium
+ * deviations require the stateful corridor engine below.
  */
 function projectPointOnRoute({ point, polyline }) {
   const projection = projectGeometryPoint({ point, polyline });
@@ -52,9 +53,7 @@ function projectPointOnRoute({ point, polyline }) {
     currentCheckpointIndex: checkpointCount
       ? Math.min(checkpointCount, Math.floor(progressPercent / 100 * checkpointCount))
       : 0,
-    // Compatibility only: a single point this far away is a possible deviation,
-    // not yet an operational OFF_ROUTE event.
-    isOffRoute: projection.distanceFromRoute > corridor.possibleDeviationMeters,
+    isOffRoute: projection.distanceFromRoute >= corridor.hardDeviationMeters,
     progressPercent
   };
 }
@@ -85,18 +84,24 @@ function resolveRouteState({ distanceFromRoute, previousProgress, timestamp }) {
 
   const deviationStartedAt = previousStartedAt || now;
   const durationSeconds = Math.max(0, Math.round((now.getTime() - deviationStartedAt.getTime()) / 1000));
-  const repeatedHardDeviation =
-    distanceFromRoute >= corridor.hardDeviationMeters &&
-    [ROUTE_STATE.POSSIBLE_DEVIATION, ROUTE_STATE.OFF_ROUTE_CONFIRMED].includes(previousState) &&
-    durationSeconds >= Math.min(15, corridor.deviationConfirmSeconds);
+
+  // Una separación extrema sí es accionable en la primera lectura: esperar 45 s
+  // aquí escondería una salida evidente y rompería el contrato de seguridad ya
+  // existente. La histéresis se reserva para desviaciones medias/ambiguas.
+  if (distanceFromRoute >= corridor.hardDeviationMeters) {
+    return {
+      routeState: ROUTE_STATE.OFF_ROUTE_CONFIRMED,
+      deviationStartedAt: deviationStartedAt.toISOString(),
+      deviationDurationSeconds: durationSeconds
+    };
+  }
+
   const sustainedDeviation =
     distanceFromRoute >= corridor.possibleDeviationMeters &&
     durationSeconds >= corridor.deviationConfirmSeconds;
 
   return {
-    routeState: repeatedHardDeviation || sustainedDeviation
-      ? ROUTE_STATE.OFF_ROUTE_CONFIRMED
-      : ROUTE_STATE.POSSIBLE_DEVIATION,
+    routeState: sustainedDeviation ? ROUTE_STATE.OFF_ROUTE_CONFIRMED : ROUTE_STATE.POSSIBLE_DEVIATION,
     deviationStartedAt: deviationStartedAt.toISOString(),
     deviationDurationSeconds: durationSeconds
   };

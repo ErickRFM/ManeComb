@@ -38,7 +38,14 @@ function baseVehicle(overrides = {}) {
     previousProgress: null,
     timestamp: "2026-08-15T12:00:00.000Z"
   });
-  assert.equal(firstDeviation.routeState, ROUTE_STATE.POSSIBLE_DEVIATION, "un punto lejano no dispara alarma instantanea");
+  assert.equal(firstDeviation.routeState, ROUTE_STATE.POSSIBLE_DEVIATION, "un punto ambiguo no dispara alarma instantanea");
+
+  const hardDeviation = resolveRouteState({
+    distanceFromRoute: 900,
+    previousProgress: null,
+    timestamp: "2026-08-15T12:00:10.000Z"
+  });
+  assert.equal(hardDeviation.routeState, ROUTE_STATE.OFF_ROUTE_CONFIRMED, "una separacion obvia conserva alerta inmediata de seguridad");
 
   const sustained = resolveRouteState({
     distanceFromRoute: 260,
@@ -92,5 +99,5 @@ function baseVehicle(overrides = {}) {
   assert.notEqual(tolerated.routeState, ROUTE_STATE.OFF_ROUTE_CONFIRMED, "calle paralela cercana no se reporta como desvio confirmado");
   assert.equal(tolerated.isOffRoute, false, "sin falsa alerta por una sola lectura cercana");
 
-  console.log("ok - route corridor: tolerancia, histéresis, confirmacion y recuperacion");
+  console.log("ok - route corridor: tolerancia, histéresis, confirmacion, seguridad y recuperacion");
 })();
