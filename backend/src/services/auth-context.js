@@ -11,6 +11,7 @@ const {
 const {
   buildOnboarding,
   buildSubscription,
+  countUsedUnitSlots,
   pickActiveOrder
 } = require("./portal-account");
 
@@ -288,6 +289,23 @@ function resolvePostLoginRoute(user, subscription, tenant, onboarding, options =
   };
 }
 
+async function listOrganizationVehicles(store, organizationId) {
+  if (!store || !organizationId) return [];
+
+  if (typeof store.listVehiclesForOrganization === "function") {
+    return await Promise.resolve(store.listVehiclesForOrganization(organizationId)).catch(() => []);
+  }
+
+  if (typeof store.getLiveLocations === "function") {
+    const live = await Promise.resolve(store.getLiveLocations()).catch(() => ({ vehicles: [] }));
+    return (live?.vehicles || []).filter(
+      (vehicle) => String(vehicle.organizationId || "") === String(organizationId)
+    );
+  }
+
+  return [];
+}
+
 async function buildAuthContext(store, user, options = {}) {
   if (!user) {
     const accountChannel = resolveAccountChannel(null);
@@ -319,22 +337,27 @@ async function buildAuthContext(store, user, options = {}) {
     ? await store.listCommercialOrdersForUser(user)
     : [];
   const activeOrder = pickActiveOrder(orders);
-  const subscription = buildSubscription(activeOrder);
-  const tenant = buildTenantContext(user, activeOrder, subscription);
-  const organizationId = tenant?.id || getOrganizationId(user);
-  const users = store?.listUsers && organizationId
-    ? await Promise.resolve(store.listUsers(user)).catch(() => [])
-    : [];
-  const activationKeys =
+  const organizationId = getOrganizationId(user) || getOrderOrganizationId(activeOrder);
+  const [users, activationKeys, vehicles] = await Promise.all([
+    store?.listUsers && organizationId
+      ? Promise.resolve(store.listUsers(user)).catch(() => [])
+      : Promise.resolve([]),
     store?.listActivationKeysForCompany && organizationId
-      ? await Promise.resolve(store.listActivationKeysForCompany(organizationId)).catch(() => [])
-      : [];
+      ? Promise.resolve(store.listActivationKeysForCompany(organizationId)).catch(() => [])
+      : Promise.resolve([]),
+    listOrganizationVehicles(store, organizationId)
+  ]);
+  const subscription = buildSubscription(activeOrder, {
+    usedUnitSlots: countUsedUnitSlots(vehicles)
+  });
+  const tenant = buildTenantContext(user, activeOrder, subscription);
   const onboarding = activeOrder
     ? buildOnboarding({
         activationKeys,
         order: activeOrder,
         user,
-        users
+        users,
+        vehicles
       })
     : null;
   const operationalOverride =
