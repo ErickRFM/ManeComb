@@ -1,4 +1,4 @@
-import { createResourceLoadCoordinator } from '@shared/resource-load-coordinator';
+import { createLatestEffectCoordinator, createResourceLoadCoordinator } from '@shared/resource-load-coordinator';
 import { beginResourceAttempt, completeResourceAttempt, failResourceAttempt, idleResourceState } from '@shared/resource-state';
 
 function resourceHarness() {
@@ -72,5 +72,25 @@ describe('same-domain resource load coordinator', () => {
     harness.success(a, ['old']);
     expect(harness.read().data).toEqual(['new']);
     expect(harness.read().resource.status).toBe('ready');
+  });
+
+  it('does not let an old failure write global error after B succeeds', () => {
+    const coordinator = createLatestEffectCoordinator();
+    let globalError: string | null = null;
+    const a = coordinator.begin();
+    const b = coordinator.begin();
+    if (coordinator.isLatest(b)) globalError = null;
+    if (coordinator.isLatest(a)) globalError = 'old failure';
+    expect(globalError).toBeNull();
+  });
+
+  it('does not let an old success clear the current error from B', () => {
+    const coordinator = createLatestEffectCoordinator();
+    let globalError: string | null = null;
+    const a = coordinator.begin();
+    const b = coordinator.begin();
+    if (coordinator.isLatest(b)) globalError = 'current failure';
+    if (coordinator.isLatest(a)) globalError = null;
+    expect(globalError).toBe('current failure');
   });
 });

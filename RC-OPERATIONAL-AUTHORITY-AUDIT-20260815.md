@@ -239,3 +239,23 @@ Pruebas conductuales cubren:
 ## Certificación
 
 Se reejecutan en este corte las suites Mobile, Portal, Backend, Communication y Android, además de `git diff --check`. Los resultados finales se publican en el Draft PR #198. Estado físico permanece **PHYSICAL_GATE=ACCEPTED_PENDING**; no se declara `PHYSICAL_PASS`.
+
+---
+
+# Corte 3.2 — Resource side-effect consistency
+
+Latest-wins protege ahora el conjunto completo de efectos de una carga: data, ResourceState y `error` global. Un coordinador monotónico de efectos invalida tanto escrituras tardías de error como limpiezas tardías; una generación obsoleta queda sin efectos observables.
+
+La cardinalidad posterior a cada mutación incremental se pasa explícitamente al contrato. Incidents y operationalUnits usan `true` porque realizan upsert; activationKeys usa `keys.length > 0`. Por ello, un snapshot previo empty permanece empty ante `keys=[]` y pasa a ready cuando el evento contiene al menos una key.
+
+La política TTL está aislada y probada: sólo un `loadAll` fresco puede omitirse. Los loaders de dominio nunca quedan bloqueados por ese TTL, así que billing/sessions/keys pueden reintentarse inmediatamente después de un fallo parcial.
+
+Pruebas conductuales añadidas:
+
+- fallo tardío de A después de éxito B no altera data, ready ni `error=null`;
+- éxito tardío de A después de fallo B no limpia el error vigente;
+- activationKeys empty + realtime vacío permanece empty;
+- activationKeys empty + realtime con key pasa a ready;
+- TTL fresco omite full-load pero permite retry de dominio.
+
+No se tocaron GPS, sockets, Android, Mapbox ni autoridades legacy. Se mantiene **PHYSICAL_GATE=ACCEPTED_PENDING** y no se declara `PHYSICAL_PASS`.

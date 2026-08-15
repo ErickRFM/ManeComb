@@ -36,4 +36,10 @@ describe('ResourceState authority', () => {
     const error = failResourceAttempt(beginResourceAttempt(idleResourceState()), { errorCode: '500', errorMessage: 'boom' });
     expect(applyIncrementalResourceEvent(error, { hasDataAfterMutation: true }).status).toBe('error');
   });
+
+  it('uses the real post-mutation activation-key cardinality', () => {
+    const empty = completeResourceAttempt(beginResourceAttempt(idleResourceState()), { empty: true, source: 'rest' });
+    expect(applyIncrementalResourceEvent(empty, { hasDataAfterMutation: false }).status).toBe('empty');
+    expect(applyIncrementalResourceEvent(empty, { hasDataAfterMutation: true }).status).toBe('ready');
+  });
 });

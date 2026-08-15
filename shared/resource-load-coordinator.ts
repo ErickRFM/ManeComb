@@ -32,3 +32,19 @@ export function createResourceLoadCoordinator<Domain extends string>() {
     },
   };
 }
+
+export function createLatestEffectCoordinator() {
+  let generation = 0;
+  return {
+    begin() {
+      generation += 1;
+      return generation;
+    },
+    isLatest(candidate: number) {
+      return candidate === generation;
+    },
+    invalidate() {
+      generation += 1;
+    },
+  };
+}
