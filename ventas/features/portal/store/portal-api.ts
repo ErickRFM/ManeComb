@@ -22,3 +22,10 @@ export function getMessage(error: unknown, fallback: string) {
 
   return error instanceof Error ? error.message : fallback;
 }
+
+export function getErrorCode(error: unknown) {
+  if (isAxiosError(error)) {
+    return String(error.response?.data?.code || error.code || `http_${error.response?.status || 'unknown'}`);
+  }
+  return error instanceof Error && error.name ? error.name : 'request_failed';
+}

@@ -542,8 +542,11 @@ function testMetrics() {
   const timer = snapshot.timers.find((entry) => entry.name === "test_timer");
   assert.equal(timer.percentileMethod, "approximate_bucket_upper_bound_process_lifetime");
   assert.equal(timer.p50ApproxMs, 250);
-  assert.equal(timer.p95ApproxMs, 1000);
-  assert.equal(timer.p99ApproxMs, 1000);
+  assert.equal(timer.p95ApproxMs, 900);
+  assert.equal(timer.p99ApproxMs, 900);
+  assert.ok(timer.p50ApproxMs <= timer.p95ApproxMs);
+  assert.ok(timer.p95ApproxMs <= timer.p99ApproxMs);
+  assert.ok(timer.p99ApproxMs <= timer.maxMs);
   assert.equal(timer.buckets.length, 13);
   const timerSnapshot = snapshot.timers.filter((t) => t.name === "test_timer");
   assert.equal(timerSnapshot.length, 1);

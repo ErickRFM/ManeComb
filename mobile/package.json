@@ -11,6 +11,7 @@
     "android": "node ./scripts/android-run.js",
     "android:device": "node ./scripts/android-device.js",
     "android:debug": "cd android && gradlew.bat assembleDebug",
+    "android:test:unit": "cd android && gradlew.bat :app:testDebugUnitTest",
     "android:install": "node ./scripts/android-install-debug.js",
     "android:bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
     "android:debug-bundled": "node ./scripts/build-android-debug-bundled.js",

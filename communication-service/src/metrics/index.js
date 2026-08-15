@@ -5,6 +5,11 @@ const gauges = {};
 // upper bounds over the process lifetime since the last reset, not exact
 // sample percentiles and not a sliding window.
 const DURATION_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity];
+const PROHIBITED_HIGH_CARDINALITY_TAGS = new Set(["packetId", "traceId", "userId", "vehicleId"]);
+
+function normalizeTags(tags = {}) {
+  return Object.fromEntries(Object.entries(tags).filter(([key]) => !PROHIBITED_HIGH_CARDINALITY_TAGS.has(key)));
+}
 
 function makeKey(name, tags = {}) {
   const tagStr = Object.keys(tags)
@@ -15,6 +20,7 @@ function makeKey(name, tags = {}) {
 }
 
 function increment(name, value = 1, tags = {}) {
+  tags = normalizeTags(tags);
   const key = makeKey(name, tags);
   if (!counters[key]) {
     counters[key] = { name, tags, value: 0 };
@@ -27,6 +33,7 @@ function incrementMetric(name, value = 1, tags = {}) {
 }
 
 function observeDuration(name, durationMs, tags = {}) {
+  tags = normalizeTags(tags);
   const key = makeKey(name, tags);
   if (!timers[key]) {
     timers[key] = {
@@ -52,13 +59,14 @@ function approximatePercentile(timer, percentile) {
   for (const bucket of timer.buckets) {
     cumulative += bucket.count;
     if (cumulative >= target) {
-      return Number.isFinite(bucket.upperBoundMs) ? bucket.upperBoundMs : timer.maxMs;
+      return Number.isFinite(bucket.upperBoundMs) ? Math.min(bucket.upperBoundMs, timer.maxMs) : timer.maxMs;
     }
   }
   return timer.maxMs;
 }
 
 function setGauge(name, value, tags = {}) {
+  tags = normalizeTags(tags);
   const key = makeKey(name, tags);
   gauges[key] = { name, tags, value };
 }

@@ -1,5 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
+declare const require: (id: string) => any;
+declare const __dirname: string;
+const fs = require('fs');
+const path = require('path');
+export {};
 
 function section(source: string, start: string, end: string) {
   const from = source.indexOf(start);

@@ -145,3 +145,70 @@ Mobile conserva `Promise.allSettled`: aplica éxitos, pero un rechazo distinto d
 - Android main Kotlin compila. Los tests unitarios propios no pueden aislarse porque la compilación global de tests falla antes en código preexistente de `@rnmapbox/maps` y `RadioReconnectFloorAckTest`; el gate se registra, no se oculta.
 - No se actualizó ningún baseline.
 - No se declara **PHYSICAL PASS**. GPS/background/batería: **ACCEPTED_PENDING**.
+
+---
+
+# Corte 3 — Resource State Authority, fallos parciales y Android unit gate
+
+La rama segura fue publicada antes de este corte y el Draft PR #198 quedó abierto contra `main`. El merge-base sigue siendo exactamente `edf39a74950b7f9d6141667fe81ea894542f859f`; no se integraron PR #196 ni las ramas excluidas.
+
+## Contratos antes / después
+
+| dominio | antes | después |
+|---|---|---|
+| ResourceState | refresh podía ocultar datos con `loading` | primera carga usa `loading`; refresh conserva `ready/empty` con `isRefreshing`; fallo posterior produce `stale` |
+| Colecciones vacías | algunos consumidores inferían empty desde `[]` | `empty` sólo nace de respuesta autoritativa exitosa |
+| Portal `loadAll` | una promesa podía contaminar el lote | `Promise.allSettled` aplica overview, subscription, onboarding, keys, billing y sessions independientemente |
+| Activation keys | degradación opcional ambigua | sólo 403 esperado degrada; 5xx/timeout/network producen error o stale |
+| Realtime | mutación incremental podía confundirse con snapshot | incremental actualiza datos, pero no promueve idle/stale a ready |
+| Mobile cache | dato presente era indistinguible de sincronizado | cache queda `source=cache`, `status=stale` hasta confirmación REST |
+| Billing UI | `isLoading` global y longitud decidían skeleton/empty | `resources.billing` decide loading/empty/error/stale; stale conserva facturas |
+| Android gate | root test compilaba tests rotos de Mapbox y el fake Radio colisionaba | `:app:testDebugUnitTest` compila main/test de la app y ejecuta 80 pruebas |
+
+## Productor → consumidor
+
+| productor | consumidor | contrato |
+|---|---|---|
+| respuesta REST por dominio | Portal/Mobile ResourceState | certifica `ready` o `empty`; fija `lastSuccessfulAt`, `source=rest` |
+| fallo posterior a éxito | UI del dominio | conserva datos y expone `stale` con error no bloqueante |
+| offline cache | Mobile ResourceState | restaura datos como `stale`, nunca como snapshot confirmado |
+| evento incremental Socket.IO | colección cargada | actualiza entidad/source; no certifica colección incompleta |
+| snapshot operacional REST | estado operacional | certifica colección; `OperationalUnitSnapshot` conserva autoridad GPS/ruta/ETA/journey |
+| histograma fijo | snapshot métricas | 13 buckets constantes; percentiles aproximados monotónicos y acotados por max |
+
+## Matriz ResourceState
+
+| Resource | Initial load | Empty | Refresh | Partial failure | Cache | Realtime incremental | Realtime full snapshot | Error | Stale |
+|---|---|---|---|---|---|---|---|---|---|
+| Portal account | loading | no aplica | conserva dato | independiente | no | no promueve | REST equivalente | sin dato usable | conserva cuenta |
+| Portal billing | loading | sólo REST `[]` | conserva facturas | independiente de overview | no | no configurado | REST list | Retry/ErrorState | facturas + aviso |
+| Portal sessions | loading | sólo REST `[]` | conserva sesiones | no invalida account | no | no promueve | REST list | sin EmptyState | conserva sesiones |
+| Portal documents | loading | sólo REST `[]` | conserva documentos | independiente | no | no certifica lista | REST list | sin dato usable | conserva documentos |
+| Portal incidents | loading | sólo REST `[]` | conserva incidencias | independiente | no | upsert sin promover idle/stale | REST list | sin dato usable | conserva lista |
+| Portal appInfo | loading | respuesta nula confirmada | conserva info | independiente | no | no configurado | REST object | sin dato usable | conserva info |
+| Portal activationKeys | loading | 403 capability o REST `[]` | conserva keys | independiente | no | no promueve idle/stale | REST list | 5xx/red sin dato | conserva keys |
+| Mobile operationalUnits | loading | REST `[]` | conserva snapshot | allSettled | cache=stale | unidad incremental no certifica colección | REST list | sin dato usable | conserva unidades |
+| Mobile mapData legacy | loading | REST sin vehículos | conserva datos | allSettled | cache=stale | incremental no certifica lista | REST list | sin dato usable | conserva mapa |
+| Mobile incidents/documents/notifications/users/conversations/history | loading | sólo REST vacío | conserva datos | cada resultado independiente | cache=stale | no promueve incompletos | REST list | sin dato usable | conserva éxito/cache |
+
+## Android gate hygiene
+
+- Mapbox: `node_modules/@rnmapbox/maps/android/src/test/.../RNMBXStyleValueTest.kt`, test source set, literales Kotlin multicaracter en líneas 30/39. No afecta main ni se cambió producción.
+- Radio: `RadioReconnectFloorAckTest.kt`, test source set, clash JVM entre setter de `listener` y `setListener`. Se renombró sólo el backing field del fake.
+- El fixture usaba 1 ms, incompatible con el mínimo actual de `RadioReconnectPolicy`; se ajustó sólo el test a 250 ms.
+- `npm run android:test:unit` ejecuta `:app:testDebugUnitTest`; no desactiva ni comenta tests.
+
+## Métricas
+
+Se mantienen `gps_ingestion_duration_ms`, `gps_transport_queue_age_ms`, `operational_snapshot_build_ms` y `operational_emit_ms`. Los histogramas tienen memoria constante y reset total; p50/p95/p99 son límites de bucket aproximados desde arranque/reset, recortados por el máximo observado. Se filtran `packetId`, `traceId`, `userId` y `vehicleId`; permanecen tags acotados como transport/decision/quality.
+
+## Certificación Corte 3
+
+- Mobile: 104 suites / 577 tests, lint y typecheck verdes.
+- Portal: typecheck, contratos y build producción verdes con URL HTTPS explícita.
+- Communication service: suite completa verde.
+- Android: main compilado; 80 unit tests verdes, incluida la regresión de ACK tardío.
+- Backend: suite completa ejecutada; resultado final registrado en el cierre.
+- `git diff --check`: ejecutado al cierre.
+
+Estado: **CODE_AUTOMATED_PASS**, **ANDROID_UNIT_PASS**, **PHYSICAL_GATE=ACCEPTED_PENDING**. No se declara `PHYSICAL_PASS`; GPS/background/batería y pruebas físicas siguen pendientes.

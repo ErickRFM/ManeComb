@@ -16,12 +16,12 @@ export const emptyPortalState = {
   error: null,
   resources: {
     account: idleResourceState(),
+    activationKeys: idleResourceState(),
     billing: idleResourceState(),
     sessions: idleResourceState(),
     documents: idleResourceState(),
     incidents: idleResourceState(),
     appInfo: idleResourceState(),
-    operational: idleResourceState(),
   },
 };
 import { idleResourceState } from '@shared/resource-state';

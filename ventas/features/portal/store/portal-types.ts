@@ -15,12 +15,12 @@ import type { ResourceState } from '@shared/resource-state';
 
 export type PortalResourceDomain =
   | 'account'
+  | 'activationKeys'
   | 'billing'
   | 'sessions'
   | 'documents'
   | 'incidents'
-  | 'appInfo'
-  | 'operational';
+  | 'appInfo';
 
 export type PortalActionResult = {
   ok: boolean;

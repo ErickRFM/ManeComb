@@ -1,5 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
+declare const require: (id: string) => any;
+declare const __dirname: string;
+const fs = require('fs');
+const path = require('path');
+export {};
 
 describe('Portal resource-state migration contract', () => {
   const actions = fs.readFileSync(

@@ -2,6 +2,14 @@ import { isAxiosError } from 'axios';
 import { io, type Socket } from 'socket.io-client';
 import { create } from 'zustand';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import {
+  applyIncrementalResourceEvent,
+  beginResourceAttempt,
+  completeResourceAttempt,
+  failResourceAttempt,
+  idleResourceState,
+  type ResourceState,
+} from '@shared/resource-state';
 import { reconcileOperationalSnapshot, upsertOperationalUnit } from './operational-reconciliation';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
 import { hasPortalPermission } from '@/features/portal/utils/access';
@@ -66,6 +74,7 @@ type AppState = {
   users: User[];
   vehicles: Vehicle[];
   operationalUnits: OperationalUnitSnapshot[];
+  operationalResource: ResourceState;
   operationalApplyDiagnostics: {
     socketReceivedAt: string | null;
     appliedAt: string | null;
@@ -206,6 +215,12 @@ function getReadableError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function getReadableErrorCode(error: unknown) {
+  return isAxiosError(error)
+    ? String(error.response?.data?.code || error.code || `http_${error.response?.status || 'unknown'}`)
+    : error instanceof Error && error.name ? error.name : 'request_failed';
+}
+
 function disconnectSocket() {
   if (socketHeartbeatTimer) {
     clearInterval(socketHeartbeatTimer);
@@ -313,6 +328,7 @@ function connectSocket(get: () => AppState) {
     'vehicle:deleted',
     'location:updated',
     'operational-unit:updated',
+    'incident:updated',
     'route-session:updated',
     'user:updated',
     'user:deleted',
@@ -335,6 +351,7 @@ function connectSocket(get: () => AppState) {
             const appliedAtMs = Date.now();
             return {
               operationalUnits: upsertOperationalUnit(state.operationalUnits, unit),
+              operationalResource: applyIncrementalResourceEvent(state.operationalResource),
               operationalApplyDiagnostics: {
                 socketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
                 appliedAt: new Date(appliedAtMs).toISOString(),
@@ -416,6 +433,7 @@ async function clearSession(set: (partial: Partial<AppState>) => void) {
     users: [],
     vehicles: [],
     operationalUnits: [],
+    operationalResource: idleResourceState(),
     operationalApplyDiagnostics: { socketReceivedAt: null, appliedAt: null, receiveToApplyMs: null, unitId: null },
     lastRouteSessionUpdateId: null,
     routeSessionVersion: 0,
@@ -436,6 +454,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   users: [],
   vehicles: [],
   operationalUnits: [],
+  operationalResource: idleResourceState(),
   operationalApplyDiagnostics: { socketReceivedAt: null, appliedAt: null, receiveToApplyMs: null, unitId: null },
   error: null,
   clearError: () => set({ error: null }),
@@ -625,17 +644,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      const [vehicles, operationalUnits] = await Promise.all([
+      set((state) => ({ operationalResource: beginResourceAttempt(state.operationalResource) }));
+      const [vehiclesResult, operationalUnitsResult] = await Promise.allSettled([
         getVehiclesRequest(options),
         getOperationalUnitsRequest(),
       ]);
       set((state) => ({
-        vehicles,
-        operationalUnits: reconcileOperationalSnapshot(state.operationalUnits, operationalUnits),
-        error: null,
+        ...(vehiclesResult.status === 'fulfilled' ? { vehicles: vehiclesResult.value } : {}),
+        ...(operationalUnitsResult.status === 'fulfilled' ? {
+          operationalUnits: reconcileOperationalSnapshot(state.operationalUnits, operationalUnitsResult.value),
+          operationalResource: completeResourceAttempt(state.operationalResource, {
+            empty: operationalUnitsResult.value.length === 0,
+            source: 'rest',
+          }),
+        } : {
+          operationalResource: failResourceAttempt(state.operationalResource, {
+            errorCode: getReadableErrorCode(operationalUnitsResult.reason),
+            errorMessage: getReadableError(operationalUnitsResult.reason, 'No fue posible actualizar operación.'),
+          }),
+        }),
+        error: vehiclesResult.status === 'rejected'
+          ? getReadableError(vehiclesResult.reason, 'No fue posible cargar unidades.')
+          : operationalUnitsResult.status === 'rejected'
+            ? getReadableError(operationalUnitsResult.reason, 'No fue posible actualizar operación.')
+            : null,
       }));
     } catch (error) {
-      set({ error: getReadableError(error, 'No fue posible cargar unidades.') });
+      set((state) => ({
+        error: getReadableError(error, 'No fue posible cargar unidades.'),
+        operationalResource: failResourceAttempt(state.operationalResource, {
+          errorCode: getReadableErrorCode(error),
+          errorMessage: getReadableError(error, 'No fue posible actualizar operación.'),
+        }),
+      }));
     }
   },
   updateUser: async (userId, payload) => {
