@@ -1,6 +1,7 @@
 const { createHash } = require("crypto");
 const config = require("../config/auto-route");
 const { toServiceDate } = require("../utils/service-date");
+const { persistDeviationSegments } = require("./route-segment-learning");
 const { incrementMetric, observeDuration } = require("./metrics");
 const logger = require("./logger");
 
@@ -195,25 +196,108 @@ function evaluateEvidence(session, positions) {
   return { eligible: true, distanceMeters: Math.round(distance), durationSeconds };
 }
 
+function isTechnicalRouteId(routeId) {
+  const value = String(routeId || "").trim();
+  return !value || value.startsWith("recording:") || value.startsWith("assigned:");
+}
+
+async function processSegmentRouteSession(store, session, positions) {
+  if (!config.segmentLearningEnabled || isTechnicalRouteId(session.routeId)) {
+    return { applicable: false };
+  }
+  const route = await store.getRouteById(session.routeId);
+  if (
+    !route ||
+    String(route.organizationId || "") !== String(session.organizationId || "") ||
+    !Number.isInteger(Number(route.revision)) || Number(route.revision) < 1 ||
+    !Array.isArray(route.polyline) || route.polyline.length < 2
+  ) {
+    return { applicable: false };
+  }
+
+  const claim = await store.claimAutoRouteProcessing({
+    sessionId: session.id,
+    organizationId: session.organizationId,
+    algorithmVersion: config.segmentAlgorithmVersion
+  });
+  if (!claim?.claimed) {
+    incrementMetric("auto_route_sessions_duplicate", 1, { mode: "segment" });
+    return { applicable: true, processed: false, reason: "already_processed", processing: claim };
+  }
+
+  const eligibility = evaluateEvidence(session, positions);
+  if (!eligibility.eligible) {
+    await store.completeAutoRouteProcessing(claim.id, { status: "REJECTED", reason: eligibility.reason });
+    return { applicable: true, processed: true, eligible: false, reason: eligibility.reason };
+  }
+
+  try {
+    const observedAt = new Date(session.startedAt || positions[0].timestamp).toISOString();
+    const candidates = await persistDeviationSegments({
+      store,
+      session,
+      route,
+      positions,
+      serviceDate: toServiceDate(session.startedAt || positions[0].timestamp),
+      observedAt,
+      algorithmVersion: config.segmentAlgorithmVersion,
+      geometryFormatVersion: config.segmentGeometryVersion,
+      minimumEvidenceCount: config.minEvidenceCount,
+      minimumDistinctServiceDays: config.minDistinctServiceDays
+    });
+    if (!candidates.length) {
+      await store.completeAutoRouteProcessing(claim.id, { status: "REJECTED", reason: "no_segment_variation" });
+      incrementMetric("auto_route_segment_sessions_without_variation", 1);
+      return { applicable: true, processed: true, eligible: false, reason: "no_segment_variation" };
+    }
+    await store.completeAutoRouteProcessing(claim.id, {
+      status: "COMPLETED",
+      candidateId: candidates[0].candidate.id
+    });
+    incrementMetric("auto_route_segment_evidence_accepted", candidates.length);
+    candidates.forEach(({ candidate }) => {
+      if (candidate.status === "READY_FOR_REVIEW") incrementMetric("auto_route_segment_candidates_ready", 1);
+    });
+    return { applicable: true, processed: true, eligible: true, segmentLearning: true, candidates };
+  } catch (error) {
+    await store.completeAutoRouteProcessing(claim.id, { status: "FAILED", reason: "processing_failed" });
+    throw error;
+  }
+}
+
 async function processCompletedRouteSession(store, sessionId) {
   if (!config.learningEnabled) return { processed: false, reason: "learning_disabled" };
   const startedAt = Date.now();
   const session = await store.getRouteSessionById(sessionId);
   if (!session) return { processed: false, reason: "session_not_found" };
-  const claim = await store.claimAutoRouteProcessing({
-    sessionId,
-    organizationId: session.organizationId,
-    algorithmVersion: config.algorithmVersion
-  });
-  if (!claim?.claimed) {
-    incrementMetric("auto_route_sessions_duplicate", 1);
-    return { processed: false, reason: "already_processed", processing: claim };
-  }
+
   try {
     const positions = normalizeEvidencePositions(await store.listRouteSessionPositions({
       sessionId,
       limit: 50000
     }));
+
+    // V3 owns sessions tied to a versioned official route. It learns only the
+    // divergent/rejoined segments and intentionally skips the old full-route
+    // candidate so one journey never creates two competing suggestions.
+    const segmentResult = await processSegmentRouteSession(store, session, positions);
+    if (segmentResult.applicable) {
+      observeDuration("auto_route_processing_duration_ms", Date.now() - startedAt, { mode: "segment" });
+      return segmentResult;
+    }
+
+    // V2 remains the authority for free/recording journeys and for deployments
+    // where V3 is still dark. Its identifiers and historical candidates are not
+    // reinterpreted.
+    const claim = await store.claimAutoRouteProcessing({
+      sessionId,
+      organizationId: session.organizationId,
+      algorithmVersion: config.algorithmVersion
+    });
+    if (!claim?.claimed) {
+      incrementMetric("auto_route_sessions_duplicate", 1);
+      return { processed: false, reason: "already_processed", processing: claim };
+    }
     const eligibility = evaluateEvidence(session, positions);
     if (!eligibility.eligible) {
       await store.completeAutoRouteProcessing(claim.id, { status: "REJECTED", reason: eligibility.reason });
@@ -256,9 +340,6 @@ async function processCompletedRouteSession(store, sessionId) {
       algorithmVersion: config.algorithmVersion,
       geometryVersion: config.geometryVersion,
       representativeSessionId: matchingCandidate?.representativeSessionId || sessionId,
-      // El dia operativo se toma del INICIO de la jornada y en la zona de
-      // operacion: un turno nocturno pertenece al dia en que arranco, no al que
-      // impone el cambio de fecha UTC a media jornada.
       serviceDate: toServiceDate(session.startedAt || positions[0].timestamp),
       observedAt: new Date(session.startedAt || positions[0].timestamp).toISOString(),
       minimumEvidenceCount: config.minEvidenceCount,
@@ -270,9 +351,14 @@ async function processCompletedRouteSession(store, sessionId) {
     observeDuration("auto_route_processing_duration_ms", Date.now() - startedAt);
     return { processed: true, eligible: true, candidate };
   } catch (error) {
-    await store.completeAutoRouteProcessing(claim.id, { status: "FAILED", reason: "processing_failed" });
-    logger.error({ module: "AutoRoute", action: "session.process", status: "error", error,
-      organizationId: session.organizationId, metadata: { sessionId } });
+    logger.error({
+      module: "AutoRoute",
+      action: "session.process",
+      status: "error",
+      error,
+      organizationId: session.organizationId,
+      metadata: { sessionId }
+    });
     incrementMetric("auto_route_processing_failed", 1);
     throw error;
   }
@@ -288,6 +374,7 @@ module.exports = {
   normalizeEvidencePositions,
   polylineLengthMeters,
   processCompletedRouteSession,
+  processSegmentRouteSession,
   resamplePolyline,
   simplifyPolyline
 };
