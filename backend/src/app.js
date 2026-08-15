@@ -27,6 +27,7 @@ const documentRoutes = require("./modules/documents/routes");
 const incidentRoutes = require("./modules/incidents/routes");
 const journeyRoutes = require("./modules/journeys/routes");
 const locationRoutes = require("./modules/locations/routes");
+const learnedRouteSegmentRoutes = require("./modules/navigation/segment-routes");
 const navigationRoutes = require("./modules/navigation/routes");
 const notificationRoutes = require("./modules/notifications/routes");
 const platformAuthRoutes = require("./modules/platform/auth-routes");
@@ -270,6 +271,9 @@ function createApp({ store, getDbState }) {
   app.use("/api/commercial", commercialRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/locations", locationRoutes);
+  // V3 consumes only segment-specific review/apply requests. Legacy V2 approval
+  // remains mounted immediately after it and receives all other navigation paths.
+  app.use("/api/navigation", learnedRouteSegmentRoutes);
   app.use("/api/navigation", navigationRoutes);
   app.use("/api/journeys", journeyRoutes);
   app.use("/api/incidents", incidentRoutes);

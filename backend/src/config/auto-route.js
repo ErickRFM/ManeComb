@@ -12,8 +12,13 @@ function booleanValue(name, fallback = false) {
 module.exports = Object.freeze({
   algorithmVersion: String(process.env.AUTO_ROUTE_ALGORITHM_VERSION || "v2").trim() || "v2",
   geometryVersion: String(process.env.AUTO_ROUTE_GEOMETRY_VERSION || "corridor-v1").trim() || "corridor-v1",
+  segmentAlgorithmVersion: String(process.env.AUTO_ROUTE_SEGMENT_ALGORITHM_VERSION || "v3-segment").trim() || "v3-segment",
+  segmentGeometryVersion: String(process.env.AUTO_ROUTE_SEGMENT_GEOMETRY_VERSION || "segment-v1").trim() || "segment-v1",
   learningEnabled: booleanValue("AUTO_ROUTE_LEARNING_ENABLED", false),
   reviewEnabled: booleanValue("AUTO_ROUTE_REVIEW_ENABLED", false),
+  // V3 is independent from the proven V2 collector. It ships dark and can be
+  // enabled per deployment after the physical gate without changing V2 behavior.
+  segmentLearningEnabled: booleanValue("AUTO_ROUTE_SEGMENT_LEARNING_ENABLED", false),
   endpointGridDegrees: positiveNumber("AUTO_ROUTE_ENDPOINT_GRID_DEGREES", 0.002),
   corridorGridMeters: positiveNumber("AUTO_ROUTE_CORRIDOR_GRID_METERS", 80),
   corridorSamplePoints: Math.max(8, Math.round(positiveNumber("AUTO_ROUTE_CORRIDOR_SAMPLE_POINTS", 24))),
