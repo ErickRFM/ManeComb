@@ -1,6 +1,10 @@
 const { createHash } = require("crypto");
 const config = require("../config/auto-route");
 const { toServiceDate } = require("../utils/service-date");
+// Autoridad unica de la identidad tecnica de jornada. Este modulo la redefinia
+// localmente con el mismo cuerpo: si manana se agrega un prefijo tecnico nuevo,
+// las dos copias divergirian y la frontera V2/V3 enrutaria mal en silencio.
+const { isTechnicalRouteId } = require("../domain/route-context");
 const { persistDeviationSegments } = require("./route-segment-learning");
 const { incrementMetric, observeDuration } = require("./metrics");
 const logger = require("./logger");
@@ -194,11 +198,6 @@ function evaluateEvidence(session, positions) {
   if (durationSeconds < config.minDurationSeconds) return { eligible: false, reason: "insufficient_duration" };
   if (distance < config.minDistanceMeters) return { eligible: false, reason: "insufficient_distance" };
   return { eligible: true, distanceMeters: Math.round(distance), durationSeconds };
-}
-
-function isTechnicalRouteId(routeId) {
-  const value = String(routeId || "").trim();
-  return !value || value.startsWith("recording:") || value.startsWith("assigned:");
 }
 
 async function processSegmentRouteSession(store, session, positions) {
