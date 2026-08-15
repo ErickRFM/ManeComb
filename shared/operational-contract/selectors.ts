@@ -29,7 +29,11 @@ export function formatEta(route: OperationalUnitSnapshot['route'], locale = 'es-
   return eta.toLocaleTimeString(locale, TIME_FORMAT);
 }
 
-function formatGpsAge(ageSeconds: number | null): string | null {
+/**
+ * Formato unico de antiguedad GPS. Exportado para que ninguna superficie
+ * escriba su propia version de "hace X".
+ */
+export function formatGpsAge(ageSeconds: number | null): string | null {
   if (ageSeconds === null) return null;
   if (ageSeconds < 60) return `hace ${Math.max(0, Math.round(ageSeconds))} s`;
 
@@ -42,18 +46,25 @@ function formatGpsAge(ageSeconds: number | null): string | null {
 }
 
 export function formatFreshness(gps: OperationalUnitSnapshot['gps']): string {
+  // Jamas llego un paquete de esta unidad. No hay nada vencido: hay algo que
+  // todavia no ha ocurrido. Decir "GPS vencido" aqui era el error que hacia
+  // parecer averiada a una unidad recien dada de alta.
+  if (gps.connectionState === 'never_reported') return 'Esperando primera ubicación';
+
   if (gps.connectionState === 'live') return 'GPS en vivo';
-  if (gps.connectionState === 'delayed') return 'GPS retrasado';
 
   const age = formatGpsAge(gps.ageSeconds);
 
   // El backend ya resolvio la severidad. La UI solo la hace visible para que un
   // dato viejo no parezca una unidad sana ni una ultima posicion desaparezca.
+  if (gps.connectionState === 'delayed') {
+    return age ? `GPS retrasado · ${age}` : 'GPS retrasado';
+  }
   if (gps.connectionState === 'stale') {
     return age ? `GPS sin señal · ${age}` : 'GPS sin señal';
   }
   if (gps.connectionState === 'lost') {
-    return age ? `GPS perdido · ${age}` : 'Sin GPS';
+    return age ? `GPS perdido · última ubicación ${age}` : 'GPS perdido';
   }
 
   return age ? `Última ubicación · ${age}` : 'Sin GPS';
@@ -110,7 +121,10 @@ const CONNECTION_OPACITY: Record<GpsConnectionState, number> = {
   live: 1,
   delayed: 0.58,
   stale: 0.4,
-  lost: 0.25
+  lost: 0.25,
+  // Sin coordenada no hay marcador que atenuar; se iguala a `lost` para que
+  // ninguna superficie tenga que ramificar por su cuenta.
+  never_reported: 0.25
 };
 
 /**

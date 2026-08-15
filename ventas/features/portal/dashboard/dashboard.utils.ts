@@ -1,8 +1,8 @@
 import type { StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPortalStatus, getPortalStatusTone } from '../cards';
-import { isVehicleGpsFresh } from '../utils/tracking';
-import { stateLabel, type OperationalState, type OperationalUnitSnapshot } from '@shared/operational-contract';
+import { getVehicleGpsConnectionState } from '../utils/tracking';
+import { formatGpsAge, stateLabel, type OperationalState, type OperationalUnitSnapshot } from '@shared/operational-contract';
 import type { RouteEvent, RouteSession, RouteSessionPosition, User, Vehicle } from '@/src/types/app';
 import type { RouteInfo, JourneyState, SessionMetricsView } from './dashboard.types';
 import { maxRenderedReplayPoints, opaqueIdPattern } from './dashboard.constants';
@@ -196,6 +196,12 @@ export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUni
     speed: unit.gps.speedKmh,
     heading: unit.gps.heading,
     gpsFreshness: {
+      // La taxonomia canonica viaja completa. Colapsarla aqui era lo que dejaba
+      // al Portal sin poder distinguir "esperando primera ubicacion" de
+      // "senal perdida".
+      connectionState: unit.gps.connectionState,
+      ageSeconds: unit.gps.ageSeconds,
+      hasEverReported: unit.gps.connectionState !== 'never_reported',
       state: unit.gps.freshness,
       isFresh: unit.gps.freshness === 'fresh',
       evaluatedAt: unit.lastEventAt || new Date().toISOString(),
@@ -217,20 +223,53 @@ export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUni
   } as Vehicle;
 }
 
+/**
+ * Presenta la taxonomia canonica del backend. NO recalcula umbrales.
+ *
+ * `stale: true` significa "no hay enlace vivo que sostenga una afirmacion
+ * operacional", no "el dato es basura": la ultima posicion conocida se sigue
+ * mostrando en el mapa.
+ */
 export function getGpsState(vehicle: Vehicle, session?: RouteSession | null): { label: string; stale: boolean; tone: StatusBadgeTone } {
-  if (!vehicle.location || !vehicle.locationTimestamp) return { label: 'Sin GPS', stale: true, tone: 'warning' };
-  if (!isVehicleGpsFresh(vehicle) && session?.status !== 'FINISHED') {
-    return { label: 'GPS vencido', stale: true, tone: 'warning' };
+  const connectionState = getVehicleGpsConnectionState(vehicle);
+  const age = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+
+  // Nunca llego un paquete: no hay nada vencido, hay algo que aun no ocurre.
+  if (connectionState === 'never_reported') {
+    return { label: 'Esperando primera ubicación', stale: true, tone: 'neutral' };
   }
-  if ((session?.gpsLostEvents || 0) > 0 && session?.status !== 'RUNNING') {
-    return { label: 'GPS con perdidas', stale: false, tone: 'warning' };
+
+  if (connectionState === 'live') {
+    if ((session?.gpsLostEvents || 0) > 0 && session?.status !== 'RUNNING') {
+      return { label: 'GPS con perdidas', stale: false, tone: 'warning' };
+    }
+    return { label: 'GPS en vivo', stale: false, tone: 'positive' };
   }
-  return { label: 'GPS actualizado', stale: false, tone: 'positive' };
+
+  // Una jornada cerrada no reclama enlace vivo: su GPS no esta "caido".
+  if (session?.status === 'FINISHED') {
+    return { label: age ? `Última ubicación · ${age}` : 'Última ubicación', stale: false, tone: 'neutral' };
+  }
+
+  if (connectionState === 'delayed') {
+    return { label: age ? `GPS retrasado · ${age}` : 'GPS retrasado', stale: true, tone: 'warning' };
+  }
+  if (connectionState === 'stale') {
+    return { label: age ? `GPS sin señal · ${age}` : 'GPS sin señal', stale: true, tone: 'warning' };
+  }
+  return {
+    label: age ? `GPS perdido · última ubicación ${age}` : 'GPS perdido',
+    stale: true,
+    tone: 'danger',
+  };
 }
 
 export function getJourneyState(vehicle: Vehicle, session?: RouteSession | null): JourneyState {
   if (vehicle.activeRouteProgress?.isOffRoute) return { label: 'Fuera de ruta', tone: 'danger' };
-  if (getGpsState(vehicle, session).stale && session && session.status !== 'FINISHED') return { label: 'GPS perdido', tone: 'warning' };
+  // La etiqueta la resuelve la autoridad canonica: una unidad que jamas reporto
+  // no puede anunciarse como "GPS perdido".
+  const gps = getGpsState(vehicle, session);
+  if (gps.stale && session && session.status !== 'FINISHED') return { label: gps.label, tone: gps.tone };
   if (!session) return { label: 'Esperando salida', tone: 'neutral' };
   return { label: formatPortalStatus(session.status), tone: getPortalStatusTone(session.status) };
 }

@@ -51,7 +51,7 @@ function filterLiveLocationsForTenant(user, live) {
     }),
     vehicles: vehicles.map((vehicle) => ({
       ...vehicle,
-      gpsFreshness: buildGpsFreshness(vehicle.locationTimestamp, live.updatedAt)
+      gpsFreshness: buildGpsFreshness(vehicle, live.updatedAt)
     })),
     incidents: (live.incidents || []).filter((incident) => {
       if (isDriver) {

@@ -303,7 +303,10 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ? theme.colors.warning
         : selectedUnit.gps.connectionState === 'stale'
           ? theme.colors.warning
-          : theme.colors.danger
+          // Esperar la primera ubicacion no es una falla: no se pinta en rojo.
+          : selectedUnit.gps.connectionState === 'never_reported'
+            ? theme.colors.muted
+            : theme.colors.danger
     : locationStatusColor;
   const speedLabel = selectedUnit ? formatSpeed(selectedUnit.gps) : 'GPS pendiente';
   const kilometersLabel = useMemo(

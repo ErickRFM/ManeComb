@@ -182,7 +182,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
         decision,
         packetId,
         positionDecision,
-        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
         temporal,
         vehicleId
       };
@@ -228,13 +228,13 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       decision,
       packetId,
       positionDecision,
-      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
       temporal,
       vehicleId
     };
   }
 
-  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
+  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update) };
   const organizationId = String(vehicle.organizationId || getOrganizationId(actor)).trim();
   await emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId });
   incrementMetric("gps_packets_accepted", 1, { transport });
