@@ -7,6 +7,7 @@ import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useAppStore } from '@/src/store/use-app-store';
 import { useCheckoutExperience, validateTestCard, type TestCardInput } from '@/features/commercial';
+import { trackSalesEvent } from '@/features/commercial/analytics/sales-analytics';
 import {
   buildCheckoutParams,
   clearCheckoutContext,
@@ -105,6 +106,7 @@ export function PlanCheckoutScreen() {
   const [demoCardReceipt, setDemoCardReceipt] = useState<DemoCardReceipt | null>(null);
   const [cardSaving, setCardSaving] = useState(false);
   const paymentInFlight = useRef(false);
+  const checkoutViewedKey = useRef<string | null>(null);
 
   const {
     canUseDemoCard,
@@ -143,6 +145,19 @@ export function PlanCheckoutScreen() {
       saveCheckoutContext(planId, requestTrial);
     }
   }, [planId, requestTrial]);
+
+  useEffect(() => {
+    if (!selectedPlan?.id) return;
+    const key = `${selectedPlan.id}:${effectiveRequestTrial ? 'trial' : 'paid'}`;
+    if (checkoutViewedKey.current === key) return;
+    checkoutViewedKey.current = key;
+    trackSalesEvent('checkout_viewed', {
+      planId: selectedPlan.id,
+      requestTrial: effectiveRequestTrial,
+      providerMode,
+      route: '/ventas/pago',
+    });
+  }, [effectiveRequestTrial, providerMode, selectedPlan?.id]);
 
   if (!planId) {
     return <Redirect href="/ventas" />;
@@ -231,10 +246,26 @@ export function PlanCheckoutScreen() {
 
     paymentInFlight.current = true;
     setCardDemoMessage(null);
+    trackSalesEvent('checkout_started', {
+      planId: selectedPlan.id,
+      requestTrial: effectiveRequestTrial,
+      paymentMethod: selectedMethod,
+      providerMode,
+      route: '/ventas/pago',
+    });
     try {
       if (isTrialCardDemo) {
         const savedCard = await saveDemoCard();
-        if (!savedCard) return;
+        if (!savedCard) {
+          trackSalesEvent('checkout_failed', {
+            planId: selectedPlan.id,
+            requestTrial: true,
+            paymentMethod: 'card',
+            providerMode,
+            outcome: 'demo_card_validation',
+          });
+          return;
+        }
 
         setStep('confirmation');
         const nextResult = await submit({
@@ -244,6 +275,13 @@ export function PlanCheckoutScreen() {
           demoTrial: true,
         });
         if (!nextResult?.ok) {
+          trackSalesEvent('checkout_failed', {
+            planId: selectedPlan.id,
+            requestTrial: true,
+            paymentMethod: 'card',
+            providerMode,
+            outcome: 'request_rejected',
+          });
           setStep('payment');
           return;
         }
@@ -251,6 +289,13 @@ export function PlanCheckoutScreen() {
         clearCheckoutContext();
         setTestCard(EMPTY_TEST_CARD);
         setStep('done');
+        trackSalesEvent('checkout_completed', {
+          planId: selectedPlan.id,
+          requestTrial: true,
+          paymentMethod: 'card',
+          providerMode,
+          outcome: 'trial_active',
+        });
         return;
       }
 
@@ -261,10 +306,24 @@ export function PlanCheckoutScreen() {
         testCard,
       });
       if (!nextResult?.ok) {
+        trackSalesEvent('checkout_failed', {
+          planId: selectedPlan.id,
+          requestTrial: effectiveRequestTrial,
+          paymentMethod: selectedMethod,
+          providerMode,
+          outcome: 'request_rejected',
+        });
         setStep('payment');
         return;
       }
       if (nextResult.session?.checkoutUrl) {
+        trackSalesEvent('checkout_redirected', {
+          planId: selectedPlan.id,
+          requestTrial: effectiveRequestTrial,
+          paymentMethod: selectedMethod,
+          providerMode,
+          outcome: 'provider_redirect',
+        });
         // La misma llave sigue protegiendo el submit actual. Solo después de
         // entregar el control al proveedor se marca como consumida para que
         // un clic posterior cree una orden/preference nueva.
@@ -275,6 +334,13 @@ export function PlanCheckoutScreen() {
       await loadAll({ force: true });
       clearCheckoutContext();
       setStep('done');
+      trackSalesEvent(nextResult.status === 'pending' ? 'payment_pending' : 'checkout_completed', {
+        planId: selectedPlan.id,
+        requestTrial: effectiveRequestTrial,
+        paymentMethod: selectedMethod,
+        providerMode,
+        outcome: nextResult.status,
+      });
     } finally {
       paymentInFlight.current = false;
     }
@@ -282,6 +348,13 @@ export function PlanCheckoutScreen() {
 
   const selectPaymentMethod = (method: PaymentMethod) => {
     setSelectedMethod(method);
+    trackSalesEvent('payment_method_selected', {
+      planId: selectedPlan.id,
+      requestTrial: effectiveRequestTrial,
+      paymentMethod: method,
+      providerMode,
+      route: '/ventas/pago',
+    });
     if (effectiveRequestTrial || (method === 'card' && canUseDemoCard)) {
       setIncludeRadioAddon(false);
     }
