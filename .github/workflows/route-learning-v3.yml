@@ -26,6 +26,7 @@ on:
       - 'backend/test/route-segment-learning.test.js'
       - 'backend/test/route-segment-approval.test.js'
       - 'backend/test/route-segment-missing-route.test.js'
+      - 'backend/test/route-segment-api.test.js'
       - 'mobile/src/hooks/point-to-point-tracker-core.ts'
       - 'mobile/src/utils/active-route.ts'
       - 'mobile/test/point-to-point-tracker-core.test.mts'
@@ -55,7 +56,7 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --ignore-scripts
-      - name: Install communication dependencies used by legacy app regressions
+      - name: Install communication dependencies used by app regressions
         working-directory: communication-service
         run: npm ci --ignore-scripts
       - name: Corridor state machine
@@ -73,6 +74,9 @@ jobs:
       - name: Revision guarded application
         working-directory: backend
         run: node --require ./test/setup-env.js test/route-segment-approval.test.js
+      - name: V3 HTTP integration
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-segment-api.test.js
       - name: Existing auto-route regression
         working-directory: backend
         run: node --require ./test/setup-env.js test/auto-route-learning.test.js
