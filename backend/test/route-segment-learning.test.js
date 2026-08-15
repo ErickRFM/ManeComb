@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { buildRouteContext } = require("../src/domain/route-context");
 const {
   decodeSegmentGeometryVersion,
   encodeSegmentGeometryVersion,
@@ -69,6 +70,9 @@ function position(latitude, longitude, seconds) {
   const captured = [];
   const store = {
     async listLearnedRouteCandidates() { return []; },
+    async getLastRouteEvent() {
+      return { metadata: { routeContext: buildRouteContext(route) } };
+    },
     async upsertLearnedRouteCandidate(payload) {
       captured.push(payload);
       return {
@@ -81,8 +85,7 @@ function position(latitude, longitude, seconds) {
       };
     }
   };
-  const persisted = await persistDeviationSegments({
-    store,
+  const common = {
     session: {
       id: "session-segment-1",
       organizationId: "org-segment",
@@ -96,12 +99,31 @@ function position(latitude, longitude, seconds) {
     geometryFormatVersion: "segment-v1",
     minimumEvidenceCount: 3,
     minimumDistinctServiceDays: 2
-  });
+  };
+  const persisted = await persistDeviationSegments({ store, ...common });
   assert.equal(persisted.length, 1, "el tramo elegible se persiste una sola vez");
   assert.equal(captured[0].algorithmVersion, "v3-segment", "V3 no reinterpreta candidatos V2");
   const persistedMetadata = decodeSegmentGeometryVersion(captured[0].geometryVersion);
   assert.equal(persistedMetadata.routeId, route.id, "candidato queda anclado a la ruta oficial");
   assert.equal(persistedMetadata.routeRevision, 7, "candidato queda anclado a la revision exacta");
+
+  const staleEvidence = await persistDeviationSegments({
+    store: {
+      ...store,
+      async getLastRouteEvent() {
+        return {
+          metadata: {
+            routeContext: {
+              ...buildRouteContext(route),
+              routeRevision: route.revision - 1
+            }
+          }
+        };
+      }
+    },
+    ...common
+  });
+  assert.equal(staleEvidence.length, 0, "evidencia capturada contra otra revision no contamina V3");
 
   const patched = splicePolylineSegment(
     route.polyline,
@@ -113,7 +135,7 @@ function position(latitude, longitude, seconds) {
   assert.deepEqual(patched[0], route.polyline[0], "el resto anterior de la ruta se conserva");
   assert.deepEqual(patched[patched.length - 1], route.polyline[route.polyline.length - 1], "el resto posterior de la ruta se conserva");
 
-  console.log("ok - route segment learning: detecta, ancla por revision y parchea solo el tramo");
+  console.log("ok - route segment learning: detecta, congela contexto y parchea solo el tramo");
 })().catch((error) => {
   console.error(error);
   process.exit(1);
