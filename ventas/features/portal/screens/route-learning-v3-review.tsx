@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { useAppStore } from '@/src/store/use-app-store';
 import { getApiErrorMessage } from '@/src/lib/api';
@@ -14,7 +14,8 @@ import {
 } from '../routes/learned-route-segment.api';
 
 type Props = {
-  onApplied: () => void;
+  embedded?: boolean;
+  onApplied?: () => void;
 };
 
 function formatEvidence(candidate: LearnedRouteSegmentReview) {
@@ -37,7 +38,7 @@ function formatDurationDelta(value: number) {
   return `${seconds < 0 ? '−' : '+'}${minutes} min`;
 }
 
-export function RouteLearningV3Review({ onApplied }: Props) {
+export function RouteLearningV3Review({ embedded = false, onApplied }: Props) {
   const user = useAppStore((state) => state.user);
   const canReview = Boolean(user && ['owner', 'admin'].includes(user.role));
   const { height, width } = useWindowDimensions();
@@ -69,12 +70,22 @@ export function RouteLearningV3Review({ onApplied }: Props) {
 
   if (!canReview || (!candidates.length && !message)) return null;
 
-  const panelWidth = Math.min(390, Math.max(286, width - 32));
+  const panelWidth = embedded ? undefined : Math.min(390, Math.max(286, width - 32));
   const panelHeight = Math.max(380, Math.min(650, height - 112));
 
   const removeCandidate = (candidateId: string) => {
     setCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
     setSelectedId((current) => current === candidateId ? null : current);
+  };
+
+  const refreshAuthority = () => {
+    if (onApplied) {
+      onApplied();
+      return;
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.reload();
+    }
   };
 
   const apply = async () => {
@@ -85,7 +96,7 @@ export function RouteLearningV3Review({ onApplied }: Props) {
       const response = await approveLearnedRouteSegmentRequest(selected.id);
       removeCandidate(selected.id);
       setMessage(`Mejora aplicada a ${response.route.name}. Revisión ${response.application.previousRevision ?? selected.segment.baseRouteRevision} → ${response.route.revision}.`);
-      onApplied();
+      refreshAuthority();
     } catch (error) {
       setMessage(getApiErrorMessage(error, 'La mejora no pudo aplicarse. La ruta no fue modificada.'));
       await load();
@@ -111,12 +122,12 @@ export function RouteLearningV3Review({ onApplied }: Props) {
 
   if (!expanded) {
     return (
-      <View pointerEvents="box-none" style={styles.layer}>
+      <View pointerEvents="box-none" style={embedded ? styles.embeddedLayer : styles.layer}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${candidates.length} mejoras de ruta detectadas`}
           onPress={() => setExpanded(true)}
-          style={[styles.trigger, { width: panelWidth }]}>
+          style={[styles.trigger, panelWidth ? { width: panelWidth } : styles.triggerEmbedded]}>
           <View style={styles.triggerIcon}>
             <MaterialCommunityIcons name="auto-fix" size={18} color="#FFFFFF" />
           </View>
@@ -126,15 +137,15 @@ export function RouteLearningV3Review({ onApplied }: Props) {
               {candidates.length ? `${candidates.length} ${candidates.length === 1 ? 'tramo listo' : 'tramos listos'} para revisar` : message}
             </Text>
           </View>
-          <MaterialCommunityIcons name="chevron-up" size={20} color={portalPalette.muted} />
+          <MaterialCommunityIcons name="chevron-down" size={20} color={portalPalette.muted} />
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View pointerEvents="box-none" style={styles.layer}>
-      <View style={[styles.panel, { width: panelWidth, maxHeight: panelHeight }]}>
+    <View pointerEvents="box-none" style={embedded ? styles.embeddedLayer : styles.layer}>
+      <View style={[styles.panel, panelWidth ? { width: panelWidth, maxHeight: panelHeight } : styles.panelEmbedded]}>
         <View style={styles.header}>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>ROUTE LEARNING</Text>
@@ -142,7 +153,7 @@ export function RouteLearningV3Review({ onApplied }: Props) {
             <Text style={styles.subtitle}>Variantes repetidas entre salida y reincorporación. Ningún tramo cambia sin tu aprobación.</Text>
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel="Cerrar mejoras" onPress={() => setExpanded(false)} style={styles.closeButton}>
-            <MaterialCommunityIcons name="close" size={19} color={portalPalette.text} />
+            <MaterialCommunityIcons name="chevron-up" size={19} color={portalPalette.text} />
           </Pressable>
         </View>
 
@@ -217,12 +228,15 @@ export function RouteLearningV3Review({ onApplied }: Props) {
 
 const styles = StyleSheet.create({
   layer: { position: 'absolute', right: 16, top: 82, zIndex: 40, alignItems: 'flex-end' },
+  embeddedLayer: { width: '100%', marginBottom: 10 },
   trigger: { minHeight: 64, borderRadius: 18, borderWidth: 1, borderColor: portalPalette.line, backgroundColor: portalPalette.surfaceStrong, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
+  triggerEmbedded: { width: '100%', shadowOpacity: 0, elevation: 0 },
   triggerIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: portalPalette.info },
   triggerCopy: { flex: 1, minWidth: 0 },
   triggerTitle: { color: portalPalette.text, fontSize: 14, fontWeight: '800' },
   triggerText: { color: portalPalette.muted, fontSize: 12, marginTop: 2 },
   panel: { borderRadius: 22, borderWidth: 1, borderColor: portalPalette.line, backgroundColor: portalPalette.surfaceStrong, overflow: 'hidden', shadowColor: '#000000', shadowOpacity: 0.22, shadowRadius: 26, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
+  panelEmbedded: { width: '100%', maxHeight: 580, shadowOpacity: 0, elevation: 0 },
   header: { padding: 16, paddingBottom: 12, flexDirection: 'row', gap: 12, borderBottomWidth: 1, borderBottomColor: portalPalette.line },
   headerCopy: { flex: 1 },
   eyebrow: { color: portalPalette.info, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
