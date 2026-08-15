@@ -70,7 +70,7 @@ export function SalesScreen() {
   const isTablet = !isDesktop && !isPhone;
   const heroSideBySide = width >= 880;
   const planCardGap = isPhone ? 12 : 18;
-  const desktopVisibleCards = width >= 1180 ? 5 : width >= 1024 ? 4 : 3;
+  const desktopVisibleCards = width >= 1180 ? 4 : 3;
   const desktopCarouselWidth = Math.max(0, Math.min(width, 1240) - 44);
   const cardWidth = isPhone
     ? Math.max(0, width - 32)
