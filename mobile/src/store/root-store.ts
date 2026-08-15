@@ -219,6 +219,10 @@ type RealtimeDiagnostics = {
   missedHeartbeatAcks: number;
   reconnectAttempts: number;
   reason: string | null;
+  operationalSocketReceivedAt: string | null;
+  operationalAppliedAt: string | null;
+  operationalReceiveToApplyMs: number | null;
+  operationalUnitId: string | null;
 };
 
 export type AppState = {
@@ -1458,6 +1462,7 @@ function connectSocket(
   // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
   // merge parcial, porque un merge reintroduce campos de origen distinto.
   socket.on('operational-unit:updated', (payload: unknown) => {
+    const socketReceivedAtMs = Date.now();
     const unit =
       payload && typeof payload === 'object' && 'unit' in (payload as Record<string, unknown>)
         ? ((payload as { unit: OperationalUnitSnapshot }).unit)
@@ -1467,10 +1472,18 @@ function connectSocket(
     set(s => {
       const existing = s.operationalUnits.find(entry => entry.unitId === unit.unitId);
       if (existing && timestampMs(existing.lastEventAt) > timestampMs(unit.lastEventAt)) return s;
+      const appliedAtMs = Date.now();
       return {
         operationalUnits: existing
           ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
           : [...s.operationalUnits, unit],
+        realtimeDiagnostics: {
+          ...s.realtimeDiagnostics,
+          operationalSocketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
+          operationalAppliedAt: new Date(appliedAtMs).toISOString(),
+          operationalReceiveToApplyMs: Math.max(0, appliedAtMs - socketReceivedAtMs),
+          operationalUnitId: unit.unitId,
+        },
       };
     });
   });
@@ -1610,7 +1623,6 @@ function connectSocket(
   });
 
   socketHeartbeatTimer = setInterval(() => {
-    emitCurrentPresence(get);
     emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
@@ -1997,7 +2009,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,

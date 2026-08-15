@@ -1,4 +1,4 @@
-import type { PortalStore } from './portal-types';
+import type { PortalResourceDomain, PortalStore } from './portal-types';
 import { PORTAL_LOAD_TTL_MS, emptyPortalState } from './portal-initial-state';
 import { getOptionalActivationKeys, getMessage } from './portal-api';
 import { needsFullCommercialReload } from './portal-utils';
@@ -33,6 +33,58 @@ import type {
 let fullLoadPromise: Promise<void> | null = null;
 let lastFullLoadAt = 0;
 let lastFullLoadIncludedBilling = false;
+const activeLoads = new Map<PortalResourceDomain, number>();
+
+function beginResourceLoad(
+  set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
+  domain: PortalResourceDomain,
+) {
+  activeLoads.set(domain, (activeLoads.get(domain) || 0) + 1);
+  set((state) => ({
+    isLoading: true,
+    resources: {
+      ...state.resources,
+      [domain]: {
+        ...state.resources[domain],
+        status: 'loading',
+        errorCode: null,
+        errorMessage: null,
+      },
+    },
+  }));
+}
+
+function finishResourceLoad(
+  set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
+  domain: PortalResourceDomain,
+  outcome: { empty?: boolean; errorCode?: string; errorMessage?: string } = {},
+) {
+  const remaining = Math.max(0, (activeLoads.get(domain) || 1) - 1);
+  if (remaining) activeLoads.set(domain, remaining);
+  else activeLoads.delete(domain);
+  set((state) => ({
+    isLoading: activeLoads.size > 0,
+    resources: {
+      ...state.resources,
+      [domain]: remaining
+        ? state.resources[domain]
+        : outcome.errorMessage
+          ? {
+              ...state.resources[domain],
+              status: state.resources[domain].lastSuccessfulAt ? 'stale' : 'error',
+              errorCode: outcome.errorCode || 'request_failed',
+              errorMessage: outcome.errorMessage,
+            }
+          : {
+              status: outcome.empty ? 'empty' : 'ready',
+              lastSuccessfulAt: new Date().toISOString(),
+              source: 'rest',
+              errorCode: null,
+              errorMessage: null,
+            },
+    },
+  }));
+}
 
 export function createPortalActions(
   set: (partial: Partial<PortalStore> | ((state: PortalStore) => Partial<PortalStore>)) => void,
@@ -54,11 +106,13 @@ export function createPortalActions(
       fullLoadPromise = null;
       lastFullLoadAt = 0;
       lastFullLoadIncludedBilling = false;
+      activeLoads.clear();
       set(emptyPortalState);
     },
     clearError: () => set({ error: null }),
     loadOverview: async () => {
-      set({ isLoading: true, error: null });
+      beginResourceLoad(set, 'account');
+      set({ error: null });
       try {
         const [overview, subscription, onboarding, activationKeysResponse] = await Promise.all([
           getPortalOverviewRequest(),
@@ -73,10 +127,12 @@ export function createPortalActions(
           onboarding,
           activationKeys: activationKeysResponse.keys,
           activationSummary: activationKeysResponse.summary,
-          isLoading: false,
         });
+        finishResourceLoad(set, 'account', { empty: !overview });
       } catch (error) {
-        set({ error: getMessage(error, 'No fue posible cargar el portal.'), isLoading: false });
+        const message = getMessage(error, 'No fue posible cargar el portal.');
+        set({ error: message });
+        finishResourceLoad(set, 'account', { errorMessage: message });
       }
     },
     loadAppInfo: async () => {
@@ -115,12 +171,16 @@ export function createPortalActions(
       }
     },
     loadBilling: async () => {
-      set({ isLoading: true, error: null });
+      beginResourceLoad(set, 'billing');
+      set({ error: null });
       try {
         const invoices = await getAccountInvoicesRequest();
-        set({ invoices, isLoading: false });
+        set({ invoices });
+        finishResourceLoad(set, 'billing', { empty: invoices.length === 0 });
       } catch (error) {
-        set({ error: getMessage(error, 'No fue posible cargar facturacion.'), isLoading: false });
+        const message = getMessage(error, 'No fue posible cargar facturacion.');
+        set({ error: message });
+        finishResourceLoad(set, 'billing', { errorMessage: message });
       }
     },
     loadSessions: async () => {

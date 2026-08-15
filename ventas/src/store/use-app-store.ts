@@ -66,6 +66,12 @@ type AppState = {
   users: User[];
   vehicles: Vehicle[];
   operationalUnits: OperationalUnitSnapshot[];
+  operationalApplyDiagnostics: {
+    socketReceivedAt: string | null;
+    appliedAt: string | null;
+    receiveToApplyMs: number | null;
+    unitId: string | null;
+  };
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string, rememberSession?: boolean) => Promise<ActionResult>;
@@ -92,6 +98,9 @@ type AppState = {
 
 let socket: Socket | null = null;
 let socketSessionKey: string | null = null;
+let socketHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const SOCKET_HEARTBEAT_MS = 20_000;
+const SOCKET_ACK_TIMEOUT_MS = 8_000;
 
 function extractVehicleFromRealtimePayload(payload: unknown): Vehicle | null {
   const candidate = (payload && typeof payload === 'object' && 'vehicle' in payload ? (payload as { vehicle?: unknown }).vehicle : payload) as Vehicle | null;
@@ -198,6 +207,10 @@ function getReadableError(error: unknown, fallback: string) {
 }
 
 function disconnectSocket() {
+  if (socketHeartbeatTimer) {
+    clearInterval(socketHeartbeatTimer);
+    socketHeartbeatTimer = null;
+  }
   if (socket) {
     socket.removeAllListeners();
     socket.io.removeAllListeners();
@@ -242,14 +255,24 @@ function connectSocket(get: () => AppState) {
     autoConnect: false,
   });
 
+  const emitHeartbeat = () => {
+    if (!socket?.connected) return;
+    const sentAt = Date.now();
+    socket.timeout(SOCKET_ACK_TIMEOUT_MS).emit(
+      'client:heartbeat',
+      { sentAt: new Date(sentAt).toISOString() },
+      (_error: unknown, _ack?: { ok?: boolean; serverTime?: string }) => undefined
+    );
+  };
+
   socket.on('connect', () => {
     useAppStore.setState({ socketStatus: 'connected' });
     socket?.emit('presence:join', {
-      userId: user.id,
-      role: user.role,
-      organizationId: user.organizationId,
-      accountType: user.accountType,
+      packetId: `portal-presence:${Date.now()}`,
     });
+    emitHeartbeat();
+    if (socketHeartbeatTimer) clearInterval(socketHeartbeatTimer);
+    socketHeartbeatTimer = setInterval(emitHeartbeat, SOCKET_HEARTBEAT_MS);
   });
 
   socket.io.on('reconnect_attempt', () => {
@@ -265,6 +288,10 @@ function connectSocket(get: () => AppState) {
   });
 
   socket.on('disconnect', () => {
+    if (socketHeartbeatTimer) {
+      clearInterval(socketHeartbeatTimer);
+      socketHeartbeatTimer = null;
+    }
     useAppStore.setState({ socketStatus: 'disconnected' });
   });
 
@@ -299,13 +326,23 @@ function connectSocket(get: () => AppState) {
       usePortalStore.getState().applyRealtimeEvent(eventName, payload);
 
       if (eventName === 'operational-unit:updated') {
+        const socketReceivedAtMs = Date.now();
         const unit = payload && typeof payload === 'object' && 'unit' in payload
           ? (payload as { unit?: OperationalUnitSnapshot }).unit
           : null;
         if (unit?.unitId) {
-          useAppStore.setState((state) => ({
-            operationalUnits: upsertOperationalUnit(state.operationalUnits, unit),
-          }));
+          useAppStore.setState((state) => {
+            const appliedAtMs = Date.now();
+            return {
+              operationalUnits: upsertOperationalUnit(state.operationalUnits, unit),
+              operationalApplyDiagnostics: {
+                socketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
+                appliedAt: new Date(appliedAtMs).toISOString(),
+                receiveToApplyMs: Math.max(0, appliedAtMs - socketReceivedAtMs),
+                unitId: unit.unitId,
+              },
+            };
+          });
         }
       }
 
@@ -379,6 +416,7 @@ async function clearSession(set: (partial: Partial<AppState>) => void) {
     users: [],
     vehicles: [],
     operationalUnits: [],
+    operationalApplyDiagnostics: { socketReceivedAt: null, appliedAt: null, receiveToApplyMs: null, unitId: null },
     lastRouteSessionUpdateId: null,
     routeSessionVersion: 0,
   });
@@ -398,6 +436,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   users: [],
   vehicles: [],
   operationalUnits: [],
+  operationalApplyDiagnostics: { socketReceivedAt: null, appliedAt: null, receiveToApplyMs: null, unitId: null },
   error: null,
   clearError: () => set({ error: null }),
   initialize: async () => {

@@ -9,11 +9,11 @@ import {
 import { useAppStore } from '@/src/store/root-store';
 import {
   LOCATION_FIX_WATCHDOG_POLL_MS,
-  MAX_ACCEPTED_ACCURACY_METERS,
 } from '../constants/tracking';
 import { initialLocationEngineState, locationReducer } from '../reducers/location-reducer';
 import {
   buildLivePoint,
+  classifyGpsFix,
   getBackgroundPermission,
   getCurrentLocation,
   getForegroundPermission,
@@ -21,7 +21,6 @@ import {
   hasLocationServicesEnabled,
   prepareNativeLocationProvider,
   requestForegroundPermission,
-  shouldAcceptLocation,
   toIsoTimestamp,
   toPermissionState,
   watchNativeLocation,
@@ -68,6 +67,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
   const webWatcherIdRef = useRef<number | null>(null);
   const lastAcceptedPointRef = useRef<LiveLocationPoint | null>(null);
   const lastAcceptedAtRef = useRef<number | null>(null);
+  const lastAcceptedRecordedAtRef = useRef<number | null>(null);
   const lastObservedFixAtRef = useRef<number | null>(null);
   const watchdogIssueRef = useRef<string | null>(null);
   const watchdogCheckInFlightRef = useRef(false);
@@ -98,6 +98,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
     watcherRef.current = null;
     lastAcceptedAtRef.current = null;
+    lastAcceptedRecordedAtRef.current = null;
     lastObservedFixAtRef.current = null;
     watchdogIssueRef.current = null;
     watchdogCheckInFlightRef.current = false;
@@ -173,19 +174,21 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
         const nextPoint = buildLivePoint(position.coords);
         const lastPoint = lastAcceptedPointRef.current;
-        const elapsedSinceAcceptedMs = lastAcceptedAtRef.current === null
-          ? Number.POSITIVE_INFINITY
-          : Math.max(0, receivedAt - lastAcceptedAtRef.current);
+        const recordedAtMs = position.timestamp ?? receivedAt;
+        const disposition = classifyGpsFix(
+          lastPoint && lastAcceptedRecordedAtRef.current !== null
+            ? { point: lastPoint, recordedAtMs: lastAcceptedRecordedAtRef.current }
+            : null,
+          { point: nextPoint, recordedAtMs },
+          receivedAt,
+          lastAcceptedAtRef.current
+        );
 
-        if (!shouldAcceptLocation(lastPoint, nextPoint, elapsedSinceAcceptedMs)) {
+        if (!['accepted', 'heartbeat', 'degraded'].includes(disposition)) {
           dispatch({
             type: 'POINT_IGNORED',
             backgroundPermission,
-            issue:
-              typeof nextPoint.accuracy === 'number' &&
-              nextPoint.accuracy > MAX_ACCEPTED_ACCURACY_METERS
-                ? 'low_accuracy'
-                : null,
+            issue: disposition === 'poor_accuracy' ? 'low_accuracy' : null,
             servicesEnabled,
           });
           return;
@@ -193,6 +196,7 @@ export function useLocationEngine({ enabled = true }: { enabled?: boolean } = {}
 
         lastAcceptedPointRef.current = nextPoint;
         lastAcceptedAtRef.current = receivedAt;
+        lastAcceptedRecordedAtRef.current = recordedAtMs;
         dispatch({
           type: 'POINT_ACCEPTED',
           backgroundPermission,

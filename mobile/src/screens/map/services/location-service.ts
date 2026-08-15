@@ -57,6 +57,64 @@ export function isLowAccuracy(point: LiveLocationPoint) {
   return typeof point.accuracy === 'number' && point.accuracy > MAX_ACCEPTED_ACCURACY_METERS;
 }
 
+export type GpsFixDisposition =
+  | 'accepted'
+  | 'heartbeat'
+  | 'duplicate'
+  | 'out_of_order'
+  | 'poor_accuracy'
+  | 'implausible_jump'
+  | 'degraded';
+
+type GpsFixSample = {
+  point: LiveLocationPoint;
+  recordedAtMs: number;
+};
+
+const DEGRADED_ACCURACY_METERS = 60;
+const MAX_PLAUSIBLE_SPEED_KMH = 180;
+
+/**
+ * Classifies a raw fix before it can replace the stable/display position.
+ * The caller retains the raw native measurement; this function only decides
+ * whether it may advance the canonical accepted fix.
+ */
+export function classifyGpsFix(
+  previous: GpsFixSample | null,
+  next: GpsFixSample,
+  receivedAtMs = Date.now(),
+  lastAcceptedAtMs = previous?.recordedAtMs ?? null
+): GpsFixDisposition {
+  if (isLowAccuracy(next.point)) return 'poor_accuracy';
+  if (!Number.isFinite(next.recordedAtMs)) return 'out_of_order';
+  if (previous && next.recordedAtMs <= previous.recordedAtMs) return 'out_of_order';
+  if (!previous) {
+    return typeof next.point.accuracy === 'number' && next.point.accuracy > DEGRADED_ACCURACY_METERS
+      ? 'degraded'
+      : 'accepted';
+  }
+
+  const distanceMeters = distanceInMeters(previous.point, next.point);
+  const elapsedMeasurementSeconds = (next.recordedAtMs - previous.recordedAtMs) / 1000;
+  const uncertaintyMeters = Math.max(0, previous.point.accuracy ?? 0) + Math.max(0, next.point.accuracy ?? 0);
+  const defensibleDistanceMeters = Math.max(0, distanceMeters - uncertaintyMeters);
+  const implicitSpeedKmh = elapsedMeasurementSeconds > 0
+    ? (defensibleDistanceMeters / elapsedMeasurementSeconds) * 3.6
+    : Number.POSITIVE_INFINITY;
+
+  if (implicitSpeedKmh > MAX_PLAUSIBLE_SPEED_KMH) return 'implausible_jump';
+  if (distanceMeters < MIN_NATIVE_DISTANCE_METERS) {
+    const elapsedReceivedMs = lastAcceptedAtMs === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, receivedAtMs - lastAcceptedAtMs);
+    return elapsedReceivedMs >= LOCATION_HEARTBEAT_INTERVAL_MS ? 'heartbeat' : 'duplicate';
+  }
+
+  return typeof next.point.accuracy === 'number' && next.point.accuracy > DEGRADED_ACCURACY_METERS
+    ? 'degraded'
+    : 'accepted';
+}
+
 export function shouldAcceptLocation(
   previous: LiveLocationPoint | null,
   next: LiveLocationPoint,

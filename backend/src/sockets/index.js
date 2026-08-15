@@ -4,7 +4,11 @@ const { getOrganizationId } = require("../middlewares/access-control");
 const { canUseOperationalFeatures } = require("../middlewares/operational-access");
 const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const logger = require("../services/logger");
-const { hasAnotherPresenceSocket, isPresenceHeartbeatFresh } = require("../services/presence");
+const {
+  expireStalePresenceSockets,
+  hasAnotherPresenceSocket,
+  renewPresenceLease
+} = require("../services/presence");
 const { incrementMetric, observeDuration, setGauge } = require("../services/metrics");
 const { getOrCreateTraceId } = require("../services/telemetry");
 const { ingestVehicleLocation } = require("../services/vehicle-location-ingestion");
@@ -69,11 +73,17 @@ function registerSocketServer(server, store) {
 
   const presenceSweepTimer = setInterval(() => {
     const now = Date.now();
-    io.sockets.sockets.forEach((candidate) => {
-      if (!candidate.data.presenceJoined) return;
+    const expiredSockets = expireStalePresenceSockets(
+      io.sockets.sockets.values(),
+      now,
+      PRESENCE_HEARTBEAT_TIMEOUT_MS
+    );
+    const offlineBroadcastUsers = new Set();
+    expiredSockets.forEach((candidate) => {
       const lastHeartbeatAt = Number(candidate.data.lastPresenceHeartbeatAt || 0);
-      if (isPresenceHeartbeatFresh(lastHeartbeatAt, now, PRESENCE_HEARTBEAT_TIMEOUT_MS)) return;
-      candidate.data.presenceJoined = false;
+      const expiredUserId = candidate.data.user?.id;
+      if (expiredUserId && offlineBroadcastUsers.has(expiredUserId)) return;
+      if (expiredUserId) offlineBroadcastUsers.add(expiredUserId);
       void emitPresenceStatus(candidate, "offline").catch((error) => {
         logger.error({ action: "PresenceExpireBroadcast", module: "Presence", status: "error", error });
       });
@@ -414,6 +424,16 @@ function registerSocketServer(server, store) {
       const resolvedOrganizationId = getOrganizationId(authenticatedUser);
       const resolvedAccountType = authenticatedUser?.accountType;
 
+      const wasPresenceJoined = socket.data.presenceJoined === true;
+      const existingUserSockets = resolvedUserId
+        ? await io.in(`user:${resolvedUserId}`).fetchSockets()
+        : [];
+      const userWasAlreadyOnline = hasAnotherPresenceSocket(
+        existingUserSockets,
+        socket.id,
+        resolvedUserId
+      );
+
       if (resolvedUserId) {
         socket.join(`user:${resolvedUserId}`);
       }
@@ -452,7 +472,12 @@ function registerSocketServer(server, store) {
         .map((candidate) => candidate.data.user?.id)
         .filter(Boolean);
       socket.emit("presence:snapshot", { userIds: [...new Set(onlineUserIds)] });
-      if (resolvedOrganizationId && resolvedUserId) {
+      if (
+        resolvedOrganizationId &&
+        resolvedUserId &&
+        !wasPresenceJoined &&
+        !userWasAlreadyOnline
+      ) {
         io.to(`org:${resolvedOrganizationId}`).emit("presence:updated", {
           userId: resolvedUserId,
           status: "online"
@@ -482,6 +507,11 @@ function registerSocketServer(server, store) {
         observeSocketEvent(socket, "client:heartbeat", startedAt, "unauthorized");
         return;
       }
+
+      // Presence membership is established by `presence:join` once per
+      // connection. A heartbeat only renews that lease; it must not repeat
+      // room joins, snapshots or organization-wide online broadcasts.
+      renewPresenceLease(socket);
 
       await callService.refreshForSocket(authenticatedUser.id, socket.id, {
         isSocketConnected: isSocketConnectedById

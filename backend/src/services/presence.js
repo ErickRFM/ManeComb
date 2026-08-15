@@ -12,4 +12,26 @@ function hasAnotherPresenceSocket(sockets, sourceSocketId, userId) {
   );
 }
 
-module.exports = { hasAnotherPresenceSocket, isPresenceHeartbeatFresh };
+function renewPresenceLease(socket, now = Date.now()) {
+  if (!socket?.data?.presenceJoined) return false;
+  socket.data.lastPresenceHeartbeatAt = Number(now);
+  return true;
+}
+
+function expireStalePresenceSockets(sockets, now, timeoutMs) {
+  const expired = [];
+  Array.from(sockets || []).forEach((candidate) => {
+    if (!candidate.data?.presenceJoined) return;
+    if (isPresenceHeartbeatFresh(candidate.data.lastPresenceHeartbeatAt, now, timeoutMs)) return;
+    candidate.data.presenceJoined = false;
+    expired.push(candidate);
+  });
+  return expired;
+}
+
+module.exports = {
+  hasAnotherPresenceSocket,
+  expireStalePresenceSockets,
+  isPresenceHeartbeatFresh,
+  renewPresenceLease
+};

@@ -2,10 +2,17 @@ import { isAxiosError } from 'axios';
 import { getAdminActivationKeysRequest, getApiErrorMessage } from '../api';
 
 export async function getOptionalActivationKeys() {
-  return await getAdminActivationKeysRequest().catch(() => ({
-    keys: [],
-    summary: null,
-  }));
+  try {
+    return await getAdminActivationKeysRequest();
+  } catch (error) {
+    // Activation keys are optional only when the authenticated account is not
+    // allowed to use that capability. Availability failures must remain errors
+    // instead of impersonating a legitimate empty collection.
+    if (isAxiosError(error) && error.response?.status === 403) {
+      return { keys: [], summary: null };
+    }
+    throw error;
+  }
 }
 
 export function getMessage(error: unknown, fallback: string) {

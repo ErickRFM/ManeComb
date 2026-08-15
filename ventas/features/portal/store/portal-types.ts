@@ -11,6 +11,16 @@ import type {
   PortalSession,
   PortalSubscription,
 } from '../types';
+import type { ResourceState } from '@shared/resource-state';
+
+export type PortalResourceDomain =
+  | 'account'
+  | 'billing'
+  | 'sessions'
+  | 'documents'
+  | 'incidents'
+  | 'appInfo'
+  | 'operational';
 
 export type PortalActionResult = {
   ok: boolean;
@@ -36,6 +46,7 @@ export type PortalStore = {
   isLoading: boolean;
   isSubmitting: boolean;
   error: string | null;
+  resources: Record<PortalResourceDomain, ResourceState>;
   loadOverview: () => Promise<void>;
   loadAppInfo: () => Promise<void>;
   updateAppInfo: (payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) => Promise<PortalActionResult>;

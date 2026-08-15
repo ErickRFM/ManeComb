@@ -64,6 +64,7 @@ const mockGetCurrentLocation = jest.fn();
 
 jest.mock('../services/location-service', () => ({
   buildLivePoint: (coords: unknown) => coords,
+  classifyGpsFix: jest.fn(() => 'accepted'),
   getBackgroundPermission: (...args: unknown[]) => mockGetBackgroundPermission(...args),
   getCurrentLocation: (...args: unknown[]) => mockGetCurrentLocation(...args),
   getForegroundPermission: jest.fn(async () => ({ status: 'granted' })),
@@ -71,7 +72,6 @@ jest.mock('../services/location-service', () => ({
   hasLocationServicesEnabled: jest.fn(async () => true),
   prepareNativeLocationProvider: jest.fn(async () => undefined),
   requestForegroundPermission: (...args: unknown[]) => mockRequestForegroundPermission(...args),
-  shouldAcceptLocation: jest.fn(() => true),
   toIsoTimestamp: jest.fn(() => '2023-11-14T22:13:20.000Z'),
   toPermissionState: jest.fn(() => 'granted'),
   watchNativeLocation: (...args: unknown[]) => mockWatchNativeLocation(...args),

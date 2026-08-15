@@ -384,11 +384,18 @@ function testMetrics() {
 
   metrics.observeDuration("test_timer", 150, { template: "welcome" });
   metrics.observeDuration("test_timer", 250, { template: "welcome" });
+  metrics.observeDuration("test_timer", 900, { template: "welcome" });
 
   snapshot = metrics.getSnapshot();
+  const timer = snapshot.timers.find((entry) => entry.name === "test_timer");
+  assert.equal(timer.percentileMethod, "approximate_bucket_upper_bound_process_lifetime");
+  assert.equal(timer.p50ApproxMs, 250);
+  assert.equal(timer.p95ApproxMs, 1000);
+  assert.equal(timer.p99ApproxMs, 1000);
+  assert.equal(timer.buckets.length, 13);
   const timerSnapshot = snapshot.timers.filter((t) => t.name === "test_timer");
   assert.equal(timerSnapshot.length, 1);
-  assert.equal(timerSnapshot[0].count, 2);
+  assert.equal(timerSnapshot[0].count, 3);
 
   metrics.reset();
   const emptySnapshot = metrics.getSnapshot();

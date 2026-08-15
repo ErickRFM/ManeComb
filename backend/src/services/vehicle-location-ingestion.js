@@ -9,7 +9,7 @@ const { calculateAndPersistRouteMetrics } = require("./route-metrics-engine");
 const { stabilizeGpsPosition } = require("./gps-position-stabilizer");
 const { getOperationalScheduleState } = require("../utils/operational-schedule");
 const { buildGpsFreshness, normalizeTrackingTime } = require("./tracking-time");
-const { incrementMetric } = require("./metrics");
+const { incrementMetric, observeDuration } = require("./metrics");
 const logger = require("./logger");
 
 class LocationIngestionError extends Error {
@@ -103,6 +103,7 @@ function canPublishVehicleTelemetry(actor, vehicleId) {
 }
 
 async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null, store, transport }) {
+  const ingestionStartedAt = Date.now();
   incrementMetric("gps_packets_received", 1, { transport });
   const vehicleId = String(payload.vehicleId || "").trim();
   const coordinates = normalizePoint(payload.coordinates);
@@ -111,6 +112,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   const heading = finiteOrNull(payload.heading ?? payload.coordinates?.heading);
   const speed = finiteOrNull(payload.speed ?? payload.coordinates?.speed);
   const accuracy = finiteOrNull(payload.accuracy ?? payload.coordinates?.accuracy);
+  const quality = classifyGpsQuality(accuracy);
   if (!actor || !vehicleId || !coordinates) {
     throw new LocationIngestionError(400, "invalid_payload", "vehicleId y coordinates son obligatorios");
   }
@@ -162,6 +164,12 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       ...temporal
     }
   });
+  if (Number.isFinite(temporal.clientQueueAgeMs)) {
+    observeDuration("gps_transport_queue_age_ms", temporal.clientQueueAgeMs, {
+      decision: temporal.discardReason || "accepted",
+      transport
+    });
+  }
 
   const update = await store.updateVehicleLocation({
     vehicleId,
@@ -177,6 +185,11 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     incrementMetric(decision === "duplicate" ? "gps_packets_duplicate" : "gps_packets_out_of_order", 1, { transport });
     incrementMetric("gps_packets_rejected", 1, { reason: decision, transport });
     if (decision === "duplicate") {
+      observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+        decision,
+        quality,
+        transport
+      });
       return {
         accepted: false,
         decision,
@@ -205,7 +218,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       heading,
       speed,
       accuracy,
-      gpsQuality: classifyGpsQuality(accuracy)
+      gpsQuality: quality
     });
     if (position.duplicateSkipped) {
       incrementMetric("gps_packets_duplicate", 1, { transport });
@@ -223,6 +236,11 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   }
 
   if (update.locationUpdateApplied === false) {
+    observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+      decision,
+      quality,
+      transport
+    });
     return {
       accepted: false,
       decision,
@@ -238,6 +256,11 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   const organizationId = String(vehicle.organizationId || getOrganizationId(actor)).trim();
   await emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId });
   incrementMetric("gps_packets_accepted", 1, { transport });
+  observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+    decision: "accepted",
+    quality,
+    transport
+  });
   return {
     accepted: true,
     decision: "accepted",

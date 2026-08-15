@@ -19,7 +19,7 @@ export function numberOrZero(value: unknown) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-export function formatSpeed(speed?: number | null) {
+export function formatSpeedMetersPerSecond(speed?: number | null) {
   const value = Number(speed);
   if (!Number.isFinite(value) || value < 0) return 'Sin dato';
   const kmh = value * 3.6;
@@ -193,7 +193,9 @@ export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUni
       ? null
       : { latitude: unit.gps.lat, longitude: unit.gps.lng },
     locationTimestamp: unit.gps.recordedAt,
-    speed: unit.gps.speedKmh,
+    // `Vehicle.speed` is the legacy ingestion value in m/s. Projecting the
+    // canonical `speedKmh` into it erases the unit and caused a second 3.6x
+    // conversion in the portal. Operational consumers must read `unit.gps`.
     heading: unit.gps.heading,
     gpsFreshness: {
       state: unit.gps.freshness,
@@ -249,12 +251,22 @@ export function downsamplePositions(positions: RouteSessionPosition[], maxPoints
   return positions.filter((_, index) => index % step === 0 || index === positions.length - 1);
 }
 
-export function getOperationalAlerts(vehicle: Vehicle, session?: RouteSession | null) {
+export function getOperationalAlerts(
+  vehicle: Vehicle,
+  session?: RouteSession | null,
+  unit?: OperationalUnitSnapshot
+) {
   const alerts: { label: string; tone: StatusBadgeTone }[] = [];
   const gps = getGpsState(vehicle, session);
   if (vehicle.activeRouteProgress?.isOffRoute) alerts.push({ label: 'Fuera de ruta', tone: 'danger' });
   if (gps.stale) alerts.push({ label: gps.label, tone: 'warning' });
-  if (session && session.status !== 'FINISHED' && Number(vehicle.speed) <= 0.8 && Number(session.stoppedTime) > 300) {
+  if (
+    session &&
+    session.status !== 'FINISHED' &&
+    unit?.gps.speedKmh != null &&
+    unit.gps.speedKmh <= 3 &&
+    Number(session.stoppedTime) > 300
+  ) {
     alerts.push({ label: 'Detenido demasiado tiempo', tone: 'warning' });
   }
   return alerts;
