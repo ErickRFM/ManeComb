@@ -1914,7 +1914,10 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
     for (const operation of queue) {
       try {
         if (operation.type === 'control:sessionStart') {
-          const session = await startRouteSessionRequest(operation.payload.vehicleId);
+          const session = await startRouteSessionRequest(
+            operation.payload.vehicleId,
+            operation.payload.startedAt || operation.createdAt,
+          );
           set({ activeRouteSession: session });
         } else if (operation.type === 'control:sessionStatus') {
           const sessionId = operation.payload.sessionId ||

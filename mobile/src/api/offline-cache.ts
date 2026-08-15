@@ -41,7 +41,12 @@ export type PendingSyncOperation =
       type: 'control:sessionStart';
       createdAt: string;
       attempts: number;
-      payload: { vehicleId: string };
+      /**
+       * `startedAt` es el instante real en que el conductor inicio la jornada
+       * sin Internet. El servidor lo acepta solo hacia el pasado y dentro de la
+       * ventana de la cola, para que el historial cubra el corte de red.
+       */
+      payload: { vehicleId: string; startedAt?: string | null };
     }
   | {
       id: string;

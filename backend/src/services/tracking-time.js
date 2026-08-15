@@ -100,11 +100,39 @@ function buildGpsFreshness(vehicleOrTimestamp, evaluatedAt = new Date()) {
   };
 }
 
+/**
+ * Instante de inicio de una jornada.
+ *
+ * Una jornada iniciada sin Internet existe realmente desde que el conductor la
+ * inicio, no desde que el telefono recupero conexion. Sin esto, al reconciliar la
+ * cola offline el servidor sellaba `startedAt` con la hora de reconexion y TODOS
+ * los puntos capturados durante el corte quedaban por debajo del inicio de la
+ * sesion, de modo que `canSessionAcceptPosition` los descartaba en silencio: el
+ * recorrido se veia en el mapa pero no quedaba en el historial.
+ *
+ * El valor declarado por el cliente solo se acepta hacia el pasado y dentro de la
+ * misma ventana que la cola offline (`MAX_CLIENT_QUEUE_AGE_MS`): mas alla de ahi
+ * no puede existir evidencia real. Nunca se acepta hacia el futuro, para que un
+ * reloj adelantado no abra una jornada que todavia no ocurre.
+ */
+function resolveSessionStartedAt(requestedStartedAt, now = new Date()) {
+  const reference = new Date(now);
+  const safeNow = Number.isNaN(reference.getTime()) ? new Date() : reference;
+  const parsed = requestedStartedAt ? new Date(requestedStartedAt) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return safeNow.toISOString();
+
+  const earliestAccepted = safeNow.getTime() - MAX_CLIENT_QUEUE_AGE_MS;
+  if (parsed.getTime() > safeNow.getTime()) return safeNow.toISOString();
+  if (parsed.getTime() < earliestAccepted) return new Date(earliestAccepted).toISOString();
+  return parsed.toISOString();
+}
+
 module.exports = {
   GPS_FRESHNESS_MS,
   MAX_CLIENT_CLOCK_SKEW_MS,
   MAX_CLIENT_QUEUE_AGE_MS,
   buildGpsFreshness,
   normalizeClientQueueAge,
-  normalizeTrackingTime
+  normalizeTrackingTime,
+  resolveSessionStartedAt
 };

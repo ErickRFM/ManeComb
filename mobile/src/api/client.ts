@@ -991,8 +991,13 @@ export async function getActiveRouteSessionRequest(vehicleId: string) {
   return response.data.data;
 }
 
-export async function startRouteSessionRequest(vehicleId: string) {
-  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>('/navigation/sessions/start', { vehicleId });
+export async function startRouteSessionRequest(vehicleId: string, startedAt?: string | null) {
+  const response = await apiClient.post<{ ok: boolean; data: RouteSession }>('/navigation/sessions/start', {
+    vehicleId,
+    // Solo se envia al reconciliar una jornada iniciada sin Internet. El backend
+    // lo acota al pasado y a la ventana de la cola offline.
+    ...(startedAt ? { startedAt } : {}),
+  });
   return response.data.data;
 }
 
