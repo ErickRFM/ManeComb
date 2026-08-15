@@ -29,6 +29,11 @@ export type BackgroundLocationServiceStatus = {
   lastCapturedAt: number | null;
   lastSentAt: number | null;
   lastConfirmedAt: number | null;
+  lastPacketId: string | null;
+  lastPacketCapturedAt: number | null;
+  lastPacketSentAt: number | null;
+  lastPacketConfirmedAt: number | null;
+  lastPacketRoundTripMs: number | null;
 };
 
 export type LocationCaptureOwner =
@@ -239,6 +244,11 @@ export async function getBackgroundLocationServiceStatusAsync(): Promise<Backgro
       lastCapturedAt: null,
       lastSentAt: null,
       lastConfirmedAt: null,
+      lastPacketId: null,
+      lastPacketCapturedAt: null,
+      lastPacketSentAt: null,
+      lastPacketConfirmedAt: null,
+      lastPacketRoundTripMs: null,
     };
   }
 

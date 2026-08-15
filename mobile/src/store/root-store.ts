@@ -11,6 +11,14 @@ import { isAxiosError } from 'axios';
 import type { ThemeMode } from '@/constants/theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
+  applyIncrementalResourceEvent,
+  beginResourceAttempt,
+  completeResourceAttempt,
+  failResourceAttempt,
+  idleResourceState,
+  type ResourceState,
+} from '@shared/resource-state';
+import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
   loadOfflineCache,
@@ -219,7 +227,30 @@ type RealtimeDiagnostics = {
   missedHeartbeatAcks: number;
   reconnectAttempts: number;
   reason: string | null;
+  operationalSocketReceivedAt: string | null;
+  operationalAppliedAt: string | null;
+  operationalReceiveToApplyMs: number | null;
+  operationalUnitId: string | null;
 };
+
+export type MobileResourceDomain =
+  | 'operationalUnits'
+  | 'mapData'
+  | 'incidents'
+  | 'documents'
+  | 'notifications'
+  | 'users'
+  | 'conversations'
+  | 'routeSessionHistory';
+
+const mobileResourceDomains: MobileResourceDomain[] = [
+  'operationalUnits', 'mapData', 'incidents', 'documents', 'notifications',
+  'users', 'conversations', 'routeSessionHistory',
+];
+
+function idleMobileResources(): Record<MobileResourceDomain, ResourceState> {
+  return Object.fromEntries(mobileResourceDomains.map((domain) => [domain, idleResourceState()])) as Record<MobileResourceDomain, ResourceState>;
+}
 
 export type AppState = {
   apiUrl: string;
@@ -255,6 +286,7 @@ export type AppState = {
    * cuenta a partir de `mapData`.
    */
   operationalUnits: OperationalUnitSnapshot[];
+  resources: Record<MobileResourceDomain, ResourceState>;
   incidents: Incident[];
   conversations: ConversationSummary[];
   chatContacts: ChatDirectoryContact[];
@@ -346,6 +378,7 @@ function getEmptyOperationalState(): Partial<AppState> {
   return {
     mapData: null,
     operationalUnits: [],
+    resources: idleMobileResources(),
     incidents: [],
     conversations: [],
     chatContacts: [],
@@ -726,6 +759,19 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     return {};
   }
 
+  const cachedAt = snapshot.savedAt || new Date().toISOString();
+  const resources = idleMobileResources();
+  for (const domain of mobileResourceDomains) {
+    resources[domain] = {
+      status: 'stale',
+      isRefreshing: false,
+      lastAttemptAt: null,
+      lastSuccessfulAt: cachedAt,
+      source: 'cache',
+      errorCode: null,
+      errorMessage: null,
+    };
+  }
   return {
     authContext: snapshot.authContext || null,
     user: snapshot.user,
@@ -739,6 +785,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     users: snapshot.users || [],
     activeRouteSession: snapshot.activeRouteSession || null,
     routeSessionHistory: snapshot.routeSessionHistory || [],
+    resources,
     lastCacheAt: snapshot.savedAt,
   };
 }
@@ -1458,6 +1505,7 @@ function connectSocket(
   // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
   // merge parcial, porque un merge reintroduce campos de origen distinto.
   socket.on('operational-unit:updated', (payload: unknown) => {
+    const socketReceivedAtMs = Date.now();
     const unit =
       payload && typeof payload === 'object' && 'unit' in (payload as Record<string, unknown>)
         ? ((payload as { unit: OperationalUnitSnapshot }).unit)
@@ -1467,10 +1515,22 @@ function connectSocket(
     set(s => {
       const existing = s.operationalUnits.find(entry => entry.unitId === unit.unitId);
       if (existing && timestampMs(existing.lastEventAt) > timestampMs(unit.lastEventAt)) return s;
+      const appliedAtMs = Date.now();
       return {
         operationalUnits: existing
           ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
           : [...s.operationalUnits, unit],
+        resources: {
+          ...s.resources,
+          operationalUnits: applyIncrementalResourceEvent(s.resources.operationalUnits, { hasDataAfterMutation: true }),
+        },
+        realtimeDiagnostics: {
+          ...s.realtimeDiagnostics,
+          operationalSocketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
+          operationalAppliedAt: new Date(appliedAtMs).toISOString(),
+          operationalReceiveToApplyMs: Math.max(0, appliedAtMs - socketReceivedAtMs),
+          operationalUnitId: unit.unitId,
+        },
       };
     });
   });
@@ -1578,6 +1638,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
   socket.on('incident:updated', (i: Incident) => set(s => {
@@ -1585,6 +1646,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
 
@@ -1610,7 +1672,6 @@ function connectSocket(
   });
 
   socketHeartbeatTimer = setInterval(() => {
-    emitCurrentPresence(get);
     emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
@@ -2000,8 +2061,8 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  authContext: null, user: null, mapData: null, operationalUnits: [], resources: idleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2253,7 +2314,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { token, user: currentUser, isSigningOut } = get();
     if (!token || !currentUser || isSigningOut) return;
     const epoch = refreshEpoch;
-    set({ isRefreshing: true });
+    set((state) => ({
+      isRefreshing: true,
+      resources: Object.fromEntries(
+        mobileResourceDomains.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
+      ) as Record<MobileResourceDomain, ResourceState>,
+    }));
     try {
       const refreshed = await refreshAuthSession(set, epoch);
       if (isSessionEpochStale(epoch)) return;
@@ -2298,6 +2364,37 @@ export const useAppStore = create<AppState>((set, get) => ({
           fulfilledCount += 1;
         }
       });
+      const resourceIndex: Partial<Record<MobileResourceDomain, number>> = {
+        mapData: 0,
+        operationalUnits: 1,
+        incidents: 2,
+        conversations: 3,
+        documents: 5,
+        notifications: 6,
+        users: 7,
+        routeSessionHistory: 9,
+      };
+      const resourceStates = { ...get().resources };
+      for (const domain of mobileResourceDomains) {
+        const result = res[resourceIndex[domain]!];
+        if (result.status === 'fulfilled') {
+          const value = data[domain];
+          const empty = Array.isArray(value)
+            ? value.length === 0
+            : domain === 'mapData'
+              ? !value || !Array.isArray(value.vehicles) || value.vehicles.length === 0
+              : value == null;
+          resourceStates[domain] = completeResourceAttempt(resourceStates[domain], { empty, source: 'rest' });
+        } else {
+          resourceStates[domain] = failResourceAttempt(resourceStates[domain], {
+            errorCode: isAxiosError(result.reason)
+              ? String(result.reason.response?.status || result.reason.code || 'request_failed')
+              : 'request_failed',
+            errorMessage: getReadableErrorMessage(result.reason, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
+          });
+        }
+      }
+      data.resources = resourceStates;
 
       // La autoridad de cuenta y el perfil se reconciliaron al inicio mediante
       // /auth/me. Si la unidad cambio desde el snapshot previo, reconsultamos su
@@ -2435,6 +2532,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       set({
         isRefreshing: false,
+        resources: Object.fromEntries(mobileResourceDomains.map((domain) => [
+          domain,
+          failResourceAttempt(get().resources[domain], {
+            errorCode: isAxiosError(error) ? String(error.response?.status || error.code || 'request_failed') : 'request_failed',
+            errorMessage: getReadableErrorMessage(error, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
+          }),
+        ])) as Record<MobileResourceDomain, ResourceState>,
         error: getReadableErrorMessage(
           error,
           'No pudimos sincronizar tu cuenta.',

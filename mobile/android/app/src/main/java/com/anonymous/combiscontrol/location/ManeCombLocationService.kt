@@ -396,12 +396,15 @@ class ManeCombLocationService : Service(), LocationListener {
       // mutating the durable queue or trusting the server/device wall-clock offset.
       val uploadBody = JSONObject(body.toString())
       val capturedAt = uploadBody.optLong("timestamp", 0L)
+      val packetId = uploadBody.optString("packetId", "")
       if (capturedAt > 0L) {
         val queueAgeMs = (System.currentTimeMillis() - capturedAt)
           .coerceAtLeast(0L)
           .coerceAtMost(MAX_PENDING_AGE_MS)
         uploadBody.put("clientQueueAgeMs", queueAgeMs)
       }
+      val sentAt = System.currentTimeMillis()
+      prefs().edit().putLong(KEY_LAST_SENT_AT, sentAt).apply()
       OutputStreamWriter(connection.outputStream).use { writer ->
         writer.write(uploadBody.toString())
       }
@@ -412,9 +415,19 @@ class ManeCombLocationService : Service(), LocationListener {
       when {
         responseCode in 200..299 -> {
           val confirmedAt = System.currentTimeMillis()
+          val packetTelemetry = ManeCombLocationTelemetry.confirmedAttempt(
+            packetId = packetId,
+            capturedAt = capturedAt,
+            sentAt = sentAt,
+            confirmedAt = confirmedAt,
+          )
           prefs().edit()
-            .putLong(KEY_LAST_SENT_AT, confirmedAt)
             .putLong(KEY_LAST_CONFIRMED_AT, confirmedAt)
+            .putString(KEY_LAST_PACKET_ID, packetTelemetry.packetId)
+            .putLong(KEY_LAST_PACKET_CAPTURED_AT, packetTelemetry.capturedAt)
+            .putLong(KEY_LAST_PACKET_SENT_AT, packetTelemetry.sentAt)
+            .putLong(KEY_LAST_PACKET_CONFIRMED_AT, packetTelemetry.confirmedAt)
+            .putLong(KEY_LAST_PACKET_ROUND_TRIP_MS, packetTelemetry.roundTripMs)
             .apply()
           true
         }
@@ -865,6 +878,11 @@ class ManeCombLocationService : Service(), LocationListener {
     const val KEY_LAST_CAPTURED_AT = "lastCapturedAt"
     const val KEY_LAST_SENT_AT = "lastSentAt"
     const val KEY_LAST_CONFIRMED_AT = "lastConfirmedAt"
+    const val KEY_LAST_PACKET_ID = "lastPacketId"
+    const val KEY_LAST_PACKET_CAPTURED_AT = "lastPacketCapturedAt"
+    const val KEY_LAST_PACKET_SENT_AT = "lastPacketSentAt"
+    const val KEY_LAST_PACKET_CONFIRMED_AT = "lastPacketConfirmedAt"
+    const val KEY_LAST_PACKET_ROUND_TRIP_MS = "lastPacketRoundTripMs"
     private const val KEY_SCHEDULE_ENABLED = "scheduleEnabled"
     private const val KEY_SCHEDULE_START = "scheduleStart"
     private const val KEY_SCHEDULE_END = "scheduleEnd"
@@ -893,6 +911,11 @@ class ManeCombLocationService : Service(), LocationListener {
         .remove(KEY_LAST_CAPTURED_AT)
         .remove(KEY_LAST_SENT_AT)
         .remove(KEY_LAST_CONFIRMED_AT)
+        .remove(KEY_LAST_PACKET_ID)
+        .remove(KEY_LAST_PACKET_CAPTURED_AT)
+        .remove(KEY_LAST_PACKET_SENT_AT)
+        .remove(KEY_LAST_PACKET_CONFIRMED_AT)
+        .remove(KEY_LAST_PACKET_ROUND_TRIP_MS)
         .putInt(KEY_PENDING_COUNT, 0)
         .putInt(KEY_DROPPED_COUNT, 0)
         .apply()

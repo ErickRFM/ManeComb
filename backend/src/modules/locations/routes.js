@@ -80,7 +80,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
       actor: req.user,
       io: req.app.locals.io,
       payload: req.body,
-      requestId: req.requestId,
+      requestId: req.traceId,
       store: req.app.locals.store,
       transport: "http"
     });

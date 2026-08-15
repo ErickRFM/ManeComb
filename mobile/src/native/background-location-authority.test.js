@@ -34,4 +34,20 @@ describe('background GPS authority boundaries', () => {
     expect(hardStop).toBeGreaterThan(start);
     expect(remoteLogout).toBeGreaterThan(hardStop);
   });
+
+  it('keeps packet identity and capture time stable across queue retries', () => {
+    const service = source('../../android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationService.kt');
+    const post = service.slice(
+      service.indexOf('private fun postLocation'),
+      service.indexOf('private fun refreshAccessToken')
+    );
+    expect(post).toContain('val uploadBody = JSONObject(body.toString())');
+    expect(post).toContain('val capturedAt = uploadBody.optLong("timestamp", 0L)');
+    expect(post).toContain('val packetId = uploadBody.optString("packetId", "")');
+    expect(post).toContain('postLocation(body, false)');
+    expect(post).not.toContain('body.put("timestamp"');
+    expect(post.indexOf('val sentAt = System.currentTimeMillis()')).toBeLessThan(
+      post.indexOf('val responseCode = connection.responseCode')
+    );
+  });
 });

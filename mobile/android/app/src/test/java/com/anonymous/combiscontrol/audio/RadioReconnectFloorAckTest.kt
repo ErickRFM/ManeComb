@@ -8,7 +8,7 @@ import org.junit.Test
 class RadioReconnectFloorAckTest {
 
   private class FakeTransport : RadioTransport {
-    var listener: RadioTransportListener? = null
+    var currentListener: RadioTransportListener? = null
     var connectCount = 0
     var pendingJoin: ((RadioAck) -> Unit)? = null
     var pendingFloor: ((RadioAck) -> Unit)? = null
@@ -38,7 +38,7 @@ class RadioReconnectFloorAckTest {
     }
 
     override fun setListener(listener: RadioTransportListener?) {
-      this.listener = listener
+      currentListener = listener
     }
 
     fun completeJoin(ack: RadioAck) {
@@ -107,7 +107,7 @@ class RadioReconnectFloorAckTest {
       transport = transport,
       audio = audio,
       scheduler = scheduler,
-      reconnectPolicy = RadioReconnectPolicy(baseDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+      reconnectPolicy = RadioReconnectPolicy(baseDelayMs = 250, maxDelayMs = 250, jitterRatio = 0.0),
       onStateChanged = { }
     )
     val credentials = RadioSessionCredentials(
@@ -118,7 +118,7 @@ class RadioReconnectFloorAckTest {
     )
 
     controller.activate(credentials, "canal-1")
-    transport.listener?.onConnected()
+    transport.currentListener?.onConnected()
     transport.completeJoin(RadioAck(ok = true))
     assertEquals(RadioPhase.LISTENING, controller.snapshot().phase)
 
@@ -126,13 +126,13 @@ class RadioReconnectFloorAckTest {
     assertEquals(RadioPhase.REQUESTING, controller.snapshot().phase)
     assertTrue(transport.pendingFloor != null)
 
-    transport.listener?.onDisconnected(RadioDisconnectReason.NETWORK)
+    transport.currentListener?.onDisconnected(RadioDisconnectReason.NETWORK)
     assertEquals(RadioPhase.RECONNECTING, controller.snapshot().phase)
     assertFalse(audio.capturing)
 
     scheduler.runPending()
     assertEquals(2, transport.connectCount)
-    transport.listener?.onConnected()
+    transport.currentListener?.onConnected()
     transport.completeJoin(RadioAck(ok = true))
     assertEquals(RadioPhase.LISTENING, controller.snapshot().phase)
 
