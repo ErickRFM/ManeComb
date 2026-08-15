@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePublicCommercialFlow } from '@/features/commercial';
+import { trackSalesEvent } from '@/features/commercial/analytics/sales-analytics';
 import { buildCheckoutParams, readCheckoutContext, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
@@ -143,35 +144,61 @@ export function SalesAuthScreen({ mode }: Props) {
     if (mode === 'login') {
       if (!loginIdentity.trim() || !loginPassword.trim()) {
         setHelperMessage('Ingresa correo o teléfono y contraseña.');
+        trackSalesEvent('login_failed', { outcome: 'client_validation', route: '/ventas/login' });
         return;
       }
 
+      trackSalesEvent('login_started', {
+        planId: selectedPlanId,
+        requestTrial: routeRequestsTrial,
+        route: '/ventas/login',
+      });
       const identity = normalizeIdentity(loginIdentity);
       const result = await signIn(identity.email, loginPassword, rememberSession);
 
       if (!result.ok) {
+        trackSalesEvent('login_failed', {
+          planId: selectedPlanId,
+          requestTrial: routeRequestsTrial,
+          outcome: 'request_rejected',
+          route: '/ventas/login',
+        });
         setHelperMessage(result.message || 'No pudimos iniciar sesión.');
+        return;
       }
 
+      trackSalesEvent('login_completed', {
+        planId: selectedPlanId,
+        requestTrial: routeRequestsTrial,
+        route: '/ventas/login',
+      });
       return;
     }
 
     if (!registerIdentity.trim() || !registerPassword || !registerConfirmPassword) {
       setHelperMessage('Completa correo o teléfono, contraseña y confirmación.');
+      trackSalesEvent('registration_failed', { outcome: 'client_validation', route: '/ventas/registro' });
       return;
     }
 
     const passwordValidationMessage = validateRegistrationPassword(registerPassword);
     if (passwordValidationMessage) {
       setHelperMessage(passwordValidationMessage);
+      trackSalesEvent('registration_failed', { outcome: 'password_policy', route: '/ventas/registro' });
       return;
     }
 
     if (registerPassword !== registerConfirmPassword) {
       setHelperMessage('Las contraseñas no coinciden. Revisa la confirmación.');
+      trackSalesEvent('registration_failed', { outcome: 'password_confirmation', route: '/ventas/registro' });
       return;
     }
 
+    trackSalesEvent('registration_started', {
+      planId: selectedPlanId,
+      requestTrial: routeRequestsTrial,
+      route: '/ventas/registro',
+    });
     const identity = normalizeIdentity(registerIdentity);
     const cleanName = registerName.trim() || identity.displayName;
     const cleanCompany = registerCompany.trim() || cleanName;
@@ -189,8 +216,21 @@ export function SalesAuthScreen({ mode }: Props) {
     );
 
     if (!result.ok) {
+      trackSalesEvent('registration_failed', {
+        planId: selectedPlanId,
+        requestTrial: routeRequestsTrial,
+        outcome: 'request_rejected',
+        route: '/ventas/registro',
+      });
       setHelperMessage(result.message || 'No pudimos registrar la cuenta.');
+      return;
     }
+
+    trackSalesEvent('registration_completed', {
+      planId: selectedPlanId,
+      requestTrial: routeRequestsTrial,
+      route: '/ventas/registro',
+    });
   };
 
   return (
@@ -316,9 +356,13 @@ export function SalesAuthScreen({ mode }: Props) {
                 disabled={isSubmitting}
                 onToggleRemember={() => setRememberSession((current) => !current)}
                 onForgotPassword={() => {
-                  if (loginIdentity.includes('@')) {
-                    setRecoveryEmail(loginIdentity);
+                  if (!loginIdentity.includes('@')) {
+                    setHelperMessage(
+                      'La recuperación automática utiliza correo. Si tu cuenta fue creada solo con teléfono, contacta a ventas@manecomb.com.'
+                    );
+                    return;
                   }
+                  setRecoveryEmail(loginIdentity);
                   router.push(buildRecoveryRoute('/ventas/recuperar-contrasena', {
                     planId: selectedPlanId,
                     requestTrial: routeRequestsTrial,
