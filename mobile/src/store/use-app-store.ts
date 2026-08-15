@@ -7,9 +7,11 @@ import {
 import {
   FLEET_REALTIME_INVALIDATION_EVENTS,
   SHARED_SOCKET_DISCOVERY_INTERVAL_MS,
+  SHARED_SOCKET_DISCOVERY_MAX_ATTEMPTS,
   shouldRequestColdStartRealtimeRecovery,
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
+import { logRealtimeDiag } from './realtime-diagnostics-log';
 
 const COLD_START_RECOVERY_RETRY_MS = 3000;
 let coldStartRecoveryKey: string | null = null;
@@ -71,6 +73,38 @@ export function useSharedRealtimeSocket(): Socket | null {
       const nextSocket = readSharedRealtimeSocket();
       setSharedSocket((current) => (current === nextSocket ? current : nextSocket));
 
+      const keepPolling = shouldRetrySharedRealtimeSocket({
+        attempt,
+        hasSession: Boolean(token && userId),
+        hasSocket: Boolean(nextSocket),
+        socketStatus,
+      });
+
+      logRealtimeDiag('syncSocket', {
+        attempt,
+        hasSession: Boolean(token && userId),
+        hasSocket: Boolean(nextSocket),
+        socketId: nextSocket?.id || null,
+        socketConnected: Boolean(nextSocket?.connected),
+        socketStatus,
+        authContextReady,
+        isHydrated,
+        isBootstrapping,
+        networkStatus,
+        keepPolling,
+        // Por que deja de sondear: es el dato que distingue "descubierto" de
+        // "se rindio" y de "sesion invalida".
+        stopReason: keepPolling
+          ? null
+          : nextSocket
+            ? 'socket_discovered'
+            : !token || !userId
+              ? 'no_session'
+              : attempt >= SHARED_SOCKET_DISCOVERY_MAX_ATTEMPTS
+                ? 'max_attempts_exhausted'
+                : `socket_status_not_retryable:${socketStatus}`,
+      });
+
       if (
         token &&
         userId &&
@@ -87,20 +121,19 @@ export function useSharedRealtimeSocket(): Socket | null {
         requestColdStartRealtimeRecovery(token, userId);
       }
 
-      if (
-        shouldRetrySharedRealtimeSocket({
-          attempt,
-          hasSession: Boolean(token && userId),
-          hasSocket: Boolean(nextSocket),
-          socketStatus,
-        })
-      ) {
+      if (keepPolling) {
         attempt += 1;
         timer = setTimeout(syncSocket, SHARED_SOCKET_DISCOVERY_INTERVAL_MS);
       }
     };
 
     if (!token || !userId || socketStatus === 'unauthorized') {
+      logRealtimeDiag('syncSocket:released', {
+        reason: socketStatus === 'unauthorized' ? 'socket_status_unauthorized' : 'no_session',
+        hasSession: Boolean(token && userId),
+        socketStatus,
+        networkStatus,
+      });
       coldStartRecoveryKey = null;
       coldStartRecoveryAttemptedAt = 0;
       setSharedSocket(null);
