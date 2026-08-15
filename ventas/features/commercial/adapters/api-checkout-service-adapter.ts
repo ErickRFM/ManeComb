@@ -16,7 +16,7 @@ import {
   type TestCardInput,
 } from '../types';
 
-type LegacyPaymentInstructions = {
+type CommercialPaymentInstructions = {
   type?: string;
   brandName?: string;
   legalName?: string;
@@ -31,7 +31,7 @@ type LegacyPaymentInstructions = {
   details?: string[];
 };
 
-type LegacyCheckoutResponse = {
+type CommercialCheckoutApiResponse = {
   id?: string;
   planId?: string;
   planName?: string;
@@ -44,10 +44,10 @@ type LegacyCheckoutResponse = {
   paymentStatus?: string;
   paymentProvider?: string;
   nextStep?: string;
-  paymentInstructions?: LegacyPaymentInstructions | null;
+  paymentInstructions?: CommercialPaymentInstructions | null;
 };
 
-function resolveResultStatus(response: LegacyCheckoutResponse) {
+function resolveResultStatus(response: CommercialCheckoutApiResponse) {
   const paymentStatus = String(response.paymentStatus || '').toLowerCase();
   const accountStatus = String(response.status || '').toLowerCase();
   if (response.checkoutUrl) return PAYMENT_SESSION_STATUSES.REDIRECT_REQUIRED;
@@ -58,7 +58,7 @@ function resolveResultStatus(response: LegacyCheckoutResponse) {
   return PAYMENT_SESSION_STATUSES.PREPARING;
 }
 
-function buildManualTransferNextStep(instructions?: LegacyPaymentInstructions | null) {
+function buildManualTransferNextStep(instructions?: CommercialPaymentInstructions | null) {
   if (!instructions) return '';
 
   const amount = Number(instructions.amount || 0);
@@ -109,7 +109,7 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
   async createPaymentSession(request: PaymentSessionRequest): Promise<PaymentResult> {
     try {
       const { idempotencyKey, ...payload } = request;
-      const response = await createCommercialCheckoutRequest(payload, idempotencyKey) as LegacyCheckoutResponse;
+      const response = await createCommercialCheckoutRequest(payload, idempotencyKey) as CommercialCheckoutApiResponse;
       const status = resolveResultStatus(response);
       const manualTransferNextStep = buildManualTransferNextStep(response.paymentInstructions);
       const nextStep = manualTransferNextStep
@@ -130,7 +130,7 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
         session: {
           id: response.id || response.referenceCode || `session-${Date.now()}`,
           planId: response.planId || request.planId,
-          providerId: response.paymentProvider || 'legacy-commercial-api',
+          providerId: response.paymentProvider || 'commercial-api',
           status,
           amount: Number(response.totalPrice || 0),
           currency: response.currency || 'MXN',
@@ -164,7 +164,7 @@ export class ApiCheckoutServiceAdapter implements CheckoutService {
       const response = await confirmCommercialPaymentRequest({
         externalReference: request.externalReference,
         paymentId: request.paymentId,
-      }) as LegacyCheckoutResponse;
+      }) as CommercialCheckoutApiResponse;
       const status = resolveResultStatus(response);
       return {
         ok: true,
