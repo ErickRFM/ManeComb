@@ -268,7 +268,7 @@ function createApp({ store, getDbState }) {
   app.use("/api/admin/activation-keys", adminActivationKeyRoutes);
   app.use("/api/audit-logs", auditLogRoutes);
   app.use("/api/commercial/manual-payments", manualPaymentRoutes);
-  app.use("/api/commercial/events", salesEventRoutes);
+  app.use("/api/sales-events", salesEventRoutes);
   app.use("/api/commercial", commercialRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/locations", locationRoutes);
