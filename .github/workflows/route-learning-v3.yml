@@ -7,6 +7,8 @@ on:
       - 'backend/.env.example'
       - 'backend/src/config/auto-route.js'
       - 'backend/src/config/route-corridor.js'
+      - 'backend/src/data/backend-store.js'
+      - 'backend/src/data/repositories/fleet-repository.js'
       - 'backend/src/domain/learned-route-segment.js'
       - 'backend/src/domain/route-context.js'
       - 'backend/src/domain/route-geometry.js'
@@ -21,6 +23,7 @@ on:
       - 'backend/src/modules/navigation/route-write-guard.js'
       - 'backend/src/modules/navigation/segment-routes.js'
       - 'backend/src/modules/navigation/segment-review-routes.js'
+      - 'backend/test/fleet-route-revision-cas.test.js'
       - 'backend/test/route-corridor.test.js'
       - 'backend/test/route-session-context.test.js'
       - 'backend/test/route-segment-learning.test.js'
@@ -59,6 +62,9 @@ jobs:
       - name: Install communication dependencies used by app regressions
         working-directory: communication-service
         run: npm ci --ignore-scripts
+      - name: Store revision compare-and-swap
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/fleet-route-revision-cas.test.js
       - name: Corridor state machine
         working-directory: backend
         run: node --require ./test/setup-env.js test/route-corridor.test.js
