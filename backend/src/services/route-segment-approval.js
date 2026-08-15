@@ -6,6 +6,17 @@ const {
 } = require("../domain/route-geometry");
 const { decodeSegmentGeometryVersion } = require("../domain/learned-route-segment");
 
+function cloneRouteSnapshot(route) {
+  if (!route || typeof route !== "object") return null;
+  return {
+    ...route,
+    origin: route.origin ? { ...route.origin } : route.origin,
+    destination: route.destination ? { ...route.destination } : route.destination,
+    stops: Array.isArray(route.stops) ? route.stops.map((stop) => ({ ...stop })) : [],
+    polyline: Array.isArray(route.polyline) ? route.polyline.map((point) => ({ ...point })) : []
+  };
+}
+
 function calculateSegmentRouteUpdate(route, candidate, metadata) {
   const routePolyline = Array.isArray(route?.polyline) ? route.polyline : [];
   if (routePolyline.length < 2) return null;
@@ -62,6 +73,7 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
   if (Number(current.revision) !== metadata.routeRevision) {
     return { applied: false, reason: "candidate_stale", route: current, metadata };
   }
+  const previousRoute = cloneRouteSnapshot(current);
   const update = calculateSegmentRouteUpdate(current, candidate, metadata);
   if (!update) return { applied: false, reason: "invalid_segment_geometry", route: current, metadata };
 
@@ -118,7 +130,7 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
   return {
     applied: true,
     route,
-    previousRoute: current,
+    previousRoute,
     previousSegmentPolyline: update.baselinePolyline,
     metadata,
     comparison: {
@@ -134,5 +146,6 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
 
 module.exports = {
   applySegmentCandidateToRoute,
-  calculateSegmentRouteUpdate
+  calculateSegmentRouteUpdate,
+  cloneRouteSnapshot
 };

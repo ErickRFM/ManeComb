@@ -10,6 +10,7 @@ on:
       - 'backend/src/domain/route-context.js'
       - 'backend/src/domain/route-geometry.js'
       - 'backend/src/services/auto-route-learning.js'
+      - 'backend/src/services/auto-route-learning-base.js'
       - 'backend/src/services/route-event-engine.js'
       - 'backend/src/services/route-event-engine-base.js'
       - 'backend/src/services/route-progress.js'
@@ -23,12 +24,14 @@ on:
       - 'backend/test/route-session-context.test.js'
       - 'backend/test/route-segment-learning.test.js'
       - 'backend/test/route-segment-approval.test.js'
+      - 'backend/test/route-segment-missing-route.test.js'
       - 'mobile/src/hooks/point-to-point-tracker-core.ts'
       - 'mobile/src/utils/active-route.ts'
       - 'mobile/test/point-to-point-tracker-core.test.mts'
+      - 'ventas/features/portal/components/portal-layout.tsx'
+      - 'ventas/features/portal/components/portal-layout-base.tsx'
       - 'ventas/features/portal/routes/learned-route-segment.api.ts'
       - 'ventas/features/portal/screens/portal-routes-screen.tsx'
-      - 'ventas/features/portal/screens/portal-routes-workspace.tsx'
       - 'ventas/features/portal/screens/route-learning-v3-review.tsx'
       - '.github/workflows/route-learning-v3.yml'
   workflow_dispatch:
@@ -58,6 +61,8 @@ jobs:
         run: node --require ./test/setup-env.js test/route-session-context.test.js
       - name: Segment extraction and grouping
         run: node --require ./test/setup-env.js test/route-segment-learning.test.js
+      - name: Missing official route does not fall back to V2
+        run: node --require ./test/setup-env.js test/route-segment-missing-route.test.js
       - name: Revision guarded application
         run: node --require ./test/setup-env.js test/route-segment-approval.test.js
       - name: Existing auto-route regression
