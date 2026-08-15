@@ -9,7 +9,6 @@ module.exports = Object.freeze({
   possibleDeviationMeters: positiveNumber("ROUTE_CORRIDOR_POSSIBLE_DEVIATION_METERS", 220),
   hardDeviationMeters: positiveNumber("ROUTE_CORRIDOR_HARD_DEVIATION_METERS", 650),
   deviationConfirmSeconds: positiveNumber("ROUTE_CORRIDOR_DEVIATION_CONFIRM_SECONDS", 45),
-  recoveryMeters: positiveNumber("ROUTE_CORRIDOR_RECOVERY_METERS", 80),
   segmentCandidateMeters: positiveNumber("AUTO_ROUTE_SEGMENT_CANDIDATE_METERS", 90),
   segmentRecoveryMeters: positiveNumber("AUTO_ROUTE_SEGMENT_RECOVERY_METERS", 70),
   segmentMinPoints: Math.max(3, Math.round(positiveNumber("AUTO_ROUTE_SEGMENT_MIN_POINTS", 4))),

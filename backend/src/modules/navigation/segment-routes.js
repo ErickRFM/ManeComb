@@ -56,6 +56,13 @@ function itemsFromList(result) {
   return Array.isArray(result?.items) ? result.items : [];
 }
 
+async function listCandidates(req, status) {
+  return req.app.locals.store.listLearnedRouteCandidates({
+    organizationId: canAccessAllTenants(req.user) ? undefined : getOrganizationId(req.user),
+    status
+  });
+}
+
 async function buildSegmentReview(store, candidate) {
   const metadata = decodeSegmentGeometryVersion(candidate.geometryVersion);
   if (!metadata) return null;
@@ -89,6 +96,32 @@ async function buildSegmentReview(store, candidate) {
   };
 }
 
+// Contrato de compatibilidad: la pantalla legacy de rutas solo recibe candidatos
+// V2. V3 se presenta por /learned-route-segments y no puede caer por accidente en
+// el flujo antiguo que crea una Route nueva al aprobar.
+router.get(
+  "/learned-routes",
+  authenticate,
+  requireOrganization,
+  requireOperationalAccess,
+  async (req, res, next) => {
+    try {
+      if (!requireReviewEnabled(res)) return;
+      if (!canReview(req)) {
+        return res.status(403).json({ ok: false, message: "No tienes permiso para revisar rutas sugeridas" });
+      }
+      const status = String(req.query.status || "").trim().toUpperCase() || undefined;
+      const candidates = await listCandidates(req, status);
+      return res.json({
+        ok: true,
+        data: candidates.filter((candidate) => !isSegmentCandidate(candidate, autoRouteConfig.segmentAlgorithmVersion))
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
 router.get(
   "/learned-route-segments",
   authenticate,
@@ -101,10 +134,7 @@ router.get(
         return res.status(403).json({ ok: false, message: "No tienes permiso para revisar mejoras de ruta" });
       }
       const status = String(req.query.status || "").trim().toUpperCase() || undefined;
-      const candidates = await req.app.locals.store.listLearnedRouteCandidates({
-        organizationId: canAccessAllTenants(req.user) ? undefined : getOrganizationId(req.user),
-        status
-      });
+      const candidates = await listCandidates(req, status);
       const segments = candidates.filter((candidate) =>
         isSegmentCandidate(candidate, autoRouteConfig.segmentAlgorithmVersion)
       );
@@ -118,9 +148,8 @@ router.get(
   }
 );
 
-// This handler is deliberately mounted before the legacy navigation router. It
-// consumes only V3 segment candidates; V2 full-route candidates fall through to
-// the proven legacy approval endpoint unchanged.
+// Intercepta exclusivamente V3. Un candidato V2 usa `next()` y conserva el
+// endpoint probado del router legacy sin una segunda implementación de approval.
 router.post(
   "/learned-routes/:candidateId/approve",
   authenticate,
@@ -213,12 +242,11 @@ router.post(
           segmentStartMeters: result.metadata.startDistanceMeters,
           segmentEndMeters: result.metadata.endDistanceMeters,
           comparison: result.comparison,
-          previousRouteSnapshot: {
-            revision: result.previousRoute.revision,
+          previousSegmentPolyline: result.previousSegmentPolyline,
+          previousRouteMetrics: {
             distanceMeters: result.previousRoute.distanceMeters,
             durationSeconds: result.previousRoute.durationSeconds,
-            durationInTrafficSeconds: result.previousRoute.durationInTrafficSeconds,
-            polyline: result.previousRoute.polyline
+            durationInTrafficSeconds: result.previousRoute.durationInTrafficSeconds
           }
         }
       });

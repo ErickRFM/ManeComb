@@ -73,10 +73,9 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
   };
   let route = null;
 
-  // Mongo production path: compare-and-swap on Route.revision prevents a manual
-  // edit racing the learned-segment approval. The regular store update is then
-  // invoked as a no-op to refresh assignedRoute projections with the canonical
-  // route that was atomically committed.
+  // Produccion: compare-and-swap sobre Route.revision. Si un admin edita la ruta
+  // entre la revision visual y el click de aplicar, esta consulta deja de hacer
+  // match y el candidato queda stale sin pisar el cambio humano.
   if (RouteModel?.db?.readyState === 1) {
     const atomic = await RouteModel.findOneAndUpdate(
       {
@@ -101,10 +100,11 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
         metadata
       };
     }
+    // No-op canónico: refresca las proyecciones assignedRoute existentes sin
+    // volver a incrementar revision porque la ruta ya quedó persistida.
     route = await store.updateRoute(metadata.routeId, {}, actor);
   } else {
-    // Embedded/test store is single-process; re-read immediately before the
-    // canonical writer and verify the same optimistic token.
+    // Embedded/test es single-process. Relee el token justo antes del escritor.
     const latest = await store.getRouteById(metadata.routeId);
     if (!latest || Number(latest.revision) !== metadata.routeRevision) {
       return { applied: false, reason: "candidate_stale", route: latest, metadata };
@@ -119,6 +119,7 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
     applied: true,
     route,
     previousRoute: current,
+    previousSegmentPolyline: update.baselinePolyline,
     metadata,
     comparison: {
       baselineDistanceMeters: update.baselineDistanceMeters,
