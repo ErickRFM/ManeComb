@@ -10,12 +10,3 @@ export function shouldReconcileDisconnected({ socketStatus, visible, disconnecte
       && disconnectedForMs >= DISCONNECTED_RECONCILE_MS
   );
 }
-
-export function shouldResyncAfterTokenRotation({ previousToken, nextToken, userId }) {
-  return Boolean(
-    previousToken
-      && nextToken
-      && userId
-      && previousToken !== nextToken
-  );
-}
