@@ -1,6 +1,6 @@
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { sortByCriticality } from '@shared/operational-contract';
-import type { Incident, LiveLocationsData, Vehicle } from '@/src/types/app';
+import type { Incident, Vehicle } from '@/src/types/app';
 
 /**
  * Frescura, estado y visibilidad ya vienen resueltos en el snapshot canonico.
