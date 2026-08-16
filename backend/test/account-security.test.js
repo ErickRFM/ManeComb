@@ -194,6 +194,51 @@ async function run() {
       (raceUser.pushSubscriptions || []).some((entry) => entry.token === racePushToken),
       false
     );
+
+    // Un bearer de una sesion YA revocada no debe conservar una capacidad
+    // lateral para retirar tokens push registrados por otra sesion del usuario.
+    const independentPushToken = "fcm-independent-active-session-token";
+    const independentPushRegistered = await requestJson(
+      baseUrl,
+      "POST",
+      "/notifications/push-subscriptions",
+      {
+        token: independentPushToken,
+        platform: "android",
+        deviceName: "independent-session-test"
+      },
+      newPasswordLogin.payload.token
+    );
+    assert.equal(independentPushRegistered.status, 201);
+
+    const replayedOldLogout = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/logout",
+      {
+        refreshToken: raceLogin.payload.refreshToken,
+        pushToken: independentPushToken
+      },
+      raceLogin.payload.token
+    );
+    assert.equal(replayedOldLogout.status, 200);
+
+    const userAfterReplay = await store.getUserById(raceLogin.payload.user.id);
+    assert.equal(
+      (userAfterReplay.pushSubscriptions || []).some(
+        (entry) => entry.token === independentPushToken
+      ),
+      true
+    );
+
+    const independentSessionAfterReplay = await requestJson(
+      baseUrl,
+      "GET",
+      "/auth/me",
+      undefined,
+      newPasswordLogin.payload.token
+    );
+    assert.equal(independentSessionAfterReplay.status, 200);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
