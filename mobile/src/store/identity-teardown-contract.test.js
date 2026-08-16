@@ -12,8 +12,19 @@ describe('Mobile identity teardown boundary', () => {
     expect(facade).toContain('useAppStore.subscribe((state, previousState) =>');
     expect(facade).toContain('previousState.token && previousState.user?.id');
     expect(facade).toContain('state.token && state.user?.id');
+    expect(facade).toContain('identityJustEnded');
     expect(facade).toContain('clearSessionNotifications()');
     expect(facade).toContain('deleteNativePushToken()');
+  });
+
+  it('cleans native residue only after cold bootstrap confirms there is no identity', () => {
+    const facade = source('./use-app-store.ts');
+
+    expect(facade).toContain('unauthenticatedBootstrapJustSettled');
+    expect(facade).toContain('state.isHydrated');
+    expect(facade).toContain('!state.isBootstrapping');
+    expect(facade).toContain('!currentHasIdentity');
+    expect(facade).toContain('!previousState.isHydrated || previousState.isBootstrapping');
   });
 
   it('uses a global HMR guard instead of registering duplicate teardown observers', () => {
