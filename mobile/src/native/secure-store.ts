@@ -1,17 +1,20 @@
 import * as Keychain from 'react-native-keychain';
 
 const SERVICE_PREFIX = 'manecomb.mobile';
-const SESSION_CREDENTIAL_KEYS = new Set([
+const SESSION_BOUND_KEYS = new Set([
   'combis-session-token',
   'combis-refresh-token',
   'combis-session-mode',
+  // El token FCM pertenece a la identidad del dispositivo autenticada. Si una
+  // registracion vieja termina durante logout, no debe reaparecer en Keychain.
+  'combis-push-token',
 ]);
 
 let sessionCredentialMutationTail: Promise<void> = Promise.resolve();
 let sessionCredentialWritesSuspended = false;
 
-function isSessionCredentialKey(key: string) {
-  return SESSION_CREDENTIAL_KEYS.has(key);
+function isSessionBoundKey(key: string) {
+  return SESSION_BOUND_KEYS.has(key);
 }
 
 function serializeSessionCredentialMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -24,10 +27,11 @@ function serializeSessionCredentialMutation<T>(mutation: () => Promise<T>): Prom
 }
 
 /**
- * Bloquea nuevas escrituras de credenciales cuando cambia la sessionEpoch.
- * Los deletes siguen permitidos y se serializan detras de cualquier write que
- * ya hubiera entrado a Keychain, por lo que el teardown siempre tiene la ultima
- * palabra aunque un refresh hubiera empezado unos milisegundos antes.
+ * Bloquea nuevas escrituras ligadas a una identidad cuando cambia la
+ * sessionEpoch. Los deletes siguen permitidos y se serializan detras de
+ * cualquier write que ya hubiera entrado a Keychain, por lo que el teardown
+ * siempre tiene la ultima palabra aunque un refresh o registro FCM hubiera
+ * empezado unos milisegundos antes.
  */
 export function suspendSessionCredentialWrites() {
   sessionCredentialWritesSuspended = true;
@@ -40,7 +44,7 @@ export function resumeSessionCredentialWrites() {
 
 export async function setItemAsync(key: string, value: string) {
   const write = async () => {
-    if (isSessionCredentialKey(key) && sessionCredentialWritesSuspended) {
+    if (isSessionBoundKey(key) && sessionCredentialWritesSuspended) {
       return;
     }
 
@@ -50,7 +54,7 @@ export async function setItemAsync(key: string, value: string) {
     });
   };
 
-  if (!isSessionCredentialKey(key)) {
+  if (!isSessionBoundKey(key)) {
     await write();
     return;
   }
@@ -59,9 +63,10 @@ export async function setItemAsync(key: string, value: string) {
 }
 
 export async function getItemAsync(key: string) {
-  if (isSessionCredentialKey(key)) {
-    // Una lectura de sesion nunca adelanta un write/delete ya confirmado por el
-    // flujo anterior. Esto evita hidratar una mezcla token/modo entre carreras.
+  if (isSessionBoundKey(key)) {
+    // Una lectura ligada a la sesion nunca adelanta un write/delete ya
+    // confirmado por el flujo anterior. Esto evita hidratar una mezcla de
+    // credenciales o un push token perteneciente a otra identidad.
     await sessionCredentialMutationTail;
   }
 
@@ -79,7 +84,7 @@ export async function deleteItemAsync(key: string) {
     });
   };
 
-  if (!isSessionCredentialKey(key)) {
+  if (!isSessionBoundKey(key)) {
     await remove();
     return;
   }
