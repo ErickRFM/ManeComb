@@ -76,6 +76,20 @@ La copia local es la que decide si una jornada entra a V3 o cae a V2. Mientras l
 
 El core importa ahora la autoridad. Se verificó equivalencia sobre `recording:` / `assigned:` / vacío / null / id real antes de sustituir. Sin cambio de comportamiento.
 
+### Hardening 201.1 — carreras posteriores a la reconciliación
+
+- **Backlog offline histórico:** cuando existe `requestedSessionId` explícito
+  pero no existe una sesión directa, `resolveTrackingSession` da prioridad a la
+  sesión histórica que contiene `capturedAt` antes que a una sesión activa
+  posterior. Un replay `pending:*` conserva `packetId`/captura, persiste en la
+  jornada finalizada correcta y sigue siendo idempotente.
+- **Autoridad del CAS Mongo:** el documento devuelto por
+  `findOneAndUpdate(..., returnDocument: "after")` es el resultado autoritativo
+  de la mutación. El refresh de `Vehicle.assignedRoute` sigue ejecutándose y
+  puede reconciliar una revisión posterior, pero su retorno o fallo no puede
+  convertir un CAS aplicado en `route_update_failed`. El resultado V3 expone
+  `committedRevision`.
+
 ## 6. Auditoría lógica — resultados
 
 | Verificación | Resultado |
@@ -84,6 +98,7 @@ El core importa ahora la autoridad. Se verificó equivalencia sobre `recording:`
 | Historia de posiciones | **Una sola**: `RouteSessionPosition`; única escritura en `vehicle-location-ingestion.js` |
 | Entidad Route | **Una sola**: V3 aplica in-place; no existe `RouteV2`/`RouteNew` |
 | Revisión monotónica | CAS en `FleetRepository.updateRouteIfRevision`, filtro Mongo `{_id, organizationId, revision}` |
+| Resultado del CAS | El documento CAS es autoridad; el refresh de proyección no reemplaza `committedRevision` ni revierte una escritura aplicada |
 | Doble incremento de revision | **Descartado**: tras el CAS, `updateRoute(id, {}, actor)` usa guardas `typeof !== "undefined"`, no muta campos operativos y el fingerprint no cambia |
 | Tenant leakage en CAS | Filtro incluye `organizationId` y `canActorAccessRoute` previo |
 | Frontera V2/V3 | Mutuamente excluyente; V3 solo con Route oficial válida (revision ≥ 1, polyline ≥ 2, mismo tenant); guard impide fallback a V2 si la Route desapareció |
@@ -164,6 +179,16 @@ CI verde **no** convierte ninguno de estos en PASS.
 | `AUTO_ROUTE_SEGMENT_LEARNING_ENABLED` | `false` | V3 ships dark; requiere gate físico |
 | `AUTO_ROUTE_MIN_DISTINCT_SERVICE_DAYS` | `2` | Regla de uso habitual |
 
+### Gate obligatorio antes de activar V3
+
+El patch de Route y el cambio del Candidate a `APPROVED` todavía **no forman
+una transacción única**. Con `AUTO_ROUTE_LEARNING_ENABLED=false`,
+`AUTO_ROUTE_REVIEW_ENABLED=false` y
+`AUTO_ROUTE_SEGMENT_LEARNING_ENABLED=false` esto no bloquea el runtime actual.
+Antes de habilitar V3 en producción es obligatorio implementar o demostrar una
+frontera transaccional/recuperable que impida Route aplicada con Candidate sin
+aprobar (o la inversa), y certificarla bajo concurrencia y fallo intermedio.
+
 ```
 DEPLOYMENT_CONFIGURATION_REQUIRED
 ```
@@ -176,5 +201,6 @@ El repositorio no contiene manifiesto de despliegue; las variables viven en el p
 2. **Frescura GPS endurecida** de 120 s a 15 s en REST y socket (#196). Aceptado lógicamente: el foreground Android pide ubicación cada 5 s y el lease live es 8 s.
 3. **`resolveSessionStartedAt`** acepta un inicio declarado por el cliente, acotado a 24 h hacia el pasado.
 4. **V3 nunca ha corrido con tráfico real.** Todo su comportamiento está certificado por pruebas y flags apagados.
-5. **`rcgeo` es un remote muerto** (`.codex-tmp-rc-geo-01c`, directorio inexistente) que rompe `git fetch --all`. Fuera del alcance de esta auditoría; se documenta, no se modifica.
-6. La certificación Mongo de candidatos aprendidos usa `mongodb-memory-server`; si el binario no se puede descargar, el test hace SKIP explícito en vez de inventar un PASS.
+5. **Route patch + Candidate APPROVED no son una transacción única.** Es gate obligatorio antes de activar V3; hoy los tres flags permanecen apagados.
+6. **`rcgeo` es un remote muerto** (`.codex-tmp-rc-geo-01c`, directorio inexistente) que rompe `git fetch --all`. Fuera del alcance de esta auditoría; se documenta, no se modifica.
+7. La certificación Mongo de candidatos aprendidos usa `mongodb-memory-server`; si el binario no se puede descargar, el test hace SKIP explícito en vez de inventar un PASS.
