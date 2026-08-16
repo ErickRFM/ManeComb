@@ -92,6 +92,31 @@ async function testTenantMismatchFailsClosed() {
   );
 }
 
+// Regresion: `routeSessionSchema.organizationId` es `{ type: String, default: "" }`,
+// no obligatorio. Antes la guarda exigia que AMBOS organizationId fueran truthy,
+// asi que una jornada sin organizacion saltaba la comprobacion entera y cualquier
+// usuario operativo de cualquier tenant podia transicionarla. Debe fallar cerrado.
+async function testSessionWithoutOrganizationFailsClosed() {
+  for (const orphanOrganizationId of ["", null, undefined]) {
+    const store = createStore({
+      id: "session-1",
+      organizationId: orphanOrganizationId,
+      driverId: "driver-1",
+      status: "READY"
+    });
+
+    await expectError(
+      transitionJourneySession({
+        store,
+        sessionId: "session-1",
+        actor: { id: "admin-9", role: "admin", organizationId: "org-ajena" },
+        nextStatus: "CANCELLED"
+      }),
+      "tenant_mismatch"
+    );
+  }
+}
+
 async function testSameStatusIsIdempotent() {
   const store = createStore({
     id: "session-1",
@@ -134,6 +159,7 @@ async function run() {
   await testDriverConfirmsOwnJourney();
   await testDriverCannotChangeAnotherJourney();
   await testTenantMismatchFailsClosed();
+  await testSessionWithoutOrganizationFailsClosed();
   await testSameStatusIsIdempotent();
   await testTerminalCannotReopen();
   console.log("journey-transition-service.test.js: OK");
