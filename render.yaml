@@ -1,0 +1,128 @@
+# ManeComb production service contract for Render.
+# Secrets intentionally use sync:false and must be supplied in the Render dashboard.
+# REDIS_URL must point to a persistent Render Key Value/Valkey instance in the
+# same region before ENABLE_REDIS/ENABLE_QUEUES are enabled in production.
+services:
+  - type: web
+    name: manecomb
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: TRUST_PROXY
+        value: "true"
+      - key: REQUIRE_MONGO
+        value: "true"
+      - key: MONGO_DB_NAME
+        value: combisapp
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CHAT_ENCRYPTION_SECRET
+        sync: false
+      - key: PLATFORM_JWT_SECRET
+        sync: false
+      - key: PLATFORM_MFA_ENCRYPTION_KEY
+        sync: false
+      - key: PLATFORM_ACCESS_ENFORCEMENT_ENABLED
+        sync: false
+      - key: PLATFORM_ACCESS_ISSUER
+        sync: false
+      - key: PLATFORM_ACCESS_AUDIENCE
+        sync: false
+      - key: PLATFORM_ACCESS_JWKS_URL
+        sync: false
+      - key: CLIENT_ORIGIN
+        value: https://manecomb.com,https://www.manecomb.com,https://admin.manecomb.com,https://manecomb1.pages.dev,https://*.manecomb1.pages.dev
+      - key: APP_URL
+        value: https://manecomb.com
+      - key: PASSWORD_RESET_PUBLIC_URL
+        value: https://manecomb.com/reset-password
+      - key: PORTAL_PUBLIC_URL
+        value: https://manecomb.com/portal
+      - key: APP_PUBLIC_URL
+        value: https://manecomb.com
+      - key: PUBLIC_WEBHOOK_BASE_URL
+        value: https://manecomb.onrender.com
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: MAP_GEOCODING_PROVIDER
+        value: mapbox
+      - key: MAP_ROUTING_PROVIDER
+        value: mapbox
+      - key: DOCUMENT_STORAGE_DRIVER
+        value: mongo
+      - key: PAYMENT_PROVIDER
+        value: manual
+      - key: BANK_TRANSFER_ACCOUNT_NAME
+        sync: false
+      - key: BANK_TRANSFER_CLABE
+        sync: false
+      - key: BANK_TRANSFER_BANK_NAME
+        sync: false
+      - key: MERCADO_PAGO_ENV
+        sync: false
+      - key: MERCADO_PAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADO_PAGO_PUBLIC_KEY
+        sync: false
+      - key: MERCADO_PAGO_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: ManeComb
+      - key: EMAIL_ENABLED
+        value: "true"
+      - key: EMAIL_DRY_RUN
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENABLE_REDIS
+        sync: false
+      - key: ENABLE_QUEUES
+        sync: false
+      - key: REDIS_PERSISTENCE_ENABLED
+        sync: false
+      - key: REDIS_MAXMEMORY_POLICY
+        sync: false
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
+      - key: TURN_SECRET
+        sync: false
+      - key: TURN_REALM
+        sync: false
+      - key: TURN_CREDENTIAL_TTL_SECONDS
+        value: "3600"
+      - key: FCM_PROJECT_ID
+        sync: false
+      - key: FCM_CLIENT_EMAIL
+        sync: false
+      - key: FCM_PRIVATE_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      - key: AUTO_ROUTE_LEARNING_ENABLED
+        sync: false
+      - key: AUTO_ROUTE_REVIEW_ENABLED
+        sync: false
+      - key: AUTO_ROUTE_SEGMENT_LEARNING_ENABLED
+        sync: false
