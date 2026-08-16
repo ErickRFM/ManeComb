@@ -3,14 +3,46 @@ import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
   hydratePendingSyncOperationForReplay,
+  loadOfflineCache,
   loadPendingSyncQueue,
+  patchOfflineCachedActiveRouteSession,
   removePendingSyncOperation,
+  saveOfflineCache,
   type PendingSyncOperation,
 } from './offline-cache';
+import type { RouteSession } from '@/src/types/app';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+
+const pendingSession: RouteSession = {
+  id: 'pending:vehicle-101',
+  organizationId: 'org-1',
+  routeId: 'route-1',
+  vehicleId: 'vehicle-101',
+  driverId: 'driver-1',
+  startedAt: '2026-08-15T20:00:00.000Z',
+  finishedAt: null,
+  status: 'RUNNING',
+  createdAt: '2026-08-15T20:00:00.000Z',
+  updatedAt: '2026-08-15T20:00:00.000Z',
+};
+
+const baseCache = {
+  authContext: null,
+  user: null,
+  mapData: null,
+  incidents: [],
+  conversations: [],
+  chatContacts: [],
+  messagesByConversation: {},
+  documents: [],
+  notifications: [],
+  users: [],
+  activeRouteSession: null,
+  routeSessionHistory: [],
+};
 
 describe('cola offline de Control', () => {
   beforeEach(async () => {
@@ -64,8 +96,6 @@ describe('cola offline de Control', () => {
     expect(replay.type).toBe('vehicle:location');
     if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
     expect(replay.payload.clientQueueAgeMs).toBe(30 * 60 * 1000);
-    // The device wall clock/capture timestamp is preserved as evidence; replay
-    // age is a separate elapsed-duration authority.
     expect(replay.payload.timestamp).toBe(operation.payload.timestamp);
   });
 
@@ -137,7 +167,32 @@ describe('cola offline de Control', () => {
     expect(restoredTexts).toEqual(['second', 'third']);
   });
 
-  it('clearOfflineCache actua como barrera contra writes pendientes de la cola', async () => {
+  it('persiste activeRouteSession sin reemplazar el resto del snapshot', async () => {
+    await saveOfflineCache(baseCache);
+
+    await patchOfflineCachedActiveRouteSession(pendingSession);
+
+    const restored = await loadOfflineCache();
+    expect(restored?.activeRouteSession).toEqual(pendingSession);
+    expect(restored?.incidents).toEqual([]);
+    expect(restored?.messagesByConversation).toEqual({});
+    expect(restored?.routeSessionHistory).toEqual([]);
+    expect(restored?.savedAt).toEqual(expect.any(String));
+  });
+
+  it('permite limpiar una jornada offline finalizada sin perder el snapshot', async () => {
+    await saveOfflineCache({ ...baseCache, activeRouteSession: pendingSession });
+
+    await patchOfflineCachedActiveRouteSession(null);
+
+    const restored = await loadOfflineCache();
+    expect(restored).not.toBeNull();
+    expect(restored?.activeRouteSession).toBeNull();
+  });
+
+  it('clearOfflineCache actua como barrera contra writes pendientes del snapshot y la cola', async () => {
+    await saveOfflineCache(baseCache);
+    const pendingPatch = patchOfflineCachedActiveRouteSession(pendingSession);
     const pendingEnqueue = enqueuePendingSyncOperation({
       type: 'incident:create',
       payload: {
@@ -149,8 +204,9 @@ describe('cola offline de Control', () => {
     });
 
     const pendingClear = clearOfflineCache();
-    await Promise.all([pendingEnqueue, pendingClear]);
+    await Promise.all([pendingPatch, pendingEnqueue, pendingClear]);
 
+    expect(await loadOfflineCache()).toBeNull();
     expect(await loadPendingSyncQueue()).toEqual([]);
   });
 });
