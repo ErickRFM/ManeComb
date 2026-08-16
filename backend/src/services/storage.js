@@ -344,6 +344,9 @@ async function migrateLegacyLocalDocumentsToMongo({ dryRun = true } = {}) {
   };
 
   for (const document of legacyDocuments) {
+    let migratedAsset = null;
+    let durableReferenceCommitted = false;
+
     try {
       const absolutePath = getLocalDocumentAbsolutePath(document.storageKey);
 
@@ -355,13 +358,16 @@ async function migrateLegacyLocalDocumentsToMongo({ dryRun = true } = {}) {
       summary.eligible += 1;
       if (dryRun) continue;
 
-      const migratedAsset = await uploadToMongo({
+      migratedAsset = await uploadToMongo({
         buffer: await fs.promises.readFile(absolutePath),
         mimetype: document.mimeType || "application/octet-stream",
         originalname: document.originalFileName || document.name || `documento-${document._id}`
       });
 
-      await DocumentModel.updateOne(
+      // La sustitucion del puntero local es CAS: si otro proceso ya modifico el
+      // documento, este worker no puede borrar el archivo original ni dejar el
+      // upload nuevo huerfano.
+      const updateResult = await DocumentModel.updateOne(
         { _id: document._id, storageType: "local", storageKey: document.storageKey },
         {
           $set: {
@@ -371,10 +377,25 @@ async function migrateLegacyLocalDocumentsToMongo({ dryRun = true } = {}) {
           }
         }
       );
+      const matchedCount = Number(updateResult?.matchedCount ?? updateResult?.n ?? 0);
+      const modifiedCount = Number(updateResult?.modifiedCount ?? updateResult?.nModified ?? 0);
 
-      await fs.promises.unlink(absolutePath).catch(() => undefined);
+      if (matchedCount !== 1 || modifiedCount !== 1) {
+        await deleteDocumentAsset(migratedAsset).catch(() => undefined);
+        migratedAsset = null;
+        summary.failed += 1;
+        continue;
+      }
+
+      durableReferenceCommitted = true;
       summary.migrated += 1;
+      // A partir de aqui Mongo/GridFS ya es autoridad. Un fallo de limpieza local
+      // no puede provocar rollback del asset al que el documento ya apunta.
+      await fs.promises.unlink(absolutePath).catch(() => undefined);
     } catch {
+      if (migratedAsset && !durableReferenceCommitted) {
+        await deleteDocumentAsset(migratedAsset).catch(() => undefined);
+      }
       summary.failed += 1;
     }
   }
