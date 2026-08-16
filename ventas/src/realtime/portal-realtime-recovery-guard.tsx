@@ -1,56 +1,57 @@
 import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/src/store/use-app-store';
+import { shouldReconcileDisconnected } from './recovery-policy';
 
-const REALTIME_STALL_RECONCILE_MS = 12_000;
-const DISCONNECTED_RECONCILE_MS = 4_000;
 const RECOVERY_COOLDOWN_MS = 3_000;
 const WATCHDOG_TICK_MS = 2_000;
 
-type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'stalled' | 'visible';
+type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'visible';
 
 /**
  * Cinturon de seguridad del Portal sobre el Socket.IO canonico.
  *
- * El socket sigue siendo la via primaria y los eventos `operational-unit:updated`
- * deben llegar de inmediato. Este guard NO abre un segundo socket ni deriva GPS.
- * Solo reconcilia el snapshot REST canonico cuando el navegador vuelve a primer
- * plano, recupera red o deja de observar progreso realtime durante demasiado
- * tiempo. Asi una pestaña dormida/half-open no puede quedarse mostrando el GPS
- * de ayer aunque Socket.IO tarde en detectar el corte.
+ * Socket.IO sigue siendo la via primaria. Mientras el transporte reporta
+ * `connected`, su ping/ping-timeout es la autoridad de salud y una flota quieta
+ * no se interpreta como un socket estancado. REST solo reconcilia cuando el
+ * navegador vuelve a primer plano, recupera red o Socket.IO entra en un estado
+ * de recuperacion real. La rotacion JWT se sincroniza directamente en la
+ * credencial `socket.auth` desde el store, sin abrir otro socket ni recargar el
+ * Portal completo.
  */
 export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode }) {
   const {
-    operationalUnits,
     refreshAll,
     socketStatus,
     token,
     userId,
   } = useAppStore(
     useShallow((state) => ({
-      operationalUnits: state.operationalUnits,
       refreshAll: state.refreshAll,
       socketStatus: state.socketStatus,
       token: state.token,
       userId: state.user?.id || null,
     }))
   );
-  const lastSnapshotProgressAt = useRef(Date.now());
+  const disconnectedSinceAt = useRef<number | null>(
+    socketStatus === 'connected' ? null : Date.now()
+  );
   const lastRecoveryAt = useRef(0);
   const recoveryInFlight = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
-    // `operationalUnits` se reemplaza tanto por Socket.IO como por la
-    // reconciliacion REST de `loadVehicles`; cualquiera de los dos demuestra
-    // que la proyeccion operacional avanzo.
-    lastSnapshotProgressAt.current = Date.now();
-  }, [operationalUnits]);
+    if (socketStatus === 'connected') {
+      disconnectedSinceAt.current = null;
+      return;
+    }
+
+    if (disconnectedSinceAt.current === null) {
+      disconnectedSinceAt.current = Date.now();
+    }
+  }, [socketStatus]);
 
   const reconcile = useCallback((reason: RecoveryReason) => {
     if (!token || !userId) return;
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && reason === 'stalled') {
-      return;
-    }
     if (recoveryInFlight.current) return;
 
     const now = Date.now();
@@ -76,7 +77,6 @@ export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode 
     const onPageShow = () => reconcile('pageshow');
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        lastSnapshotProgressAt.current = Date.now();
         reconcile('visible');
       }
     };
@@ -92,13 +92,16 @@ export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode 
     const watchdog = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
 
-      const stalledForMs = Date.now() - lastSnapshotProgressAt.current;
-      const threshold = socketStatus === 'connected'
-        ? REALTIME_STALL_RECONCILE_MS
-        : DISCONNECTED_RECONCILE_MS;
+      const disconnectedForMs = disconnectedSinceAt.current === null
+        ? 0
+        : Date.now() - disconnectedSinceAt.current;
 
-      if (stalledForMs >= threshold) {
-        reconcile(socketStatus === 'connected' ? 'stalled' : 'socket');
+      if (shouldReconcileDisconnected({
+        socketStatus,
+        visible: true,
+        disconnectedForMs,
+      })) {
+        reconcile('socket');
       }
     }, WATCHDOG_TICK_MS);
 
