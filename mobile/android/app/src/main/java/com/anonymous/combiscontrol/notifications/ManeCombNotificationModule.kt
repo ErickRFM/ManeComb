@@ -66,6 +66,23 @@ class ManeCombNotificationModule(
   }
 
   /**
+   * La bandeja del sistema pertenece a la identidad autenticada, igual que el
+   * cache y el socket. Al cerrar/expirar una sesion ninguna tarjeta con datos de
+   * chat, SOS o llamada de la cuenta anterior puede quedar visible ni tappable.
+   * Los NotificationChannel se conservan: son preferencias del dispositivo, no
+   * datos de una cuenta.
+   */
+  @ReactMethod
+  fun clearSessionNotifications(promise: Promise) {
+    try {
+      NotificationManagerCompat.from(reactContext).cancelAll()
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.resolve(false)
+    }
+  }
+
+  /**
    * Socket/JS reaches the exact same native NotificationChannel authority as FCM.
    * No direct MediaPlayer/Vibrator path exists, so foreground cannot bypass the
    * user's channel settings or race a push with a second feedback mechanism.
