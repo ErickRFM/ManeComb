@@ -15,14 +15,11 @@ type ChangePasswordResult = {
 };
 
 export async function changePasswordRequest(payload: ChangePasswordPayload) {
+  // Los POST no se reintentan automaticamente por el interceptor de ManeComb;
+  // cambiar credenciales conserva asi semantica de una sola intencion.
   const response = await apiClient.post<ChangePasswordResult>(
     '/users/me/change-password',
-    payload,
-    {
-      // Cambiar una credencial no es idempotente desde la perspectiva de sesion;
-      // nunca se reintenta automaticamente ante una respuesta perdida.
-      _skipNetworkRetry: true,
-    } as never
+    payload
   );
   return response.data;
 }
