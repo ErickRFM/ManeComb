@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import type { LiveLocationsData } from '@/src/types/app';
+import type { Incident, LiveLocationsData } from '@/src/types/app';
 import {
   getActiveIncident,
   getActiveRouteCount,
@@ -23,6 +23,7 @@ import {
 export function useTrackingData(
   units: readonly OperationalUnitSnapshot[],
   mapData: LiveLocationsData | null,
+  incidents: readonly Incident[],
   selectedUnitId: string | null,
   activeAlertIndex: number
 ) {
@@ -52,8 +53,8 @@ export function useTrackingData(
     [mapData?.vehicles]
   );
   const visibleIncidents = useMemo(
-    () => getVisibleIncidents(mapData, vehicleById),
-    [mapData, vehicleById]
+    () => getVisibleIncidents(incidents, vehicleById),
+    [incidents, vehicleById]
   );
   const activeIncident = useMemo(
     () => getActiveIncident(visibleIncidents, activeAlertIndex),

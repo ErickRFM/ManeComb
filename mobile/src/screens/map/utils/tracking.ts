@@ -148,20 +148,8 @@ export function getTrackingHudRouteSummary(activeRouteCount: number, unknownStat
   };
 }
 
-export function hasVehicleLiveLocation(vehicle: Vehicle | null | undefined) {
-  return Boolean(
-    vehicle?.locationTimestamp &&
-    Number.isFinite(Number(vehicle.location?.latitude)) &&
-    Number.isFinite(Number(vehicle.location?.longitude))
-  );
-}
-
-export function getVisibleIncidents(mapData: LiveLocationsData | null, vehicleById: Map<string, Vehicle>) {
-  if (!mapData) {
-    return [];
-  }
-
-  return mapData.incidents.filter((incident) =>
+export function getVisibleIncidents(incidents: readonly Incident[], vehicleById: Map<string, Vehicle>) {
+  return incidents.filter((incident) =>
     (typeof incident.vehicleId === 'string' && vehicleById.has(incident.vehicleId)) ||
     (
       Number.isFinite(Number(incident.location?.latitude)) &&

@@ -191,6 +191,7 @@ export function MapScreen() {
     error,
     isRefreshing,
     isSigningOut,
+    incidents,
     mapData,
     operationalUnits,
     lastSyncedAt,
@@ -207,6 +208,7 @@ export function MapScreen() {
       error: state.error,
       isRefreshing: state.isRefreshing,
       isSigningOut: state.isSigningOut,
+      incidents: state.incidents,
       mapData: state.mapData,
       operationalUnits: state.operationalUnits,
       lastSyncedAt: state.lastSyncedAt,
@@ -260,10 +262,8 @@ export function MapScreen() {
     return () => subscription.remove();
   }, [user?.vehicleId]);
 
-  // Reconciliacion de datos operativos: al montar la pantalla y al volver a
-  // primer plano se re-sincroniza mapData (incluida la ruta asignada) por si el
-  // evento socket `location:updated` se perdio mientras el usuario estaba
-  // desconectado o en segundo plano. refreshAll es idempotente.
+  // Al montar y volver a primer plano se re-sincronizan snapshots operativos,
+  // geometria y recursos REST. El socket operacional sigue siendo la via live.
   useEffect(() => {
     refreshAll().catch(() => undefined);
     const subscription = AppState.addEventListener('change', (state) => {
@@ -356,7 +356,7 @@ export function MapScreen() {
     selectedUnit,
     vehicleById,
     visibleIncidents,
-  } = useTrackingData(operationalUnits, mapData, selectedUnitId, activeAlertIndex);
+  } = useTrackingData(operationalUnits, mapData, incidents, selectedUnitId, activeAlertIndex);
 
   // Atributos no operacionales (ocupacion, combustible, odometro) que aun no
   // forman parte del contrato. Todo lo operacional sale de `selectedUnit`.
@@ -465,7 +465,10 @@ export function MapScreen() {
     const nextIndex = activeAlertIndex + 1;
     const incident = visibleIncidents[nextIndex % visibleIncidents.length];
     const vehicle = vehicleById.get(incident.vehicleId || '');
-    const point = incident.location || vehicle?.location;
+    const unit = incident.vehicleId ? operationalUnits.find((entry) => entry.unitId === incident.vehicleId) : null;
+    const point = incident.location || (unit?.gps.lat == null || unit.gps.lng == null
+      ? null
+      : { latitude: unit.gps.lat, longitude: unit.gps.lng });
 
     setActiveAlertIndex(nextIndex);
 
@@ -536,6 +539,7 @@ export function MapScreen() {
       : {
           ...mapData,
           routes: selectedVehicleRoutes,
+          incidents: visibleIncidents,
         };
   const visibleMapUnits = driverWithoutUnit ? [] : mappableUnits;
   // El backend ya entrega inventario tenant/driver-scoped; Mobile no vuelve a inferir alcance por rol.
