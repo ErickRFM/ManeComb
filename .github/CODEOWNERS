@@ -1,0 +1,12 @@
+# ManeComb code ownership
+# Repository owner and final code-review authority:
+# Erick Rivaldo Flores Maza (@ErickRFM)
+
+* @ErickRFM
+
+/.github/ @ErickRFM
+/backend/ @ErickRFM
+/mobile/ @ErickRFM
+/ventas/ @ErickRFM
+/admin-global/ @ErickRFM
+/shared/ @ErickRFM
