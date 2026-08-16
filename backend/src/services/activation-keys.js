@@ -4,6 +4,10 @@ const logger = require("./logger");
 const { buildSubscription, pickActiveOrder } = require("./portal-account");
 
 const DEFAULT_KEY_TTL_DAYS = 14;
+// Mongo conserva `expiresAt` como Date requerido y los contadores atomicos usan
+// comparaciones por fecha. Esta fecha es una representacion interna de "sin
+// vencimiento"; el contrato publico siempre la proyecta como `expiresAt: null`.
+const NON_EXPIRING_KEY_EXPIRES_AT = "9999-12-31T23:59:59.999Z";
 
 const ACTIVATION_ERROR_CODES = Object.freeze({
   accountExists: "activation_account_exists",
@@ -62,6 +66,11 @@ function toIso(value) {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function toPublicExpiration(value) {
+  const iso = toIso(value);
+  return iso === NON_EXPIRING_KEY_EXPIRES_AT ? null : iso;
 }
 
 function normalizeActivationKey(value) {
@@ -137,7 +146,7 @@ function presentActivationKey(activationKey, users = []) {
     usedByDriverId,
     usedByDriverState: driverState,
     driver: presentDriver(driver),
-    expiresAt: toIso(activationKey.expiresAt),
+    expiresAt: toPublicExpiration(activationKey.expiresAt),
     usedAt: toIso(activationKey.usedAt),
     sharedAt: toIso(activationKey.sharedAt),
     sharedBy: activationKey.sharedBy || null,
@@ -288,7 +297,7 @@ function generateSecureKeyValue() {
 
 function getExpiration(days = DEFAULT_KEY_TTL_DAYS) {
   if (days === null) {
-    return null;
+    return NON_EXPIRING_KEY_EXPIRES_AT;
   }
 
   const expiresAt = new Date();
@@ -615,7 +624,7 @@ async function validateDriverActivationKey(store, keyValue) {
     companyName: context.order?.companyName || "Empresa ManeComb",
     planId: context.order?.planId || activationKey.planId,
     planName: context.order?.planName || "Plan activo",
-    expiresAt: toIso(activationKey.expiresAt),
+    expiresAt: toPublicExpiration(activationKey.expiresAt),
     availableDrivers: summary.remainingDriverSlots,
     availableUnits: await listAvailableActivationUnits(store, activationKey.companyId)
   };
