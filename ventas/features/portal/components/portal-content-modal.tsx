@@ -40,7 +40,7 @@ export function PortalContentModal({
           accessibilityLabel="Cerrar ventana"
           accessibilityRole="button"
           onPress={onClose}
-          style={StyleSheet.absoluteFill}
+          style={StyleSheet.absoluteFillObject}
         />
         <View
           style={[
