@@ -50,4 +50,21 @@ describe('background GPS authority boundaries', () => {
       post.indexOf('val responseCode = connection.responseCode')
     );
   });
+
+  it('anchors a headless pending journey to the oldest matching queued capture', () => {
+    const service = source('../../android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationService.kt');
+    const startBoundary = service.slice(
+      service.indexOf('private fun pendingSessionStartedAt'),
+      service.indexOf('private fun postLocation')
+    );
+
+    expect(startBoundary).toContain('sessionId.startsWith("pending:")');
+    expect(startBoundary).toContain('packet.optString("sessionId", "") == sessionId');
+    expect(startBoundary).toContain('packet.optLong("timestamp", 0L)');
+    expect(startBoundary).toContain('.minOrNull()');
+    expect(startBoundary).toContain('val startPayload = JSONObject().put("vehicleId", vehicleId)');
+    expect(startBoundary).toContain('pendingSessionStartedAt()?.let { capturedAt ->');
+    expect(startBoundary).toContain('startPayload.put("startedAt", capturedAt)');
+    expect(startBoundary).toContain('writer.write(startPayload.toString())');
+  });
 });
