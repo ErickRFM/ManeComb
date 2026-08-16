@@ -26,11 +26,25 @@ type LifecycleGlobal = typeof globalThis & {
   __MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__?: boolean;
 };
 
+function teardownNativeSessionResources() {
+  // Son recursos locales del dispositivo: deben fallar cerrado aunque el
+  // backend no sea alcanzable durante el teardown.
+  void Promise.allSettled([
+    clearSessionNotifications(),
+    deleteNativePushToken(),
+  ]);
+}
+
 /**
  * Root-store conserva la autoridad de autenticacion. Este observer solo limpia
  * recursos Android que viven fuera de Zustand cuando esa autoridad termina la
  * identidad local. Asi una expiracion/suspension tambien elimina el token FCM y
  * las tarjetas de la cuenta anterior, no solo el logout pulsado por el usuario.
+ *
+ * Ademas cubre process death durante logout: en el siguiente arranque espera a
+ * que bootstrap termine de hidratar y, si la autoridad confirma que no existe
+ * identidad, limpia cualquier recurso nativo que haya sobrevivido al proceso.
+ * No rota FCM a ciegas antes de saber si habia una sesion recordada valida.
  *
  * El marcador global evita subscriptions duplicadas bajo Fast Refresh/HMR.
  */
@@ -42,15 +56,16 @@ function ensureNativeSessionTeardownObserver() {
   useAppStore.subscribe((state, previousState) => {
     const previousHadIdentity = Boolean(previousState.token && previousState.user?.id);
     const currentHasIdentity = Boolean(state.token && state.user?.id);
+    const identityJustEnded = previousHadIdentity && !currentHasIdentity;
+    const unauthenticatedBootstrapJustSettled =
+      state.isHydrated &&
+      !state.isBootstrapping &&
+      !currentHasIdentity &&
+      (!previousState.isHydrated || previousState.isBootstrapping);
 
-    if (!previousHadIdentity || currentHasIdentity) return;
+    if (!identityJustEnded && !unauthenticatedBootstrapJustSettled) return;
 
-    // Son recursos locales del dispositivo: deben fallar cerrado aunque el
-    // backend no sea alcanzable durante el teardown.
-    void Promise.allSettled([
-      clearSessionNotifications(),
-      deleteNativePushToken(),
-    ]);
+    teardownNativeSessionResources();
   });
 }
 
