@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { AppTheme, Typography } from '@/constants/theme';
+import { AppTheme, palette, Typography } from '@/constants/theme';
 import { transition } from '@/src/native/motion';
 import { portalGlass, portalPalette } from '../portal-theme';
 
@@ -35,7 +35,7 @@ export function PortalContentModal({
       onRequestClose={onClose}
       transparent
       visible={visible}>
-      <View style={[styles.overlay, { backgroundColor: portalPalette.overlay }]}> 
+      <View style={[styles.overlay, { backgroundColor: palette.overlay }]}>
         <Pressable
           accessibilityLabel="Cerrar ventana"
           accessibilityRole="button"
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     padding: AppTheme.spacing.lg,
   },
   panel: {
-    backgroundColor: portalPalette.card,
+    backgroundColor: portalPalette.surfaceStrong,
     borderColor: portalPalette.line,
     borderRadius: AppTheme.radius.lg,
     borderWidth: 1,
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.control,
+    borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     flexShrink: 0,
     height: 40,
