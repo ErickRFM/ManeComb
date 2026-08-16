@@ -52,7 +52,7 @@ describe('Push notification permission authority', () => {
     const clearSection = between(
       nativeModule,
       'fun clearSessionNotifications(promise: Promise)',
-      '/**\n   * Socket/JS reaches'
+      'fun playOperationalAlert('
     );
 
     expect(push).toContain('export async function clearSessionNotifications()');
