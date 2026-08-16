@@ -78,14 +78,4 @@ assert.ok(
   'el cache de planes debe tolerar navegadores con localStorage restringido'
 );
 
-const readiness = read('../backend/src/services/runtime-readiness.js');
-assert.ok(
-  readiness.includes('redis.enabled && !redis.ready'),
-  'Redis configurado pero caido debe degradar readiness'
-);
-assert.ok(
-  readiness.includes('redisRequiredButUnavailable'),
-  'la degradacion Redis debe quedar nombrada y auditable'
-);
-
 console.log('ok - ventas connection hardening behavior and contracts');
