@@ -860,6 +860,16 @@ configureApiSessionRecovery({
       refreshToken: session.refreshToken || state.refreshToken,
       user: (session.user as User | undefined) || state.user,
     }));
+
+    // La conexion autenticada actual puede seguir viva con el JWT del handshake
+    // original. Lo importante al rotar el access token es actualizar la credencial
+    // que Socket.IO usara en cualquier reconnect futuro, sin abrir otro socket ni
+    // forzar una recarga completa del Portal.
+    const refreshedState = useAppStore.getState();
+    if (socket && refreshedState.user) {
+      socket.auth = { token: session.token };
+      socketSessionKey = `${SOCKET_URL}:${refreshedState.user.id}:${session.token}`;
+    }
   },
   onSessionExpired: () => clearSession(useAppStore.setState),
 });
