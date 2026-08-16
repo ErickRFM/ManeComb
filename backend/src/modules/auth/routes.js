@@ -711,14 +711,17 @@ router.post("/logout", async (req, res) => {
   }
 
   const logoutUserId = session?.userId || bearerSession?.userId || null;
-  if (pushToken && logoutUserId) {
+  // El fallback push solo puede usar una sesion que acaba de revocarse en esta
+  // llamada. Un bearer viejo sigue pudiendo cerrar su sid exacto una vez, pero
+  // no se transforma en una credencial reutilizable para side effects futuros.
+  if (pushToken && session?.userId) {
     try {
-      await req.app.locals.store.unregisterPushSubscription(logoutUserId, pushToken);
+      await req.app.locals.store.unregisterPushSubscription(session.userId, pushToken);
     } catch (pushError) {
       logger.warn({
         action: "logout.push_unregister_failed",
         error: communication.security.sanitizeProviderError(pushError),
-        userId: logoutUserId
+        userId: session.userId
       });
     }
   }
