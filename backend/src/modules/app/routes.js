@@ -13,8 +13,9 @@ router.get("/info", async (req, res, next) => {
     const appConfig = store?.getAppConfig
       ? await Promise.resolve(store.getAppConfig())
       : null;
+    const publishedVersion = String(appConfig?.version || "").trim();
 
-    if (!appConfig) {
+    if (!appConfig || !publishedVersion) {
       return res.status(503).json({
         ok: false,
         code: "app_release_not_configured",
