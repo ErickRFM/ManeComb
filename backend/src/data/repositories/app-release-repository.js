@@ -48,11 +48,10 @@ class AppReleaseRepository extends StoreDomainRepository {
     this.AppClientVersionModel = AppClientVersionModel || null;
   }
 
+  // El adapter embebido contiene fixtures historicos para pruebas. Nunca deben
+  // convertirse en valores iniciales del singleton durable de produccion.
   async getSeedConfig() {
-    const fallback = typeof this.store.getAppConfig === "function"
-      ? await Promise.resolve(this.store.getAppConfig())
-      : null;
-    return pickAppConfig(fallback || {});
+    return {};
   }
 
   async ensureAppConfig() {
@@ -108,11 +107,6 @@ class AppReleaseRepository extends StoreDomainRepository {
     const patch = pickAppConfig(data);
     if (!Object.keys(patch).length) return this.getAppConfig();
 
-    const seed = await this.getSeedConfig();
-    const seedForInsert = {};
-    for (const [field, value] of Object.entries(seed)) {
-      if (patch[field] === undefined) seedForInsert[field] = value;
-    }
     const now = new Date();
 
     try {
@@ -124,7 +118,6 @@ class AppReleaseRepository extends StoreDomainRepository {
             updatedAt: now
           },
           $setOnInsert: {
-            ...seedForInsert,
             createdAt: now
           }
         },
