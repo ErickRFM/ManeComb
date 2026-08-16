@@ -271,7 +271,10 @@ async function installRoleContract(page: Page, identity: RoleIdentity) {
 
 async function expectNavigationItems(page: Page, labels: string[], visible: boolean) {
   for (const label of labels) {
-    const item = page.getByRole('button', { name: label, exact: true });
+    // El botón del sidebar expone una etiqueta accesible deliberadamente
+    // accionable ("Abrir Mi plan", "Abrir Equipo", etc.). La certificación
+    // debe validar ese contrato real, no un texto interno visual.
+    const item = page.getByRole('button', { name: `Abrir ${label}`, exact: true });
     if (visible) {
       await expect(item, `Falta navegación ${label}`).toBeVisible();
     } else {
