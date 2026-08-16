@@ -16,12 +16,14 @@ function getRuntimeReadiness(dbState) {
   const communicationReadiness = communication.getReadiness();
   const queues = communicationReadiness.queue;
   const databaseReady = Boolean(dbState?.connected);
+  const redisRequiredButUnavailable = Boolean(redis.enabled && !redis.ready);
 
   const degraded =
     !databaseReady ||
     !storage.ready ||
     !payments.ready ||
     !rtc.ready ||
+    redisRequiredButUnavailable ||
     (transcription.provider !== "none" && !transcription.ready) ||
     !notifications.email.ready ||
     !notifications.whatsapp.ready;
