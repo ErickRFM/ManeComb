@@ -375,6 +375,31 @@ type StoreSet = (
   partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)
 ) => void;
 
+type SessionIdentitySnapshot = {
+  epoch: number;
+  userId: string | null;
+};
+
+function captureSessionIdentity(get: () => AppState): SessionIdentitySnapshot {
+  return {
+    epoch: getSessionEpoch(),
+    userId: get().user?.id || null,
+  };
+}
+
+function isSessionIdentityCurrent(
+  get: () => AppState,
+  snapshot: SessionIdentitySnapshot
+) {
+  const current = get();
+  return Boolean(
+    snapshot.userId &&
+    !isSessionEpochStale(snapshot.epoch) &&
+    !current.isSigningOut &&
+    current.user?.id === snapshot.userId
+  );
+}
+
 function getEmptyOperationalState(): Partial<AppState> {
   return {
     mapData: null,
@@ -475,7 +500,7 @@ function logStoreError(scope: string, error: unknown) {
   }
 
   const traceId = getErrorTraceId(error);
-  const message = getReadableErrorMessage(error, 'Error interno de la aplicaciÃ³n.');
+  const message = getReadableErrorMessage(error, 'Error interno de la aplicación.');
 
   console.warn(`[store:${scope}] ${message}${traceId ? ` traceId=${traceId}` : ''}`, error);
 }
@@ -970,26 +995,35 @@ async function refreshPendingSyncCount(set: StoreSet) {
 }
 
 async function registerCurrentPushToken() {
+  const get = () => useAppStore.getState();
+  const session = captureSessionIdentity(get);
+  if (!isSessionIdentityCurrent(get, session)) return;
+
   try {
     await configureAppNotifications();
+    if (!isSessionIdentityCurrent(get, session)) return;
     // Permission controls visible notifications only. FCM token registration
     // must continue even when the user denies the Android 13+ prompt because
     // data delivery is also used by realtime/call infrastructure.
     await requestAppNotificationPermission().catch(() => 'unavailable');
+    if (!isSessionIdentityCurrent(get, session)) return;
     const pushToken = await requestNativePushToken();
 
-    if (!pushToken) {
+    if (!pushToken || !isSessionIdentityCurrent(get, session)) {
       return;
     }
 
     const previousPushToken = await getStoredItem(PUSH_TOKEN_KEY);
+    if (!isSessionIdentityCurrent(get, session)) return;
 
     if (previousPushToken !== pushToken) {
       if (previousPushToken) {
         await unregisterPushSubscriptionRequest(previousPushToken).catch(() => undefined);
+        if (!isSessionIdentityCurrent(get, session)) return;
       }
 
       await setStoredItem(PUSH_TOKEN_KEY, pushToken);
+      if (!isSessionIdentityCurrent(get, session)) return;
     }
 
     await registerPushSubscriptionRequest({
@@ -998,7 +1032,9 @@ async function registerCurrentPushToken() {
       deviceName: Platform.OS,
     });
   } catch (error) {
-    logStoreError('pushToken', error);
+    if (isSessionIdentityCurrent(get, session)) {
+      logStoreError('pushToken', error);
+    }
   }
 }
 
@@ -1050,7 +1086,7 @@ function joinCurrentConversationRooms(get: () => AppState) {
 
 function emitCurrentPresence(get: () => AppState) {
   const current = get();
-  if (!socket?.connected || !current.user) return;
+  if (!socket?.connected || !current.user || current.isSigningOut) return;
   socket.emit('presence:join', { packetId: createRealtimePacketId('presence') });
 }
 
@@ -1125,9 +1161,13 @@ function connectSocket(
   get: () => AppState,
   options: { forceFreshTransport?: boolean; diagTrigger?: string } = {}
 ) {
-  const { token, user } = get();
-  if (!user) {
-    logRealtimeDiag('connectSocket:no_user', { trigger: options.diagTrigger || 'unknown' });
+  const { token, user, isSigningOut } = get();
+  if (!user || isSigningOut) {
+    logRealtimeDiag('connectSocket:no_session', {
+      trigger: options.diagTrigger || 'unknown',
+      isSigningOut,
+      hasUser: Boolean(user),
+    });
     return disconnectSocket();
   }
   const nextSessionKey = `${SOCKET_URL}:${user.id}:${token || 'anonymous'}`;
@@ -1182,16 +1222,27 @@ function connectSocket(
     autoConnect: false,
   });
 
+  const sessionSocket = socket;
+  const socketEpoch = getSessionEpoch();
+  const socketUserId = user.id;
+  const isSocketSessionCurrent = () => Boolean(
+    socket === sessionSocket &&
+    socketSessionKey === nextSessionKey &&
+    !isSessionEpochStale(socketEpoch) &&
+    !get().isSigningOut &&
+    get().user?.id === socketUserId
+  );
+
   const emitHeartbeat = () => {
     const current = get();
-    if (!socket?.connected || !current.user) {
+    if (!isSocketSessionCurrent() || !sessionSocket.connected || !current.user) {
       return;
     }
 
     const packetId = createRealtimePacketId('heartbeat');
     const sentAt = Date.now();
 
-    socket.timeout(SOCKET_ACK_TIMEOUT_MS).emit(
+    sessionSocket.timeout(SOCKET_ACK_TIMEOUT_MS).emit(
       'client:heartbeat',
       {
         accountType: current.user.accountType,
@@ -1202,6 +1253,8 @@ function connectSocket(
         userId: current.user.id,
       },
       (error: unknown, ack?: SocketHeartbeatAck) => {
+        if (!isSocketSessionCurrent()) return;
+
         if (error || ack?.ok === false) {
           missedHeartbeatAcks += 1;
           const reason =
@@ -1216,9 +1269,9 @@ function connectSocket(
           });
 
           set((state) => ({
-            networkStatus: socket?.connected ? 'online' : 'recovering',
+            networkStatus: sessionSocket.connected ? 'online' : 'recovering',
             socketStatus:
-              socket?.connected && missedHeartbeatAcks < SOCKET_MISSED_HEARTBEAT_LIMIT
+              sessionSocket.connected && missedHeartbeatAcks < SOCKET_MISSED_HEARTBEAT_LIMIT
                 ? 'connected'
                 : 'reconnecting',
             realtimeDiagnostics: {
@@ -1238,8 +1291,8 @@ function connectSocket(
             setSocketTransition(set, 'reconnecting', 'heartbeat_ack_limit_reached', {
               reconnectAttempts: socketReconnectAttempts,
             });
-            socket?.disconnect();
-            socket?.connect();
+            sessionSocket.disconnect();
+            sessionSocket.connect();
           }
           return;
         }
@@ -1261,27 +1314,30 @@ function connectSocket(
     );
   };
 
-  socket.on('connect', () => {
+  sessionSocket.on('connect', () => {
+    if (!isSocketSessionCurrent()) return;
     missedHeartbeatAcks = 0;
     socketAuthRetries = 0;
     setSocketTransition(set, 'connected', 'socket_connected', {
       missedHeartbeatAcks: 0,
     });
     set({ networkStatus: 'online' });
-    mobileLog('socket', `connected ${socket?.id || ''}`);
+    mobileLog('socket', `connected ${sessionSocket.id || ''}`);
     emitCurrentPresence(get);
     emitHeartbeat();
     joinCurrentConversationRooms(get);
   });
 
-  socket.io.on('reconnect_attempt', () => {
+  sessionSocket.io.on('reconnect_attempt', () => {
+    if (!isSocketSessionCurrent()) return;
     socketReconnectAttempts += 1;
     setSocketTransition(set, 'reconnecting', 'socket_reconnect_attempt', {
       reconnectAttempts: socketReconnectAttempts,
     });
   });
 
-  socket.io.on('reconnect', () => {
+  sessionSocket.io.on('reconnect', () => {
+    if (!isSocketSessionCurrent()) return;
     missedHeartbeatAcks = 0;
     setSocketTransition(set, 'connected', 'socket_reconnected', {
       missedHeartbeatAcks: 0,
@@ -1296,22 +1352,24 @@ function connectSocket(
     ]);
   });
 
-  socket.on('disconnect', (reason) => {
+  sessionSocket.on('disconnect', (reason) => {
+    if (!isSocketSessionCurrent()) return;
     set((state) => applyPresenceToLoadedEntities(state, markAllPresenceUnknown()));
     setSocketTransition(set, reason === 'io client disconnect' ? 'disconnected' : 'reconnecting',
       `socket_disconnect:${reason}`);
     mobileLog('socket', `disconnected: ${reason}`);
   });
 
-  socket.on('connect_error', (error) => {
+  sessionSocket.on('connect_error', (error) => {
+    if (!isSocketSessionCurrent()) return;
     logRealtimeDiag('connect_error', {
       reason: error.message,
       isRealtimeAuthError: isRealtimeAuthError(error.message),
       socketAuthRetries,
       socketStatus: get().socketStatus,
-      socketConnected: Boolean(socket?.connected),
-      socketActive: Boolean(socket?.active),
-      socketId: socket?.id || null,
+      socketConnected: sessionSocket.connected,
+      socketActive: sessionSocket.active,
+      socketId: sessionSocket.id || null,
       sessionEpoch: getSessionEpoch(),
     });
 
@@ -1325,6 +1383,7 @@ function connectSocket(
       setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_requested');
       mobileLog('socket', 'connect_error requires token refresh', error.message);
       void refreshRealtimeAuth(set, get).catch((refreshError) => {
+        if (!isSocketSessionCurrent()) return;
         mobileLog('socket', 'unexpected realtime auth refresh failure', refreshError);
         if (get().user) {
           setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_unexpected_failure');
@@ -1335,11 +1394,11 @@ function connectSocket(
 
     // `socket.active` is true while the manager will keep retrying (e.g. the
     // server is asleep during a Render cold start). In that case the banner must
-    // read "Reconectando", not the terminal "Servidor no disponible" â€” the
+    // read "Reconectando", not the terminal "Servidor no disponible" — the
     // latter is reserved for fatal failures where reconnection has stopped.
     setSocketTransition(
       set,
-      socket?.active ? 'reconnecting' : 'error',
+      sessionSocket.active ? 'reconnecting' : 'error',
       `socket_connect_error:${error.message}`
     );
     mobileLog('socket', 'connect_error', error.message);
@@ -1348,14 +1407,24 @@ function connectSocket(
   const handleIncomingConversationMessage = async (
     payload: ChatMessage | { message?: ChatMessage; conversationId?: string }
   ) => {
+    if (!isSocketSessionCurrent()) return;
     const m = 'message' in payload && payload.message ? payload.message : payload as ChatMessage;
 
     if (!m.conversationId) {
       return;
     }
-    const hydrated = await hydrateConversationMessage(m, get().conversations.find(c => c.id === m.conversationId) || null, get().user);
+
+    const sessionUser = get().user;
+    if (!sessionUser || sessionUser.id !== socketUserId) return;
+    const hydrated = await hydrateConversationMessage(
+      m,
+      get().conversations.find(c => c.id === m.conversationId) || null,
+      sessionUser
+    );
+    if (!isSocketSessionCurrent()) return;
+
     const conversationId = hydrated.conversationId!;
-    const isOwnMessageBefore = hydrated.senderId === get().user?.id;
+    const isOwnMessageBefore = hydrated.senderId === socketUserId;
     let insertedMessage = false;
     set(s => {
       const alreadyExists = (s.messagesByConversation[conversationId] || []).some(
@@ -1384,7 +1453,7 @@ function connectSocket(
     const isRadio = hydrated.kind === 'audio' || isRadioConversation;
 
     if (!isOwnMessageBefore && !isRadioConversation) {
-      socket?.emit('chat:delivered', {
+      sessionSocket.emit('chat:delivered', {
         conversationId,
         messageId: hydrated.id,
       });
@@ -1400,7 +1469,7 @@ function connectSocket(
       const isEncryptedThread =
         Boolean(hydrated.encrypted) ||
         isDirectChatEncryptionActive({
-          currentUserId: get().user?.id || '',
+          currentUserId: socketUserId,
           conversation: get().conversations.find((c) => c.id === conversationId) || null,
         });
 
@@ -1421,14 +1490,15 @@ function connectSocket(
     }
   };
 
-  socket.on('chat:message', (payload) => {
+  sessionSocket.on('chat:message', (payload) => {
     handleIncomingConversationMessage(payload).catch(() => undefined);
   });
-  socket.on('radio:message:new', (payload) => {
+  sessionSocket.on('radio:message:new', (payload) => {
     handleIncomingConversationMessage(payload).catch(() => undefined);
   });
 
-  socket.on('chat:typing', ({ conversationId, userId, userName }: { conversationId: string; userId: string; userName: string }) => {
+  sessionSocket.on('chat:typing', ({ conversationId, userId, userName }: { conversationId: string; userId: string; userName: string }) => {
+    if (!isSocketSessionCurrent()) return;
     set(s => {
       const existing = s.typingByConversation[conversationId] || [];
       if (existing.some(t => t.userId === userId)) return s;
@@ -1442,7 +1512,8 @@ function connectSocket(
     });
   });
 
-  socket.on('chat:typing:stop', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+  sessionSocket.on('chat:typing:stop', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+    if (!isSocketSessionCurrent()) return;
     set(s => {
       const existing = s.typingByConversation[conversationId] || [];
       const filtered = existing.filter(t => t.userId !== userId);
@@ -1457,7 +1528,8 @@ function connectSocket(
     });
   });
 
-  socket.on('chat:delivered', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+  sessionSocket.on('chat:delivered', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    if (!isSocketSessionCurrent()) return;
     let messageFound = false;
     set(s => {
       const messages = s.messagesByConversation[conversationId];
@@ -1476,7 +1548,8 @@ function connectSocket(
     if (!messageFound) get().loadConversation(conversationId).catch(() => undefined);
   });
 
-  socket.on('chat:read', ({ conversationId, messageId, userId: _userId }: { conversationId: string; messageId: string; userId: string }) => {
+  sessionSocket.on('chat:read', ({ conversationId, messageId, userId: _userId }: { conversationId: string; messageId: string; userId: string }) => {
+    if (!isSocketSessionCurrent()) return;
     let messageFound = false;
     set(s => {
       const messages = s.messagesByConversation[conversationId];
@@ -1500,21 +1573,24 @@ function connectSocket(
     if (!messageFound) get().loadConversation(conversationId).catch(() => undefined);
   });
 
-  socket.on('presence:snapshot', ({ userIds }: { userIds: string[] }) => {
+  sessionSocket.on('presence:snapshot', ({ userIds }: { userIds: string[] }) => {
+    if (!isSocketSessionCurrent()) return;
     set(state => applyPresenceToLoadedEntities(
       state,
       buildPresenceSnapshot(getKnownPresenceUserIds(state), userIds || [])
     ));
   });
 
-  socket.on('presence:updated', ({ userId, status }: { userId: string; status: 'online' | 'offline' }) => {
+  sessionSocket.on('presence:updated', ({ userId, status }: { userId: string; status: 'online' | 'offline' }) => {
+    if (!isSocketSessionCurrent()) return;
     set(state => applyPresenceToLoadedEntities(state, {
       ...state.presenceByUser,
       [userId]: status,
     }));
   });
 
-  socket.on('location:updated', (v: Vehicle) => {
+  sessionSocket.on('location:updated', (v: Vehicle) => {
+    if (!isSocketSessionCurrent()) return;
     const nextVehicle = normalizeVehicle(v);
     set(s => ({
       mapData: s.mapData
@@ -1535,7 +1611,8 @@ function connectSocket(
 
   // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
   // merge parcial, porque un merge reintroduce campos de origen distinto.
-  socket.on('operational-unit:updated', (payload: unknown) => {
+  sessionSocket.on('operational-unit:updated', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const socketReceivedAtMs = Date.now();
     const unit =
       payload && typeof payload === 'object' && 'unit' in (payload as Record<string, unknown>)
@@ -1566,7 +1643,8 @@ function connectSocket(
     });
   });
 
-  socket.on('vehicle:created', (payload: unknown) => {
+  sessionSocket.on('vehicle:created', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const raw = payload && typeof payload === 'object' && 'vehicle' in (payload as Record<string, unknown>)
       ? (payload as { vehicle: Vehicle }).vehicle
       : (payload as Vehicle);
@@ -1587,7 +1665,8 @@ function connectSocket(
     }));
   });
 
-  socket.on('vehicle:updated', (payload: unknown) => {
+  sessionSocket.on('vehicle:updated', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const raw = payload && typeof payload === 'object' && 'vehicle' in (payload as Record<string, unknown>)
       ? (payload as { vehicle: Vehicle }).vehicle
       : (payload as Vehicle);
@@ -1608,7 +1687,8 @@ function connectSocket(
     }));
   });
 
-  socket.on('user:deleted', (payload: unknown) => {
+  sessionSocket.on('user:deleted', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const rawPayload = payload as Record<string, unknown>;
     const userId = typeof rawPayload?.userId === 'string'
       ? rawPayload.userId
@@ -1622,7 +1702,8 @@ function connectSocket(
     get().refreshAll().catch(() => undefined);
   });
 
-  socket.on('route-session:updated', (session: RouteSession) => {
+  sessionSocket.on('route-session:updated', (session: RouteSession) => {
+    if (!isSocketSessionCurrent()) return;
     if (
       !shouldAdoptRouteSessionUpdate({
         sessionVehicleId: session?.vehicleId,
@@ -1636,7 +1717,8 @@ function connectSocket(
     persistOfflineSnapshot(get);
   });
 
-  socket.on('user:updated', (payload: { user?: User }) => {
+  sessionSocket.on('user:updated', (payload: { user?: User }) => {
+    if (!isSocketSessionCurrent()) return;
     if (payload.user?.id === get().user?.id) set({ user: payload.user });
     get().refreshAll().catch(() => undefined);
   });
@@ -1649,13 +1731,15 @@ function connectSocket(
   // politica nativa y es el mismo que consulta el push, para que socket y FCM no
   // suenen los dos por el mismo incidentId durante una transicion
   // foreground/background.
-  socket.on('notification:created', (payload: unknown) => {
+  sessionSocket.on('notification:created', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const alert = toOperationalAlertFromNotification(payload);
     if (!alert) return;
     void playOperationalAlertFeedback(alert);
   });
 
-  socket.on('incident:sos', (payload: unknown) => {
+  sessionSocket.on('incident:sos', (payload: unknown) => {
+    if (!isSocketSessionCurrent()) return;
     const alert = toOperationalAlertFromSos(payload);
     if (!alert) return;
     void playOperationalAlertFeedback(alert);
@@ -1664,22 +1748,28 @@ function connectSocket(
   // `incident:updated` sigue sin producir sonido: un cambio de estado no es una
   // alerta nueva, y backend tampoco emite notificacion al pasar a in_progress o
   // resolved.
-  socket.on('incident:created', (i: Incident) => set(s => {
-    const incident = enrichIncidentFromState(s, i);
-    return {
-      incidents: upsertIncident(s.incidents, incident),
-      mapData: applyIncidentToMapData(s.mapData, incident),
-      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
-    };
-  }));
-  socket.on('incident:updated', (i: Incident) => set(s => {
-    const incident = enrichIncidentFromState(s, i);
-    return {
-      incidents: upsertIncident(s.incidents, incident),
-      mapData: applyIncidentToMapData(s.mapData, incident),
-      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
-    };
-  }));
+  sessionSocket.on('incident:created', (i: Incident) => {
+    if (!isSocketSessionCurrent()) return;
+    set(s => {
+      const incident = enrichIncidentFromState(s, i);
+      return {
+        incidents: upsertIncident(s.incidents, incident),
+        mapData: applyIncidentToMapData(s.mapData, incident),
+        resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
+      };
+    });
+  });
+  sessionSocket.on('incident:updated', (i: Incident) => {
+    if (!isSocketSessionCurrent()) return;
+    set(s => {
+      const incident = enrichIncidentFromState(s, i);
+      return {
+        incidents: upsertIncident(s.incidents, incident),
+        mapData: applyIncidentToMapData(s.mapData, incident),
+        resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
+      };
+    });
+  });
 
   [
     'account:created',
@@ -1691,7 +1781,8 @@ function connectSocket(
     'onboarding:updated',
     'activation-keys:updated',
   ].forEach((eventName) => {
-    socket?.on(eventName, (_payload) => {
+    sessionSocket.on(eventName, (_payload) => {
+      if (!isSocketSessionCurrent()) return;
       if (eventName === 'users:invited' || eventName === 'user:first-login') {
         get().loadUsers();
       }
@@ -1706,7 +1797,7 @@ function connectSocket(
     emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
-  socket.connect();
+  sessionSocket.connect();
 }
 
 async function hydrateConversationMessage(m: ChatMessage, c: ConversationSummary | null, u: User | null) {
@@ -1731,6 +1822,9 @@ async function applyRefreshedSession(
   get: () => AppState,
   result: LoginResult
 ) {
+  const refreshSession = captureSessionIdentity(get);
+  if (!isSessionIdentityCurrent(get, refreshSession)) return;
+
   const nextRefreshToken = result.refreshToken || get().refreshToken;
   const authContext = getAuthContextFromPayload(result);
   setAuthToken(result.token);
@@ -1739,6 +1833,8 @@ async function applyRefreshedSession(
   } else {
     await persistSession(null, null);
   }
+
+  if (!isSessionIdentityCurrent(get, refreshSession)) return;
   set({
     authContext,
     token: result.token,
@@ -1780,7 +1876,7 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
 
     try {
       const result = await refreshSessionRequest(refreshToken, APP_VERSION);
-      if (isSessionEpochStale(epoch) || !get().user) {
+      if (isSessionEpochStale(epoch) || !get().user || get().isSigningOut) {
         logRealtimeDiag('refreshRealtimeAuth:end', {
           outcome: 'discarded',
           code: 'session_epoch_stale',
@@ -1809,7 +1905,7 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
       });
       return result.token;
     } catch (error) {
-      if (isSessionEpochStale(epoch) || !get().user) {
+      if (isSessionEpochStale(epoch) || !get().user || get().isSigningOut) {
         logRealtimeDiag('refreshRealtimeAuth:end', {
           outcome: 'discarded',
           code: 'session_epoch_stale_after_error',
@@ -1872,6 +1968,7 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
     if (
       isSessionEpochStale(epoch) ||
       !get().user ||
+      get().isSigningOut ||
       NativeAppState.currentState !== 'active'
     ) {
       return;
@@ -1908,6 +2005,7 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
       if (
         isSessionEpochStale(epoch) ||
         !get().user ||
+        get().isSigningOut ||
         NativeAppState.currentState !== 'active'
       ) {
         return;
@@ -1924,6 +2022,7 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
     if (
       isSessionEpochStale(epoch) ||
       !get().user ||
+      get().isSigningOut ||
       NativeAppState.currentState !== 'active'
     ) {
       return;
@@ -1982,7 +2081,9 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
         await clearSessionState(set);
         set({ accountSuspended: true });
       },
-      onNetworkSignal: (signal) => setNetworkSignal(set, signal),
+      onNetworkSignal: (signal) => {
+        if (!get().isSigningOut) setNetworkSignal(set, signal);
+      },
     });
     recoveryConfigured = true;
   }
@@ -1990,9 +2091,11 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!networkUnsubscribe) {
     networkUnsubscribe = subscribeMobileNetwork((snapshot) => {
       const reachable = isNetworkReachable(snapshot);
-      setNetworkSignal(set, reachable ? 'online' : 'offline', snapshot);
+      if (!get().isSigningOut) {
+        setNetworkSignal(set, reachable ? 'online' : 'offline', snapshot);
+      }
 
-      if (reachable && get().user) {
+      if (reachable && get().user && !get().isSigningOut) {
         connectSocket(set, get, { diagTrigger: 'netinfoReachable' });
         get().flushPendingSync();
       }
@@ -2001,10 +2104,10 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
 
   if (!appStateSubscription) {
     appStateSubscription = NativeAppState.addEventListener('change', (state) => {
-      if (state === 'active' && get().user) {
+      if (state === 'active' && get().user && !get().isSigningOut) {
         set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
         void recoverMobileRuntimeAfterForeground(set, get);
-      } else if (state !== 'active') {
+      } else if (state !== 'active' && !get().isSigningOut) {
         set((current) => applyPresenceToLoadedEntities(current, markAllPresenceUnknown()));
       }
     });
@@ -2018,12 +2121,13 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       // state the banner stayed pinned until the app was killed and reopened.
       // Gate only on the device-level radio being unreachable, where an HTTP
       // probe cannot succeed anyway.
-      if (!get().user || !hasPhysicalNetworkLink(get().networkSnapshot)) {
+      if (!get().user || get().isSigningOut || !hasPhysicalNetworkLink(get().networkSnapshot)) {
         return;
       }
 
       healthRequest()
         .then(() => {
+          if (!get().user || get().isSigningOut) return;
           const wasOffline = get().networkStatus === 'offline';
           set({ networkStatus: 'online' });
           // The backend is awake again. Anything parked by a failed upload
@@ -2038,7 +2142,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
           // revive it here so the connection banner clears without restarting the
           // app. connectSocket is idempotent when the session key is unchanged.
           const current = get();
-          if (!current.user) {
+          if (!current.user || current.isSigningOut) {
             return;
           }
           if (!socket?.connected) {
@@ -2058,7 +2162,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
           }
         })
         .catch((error) => {
-          if (isProbablyNetworkError(error) && !socket?.connected) {
+          if (!get().isSigningOut && isProbablyNetworkError(error) && !socket?.connected) {
             setNetworkSignal(set, 'offline');
           }
         });
@@ -2067,36 +2171,47 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
 }
 
 async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
-  if (pendingSyncInFlight || !get().token || !get().user || get().networkStatus === 'offline') {
+  if (pendingSyncInFlight || !get().token || !get().user || get().isSigningOut || get().networkStatus === 'offline') {
     return;
   }
 
+  const replaySession = captureSessionIdentity(get);
+  if (!isSessionIdentityCurrent(get, replaySession)) return;
   pendingSyncInFlight = true;
 
   try {
     const queue = await refreshPendingSyncCount(set);
+    if (!isSessionIdentityCurrent(get, replaySession)) return;
 
     if (!queue.length) {
       return;
     }
 
     for (const operation of queue) {
+      if (!isSessionIdentityCurrent(get, replaySession)) return;
+
       try {
         if (operation.type === 'control:sessionStart') {
           const session = await startRouteSessionRequest(
             operation.payload.vehicleId,
             operation.payload.startedAt || operation.createdAt,
           );
+          if (!isSessionIdentityCurrent(get, replaySession)) return;
           set({ activeRouteSession: session });
         } else if (operation.type === 'control:sessionStatus') {
-          const sessionId = operation.payload.sessionId ||
-            (await getActiveRouteSessionRequest(operation.payload.vehicleId))?.id;
+          let sessionId = operation.payload.sessionId;
+          if (!sessionId) {
+            const activeSession = await getActiveRouteSessionRequest(operation.payload.vehicleId);
+            if (!isSessionIdentityCurrent(get, replaySession)) return;
+            sessionId = activeSession?.id;
+          }
           if (!sessionId) throw new Error('No existe una jornada activa para sincronizar');
           const session = await updateRouteSessionStatusRequest(
             sessionId,
             operation.payload.vehicleId,
             operation.payload.status
           );
+          if (!isSessionIdentityCurrent(get, replaySession)) return;
           set({ activeRouteSession: ['RUNNING', 'PAUSED'].includes(session.status) ? session : null });
         } else if (operation.type === 'incident:create') {
           await createIncidentRequest(operation.payload);
@@ -2107,19 +2222,23 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
           );
         } else if (operation.type === 'chat:sendMessage') {
           const state = get();
-          if (!state.user) throw new Error('No hay una sesion activa para sincronizar el mensaje');
+          if (!state.user || state.user.id !== replaySession.userId) {
+            return;
+          }
           const durableClientMessageId =
             normalizeClientMessageId(operation.payload.clientMessageId) || operation.id;
+          const messagePayload = await buildTextMessagePayload({
+            conversation: state.conversations.find(
+              (entry) => entry.id === operation.payload.conversationId
+            ) || null,
+            user: state.user,
+            text: operation.payload.text,
+          });
+          if (!isSessionIdentityCurrent(get, replaySession)) return;
           await sendMessageRequest(
             operation.payload.conversationId,
             {
-              ...(await buildTextMessagePayload({
-                conversation: state.conversations.find(
-                  (entry) => entry.id === operation.payload.conversationId
-                ) || null,
-                user: state.user,
-                text: operation.payload.text,
-              })),
+              ...messagePayload,
               clientMessageId: durableClientMessageId,
             }
           );
@@ -2144,13 +2263,16 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
           await updateVehicleLocationRequest(operation.payload);
         }
 
+        if (!isSessionIdentityCurrent(get, replaySession)) return;
         await removePendingSyncOperation(operation.id);
       } catch (error) {
+        if (!isSessionIdentityCurrent(get, replaySession)) return;
         const nextOperation: PendingSyncOperation = {
           ...operation,
           attempts: operation.attempts + 1,
         };
         await replacePendingSyncOperation(nextOperation);
+        if (!isSessionIdentityCurrent(get, replaySession)) return;
 
         if (isProbablyNetworkError(error)) {
           set({ networkStatus: 'offline' });
@@ -2161,7 +2283,9 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
       }
     }
 
+    if (!isSessionIdentityCurrent(get, replaySession)) return;
     await refreshPendingSyncCount(set);
+    if (!isSessionIdentityCurrent(get, replaySession)) return;
     await get().refreshAll();
   } finally {
     pendingSyncInFlight = false;
@@ -2174,29 +2298,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
-    if (!token || !refreshToken) return;
+    if (!token || !refreshToken || get().isSigningOut || !get().user) return;
+    const session = captureSessionIdentity(get);
     setAuthToken(token);
     if (get().sessionPersistence === 'persistent') {
       await persistSession(token, get().connectionMode, refreshToken);
     } else {
       await persistSession(null, null);
     }
+    if (!isSessionIdentityCurrent(get, session)) return;
     set({ token, refreshToken });
   },
   activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
   clearError: () => set({ error: null }),
   setActiveConversationId: (id) => {
-    if (get().activeConversationId === id) return;
+    if (get().activeConversationId === id || get().isSigningOut) return;
     set({ activeConversationId: id });
     socket?.emit('conversation:join', id);
   },
   setFocusedIncidentId: (id) => set({ focusedIncidentId: id }),
   markAsRead: (conversationId, messageId) => {
     const s = get();
+    if (!s.user || s.isSigningOut) return;
+    const ackSession = captureSessionIdentity(get);
+    const ackSocket = socket;
     const existing = s.readByConversation[conversationId] || new Set();
     if (existing.has(messageId)) return;
-    socket?.emit('chat:read', { conversationId, messageId }, (ack: { ok?: boolean } = {}) => {
-      if (!ack.ok) return;
+    ackSocket?.emit('chat:read', { conversationId, messageId }, (ack: { ok?: boolean } = {}) => {
+      if (
+        !ack.ok ||
+        socket !== ackSocket ||
+        !isSessionIdentityCurrent(get, ackSession)
+      ) return;
       set(current => ({
         conversations: current.conversations.map(conversation =>
           conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
@@ -2206,10 +2339,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   emitTyping: (conversationId, isTyping) => {
     const s = get();
+    if (!s.user || s.isSigningOut) return;
     if (isTyping) {
-      socket?.emit('chat:typing', { conversationId, userId: s.user?.id, userName: s.user?.name });
+      socket?.emit('chat:typing', { conversationId, userId: s.user.id, userName: s.user.name });
     } else {
-      socket?.emit('chat:typing:stop', { conversationId, userId: s.user?.id });
+      socket?.emit('chat:typing:stop', { conversationId, userId: s.user.id });
     }
   },
   initialize: async () => {
@@ -2261,7 +2395,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         nextRefreshToken = get().refreshToken || nextRefreshToken;
       } catch (error) {
         // Sesion invalidada mientras `/auth/me` estaba en vuelo. `clearSessionState`
-        // es dueÃ±o del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
+        // es dueño del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
         if (isSessionEpochStale(epoch)) return;
         if (isTransientSessionFailure(error)) {
           const startupError = getReadableErrorMessage(
@@ -2397,18 +2531,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     finally { set({ isSubmitting: false }); }
   },
   signOut: async () => {
-    // El epoch se invalida ANTES del `logoutRequest`: en el tier gratuito de
-    // Render esa llamada puede tardar decenas de segundos, y cualquier
-    // `refreshAll` en vuelo resolveria durante esa ventana reescribiendo `user`
-    // con `authContext` en null, lo que enruta a `/sync-error` en pleno logout.
+    // El epoch se invalida ANTES de cualquier await. Esto corta refresh/replay y
+    // callbacks realtime de la identidad anterior de forma sincronica.
     beginSessionEpoch();
     set({ isSigningOut: true, error: null });
     disconnectSocket();
     await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
-    const rt = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
-    await logoutRequest(rt).catch(() => {});
-    const pt = await getStoredItem(PUSH_TOKEN_KEY);
-    if (pt) { await unregisterPushSubscriptionRequest(pt).catch(() => {}); await deleteStoredItem(PUSH_TOKEN_KEY); }
+
+    const [rt, pt] = await Promise.all([
+      get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+      getStoredItem(PUSH_TOKEN_KEY),
+    ]);
+
+    // El DELETE push ocurre mientras el bearer/sid aun es valido. Si falla por
+    // red/token expirado, /auth/logout recibe el mismo token como fallback y lo
+    // elimina usando el sub firmado antes de completar la revocacion.
+    let pushTokenForLogout: string | null = null;
+    if (pt) {
+      try {
+        await unregisterPushSubscriptionRequest(pt);
+      } catch (error) {
+        pushTokenForLogout = pt;
+        logStoreError('signOut:pushUnregister', error);
+      }
+      await deleteStoredItem(PUSH_TOKEN_KEY);
+    }
+
+    await logoutRequest(rt, pushTokenForLogout).catch((error) => {
+      logStoreError('signOut:serverLogout', error);
+    });
     await clearSessionState(set);
   },
   setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
@@ -2743,23 +2894,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!t.trim() || !user) {
       return { ok: false, message: 'El mensaje no puede ir vacio.' };
     }
+    const session = captureSessionIdentity(get);
     set({ isSubmitting: true });
     try {
       const conversation = get().conversations.find(e => e.id === cid) || null;
-      const m = await sendMessageRequest(
-        cid,
-        {
-          ...(await buildTextMessagePayload({ conversation, user, text: t })),
-          clientMessageId,
-        }
-      );
+      const payload = await buildTextMessagePayload({ conversation, user, text: t });
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de enviar el mensaje.' };
+      }
+      const m = await sendMessageRequest(cid, { ...payload, clientMessageId });
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de confirmar el mensaje.' };
+      }
       const h = await hydrateConversationMessage(m, conversation, user);
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de guardar el mensaje.' };
+      }
       set(s => ({
         messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h),
         conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c))
       }));
       return { ok: true, messageRecord: h };
     } catch (error) {
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de completar el mensaje.' };
+      }
       logStoreError('sendMessage', error);
       if (isProbablyNetworkError(error)) {
         await enqueuePendingSyncOperation({
@@ -2778,7 +2937,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         ok: false,
         message: getReadableErrorMessage(error, 'No fue posible enviar el mensaje.'),
       };
-    } finally { set({ isSubmitting: false }); }
+    } finally {
+      if (isSessionIdentityCurrent(get, session)) set({ isSubmitting: false });
+    }
   },
   createIncident: async (d) => {
     set({ isSubmitting: true });
@@ -2939,10 +3100,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   loadConversation: async (id) => {
+    const session = captureSessionIdentity(get);
+    if (!isSessionIdentityCurrent(get, session)) return;
     set({ isLoadingConversation: true });
     try {
       const ms = await getMessagesRequest(id);
+      if (!isSessionIdentityCurrent(get, session)) return;
       const hms = await hydrateMessages(ms, get().conversations, get().user, id);
+      if (!isSessionIdentityCurrent(get, session)) return;
       set(s => ({
         messagesByConversation: {
           ...s.messagesByConversation,
@@ -2950,14 +3115,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
       socket?.emit('conversation:join', id);
-    } catch (error) { logStoreError('loadConversation', error); }
-    finally { set({ isLoadingConversation: false }); }
+    } catch (error) {
+      if (isSessionIdentityCurrent(get, session)) logStoreError('loadConversation', error);
+    } finally {
+      if (isSessionIdentityCurrent(get, session)) set({ isLoadingConversation: false });
+    }
   },
   loadChatConversation: async (id) => {
+    const session = captureSessionIdentity(get);
+    if (!isSessionIdentityCurrent(get, session)) return;
     set({ isLoadingConversation: true });
     try {
       const page = await getMessagesPageRequest(id);
+      if (!isSessionIdentityCurrent(get, session)) return;
       const hydrated = await hydrateMessages(page.items, get().conversations, get().user, id);
+      if (!isSessionIdentityCurrent(get, session)) return;
       set(state => ({
         messagesByConversation: {
           ...state.messagesByConversation,
@@ -2970,15 +3142,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       socket?.emit('conversation:join', id);
     } catch (error) {
-      logStoreError('loadChatConversation', error);
+      if (isSessionIdentityCurrent(get, session)) logStoreError('loadChatConversation', error);
     } finally {
-      set({ isLoadingConversation: false });
+      if (isSessionIdentityCurrent(get, session)) set({ isLoadingConversation: false });
     }
   },
   loadOlderChatMessages: async (id) => {
+    const session = captureSessionIdentity(get);
     const current = get();
     const pageInfo = current.chatPageInfoByConversation[id];
     if (
+      !isSessionIdentityCurrent(get, session) ||
       current.isLoadingOlderChatByConversation[id] ||
       !pageInfo?.hasMore ||
       !pageInfo.nextCursor
@@ -2993,7 +3167,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     try {
       const page = await getMessagesPageRequest(id, { before: pageInfo.nextCursor });
+      if (!isSessionIdentityCurrent(get, session)) return;
       const hydrated = await hydrateMessages(page.items, get().conversations, get().user, id);
+      if (!isSessionIdentityCurrent(get, session)) return;
       set(state => ({
         messagesByConversation: {
           ...state.messagesByConversation,
@@ -3005,14 +3181,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
     } catch (error) {
-      logStoreError('loadOlderChatMessages', error);
+      if (isSessionIdentityCurrent(get, session)) logStoreError('loadOlderChatMessages', error);
     } finally {
-      set(state => ({
-        isLoadingOlderChatByConversation: {
-          ...state.isLoadingOlderChatByConversation,
-          [id]: false,
-        },
-      }));
+      if (isSessionIdentityCurrent(get, session)) {
+        set(state => ({
+          isLoadingOlderChatByConversation: {
+            ...state.isLoadingOlderChatByConversation,
+            [id]: false,
+          },
+        }));
+      }
     }
   },
   loadChatContacts: async () => {
@@ -3032,8 +3210,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     finally { set({ isLoadingChatContacts: false }); }
   },
   openDirectConversation: async (tid, m = 'chat') => {
+    const session = captureSessionIdentity(get);
+    if (!isSessionIdentityCurrent(get, session)) return null;
     try {
       const responseConversation = await openDirectConversationRequest(tid, m);
+      if (!isSessionIdentityCurrent(get, session)) return null;
       const c = {
         ...responseConversation,
         participants: responseConversation.participants.map(participant => ({
@@ -3050,8 +3231,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             })),
         getChatContactsRequest(),
       ]);
+      if (!isSessionIdentityCurrent(get, session)) return null;
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(page.items, ncs, get().user, c.id);
+      if (!isSessionIdentityCurrent(get, session)) return null;
       set(s => ({
         conversations: ncs,
         chatContacts: cc.map(contact => ({
@@ -3073,14 +3256,20 @@ export const useAppStore = create<AppState>((set, get) => ({
           : {}),
       }));
       socket?.emit('conversation:join', c.id); return c;
-    } catch (error) { logStoreError('openDirectConversation', error); return null; }
+    } catch (error) {
+      if (isSessionIdentityCurrent(get, session)) logStoreError('openDirectConversation', error);
+      return null;
+    }
   },
   openGeneralConversation: async (m = 'chat', options) => {
     // setActive=false permite asegurar/enrolarse en el canal general (el backend
     // resincroniza participantes) sin arrastrar el canal activo del usuario.
     const setActive = options?.setActive !== false;
+    const session = captureSessionIdentity(get);
+    if (!isSessionIdentityCurrent(get, session)) return null;
     try {
       const responseConversation = await openGeneralConversationRequest(m);
+      if (!isSessionIdentityCurrent(get, session)) return null;
       const c = {
         ...responseConversation,
         participants: responseConversation.participants.map(participant => ({
@@ -3094,8 +3283,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             items: await getMessagesRequest(c.id),
             pageInfo: { hasMore: false, nextCursor: null },
           };
+      if (!isSessionIdentityCurrent(get, session)) return null;
       const ncs = upsertConversation(get().conversations, c);
       const hms = await hydrateMessages(page.items, ncs, get().user, c.id);
+      if (!isSessionIdentityCurrent(get, session)) return null;
       set(s => ({
         conversations: ncs,
         ...(setActive ? { activeConversationId: c.id } : {}),
@@ -3113,20 +3304,33 @@ export const useAppStore = create<AppState>((set, get) => ({
           : {}),
       }));
       socket?.emit('conversation:join', c.id); return c;
-    } catch (error) { logStoreError('openGeneralConversation', error); return null; }
+    } catch (error) {
+      if (isSessionIdentityCurrent(get, session)) logStoreError('openGeneralConversation', error);
+      return null;
+    }
   },
   sendVoiceMessage: async (cid, f) => {
     const { user } = get();
     if (!user) {
       return { ok: false, message: 'Debes iniciar sesion para enviar notas de voz.' };
     }
+    const session = captureSessionIdentity(get);
     set({ isSubmitting: true });
     try {
       const m = await sendVoiceMessageRequest(cid, f);
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de confirmar la nota de voz.' };
+      }
       const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, user);
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de guardar la nota de voz.' };
+      }
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
       return { ok: true, messageRecord: h };
     } catch (error) {
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de completar la nota de voz.' };
+      }
       logStoreError('sendVoiceMessage', error);
       if (isProbablyNetworkError(error)) {
         const durationSeconds = Number(f.get('durationSeconds')) || 0;
@@ -3153,20 +3357,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         ok: false,
         message: getReadableErrorMessage(error, 'No fue posible enviar la nota de voz.'),
       };
-    } finally { set({ isSubmitting: false }); }
+    } finally {
+      if (isSessionIdentityCurrent(get, session)) set({ isSubmitting: false });
+    }
   },
   sendMediaMessage: async (cid, f) => {
     const { user } = get();
     if (!user) {
       return { ok: false, message: 'Debes iniciar sesion para enviar archivos.' };
     }
+    const session = captureSessionIdentity(get);
     set({ isSubmitting: true });
     try {
       const m = await sendMediaMessageRequest(cid, f);
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de confirmar el archivo.' };
+      }
       const h = await hydrateConversationMessage(m, get().conversations.find(e => e.id === cid) || null, user);
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de guardar el archivo.' };
+      }
       set(s => ({ messagesByConversation: upsertConversationMessage(s.messagesByConversation, cid, h), conversations: sortConversations(s.conversations.map(c => c.id === cid ? { ...c, lastMessage: h } : c)) }));
       return { ok: true, messageRecord: h };
     } catch (error) {
+      if (!isSessionIdentityCurrent(get, session)) {
+        return { ok: false, message: 'La sesion cambio antes de completar el archivo.' };
+      }
       logStoreError('sendMediaMessage', error);
       if (isProbablyNetworkError(error)) {
         const caption = String(f.get('caption') || '');
@@ -3191,7 +3407,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         ok: false,
         message: getReadableErrorMessage(error, 'No fue posible enviar el archivo.'),
       };
-    } finally { set({ isSubmitting: false }); }
+    } finally {
+      if (isSessionIdentityCurrent(get, session)) set({ isSubmitting: false });
+    }
   },
   updateIncidentStatus: async (id, st) => {
     try {
@@ -3238,12 +3456,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   handlePushIntent: async (i) => {
-    if (!i) return;
-    if (i.notificationId) await get().markNotificationRead(i.notificationId).catch(() => {});
+    const session = captureSessionIdentity(get);
+    if (!i || !isSessionIdentityCurrent(get, session)) return;
+    if (i.notificationId) {
+      await get().markNotificationRead(i.notificationId).catch(() => {});
+      if (!isSessionIdentityCurrent(get, session)) return;
+    }
     if (i.target === 'chat' || i.target === 'radio') {
       const m = i.target === 'radio' ? 'radio' : i.channelMode || 'chat';
       if (i.conversationId) {
-        if (!get().conversations.some(c => c.id === i.conversationId)) await get().refreshAll().catch(() => {});
+        if (!get().conversations.some(c => c.id === i.conversationId)) {
+          await get().refreshAll().catch(() => {});
+          if (!isSessionIdentityCurrent(get, session)) return;
+        }
         set({ activeConversationId: i.conversationId });
         if (i.target === 'chat') await get().loadChatConversation(i.conversationId);
         else await get().loadConversation(i.conversationId);
@@ -3251,6 +3476,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       await get().openGeneralConversation(m); return;
     }
-    if (i.target === 'sos' || i.target === 'incidents') { if (i.incidentId) set({ focusedIncidentId: i.incidentId }); await get().refreshAll().catch(() => {}); }
+    if (i.target === 'sos' || i.target === 'incidents') {
+      if (!isSessionIdentityCurrent(get, session)) return;
+      if (i.incidentId) set({ focusedIncidentId: i.incidentId });
+      await get().refreshAll().catch(() => {});
+    }
   },
 }));
