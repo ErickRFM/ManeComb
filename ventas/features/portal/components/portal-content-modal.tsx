@@ -31,11 +31,11 @@ export function PortalContentModal({
   return (
     <Modal
       accessibilityViewIsModal
-      animationType="fade"
+      animationType={compact ? 'slide' : 'fade'}
       onRequestClose={onClose}
       transparent
       visible={visible}>
-      <View style={[styles.overlay, { backgroundColor: palette.overlay }]}>
+      <View style={[styles.overlay, compact ? styles.overlayCompact : undefined, { backgroundColor: palette.overlay }]}>
         <Pressable
           accessibilityLabel="Cerrar ventana"
           accessibilityRole="button"
@@ -47,12 +47,12 @@ export function PortalContentModal({
             styles.panel,
             portalGlass(),
             {
-              maxHeight: Math.max(360, height - (compact ? 28 : 72)),
+              maxHeight: Math.max(280, height - (compact ? 16 : 72)),
               maxWidth: panelMaxWidth,
             },
             compact ? styles.panelCompact : undefined,
           ]}>
-          <View style={styles.header}>
+          <View style={[styles.header, compact ? styles.headerCompact : undefined]}>
             <View style={styles.headerCopy}>
               <Text accessibilityRole="header" style={styles.title}>{title}</Text>
               {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -73,14 +73,15 @@ export function PortalContentModal({
 
           <ScrollView
             {...({ className: 'portal-scrollbar' } as any)}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, compact ? styles.contentCompact : undefined]}
+            keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={Platform.OS !== 'web'}
             style={styles.scroll}>
             {children}
           </ScrollView>
 
-          {footer ? <View style={styles.footer}>{footer}</View> : null}
+          {footer ? <View style={[styles.footer, compact ? styles.footerCompact : undefined]}>{footer}</View> : null}
         </View>
       </View>
     </Modal>
@@ -93,6 +94,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: AppTheme.spacing.lg,
+  },
+  overlayCompact: {
+    justifyContent: 'flex-end',
+    padding: AppTheme.spacing.sm,
   },
   panel: {
     backgroundColor: portalPalette.surfaceStrong,
@@ -114,6 +119,9 @@ const styles = StyleSheet.create({
     gap: AppTheme.spacing.md,
     justifyContent: 'space-between',
     padding: AppTheme.spacing.lg,
+  },
+  headerCompact: {
+    padding: AppTheme.spacing.md,
   },
   headerCopy: {
     flex: 1,
@@ -159,6 +167,10 @@ const styles = StyleSheet.create({
     gap: AppTheme.spacing.md,
     padding: AppTheme.spacing.lg,
   },
+  contentCompact: {
+    gap: AppTheme.spacing.sm,
+    padding: AppTheme.spacing.md,
+  },
   footer: {
     alignItems: 'center',
     borderTopColor: portalPalette.line,
@@ -168,5 +180,8 @@ const styles = StyleSheet.create({
     gap: AppTheme.spacing.sm,
     justifyContent: 'flex-end',
     padding: AppTheme.spacing.md,
+  },
+  footerCompact: {
+    padding: AppTheme.spacing.sm,
   },
 });
