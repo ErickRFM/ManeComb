@@ -37,8 +37,9 @@ function testOperationalSelfServiceIsPersonalOnly() {
     }
   );
 
-  assert.deepEqual(Object.keys(payload).sort(), ["avatarUrl", "email", "name", "password", "phone"].sort());
+  assert.deepEqual(Object.keys(payload).sort(), ["avatarUrl", "email", "name", "phone"].sort());
   assert.equal(payload.avatarUrl, avatarUrl);
+  assert.equal(payload.password, undefined);
   assert.equal(payload.companyProfile, undefined);
   assert.equal(payload.paymentProfile, undefined);
   assert.equal(payload.operationalSchedule, undefined);
@@ -127,8 +128,10 @@ function testOperationalAdminDoesNotBecomeCompanyEditor() {
 
 function testFieldCatalogsRemainExplicit() {
   assert.ok(PERSONAL_PROFILE_FIELDS.includes("avatarUrl"));
+  assert.ok(!PERSONAL_PROFILE_FIELDS.includes("password"));
   assert.ok(!PERSONAL_PROFILE_FIELDS.includes("companyProfile"));
   assert.ok(COMPANY_PROFILE_FIELDS.includes("companyProfile"));
+  assert.ok(!COMPANY_PROFILE_FIELDS.includes("password"));
   assert.ok(!COMPANY_PROFILE_FIELDS.includes("operationalSchedule"));
   assert.deepEqual(getSelfProfileFields({ accountType: "operations", role: "driver" }), PERSONAL_PROFILE_FIELDS);
   assert.deepEqual(getSelfProfileFields({ accountType: "company_owner", role: "owner" }), COMPANY_PROFILE_FIELDS);

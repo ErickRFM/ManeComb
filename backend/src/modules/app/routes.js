@@ -2,61 +2,31 @@ const { Router } = require("express");
 
 const router = Router();
 
-router.get("/info", async (req, res) => {
-  const store = req.app.locals.store;
-  const appConfig = store?.getAppConfig
-    ? await Promise.resolve(store.getAppConfig())
-    : null;
+router.get("/info", async (req, res, next) => {
+  // La version publica cambia con cada release y no debe quedar congelada en
+  // navegador, proxy ni CDN. La unica autoridad es AppConfig persistido.
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
 
-  if (appConfig) {
+  try {
+    const store = req.app.locals.store;
+    const appConfig = store?.getAppConfig
+      ? await Promise.resolve(store.getAppConfig())
+      : null;
+    const publishedVersion = String(appConfig?.version || "").trim();
+
+    if (!appConfig || !publishedVersion) {
+      return res.status(503).json({
+        ok: false,
+        code: "app_release_not_configured",
+        message: "La informacion publica de la aplicacion no esta configurada"
+      });
+    }
+
     return res.json({ ok: true, data: appConfig });
+  } catch (error) {
+    return next(error);
   }
-
-  return res.json({
-    ok: true,
-    data: {
-      name: "ManeComb",
-      version: "1.0.2",
-      status: "disponible",
-      apkUrl: "https://1drv.ms/u/s!Aq6TgxRWNbScgQah2wPwI8wZGn3L?e=JCh8cX",
-      androidMin: "8.0",
-      size: "42 MB",
-      releaseDate: "2026-07-20",
-      releaseNotes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
-      versionHistory: [
-        {
-          version: "1.0.2",
-          date: "2026-07-20",
-          current: true,
-          size: "42 MB",
-          androidMin: "8.0",
-          notes: ["GPS optimizado", "Mejoras de estabilidad", "Corrección de incidencias"],
-          archived: false,
-          mandatory: false,
-        },
-        {
-          version: "1.0.1",
-          date: "2026-07-15",
-          current: false,
-          size: "45 MB",
-          androidMin: "8.0",
-          notes: ["Nueva radio operativa", "Optimización de consumo de datos", "Correcciones generales de interfaz"],
-          archived: false,
-          mandatory: false,
-        },
-        {
-          version: "1.0.0",
-          date: "2026-07-10",
-          current: false,
-          size: "48 MB",
-          androidMin: "8.0",
-          notes: ["Primera versión pública", "Mapa en tiempo real", "Chat con la central", "Gestión de incidencias"],
-          archived: false,
-          mandatory: false,
-        },
-      ],
-    },
-  });
 });
 
 module.exports = router;

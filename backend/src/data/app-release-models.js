@@ -18,7 +18,9 @@ const appConfigSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
     name: { type: String, default: "ManeComb" },
-    version: { type: String, default: "1.0.2" },
+    // La version no tiene default historico. Un release existe solo despues de
+    // una publicacion explicita desde la autoridad Platform.
+    version: { type: String, default: "" },
     status: { type: String, default: "disponible" },
     apkUrl: { type: String, default: "" },
     androidMin: { type: String, default: "8.0" },

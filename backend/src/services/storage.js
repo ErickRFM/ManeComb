@@ -12,28 +12,19 @@ const {
 } = require("../config/env");
 
 const uploadDirectory = path.resolve(__dirname, "../../uploads/documents");
-
-fs.mkdirSync(uploadDirectory, {
-  recursive: true
-});
-
 let gridFsBucket = null;
+
+function ensureUploadDirectory() {
+  fs.mkdirSync(uploadDirectory, { recursive: true });
+  return uploadDirectory;
+}
 
 function getMimeExtension(mimeType) {
   const safeMimeType = String(mimeType || "").toLowerCase();
 
-  if (safeMimeType.includes("pdf")) {
-    return ".pdf";
-  }
-
-  if (safeMimeType.includes("png")) {
-    return ".png";
-  }
-
-  if (safeMimeType.includes("webp")) {
-    return ".webp";
-  }
-
+  if (safeMimeType.includes("pdf")) return ".pdf";
+  if (safeMimeType.includes("png")) return ".png";
+  if (safeMimeType.includes("webp")) return ".webp";
   return ".jpg";
 }
 
@@ -62,11 +53,7 @@ function getStorageReadiness() {
   const normalizedDriver = String(DOCUMENT_STORAGE_DRIVER || "").trim().toLowerCase();
 
   if (mode === "mongo_gridfs" || mode === "cloudinary") {
-    return {
-      mode,
-      ready: true,
-      missing: []
-    };
+    return { mode, ready: true, missing: [] };
   }
 
   if (normalizedDriver === "cloudinary") {
@@ -128,14 +115,12 @@ async function uploadToMongo(file) {
     uploadStream.on("error", reject);
     uploadStream.on("finish", () => {
       const storageKey = String(uploadStream.id);
-
       resolve({
         fileUrl: createMongoFileUrl(storageKey),
         storageKey,
         storageType: "mongo_gridfs"
       });
     });
-
     uploadStream.end(file.buffer);
   });
 }
@@ -172,6 +157,7 @@ async function uploadToCloudinary(file) {
 }
 
 async function uploadToLocal(file) {
+  ensureUploadDirectory();
   const extension = path.extname(file.originalname || "") || getMimeExtension(file.mimetype);
   const fileName = `${Date.now()}-${randomUUID()}${extension}`;
   const absolutePath = path.resolve(uploadDirectory, fileName);
@@ -190,15 +176,9 @@ async function uploadDocumentAsset(file) {
     throw new Error("Debes adjuntar un archivo");
   }
 
-  if (getStorageMode() === "mongo_gridfs") {
-    return await uploadToMongo(file);
-  }
-
-  if (getStorageMode() === "cloudinary") {
-    return await uploadToCloudinary(file);
-  }
-
-  return await uploadToLocal(file);
+  if (getStorageMode() === "mongo_gridfs") return uploadToMongo(file);
+  if (getStorageMode() === "cloudinary") return uploadToCloudinary(file);
+  return uploadToLocal(file);
 }
 
 async function deleteDocumentAsset(document, dependencies = {}) {
@@ -281,17 +261,13 @@ function getMongoObjectId(storageKey) {
 async function getDocumentDownloadAsset(storageKey, knownDocument = null) {
   const safeStorageKey = String(storageKey || "").trim();
 
-  if (!safeStorageKey) {
-    return null;
-  }
+  if (!safeStorageKey) return null;
 
   const document =
     knownDocument ||
     await DocumentModel.findOne({ storageKey: safeStorageKey }).lean();
 
-  if (!document) {
-    return null;
-  }
+  if (!document) return null;
 
   if (document.storageType === "cloudinary") {
     ensureCloudinary();
@@ -322,9 +298,7 @@ async function getDocumentDownloadAsset(storageKey, knownDocument = null) {
   if (document.storageType === "local") {
     const absolutePath = getLocalDocumentAbsolutePath(document.storageKey);
 
-    if (!fs.existsSync(absolutePath)) {
-      return null;
-    }
+    if (!fs.existsSync(absolutePath)) return null;
 
     return {
       document,
@@ -337,12 +311,20 @@ async function getDocumentDownloadAsset(storageKey, knownDocument = null) {
   return null;
 }
 
-async function migrateLegacyLocalDocumentsToMongo() {
+/**
+ * Migracion historica y EXPLICITA de archivos locales hacia GridFS.
+ * Nunca se ejecuta durante el arranque normal. El comando CLI usa dry-run por
+ * defecto; solo `--apply` permite mutar documentos y eliminar el archivo local.
+ */
+async function migrateLegacyLocalDocumentsToMongo({ dryRun = true } = {}) {
   if (getStorageMode() !== "mongo_gridfs") {
     return {
       enabled: false,
+      dryRun,
       scanned: 0,
+      eligible: 0,
       migrated: 0,
+      missing: 0,
       failed: 0
     };
   }
@@ -353,28 +335,40 @@ async function migrateLegacyLocalDocumentsToMongo() {
   }).lean();
   const summary = {
     enabled: true,
+    dryRun,
     scanned: legacyDocuments.length,
+    eligible: 0,
     migrated: 0,
+    missing: 0,
     failed: 0
   };
 
   for (const document of legacyDocuments) {
+    let migratedAsset = null;
+    let durableReferenceCommitted = false;
+
     try {
       const absolutePath = getLocalDocumentAbsolutePath(document.storageKey);
 
       if (!fs.existsSync(absolutePath)) {
-        summary.failed += 1;
+        summary.missing += 1;
         continue;
       }
 
-      const migratedAsset = await uploadToMongo({
+      summary.eligible += 1;
+      if (dryRun) continue;
+
+      migratedAsset = await uploadToMongo({
         buffer: await fs.promises.readFile(absolutePath),
         mimetype: document.mimeType || "application/octet-stream",
         originalname: document.originalFileName || document.name || `documento-${document._id}`
       });
 
-      await DocumentModel.updateOne(
-        { _id: document._id },
+      // La sustitucion del puntero local es CAS: si otro proceso ya modifico el
+      // documento, este worker no puede borrar el archivo original ni dejar el
+      // upload nuevo huerfano.
+      const updateResult = await DocumentModel.updateOne(
+        { _id: document._id, storageType: "local", storageKey: document.storageKey },
         {
           $set: {
             fileUrl: migratedAsset.fileUrl,
@@ -383,10 +377,25 @@ async function migrateLegacyLocalDocumentsToMongo() {
           }
         }
       );
+      const matchedCount = Number(updateResult?.matchedCount ?? updateResult?.n ?? 0);
+      const modifiedCount = Number(updateResult?.modifiedCount ?? updateResult?.nModified ?? 0);
 
-      await fs.promises.unlink(absolutePath).catch(() => undefined);
+      if (matchedCount !== 1 || modifiedCount !== 1) {
+        await deleteDocumentAsset(migratedAsset).catch(() => undefined);
+        migratedAsset = null;
+        summary.failed += 1;
+        continue;
+      }
+
+      durableReferenceCommitted = true;
       summary.migrated += 1;
+      // A partir de aqui Mongo/GridFS ya es autoridad. Un fallo de limpieza local
+      // no puede provocar rollback del asset al que el documento ya apunta.
+      await fs.promises.unlink(absolutePath).catch(() => undefined);
     } catch {
+      if (migratedAsset && !durableReferenceCommitted) {
+        await deleteDocumentAsset(migratedAsset).catch(() => undefined);
+      }
       summary.failed += 1;
     }
   }
