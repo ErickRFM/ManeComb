@@ -69,6 +69,10 @@ function normalizeActivationKey(value) {
 }
 
 function isPastDate(value) {
+  if (!value) {
+    return false;
+  }
+
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
@@ -283,6 +287,10 @@ function generateSecureKeyValue() {
 }
 
 function getExpiration(days = DEFAULT_KEY_TTL_DAYS) {
+  if (days === null) {
+    return null;
+  }
+
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + Math.max(1, Number(days) || DEFAULT_KEY_TTL_DAYS));
   return expiresAt.toISOString();
