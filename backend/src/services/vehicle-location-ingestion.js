@@ -61,7 +61,10 @@ async function resolveTrackingSession(store, vehicleId, requestedSessionId, proc
         (!session.finishedAt || positionTime.getTime() <= new Date(session.finishedAt).getTime())
       ) || null
     : null;
-  return requestedSession || activeSession || historicalSession;
+  // Si el cliente envio una identidad explicita que ya no existe (por ejemplo
+  // `pending:*`), la evidencia temporal manda sobre la sesion activa actual.
+  // Esto evita atribuir un paquete historico a una jornada posterior.
+  return requestedSession || historicalSession || activeSession;
 }
 
 function canSessionAcceptPosition(session, vehicleId, requestedSessionId, processedTimestamp) {

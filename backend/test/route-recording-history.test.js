@@ -239,11 +239,85 @@ async function testQueueReplayIsIdempotent() {
   }
 }
 
+async function patch(context, path, body) {
+  const response = await fetch(`${context.url}${path}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${context.driverToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  return { status: response.status, data: await response.json() };
+}
+
+// --- Backlog historico no pertenece a una jornada activa posterior ----------
+async function testHistoricalPendingPacketPrefersFinishedSession() {
+  const context = await createContext();
+  try {
+    const now = Date.now();
+    const s1StartedAt = new Date(now - 60 * 60 * 1000).toISOString();
+    const s1FinishedAt = new Date(now - 30 * 60 * 1000).toISOString();
+    const capturedAt = new Date(now - 45 * 60 * 1000).toISOString();
+    const s2StartedAt = new Date(now - 15 * 60 * 1000).toISOString();
+
+    const s1Response = await post(context, "/navigation/sessions/start", {
+      vehicleId: VEHICLE_ID,
+      startedAt: s1StartedAt
+    });
+    assert.equal(s1Response.status, 201);
+    const s1 = s1Response.data.data;
+    const finishResponse = await patch(context, `/navigation/sessions/${s1.id}/status`, {
+      vehicleId: VEHICLE_ID,
+      status: "FINISHED",
+      finishedAt: s1FinishedAt
+    });
+    assert.equal(finishResponse.status, 200);
+    await context.store.updateRouteSession(s1.id, { finishedAt: s1FinishedAt });
+    const s2Response = await post(context, "/navigation/sessions/start", {
+      vehicleId: VEHICLE_ID,
+      startedAt: s2StartedAt
+    });
+    assert.equal(s2Response.status, 201);
+    const s2 = s2Response.data.data;
+    assert.notEqual(s2.id, s1.id, "S2 debe ser una jornada activa distinta de S1");
+    const historical = context.store.listRouteSessions({ vehicleId: VEHICLE_ID, limit: 50 })
+      .find((session) => new Date(capturedAt).getTime() >= new Date(session.startedAt).getTime()
+        && (!session.finishedAt || new Date(capturedAt).getTime() <= new Date(session.finishedAt).getTime()));
+    assert.equal(historical?.id, s1.id, "la evidencia temporal identifica S1 antes de ingerir");
+
+    const actor = context.store.getUserById("user-driver-01");
+    const payload = {
+      vehicleId: VEHICLE_ID,
+      coordinates: { latitude: 19.421, longitude: -99.081 },
+      timestamp: capturedAt,
+      clientQueueAgeMs: now - new Date(capturedAt).getTime(),
+      accuracy: 6,
+      packetId: "historical-pending-packet",
+      sessionId: `pending:${VEHICLE_ID}`
+    };
+    await ingestVehicleLocation({ actor, io: fakeIo(), store: context.store, transport: "http", payload });
+    await ingestVehicleLocation({ actor, io: fakeIo(), store: context.store, transport: "http", payload });
+
+    const s1Matches = positionsOf(context.store, s1.id)
+      .filter((position) => position.packetId === payload.packetId);
+    const s2Matches = positionsOf(context.store, s2.id)
+      .filter((position) => position.packetId === payload.packetId);
+    assert.equal(s1Matches.length, 1, "el paquete historico se persiste una sola vez en S1");
+    assert.equal(s2Matches.length, 0, "el paquete historico no se atribuye a S2 activa");
+    assert.equal(s1Matches[0].packetId, payload.packetId, "packetId se conserva e identifica el replay");
+    assert.ok(Math.abs(new Date(s1Matches[0].timestamp).getTime() - new Date(capturedAt).getTime()) < 1_000,
+      "capturedAt se conserva con la precision de recepcion, sin rejuvenecer a las 11:00");
+
+    console.log("ok - pending historico prefiere la sesion finalizada que contiene capturedAt");
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   testStartedAtPolicy();
   await testFreeRouteRecordingPersistsHistory();
   await testOfflineJourneyKeepsHistoryAfterReconciliation();
   await testQueueReplayIsIdempotent();
+  await testHistoricalPendingPacketPrefersFinishedSession();
   console.log("ok - historial de recorrido certificado con y sin Internet");
 }
 
