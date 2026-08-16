@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
+import { transition } from '@/src/native/motion';
 import { portalPalette } from '../portal-theme';
 
 type PortalDataListProps = {
@@ -40,7 +41,8 @@ export function PortalDataRow({ actions, body, leading, meta, onPress, selected 
         onPress={onPress}
         style={({ hovered, pressed }: any) => [
           ...rowStyle,
-          hovered ? styles.hovered : undefined,
+          transition('background-color, border-color, transform, opacity', 150),
+          hovered && !selected ? styles.hovered : undefined,
           pressed ? styles.pressed : undefined,
         ]}>
         {content}
@@ -53,29 +55,33 @@ export function PortalDataRow({ actions, body, leading, meta, onPress, selected 
 
 const styles = StyleSheet.create({
   list: {
-    gap: AppTheme.spacing.sm,
+    gap: 8,
     minWidth: 0,
   },
   row: {
     alignItems: 'flex-start',
-    backgroundColor: portalPalette.surface,
+    backgroundColor: portalPalette.surfaceSoft,
     borderColor: portalPalette.line,
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: 14,
+    borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: AppTheme.spacing.sm,
+    gap: 10,
     minWidth: 0,
-    padding: AppTheme.spacing.md,
+    padding: 12,
   },
   selected: {
     backgroundColor: portalPalette.infoSoft,
     borderColor: portalPalette.info,
   },
   hovered: {
-    backgroundColor: portalPalette.surfaceSoft,
+    backgroundColor: 'rgba(255, 255, 255, 0.075)',
+    borderColor: portalPalette.lineStrong,
   },
   pressed: {
     backgroundColor: portalPalette.accentSoft,
+    opacity: 0.9,
+    transform: [{ scale: 0.995 }],
   },
   leading: {
     flexShrink: 0,
@@ -92,6 +98,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     alignItems: 'center',
+    alignSelf: 'center',
     flexDirection: 'row',
     flexShrink: 0,
     flexWrap: 'wrap',

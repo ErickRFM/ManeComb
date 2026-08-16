@@ -37,7 +37,9 @@ export function PortalPagination({
           size="sm"
           variant="icon"
         />
-        <Text style={styles.page}>Página {safePage} de {totalPages}</Text>
+        <View style={styles.pagePill}>
+          <Text style={styles.page}>Página {safePage} / {totalPages}</Text>
+        </View>
         <PortalButton
           accessibilityLabel="Página siguiente"
           disabled={safePage >= totalPages}
@@ -54,22 +56,39 @@ export function PortalPagination({
 const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: AppTheme.spacing.sm,
     justifyContent: 'space-between',
-    paddingTop: AppTheme.spacing.xs,
+    paddingHorizontal: AppTheme.spacing.sm,
+    paddingVertical: 8,
   },
   actions: {
     alignItems: 'center',
     flexDirection: 'row',
+    flexShrink: 0,
     gap: AppTheme.spacing.xs,
   },
   label: {
     color: portalPalette.muted,
+    flexShrink: 1,
     fontFamily: Typography.body,
     fontSize: 11,
     fontWeight: '700',
+  },
+  pagePill: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surface,
+    borderColor: portalPalette.line,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 32,
+    paddingHorizontal: 10,
   },
   page: {
     color: portalPalette.text,
