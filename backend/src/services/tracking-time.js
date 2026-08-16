@@ -3,7 +3,18 @@ const MAX_CLIENT_QUEUE_AGE_MS = Math.max(
   MAX_CLIENT_CLOCK_SKEW_MS,
   Number(process.env.TRACKING_MAX_CLIENT_QUEUE_AGE_MS) || 24 * 60 * 60 * 1000
 );
-const GPS_FRESHNESS_MS = Math.max(30_000, Number(process.env.TRACKING_GPS_FRESHNESS_MS) || 2 * 60 * 1000);
+const {
+  GPS_DELAYED_MAX_AGE_SECONDS,
+  buildGpsTelemetryState,
+  toLegacyFreshness
+} = require("../domain/gps-telemetry-state");
+
+/**
+ * Conservado como constante derivada: `TRACKING_GPS_FRESHNESS_MS` ya no define
+ * la frescura. Un segundo umbral configurable era precisamente la causa de que
+ * REST y snapshot se contradijeran.
+ */
+const GPS_FRESHNESS_MS = GPS_DELAYED_MAX_AGE_SECONDS * 1000;
 
 function normalizeClientQueueAge(value) {
   if (value === null || typeof value === "undefined" || value === "") return null;
@@ -49,20 +60,71 @@ function normalizeTrackingTime(clientTimestamp, receivedAt = new Date(), clientQ
   };
 }
 
-function buildGpsFreshness(locationTimestamp, evaluatedAt = new Date()) {
-  const timestamp = locationTimestamp ? new Date(locationTimestamp) : null;
+/**
+ * Proyeccion de transporte de la frescura GPS.
+ *
+ * NO calcula estado: delega en `domain/gps-telemetry-state.js`, la autoridad
+ * semantica unica. Antes esta funcion mantenia su propia escalera de 120 s sobre
+ * el reloj del telefono, asi que `/locations/live`, el socket y las incidencias
+ * podian afirmar "fresh" sobre la misma unidad que el snapshot operacional daba
+ * por `stale`. Ahora ambas superficies leen la misma escalera.
+ *
+ * Acepta el vehiculo completo (forma preferida, porque `locationReceivedAt` y
+ * `locationTimestampSource` son parte de la autoridad) y tolera recibir solo un
+ * `locationTimestamp` para llamadores legados.
+ */
+function buildGpsFreshness(vehicleOrTimestamp, evaluatedAt = new Date()) {
+  const vehicle =
+    vehicleOrTimestamp && typeof vehicleOrTimestamp === "object" && !(vehicleOrTimestamp instanceof Date)
+      ? vehicleOrTimestamp
+      : { locationTimestamp: vehicleOrTimestamp, location: vehicleOrTimestamp ? { latitude: 0, longitude: 0 } : null };
+
   const evaluated = new Date(evaluatedAt);
-  const valid = timestamp && !Number.isNaN(timestamp.getTime());
-  const freshUntil = valid ? new Date(timestamp.getTime() + GPS_FRESHNESS_MS) : null;
-  const isFresh = Boolean(valid && freshUntil.getTime() >= evaluated.getTime());
+  const safeEvaluated = Number.isNaN(evaluated.getTime()) ? new Date() : evaluated;
+  const telemetry = buildGpsTelemetryState(vehicle, safeEvaluated.getTime());
+  const freshUntil = telemetry.authorityTime
+    ? new Date(telemetry.authorityTime.getTime() + GPS_DELAYED_MAX_AGE_SECONDS * 1000)
+    : null;
 
   return {
-    state: valid ? (isFresh ? "fresh" : "stale") : "missing",
-    isFresh,
-    thresholdMs: GPS_FRESHNESS_MS,
-    evaluatedAt: evaluated.toISOString(),
+    // Taxonomia canonica. Los clientes presentan esto.
+    connectionState: telemetry.state,
+    ageSeconds: telemetry.ageSeconds,
+    hasEverReported: telemetry.hasEverReported,
+    // Proyeccion legada de tres estados conservada durante la migracion.
+    state: toLegacyFreshness(telemetry.state),
+    isFresh: telemetry.state === "live" || telemetry.state === "delayed",
+    thresholdMs: GPS_DELAYED_MAX_AGE_SECONDS * 1000,
+    evaluatedAt: safeEvaluated.toISOString(),
     freshUntil: freshUntil ? freshUntil.toISOString() : null
   };
+}
+
+/**
+ * Instante de inicio de una jornada.
+ *
+ * Una jornada iniciada sin Internet existe realmente desde que el conductor la
+ * inicio, no desde que el telefono recupero conexion. Sin esto, al reconciliar la
+ * cola offline el servidor sellaba `startedAt` con la hora de reconexion y TODOS
+ * los puntos capturados durante el corte quedaban por debajo del inicio de la
+ * sesion, de modo que `canSessionAcceptPosition` los descartaba en silencio: el
+ * recorrido se veia en el mapa pero no quedaba en el historial.
+ *
+ * El valor declarado por el cliente solo se acepta hacia el pasado y dentro de la
+ * misma ventana que la cola offline (`MAX_CLIENT_QUEUE_AGE_MS`): mas alla de ahi
+ * no puede existir evidencia real. Nunca se acepta hacia el futuro, para que un
+ * reloj adelantado no abra una jornada que todavia no ocurre.
+ */
+function resolveSessionStartedAt(requestedStartedAt, now = new Date()) {
+  const reference = new Date(now);
+  const safeNow = Number.isNaN(reference.getTime()) ? new Date() : reference;
+  const parsed = requestedStartedAt ? new Date(requestedStartedAt) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return safeNow.toISOString();
+
+  const earliestAccepted = safeNow.getTime() - MAX_CLIENT_QUEUE_AGE_MS;
+  if (parsed.getTime() > safeNow.getTime()) return safeNow.toISOString();
+  if (parsed.getTime() < earliestAccepted) return new Date(earliestAccepted).toISOString();
+  return parsed.toISOString();
 }
 
 module.exports = {
@@ -71,5 +133,6 @@ module.exports = {
   MAX_CLIENT_QUEUE_AGE_MS,
   buildGpsFreshness,
   normalizeClientQueueAge,
-  normalizeTrackingTime
+  normalizeTrackingTime,
+  resolveSessionStartedAt
 };

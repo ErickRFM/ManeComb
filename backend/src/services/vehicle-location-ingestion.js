@@ -9,7 +9,7 @@ const { calculateAndPersistRouteMetrics } = require("./route-metrics-engine");
 const { stabilizeGpsPosition } = require("./gps-position-stabilizer");
 const { getOperationalScheduleState } = require("../utils/operational-schedule");
 const { buildGpsFreshness, normalizeTrackingTime } = require("./tracking-time");
-const { incrementMetric } = require("./metrics");
+const { incrementMetric, observeDuration } = require("./metrics");
 const logger = require("./logger");
 
 class LocationIngestionError extends Error {
@@ -37,6 +37,18 @@ function finiteOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Resuelve la jornada a la que pertenece un paquete.
+ *
+ * `pending:{vehicleId}` es la identidad LOCAL que Mobile usa para una jornada
+ * iniciada sin Internet, y viaja tal cual en los puntos que se encolaron. Nunca
+ * existe en el servidor, asi que `getRouteSessionById` devuelve null; su valor
+ * esta en ser truthy: afirma que el cliente atribuye el punto a una jornada
+ * concreta de esta unidad. Eso habilita la busqueda historica de abajo y, en
+ * `canSessionAcceptPosition`, la aceptacion de una jornada ya FINISHED, que es lo
+ * que permite que un backlog offline aterrice en la jornada correcta aunque el
+ * conductor ya la haya cerrado.
+ */
 async function resolveTrackingSession(store, vehicleId, requestedSessionId, processedTimestamp) {
   const activeSession = await store.getActiveRouteSession(vehicleId);
   const requestedSession = requestedSessionId
@@ -49,7 +61,10 @@ async function resolveTrackingSession(store, vehicleId, requestedSessionId, proc
         (!session.finishedAt || positionTime.getTime() <= new Date(session.finishedAt).getTime())
       ) || null
     : null;
-  return requestedSession || activeSession || historicalSession;
+  // Si el cliente envio una identidad explicita que ya no existe (por ejemplo
+  // `pending:*`), la evidencia temporal manda sobre la sesion activa actual.
+  // Esto evita atribuir un paquete historico a una jornada posterior.
+  return requestedSession || historicalSession || activeSession;
 }
 
 function canSessionAcceptPosition(session, vehicleId, requestedSessionId, processedTimestamp) {
@@ -103,6 +118,7 @@ function canPublishVehicleTelemetry(actor, vehicleId) {
 }
 
 async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null, store, transport }) {
+  const ingestionStartedAt = Date.now();
   incrementMetric("gps_packets_received", 1, { transport });
   const vehicleId = String(payload.vehicleId || "").trim();
   const coordinates = normalizePoint(payload.coordinates);
@@ -111,6 +127,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   const heading = finiteOrNull(payload.heading ?? payload.coordinates?.heading);
   const speed = finiteOrNull(payload.speed ?? payload.coordinates?.speed);
   const accuracy = finiteOrNull(payload.accuracy ?? payload.coordinates?.accuracy);
+  const quality = classifyGpsQuality(accuracy);
   if (!actor || !vehicleId || !coordinates) {
     throw new LocationIngestionError(400, "invalid_payload", "vehicleId y coordinates son obligatorios");
   }
@@ -162,6 +179,12 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       ...temporal
     }
   });
+  if (Number.isFinite(temporal.clientQueueAgeMs)) {
+    observeDuration("gps_transport_queue_age_ms", temporal.clientQueueAgeMs, {
+      decision: temporal.discardReason || "accepted",
+      transport
+    });
+  }
 
   const update = await store.updateVehicleLocation({
     vehicleId,
@@ -177,12 +200,17 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     incrementMetric(decision === "duplicate" ? "gps_packets_duplicate" : "gps_packets_out_of_order", 1, { transport });
     incrementMetric("gps_packets_rejected", 1, { reason: decision, transport });
     if (decision === "duplicate") {
+      observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+        decision,
+        quality,
+        transport
+      });
       return {
         accepted: false,
         decision,
         packetId,
         positionDecision,
-        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+        publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
         temporal,
         vehicleId
       };
@@ -205,7 +233,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       heading,
       speed,
       accuracy,
-      gpsQuality: classifyGpsQuality(accuracy)
+      gpsQuality: quality
     });
     if (position.duplicateSkipped) {
       incrementMetric("gps_packets_duplicate", 1, { transport });
@@ -223,21 +251,31 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   }
 
   if (update.locationUpdateApplied === false) {
+    observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+      decision,
+      quality,
+      transport
+    });
     return {
       accepted: false,
       decision,
       packetId,
       positionDecision,
-      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) },
+      publicUpdate: { ...update, gpsFreshness: buildGpsFreshness(update) },
       temporal,
       vehicleId
     };
   }
 
-  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update.locationTimestamp) };
+  const publicUpdate = { ...update, gpsFreshness: buildGpsFreshness(update) };
   const organizationId = String(vehicle.organizationId || getOrganizationId(actor)).trim();
   await emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId });
   incrementMetric("gps_packets_accepted", 1, { transport });
+  observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
+    decision: "accepted",
+    quality,
+    transport
+  });
   return {
     accepted: true,
     decision: "accepted",

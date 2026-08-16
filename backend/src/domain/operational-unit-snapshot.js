@@ -12,13 +12,19 @@
  *    Una unidad dada de alta es visible aunque no tenga GPS, sesion ni ruta.
  */
 
-// El foreground GPS reporta aproximadamente cada 5 s. Un lease de 8 s deja
-// margen para jitter de una entrega sin permitir que una unidad desconectada
-// parezca viva durante decenas de segundos. La ultima posicion se conserva,
-// pero desde el primer heartbeat vencido deja de afirmar movimiento/parada.
-const GPS_LIVE_MAX_AGE_SECONDS = 8;
-const GPS_FRESH_MAX_AGE_SECONDS = 15;
-const GPS_STALE_MAX_AGE_SECONDS = 30;
+const {
+  GPS_DELAYED_MAX_AGE_SECONDS,
+  GPS_LIVE_MAX_AGE_SECONDS,
+  GPS_STALE_MAX_AGE_SECONDS,
+  buildGpsTelemetryState,
+  toLegacyFreshness
+} = require("./gps-telemetry-state");
+
+/**
+ * Nombre historico del umbral `delayed`. Se conserva porque pruebas y consumidores
+ * lo importan por este nombre; la autoridad vive en `gps-telemetry-state.js`.
+ */
+const GPS_FRESH_MAX_AGE_SECONDS = GPS_DELAYED_MAX_AGE_SECONDS;
 
 /** Estados de vehiculo que retiran la unidad del inventario visible. */
 const HIDDEN_VEHICLE_STATUSES = new Set(["archived", "deleted", "retired"]);
@@ -101,14 +107,12 @@ function toSpeedKmh(rawSpeed) {
  * mini-mapa de ruta —que solo mira `vehicle.location`— si la mostraba.
  */
 function buildGps(vehicle, progress, nowMs) {
-  const recordedAt = toDate(vehicle?.locationTimestamp);
-  const receivedAt = toDate(vehicle?.locationReceivedAt);
-  const timestampSource = String(vehicle?.locationTimestampSource || "").trim();
-  const latitude = finiteOrNull(vehicle?.location?.latitude);
-  const longitude = finiteOrNull(vehicle?.location?.longitude);
-  const hasPosition = latitude !== null && longitude !== null;
+  const telemetry = buildGpsTelemetryState(vehicle, nowMs);
 
-  if (!hasPosition) {
+  // Sin coordenadas no hay velocidad ni rumbo que afirmar. Sin esta guarda, un
+  // `speed` sembrado en el alta de la unidad se presentaria como telemetria viva
+  // de un conductor que todavia no ha encendido la app.
+  if (!telemetry.hasPosition) {
     return {
       lat: null,
       lng: null,
@@ -116,48 +120,22 @@ function buildGps(vehicle, progress, nowMs) {
       heading: null,
       recordedAt: null,
       receivedAt: null,
-      freshness: "missing",
-      connectionState: "lost",
+      freshness: toLegacyFreshness(telemetry.state),
+      connectionState: telemetry.state,
       ageSeconds: null
     };
   }
 
-  // La recepcion actual prueba conectividad de transporte, no que la posicion
-  // haya sido capturada ahora. Cuando el cliente declara edad de cola, el
-  // backend convierte esa duracion en un timestamp de captura con reloj servidor
-  // y evita rejuvenecer un backlog al recuperar Internet.
-  const authorityTime = timestampSource === "transport_queue_age"
-    ? recordedAt
-    : receivedAt || recordedAt;
-  const ageSeconds = authorityTime
-    ? Math.max(0, Math.round((nowMs - authorityTime.getTime()) / 1000))
-    : null;
-  const freshness =
-    ageSeconds === null
-      ? "missing"
-      : ageSeconds <= GPS_FRESH_MAX_AGE_SECONDS
-        ? "fresh"
-        : ageSeconds <= GPS_STALE_MAX_AGE_SECONDS
-          ? "stale"
-          : "missing";
-  const connectionState = ageSeconds === null || ageSeconds > GPS_STALE_MAX_AGE_SECONDS
-    ? "lost"
-    : ageSeconds <= GPS_LIVE_MAX_AGE_SECONDS
-      ? "live"
-      : ageSeconds <= GPS_FRESH_MAX_AGE_SECONDS
-        ? "delayed"
-        : "stale";
-
   return {
-    lat: latitude,
-    lng: longitude,
+    lat: telemetry.latitude,
+    lng: telemetry.longitude,
     speedKmh: toSpeedKmh(progress?.speedMetersPerSecond ?? vehicle?.speed),
     heading: finiteOrNull(vehicle?.heading ?? progress?.heading),
-    recordedAt: recordedAt === null ? null : recordedAt.toISOString(),
-    receivedAt: receivedAt === null ? null : receivedAt.toISOString(),
-    freshness,
-    connectionState,
-    ageSeconds
+    recordedAt: telemetry.recordedAt === null ? null : telemetry.recordedAt.toISOString(),
+    receivedAt: telemetry.receivedAt === null ? null : telemetry.receivedAt.toISOString(),
+    freshness: toLegacyFreshness(telemetry.state),
+    connectionState: telemetry.state,
+    ageSeconds: telemetry.ageSeconds
   };
 }
 

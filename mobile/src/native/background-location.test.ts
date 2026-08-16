@@ -49,6 +49,11 @@ describe('background location native bridge', () => {
       lastCapturedAt: null,
       lastSentAt: null,
       lastConfirmedAt: null,
+      lastPacketId: null,
+      lastPacketCapturedAt: null,
+      lastPacketSentAt: null,
+      lastPacketConfirmedAt: null,
+      lastPacketRoundTripMs: null,
     });
 
     const { resetBackgroundLocationServiceAsync } = require('./background-location');
@@ -96,6 +101,11 @@ describe('background location native bridge', () => {
       lastCapturedAt: 1,
       lastSentAt: 2,
       lastConfirmedAt: 3,
+      lastPacketId: 'packet-1',
+      lastPacketCapturedAt: 1,
+      lastPacketSentAt: 2,
+      lastPacketConfirmedAt: 3,
+      lastPacketRoundTripMs: 1,
     };
     mockGetServiceStatus.mockResolvedValue(status);
     await expect(getBackgroundLocationServiceStatusAsync()).resolves.toEqual(status);

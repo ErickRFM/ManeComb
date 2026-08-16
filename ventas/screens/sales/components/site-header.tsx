@@ -6,8 +6,8 @@ import { ActionButton } from './section-heading';
 
 const navItems = [
   { label: 'Plataforma', compactLabel: 'Funciones', target: 'funcionalidades' },
-  { label: 'App móvil', compactLabel: 'App', target: 'descargar' },
   { label: 'Planes', compactLabel: 'Planes', target: 'planes' },
+  { label: 'App móvil', compactLabel: 'App', target: 'descargar' },
   { label: 'Confianza', compactLabel: 'Confianza', target: 'confianza' },
 ] as const;
 
@@ -41,7 +41,7 @@ export function SiteHeader({
           hovered ? styles.navItemHover : undefined,
           webStyle({
             cursor: 'pointer',
-            transitionDuration: '220ms',
+            transitionDuration: '180ms',
             transitionProperty: 'color, background-color, border-color, transform',
           }),
         ];
@@ -73,7 +73,7 @@ export function SiteHeader({
           {stacked ? (
             <View style={styles.headerActions}>
               <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-              <ActionButton label="Elegir plan" icon="arrow-right" compact onPress={onBuy} />
+              <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
             </View>
           ) : null}
         </View>
@@ -89,7 +89,7 @@ export function SiteHeader({
         {!stacked ? (
           <View style={styles.headerActions}>
             <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-            <ActionButton label="Elegir plan" icon="arrow-right" compact onPress={onBuy} />
+            <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
           </View>
         ) : null}
       </View>

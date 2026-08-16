@@ -35,6 +35,7 @@ assert.match(authScreen, /selectedPlan\.name/);
 assert.match(authScreen, /formatCurrency\(selectedPlan\.price\)/);
 assert.match(authScreen, /label="Correo o teléfono"/);
 assert.match(authScreen, /Crear cuenta y continuar/);
+assert.match(authScreen, /La recuperación automática utiliza correo/);
 
 // UX-02B: la contraseña se explica y diagnostica por requisito con semántica Unicode.
 assert.match(authUtils, /8 caracteres o más/);
@@ -54,10 +55,12 @@ assert.match(passwordRequirements, /check-circle-outline/);
 assert.match(passwordRecoveryUtils, /getRegistrationPasswordChecks/);
 assert.match(passwordRecoveryUtils, /isRegistrationPasswordAllowed/);
 
-// UX-03: la App aparece antes del pricing y Planes es el CTA primario del hero.
+// UX-03: pricing aparece antes de la descarga de App y el CTA primario hace exactamente lo que promete.
 assert.match(salesScreen, /import \{ AppDownloadSection \}/);
-assert.ok(salesScreen.indexOf('<AppDownloadSection') < salesScreen.indexOf('nativeID="planes"'));
-assert.ok(salesScreen.indexOf('label="Explorar planes"') < salesScreen.indexOf('label="Conocer la plataforma"'));
+assert.ok(salesScreen.indexOf('nativeID="planes"') < salesScreen.indexOf('<AppDownloadSection'));
+assert.ok(salesScreen.indexOf('label="Ver planes"') < salesScreen.indexOf('label="Explorar plataforma"'));
+assert.match(siteHeader, /label="Ver planes"/);
+assert.match(salesScreen, /onBuy=\{\(\) => scrollToSection\('planes'\)\}/);
 assert.doesNotMatch(salesScreen, /badge\.toLowerCase\(\)\.includes\('vendido'\)/);
 assert.match(salesScreen, /plans\.findIndex\(\(plan\) => isPublicDemoPlan\(plan\)\)/);
 
@@ -73,6 +76,7 @@ assert.match(salesScreen, /registerNativeSection\('confianza'\)/);
 assert.match(planCard, /accessibilityState=\{\{ selected: active \}\}/);
 assert.match(planCard, /SELECCIONADO/);
 assert.match(planCard, /Radio opcional \+\$\{formatCurrency\(plan\.radioAddonPrice \|\| 0\)\} MXN\/mes/);
+assert.match(salesScreen, /const showPlanControls = !isDesktop \|\| plans\.length > desktopVisibleCards/);
 
 // UX-06: accesibilidad y confianza pública no dependen de contenido cortado o destinos ficticios.
 assert.match(faqItem, /accessibilityState=\{\{ expanded: open \}\}/);
@@ -82,6 +86,8 @@ assert.doesNotMatch(siteFooter, /Casos de éxito|Documentación|Cookies|Estado d
 assert.match(siteFooter, /Soporte comercial/);
 assert.match(commercialFaq, /¿La prueba requiere tarjeta\?/);
 assert.match(commercialFaq, /¿El precio ya incluye IVA\?/);
+assert.match(salesScreen, /CONFIANZA OPERATIVA/);
+assert.match(salesScreen, /Roles por organización/);
 
 // UX-07: checkout visualmente corto y motion ambiental limitado.
 assert.doesNotMatch(checkoutStepper, /'confirmation' as const/);

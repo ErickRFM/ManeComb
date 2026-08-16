@@ -19,7 +19,8 @@ const FLEET_METHODS = [
   "listRoutes",
   "listVehiclesForOrganization",
   "retireVehicle",
-  "updateRoute"
+  "updateRoute",
+  "updateRouteIfRevision"
 ];
 
 function canActorAccessRoute(actor, route) {
@@ -95,7 +96,7 @@ function buildTenantDashboard({ actor, fleet, incidents, documents, notification
       label: "Aforo promedio",
       value: `${averageOccupancy}%`,
       trend: averageOccupancy > 75 ? "Carga alta en hora pico" : "Carga controlada",
-      tone: averageOccupancy > 75 ? "warning" : "info"
+      tone: averageOccupancy > 75 ? "warning" : "positive"
     },
     {
       id: "documents",
@@ -136,8 +137,9 @@ function buildTenantDashboard({ actor, fleet, incidents, documents, notification
 }
 
 class FleetRepository extends StoreDomainRepository {
-  constructor(store) {
-    super(store, FLEET_METHODS);
+  constructor(store, models = {}) {
+    super(store, FLEET_METHODS.filter((method) => method !== "updateRouteIfRevision"));
+    this.models = models;
   }
 
   listRoutes(actor = null) {
@@ -162,6 +164,53 @@ class FleetRepository extends StoreDomainRepository {
       if (!canActorAccessRoute(actor, current)) return null;
       return this.store.updateRoute(routeId, payload, actor);
     });
+  }
+
+  async updateRouteIfRevision(routeId, expectedRevision, payload, actor = null) {
+    const current = await Promise.resolve(this.store.getRouteById(routeId));
+    if (!current || !canActorAccessRoute(actor, current)) return null;
+    if (Number(current.revision) !== Number(expectedRevision)) return null;
+
+    const RouteModel = this.models.RouteModel;
+    if (RouteModel?.db?.readyState === 1) {
+      const query = RouteModel.findOneAndUpdate(
+        {
+          _id: routeId,
+          organizationId: current.organizationId,
+          revision: Number(expectedRevision)
+        },
+        {
+          $set: {
+            ...payload,
+            revision: Number(expectedRevision) + 1,
+            updatedAt: new Date()
+          }
+        },
+        { returnDocument: "after" }
+      );
+      const atomic = typeof query?.lean === "function" ? await query.lean() : await query;
+      if (!atomic) return null;
+
+      // El documento retornado por el CAS es la autoridad de esta mutacion. El
+      // refresh puede observar una revision posterior de otro writer y debe
+      // reconciliar esa proyeccion, pero nunca reemplazar ni invalidar el
+      // resultado ya comprometido por este CAS.
+      //
+      // `updateRoute({}, actor)` es deliberadamente no-op para Route; su adapter
+      // refresca Vehicle.assignedRoute desde la Route canonica mas reciente.
+      try {
+        await this.store.updateRoute(routeId, {}, actor);
+      } catch (_projectionError) {
+        // La reparacion de una proyeccion derivada no revierte un CAS Mongo ya
+        // confirmado. La siguiente reconciliacion puede reintentar el refresh.
+      }
+      return atomic;
+    }
+
+    // Embedded/test adapter: one process, same optimistic token, same canonical writer.
+    const latest = await Promise.resolve(this.store.getRouteById(routeId));
+    if (!latest || Number(latest.revision) !== Number(expectedRevision)) return null;
+    return this.store.updateRoute(routeId, payload, actor);
   }
 
   deleteRoute(routeId, actor = null) {

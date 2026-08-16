@@ -381,6 +381,15 @@ export type LearnedRouteCandidate = {
   confidence: number;
   evidenceCount: number;
   evidenceSessionIds: string[];
+  /**
+   * Dias operativos distintos en que se observo el corredor. Junto con
+   * `evidenceCount` define "uso habitual": varias vueltas del mismo turno no
+   * bastan. Autoridad: backend/src/domain/learned-route-evidence.js.
+   */
+  distinctServiceDays?: number;
+  evidenceServiceDates?: string[];
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
   approvedRouteId: string | null;
   updatedAt: string;
 };

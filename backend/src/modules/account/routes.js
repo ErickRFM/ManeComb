@@ -15,6 +15,7 @@ const { sendRefundConfirmedEmail } = require("../../services/domain-email-events
 const {
   buildInvoices,
   buildSubscription,
+  countUsedUnitSlots,
   enrichOrdersForUser,
   getOrganizationId,
   pickActiveOrder
@@ -42,12 +43,32 @@ async function getOrders(req) {
   return enrichOrdersForUser(await req.app.locals.store.listCommercialOrdersForUser(req.user), req.user);
 }
 
+async function getRegisteredVehicles(req) {
+  const store = req.app.locals.store;
+  const organizationId = getOrganizationId(req.user);
+  if (!organizationId) return [];
+
+  if (typeof store.listVehiclesForOrganization === "function") {
+    return await store.listVehiclesForOrganization(organizationId);
+  }
+
+  const live = await store.getLiveLocations();
+  return (live.vehicles || []).filter(
+    (vehicle) => String(vehicle.organizationId || "") === String(organizationId)
+  );
+}
+
+async function buildAccountSubscription(req, order) {
+  const vehicles = await getRegisteredVehicles(req);
+  return buildSubscription(order, { usedUnitSlots: countUsedUnitSlots(vehicles) });
+}
+
 router.get("/subscription", authenticate, requirePortalAccess, async (req, res) => {
   const activeOrder = pickActiveOrder(await getOrders(req));
 
   return res.json({
     ok: true,
-    data: buildSubscription(activeOrder)
+    data: await buildAccountSubscription(req, activeOrder)
   });
 });
 
@@ -81,6 +102,19 @@ router.patch("/subscription/plan", authenticate, requirePortalAccess, requirePer
     });
   }
 
+  const currentSubscription = await buildAccountSubscription(req, activeOrder);
+  if (Number(plan.units || 0) < Number(currentSubscription.activeUnits || 0)) {
+    return res.status(409).json({
+      ok: false,
+      code: "active_usage_exceeds_target",
+      message: `Tienes ${currentSubscription.activeUnits} unidades registradas y el plan ${plan.name} permite ${plan.units}. Retira unidades antes de reducir la capacidad.`,
+      data: {
+        activeUnits: currentSubscription.activeUnits,
+        targetUnits: plan.units
+      }
+    });
+  }
+
   const pricing = getCommercialPlanPricing(plan, req.body?.selectedAddOns || []);
   const updatedOrder = await req.app.locals.store.updateCommercialOrder(activeOrder.id, {
     planId: plan.id,
@@ -95,7 +129,7 @@ router.patch("/subscription/plan", authenticate, requirePortalAccess, requirePer
     strategy: plan.strategy,
     status: activeOrder.status === "cancelled" ? "active" : activeOrder.status
   });
-  const subscription = buildSubscription(updatedOrder);
+  const subscription = await buildAccountSubscription(req, updatedOrder);
 
   await recordAudit(req, {
     type: "subscription_plan_changed",
@@ -149,7 +183,7 @@ router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePe
     cancelledAt,
     activationNotes: String(req.body?.reason || "").trim()
   });
-  const subscription = buildSubscription(updatedOrder);
+  const subscription = await buildAccountSubscription(req, updatedOrder);
   const deliveryStatus = await notifyCommercialOrder(
     { ...activeOrder, ...updatedOrder },
     "La cancelación de tu suscripción fue registrada.",

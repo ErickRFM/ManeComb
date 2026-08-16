@@ -36,7 +36,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
   const repositories = {
     appRelease: new AppReleaseRepository(baseStore, appReleaseModels),
     documents: new DocumentRepository(baseStore, models),
-    fleet: new FleetRepository(baseStore),
+    fleet: new FleetRepository(baseStore, models),
     incidents: new IncidentRepository(baseStore),
     notifications: new NotificationRepository(baseStore),
     organization: new OrganizationRepository(baseStore),
@@ -83,6 +83,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
     listUsers: services.users.listUsers.bind(services.users),
     markNotificationAsRead: services.notifications.markNotificationAsRead.bind(services.notifications),
     updateRoute: services.fleet.updateRoute.bind(services.fleet),
+    updateRouteIfRevision: services.fleet.updateRouteIfRevision.bind(services.fleet),
     updateUser: services.users.updateUser.bind(services.users)
   };
 
