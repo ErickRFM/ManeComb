@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { palette } from '@/constants/theme';
 import { EmptyState } from '@/src/components/ui/empty-state';
@@ -6,6 +7,7 @@ import { StatusBadge } from '@/src/components/ui/status-badge';
 import type { PortalSession } from '@/src/types/app';
 import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
+import { PortalContentModal } from '../../components/portal-content-modal';
 import { styles } from '../profile.styles';
 
 type PortalProfileSessionsSectionProps = {
@@ -24,6 +26,12 @@ function formatDateTime(value?: string | null) {
     : date.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function getSessionTimestamp(session: PortalSession) {
+  const value = session.lastSeenAt || session.createdAt;
+  const parsed = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function PortalProfileSessionsSection({
   isSubmitting,
   message,
@@ -31,62 +39,131 @@ export function PortalProfileSessionsSection({
   onRevokeAllOthers,
   sessions,
 }: PortalProfileSessionsSectionProps) {
-  const otherSessions = sessions.filter((session) => !session.current && session.isActive !== false);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const activeSessions = useMemo(
+    () => sessions
+      .filter((session) => session.isActive !== false)
+      .sort((left, right) => {
+        if (left.current !== right.current) return left.current ? -1 : 1;
+        return getSessionTimestamp(right) - getSessionTimestamp(left);
+      }),
+    [sessions]
+  );
+  const closedSessions = useMemo(
+    () => sessions
+      .filter((session) => session.isActive === false)
+      .sort((left, right) => getSessionTimestamp(right) - getSessionTimestamp(left)),
+    [sessions]
+  );
+  const previewSessions = activeSessions.slice(0, 3);
+  const otherSessions = activeSessions.filter((session) => !session.current);
   const countLabel = sessions.length
-    ? `${sessions.length} ${sessions.length === 1 ? 'sesión registrada' : 'sesiones registradas'}`
+    ? `${activeSessions.length} activa${activeSessions.length === 1 ? '' : 's'} · ${sessions.length} registrada${sessions.length === 1 ? '' : 's'}`
     : undefined;
 
-  return (
-    <PortalSectionCard
-      title="Sesiones activas"
-      subtitle={message || countLabel}
-      right={otherSessions.length ? (
+  const renderSession = (session: PortalSession, detailed: boolean) => (
+    <View key={session.id} style={[styles.sessionRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
+      <MaterialCommunityIcons
+        name={session.platform === 'android' ? 'android' : session.platform === 'ios' ? 'apple-ios' : 'monitor-cellphone'}
+        size={22}
+        color={palette.accent}
+      />
+      <View style={styles.sessionBody}>
+        <Text style={[styles.sessionTitle, { color: palette.text }]}>{session.deviceName}</Text>
+        <Text style={[styles.sessionMeta, { color: palette.muted }]}>Última actividad: {formatDateTime(session.lastSeenAt)}</Text>
+        {detailed ? (
+          <>
+            <Text style={[styles.sessionMeta, { color: palette.muted }]}>Creada: {formatDateTime(session.createdAt)} · Vence: {formatDateTime(session.expiresAt)}</Text>
+            {session.locationApprox ? (
+              <Text style={[styles.sessionMeta, { color: palette.muted }]}>Ubicación aproximada: {session.locationApprox}</Text>
+            ) : null}
+          </>
+        ) : session.locationApprox ? (
+          <Text style={[styles.sessionMeta, { color: palette.muted }]} numberOfLines={1}>Ubicación aproximada: {session.locationApprox}</Text>
+        ) : null}
+      </View>
+      <StatusBadge label={session.current ? 'Sesión actual' : session.isActive === false ? 'Cerrada' : 'Activa'} tone={session.isActive === false ? 'neutral' : 'positive'} />
+      {detailed && !session.current && session.isActive !== false ? (
         <PortalButton
-          icon="logout-variant"
-          loading={isSubmitting}
-          onPress={onRevokeAllOthers}
+          accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
+          onPress={() => {
+            setManagerOpen(false);
+            onRevoke(session);
+          }}
+          icon="close"
           size="sm"
-          variant="danger">
-          Cerrar las demás
-        </PortalButton>
-      ) : undefined}>
-      {sessions.length ? (
-        <View style={styles.sessionList}>
-          {sessions.map((session) => (
-            <View key={session.id} style={[styles.sessionRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
-              <MaterialCommunityIcons
-                name={session.platform === 'android' ? 'android' : session.platform === 'ios' ? 'apple-ios' : 'monitor-cellphone'}
-                size={22}
-                color={palette.accent}
-              />
-              <View style={styles.sessionBody}>
-                <Text style={[styles.sessionTitle, { color: palette.text }]}>{session.deviceName}</Text>
-                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Última actividad: {formatDateTime(session.lastSeenAt)}</Text>
-                <Text style={[styles.sessionMeta, { color: palette.muted }]}>Creada: {formatDateTime(session.createdAt)} · Vence: {formatDateTime(session.expiresAt)}</Text>
-                {session.locationApprox ? (
-                  <Text style={[styles.sessionMeta, { color: palette.muted }]}>Ubicación aproximada: {session.locationApprox}</Text>
-                ) : null}
-              </View>
-              <StatusBadge label={session.current ? 'Sesión actual' : session.isActive === false ? 'Cerrada' : 'Activa'} tone={session.isActive === false ? 'neutral' : 'positive'} />
-              {!session.current && session.isActive !== false ? (
-                <PortalButton
-                  accessibilityLabel={`Cerrar sesión en ${session.deviceName}`}
-                  onPress={() => onRevoke(session)}
-                  icon="close"
-                  size="sm"
-                  variant="danger"
-                />
-              ) : null}
-            </View>
-          ))}
-        </View>
-      ) : (
-        <EmptyState
-          icon="shield-lock-outline"
-          title="Sin sesiones activas"
-          description="Las sesiones administrativas aparecerán cuando haya accesos registrados."
+          variant="danger"
         />
-      )}
-    </PortalSectionCard>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <>
+      <PortalSectionCard
+        title="Sesiones activas"
+        subtitle={message || countLabel}
+        right={sessions.length ? (
+          <PortalButton
+            icon="devices"
+            onPress={() => setManagerOpen(true)}
+            size="sm"
+            variant="secondary">
+            Administrar
+          </PortalButton>
+        ) : undefined}>
+        {previewSessions.length ? (
+          <View style={styles.sessionList}>
+            {previewSessions.map((session) => renderSession(session, false))}
+            {activeSessions.length > previewSessions.length ? (
+              <Text style={[styles.sessionMeta, { color: palette.muted }]}>Hay {activeSessions.length - previewSessions.length} sesión{activeSessions.length - previewSessions.length === 1 ? '' : 'es'} activa{activeSessions.length - previewSessions.length === 1 ? '' : 's'} más. Ábrelas desde Administrar.</Text>
+            ) : closedSessions.length ? (
+              <Text style={[styles.sessionMeta, { color: palette.muted }]}>El historial de {closedSessions.length} sesión{closedSessions.length === 1 ? '' : 'es'} cerrada{closedSessions.length === 1 ? '' : 's'} está disponible en Administrar.</Text>
+            ) : null}
+          </View>
+        ) : (
+          <EmptyState
+            icon="shield-lock-outline"
+            title="Sin sesiones activas"
+            description={closedSessions.length
+              ? 'No hay sesiones abiertas. El historial de accesos sigue disponible en Administrar.'
+              : 'Las sesiones administrativas aparecerán cuando haya accesos registrados.'}
+          />
+        )}
+      </PortalSectionCard>
+
+      <PortalContentModal
+        visible={managerOpen}
+        onClose={() => setManagerOpen(false)}
+        title="Administrar sesiones"
+        subtitle={`${activeSessions.length} activa${activeSessions.length === 1 ? '' : 's'} · ${closedSessions.length} cerrada${closedSessions.length === 1 ? '' : 's'}`}
+        width="lg"
+        footer={otherSessions.length ? (
+          <PortalButton
+            icon="logout-variant"
+            loading={isSubmitting}
+            onPress={() => {
+              setManagerOpen(false);
+              onRevokeAllOthers();
+            }}
+            variant="danger">
+            Cerrar las demás sesiones
+          </PortalButton>
+        ) : undefined}>
+        {activeSessions.length ? (
+          <View style={styles.sessionList}>
+            <Text style={[styles.sessionTitle, { color: palette.text }]}>Activas</Text>
+            {activeSessions.map((session) => renderSession(session, true))}
+          </View>
+        ) : null}
+
+        {closedSessions.length ? (
+          <View style={styles.sessionList}>
+            <Text style={[styles.sessionTitle, { color: palette.text }]}>Historial reciente</Text>
+            {closedSessions.map((session) => renderSession(session, true))}
+          </View>
+        ) : null}
+      </PortalContentModal>
+    </>
   );
 }
