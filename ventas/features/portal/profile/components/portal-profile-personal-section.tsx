@@ -47,7 +47,7 @@ export function PortalProfilePersonalSection({
       </View>
       <View style={styles.actions}>
         <PortalButton icon="account-check-outline" loading={isSubmitting} onPress={onSave}>
-          Guardar datos personales
+          Guardar cambios
         </PortalButton>
       </View>
     </PortalSectionCard>
