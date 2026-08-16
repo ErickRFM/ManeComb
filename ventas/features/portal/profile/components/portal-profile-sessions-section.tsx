@@ -8,6 +8,7 @@ import type { PortalSession } from '@/src/types/app';
 import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { PortalContentModal } from '../../components/portal-content-modal';
+import { PortalPagination } from '../../components/portal-pagination';
 import { styles } from '../profile.styles';
 
 type PortalProfileSessionsSectionProps = {
@@ -17,6 +18,8 @@ type PortalProfileSessionsSectionProps = {
   onRevokeAllOthers: () => void;
   sessions: PortalSession[];
 };
+
+const SESSION_HISTORY_PAGE_SIZE = 8;
 
 function formatDateTime(value?: string | null) {
   if (!value) return 'Sin registro';
@@ -40,6 +43,7 @@ export function PortalProfileSessionsSection({
   sessions,
 }: PortalProfileSessionsSectionProps) {
   const [managerOpen, setManagerOpen] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
   const activeSessions = useMemo(
     () => sessions
       .filter((session) => session.isActive !== false)
@@ -57,9 +61,20 @@ export function PortalProfileSessionsSection({
   );
   const previewSessions = activeSessions.slice(0, 3);
   const otherSessions = activeSessions.filter((session) => !session.current);
+  const historyPages = Math.max(1, Math.ceil(closedSessions.length / SESSION_HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, historyPages);
+  const visibleHistory = closedSessions.slice(
+    (safeHistoryPage - 1) * SESSION_HISTORY_PAGE_SIZE,
+    safeHistoryPage * SESSION_HISTORY_PAGE_SIZE
+  );
   const countLabel = sessions.length
-    ? `${activeSessions.length} activa${activeSessions.length === 1 ? '' : 's'} · ${sessions.length} registrada${sessions.length === 1 ? '' : 's'}`
+    ? `${activeSessions.length} activa${activeSessions.length === 1 ? '' : 's'}${closedSessions.length ? ` · ${closedSessions.length} en historial` : ''}`
     : undefined;
+
+  const openManager = () => {
+    setHistoryPage(1);
+    setManagerOpen(true);
+  };
 
   const renderSession = (session: PortalSession, detailed: boolean) => (
     <View key={session.id} style={[styles.sessionRow, { borderColor: palette.line, backgroundColor: palette.surface }]}>
@@ -78,8 +93,6 @@ export function PortalProfileSessionsSection({
               <Text style={[styles.sessionMeta, { color: palette.muted }]}>Ubicación aproximada: {session.locationApprox}</Text>
             ) : null}
           </>
-        ) : session.locationApprox ? (
-          <Text style={[styles.sessionMeta, { color: palette.muted }]} numberOfLines={1}>Ubicación aproximada: {session.locationApprox}</Text>
         ) : null}
       </View>
       <StatusBadge label={session.current ? 'Sesión actual' : session.isActive === false ? 'Cerrada' : 'Activa'} tone={session.isActive === false ? 'neutral' : 'positive'} />
@@ -106,7 +119,7 @@ export function PortalProfileSessionsSection({
         right={sessions.length ? (
           <PortalButton
             icon="devices"
-            onPress={() => setManagerOpen(true)}
+            onPress={openManager}
             size="sm"
             variant="secondary">
             Administrar
@@ -159,8 +172,15 @@ export function PortalProfileSessionsSection({
 
         {closedSessions.length ? (
           <View style={styles.sessionList}>
-            <Text style={[styles.sessionTitle, { color: palette.text }]}>Historial reciente</Text>
-            {closedSessions.map((session) => renderSession(session, true))}
+            <Text style={[styles.sessionTitle, { color: palette.text }]}>Historial de accesos</Text>
+            {visibleHistory.map((session) => renderSession(session, true))}
+            <PortalPagination
+              itemLabel="sesiones"
+              onPageChange={setHistoryPage}
+              page={safeHistoryPage}
+              pageSize={SESSION_HISTORY_PAGE_SIZE}
+              totalItems={closedSessions.length}
+            />
           </View>
         ) : null}
       </PortalContentModal>
