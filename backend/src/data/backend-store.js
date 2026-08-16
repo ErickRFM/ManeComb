@@ -1,4 +1,5 @@
 const { AppReleaseRepository } = require("./repositories/app-release-repository");
+const { AuditLogRepository } = require("./repositories/audit-log-repository");
 const { DocumentRepository } = require("./repositories/document-repository");
 const { FleetRepository } = require("./repositories/fleet-repository");
 const { IncidentRepository } = require("./repositories/incident-repository");
@@ -10,6 +11,7 @@ const { TrackingRepository } = require("./repositories/tracking-repository");
 const { UserRepository } = require("./repositories/user-repository");
 const { AppConfigModel, AppClientVersionModel } = require("./app-release-models");
 const { AppReleaseStoreService } = require("../services/app-release-store-service");
+const { AuditLogService } = require("../services/audit-log-service");
 const { DocumentService } = require("../services/document-service");
 const { FleetService } = require("../services/fleet-service");
 const { IncidentService } = require("../services/incident-service");
@@ -35,6 +37,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
     : {};
   const repositories = {
     appRelease: new AppReleaseRepository(baseStore, appReleaseModels),
+    auditLogs: new AuditLogRepository(baseStore, models),
     documents: new DocumentRepository(baseStore, models),
     fleet: new FleetRepository(baseStore, models),
     incidents: new IncidentRepository(baseStore),
@@ -48,6 +51,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
 
   const services = {
     appRelease: new AppReleaseStoreService(repositories.appRelease),
+    auditLogs: new AuditLogService(repositories.auditLogs),
     documents: new DocumentService(repositories.documents),
     fleet: new FleetService(repositories.fleet),
     incidents: new IncidentService(repositories.incidents),
@@ -75,9 +79,11 @@ function buildBackendStore(baseStore, dependencies = {}) {
   // of the persistence adapter. Keep them behind repositories in embedded/test
   // too, while other legacy embedded domains migrate deliberately.
   const invariantMethods = {
+    createAuditLog: services.auditLogs.createAuditLog.bind(services.auditLogs),
     deleteRoute: services.fleet.deleteRoute.bind(services.fleet),
     getDashboardOverview: services.fleet.getDashboardOverview.bind(services.fleet),
     getNotificationsForUser: services.notifications.getNotificationsForUser.bind(services.notifications),
+    listAuditLogsForActor: services.auditLogs.listAuditLogsForActor.bind(services.auditLogs),
     listIncidents: services.incidents.listIncidents.bind(services.incidents),
     listRoutes: services.fleet.listRoutes.bind(services.fleet),
     listUsers: services.users.listUsers.bind(services.users),
