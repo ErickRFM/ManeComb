@@ -12,11 +12,49 @@ import {
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
 import { logRealtimeDiag } from './realtime-diagnostics-log';
+import {
+  clearSessionNotifications,
+  deleteNativePushToken,
+} from '@/src/utils/push-notifications';
 
 const COLD_START_RECOVERY_RETRY_MS = 3000;
 let coldStartRecoveryKey: string | null = null;
 let coldStartRecoveryInFlight = false;
 let coldStartRecoveryAttemptedAt = 0;
+
+type LifecycleGlobal = typeof globalThis & {
+  __MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__?: boolean;
+};
+
+/**
+ * Root-store conserva la autoridad de autenticacion. Este observer solo limpia
+ * recursos Android que viven fuera de Zustand cuando esa autoridad termina la
+ * identidad local. Asi una expiracion/suspension tambien elimina el token FCM y
+ * las tarjetas de la cuenta anterior, no solo el logout pulsado por el usuario.
+ *
+ * El marcador global evita subscriptions duplicadas bajo Fast Refresh/HMR.
+ */
+function ensureNativeSessionTeardownObserver() {
+  const runtime = globalThis as LifecycleGlobal;
+  if (runtime.__MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__) return;
+  runtime.__MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__ = true;
+
+  useAppStore.subscribe((state, previousState) => {
+    const previousHadIdentity = Boolean(previousState.token && previousState.user?.id);
+    const currentHasIdentity = Boolean(state.token && state.user?.id);
+
+    if (!previousHadIdentity || currentHasIdentity) return;
+
+    // Son recursos locales del dispositivo: deben fallar cerrado aunque el
+    // backend no sea alcanzable durante el teardown.
+    void Promise.allSettled([
+      clearSessionNotifications(),
+      deleteNativePushToken(),
+    ]);
+  });
+}
+
+ensureNativeSessionTeardownObserver();
 
 export { useAppStore };
 export type { AppState } from './root-store';
