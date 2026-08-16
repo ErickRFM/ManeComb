@@ -259,3 +259,47 @@ Pruebas conductuales añadidas:
 - TTL fresco omite full-load pero permite retry de dominio.
 
 No se tocaron GPS, sockets, Android, Mapbox ni autoridades legacy. Se mantiene **PHYSICAL_GATE=ACCEPTED_PENDING** y no se declara `PHYSICAL_PASS`.
+# CORTE 4R — LEGACY OPERATIONAL RETIREMENT POST-RECONCILIATION
+
+Base apilada: `audit/claude-reconcile-20260815@8d06836a8f602b5161e9ffdbdbb845176c1d1ae1`. Este corte no altera la resolución histórica `requestedSession -> historicalSession -> activeSession`, el writer de `RouteSessionPosition`, la autoridad del resultado CAS ni los flags V3 (continúan desactivados).
+
+## Autoridades y flujo resultante
+
+| Dominio | Productor | Autoridad/consumidor final | Legacy retirado |
+|---|---|---|---|
+| Identidad/configuración | REST de Vehicle/Route/User | `Vehicle`, `Route`, eventos lifecycle/config | campos live proyectados en Vehicle |
+| Runtime operacional | ingestión GPS, asignación, ruta y lifecycle | `OperationalUnitSnapshot` por REST y `operational-unit:updated` | `location:updated` |
+| Historia/replay | ingestión idempotente | `RouteSessionPosition` (speed histórico en m/s) | ninguno |
+| Incidencias | REST y eventos incident | `incidents[]`; render efímero con geometría | mirror mutable `mapData.incidents` |
+| Mapa Mobile | route geometry + metadata Vehicle | `operationalUnits` para posición live | posición en `mapData.vehicles` |
+
+El Portal calcula una vista efímera pura desde `Vehicle + OperationalUnitSnapshot`; no se persiste ni se envía como payload. Una unidad `never_reported` permanece en listas/paneles y simplemente no produce pin. Mobile conserva `mapData` para geometría y joins estáticos; cache sigue la política ResourceState (`stale`, visible hasta confirmación).
+
+## Inventario 8d06836a (BEFORE) y resultado (AFTER)
+
+Los conteos BEFORE son coincidencias exactas levantadas del árbol base. Los AFTER operacionales excluyen tests, documentación y el propio gate (las coincidencias raw remanentes se clasificaron como HISTORY_REPLAY, STATIC_CONFIG, comentarios o aserciones anti-regresión).
+
+| Métrica | BEFORE raw | AFTER operacional | Estado |
+|---|---:|---:|---|
+| `applyOperationalSnapshot` referencias | 8 | 0 consumidores | RETIRED |
+| Portal `location:updated` listeners | 1 | 0 | RETIRED |
+| Mobile `location:updated` listeners | 1 | 0 | RETIRED |
+| lectores live Portal de `Vehicle.location` | 4 | 0 | RETIRED |
+| lectores live de `Vehicle.gpsFreshness` | 3 | 0 | RETIRED |
+| lectores live Portal de `Vehicle.speed` | 2 | 0 | RETIRED |
+| lectores live Portal de `Vehicle.activeRouteProgress` | 5 | 0 | RETIRED |
+| lectores live Mobile de `mapData.vehicles` | 1 | 0 (joins estáticos permanecen) | RETIRED |
+| writers de mirror mutable `mapData.incidents` | 5 | 0 | RETIRED |
+| productores backend `location:updated` | 8 sitios / 11 emits | 0 | RETIRED |
+
+El gate `scripts/validate-operational-legacy-retirement.mjs` bloquea la reintroducción en superficies productivas de la proyección, listeners/emisores legacy, mirror mutable de incidencias y lectores live Portal sobre Vehicle.
+
+## Contratos conductuales
+
+- Vehicle A + unit B muestra B; B→C mueve el marker sin `location:updated`; un evento legacy tardío no puede retroceder C.
+- `unit.gps.speedKmh` se presenta directamente; no se reconvierte dos veces.
+- Incidencias se actualizan una sola vez en `incidents[]` y la geometría de mapa se deriva al renderizar.
+- Los productores de cambios de Route/Vehicle publican la autoridad existente (`route:updated`, `vehicle:updated`) y reconstruyen `operational-unit:updated` cuando cambia runtime.
+- GPS deja de duplicar el payload en `location:updated`; mantiene captura, cadencia de 5 s, timestamps, packetId, idempotencia e historia sin cambios.
+
+Estado de gate físico: `PHYSICAL_GATE=ACCEPTED_PENDING`. Este corte no declara `PHYSICAL_PASS`.
