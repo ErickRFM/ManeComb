@@ -191,10 +191,20 @@ class FleetRepository extends StoreDomainRepository {
       const atomic = typeof query?.lean === "function" ? await query.lean() : await query;
       if (!atomic) return null;
 
-      // `updateRoute({}, actor)` is deliberately a no-op for Route itself, but its
-      // canonical persistence adapter refreshes every Vehicle.assignedRoute snapshot
-      // from the just-committed Route without incrementing revision again.
-      return this.store.updateRoute(routeId, {}, actor);
+      // El documento retornado por el CAS es la autoridad de esta mutacion. El
+      // refresh puede observar una revision posterior de otro writer y debe
+      // reconciliar esa proyeccion, pero nunca reemplazar ni invalidar el
+      // resultado ya comprometido por este CAS.
+      //
+      // `updateRoute({}, actor)` es deliberadamente no-op para Route; su adapter
+      // refresca Vehicle.assignedRoute desde la Route canonica mas reciente.
+      try {
+        await this.store.updateRoute(routeId, {}, actor);
+      } catch (_projectionError) {
+        // La reparacion de una proyeccion derivada no revierte un CAS Mongo ya
+        // confirmado. La siguiente reconciliacion puede reintentar el refresh.
+      }
+      return atomic;
     }
 
     // Embedded/test adapter: one process, same optimistic token, same canonical writer.

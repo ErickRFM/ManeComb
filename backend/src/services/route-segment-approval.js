@@ -106,6 +106,7 @@ async function applySegmentCandidateToRoute({ store, candidate, actor }) {
 
   return {
     applied: true,
+    committedRevision: Number(route.revision),
     route,
     previousRoute,
     previousSegmentPolyline: update.baselinePolyline,

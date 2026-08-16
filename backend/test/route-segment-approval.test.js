@@ -70,6 +70,30 @@ function candidateFor(route, id = "candidate-v3") {
   assert.deepEqual(result.route.polyline[result.route.polyline.length - 1], route.polyline[route.polyline.length - 1], "se conserva el sufijo de la ruta");
   assert.equal(result.previousRoute.revision, 1, "queda disponible el snapshot previo para auditoria");
 
+  const concurrentBase = { ...route, revision: 8 };
+  const concurrentCandidate = candidateFor(concurrentBase, "candidate-concurrent-refresh");
+  const concurrentStore = {
+    async getRouteById(routeId) {
+      return routeId === concurrentBase.id ? concurrentBase : null;
+    },
+    async updateRouteIfRevision(routeId, expectedRevision, payload) {
+      assert.equal(routeId, concurrentBase.id);
+      assert.equal(expectedRevision, 8);
+      return { ...concurrentBase, ...payload, revision: 9 };
+    }
+  };
+  const concurrentResult = await applySegmentCandidateToRoute({
+    store: concurrentStore,
+    candidate: concurrentCandidate,
+    actor: { id: "admin-v3", role: "admin", organizationId: "org-v3" }
+  });
+  assert.equal(concurrentResult.applied, true,
+    "un CAS aplicado no se reporta como route_update_failed por un refresh posterior");
+  assert.equal(concurrentResult.reason, undefined);
+  assert.equal(concurrentResult.committedRevision, 9,
+    "el servicio expone la revision comprometida por el CAS ganador");
+  assert.equal(concurrentResult.route.revision, 9);
+
   const staleStore = createEmbeddedStore();
   const staleBase = createRoute(staleStore, "route-v3-stale");
   const staleCandidate = candidateFor(staleBase, "candidate-stale");

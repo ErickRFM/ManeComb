@@ -57,6 +57,43 @@ const { FleetRepository } = require("../src/data/repositories/fleet-repository")
   assert.deepEqual(writes[0].payload, {}, "el refresh posterior es no-op sobre Route");
   assert.equal(writes[0].actor, actor, "el actor se conserva hasta la autoridad de persistencia");
 
+  const concurrentProjectionWrites = [];
+  const concurrentRepository = new FleetRepository({
+    getRouteById(routeId) {
+      return routeId === route.id ? { ...route, revision: 8 } : null;
+    },
+    async updateRoute(routeId, payload, receivedActor) {
+      concurrentProjectionWrites.push({ routeId, payload, actor: receivedActor });
+      // Otro writer ya llevo la Route a rev 10 antes del refresh. Este retorno
+      // representa la proyeccion reconciliada con la autoridad mas reciente.
+      return { ...route, revision: 10, distanceMeters: 2200 };
+    }
+  }, {
+    RouteModel: {
+      db: { readyState: 1 },
+      findOneAndUpdate() {
+        return {
+          async lean() {
+            return { ...route, revision: 9, distanceMeters: 2100 };
+          }
+        };
+      }
+    }
+  });
+  const concurrentResult = await concurrentRepository.updateRouteIfRevision(
+    route.id,
+    8,
+    { distanceMeters: 2100 },
+    actor
+  );
+  assert.equal(concurrentResult.revision, 9,
+    "el resultado del CAS conserva committedRevision=9 aunque el refresh observe rev 10");
+  assert.equal(concurrentResult.distanceMeters, 2100,
+    "el documento CAS, no el retorno de la proyeccion, describe la mutacion aplicada");
+  assert.equal(concurrentProjectionWrites.length, 1,
+    "la proyeccion se reconcilia una vez con la Route canonica mas reciente");
+  assert.deepEqual(concurrentProjectionWrites[0].payload, {});
+
   const staleWrites = [];
   const staleRepository = new FleetRepository({
     ...baseStore,
