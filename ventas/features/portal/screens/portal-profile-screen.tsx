@@ -1,7 +1,7 @@
 import { isAxiosError } from 'axios';
 import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { useEffect, useState } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { apiClient, getApiErrorMessage } from '@/src/api/client';
@@ -13,6 +13,7 @@ import { PortalProfilePasswordSection } from '../profile/components/portal-profi
 import { PortalProfilePersonalSection } from '../profile/components/portal-profile-personal-section';
 import { PortalProfileSessionsSection } from '../profile/components/portal-profile-sessions-section';
 import { PortalProfileSupportSection } from '../profile/components/portal-profile-support-section';
+import { styles } from '../profile/profile.styles';
 import type { ProfileForm } from '../profile/profile.types';
 import { getProfileSection } from '../profile/profile.utils';
 import { usePortalStore } from '../store/use-portal-store';
@@ -55,7 +56,8 @@ export function PortalProfileScreen() {
     billingEmail: '',
     billingAddress: '',
   });
-  const [message, setMessage] = useState<string | null>(null);
+  const [personalMessage, setPersonalMessage] = useState<string | null>(null);
+  const [companyMessage, setCompanyMessage] = useState<string | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [sessionToRevoke, setSessionToRevoke] = useState<{ id: string; deviceName: string } | null>(null);
   const [revokeAllOpen, setRevokeAllOpen] = useState(false);
@@ -84,27 +86,29 @@ export function PortalProfileScreen() {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
     const phone = form.phone.trim();
+    setPersonalMessage(null);
 
     if (!name) {
-      setMessage('El nombre es obligatorio.');
+      setPersonalMessage('El nombre es obligatorio.');
       return;
     }
     if (name.length > 100) {
-      setMessage('El nombre no puede exceder 100 caracteres.');
+      setPersonalMessage('El nombre no puede exceder 100 caracteres.');
       return;
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setMessage('El correo electrónico no tiene un formato válido.');
+      setPersonalMessage('El correo electrónico no tiene un formato válido.');
       return;
     }
 
     const result = await updateProfile({ name, email, phone });
-    setMessage(result.ok ? 'Perfil personal actualizado correctamente.' : result.message || 'No fue posible actualizar el perfil.');
+    setPersonalMessage(result.ok ? 'Perfil personal actualizado correctamente.' : result.message || 'No fue posible actualizar el perfil.');
   };
 
   const saveCompanyProfile = async () => {
+    setCompanyMessage(null);
     if (!canManageCompany) {
-      setMessage('No tienes permiso para modificar los datos de empresa.');
+      setCompanyMessage('No tienes permiso para modificar los datos de empresa.');
       return;
     }
 
@@ -115,15 +119,15 @@ export function PortalProfileScreen() {
     const billingAddress = form.billingAddress.trim();
 
     if (billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingEmail)) {
-      setMessage('El correo fiscal no tiene un formato válido.');
+      setCompanyMessage('El correo fiscal no tiene un formato válido.');
       return;
     }
     if (taxId && !/^[A-Z0-9&Ñ]{12,13}$/.test(taxId)) {
-      setMessage('El RFC debe tener 12 o 13 caracteres alfanuméricos.');
+      setCompanyMessage('El RFC debe tener 12 o 13 caracteres alfanuméricos.');
       return;
     }
     if (companyName.length > 200) {
-      setMessage('El nombre de la empresa no puede exceder 200 caracteres.');
+      setCompanyMessage('El nombre de la empresa no puede exceder 200 caracteres.');
       return;
     }
 
@@ -134,7 +138,7 @@ export function PortalProfileScreen() {
       billingEmail,
       billingAddress,
     });
-    setMessage(result.ok ? 'Datos de empresa actualizados correctamente.' : result.message || 'No fue posible actualizar los datos de empresa.');
+    setCompanyMessage(result.ok ? 'Empresa y facturación actualizadas correctamente.' : result.message || 'No fue posible actualizar los datos de empresa.');
   };
 
   const revokeAllOtherSessions = async () => {
@@ -157,6 +161,41 @@ export function PortalProfileScreen() {
     }
   };
 
+  const personalSection = (
+    <PortalProfilePersonalSection
+      form={form}
+      isSubmitting={isProfileSubmitting}
+      message={personalMessage}
+      onFieldChange={setField}
+      onSave={() => void savePersonalProfile()}
+    />
+  );
+
+  const companySection = canManageCompany ? (
+    <PortalProfileCompanySection
+      form={form}
+      isSubmitting={isProfileSubmitting}
+      message={companyMessage}
+      onFieldChange={setField}
+      onSave={() => void saveCompanyProfile()}
+    />
+  ) : null;
+
+  const passwordSection = <PortalProfilePasswordSection onChanged={() => void loadAll()} />;
+
+  const sessionsSection = (
+    <PortalProfileSessionsSection
+      isSubmitting={isSessionSubmitting || revokingAll}
+      message={sessionMessage}
+      sessions={sessions}
+      onRevoke={(session) => {
+        setSessionMessage(null);
+        setSessionToRevoke({ id: session.id, deviceName: session.deviceName });
+      }}
+      onRevokeAllOthers={() => setRevokeAllOpen(true)}
+    />
+  );
+
   return (
     <PortalLayout
       title={
@@ -174,45 +213,30 @@ export function PortalProfileScreen() {
           ? 'Sesiones y seguridad de tu cuenta.'
           : activeSection === 'soporte'
             ? 'Canales de ayuda y soporte ManeComb.'
-            : 'Información personal y seguridad de tu cuenta.'}>
-      {activeSection === 'resumen' && user ? (
-        <PortalAccountCenter subscription={subscription} user={user} />
-      ) : null}
-
+            : 'Cuenta, empresa, facturación y seguridad en un solo lugar.'}>
       {activeSection === 'resumen' ? (
-        <PortalProfilePersonalSection
-          form={form}
-          isSubmitting={isProfileSubmitting}
-          message={message}
-          onFieldChange={setField}
-          onSave={() => void savePersonalProfile()}
-        />
+        <>
+          {user ? <PortalAccountCenter subscription={subscription} user={user} /> : null}
+          <View style={styles.profileWorkspace}>
+            <View style={styles.profileMainColumn}>
+              {personalSection}
+              {companySection}
+            </View>
+            <View style={styles.profileSideColumn}>
+              {passwordSection}
+              {sessionsSection}
+            </View>
+          </View>
+        </>
       ) : null}
 
-      {canManageCompany && (activeSection === 'resumen' || activeSection === 'empresa') ? (
-        <PortalProfileCompanySection
-          form={form}
-          isSubmitting={isProfileSubmitting}
-          onFieldChange={setField}
-          onSave={() => void saveCompanyProfile()}
-        />
-      ) : null}
+      {activeSection === 'empresa' ? companySection : null}
 
-      {activeSection === 'resumen' || activeSection === 'seguridad' ? (
-        <PortalProfilePasswordSection onChanged={() => void loadAll()} />
-      ) : null}
-
-      {activeSection === 'resumen' || activeSection === 'seguridad' ? (
-        <PortalProfileSessionsSection
-          isSubmitting={isSessionSubmitting || revokingAll}
-          message={sessionMessage}
-          sessions={sessions}
-          onRevoke={(session) => {
-            setSessionMessage(null);
-            setSessionToRevoke({ id: session.id, deviceName: session.deviceName });
-          }}
-          onRevokeAllOthers={() => setRevokeAllOpen(true)}
-        />
+      {activeSection === 'seguridad' ? (
+        <View style={styles.profileWorkspace}>
+          <View style={styles.profileMainColumn}>{passwordSection}</View>
+          <View style={styles.profileSideColumn}>{sessionsSection}</View>
+        </View>
       ) : null}
 
       {activeSection === 'soporte' ? (
