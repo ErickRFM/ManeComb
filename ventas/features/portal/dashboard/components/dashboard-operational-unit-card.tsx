@@ -1,8 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import type { RouteSession, Vehicle } from '@/src/types/app';
-import { formatGpsAge } from '@shared/operational-contract';
-import { getVehicleGpsConnectionState } from '../../utils/tracking';
+import { formatGpsAge, type OperationalUnitSnapshot } from '@shared/operational-contract';
 import { styles } from '../dashboard.styles';
 import { getVehicleStatus, getRouteInfo } from '../dashboard.utils';
 
@@ -11,21 +10,23 @@ export function OperationalUnitCard({
   activeSession,
   latestSession,
   onOpen,
+  operationalUnit,
   vehicle,
 }: {
   active: boolean;
   activeSession: RouteSession | null;
   latestSession: RouteSession | null;
   onOpen: () => void;
+  operationalUnit?: OperationalUnitSnapshot;
   vehicle: Vehicle;
 }) {
   const session = activeSession || latestSession;
-  const status = getVehicleStatus(vehicle);
+  const status = getVehicleStatus(vehicle, operationalUnit);
   const routeInfo = getRouteInfo(vehicle, session);
   // Presenta la taxonomia canonica del backend. Una unidad que jamas reporto no
   // esta averiada: esta esperando su primer paquete.
-  const connectionState = getVehicleGpsConnectionState(vehicle);
-  const gpsAge = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+  const connectionState = operationalUnit?.gps.connectionState || 'never_reported';
+  const gpsAge = formatGpsAge(operationalUnit?.gps.ageSeconds ?? null);
   const gpsMessage = connectionState === 'never_reported'
     ? 'Esperando primera ubicación'
     : connectionState === 'live'

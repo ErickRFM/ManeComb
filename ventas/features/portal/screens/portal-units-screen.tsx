@@ -24,6 +24,7 @@ export function PortalUnitsScreen() {
     deleteVehicle,
     isSubmitting,
     loadVehicles,
+    operationalUnits,
     updateVehicle,
     retireVehicle,
     user,
@@ -34,6 +35,7 @@ export function PortalUnitsScreen() {
       deleteVehicle: state.deleteVehicle,
       isSubmitting: state.isSubmitting,
       loadVehicles: state.loadVehicles,
+      operationalUnits: state.operationalUnits,
       updateVehicle: state.updateVehicle,
       retireVehicle: state.retireVehicle,
       user: state.user,
@@ -251,6 +253,7 @@ export function PortalUnitsScreen() {
         onContinueToRoutes={() => router.push('/portal/rutas' as never)}
         onDelete={(vehicle) => void prepareVehicleLifecycle(vehicle)}
         onEdit={startEdit}
+        operationalUnits={operationalUnits}
         vehicles={sortedVehicles}
       />
 

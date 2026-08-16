@@ -20,7 +20,6 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-const tracking = read('features/portal/utils/tracking.ts');
 const dashboardUtils = read('features/portal/dashboard/dashboard.utils.ts');
 const operationsMap = read('features/portal/components/operations-map.tsx');
 const unitCard = read('features/portal/dashboard/components/dashboard-operational-unit-card.tsx');
@@ -39,14 +38,14 @@ if (!contract.includes('Esperando primera ubicación')) {
 }
 
 // --- 2. El Portal presenta, no recalcula ------------------------------------
-if (!tracking.includes('getVehicleGpsConnectionState')) {
-  throw new Error('El Portal debe leer el estado GPS canonico con getVehicleGpsConnectionState.');
-}
-
-if (/export function isVehicleGpsFresh/.test(tracking)) {
-  throw new Error(
-    'isVehicleGpsFresh colapsaba cinco estados en un booleano y no puede reintroducirse.'
-  );
+for (const [file, source] of [
+  ['dashboard.utils.ts', dashboardUtils],
+  ['operations-map.tsx', operationsMap],
+  ['dashboard-operational-unit-card.tsx', unitCard],
+]) {
+  if (!source.includes('.gps.connectionState')) {
+    throw new Error(`${file} debe consumir unit.gps.connectionState directamente.`);
+  }
 }
 
 for (const [file, source] of [
@@ -54,8 +53,11 @@ for (const [file, source] of [
   ['operations-map.tsx', operationsMap],
   ['dashboard-operational-unit-card.tsx', unitCard],
 ]) {
-  if (!source.includes('getVehicleGpsConnectionState')) {
-    throw new Error(`${file} debe consumir el estado GPS canonico, no derivarlo.`);
+  if (/vehicle\.(location|locationTimestamp|gpsFreshness|speed|operationalState|activeRouteProgress|etaMinutes)/.test(source)) {
+    throw new Error(`${file} reintrodujo Vehicle como autoridad live.`);
+  }
+  if (source.includes('applyOperationalSnapshot')) {
+    throw new Error(`${file} no puede persistir/proyectar el snapshot dentro de Vehicle.`);
   }
 }
 

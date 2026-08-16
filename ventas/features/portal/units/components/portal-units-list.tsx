@@ -3,6 +3,7 @@ import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import type { Vehicle } from '@/src/types/app';
+import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
@@ -16,6 +17,7 @@ type PortalUnitsListProps = {
   onContinueToRoutes: () => void;
   onDelete: (vehicle: Vehicle) => void;
   onEdit: (vehicle: Vehicle) => void;
+  operationalUnits: OperationalUnitSnapshot[];
   vehicles: Vehicle[];
 };
 
@@ -24,8 +26,10 @@ export function PortalUnitsList({
   onContinueToRoutes,
   onDelete,
   onEdit,
+  operationalUnits,
   vehicles,
 }: PortalUnitsListProps) {
+  const unitByVehicleId = new Map(operationalUnits.map((unit) => [unit.unitId, unit]));
   return (
     <PortalSectionCard
       title="Unidades registradas"
@@ -36,6 +40,7 @@ export function PortalUnitsList({
       {vehicles.length ? (
         <PortalDataList>
           {vehicles.map((vehicle) => {
+            const unit = unitByVehicleId.get(vehicle.id);
             const status = getUnitStatus(vehicle);
             const retired = Boolean(vehicle.retiredAt);
             const routeLabel = vehicle.assignedRoute
@@ -62,16 +67,16 @@ export function PortalUnitsList({
                       {vehicle.plate} · {getKilometersLabel(vehicle.currentKilometers)}
                     </Text>
                     <Text style={[styles.unitMeta, { color: palette.muted }]}>
-                      Conductor: {vehicle.driver?.name || vehicle.driverName || 'Sin conductor'}
+                      Conductor: {unit?.driver?.name || 'Sin conductor'}
                     </Text>
                     {routeLabel ? (
                       <Text style={[styles.unitMeta, { color: palette.muted }]} numberOfLines={1}>
                         Ruta: {routeLabel}
                       </Text>
                     ) : null}
-                    {vehicle.locationTimestamp ? (
+                    {unit?.gps.recordedAt ? (
                       <Text style={[styles.unitMeta, { color: palette.muted }]}>
-                        Última actividad: {formatDate(vehicle.locationTimestamp, { fallback: 'Sin registro' })}
+                        Última actividad: {formatDate(unit.gps.recordedAt, { fallback: 'Sin registro' })}
                       </Text>
                     ) : null}
                     {retired ? (
