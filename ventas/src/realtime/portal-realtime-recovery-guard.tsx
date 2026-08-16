@@ -1,15 +1,12 @@
 import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/src/store/use-app-store';
-import {
-  shouldReconcileDisconnected,
-  shouldResyncAfterTokenRotation,
-} from './recovery-policy';
+import { shouldReconcileDisconnected } from './recovery-policy';
 
 const RECOVERY_COOLDOWN_MS = 3_000;
 const WATCHDOG_TICK_MS = 2_000;
 
-type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'token' | 'visible';
+type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'visible';
 
 /**
  * Cinturon de seguridad del Portal sobre el Socket.IO canonico.
@@ -17,8 +14,10 @@ type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'token' | 'visible';
  * Socket.IO sigue siendo la via primaria. Mientras el transporte reporta
  * `connected`, su ping/ping-timeout es la autoridad de salud y una flota quieta
  * no se interpreta como un socket estancado. REST solo reconcilia cuando el
- * navegador vuelve a primer plano, recupera red, Socket.IO entra en un estado de
- * recuperacion real o rota la credencial JWT usada por el siguiente handshake.
+ * navegador vuelve a primer plano, recupera red o Socket.IO entra en un estado
+ * de recuperacion real. La rotacion JWT se sincroniza directamente en la
+ * credencial `socket.auth` desde el store, sin abrir otro socket ni recargar el
+ * Portal completo.
  */
 export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode }) {
   const {
@@ -37,7 +36,6 @@ export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode 
   const disconnectedSinceAt = useRef<number | null>(
     socketStatus === 'connected' ? null : Date.now()
   );
-  const previousToken = useRef<string | null>(token);
   const lastRecoveryAt = useRef(0);
   const recoveryInFlight = useRef<Promise<void> | null>(null);
 
@@ -69,19 +67,6 @@ export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode 
       });
     recoveryInFlight.current = recovery;
   }, [refreshAll, token, userId]);
-
-  useEffect(() => {
-    const oldToken = previousToken.current;
-    previousToken.current = token;
-
-    if (shouldResyncAfterTokenRotation({
-      previousToken: oldToken,
-      nextToken: token,
-      userId,
-    })) {
-      reconcile('token');
-    }
-  }, [reconcile, token, userId]);
 
   useEffect(() => {
     if (!token || !userId || typeof window === 'undefined' || typeof document === 'undefined') {
