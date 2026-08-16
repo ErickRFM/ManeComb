@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import {
   DISCONNECTED_RECONCILE_MS,
   shouldReconcileDisconnected,
-  shouldResyncAfterTokenRotation,
 } from '../src/realtime/recovery-policy.js';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -50,32 +49,34 @@ assert.equal(
   'una pestana oculta no debe generar polling de recuperacion'
 );
 
-assert.equal(
-  shouldResyncAfterTokenRotation({ previousToken: null, nextToken: 'token-a', userId: 'u1' }),
-  false,
-  'el login inicial ya conecta el socket y no debe contarse como rotacion'
-);
-assert.equal(
-  shouldResyncAfterTokenRotation({ previousToken: 'token-a', nextToken: 'token-a', userId: 'u1' }),
-  false,
-  'el mismo JWT no debe reconstruir realtime'
-);
-assert.equal(
-  shouldResyncAfterTokenRotation({ previousToken: 'token-a', nextToken: 'token-b', userId: 'u1' }),
-  true,
-  'una rotacion JWT autenticada debe re-sincronizar el socket antes del siguiente handshake'
-);
-
 const guard = read('src/realtime/portal-realtime-recovery-guard.tsx');
-assert.ok(guard.includes("reconcile('token')"), 'el guard debe reaccionar a la rotacion JWT');
 assert.ok(guard.includes('shouldReconcileDisconnected'), 'el watchdog debe usar estados reales del transporte');
 assert.ok(!guard.includes('REALTIME_STALL_RECONCILE_MS'), 'no debe volver el watchdog por falta de movimiento');
 assert.ok(!guard.includes('operationalUnits'), 'la salud del socket no debe depender de que cambie la flota');
+assert.ok(!guard.includes("reconcile('token')"), 'rotar JWT no debe forzar una recarga completa del Portal');
+
+const store = read('src/store/use-app-store.ts');
+assert.ok(
+  store.includes('socket.auth = { token: session.token };'),
+  'el refresh HTTP debe actualizar la credencial del siguiente handshake Socket.IO'
+);
+assert.ok(
+  store.includes('socketSessionKey = `${SOCKET_URL}:${refreshedState.user.id}:${session.token}`;'),
+  'la clave de sesion realtime debe quedar alineada con el JWT rotado'
+);
+assert.ok(
+  store.includes('if (socket && refreshedState.user)'),
+  'la sincronizacion JWT debe reutilizar el socket existente y tolerar que aun no exista'
+);
 
 const plansCache = read('features/commercial/services/plans-cache.ts');
 assert.ok(plansCache.includes('PLANS_CACHE_TTL_MS'), 'el cache de planes debe tener TTL explicito');
 assert.ok(plansCache.includes('cacheAgeMs <= PLANS_CACHE_TTL_MS'), 'el TTL debe aplicarse al leer el cache');
 assert.ok(plansCache.includes('localStorage.removeItem'), 'un catalogo vencido debe descartarse');
+assert.ok(
+  /try\s*\{\s*return Boolean\(window\.localStorage\);/s.test(plansCache),
+  'el cache de planes debe tolerar navegadores con localStorage restringido'
+);
 
 const readiness = read('../backend/src/services/runtime-readiness.js');
 assert.ok(
