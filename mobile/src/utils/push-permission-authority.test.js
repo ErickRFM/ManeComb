@@ -46,13 +46,22 @@ describe('Push notification permission authority', () => {
     expect(token).toBeGreaterThan(permission);
   });
 
-  it('exposes one native authority to clear account-bound notification cards', () => {
+  it('clears only account-bound cards and never uses a blanket cancelAll', () => {
     const push = source('./push-notifications.ts');
     const nativeModule = source('../../android/app/src/main/java/com/anonymous/combiscontrol/notifications/ManeCombNotificationModule.kt');
+    const clearSection = between(
+      nativeModule,
+      'fun clearSessionNotifications(promise: Promise)',
+      '/**\n   * Socket/JS reaches'
+    );
 
     expect(push).toContain('export async function clearSessionNotifications()');
     expect(push).toContain('NativeNotification.clearSessionNotifications()');
-    expect(nativeModule).toContain('fun clearSessionNotifications(promise: Promise)');
-    expect(nativeModule).toContain('NotificationManagerCompat.from(reactContext).cancelAll()');
+    expect(clearSection).toContain('manager.activeNotifications');
+    expect(clearSection).toContain('SESSION_NOTIFICATION_CHANNEL_IDS');
+    expect(clearSection).toContain('Notification.CATEGORY_SERVICE');
+    expect(clearSection).not.toContain('cancelAll()');
+    expect(nativeModule).toContain('ManeCombPushNotificationRenderer.CHANNEL_CALLS');
+    expect(nativeModule).toContain('ManeCombAlertPolicy.CHANNEL_SOS');
   });
 });
