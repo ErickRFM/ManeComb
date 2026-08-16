@@ -1,6 +1,9 @@
 import { isAxiosError } from 'axios';
 import { apiClient, startRouteSessionRequest, updateRouteSessionStatusRequest } from '@/src/api/client';
-import { enqueuePendingSyncOperation } from '@/src/api/offline-cache';
+import {
+  enqueuePendingSyncOperation,
+  patchOfflineCachedActiveRouteSession,
+} from '@/src/api/offline-cache';
 import type { OperationalJourney } from '@shared/operational-contract';
 import type { RouteSession } from '@/src/types/app';
 
@@ -82,37 +85,46 @@ export async function executeRouteSessionAction({
       // Sin el, el servidor sella el inicio con la hora de reconexion y todos los
       // puntos capturados sin Internet quedan por debajo del inicio de sesion, de
       // modo que el backend los descarta y el recorrido no queda en el historial.
+      const pendingSession: RouteSession = {
+        id: `pending:${vehicleId}`,
+        organizationId,
+        routeId,
+        vehicleId,
+        driverId: driverId || userId,
+        startedAt: now,
+        finishedAt: null,
+        status: 'RUNNING',
+        createdAt: now,
+        updatedAt: now,
+      };
       await enqueuePendingSyncOperation({
         type: 'control:sessionStart',
         payload: { vehicleId, startedAt: now },
       });
+      // El caller actualiza Zustand inmediatamente, pero el snapshot offline es
+      // la autoridad de hidratacion tras process death. Persistir aqui mantiene
+      // UI, cola JS y servicio Android sobre la misma jornada pending.
+      await patchOfflineCachedActiveRouteSession(pendingSession);
       return {
         offline: true,
         record: null,
-        session: {
-          id: `pending:${vehicleId}`,
-          organizationId,
-          routeId,
-          vehicleId,
-          driverId: driverId || userId,
-          startedAt: now,
-          finishedAt: null,
-          status: 'RUNNING',
-          createdAt: now,
-          updatedAt: now,
-        },
+        session: pendingSession,
       };
     }
     if (!currentSession) throw error;
     const status = action === 'finish' ? 'FINISHED' : action === 'pause' ? 'PAUSED' : 'RUNNING';
+    const nextSession: RouteSession | null = status === 'FINISHED'
+      ? null
+      : { ...currentSession, status, updatedAt: now };
     await enqueuePendingSyncOperation({
       type: 'control:sessionStatus',
       payload: { sessionId: currentSession.id.startsWith('pending:') ? null : currentSession.id, vehicleId, status },
     });
+    await patchOfflineCachedActiveRouteSession(nextSession);
     return {
       offline: true,
       record: null,
-      session: status === 'FINISHED' ? null : { ...currentSession, status, updatedAt: now },
+      session: nextSession,
     };
   }
 }
