@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
 const http = require("node:http");
 
 process.env.NODE_ENV = "test";
@@ -13,6 +14,21 @@ const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
 
 async function main() {
+  const runtimeReadinessSource = readFileSync(
+    require.resolve("../src/services/runtime-readiness"),
+    "utf8"
+  );
+  assert.match(
+    runtimeReadinessSource,
+    /redisRequiredButUnavailable\s*=\s*Boolean\(redis\.enabled\s*&&\s*!redis\.ready\)/,
+    "Redis configurado pero no disponible debe formar parte del readiness global"
+  );
+  assert.match(
+    runtimeReadinessSource,
+    /\|\|\s*redisRequiredButUnavailable\s*\|\|/,
+    "la indisponibilidad de Redis habilitado debe degradar el runtime"
+  );
+
   const store = createEmbeddedStore();
   const app = createApp({
     store,
@@ -39,7 +55,7 @@ async function main() {
     assert.equal(serialized.includes(process.env.BANK_TRANSFER_ACCOUNT_NAME), false);
     assert.equal(serialized.includes("MERCADO_PAGO_ACCESS_TOKEN"), false);
 
-    console.log("ok - /api/health expone readiness de pagos segura para Ventas");
+    console.log("ok - /api/health expone readiness de pagos segura y contrato Redis auditable");
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
