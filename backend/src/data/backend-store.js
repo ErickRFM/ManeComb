@@ -88,6 +88,7 @@ function buildBackendStore(baseStore, dependencies = {}) {
     listRoutes: services.fleet.listRoutes.bind(services.fleet),
     listUsers: services.users.listUsers.bind(services.users),
     markNotificationAsRead: services.notifications.markNotificationAsRead.bind(services.notifications),
+    transitionIncidentStatus: services.incidents.transitionIncidentStatus.bind(services.incidents),
     updateRoute: services.fleet.updateRoute.bind(services.fleet),
     updateRouteIfRevision: services.fleet.updateRouteIfRevision.bind(services.fleet),
     updateUser: services.users.updateUser.bind(services.users)
