@@ -14,18 +14,15 @@ const router = Router();
 async function getPortalContext(req) {
   const organizationId = getOrganizationId(req.user);
   const store = req.app.locals.store;
-  const vehiclesPromise = organizationId && typeof store.listVehiclesForOrganization === "function"
-    ? store.listVehiclesForOrganization(organizationId)
-    : store.getLiveLocations().then((live) => (live.vehicles || []).filter(
-      (vehicle) => String(vehicle.organizationId || "") === String(organizationId || "")
-    ));
   const [rawOrders, users, activationKeys, vehicles] = await Promise.all([
     store.listCommercialOrdersForUser(req.user),
     store.listUsers(req.user),
     organizationId && store.listActivationKeysForCompany
       ? store.listActivationKeysForCompany(organizationId)
       : Promise.resolve([]),
-    vehiclesPromise
+    organizationId
+      ? store.listVehiclesForOrganization(organizationId, { includeRetired: false })
+      : Promise.resolve([])
   ]);
   const orders = enrichOrdersForUser(rawOrders, req.user);
 
