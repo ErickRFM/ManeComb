@@ -16,8 +16,11 @@ assert.match(
   /migrateLegacyLocalDocumentsToMongo\(\{ dryRun = true \} = \{\}\)/,
   "legacy migration must default to dry-run"
 );
+assert.ok(storageSource.includes("matchedCount !== 1 || modifiedCount !== 1"));
+assert.ok(storageSource.includes("deleteDocumentAsset(migratedAsset)"));
+assert.ok(storageSource.includes("durableReferenceCommitted"));
 assert.ok(migrationScript.includes('process.argv.includes("--apply")'));
 assert.ok(migrationScript.includes("dryRun: !apply"));
 assert.ok(migrationScript.includes("Dry-run completado"));
 
-console.log("ok - legacy document migration is explicit and dry-run by default");
+console.log("ok - legacy document migration is explicit, dry-run by default and CAS-safe");
