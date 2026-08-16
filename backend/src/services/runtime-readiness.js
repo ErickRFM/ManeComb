@@ -6,6 +6,63 @@ const { getRtcReadiness } = require("./rtc-config");
 const { getStorageReadiness } = require("./storage");
 const communication = require("../../modules/communication");
 
+function classifyRuntimeReadiness({
+  databaseReady,
+  storage,
+  payments,
+  redis,
+  queues,
+  notifications,
+  rtc,
+  transcription
+}) {
+  const blockers = [];
+  const degradedCapabilities = [];
+
+  if (!databaseReady) {
+    blockers.push("database");
+  }
+  if (redis?.enabled && !redis?.ready) {
+    blockers.push("redis");
+  }
+
+  if (!storage?.ready) {
+    degradedCapabilities.push("storage");
+  }
+  if (!payments?.ready) {
+    degradedCapabilities.push("payments");
+  }
+  if (!rtc?.ready) {
+    degradedCapabilities.push("rtc");
+  }
+  if (transcription?.provider !== "none" && !transcription?.ready) {
+    degradedCapabilities.push("transcription");
+  }
+  if (!notifications?.email?.ready) {
+    degradedCapabilities.push("email");
+  }
+  if (!notifications?.whatsapp?.ready) {
+    degradedCapabilities.push("whatsapp");
+  }
+  if (queues?.enabled && !queues?.functional) {
+    degradedCapabilities.push("communication_queue");
+  }
+
+  const ready = blockers.length === 0;
+  const status = !ready
+    ? "not_ready"
+    : degradedCapabilities.length
+      ? "degraded"
+      : "ok";
+
+  return {
+    blockers,
+    degradedCapabilities: Array.from(new Set(degradedCapabilities)),
+    ready,
+    status
+  };
+}
+
 function getRuntimeReadiness(dbState) {
   const transcription = getAudioTranscriptionReadiness();
   const storage = getStorageReadiness();
@@ -16,17 +73,16 @@ function getRuntimeReadiness(dbState) {
   const communicationReadiness = communication.getReadiness();
   const queues = communicationReadiness.queue;
   const databaseReady = Boolean(dbState?.connected);
-  const redisRequiredButUnavailable = Boolean(redis.enabled && !redis.ready);
-
-  const degraded =
-    !databaseReady ||
-    !storage.ready ||
-    !payments.ready ||
-    !rtc.ready ||
-    redisRequiredButUnavailable ||
-    (transcription.provider !== "none" && !transcription.ready) ||
-    !notifications.email.ready ||
-    !notifications.whatsapp.ready;
+  const classification = classifyRuntimeReadiness({
+    databaseReady,
+    storage,
+    payments,
+    redis,
+    queues,
+    notifications,
+    rtc,
+    transcription
+  });
 
   return {
     database: {
@@ -42,10 +98,11 @@ function getRuntimeReadiness(dbState) {
     notifications,
     rtc,
     transcription,
-    status: degraded ? "degraded" : "ok"
+    ...classification
   };
 }
 
 module.exports = {
+  classifyRuntimeReadiness,
   getRuntimeReadiness
 };

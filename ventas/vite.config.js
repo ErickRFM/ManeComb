@@ -4,6 +4,7 @@ import { defineConfig, loadEnv } from 'vite';
 
 const ALLOWED_PUBLIC_VITE_CREDENTIALS = new Set(['VITE_MAPBOX_ACCESS_TOKEN']);
 const PRIVATE_CLIENT_ENV_PATTERN = /(SECRET|PASSWORD|PRIVATE_KEY|AUTH_TOKEN|ACCESS_TOKEN|REFRESH_TOKEN|WEBHOOK_SECRET|CLABE)/i;
+const COMMIT_PATTERN = /^[a-f0-9]{40}$/i;
 
 function validateBuildUrl(name, value, { required = false, requireHttps = false } = {}) {
   const rawValue = String(value ?? '').trim();
@@ -57,6 +58,37 @@ function assertNoPrivateClientEnvironment(env) {
   }
 }
 
+function resolveBuildCommit(env) {
+  const candidates = [
+    env.CF_PAGES_COMMIT_SHA,
+    env.GITHUB_SHA,
+    env.RENDER_GIT_COMMIT,
+    env.GIT_COMMIT,
+    env.COMMIT_SHA,
+  ];
+
+  for (const candidate of candidates) {
+    const commit = String(candidate ?? '').trim();
+    if (COMMIT_PATTERN.test(commit)) return commit.toLowerCase();
+  }
+
+  return null;
+}
+
+function buildMetadataPlugin(commit) {
+  return {
+    name: 'manecomb-build-metadata',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'build-meta.json',
+        source: `${JSON.stringify({ schemaVersion: 1, product: 'ventas', commit }, null, 2)}\n`,
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => {
   const loadedEnv = loadEnv(mode, process.cwd(), '');
   const env = {
@@ -67,6 +99,7 @@ export default defineConfig(({ command, mode }) => {
   const apiUrl = String(env.VITE_API_URL ?? '').trim();
   const socketUrl = String(env.VITE_SOCKET_URL ?? '').trim();
   const mapboxAccessToken = String(env.VITE_MAPBOX_ACCESS_TOKEN ?? '').trim();
+  const buildCommit = resolveBuildCommit(env);
 
   if (command === 'build') {
     assertNoPrivateClientEnvironment(env);
@@ -77,7 +110,7 @@ export default defineConfig(({ command, mode }) => {
   }
 
   return {
-    plugins: [react()],
+    plugins: [react(), buildMetadataPlugin(buildCommit)],
 
     define: {
       global: 'globalThis',
