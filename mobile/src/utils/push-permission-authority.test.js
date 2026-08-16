@@ -45,4 +45,14 @@ describe('Push notification permission authority', () => {
     expect(permission).toBeGreaterThan(registerStart);
     expect(token).toBeGreaterThan(permission);
   });
+
+  it('exposes one native authority to clear account-bound notification cards', () => {
+    const push = source('./push-notifications.ts');
+    const nativeModule = source('../../android/app/src/main/java/com/anonymous/combiscontrol/notifications/ManeCombNotificationModule.kt');
+
+    expect(push).toContain('export async function clearSessionNotifications()');
+    expect(push).toContain('NativeNotification.clearSessionNotifications()');
+    expect(nativeModule).toContain('fun clearSessionNotifications(promise: Promise)');
+    expect(nativeModule).toContain('NotificationManagerCompat.from(reactContext).cancelAll()');
+  });
 });
