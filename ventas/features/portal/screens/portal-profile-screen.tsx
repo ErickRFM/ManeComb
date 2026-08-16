@@ -45,6 +45,7 @@ export function PortalProfileScreen() {
     }))
   );
   const canManageCompany = hasPortalPermission(user, 'users');
+  const canViewBilling = hasPortalPermission(user, 'billing');
   const activeSection = requestedSection === 'empresa' && !canManageCompany ? 'resumen' : requestedSection;
   const [form, setForm] = useState<ProfileForm>({
     name: '',
@@ -173,6 +174,7 @@ export function PortalProfileScreen() {
 
   const companySection = canManageCompany ? (
     <PortalProfileCompanySection
+      canViewBilling={canViewBilling}
       form={form}
       isSubmitting={isProfileSubmitting}
       message={companyMessage}
