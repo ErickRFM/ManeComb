@@ -11,7 +11,13 @@ const PLANS_CACHE_KEY = 'manecomb-ventas-plans-cache';
 export const PLANS_CACHE_TTL_MS = 30 * 60 * 1000;
 
 function canUseStorage() {
-  return typeof window !== 'undefined' && Boolean(window.localStorage);
+  if (typeof window === 'undefined') return false;
+
+  try {
+    return Boolean(window.localStorage);
+  } catch {
+    return false;
+  }
 }
 
 export function readCachedPlans(): CommercialPlan[] {
