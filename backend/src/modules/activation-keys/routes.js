@@ -18,6 +18,7 @@ const {
   validateDriverActivationKey
 } = require("../../services/activation-keys");
 const { buildAuthContext } = require("../../services/auth-context");
+const { countUsedUnitSlots } = require("../../services/portal-account");
 const { createSessionForRequest } = require("../../services/sessions");
 const { buildAuthSession } = require("../../utils/jwt");
 const { enterpriseRateLimit } = require("../../middlewares/enterprise-rate-limit");
@@ -60,6 +61,31 @@ function handleActivationError(res, error) {
     code: "activation_unavailable",
     message: "No fue posible completar la activación. Intenta nuevamente."
   });
+}
+
+async function withRegisteredUnitSummary(req, data) {
+  if (!data?.summary) return data;
+
+  const organizationId = getOrganizationId(req.user);
+  const store = req.app.locals.store;
+  let vehicles = [];
+
+  if (organizationId && typeof store.listVehiclesForOrganization === "function") {
+    vehicles = await store.listVehiclesForOrganization(organizationId);
+  } else if (organizationId && typeof store.getLiveLocations === "function") {
+    const live = await store.getLiveLocations();
+    vehicles = (live.vehicles || []).filter(
+      (vehicle) => String(vehicle.organizationId || "") === String(organizationId)
+    );
+  }
+
+  return {
+    ...data,
+    summary: {
+      ...data.summary,
+      activeUnits: countUsedUnitSlots(vehicles)
+    }
+  };
 }
 
 function emitActivationKeysUpdated(req, payload) {
@@ -131,7 +157,10 @@ adminActivationKeyRoutes.get(
     try {
       return res.json({
         ok: true,
-        data: await listAdminActivationKeys(req.app.locals.store, req.user)
+        data: await withRegisteredUnitSummary(
+          req,
+          await listAdminActivationKeys(req.app.locals.store, req.user)
+        )
       });
     } catch (error) {
       return handleActivationError(res, error);
@@ -146,9 +175,12 @@ adminActivationKeyRoutes.post(
   requirePermission("canManageUsers"),
   async (req, res) => {
     try {
-      const data = await generateActivationKeyForAdmin(req.app.locals.store, req.user, {
-        expiresInDays: req.body?.expiresInDays
-      });
+      const data = await withRegisteredUnitSummary(
+        req,
+        await generateActivationKeyForAdmin(req.app.locals.store, req.user, {
+          expiresInDays: req.body?.expiresInDays
+        })
+      );
 
       await recordAuditLog(req, {
         action: "activation_key.generate",
@@ -183,10 +215,13 @@ adminActivationKeyRoutes.delete(
   requirePermission("canManageUsers"),
   async (req, res) => {
     try {
-      const data = await deleteActivationKeyForAdmin(
-        req.app.locals.store,
-        req.user,
-        req.params.id
+      const data = await withRegisteredUnitSummary(
+        req,
+        await deleteActivationKeyForAdmin(
+          req.app.locals.store,
+          req.user,
+          req.params.id
+        )
       );
 
       await recordAuditLog(req, {
@@ -221,10 +256,13 @@ adminActivationKeyRoutes.patch(
   requirePermission("canManageUsers"),
   async (req, res) => {
     try {
-      const data = await revokeActivationKeyForAdmin(
-        req.app.locals.store,
-        req.user,
-        req.params.id
+      const data = await withRegisteredUnitSummary(
+        req,
+        await revokeActivationKeyForAdmin(
+          req.app.locals.store,
+          req.user,
+          req.params.id
+        )
       );
 
       await recordAuditLog(req, {
@@ -259,10 +297,13 @@ adminActivationKeyRoutes.post(
   requirePermission("canManageUsers"),
   async (req, res) => {
     try {
-      const data = await shareActivationKeyForAdmin(
-        req.app.locals.store,
-        req.user,
-        req.params.id
+      const data = await withRegisteredUnitSummary(
+        req,
+        await shareActivationKeyForAdmin(
+          req.app.locals.store,
+          req.user,
+          req.params.id
+        )
       );
 
       await recordAuditLog(req, {

@@ -507,6 +507,15 @@ const learnedRouteCandidateSchema = new mongoose.Schema(
     evidenceVehicleIds: { type: [String], default: [] },
     evidenceCount: { type: Number, default: 0 },
     vehicleCount: { type: Number, default: 0 },
+    /**
+     * Dias de servicio (YYYY-MM-DD en zona de operacion) en los que se observo
+     * este corredor. Un recorrido habitual se repite en dias distintos; tres
+     * vueltas del mismo turno no lo demuestran.
+     */
+    evidenceServiceDates: { type: [String], default: [] },
+    distinctServiceDays: { type: Number, default: 0 },
+    firstSeenAt: { type: Date, default: null },
+    lastSeenAt: { type: Date, default: null },
     representativeSessionId: { type: String, required: true },
     geometryVersion: { type: String, required: true },
     algorithmVersion: { type: String, required: true },

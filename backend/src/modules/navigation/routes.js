@@ -17,6 +17,7 @@ const { calculateAndPersistRouteMetrics } = require("../../services/route-metric
 const { processCompletedRouteSession } = require("../../services/auto-route-learning");
 const autoRouteConfig = require("../../config/auto-route");
 const { isServiceDate, toServiceDate } = require("../../utils/service-date");
+const { resolveSessionStartedAt } = require("../../services/tracking-time");
 
 const router = Router();
 
@@ -1037,7 +1038,7 @@ router.post("/sessions/start", authenticate, requireOperationalAccess, async (re
         : `recording:${vehicle.id}`),
       vehicleId,
       driverId: vehicle.driverId,
-      startedAt: new Date().toISOString(),
+      startedAt: resolveSessionStartedAt(req.body.startedAt),
       startedOdometer: Number.isFinite(Number(req.body.startedOdometer)) ? Number(req.body.startedOdometer) : vehicle.currentKilometers ?? null,
       startBattery: Number.isFinite(Number(req.body.startBattery)) ? Number(req.body.startBattery) : null,
       startGpsAccuracy: Number.isFinite(Number(req.body.startGpsAccuracy)) ? Number(req.body.startGpsAccuracy) : null,

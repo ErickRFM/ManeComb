@@ -7,7 +7,7 @@ import {
 } from './helpers';
 
 const routes = [
-  { name: 'ventas', path: '/ventas', signal: /Tu flotilla, tu equipo y tus rutas/i },
+  { name: 'ventas', path: '/ventas', signal: /Controla tu flotilla desde una sola operación conectada/i },
   { name: 'login', path: '/ventas/login', signal: /Iniciar sesi[oó]n/i },
   { name: 'registro', path: '/ventas/registro', signal: /Registrarse/i },
   {
@@ -57,7 +57,7 @@ test.describe('CERT-PROD-01 — responsive público', () => {
   test('landing conserva jerarquía comercial y acciones de planes', async ({ page }, testInfo) => {
     await page.goto('/ventas', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('ManeComb').first()).toBeVisible();
-    await expect(page.getByText('Elige la capacidad de tu flotilla')).toBeVisible();
+    await expect(page.getByText('Elige el tamaño que corresponde a tu flotilla')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Elegir plan' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Usar demo \d+ días/i }).first()).toBeVisible();
 

@@ -10,7 +10,6 @@ import { hasPortalPermission } from '../../utils/access';
 import { styles } from '../dashboard.styles';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import {
-  formatSpeed,
   formatPercent,
   getActiveDriver,
   getAssignedDrivers,
@@ -26,6 +25,7 @@ import {
   getDriverInitials,
   getTimestamp,
 } from '../dashboard.utils';
+import { formatSpeed as formatOperationalSpeed, type OperationalUnitSnapshot } from '@shared/operational-contract';
 import type { RouteSession, RouteEvent, User, Vehicle } from '@/src/types/app';
 import { driverAvatarImageStyle } from '../dashboard.constants';
 
@@ -48,6 +48,7 @@ export function VehicleSidePanel({
   recentEvents,
   users,
   vehicle,
+  operationalUnit,
 }: {
   activeSession: RouteSession | null;
   driverChangeMessage: string | null;
@@ -64,6 +65,7 @@ export function VehicleSidePanel({
   recentEvents: RouteEvent[];
   users: User[];
   vehicle: Vehicle;
+  operationalUnit?: OperationalUnitSnapshot;
 }) {
   const currentUser = useAppStore((state) => state.user);
   const canChangeDriver = hasPortalPermission(currentUser, 'users');
@@ -74,7 +76,7 @@ export function VehicleSidePanel({
   const routeInfo = getRouteInfo(vehicle, session);
   const journeyState = getJourneyState(vehicle, session);
   const progress = getRouteProgressPercent(vehicle, session);
-  const alerts = getOperationalAlerts(vehicle, session).filter((alert) => alert.label !== journeyState.label);
+  const alerts = getOperationalAlerts(vehicle, session, operationalUnit).filter((alert) => alert.label !== journeyState.label);
   return (
     <View style={styles.sidePanel}>
       <View style={styles.sideHeader}>
@@ -105,7 +107,7 @@ export function VehicleSidePanel({
       </View>
       {session ? <ProgressBar value={progress} /> : null}
       <View style={styles.sideHighlightRow}>
-        <Fact label="Velocidad" value={formatSpeed(vehicle.speed)} />
+        <Fact label="Velocidad" value={operationalUnit ? formatOperationalSpeed(operationalUnit.gps) : 'Sin dato'} />
         <Fact label="ETA" value={getEtaLabel(vehicle)} />
         <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
       </View>

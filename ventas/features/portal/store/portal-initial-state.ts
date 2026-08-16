@@ -14,4 +14,14 @@ export const emptyPortalState = {
   isLoading: false,
   isSubmitting: false,
   error: null,
+  resources: {
+    account: idleResourceState(),
+    activationKeys: idleResourceState(),
+    billing: idleResourceState(),
+    sessions: idleResourceState(),
+    documents: idleResourceState(),
+    incidents: idleResourceState(),
+    appInfo: idleResourceState(),
+  },
 };
+import { idleResourceState } from '@shared/resource-state';

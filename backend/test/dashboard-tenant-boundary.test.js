@@ -3,6 +3,8 @@ process.env.MONGO_URI = "";
 process.env.MONGODB_URI = "";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { createEmbeddedStore } = require("../src/data/store");
 
 async function main() {
@@ -90,8 +92,36 @@ async function main() {
 
   const documentsMetric = dashboard.metrics.find((metric) => metric.id === "documents");
   assert.equal(documentsMetric.value, "1");
-  const punctualityMetric = dashboard.metrics.find((metric) => metric.id === "punctuality");
-  assert.equal(punctualityMetric.value, "92%");
+  assert.equal(documentsMetric.trend, "1 requieren seguimiento");
+
+  const incidentsMetric = dashboard.metrics.find((metric) => metric.id === "incidents-open");
+  assert.equal(incidentsMetric.value, "1");
+  assert.equal(incidentsMetric.trend, "1 pendientes");
+
+  const maintenanceMetric = dashboard.metrics.find((metric) => metric.id === "maintenance");
+  assert.equal(maintenanceMetric.value, "0");
+  assert.equal(maintenanceMetric.trend, "Sin unidades en mantenimiento");
+
+  assert.equal(dashboard.shift.startedAt, null);
+  assert.equal(dashboard.shift.nextCheckpointInMinutes, null);
+
+  const repositorySource = fs.readFileSync(
+    path.join(__dirname, "../src/data/repositories/fleet-repository.js"),
+    "utf8"
+  );
+  for (const fabricatedSignal of [
+    "+1 vs ayer",
+    "Atencion en ruta R-21",
+    "96 - openIncidents.length",
+    "Date.now() - 3 * 60 * 60 * 1000",
+    "actor.role === \"driver\" ? 12 : 18"
+  ]) {
+    assert.equal(
+      repositorySource.includes(fabricatedSignal),
+      false,
+      `dashboard must not fabricate operational signal: ${fabricatedSignal}`
+    );
+  }
 
   const serialized = JSON.stringify(dashboard);
   for (const foreignSecret of [
@@ -103,7 +133,7 @@ async function main() {
     assert.equal(serialized.includes(foreignSecret), false, `dashboard leaked ${foreignSecret}`);
   }
 
-  console.log("ok - dashboard aggregates only the authenticated enterprise tenant");
+  console.log("ok - dashboard is tenant-scoped and presents persisted facts only");
 }
 
 main().catch((error) => {

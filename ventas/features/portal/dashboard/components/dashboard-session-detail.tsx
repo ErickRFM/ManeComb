@@ -11,7 +11,7 @@ import { portalPalette } from '../../portal-theme';
 import { styles } from '../dashboard.styles';
 import type { SessionDetail } from '../dashboard.types';
 import { replaySpeeds } from '../dashboard.constants';
-import { formatPercent, formatSpeed, getEventLabel, getTimestamp } from '../dashboard.utils';
+import { formatPercent, formatSpeedMetersPerSecond, getEventLabel, getTimestamp } from '../dashboard.utils';
 
 const formatDuration = formatDurationFromSeconds;
 const formatDistance = formatDistanceFromMeters;
@@ -127,7 +127,7 @@ export function SessionDetailView({
               </View>
               <View style={styles.metricGrid}>
                 <Fact label="Hora" value={replayPosition ? formatDate(replayPosition.timestamp) : 'Sin posición'} />
-                <Fact label="Velocidad" value={formatSpeed(replayPosition?.speed)} />
+                <Fact label="Velocidad" value={formatSpeedMetersPerSecond(replayPosition?.speed)} />
                 <Fact label="Checkpoint" value={currentVisit ? `#${detail.visits.indexOf(currentVisit) + 1}` : 'Sin checkpoint'} />
                 <Fact label="GPS" value={replayPosition?.gpsQuality || 'Sin calidad'} />
                 <Fact label="Posiciones" value={`${detail.positions.length} / ${detail.positionsTotal || detail.positions.length}`} />

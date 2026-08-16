@@ -346,7 +346,7 @@ router.post(
       logger.error({
         module: "Chat",
         action: "voiceNote.upload_failed",
-        requestId: req.requestId,
+        requestId: req.traceId,
         userId: req.user?.id,
         message: "No fue posible enviar la nota de voz",
         metadata: { conversationId: req.params.conversationId },

@@ -143,6 +143,26 @@ async function runActivationKeyFlow() {
       status: "inactive"
     });
 
+    await context.store.deleteVehicle(inactiveVehicle.id);
+
+    const subscriptionCapacity = await requestJson(`${context.url}/account/subscription`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    assert.equal(subscriptionCapacity.status, 200);
+    assert.equal(subscriptionCapacity.payload.data.activeUnits, 2);
+    assert.equal(subscriptionCapacity.payload.data.availableUnits, 0);
+
+    const portalCapacity = await requestJson(`${context.url}/portal/overview`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    assert.equal(portalCapacity.status, 200);
+    assert.equal(portalCapacity.payload.data.subscription.activeUnits, 2);
+    assert.equal(portalCapacity.payload.data.metrics.activeUnits, 2);
+
     // Regresion: las keys creadas antes de persistir `orderId` deben resolver
     // la misma orden activa que Portal, no caer falsamente en plan inactivo.
     const legacyKey = await context.store.createActivationKey({
@@ -164,7 +184,6 @@ async function runActivationKeyFlow() {
       legacyValidation.payload.data.availableUnits.map((unit) => unit.id).sort(),
       [firstVehicle.id, secondVehicle.id].sort()
     );
-    await context.store.deleteVehicle(inactiveVehicle.id);
     await context.store.updateActivationKey(legacyKey.id, { status: "revoked" });
     const revokedValidation = await requestJson(`${context.url}/driver/activation/validate`, {
       body: JSON.stringify({ key: legacyKey.key }),
@@ -245,6 +264,7 @@ async function runActivationKeyFlow() {
     assert.equal(secondKeyResponse.payload.data.summary.keysExpired, 1);
     assert.equal(secondKeyResponse.payload.data.summary.keysRevoked, 1);
     assert.equal(secondKeyResponse.payload.data.summary.keysAvailable, 2);
+    assert.equal(secondKeyResponse.payload.data.summary.activeUnits, 2);
     assert.equal(secondKeyResponse.payload.data.summary.availableSlots, 0);
 
     const keyOne = firstKeyResponse.payload.data.activationKey.key;
@@ -383,8 +403,40 @@ async function runActivationKeyFlow() {
     assert.equal(replacementKeyResponse.status, 201);
     assert.equal(replacementKeyResponse.payload.data.summary.keysAvailable, 1);
     assert.equal(replacementKeyResponse.payload.data.summary.remainingDriverSlots, 1);
+    assert.equal(replacementKeyResponse.payload.data.summary.activeUnits, 2);
 
-    console.log("ok - flujo de activation keys respeta plan de 2 combis, contrato mobile y cupos");
+    const upgradeResponse = await requestJson(`${context.url}/account/subscription/plan`, {
+      body: JSON.stringify({ planId: "value-4" }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "PATCH"
+    });
+    assert.equal(upgradeResponse.status, 200);
+    assert.equal(upgradeResponse.payload.data.totalUnits, 4);
+    assert.equal(upgradeResponse.payload.data.activeUnits, 2);
+
+    const thirdVehicle = await context.store.createVehicle({
+      organizationId: registerOwner.payload.user.organizationId,
+      code: "CB-T03",
+      plate: "TST-003-B",
+      status: "available"
+    });
+    assert.ok(thirdVehicle.id);
+
+    const blockedDowngrade = await requestJson(`${context.url}/account/subscription/plan`, {
+      body: JSON.stringify({ planId: "starter-2" }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "PATCH"
+    });
+    assert.equal(blockedDowngrade.status, 409);
+    assert.equal(blockedDowngrade.payload.code, "active_usage_exceeds_target");
+    assert.equal(blockedDowngrade.payload.data.activeUnits, 3);
+    assert.equal(blockedDowngrade.payload.data.targetUnits, 2);
+
+    console.log("ok - flujo de activation keys respeta plan, flota registrada, contrato mobile y cupos");
   } finally {
     await context.close();
   }

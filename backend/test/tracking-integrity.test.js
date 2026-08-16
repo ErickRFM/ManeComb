@@ -54,7 +54,42 @@ decision = normalizeTrackingTime(
 );
 assert.equal(decision.clientQueueAgeMs, MAX_CLIENT_QUEUE_AGE_MS);
 
-assert.equal(buildGpsFreshness("2026-07-17T11:59:00.000Z", receivedAt).state, "fresh");
-assert.equal(buildGpsFreshness("2026-07-17T11:57:59.999Z", receivedAt).state, "stale");
-assert.equal(buildGpsFreshness(null, receivedAt).state, "missing");
+// `buildGpsFreshness` ya no mantiene una escalera propia de 120 s: delega en
+// `domain/gps-telemetry-state.js`. Antes la misma unidad podia salir "fresh" por
+// REST y "stale" por el snapshot operacional en el mismo instante.
+const vehicleAt = (isoTimestamp) => ({
+  location: { latitude: 19.43, longitude: -99.13 },
+  locationTimestamp: isoTimestamp,
+  locationReceivedAt: isoTimestamp
+});
+
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:52.000Z"), receivedAt).connectionState, "live");
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:52.000Z"), receivedAt).state, "fresh");
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:50.000Z"), receivedAt).connectionState, "delayed");
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:40.000Z"), receivedAt).connectionState, "stale");
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:00.000Z"), receivedAt).connectionState, "lost");
+assert.equal(buildGpsFreshness(vehicleAt("2026-07-17T11:59:00.000Z"), receivedAt).state, "missing");
+
+// Autoridad compartida: REST/socket y snapshot coinciden sobre el mismo vehiculo.
+const { buildOperationalUnitSnapshot } = require("../src/domain/operational-unit-snapshot");
+for (const isoTimestamp of [
+  "2026-07-17T11:59:52.000Z",
+  "2026-07-17T11:59:50.000Z",
+  "2026-07-17T11:59:40.000Z",
+  "2026-07-17T11:59:00.000Z"
+]) {
+  const vehicle = { id: "veh-1", code: "C-1", status: "available", ...vehicleAt(isoTimestamp) };
+  assert.equal(
+    buildGpsFreshness(vehicle, receivedAt).connectionState,
+    buildOperationalUnitSnapshot({ vehicle, now: receivedAt }).gps.connectionState,
+    `REST y snapshot discrepan sobre ${isoTimestamp}`
+  );
+}
+
+// Una unidad que jamas reporto no esta "vencida": esta esperando su primer paquete.
+const neverReported = buildGpsFreshness({ id: "veh-2", code: "C-2" }, receivedAt);
+assert.equal(neverReported.connectionState, "never_reported");
+assert.equal(neverReported.hasEverReported, false);
+assert.equal(neverReported.ageSeconds, null);
+assert.equal(neverReported.state, "missing");
 console.log("tracking integrity tests passed");

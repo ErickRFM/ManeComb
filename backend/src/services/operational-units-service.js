@@ -6,6 +6,7 @@ const {
   buildOperationalUnitSnapshot
 } = require("../domain/operational-unit-snapshot");
 const { attachOperationalJourney } = require("../domain/operational-journey-snapshot");
+const { observeDuration } = require("./metrics");
 
 /**
  * Ensambla la proyeccion operacional canonica.
@@ -222,6 +223,7 @@ async function getOperationalUnit({ store, user, organizationId, filterTenantLis
  */
 async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = new Date() }) {
   if (!vehicle) return null;
+  const startedAt = Date.now();
 
   const vehicleId = String(vehicle.id ?? vehicle._id ?? "");
   const org = String(organizationId || vehicle.organizationId || "").trim();
@@ -252,7 +254,11 @@ async function buildSnapshotForVehicle({ store, vehicle, organizationId, now = n
     now
   });
 
-  return attachOperationalJourney(snapshot, activeSession, now);
+  const result = attachOperationalJourney(snapshot, activeSession, now);
+  observeDuration("operational_snapshot_build_ms", Date.now() - startedAt, {
+    quality: result.gps?.freshness || "missing"
+  });
+  return result;
 }
 
 /**
@@ -285,6 +291,7 @@ async function emitOperationalUnitUpdate({
     emittedAt: new Date().toISOString(),
     ...(reason ? { reason } : {})
   };
+  const emitStartedAt = Date.now();
 
   if (org && typeof getRolesWithPermission === "function") {
     getRolesWithPermission("canViewAnalytics").forEach((role) => {
@@ -296,6 +303,9 @@ async function emitOperationalUnitUpdate({
   }
 
   io.to("platform:admin").emit("operational-unit:updated", payload);
+  observeDuration("operational_emit_ms", Date.now() - emitStartedAt, {
+    decision: reason || "location_update"
+  });
   scheduleGpsFreshnessDeadline({
     io,
     store,

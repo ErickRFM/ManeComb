@@ -1,6 +1,6 @@
 const { Router } = require("express");
 const { authenticate } = require("../../middlewares/authenticate");
-const { canAccessTenantResource, filterTenantList, getOrganizationId, getRolesWithPermission, hasPermission, requireOrganization, requirePermission } = require("../../middlewares/access-control");
+const { canAccessTenantResource, getOrganizationId, getRolesWithPermission, hasPermission, requireOrganization, requirePermission } = require("../../middlewares/access-control");
 const { requireOperationalAccess } = require("../../middlewares/operational-access");
 const {
   DriverLifecycleError,
@@ -13,9 +13,10 @@ const router = Router();
 
 router.get("/", authenticate, requireOrganization, requireOperationalAccess, async (req, res) => {
   const includeRetired = req.query.includeRetired === "true" && hasPermission(req.user, "canManageVehicles");
-  const vehicles = typeof req.app.locals.store.listVehiclesForOrganization === "function"
-    ? await req.app.locals.store.listVehiclesForOrganization(getOrganizationId(req.user), { includeRetired })
-    : filterTenantList(req.user, (await req.app.locals.store.getLiveLocations()).vehicles);
+  const vehicles = await req.app.locals.store.listVehiclesForOrganization(
+    getOrganizationId(req.user),
+    { includeRetired }
+  );
 
   return res.json({
     ok: true,

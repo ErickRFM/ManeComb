@@ -1,15 +1,24 @@
-import * as SecureStore from '@/src/native/secure-store';
+﻿import * as SecureStore from '@/src/native/secure-store';
 import * as Haptics from '@/src/native/haptics';
 import { AppState as NativeAppState, Platform } from 'react-native';
 import {
   isAuthoritativeSessionFailure,
   isTransientSessionFailure,
 } from './auth-session-failure-policy';
+import { logRealtimeDiag } from './realtime-diagnostics-log';
 import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
 import { isAxiosError } from 'axios';
 import type { ThemeMode } from '@/constants/theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import {
+  applyIncrementalResourceEvent,
+  beginResourceAttempt,
+  completeResourceAttempt,
+  failResourceAttempt,
+  idleResourceState,
+  type ResourceState,
+} from '@shared/resource-state';
 import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
@@ -219,7 +228,30 @@ type RealtimeDiagnostics = {
   missedHeartbeatAcks: number;
   reconnectAttempts: number;
   reason: string | null;
+  operationalSocketReceivedAt: string | null;
+  operationalAppliedAt: string | null;
+  operationalReceiveToApplyMs: number | null;
+  operationalUnitId: string | null;
 };
+
+export type MobileResourceDomain =
+  | 'operationalUnits'
+  | 'mapData'
+  | 'incidents'
+  | 'documents'
+  | 'notifications'
+  | 'users'
+  | 'conversations'
+  | 'routeSessionHistory';
+
+const mobileResourceDomains: MobileResourceDomain[] = [
+  'operationalUnits', 'mapData', 'incidents', 'documents', 'notifications',
+  'users', 'conversations', 'routeSessionHistory',
+];
+
+function idleMobileResources(): Record<MobileResourceDomain, ResourceState> {
+  return Object.fromEntries(mobileResourceDomains.map((domain) => [domain, idleResourceState()])) as Record<MobileResourceDomain, ResourceState>;
+}
 
 export type AppState = {
   apiUrl: string;
@@ -255,6 +287,7 @@ export type AppState = {
    * cuenta a partir de `mapData`.
    */
   operationalUnits: OperationalUnitSnapshot[];
+  resources: Record<MobileResourceDomain, ResourceState>;
   incidents: Incident[];
   conversations: ConversationSummary[];
   chatContacts: ChatDirectoryContact[];
@@ -346,6 +379,7 @@ function getEmptyOperationalState(): Partial<AppState> {
   return {
     mapData: null,
     operationalUnits: [],
+    resources: idleMobileResources(),
     incidents: [],
     conversations: [],
     chatContacts: [],
@@ -441,7 +475,7 @@ function logStoreError(scope: string, error: unknown) {
   }
 
   const traceId = getErrorTraceId(error);
-  const message = getReadableErrorMessage(error, 'Error interno de la aplicación.');
+  const message = getReadableErrorMessage(error, 'Error interno de la aplicaciÃ³n.');
 
   console.warn(`[store:${scope}] ${message}${traceId ? ` traceId=${traceId}` : ''}`, error);
 }
@@ -726,6 +760,19 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     return {};
   }
 
+  const cachedAt = snapshot.savedAt || new Date().toISOString();
+  const resources = idleMobileResources();
+  for (const domain of mobileResourceDomains) {
+    resources[domain] = {
+      status: 'stale',
+      isRefreshing: false,
+      lastAttemptAt: null,
+      lastSuccessfulAt: cachedAt,
+      source: 'cache',
+      errorCode: null,
+      errorMessage: null,
+    };
+  }
   return {
     authContext: snapshot.authContext || null,
     user: snapshot.user,
@@ -739,6 +786,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
     users: snapshot.users || [],
     activeRouteSession: snapshot.activeRouteSession || null,
     routeSessionHistory: snapshot.routeSessionHistory || [],
+    resources,
     lastCacheAt: snapshot.savedAt,
   };
 }
@@ -1075,11 +1123,30 @@ function setSocketTransition(
 function connectSocket(
   set: StoreSet,
   get: () => AppState,
-  options: { forceFreshTransport?: boolean } = {}
+  options: { forceFreshTransport?: boolean; diagTrigger?: string } = {}
 ) {
   const { token, user } = get();
-  if (!user) return disconnectSocket();
+  if (!user) {
+    logRealtimeDiag('connectSocket:no_user', { trigger: options.diagTrigger || 'unknown' });
+    return disconnectSocket();
+  }
   const nextSessionKey = `${SOCKET_URL}:${user.id}:${token || 'anonymous'}`;
+
+  logRealtimeDiag('connectSocket', {
+    trigger: options.diagTrigger || 'unknown',
+    userId: user.id,
+    sessionEpoch: getSessionEpoch(),
+    socketSessionKeyChanged: socketSessionKey !== nextSessionKey,
+    socketExists: Boolean(socket),
+    socketConnected: Boolean(socket?.connected),
+    socketActive: Boolean(socket?.active),
+    socketId: socket?.id || null,
+    socketStatus: get().socketStatus,
+    networkStatus: get().networkStatus,
+    lastPongAt: get().realtimeDiagnostics.lastPongAt,
+    missedHeartbeatAcks: get().realtimeDiagnostics.missedHeartbeatAcks,
+    forceFreshTransport: Boolean(options.forceFreshTransport),
+  });
 
   if (socket && socketSessionKey === nextSessionKey) {
     if (options.forceFreshTransport) {
@@ -1237,6 +1304,17 @@ function connectSocket(
   });
 
   socket.on('connect_error', (error) => {
+    logRealtimeDiag('connect_error', {
+      reason: error.message,
+      isRealtimeAuthError: isRealtimeAuthError(error.message),
+      socketAuthRetries,
+      socketStatus: get().socketStatus,
+      socketConnected: Boolean(socket?.connected),
+      socketActive: Boolean(socket?.active),
+      socketId: socket?.id || null,
+      sessionEpoch: getSessionEpoch(),
+    });
+
     if (isRealtimeAuthError(error.message)) {
       if (socketAuthRetries >= 1) {
         setSocketTransition(set, 'unauthorized', 'socket_auth_retry_exhausted');
@@ -1257,7 +1335,7 @@ function connectSocket(
 
     // `socket.active` is true while the manager will keep retrying (e.g. the
     // server is asleep during a Render cold start). In that case the banner must
-    // read "Reconectando", not the terminal "Servidor no disponible" — the
+    // read "Reconectando", not the terminal "Servidor no disponible" â€” the
     // latter is reserved for fatal failures where reconnection has stopped.
     setSocketTransition(
       set,
@@ -1458,6 +1536,7 @@ function connectSocket(
   // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
   // merge parcial, porque un merge reintroduce campos de origen distinto.
   socket.on('operational-unit:updated', (payload: unknown) => {
+    const socketReceivedAtMs = Date.now();
     const unit =
       payload && typeof payload === 'object' && 'unit' in (payload as Record<string, unknown>)
         ? ((payload as { unit: OperationalUnitSnapshot }).unit)
@@ -1467,10 +1546,22 @@ function connectSocket(
     set(s => {
       const existing = s.operationalUnits.find(entry => entry.unitId === unit.unitId);
       if (existing && timestampMs(existing.lastEventAt) > timestampMs(unit.lastEventAt)) return s;
+      const appliedAtMs = Date.now();
       return {
         operationalUnits: existing
           ? s.operationalUnits.map(entry => (entry.unitId === unit.unitId ? unit : entry))
           : [...s.operationalUnits, unit],
+        resources: {
+          ...s.resources,
+          operationalUnits: applyIncrementalResourceEvent(s.resources.operationalUnits, { hasDataAfterMutation: true }),
+        },
+        realtimeDiagnostics: {
+          ...s.realtimeDiagnostics,
+          operationalSocketReceivedAt: new Date(socketReceivedAtMs).toISOString(),
+          operationalAppliedAt: new Date(appliedAtMs).toISOString(),
+          operationalReceiveToApplyMs: Math.max(0, appliedAtMs - socketReceivedAtMs),
+          operationalUnitId: unit.unitId,
+        },
       };
     });
   });
@@ -1578,6 +1669,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
   socket.on('incident:updated', (i: Incident) => set(s => {
@@ -1585,6 +1677,7 @@ function connectSocket(
     return {
       incidents: upsertIncident(s.incidents, incident),
       mapData: applyIncidentToMapData(s.mapData, incident),
+      resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
     };
   }));
 
@@ -1610,7 +1703,6 @@ function connectSocket(
   });
 
   socketHeartbeatTimer = setInterval(() => {
-    emitCurrentPresence(get);
     emitHeartbeat();
   }, SOCKET_HEARTBEAT_MS);
 
@@ -1653,7 +1745,7 @@ async function applyRefreshedSession(
     refreshToken: nextRefreshToken || null,
     user: result.user || get().user,
   });
-  connectSocket(set, get);
+  connectSocket(set, get, { diagTrigger: 'applyRefreshedSession' });
 }
 
 function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string | null> {
@@ -1664,8 +1756,24 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
   const epoch = getSessionEpoch();
   realtimeAuthRefreshInFlight = (async () => {
     const refreshToken = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
+    const tokenBefore = get().token;
+    const userIdBefore = get().user?.id || null;
+
+    logRealtimeDiag('refreshRealtimeAuth:start', {
+      sessionEpoch: epoch,
+      hasRefreshToken: Boolean(refreshToken),
+      userId: userIdBefore,
+      socketStatus: get().socketStatus,
+      socketAuthRetries,
+    });
 
     if (!refreshToken) {
+      logRealtimeDiag('refreshRealtimeAuth:end', {
+        outcome: 'failure',
+        code: 'refresh_token_missing',
+        sessionEpochBefore: epoch,
+        sessionEpochAfter: getSessionEpoch(),
+      });
       setSocketTransition(set, 'unauthorized', 'socket_auth_refresh_token_missing');
       return null;
     }
@@ -1673,6 +1781,12 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
     try {
       const result = await refreshSessionRequest(refreshToken, APP_VERSION);
       if (isSessionEpochStale(epoch) || !get().user) {
+        logRealtimeDiag('refreshRealtimeAuth:end', {
+          outcome: 'discarded',
+          code: 'session_epoch_stale',
+          sessionEpochBefore: epoch,
+          sessionEpochAfter: getSessionEpoch(),
+        });
         return null;
       }
 
@@ -1680,9 +1794,28 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
       // second rejection of the refreshed token is terminal until re-login.
       socketAuthRetries += 1;
       await applyRefreshedSession(set, get, result);
+
+      // El valor del token nunca se registra: solo si cambio, que es lo que
+      // decide si connectSocket vera una sessionKey distinta.
+      logRealtimeDiag('refreshRealtimeAuth:end', {
+        outcome: 'success',
+        accessTokenChanged: get().token !== tokenBefore,
+        sessionEpochBefore: epoch,
+        sessionEpochAfter: getSessionEpoch(),
+        userIdBefore,
+        userIdAfter: get().user?.id || null,
+        socketAuthRetries,
+        socketStatus: get().socketStatus,
+      });
       return result.token;
     } catch (error) {
       if (isSessionEpochStale(epoch) || !get().user) {
+        logRealtimeDiag('refreshRealtimeAuth:end', {
+          outcome: 'discarded',
+          code: 'session_epoch_stale_after_error',
+          sessionEpochBefore: epoch,
+          sessionEpochAfter: getSessionEpoch(),
+        });
         return null;
       }
 
@@ -1691,6 +1824,16 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
         isProbablyNetworkError(error) ||
         status === 429 ||
         (typeof status === 'number' && status >= 500);
+
+      logRealtimeDiag('refreshRealtimeAuth:end', {
+        outcome: 'failure',
+        httpStatus: status,
+        code: transientFailure ? 'transient' : 'rejected',
+        nextSocketStatus: transientFailure ? 'reconnecting' : 'unauthorized',
+        sessionEpochBefore: epoch,
+        sessionEpochAfter: getSessionEpoch(),
+        socketAuthRetries,
+      });
 
       setSocketTransition(
         set,
@@ -1714,6 +1857,14 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
   }
 
   const epoch = getSessionEpoch();
+  logRealtimeDiag('foregroundRecovery:start', {
+    appState: NativeAppState.currentState,
+    sessionEpoch: epoch,
+    socketStatus: get().socketStatus,
+    socketConnected: Boolean(socket?.connected),
+    lastPongAt: get().realtimeDiagnostics.lastPongAt,
+    missedHeartbeatAcks: get().realtimeDiagnostics.missedHeartbeatAcks,
+  });
   const recovery = (async () => {
     const snapshot = await refreshMobileNetworkSnapshot()
       .catch(() => get().networkSnapshot);
@@ -1733,14 +1884,23 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
     }
 
     const current = get();
-    connectSocket(set, get, {
-      forceFreshTransport: shouldRestartRealtimeAfterForeground({
-        lastPongAt: current.realtimeDiagnostics.lastPongAt,
-        missedHeartbeatAcks: current.realtimeDiagnostics.missedHeartbeatAcks,
-        socketConnected: Boolean(socket?.connected),
-        socketStatus: current.socketStatus,
-      }),
+    const forceFreshTransport = shouldRestartRealtimeAfterForeground({
+      lastPongAt: current.realtimeDiagnostics.lastPongAt,
+      missedHeartbeatAcks: current.realtimeDiagnostics.missedHeartbeatAcks,
+      socketConnected: Boolean(socket?.connected),
+      socketStatus: current.socketStatus,
     });
+
+    logRealtimeDiag('foregroundRecovery:decision', {
+      appState: NativeAppState.currentState,
+      socketStatus: current.socketStatus,
+      socketConnected: Boolean(socket?.connected),
+      lastPongAt: current.realtimeDiagnostics.lastPongAt,
+      missedHeartbeatAcks: current.realtimeDiagnostics.missedHeartbeatAcks,
+      forceFreshTransport,
+    });
+
+    connectSocket(set, get, { diagTrigger: 'foregroundRecovery', forceFreshTransport });
 
     try {
       await healthRequest();
@@ -1780,7 +1940,7 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
       // Si el intento iniciado arriba sigue activo, `connect()` es idempotente y
       // no cancela su handshake. Solo se fuerza un transporte nuevo cuando el
       // socket afirma estar conectado pero el heartbeat demuestra que quedo viejo.
-      connectSocket(set, get, { forceFreshTransport: Boolean(socket?.connected) });
+      connectSocket(set, get, { forceFreshTransport: Boolean(socket?.connected), diagTrigger: 'networkRecovery' });
     }
 
     await Promise.allSettled([
@@ -1791,6 +1951,15 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
 
   foregroundRecoveryInFlight = recovery;
   void recovery.finally(() => {
+    logRealtimeDiag('foregroundRecovery:end', {
+      appState: NativeAppState.currentState,
+      sessionEpoch: getSessionEpoch(),
+      socketStatus: get().socketStatus,
+      socketConnected: Boolean(socket?.connected),
+      socketId: socket?.id || null,
+      lastPongAt: get().realtimeDiagnostics.lastPongAt,
+      missedHeartbeatAcks: get().realtimeDiagnostics.missedHeartbeatAcks,
+    });
     if (foregroundRecoveryInFlight === recovery) {
       foregroundRecoveryInFlight = null;
     }
@@ -1824,7 +1993,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
       setNetworkSignal(set, reachable ? 'online' : 'offline', snapshot);
 
       if (reachable && get().user) {
-        connectSocket(set, get);
+        connectSocket(set, get, { diagTrigger: 'netinfoReachable' });
         get().flushPendingSync();
       }
     });
@@ -1873,7 +2042,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
             return;
           }
           if (!socket?.connected) {
-            connectSocket(set, get);
+            connectSocket(set, get, { diagTrigger: 'healthcheckSocketDown' });
           } else {
             // Socket reports connected but the app-level status may still be
             // reconnecting/error because the one-shot heartbeat on connect
@@ -1884,7 +2053,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
               current.realtimeDiagnostics.missedHeartbeatAcks > 0 ||
               current.socketStatus !== 'connected';
             if (needHeartbeat) {
-              connectSocket(set, get, { forceFreshTransport: true });
+              connectSocket(set, get, { forceFreshTransport: true, diagTrigger: 'healthcheckStaleHeartbeat' });
             }
           }
         })
@@ -1914,7 +2083,10 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
     for (const operation of queue) {
       try {
         if (operation.type === 'control:sessionStart') {
-          const session = await startRouteSessionRequest(operation.payload.vehicleId);
+          const session = await startRouteSessionRequest(
+            operation.payload.vehicleId,
+            operation.payload.startedAt || operation.createdAt,
+          );
           set({ activeRouteSession: session });
         } else if (operation.type === 'control:sessionStatus') {
           const sessionId = operation.payload.sessionId ||
@@ -1997,8 +2169,8 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  authContext: null, user: null, mapData: null, operationalUnits: [], resources: idleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2089,7 +2261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         nextRefreshToken = get().refreshToken || nextRefreshToken;
       } catch (error) {
         // Sesion invalidada mientras `/auth/me` estaba en vuelo. `clearSessionState`
-        // es dueño del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
+        // es dueÃ±o del estado resultante (incluidos `isBootstrapping`/`isHydrated`).
         if (isSessionEpochStale(epoch)) return;
         if (isTransientSessionFailure(error)) {
           const startupError = getReadableErrorMessage(
@@ -2250,7 +2422,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { token, user: currentUser, isSigningOut } = get();
     if (!token || !currentUser || isSigningOut) return;
     const epoch = refreshEpoch;
-    set({ isRefreshing: true });
+    set((state) => ({
+      isRefreshing: true,
+      resources: Object.fromEntries(
+        mobileResourceDomains.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
+      ) as Record<MobileResourceDomain, ResourceState>,
+    }));
     try {
       const refreshed = await refreshAuthSession(set, epoch);
       if (isSessionEpochStale(epoch)) return;
@@ -2295,6 +2472,37 @@ export const useAppStore = create<AppState>((set, get) => ({
           fulfilledCount += 1;
         }
       });
+      const resourceIndex: Partial<Record<MobileResourceDomain, number>> = {
+        mapData: 0,
+        operationalUnits: 1,
+        incidents: 2,
+        conversations: 3,
+        documents: 5,
+        notifications: 6,
+        users: 7,
+        routeSessionHistory: 9,
+      };
+      const resourceStates = { ...get().resources };
+      for (const domain of mobileResourceDomains) {
+        const result = res[resourceIndex[domain]!];
+        if (result.status === 'fulfilled') {
+          const value = data[domain];
+          const empty = Array.isArray(value)
+            ? value.length === 0
+            : domain === 'mapData'
+              ? !value || !Array.isArray(value.vehicles) || value.vehicles.length === 0
+              : value == null;
+          resourceStates[domain] = completeResourceAttempt(resourceStates[domain], { empty, source: 'rest' });
+        } else {
+          resourceStates[domain] = failResourceAttempt(resourceStates[domain], {
+            errorCode: isAxiosError(result.reason)
+              ? String(result.reason.response?.status || result.reason.code || 'request_failed')
+              : 'request_failed',
+            errorMessage: getReadableErrorMessage(result.reason, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
+          });
+        }
+      }
+      data.resources = resourceStates;
 
       // La autoridad de cuenta y el perfil se reconciliaron al inicio mediante
       // /auth/me. Si la unidad cambio desde el snapshot previo, reconsultamos su
@@ -2432,6 +2640,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       set({
         isRefreshing: false,
+        resources: Object.fromEntries(mobileResourceDomains.map((domain) => [
+          domain,
+          failResourceAttempt(get().resources[domain], {
+            errorCode: isAxiosError(error) ? String(error.response?.status || error.code || 'request_failed') : 'request_failed',
+            errorMessage: getReadableErrorMessage(error, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
+          }),
+        ])) as Record<MobileResourceDomain, ResourceState>,
         error: getReadableErrorMessage(
           error,
           'No pudimos sincronizar tu cuenta.',

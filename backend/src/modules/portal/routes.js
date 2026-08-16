@@ -13,13 +13,16 @@ const router = Router();
 
 async function getPortalContext(req) {
   const organizationId = getOrganizationId(req.user);
-  const [rawOrders, users, activationKeys, live] = await Promise.all([
-    req.app.locals.store.listCommercialOrdersForUser(req.user),
-    req.app.locals.store.listUsers(req.user),
-    organizationId && req.app.locals.store.listActivationKeysForCompany
-      ? req.app.locals.store.listActivationKeysForCompany(organizationId)
+  const store = req.app.locals.store;
+  const [rawOrders, users, activationKeys, vehicles] = await Promise.all([
+    store.listCommercialOrdersForUser(req.user),
+    store.listUsers(req.user),
+    organizationId && store.listActivationKeysForCompany
+      ? store.listActivationKeysForCompany(organizationId)
       : Promise.resolve([]),
-    req.app.locals.store.getLiveLocations()
+    organizationId
+      ? store.listVehiclesForOrganization(organizationId, { includeRetired: false })
+      : Promise.resolve([])
   ]);
   const orders = enrichOrdersForUser(rawOrders, req.user);
 
@@ -27,14 +30,12 @@ async function getPortalContext(req) {
     activationKeys,
     orders,
     users,
-    vehicles: (live.vehicles || []).filter(
-      (vehicle) => String(vehicle.organizationId || "") === String(organizationId || "")
-    )
+    vehicles
   };
 }
 
 router.get("/overview", authenticate, requirePortalAccess, async (req, res) => {
-  const { activationKeys, orders, users } = await getPortalContext(req);
+  const { activationKeys, orders, users, vehicles } = await getPortalContext(req);
 
   return res.json({
     ok: true,
@@ -42,7 +43,8 @@ router.get("/overview", authenticate, requirePortalAccess, async (req, res) => {
       user: req.user,
       orders,
       activationKeys,
-      users
+      users,
+      vehicles
     })
   });
 });

@@ -12,6 +12,7 @@ const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
+const { isLearnedRouteReadyForReview, learnedRouteConfidence } = require("../domain/learned-route-evidence");
 const {
   STATUS: ASSIGNMENT_STATUS,
   validateAssignmentInput,
@@ -3777,7 +3778,8 @@ function createEmbeddedStore() {
     const now = new Date().toISOString();
     if (!candidate) {
       candidate = { id: randomUUID(), ...clone(payload), evidenceSessionIds: [], evidenceVehicleIds: [],
-        evidenceCount: 0, vehicleCount: 0,
+        evidenceServiceDates: [], evidenceCount: 0, vehicleCount: 0, distinctServiceDays: 0,
+        firstSeenAt: null, lastSeenAt: null,
         confidence: 0, status: "COLLECTING", approvedRouteId: null, reviewedBy: null,
         reviewedAt: null, rejectionReason: null, createdAt: now, updatedAt: now };
       state.learnedRouteCandidates.push(candidate);
@@ -3787,12 +3789,22 @@ function createEmbeddedStore() {
       if (!candidate.evidenceVehicleIds.includes(payload.vehicleId)) {
         candidate.evidenceVehicleIds.push(payload.vehicleId);
       }
+      if (payload.serviceDate && !candidate.evidenceServiceDates.includes(payload.serviceDate)) {
+        candidate.evidenceServiceDates.push(payload.serviceDate);
+      }
       candidate.evidenceCount = candidate.evidenceSessionIds.length;
       candidate.vehicleCount = candidate.evidenceVehicleIds.length;
+      candidate.distinctServiceDays = candidate.evidenceServiceDates.length;
+      candidate.firstSeenAt = candidate.firstSeenAt && candidate.firstSeenAt <= payload.observedAt
+        ? candidate.firstSeenAt
+        : payload.observedAt || candidate.firstSeenAt || now;
+      candidate.lastSeenAt = candidate.lastSeenAt && candidate.lastSeenAt >= payload.observedAt
+        ? candidate.lastSeenAt
+        : payload.observedAt || now;
       candidate.distanceMeters = Math.round(((candidate.distanceMeters || 0) * (candidate.evidenceCount - 1) + payload.distanceMeters) / candidate.evidenceCount);
       candidate.durationSeconds = Math.round(((candidate.durationSeconds || 0) * (candidate.evidenceCount - 1) + payload.durationSeconds) / candidate.evidenceCount);
-      candidate.confidence = Math.min(1, candidate.evidenceCount / payload.minimumEvidenceCount);
-      if (candidate.evidenceCount >= payload.minimumEvidenceCount && candidate.status === "COLLECTING") {
+      candidate.confidence = learnedRouteConfidence(candidate, payload);
+      if (candidate.status === "COLLECTING" && isLearnedRouteReadyForReview(candidate, payload)) {
         candidate.status = "READY_FOR_REVIEW";
       }
       candidate.updatedAt = now;

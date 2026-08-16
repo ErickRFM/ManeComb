@@ -1,6 +1,4 @@
 const { randomUUID } = require("crypto");
-const mongoose = require("mongoose");
-const { AuditLogModel } = require("../data/models");
 const { getOrganizationId } = require("../middlewares/access-control");
 
 function getRequestIp(req) {
@@ -38,9 +36,12 @@ async function recordAuditLog(req, payload = {}) {
     createdAt: new Date()
   };
 
-  if (mongoose.connection.readyState === 1) {
-    await AuditLogModel.create(entry).catch(() => undefined);
+  try {
+    await Promise.resolve(req?.app?.locals?.store?.createAuditLog?.(entry));
+  } catch {
+    // La auditoria durable es best-effort y nunca rompe la accion del usuario.
   }
+
   try {
     await req?.app?.locals?.store?.recordAppEvent?.({
       type: entry.action,

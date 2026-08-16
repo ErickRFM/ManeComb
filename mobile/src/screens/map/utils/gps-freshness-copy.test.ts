@@ -19,7 +19,9 @@ function gps(overrides: Partial<OperationalGps>): OperationalGps {
 describe('GPS freshness copy', () => {
   it('keeps live and delayed states concise', () => {
     expect(formatFreshness(gps({ connectionState: 'live', ageSeconds: 5 }))).toBe('GPS en vivo');
-    expect(formatFreshness(gps({ connectionState: 'delayed', ageSeconds: 9 }))).toBe('GPS retrasado');
+    // Un heartbeat vencido dice desde cuando: "retrasado" a secas no deja al
+    // operador juzgar si la unidad sigue siendo confiable.
+    expect(formatFreshness(gps({ connectionState: 'delayed', ageSeconds: 9 }))).toBe('GPS retrasado · hace 9 s');
   });
 
   it('attenuates a delayed marker before the position becomes stale', () => {
@@ -46,13 +48,16 @@ describe('GPS freshness copy', () => {
         freshness: 'missing',
         ageSeconds: 31,
       }))
-    ).toBe('GPS perdido · hace 31 s');
+    ).toBe('GPS perdido · última ubicación hace 31 s');
   });
 
-  it('uses Sin GPS when the unit has never produced a dated position', () => {
+  // Una unidad que jamas reporto no esta "vencida" ni "perdida": esta esperando
+  // su primer paquete. Es el caso que hacia parecer averiada a una unidad recien
+  // dada de alta, y a una unidad con historial reasignada a un conductor nuevo.
+  it('distinguishes a unit that has never reported from a unit that lost signal', () => {
     expect(
       formatFreshness(gps({
-        connectionState: 'lost',
+        connectionState: 'never_reported',
         freshness: 'missing',
         ageSeconds: null,
         lat: null,
@@ -60,6 +65,19 @@ describe('GPS freshness copy', () => {
         recordedAt: null,
         receivedAt: null,
       }))
-    ).toBe('Sin GPS');
+    ).toBe('Esperando primera ubicación');
+
+    // Con historial real, la ultima posicion conocida se conserva y se fecha.
+    expect(
+      formatFreshness(gps({
+        connectionState: 'lost',
+        freshness: 'missing',
+        ageSeconds: 7_776_000,
+      }))
+    ).toBe('GPS perdido · última ubicación hace 90 d');
+  });
+
+  it('never leaves a never-reported unit looking like a failure', () => {
+    expect(connectionOpacity('never_reported')).toBe(connectionOpacity('lost'));
   });
 });

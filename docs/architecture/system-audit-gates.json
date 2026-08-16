@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "6acac2f1298ec7cd2c227a3066df225ef3aa365c",
-    "capturedAt": "2026-08-12"
+    "commit": "90c4f8483b455de250e2440ecbe1e53871988112",
+    "capturedAt": "2026-08-15"
   },
-  "maxBaselineDriftCommits": 50,
-  "maxAuthorityMapDriftCommits": 50,
+  "maxBaselineDriftCommits": 5,
+  "maxAuthorityMapDriftCommits": 5,
   "requiredGates": [
     {
       "id": "AUTHORITY",
@@ -38,7 +38,7 @@
     "single-client-account-identity",
     "tenant-capabilities",
     "profile-self-service",
-    "managed-staff-identity",
+    "account-credential-change",
     "notifications-fcm",
     "rtc",
     "radio",
@@ -48,7 +48,8 @@
     "documents-native-viewer",
     "commercial-payments",
     "fleet-driver-lifecycle",
-    "release-artifacts"
+    "release-artifacts",
+    "render-production-contract"
   ],
   "blockingSeverities": ["P0", "P1"]
 }

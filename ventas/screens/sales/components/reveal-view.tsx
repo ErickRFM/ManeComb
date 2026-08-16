@@ -4,8 +4,8 @@ import { getStaticRevealStyle, usePrefersReducedMotion } from '../utils';
 
 const WEB_REVEAL_VIEWPORT_RATIO = 0.78;
 const NATIVE_REVEAL_VIEWPORT_RATIO = 0.82;
-const REVEAL_DURATION_MS = 580;
-const REVEAL_OFFSET_PX = 32;
+const REVEAL_DURATION_MS = 400;
+const REVEAL_OFFSET_PX = 22;
 
 export function RevealView({
   children,
@@ -80,7 +80,7 @@ export function RevealView({
       return;
     }
 
-    const delay = Math.min(index * 45, 270);
+    const delay = Math.min(index * 30, 150);
     const animation = Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,

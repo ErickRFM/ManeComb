@@ -32,6 +32,15 @@ function getActivationKeyStatus(activationKey) {
   return status;
 }
 
+function countUsedUnitSlots(vehicles = []) {
+  const retiredStatuses = new Set(["archived", "deleted", "retired"]);
+
+  return (Array.isArray(vehicles) ? vehicles : []).filter((vehicle) => {
+    const status = String(vehicle?.status || "").trim().toLowerCase();
+    return !vehicle?.retiredAt && !vehicle?.deletedAt && !retiredStatuses.has(status);
+  }).length;
+}
+
 function deriveSubscriptionStatus(order, { now = new Date() } = {}) {
   if (!order) {
     return "inactive";
@@ -87,7 +96,7 @@ function pickActiveOrder(orders = [], { now = new Date() } = {}) {
   return sorted.sort((left, right) => score(right) - score(left))[0] || null;
 }
 
-function buildSubscription(order, { now = new Date() } = {}) {
+function buildSubscription(order, { now = new Date(), usedUnitSlots } = {}) {
   if (!order) {
     return {
       id: null,
@@ -117,9 +126,13 @@ function buildSubscription(order, { now = new Date() } = {}) {
   }
 
   const totalUnits = Number(order.fleetSize || 0);
-  const activeUnits = Array.isArray(order.starterFleet)
+  const legacyActiveUnits = Array.isArray(order.starterFleet)
     ? order.starterFleet.filter((entry) => entry.status === "active").length
     : 0;
+  const normalizedUsedUnitSlots = Number(usedUnitSlots);
+  const activeUnits = Number.isFinite(normalizedUsedUnitSlots)
+    ? Math.max(0, normalizedUsedUnitSlots)
+    : legacyActiveUnits;
   const sourceStatus = deriveSubscriptionStatus(order, { now });
   const expiresAt = sourceStatus === "trial"
     ? toIso(order.trialEndsAt || order.currentPeriodEnd || order.paidUntil)
@@ -157,8 +170,8 @@ function buildSubscription(order, { now = new Date() } = {}) {
   };
 }
 
-function buildActivationTimeline(user, order, users = []) {
-  const subscription = buildSubscription(order);
+function buildActivationTimeline(user, order, users = [], vehicles = []) {
+  const subscription = buildSubscription(order, { usedUnitSlots: countUsedUnitSlots(vehicles) });
   const invitedUsers = users.filter((entry) => entry.id !== user?.id);
   const firstOperationalLogin = invitedUsers
     .filter((entry) => entry.lastAccessAt)
@@ -210,12 +223,12 @@ function buildActivationTimeline(user, order, users = []) {
 }
 
 function getDefaultOnboardingSteps({ user, order, users, vehicles = [], activationKeys = [] }) {
-  const subscription = buildSubscription(order);
+  const subscription = buildSubscription(order, { usedUnitSlots: countUsedUnitSlots(vehicles) });
   const teamUsers = users.filter((entry) => entry.id !== user?.id);
   const drivers = teamUsers.filter((entry) => String(entry.role || "") === "driver");
   const activeDrivers = drivers.filter((entry) => String(entry.userStatus || "active") !== "suspended");
   const assignedUnits = activeDrivers.filter((entry) => entry.vehicleId).length;
-  const registeredUnits = vehicles.length;
+  const registeredUnits = countUsedUnitSlots(vehicles);
   const generatedKeys = activationKeys.length;
   const availableKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "available").length;
   const usedKeys = activationKeys.filter((entry) => getActivationKeyStatus(entry) === "used").length;
@@ -319,9 +332,10 @@ function buildLatestOrderSummary(order) {
   };
 }
 
-function buildPortalOverview({ user, orders = [], users = [], activationKeys = [] }) {
+function buildPortalOverview({ user, orders = [], users = [], activationKeys = [], vehicles = [] }) {
   const activeOrder = pickActiveOrder(orders);
-  const subscription = buildSubscription(activeOrder);
+  const usedUnitSlots = countUsedUnitSlots(vehicles);
+  const subscription = buildSubscription(activeOrder, { usedUnitSlots });
 
   return {
     organization: {
@@ -348,8 +362,8 @@ function buildPortalOverview({ user, orders = [], users = [], activationKeys = [
       activeUnits: subscription.activeUnits,
       availableUnits: subscription.availableUnits
     },
-    activationTimeline: buildActivationTimeline(user, activeOrder, users),
-    onboarding: buildOnboarding({ user, order: activeOrder, users, activationKeys }),
+    activationTimeline: buildActivationTimeline(user, activeOrder, users, vehicles),
+    onboarding: buildOnboarding({ user, order: activeOrder, users, activationKeys, vehicles }),
     latestOrder: buildLatestOrderSummary(activeOrder)
   };
 }
@@ -364,6 +378,7 @@ module.exports = {
   buildOnboarding,
   buildPortalOverview,
   buildSubscription,
+  countUsedUnitSlots,
   deriveSubscriptionStatus,
   enrichOrdersForUser,
   getOrganizationId,
