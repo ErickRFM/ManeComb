@@ -2,9 +2,17 @@ import type { GeoPoint } from '@/src/types/app';
 
 export type TrackerStatus = 'off' | 'waiting_start' | 'in_progress' | 'off_route' | 'paused';
 export type TrackerZone = 'none' | 'start' | 'end';
+export type RouteDistanceState = 'on_route' | 'near_route' | 'possible_deviation' | 'hard_deviation';
 
 export const ARRIVAL_THRESHOLD_METERS = 90;
-export const ROUTE_DEVIATION_THRESHOLD_METERS = 50;
+export const ROUTE_ON_ROUTE_THRESHOLD_METERS = 65;
+export const ROUTE_NEAR_THRESHOLD_METERS = 120;
+export const ROUTE_POSSIBLE_DEVIATION_THRESHOLD_METERS = 220;
+export const ROUTE_HARD_DEVIATION_THRESHOLD_METERS = 650;
+// Backwards-compatible export. A single client reading is only allowed to claim
+// OFF_ROUTE for a hard separation; sustained medium deviations are confirmed by
+// the backend corridor state machine using time + previous progress.
+export const ROUTE_DEVIATION_THRESHOLD_METERS = ROUTE_HARD_DEVIATION_THRESHOLD_METERS;
 export const CHECKPOINT_SPACING_METERS = 1500;
 
 export function distanceInMeters(origin: GeoPoint, destination: GeoPoint) {
@@ -24,6 +32,13 @@ export function distanceInMeters(origin: GeoPoint, destination: GeoPoint) {
   return 2 * earthRadius * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
+export function classifyRouteDistance(distanceFromRoute: number): RouteDistanceState {
+  if (distanceFromRoute <= ROUTE_ON_ROUTE_THRESHOLD_METERS) return 'on_route';
+  if (distanceFromRoute <= ROUTE_NEAR_THRESHOLD_METERS) return 'near_route';
+  if (distanceFromRoute <= ROUTE_HARD_DEVIATION_THRESHOLD_METERS) return 'possible_deviation';
+  return 'hard_deviation';
+}
+
 export function resolveTrackerZone({
   destination,
   origin,
@@ -41,25 +56,13 @@ export function resolveTrackerZone({
   const nearEnd = distanceInMeters(trackedLocation, destination) <= thresholdMeters;
 
   if (trackerStatus === 'in_progress' || trackerStatus === 'off_route') {
-    if (nearEnd) {
-      return 'end';
-    }
-
-    if (nearStart) {
-      return 'start';
-    }
-
+    if (nearEnd) return 'end';
+    if (nearStart) return 'start';
     return 'none';
   }
 
-  if (nearStart) {
-    return 'start';
-  }
-
-  if (nearEnd) {
-    return 'end';
-  }
-
+  if (nearStart) return 'start';
+  if (nearEnd) return 'end';
   return 'none';
 }
 
@@ -74,7 +77,6 @@ function toLocalMeters(point: GeoPoint, origin: GeoPoint) {
     toRadians(point.longitude - origin.longitude) *
     earthRadius *
     Math.cos(toRadians((point.latitude + origin.latitude) / 2));
-
   return { x: longitude, y: latitude };
 }
 
@@ -85,39 +87,24 @@ function fromLocalMeters(point: { x: number; y: number }, origin: GeoPoint): Geo
     origin.longitude +
     (point.x / (earthRadius * Math.cos(toRadians((latitude + origin.latitude) / 2)))) *
       (180 / Math.PI);
-
   return { latitude, longitude };
 }
 
 function getPolylineDistances(polyline: GeoPoint[]) {
   const distances = [0];
-
   for (let index = 1; index < polyline.length; index += 1) {
     distances[index] = distances[index - 1] + distanceInMeters(polyline[index - 1], polyline[index]);
   }
-
   return distances;
 }
 
 export function getVirtualCheckpointCount(distanceMeters: number) {
-  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) {
-    return 0;
-  }
-
+  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) return 0;
   return Math.max(1, Math.round(distanceMeters / CHECKPOINT_SPACING_METERS));
 }
 
-export function projectPointOnRoute({
-  point,
-  polyline,
-}: {
-  point: GeoPoint;
-  polyline: GeoPoint[];
-}) {
-  if (polyline.length < 2) {
-    return null;
-  }
-
+export function projectPointOnRoute({ point, polyline }: { point: GeoPoint; polyline: GeoPoint[] }) {
+  if (polyline.length < 2) return null;
   const cumulativeDistances = getPolylineDistances(polyline);
   let best:
     | {
@@ -134,48 +121,30 @@ export function projectPointOnRoute({
     const projectedPoint = toLocalMeters(point, start);
     const projectedEnd = toLocalMeters(end, start);
     const segmentLengthSquared = projectedEnd.x * projectedEnd.x + projectedEnd.y * projectedEnd.y;
-
-    if (segmentLengthSquared <= 0) {
-      continue;
-    }
-
+    if (segmentLengthSquared <= 0) continue;
     const ratio = Math.max(
       0,
-      Math.min(
-        1,
-        (projectedPoint.x * projectedEnd.x + projectedPoint.y * projectedEnd.y) / segmentLengthSquared
-      )
+      Math.min(1, (projectedPoint.x * projectedEnd.x + projectedPoint.y * projectedEnd.y) / segmentLengthSquared)
     );
-    const snappedMeters = {
-      x: projectedEnd.x * ratio,
-      y: projectedEnd.y * ratio,
-    };
+    const snappedMeters = { x: projectedEnd.x * ratio, y: projectedEnd.y * ratio };
     const deltaX = projectedPoint.x - snappedMeters.x;
     const deltaY = projectedPoint.y - snappedMeters.y;
     const distanceFromRoute = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     const snappedLocation = fromLocalMeters(snappedMeters, start);
     const segmentLength = cumulativeDistances[index + 1] - cumulativeDistances[index];
     const distanceAlongRoute = cumulativeDistances[index] + segmentLength * ratio;
-
     if (!best || distanceFromRoute < best.distanceFromRoute) {
-      best = {
-        distanceAlongRoute,
-        distanceFromRoute,
-        segmentIndex: index,
-        snappedLocation,
-      };
+      best = { distanceAlongRoute, distanceFromRoute, segmentIndex: index, snappedLocation };
     }
   }
 
-  if (!best) {
-    return null;
-  }
-
+  if (!best) return null;
   const totalDistance = cumulativeDistances[cumulativeDistances.length - 1] || 0;
   const distanceAlongRoute = Math.max(0, Math.min(totalDistance, best.distanceAlongRoute));
   const distanceRemaining = Math.max(0, totalDistance - distanceAlongRoute);
   const progressPercent = totalDistance > 0 ? Math.round((distanceAlongRoute / totalDistance) * 100) : 0;
   const checkpointCount = getVirtualCheckpointCount(totalDistance);
+  const routeDistanceState = classifyRouteDistance(best.distanceFromRoute);
 
   return {
     ...best,
@@ -185,7 +154,8 @@ export function projectPointOnRoute({
       : 0,
     distanceAlongRoute,
     distanceRemaining,
-    isOffRoute: best.distanceFromRoute > ROUTE_DEVIATION_THRESHOLD_METERS,
+    isOffRoute: routeDistanceState === 'hard_deviation',
+    routeDistanceState,
     progressPercent: Math.max(0, Math.min(100, progressPercent)),
     totalDistance,
   };
@@ -210,23 +180,11 @@ export function evaluateTrackerTransition({
   trackerZone: TrackerZone;
   thresholdMeters?: number;
 }) {
-  const currentZone = resolveTrackerZone({
-    destination,
-    origin,
-    trackedLocation,
-    trackerStatus,
-    thresholdMeters,
-  });
+  const currentZone = resolveTrackerZone({ destination, origin, trackedLocation, trackerStatus, thresholdMeters });
   const isEnteringZone = currentZone !== 'none' && currentZone !== trackerZone;
 
   if (trackerStatus === 'waiting_start' && currentZone === 'start' && isEnteringZone) {
-    return {
-      currentZone,
-      event: {
-        type: 'start' as const,
-        startedAt: nowIso,
-      },
-    };
+    return { currentZone, event: { type: 'start' as const, startedAt: nowIso } };
   }
 
   if (
@@ -240,16 +198,10 @@ export function evaluateTrackerTransition({
       event: {
         type: 'finish' as const,
         finishedAt: nowIso,
-        durationSeconds: Math.max(
-          1,
-          Math.round((new Date(nowIso).getTime() - new Date(trackerStartedAt).getTime()) / 1000)
-        ),
+        durationSeconds: Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(trackerStartedAt).getTime()) / 1000)),
       },
     };
   }
 
-  return {
-    currentZone,
-    event: null,
-  };
+  return { currentZone, event: null };
 }

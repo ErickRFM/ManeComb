@@ -4,6 +4,7 @@ const path = require("node:path");
 const { createEmbeddedStore } = require("../src/data/store");
 
 const expectedDomains = [
+  "auditLogs",
   "documents",
   "fleet",
   "incidents",
@@ -22,6 +23,10 @@ for (const domain of expectedDomains) {
   assert.ok(store.services?.[domain], `missing service domain: ${domain}`);
 }
 
+assert.equal(typeof store.createAuditLog, "function");
+assert.equal(typeof store.listAuditLogsForActor, "function");
+assert.equal(typeof store.services.auditLogs.createAuditLog, "function");
+assert.equal(typeof store.services.auditLogs.listAuditLogsForActor, "function");
 assert.equal(typeof store.getUserById, "function");
 assert.equal(typeof store.services.users.getUserById, "function");
 assert.equal(typeof store.getLiveLocations, "function");
@@ -37,6 +42,14 @@ const mongoStoreSource = fs.readFileSync(
 );
 const socketSource = fs.readFileSync(
   path.join(__dirname, "../src/sockets/index.js"),
+  "utf8"
+);
+const auditRouteSource = fs.readFileSync(
+  path.join(__dirname, "../src/modules/audit-logs/routes.js"),
+  "utf8"
+);
+const auditWriterSource = fs.readFileSync(
+  path.join(__dirname, "../src/services/audit.js"),
   "utf8"
 );
 const extractedMongoMethods = [
@@ -61,6 +74,16 @@ for (const methodName of extractedMongoMethods) {
     `${methodName} should live outside mongo-store.js`
   );
 }
+
+for (const [label, source] of [
+  ["audit route", auditRouteSource],
+  ["audit writer", auditWriterSource]
+]) {
+  assert.equal(source.includes("AuditLogModel"), false, `${label} must not access Mongoose directly`);
+  assert.equal(source.includes("mongoose"), false, `${label} must not access Mongoose directly`);
+}
+assert.ok(auditRouteSource.includes("listAuditLogsForActor"));
+assert.ok(auditWriterSource.includes("createAuditLog"));
 
 assert.match(
   socketSource,

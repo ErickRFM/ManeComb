@@ -4,13 +4,16 @@ const { normalizeProfileAvatar } = require("./profile-avatar");
 const PERSONAL_PROFILE_FIELDS = Object.freeze([
   "name",
   "email",
-  "password",
   "phone",
   "avatarUrl",
   "e2eePublicKey",
   "e2eeKeyRotatedAt"
 ]);
 
+// Credenciales no forman parte del perfil. El cambio de contraseña tiene una
+// autoridad dedicada en /api/users/me/change-password que revalida la contraseña
+// actual y revoca las demás sesiones.
+//
 // El perfil propio conserva datos personales/comerciales. `operationalSchedule`
 // se administra sobre el usuario objetivo mediante PATCH /users/:userId y
 // `users.manage`, para que Directorio sea la única autoridad de edición.

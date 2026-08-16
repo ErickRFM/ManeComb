@@ -19,7 +19,6 @@ const { connectRedis } = require("./services/redis");
 const communication = require("../modules/communication");
 const { logMercadoPagoRuntimeDiagnostics } = require("./services/commercial-payment");
 const { startOperationalFreshnessSweeper } = require("./services/operational-freshness-sweeper");
-const { migrateLegacyLocalDocumentsToMongo } = require("./services/storage");
 const { registerSocketServer } = require("./sockets");
 const logger = require("./services/logger");
 
@@ -88,19 +87,8 @@ async function startServer() {
     throw new Error("MongoDB es obligatorio y la API no pudo inicializar el store persistente");
   }
 
-  if (db.connected) {
-    const migration = await migrateLegacyLocalDocumentsToMongo();
-
-    if (migration.enabled && migration.scanned) {
-      logger.info({
-        action: "LegacyDocumentMigration",
-        metadata: migration,
-        module: "Storage",
-        status: migration.failed ? "partial" : "success"
-      });
-    }
-  }
-
+  // Las migraciones historicas son comandos operativos explicitos. El arranque
+  // de produccion no escanea ni modifica documentos legacy de forma silenciosa.
   logMercadoPagoRuntimeDiagnostics();
 
   const app = createApp({

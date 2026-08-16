@@ -88,10 +88,9 @@ export const heroSignals: Array<{
   icon: IconName;
   color: string;
 }> = [
-  { label: 'GPS y rutas', icon: 'map-marker-path', color: neonPalette.cyan },
-  { label: 'Chat, radio y PTT', icon: 'radio-handheld', color: neonPalette.mint },
-  { label: 'Llamadas de audio y video', icon: 'phone-in-talk-outline', color: neonPalette.accent },
-  { label: 'Documentos y alertas', icon: 'file-document-check-outline', color: neonPalette.violet },
+  { label: 'GPS y rutas en vivo', icon: 'map-marker-path', color: neonPalette.cyan },
+  { label: 'Comunicación operativa', icon: 'radio-handheld', color: neonPalette.mint },
+  { label: 'Control y evidencia', icon: 'file-document-check-outline', color: neonPalette.accent },
 ];
 
 export const platformPillars: Array<{
@@ -170,34 +169,27 @@ export const trustMetrics: Array<{
   color: string;
 }> = [
   {
-    value: 'GPS + rutas',
-    label: 'Operación en vivo',
-    icon: 'map-marker-path',
-    color: neonPalette.cyan,
-  },
-  {
-    value: 'Chat + radio',
-    label: 'Coordinación del equipo',
-    icon: 'radio-handheld',
-    color: neonPalette.mint,
-  },
-  {
-    value: 'Roles + docs',
-    label: 'Control y evidencia',
+    value: 'Roles + tenant',
+    label: 'Acceso separado por empresa',
     icon: 'shield-account-outline',
     color: neonPalette.violet,
   },
   {
+    value: 'Sesión renovable',
+    label: 'Continuidad de acceso',
+    icon: 'shield-refresh-outline',
+    color: neonPalette.cyan,
+  },
+  {
+    value: 'Orden protegida',
+    label: 'Idempotencia en checkout',
+    icon: 'credit-card-check-outline',
+    color: neonPalette.mint,
+  },
+  {
     value: 'Portal + app',
-    label: 'Trabajo conectado',
+    label: 'Una autoridad operativa',
     icon: 'monitor-cellphone',
     color: neonPalette.accent,
   },
-];
-
-export const footerColumns = [
-  { title: 'Producto', links: ['Funciones', 'App móvil', 'Planes'] },
-  { title: 'Empresa', links: ['Nosotros', 'Casos de éxito', 'Contacto'] },
-  { title: 'Soporte', links: ['Centro de ayuda', 'Documentación', 'Estado del sistema'] },
-  { title: 'Legal', links: ['Privacidad', 'Términos', 'Cookies'] },
 ];

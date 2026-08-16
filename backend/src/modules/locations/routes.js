@@ -51,7 +51,7 @@ function filterLiveLocationsForTenant(user, live) {
     }),
     vehicles: vehicles.map((vehicle) => ({
       ...vehicle,
-      gpsFreshness: buildGpsFreshness(vehicle.locationTimestamp, live.updatedAt)
+      gpsFreshness: buildGpsFreshness(vehicle, live.updatedAt)
     })),
     incidents: (live.incidents || []).filter((incident) => {
       if (isDriver) {
@@ -80,7 +80,7 @@ router.post("/update", authenticate, requireOrganization, requireOperationalAcce
       actor: req.user,
       io: req.app.locals.io,
       payload: req.body,
-      requestId: req.requestId,
+      requestId: req.traceId,
       store: req.app.locals.store,
       transport: "http"
     });

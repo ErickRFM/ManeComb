@@ -1,0 +1,133 @@
+name: Route learning V3
+
+on:
+  pull_request:
+    paths:
+      - 'RC-ROUTE-LEARNING-V3-01.md'
+      - 'backend/.env.example'
+      - 'backend/src/config/auto-route.js'
+      - 'backend/src/config/route-corridor.js'
+      - 'backend/src/data/backend-store.js'
+      - 'backend/src/data/repositories/fleet-repository.js'
+      - 'backend/src/domain/learned-route-segment.js'
+      - 'backend/src/domain/route-context.js'
+      - 'backend/src/domain/route-geometry.js'
+      - 'backend/src/services/auto-route-learning.js'
+      - 'backend/src/services/auto-route-learning-core.js'
+      - 'backend/src/services/route-event-engine.js'
+      - 'backend/src/services/route-event-engine-core.js'
+      - 'backend/src/services/route-progress.js'
+      - 'backend/src/services/route-segment-approval.js'
+      - 'backend/src/services/route-segment-learning.js'
+      - 'backend/src/services/route-segment-learning-core.js'
+      - 'backend/src/modules/navigation/route-write-guard.js'
+      - 'backend/src/modules/navigation/segment-routes.js'
+      - 'backend/src/modules/navigation/segment-review-routes.js'
+      - 'backend/test/fleet-route-revision-cas.test.js'
+      - 'backend/test/route-corridor.test.js'
+      - 'backend/test/route-session-context.test.js'
+      - 'backend/test/route-segment-learning.test.js'
+      - 'backend/test/route-segment-approval.test.js'
+      - 'backend/test/route-segment-missing-route.test.js'
+      - 'backend/test/route-segment-api.test.js'
+      - 'mobile/src/hooks/point-to-point-tracker-core.ts'
+      - 'mobile/src/utils/active-route.ts'
+      - 'mobile/test/point-to-point-tracker-core.test.mts'
+      - 'ventas/features/portal/routes/components/route-catalog-panel.tsx'
+      - 'ventas/features/portal/routes/learned-route-segment.api.ts'
+      - 'ventas/features/portal/screens/route-learning-v3-review.tsx'
+      - '.github/workflows/route-learning-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  route-v3-backend:
+    name: Backend V3 contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            communication-service/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Install communication dependencies used by app regressions
+        working-directory: communication-service
+        run: npm ci --ignore-scripts
+      - name: Store revision compare-and-swap
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/fleet-route-revision-cas.test.js
+      - name: Corridor state machine
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-corridor.test.js
+      - name: Session route context snapshot
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-session-context.test.js
+      - name: Segment extraction and grouping
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-segment-learning.test.js
+      - name: Missing official route does not fall back to V2
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-segment-missing-route.test.js
+      - name: Revision guarded application
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-segment-approval.test.js
+      - name: V3 HTTP integration
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-segment-api.test.js
+      - name: Existing auto-route regression
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/auto-route-learning.test.js
+      - name: Existing route revision regression
+        working-directory: backend
+        run: node --require ./test/setup-env.js test/route-revision.test.js
+
+  route-v3-mobile:
+    name: Mobile tolerant corridor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Point-to-point route contract
+        run: node scripts/run-point-to-point-test.mjs
+
+  route-v3-portal:
+    name: Portal V3 review surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ventas
+    env:
+      VITE_API_URL: https://api.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ventas/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build

@@ -125,12 +125,26 @@ router.patch("/:incidentId/status", authenticate, requireOperationalAccess, requ
     });
   }
 
-  const incident = await req.app.locals.store.updateIncidentStatus(req.params.incidentId, status);
+  if (currentIncident.status === status) {
+    return res.json({
+      ok: true,
+      idempotent: true,
+      data: currentIncident
+    });
+  }
+
+  const incident = await req.app.locals.store.transitionIncidentStatus({
+    incidentId: req.params.incidentId,
+    organizationId: getOrganizationId(req.user),
+    expectedStatus: currentIncident.status,
+    nextStatus: status
+  });
 
   if (!incident) {
-    return res.status(404).json({
+    return res.status(409).json({
       ok: false,
-      message: "Incidencia no encontrada"
+      code: "INCIDENT_CONCURRENT_UPDATE",
+      message: "La incidencia cambio mientras la estabas actualizando. Recarga su estado e intenta nuevamente."
     });
   }
 
@@ -148,7 +162,11 @@ router.patch("/:incidentId/status", authenticate, requireOperationalAccess, requ
     status,
     userId: req.user.id,
     entityId: incident.id,
-    message: `Incidencia ${incident.title} marcada como ${status}`
+    message: `Incidencia ${incident.title} marcada como ${status}`,
+    metadata: {
+      previousStatus: currentIncident.status,
+      organizationId: incidentOrganizationId
+    }
   });
 
   return res.json({

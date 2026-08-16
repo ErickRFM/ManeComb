@@ -29,7 +29,40 @@ export function formatEta(route: OperationalUnitSnapshot['route'], locale = 'es-
   return eta.toLocaleTimeString(locale, TIME_FORMAT);
 }
 
-function formatGpsAge(ageSeconds: number | null): string | null {
+/**
+ * Identidades TECNICAS de ruta que el backend usa en `RouteSession.routeId`
+ * cuando no hay una ruta oficial del catalogo:
+ *
+ *  - `recording:{vehicleId}`  jornada libre grabando recorrido.
+ *  - `assigned:{vehicleId}:{assignedAt}`  asignacion sin ruta del catalogo.
+ *
+ * Fuente: backend/src/modules/navigation/routes.js (`/sessions/start`).
+ *
+ * Nunca pueden presentarse como nombre o codigo de ruta. El snapshot operacional
+ * ya las descarta (`buildRoute` devuelve null), pero las superficies que leen
+ * `session.routeId` en crudo tienen que reconocerlas aqui y no inventar una ruta
+ * fantasma con el identificador tecnico dentro.
+ */
+const TECHNICAL_ROUTE_ID_PREFIXES = ['recording:', 'assigned:'];
+
+export function isTechnicalRouteId(routeId: string | null | undefined): boolean {
+  const value = String(routeId ?? '').trim();
+  return TECHNICAL_ROUTE_ID_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
+
+/** Una jornada libre esta grabando recorrido, no siguiendo una ruta. */
+export function isRecordingRouteId(routeId: string | null | undefined): boolean {
+  return String(routeId ?? '').trim().startsWith('recording:');
+}
+
+/** Etiqueta unica para una jornada sin ruta oficial. */
+export const RECORDING_JOURNEY_LABEL = 'Grabando recorrido';
+
+/**
+ * Formato unico de antiguedad GPS. Exportado para que ninguna superficie
+ * escriba su propia version de "hace X".
+ */
+export function formatGpsAge(ageSeconds: number | null): string | null {
   if (ageSeconds === null) return null;
   if (ageSeconds < 60) return `hace ${Math.max(0, Math.round(ageSeconds))} s`;
 
@@ -42,18 +75,25 @@ function formatGpsAge(ageSeconds: number | null): string | null {
 }
 
 export function formatFreshness(gps: OperationalUnitSnapshot['gps']): string {
+  // Jamas llego un paquete de esta unidad. No hay nada vencido: hay algo que
+  // todavia no ha ocurrido. Decir "GPS vencido" aqui era el error que hacia
+  // parecer averiada a una unidad recien dada de alta.
+  if (gps.connectionState === 'never_reported') return 'Esperando primera ubicación';
+
   if (gps.connectionState === 'live') return 'GPS en vivo';
-  if (gps.connectionState === 'delayed') return 'GPS retrasado';
 
   const age = formatGpsAge(gps.ageSeconds);
 
   // El backend ya resolvio la severidad. La UI solo la hace visible para que un
   // dato viejo no parezca una unidad sana ni una ultima posicion desaparezca.
+  if (gps.connectionState === 'delayed') {
+    return age ? `GPS retrasado · ${age}` : 'GPS retrasado';
+  }
   if (gps.connectionState === 'stale') {
     return age ? `GPS sin señal · ${age}` : 'GPS sin señal';
   }
   if (gps.connectionState === 'lost') {
-    return age ? `GPS perdido · ${age}` : 'Sin GPS';
+    return age ? `GPS perdido · última ubicación ${age}` : 'GPS perdido';
   }
 
   return age ? `Última ubicación · ${age}` : 'Sin GPS';
@@ -110,7 +150,10 @@ const CONNECTION_OPACITY: Record<GpsConnectionState, number> = {
   live: 1,
   delayed: 0.58,
   stale: 0.4,
-  lost: 0.25
+  lost: 0.25,
+  // Sin coordenada no hay marcador que atenuar; se iguala a `lost` para que
+  // ninguna superficie tenga que ramificar por su cuenta.
+  never_reported: 0.25
 };
 
 /**
@@ -126,8 +169,25 @@ export function driverLabel(driver: OperationalUnitSnapshot['driver']): string {
   return driver?.name ?? 'Sin conductor asignado';
 }
 
-export function routeLabel(route: OperationalUnitSnapshot['route']): string {
-  return route?.name ?? 'Sin ruta asignada';
+/**
+ * Una jornada libre en curso no es "Sin ruta asignada": esta grabando recorrido.
+ *
+ * El snapshot deja `route` en null tanto cuando no hay ruta como cuando la
+ * jornada usa la identidad tecnica `recording:*`, asi que la Jornada es lo unico
+ * que permite distinguirlos. El identificador tecnico NUNCA se muestra.
+ */
+export function routeLabel(
+  route: OperationalUnitSnapshot['route'],
+  journey?: OperationalUnitSnapshot['journey']
+): string {
+  if (route?.name) return route.name;
+  if (
+    isRecordingRouteId(journey?.routeId) &&
+    (journey?.status === 'RUNNING' || journey?.status === 'PAUSED')
+  ) {
+    return RECORDING_JOURNEY_LABEL;
+  }
+  return 'Sin ruta asignada';
 }
 
 /**

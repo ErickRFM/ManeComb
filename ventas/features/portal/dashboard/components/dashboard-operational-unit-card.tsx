@@ -1,6 +1,8 @@
 import { Pressable, Text, View } from 'react-native';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import type { RouteSession, Vehicle } from '@/src/types/app';
+import { formatGpsAge } from '@shared/operational-contract';
+import { getVehicleGpsConnectionState } from '../../utils/tracking';
 import { styles } from '../dashboard.styles';
 import { getVehicleStatus, getRouteInfo } from '../dashboard.utils';
 
@@ -20,12 +22,17 @@ export function OperationalUnitCard({
   const session = activeSession || latestSession;
   const status = getVehicleStatus(vehicle);
   const routeInfo = getRouteInfo(vehicle, session);
-  const hasKnownPosition = Boolean(vehicle.location);
-  const gpsMessage = !hasKnownPosition
-    ? 'Sin GPS: nunca reportó una posición'
-    : vehicle.gpsFreshness?.state === 'stale' || vehicle.gpsFreshness?.state === 'missing'
-      ? 'Sin señal: mostrando última posición'
-      : null;
+  // Presenta la taxonomia canonica del backend. Una unidad que jamas reporto no
+  // esta averiada: esta esperando su primer paquete.
+  const connectionState = getVehicleGpsConnectionState(vehicle);
+  const gpsAge = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+  const gpsMessage = connectionState === 'never_reported'
+    ? 'Esperando primera ubicación'
+    : connectionState === 'live'
+      ? null
+      : gpsAge
+        ? `Sin señal: última posición ${gpsAge}`
+        : 'Sin señal: mostrando última posición';
   return (
     <Pressable
       accessibilityRole="button"

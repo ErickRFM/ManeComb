@@ -29,11 +29,17 @@ function assertActorCanTransition(session, actor) {
     );
   }
 
-  if (
-    actor.organizationId &&
-    session.organizationId &&
-    String(actor.organizationId) !== String(session.organizationId)
-  ) {
+  // Falla CERRADO. Antes se exigia que ambos organizationId fueran truthy, asi
+  // que una jornada sin organizacion saltaba la comprobacion entera y cualquier
+  // usuario operativo de cualquier tenant podia transicionarla.
+  //
+  // No es hipotetico: `routeSessionSchema.organizationId` es
+  // `{ type: String, default: "" }`, no es obligatorio, de modo que una jornada
+  // legada o creada al limite puede tener organizacion vacia.
+  //
+  // El handler `GET /journeys/:sessionId` ya fallaba cerrado ante ese mismo dato;
+  // esta era la unica ruta de ESCRITURA que no lo hacia.
+  if (actor.organizationId && String(actor.organizationId) !== String(session.organizationId || "")) {
     throw new JourneyTransitionError(
       "tenant_mismatch",
       "La jornada no pertenece a la organizacion del actor"

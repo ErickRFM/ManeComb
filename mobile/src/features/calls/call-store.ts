@@ -2,6 +2,7 @@
 // Es la unica fuente de verdad para signaling, peer/media expuestos a UI, controles y cronometro.
 
 import { create } from 'zustand';
+import { logRealtimeDiag } from '@/src/store/realtime-diagnostics-log';
 import {
   initialCallState,
   isBusyPhase,
@@ -350,6 +351,15 @@ export const useCallStore = create<CallStore>()((set, get) => {
     bindSocket: (socket) => {
       const current = get()._socket;
       if (current === socket) return;
+      // Solo transiciones reales de instancia: nunca por render. El socketStatus
+      // del mismo instante queda en el log de syncSocket; no se importa el
+      // root-store aqui para no acoplar Calls a la app store.
+      logRealtimeDiag('callStore:bind', {
+        oldSocketId: (current as { id?: string } | null)?.id || null,
+        newSocketId: (socket as { id?: string } | null)?.id || null,
+        bound: Boolean(socket),
+        phase: get().phase,
+      });
       get().unbindSocket();
       if (!socket) return;
       const unbind = bindCallSocket(socket, {

@@ -16,6 +16,7 @@ on:
       - "codex/**"
       - "claude/**"
       - "security/**"
+      - "agent/**"
   workflow_dispatch:
 
 permissions:
@@ -49,6 +50,9 @@ jobs:
 
       - name: Validate production security posture
         run: node scripts/validate-production-security.mjs
+
+      - name: Validate Render production contract
+        run: node scripts/validate-render-blueprint.mjs
 
       - name: Test physical merge policy
         run: node --test scripts/validate-pr-physical-gate.test.mjs

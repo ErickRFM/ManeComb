@@ -2,6 +2,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { RouteGeometryThumbnail } from '../../components/route-geometry-thumbnail';
+import { RouteLearningV3Review } from '../../screens/route-learning-v3-review';
 import { palette } from '@/constants/theme';
 import { portalPalette } from '../../portal-theme';
 import { styles } from '../routes.styles';
@@ -36,6 +37,7 @@ export function RouteCatalogPanel({
 }: RouteCatalogPanelProps) {
   return (
     <View style={styles.catalogPanel}>
+      <RouteLearningV3Review embedded />
       <View style={styles.panelHeading}><Text style={styles.panelTitle}>Rutas disponibles</Text><Text style={styles.panelCount}>{filteredRoutes.length}</Text></View>
       <TextInput accessibilityLabel="Buscar rutas" value={search} onChangeText={onSearchChange} placeholder="Buscar ruta" placeholderTextColor={palette.muted} style={[styles.compactSearch, { borderColor: palette.lineStrong, color: palette.text }]} />
       <View style={styles.compactFilters}>{(['all','assigned','unused'] as const).map((mode) => <Pressable key={mode} onPress={() => onFilterModeChange(mode)} style={[styles.filterChip, filterMode === mode ? styles.filterChipActive : undefined]}><Text style={styles.filterChipText}>{mode === 'all' ? 'Todas' : mode === 'assigned' ? 'Asignadas' : 'Sin uso'}</Text></Pressable>)}</View>

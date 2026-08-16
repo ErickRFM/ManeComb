@@ -19,7 +19,8 @@ const FLEET_METHODS = [
   "listRoutes",
   "listVehiclesForOrganization",
   "retireVehicle",
-  "updateRoute"
+  "updateRoute",
+  "updateRouteIfRevision"
 ];
 
 function canActorAccessRoute(actor, route) {
@@ -62,46 +63,61 @@ function buildTenantDashboard({ actor, fleet, incidents, documents, notification
     ? fleet.filter((vehicle) => String(vehicle.id) === String(actor.vehicleId || ""))
     : fleet;
   const openIncidents = incidents.filter((incident) => incident.status !== "resolved");
+  const criticalIncidents = openIncidents.filter((incident) => incident.severity === "critical");
+  const incidentsInProgress = openIncidents.filter((incident) => incident.status === "in_progress");
   const activeVehicles = visibleFleet.filter((vehicle) => vehicle.status === "on-route");
-  const averageOccupancy = activeVehicles.length
-    ? Math.round(
-        activeVehicles.reduce(
-          (sum, vehicle) => sum + Number(vehicle.occupancy || 0) / Math.max(1, Number(vehicle.capacity || 1)),
-          0
-        ) * 100 / activeVehicles.length
-      )
-    : 0;
-  const expiringDocuments = documents.filter(
-    (document) => new Date(document.expiresAt).getTime() - Date.now() <= 14 * 24 * 60 * 60 * 1000
-  );
+  const maintenanceVehicles = visibleFleet.filter((vehicle) => vehicle.status === "maintenance");
+  const expiringDocuments = documents.filter((document) => {
+    const expiresAt = new Date(document.expiresAt).getTime();
+    return Number.isFinite(expiresAt) && expiresAt - Date.now() <= 14 * 24 * 60 * 60 * 1000;
+  });
 
+  // El dashboard solo presenta hechos derivados del estado persistido actual.
+  // No se fabrican tendencias historicas, puntualidad, aforo ni tiempos de
+  // jornada cuando no existe una fuente de datos que los respalde.
   const metrics = [
     {
       id: "units-on-route",
       label: "Unidades activas",
       value: `${activeVehicles.length}/${visibleFleet.length}`,
-      trend: "+1 vs ayer",
-      tone: "positive"
+      trend: activeVehicles.length
+        ? `${activeVehicles.length} en ruta ahora`
+        : "Sin unidades en ruta",
+      tone: activeVehicles.length ? "positive" : "info"
     },
     {
-      id: "punctuality",
-      label: "Puntualidad",
-      value: `${Math.max(84, 96 - openIncidents.length * 4)}%`,
-      trend: openIncidents.length > 1 ? "Atencion en ruta R-21" : "Operacion estable",
-      tone: openIncidents.length > 1 ? "warning" : "positive"
+      id: "incidents-open",
+      label: "Incidencias abiertas",
+      value: `${openIncidents.length}`,
+      trend: criticalIncidents.length
+        ? `${criticalIncidents.length} criticas`
+        : incidentsInProgress.length
+          ? `${incidentsInProgress.length} en atencion`
+          : openIncidents.length
+            ? `${openIncidents.length} pendientes`
+            : "Sin incidencias abiertas",
+      tone: criticalIncidents.length
+        ? "danger"
+        : openIncidents.length
+          ? "warning"
+          : "positive"
     },
     {
-      id: "occupancy",
-      label: "Aforo promedio",
-      value: `${averageOccupancy}%`,
-      trend: averageOccupancy > 75 ? "Carga alta en hora pico" : "Carga controlada",
-      tone: averageOccupancy > 75 ? "warning" : "info"
+      id: "maintenance",
+      label: "En mantenimiento",
+      value: `${maintenanceVehicles.length}`,
+      trend: maintenanceVehicles.length
+        ? `${maintenanceVehicles.length} fuera de operacion`
+        : "Sin unidades en mantenimiento",
+      tone: maintenanceVehicles.length ? "warning" : "positive"
     },
     {
       id: "documents",
       label: "Documentos urgentes",
       value: `${expiringDocuments.length}`,
-      trend: "Requieren seguimiento",
+      trend: expiringDocuments.length
+        ? `${expiringDocuments.length} requieren seguimiento`
+        : "Sin vencimientos proximos",
       tone: expiringDocuments.length ? "danger" : "positive"
     }
   ];
@@ -128,16 +144,17 @@ function buildTenantDashboard({ actor, fleet, incidents, documents, notification
     alerts,
     notifications: notifications.slice(0, 4),
     shift: {
-      label: actor.shift,
-      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      nextCheckpointInMinutes: actor.role === "driver" ? 12 : 18
+      label: actor.shift || null,
+      startedAt: null,
+      nextCheckpointInMinutes: null
     }
   };
 }
 
 class FleetRepository extends StoreDomainRepository {
-  constructor(store) {
-    super(store, FLEET_METHODS);
+  constructor(store, models = {}) {
+    super(store, FLEET_METHODS.filter((method) => method !== "updateRouteIfRevision"));
+    this.models = models;
   }
 
   listRoutes(actor = null) {
@@ -162,6 +179,53 @@ class FleetRepository extends StoreDomainRepository {
       if (!canActorAccessRoute(actor, current)) return null;
       return this.store.updateRoute(routeId, payload, actor);
     });
+  }
+
+  async updateRouteIfRevision(routeId, expectedRevision, payload, actor = null) {
+    const current = await Promise.resolve(this.store.getRouteById(routeId));
+    if (!current || !canActorAccessRoute(actor, current)) return null;
+    if (Number(current.revision) !== Number(expectedRevision)) return null;
+
+    const RouteModel = this.models.RouteModel;
+    if (RouteModel?.db?.readyState === 1) {
+      const query = RouteModel.findOneAndUpdate(
+        {
+          _id: routeId,
+          organizationId: current.organizationId,
+          revision: Number(expectedRevision)
+        },
+        {
+          $set: {
+            ...payload,
+            revision: Number(expectedRevision) + 1,
+            updatedAt: new Date()
+          }
+        },
+        { returnDocument: "after" }
+      );
+      const atomic = typeof query?.lean === "function" ? await query.lean() : await query;
+      if (!atomic) return null;
+
+      // El documento retornado por el CAS es la autoridad de esta mutacion. El
+      // refresh puede observar una revision posterior de otro writer y debe
+      // reconciliar esa proyeccion, pero nunca reemplazar ni invalidar el
+      // resultado ya comprometido por este CAS.
+      //
+      // `updateRoute({}, actor)` es deliberadamente no-op para Route; su adapter
+      // refresca Vehicle.assignedRoute desde la Route canonica mas reciente.
+      try {
+        await this.store.updateRoute(routeId, {}, actor);
+      } catch (_projectionError) {
+        // La reparacion de una proyeccion derivada no revierte un CAS Mongo ya
+        // confirmado. La siguiente reconciliacion puede reintentar el refresh.
+      }
+      return atomic;
+    }
+
+    // Embedded/test adapter: one process, same optimistic token, same canonical writer.
+    const latest = await Promise.resolve(this.store.getRouteById(routeId));
+    if (!latest || Number(latest.revision) !== Number(expectedRevision)) return null;
+    return this.store.updateRoute(routeId, payload, actor);
   }
 
   deleteRoute(routeId, actor = null) {

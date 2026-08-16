@@ -7,6 +7,7 @@ import {
 } from '../constants/tracking';
 import {
   buildLivePoint,
+  classifyGpsFix,
   isLowAccuracy,
   shouldAcceptLocation,
   watchNativeLocation,
@@ -121,6 +122,47 @@ describe('location engine services', () => {
         LOCATION_HEARTBEAT_INTERVAL_MS * 2
       )
     ).toBe(false);
+  });
+
+  it('classifies duplicate, heartbeat, delayed and physically implausible fixes', () => {
+    const point = buildLivePoint({
+      accuracy: 5,
+      altitude: null,
+      altitudeAccuracy: null,
+      heading: 0,
+      latitude: 19.4326,
+      longitude: -99.1332,
+      speed: 0,
+    });
+    const previous = { point, recordedAtMs: 10_000 };
+
+    expect(classifyGpsFix(previous, { point, recordedAtMs: 11_000 }, 11_000, 10_000)).toBe('duplicate');
+    expect(classifyGpsFix(previous, { point, recordedAtMs: 14_000 }, 14_000, 10_000)).toBe('heartbeat');
+    expect(classifyGpsFix(previous, { point, recordedAtMs: 9_999 }, 11_000, 10_000)).toBe('out_of_order');
+    expect(classifyGpsFix(
+      previous,
+      { point: { ...point, latitude: point.latitude + 0.02 }, recordedAtMs: 11_000 },
+      11_000,
+      10_000
+    )).toBe('implausible_jump');
+  });
+
+  it('distinguishes poor accuracy from an accepted degraded fix', () => {
+    const point = buildLivePoint({
+      accuracy: 80,
+      altitude: null,
+      altitudeAccuracy: null,
+      heading: null,
+      latitude: 19.4326,
+      longitude: -99.1332,
+      speed: null,
+    });
+
+    expect(classifyGpsFix(null, { point, recordedAtMs: 10_000 })).toBe('degraded');
+    expect(classifyGpsFix(null, {
+      point: { ...point, accuracy: MAX_ACCEPTED_ACCURACY_METERS + 1 },
+      recordedAtMs: 10_000,
+    })).toBe('poor_accuracy');
   });
 
   it('keeps sync gated by network, schedule, vehicle and interval', () => {

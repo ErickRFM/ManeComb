@@ -289,7 +289,12 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
   );
   // Estado, GPS, ruta, conductor y ETA vienen resueltos del backend.
   // Este componente solo los formatea.
-  const routeLabel = useMemo(() => formatRoute(selectedUnit?.route ?? null), [selectedUnit?.route]);
+  // Se pasa la Jornada para poder decir "Grabando recorrido" en una jornada libre
+  // sin exponer nunca la identidad tecnica `recording:*`.
+  const routeLabel = useMemo(
+    () => formatRoute(selectedUnit?.route ?? null, selectedUnit?.journey ?? null),
+    [selectedUnit?.journey, selectedUnit?.route]
+  );
   const compactMeta = useMemo(
     () => formatCompactUnitMeta(selectedUnit, resolvedEmptyState.meta),
     [resolvedEmptyState.meta, selectedUnit]
@@ -303,7 +308,10 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
         ? theme.colors.warning
         : selectedUnit.gps.connectionState === 'stale'
           ? theme.colors.warning
-          : theme.colors.danger
+          // Esperar la primera ubicacion no es una falla: no se pinta en rojo.
+          : selectedUnit.gps.connectionState === 'never_reported'
+            ? theme.colors.muted
+            : theme.colors.danger
     : locationStatusColor;
   const speedLabel = selectedUnit ? formatSpeed(selectedUnit.gps) : 'GPS pendiente';
   const kilometersLabel = useMemo(

@@ -85,6 +85,11 @@ class ManeCombLocationModule(
       putNullableTimestamp(this, "lastCapturedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CAPTURED_AT, 0L))
       putNullableTimestamp(this, "lastSentAt", prefs.getLong(ManeCombLocationService.KEY_LAST_SENT_AT, 0L))
       putNullableTimestamp(this, "lastConfirmedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_CONFIRMED_AT, 0L))
+      putString("lastPacketId", prefs.getString(ManeCombLocationService.KEY_LAST_PACKET_ID, null))
+      putNullableTimestamp(this, "lastPacketCapturedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_PACKET_CAPTURED_AT, 0L))
+      putNullableTimestamp(this, "lastPacketSentAt", prefs.getLong(ManeCombLocationService.KEY_LAST_PACKET_SENT_AT, 0L))
+      putNullableTimestamp(this, "lastPacketConfirmedAt", prefs.getLong(ManeCombLocationService.KEY_LAST_PACKET_CONFIRMED_AT, 0L))
+      putNullableTimestamp(this, "lastPacketRoundTripMs", prefs.getLong(ManeCombLocationService.KEY_LAST_PACKET_ROUND_TRIP_MS, -1L), allowZero = true)
     })
 
     if (reason != null) {
@@ -95,9 +100,10 @@ class ManeCombLocationModule(
   private fun putNullableTimestamp(
     map: com.facebook.react.bridge.WritableMap,
     key: String,
-    value: Long
+    value: Long,
+    allowZero: Boolean = false,
   ) {
-    if (value > 0L) map.putDouble(key, value.toDouble()) else map.putNull(key)
+    if (value > 0L || (allowZero && value == 0L)) map.putDouble(key, value.toDouble()) else map.putNull(key)
   }
 
   @ReactMethod

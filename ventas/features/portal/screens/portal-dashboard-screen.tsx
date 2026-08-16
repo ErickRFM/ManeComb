@@ -533,6 +533,7 @@ export function PortalDashboardScreen() {
                 recentEvents={sessionDetail?.events || []}
                 users={users}
                 vehicle={selectedVehicle}
+                operationalUnit={snapshotByVehicle.get(selectedVehicle.id)}
                 driverChangeMessage={driverChangeMessage}
                 driverSelectorOpen={driverSelectorVehicleId === selectedVehicle.id}
                 isChangingDriver={isSubmitting}
