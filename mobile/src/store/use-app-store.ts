@@ -66,6 +66,22 @@ function ensureNativeSessionTeardownObserver() {
 
     if (!identityJustEnded && !unauthenticatedBootstrapJustSettled) return;
 
+    // Estos flags son runtime efimero de la identidad anterior. Un Promise viejo
+    // ya no puede limpiarlos despues de que entre otra cuenta (los handlers estan
+    // epoch-fenced), asi que la propia transicion a "sin identidad" los normaliza
+    // de forma sincronica antes de permitir un siguiente login.
+    if (
+      state.isSubmitting ||
+      state.isLoadingConversation ||
+      state.isLoadingChatContacts
+    ) {
+      useAppStore.setState({
+        isSubmitting: false,
+        isLoadingConversation: false,
+        isLoadingChatContacts: false,
+      });
+    }
+
     teardownNativeSessionResources();
   });
 }
