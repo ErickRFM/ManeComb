@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('../', import.meta.url);
+const root = fileURLToPath(new URL('../', import.meta.url));
 const scanRoots = [
   'ventas/features/portal',
   'ventas/src/store',
@@ -14,18 +15,18 @@ const scanRoots = [
 const extensions = new Set(['.js', '.mjs', '.ts', '.tsx']);
 
 function filesUnder(path) {
-  const absolute = join(root.pathname.slice(1), path);
+  const absolute = join(root, path);
   const result = [];
   for (const entry of readdirSync(absolute)) {
     const candidate = join(absolute, entry);
-    if (statSync(candidate).isDirectory()) result.push(...filesUnder(relative(root.pathname.slice(1), candidate)));
+    if (statSync(candidate).isDirectory()) result.push(...filesUnder(relative(root, candidate)));
     else if (extensions.has(candidate.slice(candidate.lastIndexOf('.'))) && !candidate.includes('.test.')) result.push(candidate);
   }
   return result;
 }
 
 const sources = scanRoots.flatMap(filesUnder).map((file) => ({
-  file: relative(root.pathname.slice(1), file).replaceAll('\\', '/'),
+  file: relative(root, file).replaceAll('\\', '/'),
   source: readFileSync(file, 'utf8'),
 }));
 
