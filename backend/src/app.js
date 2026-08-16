@@ -9,6 +9,7 @@ const {
   CORS_ORIGIN,
   CLIENT_ORIGINS,
   NODE_ENV,
+  RUNTIME_COMMIT,
   TRUST_PROXY
 } = require("./config/env");
 const accountRoutes = require("./modules/account/routes");
@@ -217,20 +218,24 @@ function createApp({ store, getDbState }) {
     });
   });
 
-  function handleHealth(req, res, detailed = false) {
+  function handleHealth(req, res, { detailed = false, enforceReadiness = false } = {}) {
     const db = getDbState();
     const readiness = getRuntimeReadiness(db);
     const socketServer = app.locals.io;
     const socketCount = socketServer?.engine?.clientsCount || 0;
     setGauge("socket_clients", socketCount);
 
+    const coreReady = Boolean(readiness.ready);
     const payload = {
-      ok: true,
+      ok: enforceReadiness ? coreReady : true,
+      ready: coreReady,
       status: readiness.status,
       version: packageJson.version,
       uptimeSeconds: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
       readiness: {
+        blockers: readiness.blockers || [],
+        degradedCapabilities: readiness.degradedCapabilities || [],
         payments: {
           mode: readiness.payments?.mode || "configuration_required",
           provider: readiness.payments?.provider || "unknown",
@@ -238,16 +243,29 @@ function createApp({ store, getDbState }) {
         }
       }
     };
+
     if (detailed) {
       payload.communication = readiness.communication;
+      payload.runtime = {
+        commit: RUNTIME_COMMIT || null
+      };
     }
-    return res.json(payload);
+
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    return res.status(enforceReadiness && !coreReady ? 503 : 200).json(payload);
   }
 
   app.get("/health", (req, res) => handleHealth(req, res));
   app.get("/api/health", (req, res) => handleHealth(req, res));
-  app.get("/api/health/live", (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
-  app.get("/api/health/ready", (req, res) => handleHealth(req, res, true));
+  app.get("/api/health/live", (req, res) => {
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    return res.json({ ok: true, status: "live", timestamp: new Date().toISOString() });
+  });
+  app.get("/api/health/ready", (req, res) =>
+    handleHealth(req, res, { detailed: true, enforceReadiness: true })
+  );
   app.get(
     "/api/metrics",
     platformAccess,

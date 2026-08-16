@@ -4,20 +4,39 @@ on:
   pull_request:
     paths:
       - ".github/workflows/portal-certification.yml"
+      - "backend/src/app.js"
       - "backend/src/services/account-channel.js"
       - "backend/src/services/auth-context.js"
       - "backend/src/services/enterprise-capabilities.js"
+      - "backend/src/services/runtime-readiness.js"
+      - "backend/test/public-payment-health.test.js"
       - "mobile/e2e/certification/**"
       - "mobile/playwright.certification.config.ts"
       - "mobile/package.json"
       - "mobile/package-lock.json"
+      - "scripts/verify-production-certification-target.mjs"
       - "ventas/**"
   workflow_dispatch:
     inputs:
       base_url:
-        description: "URL desplegada a certificar"
+        description: "URL desplegada de Ventas/Portal a certificar"
         required: true
         default: "https://manecomb.com"
+        type: string
+      api_url:
+        description: "Base URL desplegada del API (incluye /api)"
+        required: true
+        default: "https://manecomb.onrender.com/api"
+        type: string
+      expected_commit:
+        description: "SHA exacto esperado; vacío usa el SHA del workflow"
+        required: false
+        default: ""
+        type: string
+      required_capabilities:
+        description: "Capacidades que no pueden estar degradadas (CSV)"
+        required: true
+        default: "storage,payments"
         type: string
       run_authenticated:
         description: "Ejecutar matriz autenticada de roles"
@@ -39,7 +58,7 @@ concurrency:
 
 jobs:
   public-responsive:
-    name: Public portal responsive and local channel matrix
+    name: Public portal and local authenticated matrices
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -61,6 +80,9 @@ jobs:
             mobile/package-lock.json
             ventas/package-lock.json
 
+      - name: Verify production target policy contract
+        run: node ../scripts/verify-production-certification-target.mjs --self-test
+
       - name: Install Playwright dependencies
         run: npm ci
 
@@ -70,12 +92,13 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run five-viewport public certification and local authenticated channel matrix
+      - name: Run five-viewport public and local authenticated certification
         run: >-
           npx playwright test
           --config playwright.certification.config.ts
           e2e/certification/public-responsive.spec.ts
           e2e/certification/local-account-channel.spec.ts
+          e2e/certification/local-role-access.spec.ts
           e2e/certification/backend-portal-capability-contract.spec.ts
 
       - name: Upload public and local contract evidence
@@ -90,9 +113,32 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  production-preflight:
+    name: Production deployment identity and readiness
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CERT_BASE_URL: ${{ inputs.base_url }}
+      CERT_API_URL: ${{ inputs.api_url }}
+      CERT_EXPECTED_COMMIT: ${{ inputs.expected_commit || github.sha }}
+      CERT_REQUIRED_CAPABILITIES: ${{ inputs.required_capabilities }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Verify canonical targets, deployed SHA and core readiness
+        run: node scripts/verify-production-certification-target.mjs
+
   authenticated-matrix:
     name: Authenticated roles and security
     if: github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true
+    needs: production-preflight
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -144,7 +190,7 @@ jobs:
           fi
           exit "$missing"
 
-      - name: Run role access matrix
+      - name: Run live role access matrix
         run: npx playwright test --config playwright.certification.config.ts --project desktop-1280 e2e/certification/role-access.spec.ts
 
       - name: Run account security mutation matrix
