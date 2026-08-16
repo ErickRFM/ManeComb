@@ -12,6 +12,7 @@ import {
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
 import { logRealtimeDiag } from './realtime-diagnostics-log';
+import { installApiSessionBoundary } from '@/src/api/api-session-boundary';
 import {
   clearSessionNotifications,
   deleteNativePushToken,
@@ -69,6 +70,10 @@ function ensureNativeSessionTeardownObserver() {
   });
 }
 
+// Se instala antes de que cualquier pantalla pueda disparar initialize/refresh.
+// La sessionEpoch del root-store sigue siendo la unica autoridad de invalidez;
+// este interceptor solo hace cumplir esa decision en HTTP y SecureStore.
+installApiSessionBoundary();
 ensureNativeSessionTeardownObserver();
 
 export { useAppStore };
