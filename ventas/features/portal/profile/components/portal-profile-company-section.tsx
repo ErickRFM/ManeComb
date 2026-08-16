@@ -7,6 +7,7 @@ import { styles } from '../profile.styles';
 import type { ProfileForm } from '../profile.types';
 
 type PortalProfileCompanySectionProps = {
+  canViewBilling: boolean;
   form: ProfileForm;
   isSubmitting: boolean;
   message: string | null;
@@ -52,6 +53,7 @@ function ProfileField({
 }
 
 export function PortalProfileCompanySection({
+  canViewBilling,
   form,
   isSubmitting,
   message,
@@ -82,13 +84,15 @@ export function PortalProfileCompanySection({
             <Text style={styles.sectionHeading}>Facturación</Text>
             <Text style={styles.sectionDescription}>Información fiscal usada para comprobantes y descargas.</Text>
           </View>
-          <PortalButton
-            icon="file-document-outline"
-            onPress={() => router.push('/portal/facturacion' as never)}
-            size="sm"
-            variant="secondary">
-            Ver facturas
-          </PortalButton>
+          {canViewBilling ? (
+            <PortalButton
+              icon="file-document-outline"
+              onPress={() => router.push('/portal/facturacion' as never)}
+              size="sm"
+              variant="secondary">
+              Ver facturas
+            </PortalButton>
+          ) : null}
         </View>
         <View style={styles.formGrid}>
           {billingFields.map((field) => (
