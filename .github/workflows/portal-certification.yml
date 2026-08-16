@@ -58,7 +58,7 @@ concurrency:
 
 jobs:
   public-responsive:
-    name: Public portal responsive and local channel matrix
+    name: Public portal and local authenticated matrices
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -92,12 +92,13 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run five-viewport public certification and local authenticated channel matrix
+      - name: Run five-viewport public and local authenticated certification
         run: >-
           npx playwright test
           --config playwright.certification.config.ts
           e2e/certification/public-responsive.spec.ts
           e2e/certification/local-account-channel.spec.ts
+          e2e/certification/local-role-access.spec.ts
           e2e/certification/backend-portal-capability-contract.spec.ts
 
       - name: Upload public and local contract evidence
@@ -189,7 +190,7 @@ jobs:
           fi
           exit "$missing"
 
-      - name: Run role access matrix
+      - name: Run live role access matrix
         run: npx playwright test --config playwright.certification.config.ts --project desktop-1280 e2e/certification/role-access.spec.ts
 
       - name: Run account security mutation matrix
