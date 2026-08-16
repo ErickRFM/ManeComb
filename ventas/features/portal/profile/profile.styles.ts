@@ -4,7 +4,26 @@ import { portalPalette } from '../portal-theme';
 
 export const styles = StyleSheet.create({
   disabledButton: { opacity: 0.55 },
-  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, minWidth: 0 },
+  profileWorkspace: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    minWidth: 0,
+  },
+  profileMainColumn: {
+    flex: 1.35,
+    flexBasis: 620,
+    gap: 12,
+    minWidth: 0,
+  },
+  profileSideColumn: {
+    flex: 0.65,
+    flexBasis: 360,
+    gap: 12,
+    minWidth: 0,
+  },
+  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 0 },
   fieldGroup: { flex: 1, flexBasis: 220, gap: 6, minWidth: 0 },
   fieldLabel: {
     color: portalPalette.muted,
@@ -14,10 +33,41 @@ export const styles = StyleSheet.create({
     letterSpacing: 0.25,
   },
   input: {
-    borderRadius: AppTheme.radius.sm, borderWidth: 1, flex: 1, flexBasis: 220,
-    fontFamily: Typography.body, fontSize: 14, minHeight: 46, minWidth: 0, paddingHorizontal: 14,
+    alignSelf: 'stretch',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    fontFamily: Typography.body,
+    fontSize: 14,
+    minHeight: 46,
+    minWidth: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', minWidth: 0 },
+  sectionBlock: { gap: 10, minWidth: 0 },
+  sectionHeadingRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'space-between',
+    minWidth: 0,
+  },
+  sectionHeadingCopy: { flex: 1, flexBasis: 240, gap: 2, minWidth: 0 },
+  sectionHeading: {
+    color: portalPalette.text,
+    fontFamily: Typography.display,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sectionDescription: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  sectionDivider: { borderTopColor: portalPalette.line, borderTopWidth: 1 },
   primaryButton: {
     alignItems: 'center', borderRadius: AppTheme.radius.sm, flexShrink: 0,
     flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 42, paddingHorizontal: 14,
@@ -60,7 +110,7 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 42,
   },
-  securityCopy: { flex: 1, flexBasis: 260, gap: 3, minWidth: 0 },
+  securityCopy: { flex: 1, flexBasis: 210, gap: 3, minWidth: 0 },
   securityTitle: {
     color: portalPalette.text,
     fontFamily: Typography.display,
@@ -89,6 +139,7 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  securityEditor: { gap: 12, minWidth: 0 },
   requirementsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
