@@ -78,13 +78,6 @@ function canSessionAcceptPosition(session, vehicleId, requestedSessionId, proces
 }
 
 async function emitLocationUpdate({ io, store, vehicle, publicUpdate, organizationId }) {
-  if (organizationId) {
-    getRolesWithPermission("canViewAnalytics").forEach((role) => {
-      io?.to(`org:${organizationId}:role:${role}`).emit("location:updated", publicUpdate);
-    });
-    if (vehicle.driverId) io?.to(`user:${vehicle.driverId}`).emit("location:updated", publicUpdate);
-  }
-  io?.to("platform:admin").emit("location:updated", publicUpdate);
   await emitOperationalUnitUpdate({
     io,
     store,

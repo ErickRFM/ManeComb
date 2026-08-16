@@ -1,4 +1,5 @@
 const { Router } = require("express");
+const { emitOperationalUnitUpdate } = require("../../services/operational-units-service");
 const { authenticate } = require("../../middlewares/authenticate");
 const {
   canAccessAllTenants,
@@ -251,18 +252,6 @@ router.post(
         }
       });
 
-      const liveLocations = await req.app.locals.store.getLiveLocations();
-      itemsFromList(liveLocations?.vehicles || liveLocations)
-        .filter((vehicle) => vehicle.routeId === result.route.id)
-        .forEach((vehicle) => {
-          emitRouteAudience(
-            req,
-            candidate.organizationId,
-            "location:updated",
-            vehicle,
-            vehicle.driverId
-          );
-        });
       emitRouteAudience(req, candidate.organizationId, "route:updated", {
         route: result.route,
         source: "learned_segment",
@@ -270,6 +259,16 @@ router.post(
         previousRevision: result.metadata.routeRevision,
         revision: result.route.revision
       });
+      const liveLocations = await req.app.locals.store.getLiveLocations();
+      await Promise.all(itemsFromList(liveLocations?.vehicles || liveLocations)
+        .filter((vehicle) => vehicle.routeId === result.route.id)
+        .map((vehicle) => emitOperationalUnitUpdate({
+          io: req.app.locals.io,
+          store: req.app.locals.store,
+          vehicle,
+          organizationId: candidate.organizationId,
+          getRolesWithPermission
+        })));
 
       return res.json({
         ok: true,

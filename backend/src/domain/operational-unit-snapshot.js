@@ -207,6 +207,7 @@ function buildRoute({ vehicle, route, activeSession, progress }) {
       progress?.distanceFromRoute === undefined || progress?.distanceFromRoute === null
         ? null
         : Math.max(0, Math.round(Number(progress.distanceFromRoute) || 0)),
+    isOffRoute: progress?.isOffRoute === true,
     currentCheckpoint:
       checkpointCount && currentIndex !== null && checkpointCount > 0
         ? `${Math.min(checkpointCount, Math.max(0, Math.round(currentIndex)))}/${Math.round(checkpointCount)}`

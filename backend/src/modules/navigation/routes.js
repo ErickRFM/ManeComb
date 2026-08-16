@@ -18,6 +18,7 @@ const { processCompletedRouteSession } = require("../../services/auto-route-lear
 const autoRouteConfig = require("../../config/auto-route");
 const { isServiceDate, toServiceDate } = require("../../utils/service-date");
 const { resolveSessionStartedAt } = require("../../services/tracking-time");
+const { emitOperationalUnitUpdate } = require("../../services/operational-units-service");
 
 const router = Router();
 
@@ -37,6 +38,17 @@ function emitToRouteAudience(req, organizationId, eventName, payload, driverId =
   });
   if (driverId) req.app.locals.io?.to(`user:${driverId}`).emit(eventName, payload);
   req.app.locals.io?.to("platform:admin").emit(eventName, payload);
+}
+
+async function emitVehicleAuthorities(req, organizationId, vehicle) {
+  emitToRouteAudience(req, organizationId, "vehicle:updated", { vehicle }, vehicle.driverId);
+  await emitOperationalUnitUpdate({
+    io: req.app.locals.io,
+    store: req.app.locals.store,
+    vehicle,
+    organizationId,
+    getRolesWithPermission
+  });
 }
 
 function normalizePoint(point) {
@@ -495,11 +507,9 @@ router.patch("/routes/:routeId", authenticate, requireOperationalAccess, async (
     }
 
     const liveLocations = await req.app.locals.store.getLiveLocations();
-    liveLocations.vehicles
+    await Promise.all(liveLocations.vehicles
       .filter((vehicle) => vehicle.routeId === updatedRoute.id)
-      .forEach((vehicle) => {
-        emitToRouteAudience(req, getOrganizationId(req.user), "location:updated", vehicle, vehicle.driverId);
-      });
+      .map((vehicle) => emitVehicleAuthorities(req, getOrganizationId(req.user), vehicle)));
 
     return res.json({
       ok: true,
@@ -588,11 +598,9 @@ router.delete("/routes/:routeId", authenticate, requireOperationalAccess, async 
     }
 
     const liveAfterDelete = await req.app.locals.store.getLiveLocations();
-    liveAfterDelete.vehicles
+    await Promise.all(liveAfterDelete.vehicles
       .filter((vehicle) => affectedVehicleIds.has(vehicle.id))
-      .forEach((vehicle) => {
-        emitToRouteAudience(req, getOrganizationId(req.user), "location:updated", vehicle, vehicle.driverId);
-      });
+      .map((vehicle) => emitVehicleAuthorities(req, getOrganizationId(req.user), vehicle)));
 
     return res.json({
       ok: true,
@@ -672,7 +680,7 @@ router.post("/assign", authenticate, requireOperationalAccess, async (req, res, 
       });
     }
 
-    emitToRouteAudience(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), "location:updated", updatedVehicle, updatedVehicle.driverId);
+    await emitVehicleAuthorities(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), updatedVehicle);
 
     return res.json({
       ok: true,
@@ -720,7 +728,7 @@ router.delete("/assign/:vehicleId", authenticate, requireOperationalAccess, asyn
       });
     }
 
-    emitToRouteAudience(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), "location:updated", updatedVehicle, updatedVehicle.driverId);
+    await emitVehicleAuthorities(req, String(vehicle.organizationId || getOrganizationId(req.user)).trim(), updatedVehicle);
 
     return res.json({
       ok: true,
