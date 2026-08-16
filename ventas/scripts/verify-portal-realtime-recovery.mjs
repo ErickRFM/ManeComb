@@ -17,13 +17,17 @@ requireContains(main, '<PortalRealtimeRecoveryGuard>', 'main debe montar el guar
 requireContains(guard, "window.addEventListener('online'", 'debe reconciliar al recuperar Internet');
 requireContains(guard, "window.addEventListener('pageshow'", 'debe reconciliar al restaurar una pagina dormida');
 requireContains(guard, "document.addEventListener('visibilitychange'", 'debe reconciliar al volver a primer plano');
-requireContains(guard, 'REALTIME_STALL_RECONCILE_MS', 'debe tener watchdog de snapshot estancado');
+requireContains(guard, 'shouldReconcileDisconnected', 'el watchdog debe depender del estado real de Socket.IO');
+requireContains(guard, 'shouldResyncAfterTokenRotation', 'el refresh JWT debe resincronizar realtime');
 requireContains(guard, 'refreshAll()', 'la recuperacion debe usar la autoridad REST existente');
 requireContains(store, "'operational-unit:updated'", 'Socket.IO debe seguir siendo la via realtime primaria');
 requireContains(store, 'getOperationalUnitsRequest()', 'el fallback debe reconciliar el snapshot operacional canonico');
 
 if (/\bio\s*\(/.test(guard) || guard.includes('socket.io-client')) {
   failures.push('el guard no debe abrir un segundo Socket.IO');
+}
+if (guard.includes('REALTIME_STALL_RECONCILE_MS') || guard.includes('operationalUnits')) {
+  failures.push('la salud realtime no debe inferirse por movimiento de la flota');
 }
 if (/Date\.now\(\).*gps|gps.*Date\.now\(\)/s.test(guard)) {
   failures.push('el guard no debe recalcular frescura GPS en cliente');
