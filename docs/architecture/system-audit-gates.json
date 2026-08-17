@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "8d34ccb778f12eb41f69406a8989225763cd86c9",
-    "capturedAt": "2026-08-15"
+    "commit": "5a645b8e61a62045eef1bead94aa34eea4919fac",
+    "capturedAt": "2026-08-17"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
@@ -48,8 +48,10 @@
     "documents-native-viewer",
     "commercial-payments",
     "fleet-driver-lifecycle",
+    "journey-tenant-transitions",
     "release-artifacts",
-    "render-production-contract"
+    "render-production-contract",
+    "repository-change-governance"
   ],
   "blockingSeverities": ["P0", "P1"]
 }

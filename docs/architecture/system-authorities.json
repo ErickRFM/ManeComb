@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "8d34ccb778f12eb41f69406a8989225763cd86c9",
-    "capturedAt": "2026-08-15",
-    "phase": "post-20260815-system-stabilization-reconciliation"
+    "commit": "5a645b8e61a62045eef1bead94aa34eea4919fac",
+    "capturedAt": "2026-08-17",
+    "phase": "post-commercial-payment-authority-and-repository-governance-policy"
   },
   "products": [
     {
@@ -124,7 +124,11 @@
       "decision": "Which organization owns and may access a resource",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/middlewares", "backend/src/data"],
+      "sourcePaths": [
+        "backend/src/middlewares",
+        "backend/src/data",
+        "backend/src/services/journey-transition-service.js"
+      ],
       "consumers": ["sales-portal", "mobile", "admin-global"],
       "targetPhase": 2
     },
@@ -180,10 +184,15 @@
     },
     {
       "id": "subscription",
-      "decision": "Commercial account state, payment readiness and activation capacity",
+      "decision": "Commercial account state, canonical payment transitions, payment readiness and activation capacity",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/commercial", "backend/src/modules/activation-keys", "backend/src/services/portal-account.js"],
+      "sourcePaths": [
+        "backend/src/domain/commercial-payment-transition.js",
+        "backend/src/modules/commercial",
+        "backend/src/modules/activation-keys",
+        "backend/src/services/portal-account.js"
+      ],
       "consumers": ["sales-portal", "mobile", "admin-global"],
       "targetPhase": 4
     },
@@ -207,10 +216,15 @@
     },
     {
       "id": "navigation",
-      "decision": "Route definitions, assignments, activation and route-session state, including lifecycle eligibility at session creation",
+      "decision": "Route definitions, assignments, activation and route-session state, including lifecycle eligibility at creation and tenant-bound journey transitions",
       "owner": "backend",
       "status": "transitional",
-      "sourcePaths": ["backend/src/modules/navigation", "backend/src/services/route-session-creation-guard.js", "shared/operational-contract"],
+      "sourcePaths": [
+        "backend/src/modules/navigation",
+        "backend/src/services/route-session-creation-guard.js",
+        "backend/src/services/journey-transition-service.js",
+        "shared/operational-contract"
+      ],
       "consumers": ["sales-portal", "mobile"],
       "targetPhase": 6
     },
@@ -341,6 +355,22 @@
       "targetPhase": 8
     },
     {
+      "id": "repository-change-governance",
+      "decision": "Who may approve changes to main and which ownership, signing and required-check controls are policy versus externally enforced GitHub settings",
+      "owner": "infrastructure",
+      "status": "external-configuration-pending",
+      "sourcePaths": [
+        ".github/CODEOWNERS",
+        ".github/COMMIT_SIGNING.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/system-audit-gates.yml",
+        "README.md",
+        "SECURITY.md"
+      ],
+      "consumers": ["backend", "sales-portal", "mobile", "admin-global", "communication-service", "shared-contracts", "infrastructure"],
+      "targetPhase": 8
+    },
+    {
       "id": "audit-log",
       "decision": "Append-only security and business evidence for sensitive actions through a repository/service persistence boundary",
       "owner": "backend",
@@ -413,8 +443,14 @@
       "id": "GITHUB-REQUIRED-CHECKS-EXTERNAL",
       "severity": "P1",
       "phase": 8,
-      "summary": "System Audit, CI and Dependency checks exist in the repository, but branch protection and required-check enforcement remain GitHub repository configuration and must be enabled externally to make bypass impossible.",
-      "sourcePaths": [".github/workflows/ci.yml", ".github/workflows/system-audit-gates.yml"]
+      "summary": "CODEOWNERS, signing guidance, System Audit, CI and Dependency checks are versioned policy, but branch protection, required review, signed-commit enforcement and required checks remain GitHub repository configuration and must be enabled externally to make bypass impossible.",
+      "sourcePaths": [
+        ".github/CODEOWNERS",
+        ".github/COMMIT_SIGNING.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/system-audit-gates.yml",
+        "SECURITY.md"
+      ]
     }
   ]
 }

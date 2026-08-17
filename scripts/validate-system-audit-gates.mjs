@@ -71,6 +71,16 @@ if (errors.length === 0) {
 
   if (!Array.isArray(contract.crossLayerSurfaces) || contract.crossLayerSurfaces.length < 6) {
     fail('crossLayerSurfaces must contain the system surfaces covered by the cross-layer audit.');
+  } else {
+    const requiredCrossLayerSurfaces = [
+      'journey-tenant-transitions',
+      'repository-change-governance',
+    ];
+    for (const surface of requiredCrossLayerSurfaces) {
+      if (!contract.crossLayerSurfaces.includes(surface)) {
+        fail(`crossLayerSurfaces lost required audited surface: ${surface}.`);
+      }
+    }
   }
 
   if (!Array.isArray(contract.blockingSeverities) ||

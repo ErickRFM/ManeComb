@@ -169,6 +169,27 @@ if (!accountChannel?.sourcePaths?.includes('backend/src/services/account-channel
   fail('account-channel must point to backend/src/services/account-channel.js.');
 }
 
+const tenant = authorities.find((authority) => authority.id === 'tenant');
+if (!tenant || tenant.owner !== 'backend' || tenant.status !== 'canonical') {
+  fail('tenant must be a canonical backend authority.');
+}
+if (!tenant?.sourcePaths?.includes('backend/src/services/journey-transition-service.js')) {
+  fail('tenant must pin fail-closed journey transitions to journey-transition-service.js.');
+}
+
+const navigation = authorities.find((authority) => authority.id === 'navigation');
+if (!navigation?.sourcePaths?.includes('backend/src/services/journey-transition-service.js')) {
+  fail('navigation must include the tenant-bound journey transition authority.');
+}
+
+const subscription = authorities.find((authority) => authority.id === 'subscription');
+if (!subscription || subscription.owner !== 'backend' || subscription.status !== 'canonical') {
+  fail('subscription must remain a canonical backend authority.');
+}
+if (!subscription?.sourcePaths?.includes('backend/src/domain/commercial-payment-transition.js')) {
+  fail('subscription must pin the canonical commercial payment transition authority.');
+}
+
 const closedDivergenceIds = new Set([
   'AUTH-CHANNEL-OR-AND',
   'PORTAL-GUARD-PARTIAL',
@@ -194,6 +215,30 @@ if (!rtcCdr || rtcCdr.owner !== 'backend' || rtcCdr.status !== 'canonical') {
 }
 if (!rtcCdr?.sourcePaths?.includes('backend/src/data/repositories/session-repository.js')) {
   fail('rtc-cdr must point to the durable session repository.');
+}
+
+const repositoryGovernance = authorities.find(
+  (authority) => authority.id === 'repository-change-governance'
+);
+if (
+  !repositoryGovernance ||
+  repositoryGovernance.owner !== 'infrastructure' ||
+  repositoryGovernance.status !== 'external-configuration-pending'
+) {
+  fail('repository-change-governance must remain externally enforced infrastructure authority.');
+}
+if (!repositoryGovernance?.sourcePaths?.includes('.github/CODEOWNERS')) {
+  fail('repository-change-governance must point to .github/CODEOWNERS.');
+}
+if (!repositoryGovernance?.sourcePaths?.includes('SECURITY.md')) {
+  fail('repository-change-governance must point to SECURITY.md.');
+}
+
+const githubEnforcement = divergences.find(
+  (divergence) => divergence.id === 'GITHUB-REQUIRED-CHECKS-EXTERNAL'
+);
+if (!githubEnforcement || githubEnforcement.severity !== 'P1') {
+  fail('GitHub required-check enforcement must remain a tracked P1 until externally certified.');
 }
 
 if (errors.length > 0) {
