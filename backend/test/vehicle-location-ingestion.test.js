@@ -44,7 +44,7 @@ async function main() {
   const first = await ingestVehicleLocation({ actor, io, payload: base, store, transport: "http" });
   assert.equal(first.accepted, true);
   assert.ok(["initial", "movement", "heartbeat"].includes(first.positionDecision.kind));
-  assert.ok(io.events.some((event) => event.name === "location:updated"));
+  assert.equal(io.events.some((event) => event.name === "location:updated"), false);
   assert.ok(io.events.some((event) => event.name === "operational-unit:updated"));
   const positionsAfter = store.listRouteSessions({ vehicleId: "vehicle-101", limit: 50 })
     .flatMap((session) => store.listRouteSessionPositions({ sessionId: session.id, limit: 100 }));

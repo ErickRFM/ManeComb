@@ -204,3 +204,6 @@ El repositorio no contiene manifiesto de despliegue; las variables viven en el p
 5. **Route patch + Candidate APPROVED no son una transacción única.** Es gate obligatorio antes de activar V3; hoy los tres flags permanecen apagados.
 6. **`rcgeo` es un remote muerto** (`.codex-tmp-rc-geo-01c`, directorio inexistente) que rompe `git fetch --all`. Fuera del alcance de esta auditoría; se documenta, no se modifica.
 7. La certificación Mongo de candidatos aprendidos usa `mongodb-memory-server`; si el binario no se puede descargar, el test hace SKIP explícito en vez de inventar un PASS.
+# Corte 4R apilado
+
+El retiro operacional post-reconciliación vive exclusivamente en `refactor/operational-legacy-retirement-20260815`, apilado sobre este PR en `8d06836a8f602b5161e9ffdbdbb845176c1d1ae1`. Sustituye consumidores live de Vehicle/`location:updated` por `OperationalUnitSnapshot`, conserva Vehicle como identidad/configuración, RouteSessionPosition como historia e `incidents[]` como autoridad mutable. No modifica las garantías 201.1 ni activa Route Learning V3. Su PR debe fusionarse después de #201; mientras exista prueba física pendiente permanece Draft y `PHYSICAL_GATE=ACCEPTED_PENDING`.

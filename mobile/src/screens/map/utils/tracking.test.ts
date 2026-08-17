@@ -6,6 +6,7 @@ import {
   getTrackingEmptyState,
   getTrackingHudRouteSummary,
   getUnknownStateCount,
+  getVisibleIncidents,
   getVisibleUnits,
   resolveTrackingSyncUnit,
   shouldShowDeviceLocationMarker,
@@ -181,5 +182,19 @@ describe('selectores del mapa de seguimiento', () => {
     expect(shouldShowDeviceLocationMarker(false, 12)).toBe(false);
     expect(shouldShowDeviceLocationMarker(false, 0)).toBe(true);
     expect(shouldShowDeviceLocationMarker(true, 1)).toBe(true);
+  });
+
+  it('presenta incidencias desde Incident[] y usa Vehicle solo para el join estatico', () => {
+    const incidents = [
+      { id: 'incident-1', vehicleId: 'veh-1', createdAt: '2026-08-15T10:00:00.000Z' },
+      { id: 'incident-2', vehicleId: 'missing', createdAt: '2026-08-15T10:01:00.000Z' },
+      { id: 'incident-3', location: { latitude: 19.4, longitude: -99.1 }, createdAt: '2026-08-15T10:02:00.000Z' },
+    ] as any[];
+    const vehicles = new Map([['veh-1', { id: 'veh-1' } as any]]);
+
+    expect(getVisibleIncidents(incidents, vehicles).map((incident) => incident.id)).toEqual([
+      'incident-1',
+      'incident-3',
+    ]);
   });
 });

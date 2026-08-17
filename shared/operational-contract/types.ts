@@ -69,6 +69,7 @@ export type OperationalRoute = {
   /** Instante absoluto ISO. UNICA fuente de ETA del sistema. */
   etaAt: string | null;
   deviationMeters: number | null;
+  isOffRoute?: boolean;
   currentCheckpoint: string | null;
 };
 

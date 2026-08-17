@@ -48,6 +48,9 @@ jobs:
       - name: Validate repository integration hygiene
         run: node scripts/validate-repo-integration-hygiene.mjs
 
+      - name: Prevent operational legacy regressions
+        run: node scripts/validate-operational-legacy-retirement.mjs
+
       - name: Validate production security posture
         run: node scripts/validate-production-security.mjs
 

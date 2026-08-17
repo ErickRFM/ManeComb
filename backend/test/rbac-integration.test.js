@@ -66,7 +66,8 @@ async function main() {
     path.join(__dirname, "../src/services/vehicle-location-ingestion.js"),
     "utf8"
   );
-  assert.match(locationIngestionSource, /getRolesWithPermission\("canViewAnalytics"\)/);
+  assert.match(locationIngestionSource, /emitOperationalUnitUpdate\s*\(\s*\{/);
+  assert.match(locationIngestionSource, /getRolesWithPermission/);
 
   const context = await createContext();
   try {

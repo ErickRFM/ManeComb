@@ -4,7 +4,7 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-nativ
 import { AppMap, AppMapMarker, AppMapPolyline, type AppMapRef } from '@/src/components/app-map';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useReducedMotion } from '@/src/hooks/use-reduced-motion';
-import type { NavigationRouteOption, Vehicle } from '@/src/types/app';
+import type { GeoPoint, NavigationRouteOption } from '@/src/types/app';
 import { MANECOMB_ROUTE_COLOR, type buildRouteStops } from '../checklist.utils';
 import { createStyles } from '../checklist-screen.styles';
 
@@ -12,12 +12,12 @@ export function RoutePreview({
   onPress,
   points,
   route,
-  vehicle,
+  vehicleLocation,
 }: {
   onPress?: () => void;
   points: ReturnType<typeof buildRouteStops>;
   route: NavigationRouteOption | null;
-  vehicle: Vehicle | null;
+  vehicleLocation: (GeoPoint & { heading?: number | null }) | null;
 }) {
   const { theme } = useAppTheme();
   const reducedMotion = useReducedMotion();
@@ -34,11 +34,11 @@ export function RoutePreview({
   );
   const fallbackPoint = useMemo(
     () =>
-      vehicle?.location || points[0]?.location || {
+      vehicleLocation || points[0]?.location || {
         latitude: 19.4326,
         longitude: -99.1332,
       },
-    [points, vehicle?.location]
+    [points, vehicleLocation]
   );
   const fitPoints = useMemo(
     () => (sourcePoints.length ? sourcePoints : [fallbackPoint]),
@@ -98,9 +98,9 @@ export function RoutePreview({
 
   const vehicleHeadingStyle = useMemo(
     () => ({
-      transform: [{ rotate: `${vehicle?.heading || 0}deg` }],
+      transform: [{ rotate: `${vehicleLocation?.heading || 0}deg` }],
     }),
-    [vehicle?.heading]
+    [vehicleLocation?.heading]
   );
 
   return (
@@ -164,8 +164,8 @@ export function RoutePreview({
             </AppMapMarker>
           );
         })}
-        {vehicle?.location ? (
-          <AppMapMarker id="preview-vehicle" coordinate={vehicle.location}>
+        {vehicleLocation ? (
+          <AppMapMarker id="preview-vehicle" coordinate={vehicleLocation}>
             <View style={styles.miniMapVehicleWrap}>
               <View style={styles.miniMapAccuracyHalo} />
               <View style={styles.miniMapVehicleMarker}>

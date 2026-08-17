@@ -166,6 +166,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
         timeRemainingSeconds: 540,
         etaAt: "2026-07-18T10:17:00.000Z",
         distanceFromRoute: 12.4,
+        isOffRoute: true,
         checkpointCount: 4,
         currentCheckpointIndex: 1,
         speedMetersPerSecond: 12,
@@ -188,6 +189,7 @@ function vehicleAt(secondsAgo, overrides = {}) {
   assert.equal(snapshot.route.progressRatio, 0.4);
   assert.equal(snapshot.route.remainingTimeSeconds, 540);
   assert.equal(snapshot.route.deviationMeters, 12);
+  assert.equal(snapshot.route.isOffRoute, true);
   assert.equal(snapshot.route.currentCheckpoint, "1/4");
   assert.equal("etaMinutes" in snapshot.route, false, "etaMinutes no puede existir en el contrato");
   assert.equal(snapshot.status, "active");

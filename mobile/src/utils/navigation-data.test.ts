@@ -56,4 +56,16 @@ describe('navigation data normalization', () => {
     expect(normalized?.vehicles[0].code).toBe('Unidad vehicle-2');
     expect(normalized?.routes[0].name).toBe('Ruta 1');
   });
+
+  it('does not retain a mutable incident copy inside mapData', () => {
+    const normalized = normalizeLiveLocationsData({
+      updatedAt: '2026-08-15T10:00:00.000Z',
+      center: { latitude: 19.4, longitude: -99.1 },
+      vehicles: [],
+      routes: [],
+      incidents: [{ id: 'legacy-map-incident' }],
+    } as unknown as LiveLocationsData);
+
+    expect(normalized?.incidents).toEqual([]);
+  });
 });

@@ -29,6 +29,7 @@ const {
 } = require("../../services/managed-user-profile-policy");
 const { pickSelfProfileFields } = require("../../services/profile-authority");
 const { sanitizeProfileForViewer } = require("../../services/profile-visibility");
+const { emitOperationalUnitUpdate } = require("../../services/operational-units-service");
 
 const router = Router();
 const PROFILE_FIELDS = new Set([
@@ -345,9 +346,14 @@ router.delete("/:userId", authenticate, requireOrganization, requirePermission("
     if (affectedVehicle) {
       const orgId = String(affectedVehicle.organizationId || getOrganizationId(req.user)).trim();
       if (orgId) {
-        getRolesWithPermission("canViewAnalytics").forEach((role) => req.app.locals.io?.to(`org:${orgId}:role:${role}`).emit("location:updated", affectedVehicle));
-        if (affectedVehicle.driverId) req.app.locals.io?.to(`user:${affectedVehicle.driverId}`).emit("location:updated", affectedVehicle);
-        req.app.locals.io?.to("platform:admin").emit("location:updated", affectedVehicle);
+        emitOrganizationEvent(req, "vehicle:updated", { vehicle: affectedVehicle, organizationId: orgId });
+        await emitOperationalUnitUpdate({
+          io: req.app.locals.io,
+          store: req.app.locals.store,
+          vehicle: affectedVehicle,
+          organizationId: orgId,
+          getRolesWithPermission
+        });
       }
     }
   }

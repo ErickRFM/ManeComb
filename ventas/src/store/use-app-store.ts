@@ -326,7 +326,6 @@ function connectSocket(get: () => AppState) {
     'vehicle:created',
     'vehicle:updated',
     'vehicle:deleted',
-    'location:updated',
     'operational-unit:updated',
     'incident:updated',
     'route-session:updated',
@@ -384,7 +383,7 @@ function connectSocket(get: () => AppState) {
         void useAppStore.getState().loadVehicles();
       }
 
-      if (eventName === 'vehicle:created' || eventName === 'vehicle:updated' || eventName === 'location:updated') {
+      if (eventName === 'vehicle:created' || eventName === 'vehicle:updated') {
         const vehicle = extractVehicleFromRealtimePayload(payload);
         if (vehicle) {
           upsertRealtimeVehicle(vehicle);

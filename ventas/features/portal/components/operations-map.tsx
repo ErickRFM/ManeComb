@@ -5,10 +5,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import type { GeoPoint, NavigationStop, RouteSessionPosition, Vehicle } from '@/src/types/app';
-import { formatGpsAge } from '@shared/operational-contract';
-import { getVehicleGpsConnectionState } from '../utils/tracking';
+import { formatGpsAge, type OperationalUnitSnapshot } from '@shared/operational-contract';
 import { portalPalette } from '../portal-theme';
 import { RouteGeometryThumbnail } from './route-geometry-thumbnail';
+import { buildOperationalVehicleView } from '../utils/operational-vehicle-view.js';
 
 type OperationsMapProps = {
   autoFit?: boolean;
@@ -17,6 +17,7 @@ type OperationsMapProps = {
   mapMode?: 'operational' | 'satellite' | 'traffic';
   onClickPoint?: (point: GeoPoint) => void;
   onVehiclePress?: (vehicle: Vehicle) => void;
+  operationalUnits?: OperationalUnitSnapshot[];
   replayPath?: RouteSessionPosition[];
   replayPosition?: RouteSessionPosition | null;
   routeCoordinates?: GeoPoint[];
@@ -78,16 +79,16 @@ function positionToPoint(position?: RouteSessionPosition | null): GeoPoint | nul
   return toValidPoint(position as Partial<GeoPoint> | null | undefined);
 }
 
-function getDriverName(vehicle: Vehicle) {
-  return vehicle.driver?.name || vehicle.driverName || 'Sin conductor';
+function getDriverName(unit?: OperationalUnitSnapshot) {
+  return unit?.driver?.name || 'Sin conductor';
 }
 
-function getMarkerTone(vehicle: Vehicle, selectedVehicleId?: string | null): { background: string; border: string } {
+function getMarkerTone(vehicle: Vehicle, unit?: OperationalUnitSnapshot, selectedVehicleId?: string | null): { background: string; border: string } {
   if (vehicle.id === selectedVehicleId) return { background: portalPalette.accent, border: '#fff' };
-  if (vehicle.activeRouteProgress?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
+  if (unit?.route?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
   // Solo un enlace vivo sostiene el color operativo. `delayed` en adelante se
   // atenua a gris: la ultima posicion sigue dibujandose, pero no afirma salud.
-  if (getVehicleGpsConnectionState(vehicle) !== 'live') return { background: '#757575', border: '#fff' };
+  if (unit?.gps.connectionState !== 'live') return { background: '#757575', border: '#fff' };
   if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: portalPalette.warning, border: '#fff' };
   return { background: portalPalette.info, border: '#fff' };
 }
@@ -97,11 +98,11 @@ function getMarkerTone(vehicle: Vehicle, selectedVehicleId?: string | null): { b
  * recalcula. `never_reported` no lleva marcador con posicion, pero el sufijo se
  * mantiene exhaustivo por si el vehiculo llega sin coordenada resuelta.
  */
-function getMarkerGpsSuffix(vehicle: Vehicle) {
-  const connectionState = getVehicleGpsConnectionState(vehicle);
+function getMarkerGpsSuffix(unit?: OperationalUnitSnapshot) {
+  const connectionState = unit?.gps.connectionState || 'never_reported';
   if (connectionState === 'live') return '';
   if (connectionState === 'never_reported') return ' · esperando primera ubicación';
-  const age = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+  const age = formatGpsAge(unit?.gps.ageSeconds ?? null);
   return age ? ` · sin señal, última posición ${age}` : ' · sin señal, última posición';
 }
 
@@ -129,8 +130,10 @@ function createMarkerElement({ background, border, label, title, shape }: { back
   return element;
 }
 
-function getVehiclePoint(vehicle: Vehicle): GeoPoint | null {
-  return toValidPoint(vehicle.location);
+function getVehiclePoint(unit?: OperationalUnitSnapshot): GeoPoint | null {
+  return toValidPoint(unit?.gps.lat == null || unit.gps.lng == null
+    ? null
+    : { latitude: unit.gps.lat, longitude: unit.gps.lng });
 }
 
 function getBoundsPoints({
@@ -138,10 +141,10 @@ function getBoundsPoints({
   replayPath = [],
   replayPosition,
   routeCoordinates = [],
-  vehicles = [],
-}: Pick<OperationsMapProps, 'checkpoints' | 'replayPath' | 'replayPosition' | 'routeCoordinates' | 'vehicles'>) {
+  operationalUnits = [],
+}: Pick<OperationsMapProps, 'checkpoints' | 'replayPath' | 'replayPosition' | 'routeCoordinates' | 'operationalUnits'>) {
   return toValidPoints([
-    ...vehicles.map(getVehiclePoint),
+    ...operationalUnits.map(getVehiclePoint),
     ...routeCoordinates,
     ...checkpoints,
     ...replayPath.map(positionToPoint),
@@ -312,6 +315,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   mapMode = 'operational',
   onClickPoint,
   onVehiclePress,
+  operationalUnits = [],
   replayPath = [],
   replayPosition = null,
   routeCoordinates = [],
@@ -349,22 +353,30 @@ export const OperationsMap = React.memo(function OperationsMap({
       ? 'mapbox://styles/mapbox/navigation-night-v1'
       : 'mapbox://styles/mapbox/dark-v11';
   const appliedMapStyleRef = useRef(mapStyle);
+  const unitByVehicleId = useMemo(
+    () => new Map(operationalUnits.map((unit) => [unit.unitId, unit])),
+    [operationalUnits]
+  );
+  const operationalViews = useMemo(
+    () => vehicles.map((vehicle) => buildOperationalVehicleView(vehicle, unitByVehicleId.get(vehicle.id))),
+    [unitByVehicleId, vehicles]
+  );
   const boundsPoints = useMemo(
-    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, vehicles }),
-    [checkpoints, replayPath, replayPosition, routeCoordinates, vehicles]
+    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits }),
+    [checkpoints, operationalUnits, replayPath, replayPosition, routeCoordinates]
   );
   const boundsPointsRef = useRef(boundsPoints);
   boundsPointsRef.current = boundsPoints;
   const fitTriggerKey = useMemo(() => {
     if (mapMode === 'operational') {
-      const locatedVehicleIds = vehicles
-        .filter((vehicle) => Boolean(getVehiclePoint(vehicle)))
-        .map((vehicle) => vehicle.id)
+      const locatedVehicleIds = operationalViews
+        .filter((view) => Boolean(view.point))
+        .map((view) => view.vehicle.id)
         .sort();
       return `${selectedVehicleId || 'fleet'}|${locatedVehicleIds.join('|')}`;
     }
     return boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
-  }, [boundsPoints, mapMode, selectedVehicleId, vehicles]);
+  }, [boundsPoints, mapMode, operationalViews, selectedVehicleId]);
 
   useEffect(() => {
     onClickPointRef.current = onClickPoint;
@@ -526,17 +538,16 @@ export const OperationsMap = React.memo(function OperationsMap({
     if (!map) return;
     const nextIds = new Set<string>();
 
-    vehicles.forEach((vehicle) => {
-      const point = getVehiclePoint(vehicle);
+    operationalViews.forEach(({ vehicle, unit, point }) => {
       if (!point) return;
       nextIds.add(vehicle.id);
       let marker = vehicleMarkersRef.current.get(vehicle.id);
-      const markerTone = getMarkerTone(vehicle, selectedVehicleId);
+      const markerTone = getMarkerTone(vehicle, unit, selectedVehicleId);
       if (!marker) {
         const element = createMarkerElement({
           ...markerTone,
           label: vehicle.code,
-          title: `${vehicle.code} · ${getDriverName(vehicle)}${getMarkerGpsSuffix(vehicle)}`,
+          title: `${vehicle.code} · ${getDriverName(unit)}${getMarkerGpsSuffix(unit)}`,
           shape: 'pill',
         });
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -551,7 +562,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         marker.setLngLat(toLngLat(point));
         const element = marker.getElement();
         element.textContent = vehicle.code;
-        element.title = `${vehicle.code} · ${getDriverName(vehicle)}${getMarkerGpsSuffix(vehicle)}`;
+        element.title = `${vehicle.code} · ${getDriverName(unit)}${getMarkerGpsSuffix(unit)}`;
         element.style.background = markerTone.background;
         element.style.border = `2px solid ${markerTone.border}`;
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -564,7 +575,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         vehicleMarkersRef.current.delete(vehicleId);
       }
     });
-  }, [selectedVehicleId, vehicles]);
+  }, [operationalViews, selectedVehicleId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -673,11 +684,10 @@ export const OperationsMap = React.memo(function OperationsMap({
 
   useEffect(() => {
     if (cameraMode !== 'follow' || !selectedVehicleId || !mapRef.current) return;
-    const vehicle = vehicles.find((entry) => entry.id === selectedVehicleId);
-    const point = vehicle ? getVehiclePoint(vehicle) : null;
+    const point = getVehiclePoint(unitByVehicleId.get(selectedVehicleId));
     if (!point) return;
     mapRef.current.easeTo({ center: toLngLat(point), duration: 450, easing: cameraEasing });
-  }, [cameraMode, selectedVehicleId, vehicles]);
+  }, [cameraMode, selectedVehicleId, unitByVehicleId]);
 
   // Encuadre por geolocalizacion: SOLO cuando no hay ninguna unidad posicionable.
   // No toca la logica de fitBounds; solo mueve el centro por defecto. Se pide una
@@ -715,7 +725,7 @@ export const OperationsMap = React.memo(function OperationsMap({
   }, [autoFit, boundsPoints]);
 
   if (!MAPBOX_ACCESS_TOKEN || mapUnavailable) {
-    const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(vehicle)));
+    const locatedVehicles = vehicles.filter((vehicle) => Boolean(getVehiclePoint(unitByVehicleId.get(vehicle.id))));
     const currentReplayPoint = positionToPoint(replayPosition) || positionToPoint(replayPath[replayPath.length - 1]);
     const isReplay = variant === 'replay' || replayPath.length > 0 || Boolean(replayPosition);
     // Distinguir mapa vacio por token ausente vs mapa que fallo en tiempo de ejecucion.
@@ -754,17 +764,18 @@ export const OperationsMap = React.memo(function OperationsMap({
         {locatedVehicles.length ? (
           <View style={styles.fallbackList}>
             {locatedVehicles.map((vehicle) => {
-              const point = getVehiclePoint(vehicle);
+              const unit = unitByVehicleId.get(vehicle.id);
+              const point = getVehiclePoint(unit);
               const active = vehicle.id === selectedVehicleId;
               return (
                 <Pressable
                   key={vehicle.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`Ver ${vehicle.code} de ${getDriverName(vehicle)}`}
+                  accessibilityLabel={`Ver ${vehicle.code} de ${getDriverName(unit)}`}
                   onPress={() => onVehiclePress?.(vehicle)}
                   style={[styles.fallbackUnit, active ? styles.fallbackUnitActive : undefined]}>
                   <Text style={[styles.fallbackUnitCode, active ? styles.fallbackUnitTextActive : undefined]}>
-                    {vehicle.code} · {getDriverName(vehicle)}
+                    {vehicle.code} · {getDriverName(unit)}
                   </Text>
                   <Text style={[styles.fallbackUnitCoords, active ? styles.fallbackUnitTextActive : undefined]}>
                     {Number(point?.latitude).toFixed(5)}, {Number(point?.longitude).toFixed(5)}
