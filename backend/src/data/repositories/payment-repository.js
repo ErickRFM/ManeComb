@@ -1,6 +1,6 @@
 const { StoreDomainRepository } = require("./store-domain-repository");
 const { getUserOrganizationId, toPlain } = require("../serializers");
-const { evaluatePaymentTransition } = require("../../services/commercial-payment");
+const { evaluatePaymentTransition } = require("../../domain/commercial-payment-transition");
 const { randomUUID } = require("crypto");
 const { buildCheckoutReservation, CHECKOUT_LEASE_DURATION_MS } = require("../../services/checkout-idempotency");
 

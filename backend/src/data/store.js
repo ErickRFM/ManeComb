@@ -12,6 +12,10 @@ const { validatePasswordStrength } = require("../utils/password-policy");
 const { normalizeOperationalSchedule } = require("../utils/operational-schedule");
 const { calculateVehicleRouteProgress } = require("../services/route-progress");
 const { hasRouteOperationalChange, nextRouteRevision } = require("../domain/route-revision");
+const {
+  evaluatePaymentTransition,
+  normalizePaymentTransitionStatus
+} = require("../domain/commercial-payment-transition");
 const { isLearnedRouteReadyForReview, learnedRouteConfidence } = require("../domain/learned-route-evidence");
 const {
   STATUS: ASSIGNMENT_STATUS,
@@ -2336,19 +2340,24 @@ function createEmbeddedStore() {
     if (conflict || (order.providerPaymentId && order.providerPaymentId !== paymentId)) {
       return { applied: false, reason: "payment_linked_elsewhere", shouldActivate: false, shouldNotify: false };
     }
-    const normalized = incomingStatus === "approved" ? "paid" : String(incomingStatus || "").toLowerCase();
+    const normalized = normalizePaymentTransitionStatus(incomingStatus);
     const transitionKey = `${paymentId}:${normalized}`;
     order.appliedPaymentTransitions = Array.isArray(order.appliedPaymentTransitions) ? order.appliedPaymentTransitions : [];
     if (order.appliedPaymentTransitions.includes(transitionKey)) {
       return { applied: false, reason: "already_applied", shouldActivate: false, shouldNotify: false, order: clone(order) };
     }
-    if (order.paymentStatus === "paid" && normalized !== "paid") {
+    // Misma autoridad que el camino Mongo. Antes esta regla estaba replicada
+    // inline aqui, con el riesgo de que las pruebas pasaran contra memoria
+    // mientras produccion divergia.
+    const decision = evaluatePaymentTransition(order.paymentStatus, normalized);
+    if (decision.decision === "stale") {
       return { applied: false, reason: "stale_transition", shouldActivate: false, shouldNotify: false, order: clone(order) };
     }
-    if (!["pending", "paid", "rejected", "cancelled"].includes(normalized)) {
+    if (decision.decision === "unknown" || decision.decision === "invalid") {
       return { applied: false, reason: "unknown_status", shouldActivate: false, shouldNotify: false, order: clone(order) };
     }
-    const shouldActivate = normalized === "paid" && order.paymentStatus !== "paid";
+    const previousStatus = order.paymentStatus;
+    const shouldActivate = decision.shouldActivate;
     order.providerPaymentId = paymentId;
     order.paymentProvider = provider;
     order.paymentProviderReference = paymentId;
@@ -2361,7 +2370,10 @@ function createEmbeddedStore() {
       order.paymentEffectsStatus = "pending";
       order.paymentEffectsTransition = transitionKey;
     }
-    return { applied: true, previousStatus: shouldActivate ? "pending" : null, currentStatus: normalized, shouldActivate, shouldNotify: true, transitionKey, order: clone(order) };
+    // `previousStatus` real. Antes se devolvia el literal "pending" cuando habia
+    // activacion, asi que una orden que venia de `rejected` reportaba un estado
+    // anterior falso; el camino Mongo siempre devolvio el verdadero.
+    return { applied: true, previousStatus, currentStatus: normalized, shouldActivate, shouldNotify: true, transitionKey, order: clone(order) };
   }
 
   function claimPaymentEffects({ orderId, transitionKey, workerId, leaseUntil, now = new Date() }) {
