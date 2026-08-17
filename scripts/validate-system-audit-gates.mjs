@@ -73,6 +73,7 @@ if (errors.length === 0) {
     fail('crossLayerSurfaces must contain the system surfaces covered by the cross-layer audit.');
   } else {
     const requiredCrossLayerSurfaces = [
+      'browser-communication-e2ee',
       'journey-tenant-transitions',
       'repository-change-governance',
     ];

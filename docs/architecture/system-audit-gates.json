@@ -41,6 +41,7 @@
     "account-credential-change",
     "notifications-fcm",
     "rtc",
+    "browser-communication-e2ee",
     "radio",
     "gps-tracking",
     "cache-rate-limit",

@@ -208,6 +208,23 @@ if (!rtcLive || rtcLive.owner !== 'backend' || rtcLive.status !== 'canonical') {
 if (!rtcLive?.sourcePaths?.includes('backend/src/modules/rtc/live-authority.js')) {
   fail('rtc-live-call must point to backend/src/modules/rtc/live-authority.js.');
 }
+if (!rtcLive?.sourcePaths?.includes('shared/communication')) {
+  fail('rtc-live-call must point to the dependency-free shared communication contracts.');
+}
+if (!rtcLive?.sourcePaths?.includes('ventas/features/portal/communication')) {
+  fail('rtc-live-call must include the authenticated Portal communication runtime.');
+}
+if (!rtcLive?.consumers?.includes('sales-portal')) {
+  fail('rtc-live-call must declare the sales Portal as an RTC consumer.');
+}
+
+const communicationEvents = authorities.find((authority) => authority.id === 'communication-events');
+if (!communicationEvents?.sourcePaths?.includes('shared/communication')) {
+  fail('communication-events must include shared/communication.');
+}
+if (!communicationEvents?.sourcePaths?.includes('ventas/features/portal/communication')) {
+  fail('communication-events must include the Portal communication runtime.');
+}
 
 const rtcCdr = authorities.find((authority) => authority.id === 'rtc-cdr');
 if (!rtcCdr || rtcCdr.owner !== 'backend' || rtcCdr.status !== 'canonical') {
