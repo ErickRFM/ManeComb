@@ -9,7 +9,7 @@ delete process.env.TRUST_PROXY;
 const createApp = require("../src/app");
 const { TRUST_PROXY } = require("../src/config/env");
 const { createEmbeddedStore } = require("../src/data/store");
-const { enterpriseRateLimit } = require("../src/middlewares/enterprise-rate-limit");
+const { enterpriseRateLimit, incrementDistributed } = require("../src/middlewares/enterprise-rate-limit");
 
 async function withServer(app, handler) {
   const server = http.createServer(app);
@@ -89,7 +89,36 @@ async function testRateLimiterUsesExpressIp() {
   });
 }
 
-Promise.all([testRenderProxyHeaders(), testRateLimiterUsesExpressIp()])
+async function testConfiguredRedisNeverFallsBackPerProcess() {
+  let memoryCalls = 0;
+  const memory = await incrementDistributed("rate:test", 1000, {
+    getRedisReadiness: () => ({ enabled: false, ready: false }),
+    incrementMemory: () => {
+      memoryCalls += 1;
+      return { count: 1, resetInMs: 1000 };
+    }
+  });
+  assert.equal(memory.count, 1);
+  assert.equal(memoryCalls, 1);
+
+  await assert.rejects(
+    incrementDistributed("rate:test", 1000, {
+      getRedisReadiness: () => ({ enabled: true, ready: false }),
+      incrementMemory: () => {
+        memoryCalls += 1;
+        return { count: 1, resetInMs: 1000 };
+      }
+    }),
+    (error) => error.code === "rate_limit_authority_unavailable" && error.statusCode === 503
+  );
+  assert.equal(memoryCalls, 1, "Redis configurado no puede degradar a contadores por proceso");
+}
+
+Promise.all([
+  testRenderProxyHeaders(),
+  testRateLimiterUsesExpressIp(),
+  testConfiguredRedisNeverFallsBackPerProcess()
+])
   .then(() => {
     console.log("ok - render proxy headers");
   })

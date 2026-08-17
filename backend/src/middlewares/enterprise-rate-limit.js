@@ -1,4 +1,4 @@
-const { getRedisClient } = require("../services/redis");
+const { getRedisClient, getRedisReadiness } = require("../services/redis");
 const { recordAuditLog } = require("../services/audit");
 const logger = require("../services/logger");
 
@@ -47,6 +47,33 @@ function incrementMemory(key, windowMs) {
   };
 }
 
+async function incrementDistributed(key, windowMs, dependencies = {}) {
+  const readiness = (dependencies.getRedisReadiness || getRedisReadiness)();
+
+  // Memory is an explicit single-instance authority only when Redis is disabled.
+  // Falling back per process while Redis is configured would split the counter
+  // and let callers multiply the effective limit by the number of replicas.
+  if (!readiness.enabled) {
+    return (dependencies.incrementMemory || incrementMemory)(key, windowMs);
+  }
+
+  if (!readiness.ready) {
+    const error = new Error("Rate limit distribuido temporalmente no disponible");
+    error.code = "rate_limit_authority_unavailable";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const result = await (dependencies.incrementRedis || incrementRedis)(key, windowMs);
+  if (!result) {
+    const error = new Error("Rate limit distribuido temporalmente no disponible");
+    error.code = "rate_limit_authority_unavailable";
+    error.statusCode = 503;
+    throw error;
+  }
+  return result;
+}
+
 function enterpriseRateLimit({
   scope,
   max = 60,
@@ -55,7 +82,25 @@ function enterpriseRateLimit({
 }) {
   return async (req, res, next) => {
     const key = getClientKey(req, scope);
-    const result = (await incrementRedis(key, windowMs).catch(() => null)) || incrementMemory(key, windowMs);
+    let result;
+    try {
+      result = await incrementDistributed(key, windowMs);
+    } catch (error) {
+      logger.error({
+        action: "RateLimitAuthorityUnavailable",
+        module: "RateLimit",
+        requestId: req?.traceId || res?.locals?.traceId || null,
+        status: "503",
+        error,
+        metadata: { scope }
+      });
+      return res.status(503).json({
+        ok: false,
+        code: "rate_limit_authority_unavailable",
+        message: "Proteccion de solicitudes temporalmente no disponible",
+        traceId: req?.traceId || res?.locals?.traceId || null
+      });
+    }
 
     res.setHeader("X-RateLimit-Limit", String(max));
     res.setHeader("X-RateLimit-Remaining", String(Math.max(0, max - result.count)));
@@ -103,5 +148,6 @@ function enterpriseRateLimit({
 }
 
 module.exports = {
-  enterpriseRateLimit
+  enterpriseRateLimit,
+  incrementDistributed
 };
