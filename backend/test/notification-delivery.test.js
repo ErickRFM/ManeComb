@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { deliverOperationalNotification } = require('../src/services/notification-delivery');
+const { createEmbeddedStore } = require('../src/data/store');
 
 function createHarness() {
   const created = [];
@@ -66,6 +67,23 @@ const basePayload = {
   assert.equal(transient.created.length, 0, 'chat no debe crear filas en el feed');
   assert.equal(transient.emitted.length, 0, 'chat no debe emitir notification:created');
   assert.equal(skipped, null);
+
+  const store = createEmbeddedStore();
+  const stamp = Date.now();
+  const first = await store.createUser({
+    name: 'Primero', email: `push-first-${stamp}@manecomb.test`, password: 'Ruta123!',
+    role: 'driver', organizationId: 'push-org-a'
+  });
+  const second = await store.createUser({
+    name: 'Segundo', email: `push-second-${stamp}@manecomb.test`, password: 'Ruta123!',
+    role: 'driver', organizationId: 'push-org-b'
+  });
+  const token = 'device-token-reassigned';
+  await store.registerPushSubscription(first.id, { token, platform: 'android' });
+  assert.equal((await store.listPushSubscriptionsForUsers([first.id])).length, 1);
+  await store.registerPushSubscription(second.id, { token, platform: 'android' });
+  assert.equal((await store.listPushSubscriptionsForUsers([first.id])).length, 0);
+  assert.equal((await store.listPushSubscriptionsForUsers([second.id])).length, 1);
 
   console.log('notification-delivery tests passed');
 })();

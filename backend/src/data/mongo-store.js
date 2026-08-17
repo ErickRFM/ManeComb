@@ -2442,6 +2442,13 @@ async function createMongoStore() {
       throw new Error("Usuario no encontrado");
     }
 
+    // Rebind the installation before attaching it to the current identity.
+    // Push delivery must never retain a logged-out account as a recipient.
+    await UserModel.updateMany(
+      { _id: { $ne: user._id }, "pushSubscriptions.token": safeToken },
+      { $pull: { pushSubscriptions: { token: safeToken } } }
+    );
+
     const currentSubscriptions = Array.isArray(user.pushSubscriptions)
       ? user.pushSubscriptions.map((entry) => ({
           token: String(entry.token || "").trim(),

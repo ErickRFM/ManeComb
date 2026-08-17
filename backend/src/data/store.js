@@ -1683,6 +1683,14 @@ function createEmbeddedStore() {
       throw new Error("El token del dispositivo es obligatorio");
     }
 
+    // A push token identifies one app installation. When the device changes
+    // identity, retaining it on the previous user can disclose notifications
+    // from that account after logout/login.
+    state.users.forEach((candidate) => {
+      if (candidate.id === user.id || !Array.isArray(candidate.pushSubscriptions)) return;
+      candidate.pushSubscriptions = candidate.pushSubscriptions.filter((entry) => entry.token !== token);
+    });
+
     user.pushSubscriptions = Array.isArray(user.pushSubscriptions) ? user.pushSubscriptions : [];
     const existingSubscription = user.pushSubscriptions.find((entry) => entry.token === token);
     const nextSubscription = {
@@ -1717,7 +1725,14 @@ function createEmbeddedStore() {
 
     return clone(
       state.users.flatMap((user) =>
-        safeUserIds.has(user.id) && Array.isArray(user.pushSubscriptions) ? user.pushSubscriptions : []
+        safeUserIds.has(user.id) && Array.isArray(user.pushSubscriptions)
+          ? user.pushSubscriptions.map((subscription) => ({
+              ...subscription,
+              userId: user.id,
+              role: user.role,
+              name: user.name
+            }))
+          : []
       )
     );
   }
@@ -1732,7 +1747,12 @@ function createEmbeddedStore() {
         safeOrganizationId &&
         getUserOrganizationId(user) === safeOrganizationId &&
         Array.isArray(user.pushSubscriptions)
-          ? user.pushSubscriptions
+          ? user.pushSubscriptions.map((subscription) => ({
+              ...subscription,
+              userId: user.id,
+              role: user.role,
+              name: user.name
+            }))
           : []
       )
     );
