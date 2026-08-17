@@ -192,6 +192,7 @@ if (!subscription?.sourcePaths?.includes('backend/src/domain/commercial-payment-
 
 const closedDivergenceIds = new Set([
   'AUTH-CHANNEL-OR-AND',
+  'GITHUB-REQUIRED-CHECKS-EXTERNAL',
   'PORTAL-GUARD-PARTIAL',
   'SALES-OPERATIONAL-HANDOFF-TEMPORARY',
 ]);
@@ -240,9 +241,9 @@ const repositoryGovernance = authorities.find(
 if (
   !repositoryGovernance ||
   repositoryGovernance.owner !== 'infrastructure' ||
-  repositoryGovernance.status !== 'external-configuration-pending'
+  repositoryGovernance.status !== 'canonical'
 ) {
-  fail('repository-change-governance must remain externally enforced infrastructure authority.');
+  fail('repository-change-governance must remain a canonical infrastructure authority.');
 }
 if (!repositoryGovernance?.sourcePaths?.includes('.github/CODEOWNERS')) {
   fail('repository-change-governance must point to .github/CODEOWNERS.');
@@ -250,12 +251,8 @@ if (!repositoryGovernance?.sourcePaths?.includes('.github/CODEOWNERS')) {
 if (!repositoryGovernance?.sourcePaths?.includes('SECURITY.md')) {
   fail('repository-change-governance must point to SECURITY.md.');
 }
-
-const githubEnforcement = divergences.find(
-  (divergence) => divergence.id === 'GITHUB-REQUIRED-CHECKS-EXTERNAL'
-);
-if (!githubEnforcement || githubEnforcement.severity !== 'P1') {
-  fail('GitHub required-check enforcement must remain a tracked P1 until externally certified.');
+if (!repositoryGovernance?.sourcePaths?.includes('docs/architecture/GITHUB-MAIN-RULESET-20260817.md')) {
+  fail('repository-change-governance must point to the certified main ruleset record.');
 }
 
 if (errors.length > 0) {

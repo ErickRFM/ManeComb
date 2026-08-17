@@ -25,4 +25,4 @@ La revisión final de código y de cambios sensibles corresponde a:
 **Erick Rivaldo Flores Maza**  
 GitHub: `@ErickRFM`
 
-La presencia de este documento y de `CODEOWNERS` identifica la autoridad de revisión, pero la protección efectiva de `main`, las revisiones obligatorias y la exigencia de commits firmados deben mantenerse activadas en la configuración de reglas del repositorio.
+La ruleset activa de `main` aplica Pull Request, checks obligatorios, resolución de conversaciones y protección de historial. `CODEOWNERS` identifica la autoridad de revisión. La exigencia de firma se activa únicamente cuando exista una llave real verificada y un flujo de automatización compatible, conforme a `.github/COMMIT_SIGNING.md`.

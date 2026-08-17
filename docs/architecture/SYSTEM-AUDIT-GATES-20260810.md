@@ -101,30 +101,27 @@ The audit is adversarial. Do not wait for the user to discover the next visible 
 - configuration or state that survives upgrades differently than clean installs;
 - behavior that passes emulator/tests but fails on a physical device.
 
-## 4. Current confirmed system findings
+## 4. Findings captured by the initial audit and current status
 
-### SYS-GATE-001 — `main` has no enforced branch protection
+### SYS-GATE-001 — `main` branch protection (resolved 2026-08-17)
 
-Current GitHub state reports `main` unprotected and no required status checks. This means a contributor with sufficient permission can merge or push without the CI/release gates that the repository itself considers mandatory.
+GitHub ruleset `20485564` (`Protect main`) now targets the default branch with active enforcement and no bypass actors. The branch API reports `main.protected=true`.
 
-**Classification:** release-governance P1.  
+**Classification:** release-governance P1, resolved.
 **Owner:** GitHub repository configuration.  
-**Code fix:** none; this is an external repository-setting gate.  
-**Required outcome:** protect `main`, require the canonical CI checks and prevent bypass as the normal workflow.
+**Enforced outcome:** Pull Request required, latest-base checks required, review threads resolved, deletion and force-push blocked, and the canonical CI, System Audit and Dependency Audit contexts required. The signed-commit rule remains conditional on first configuring and validating a real owner signing key; unsigned automation commits are not represented as verified.
 
-### SYS-GATE-002 — authority-map freshness is not validated
+The exact certified configuration and required contexts are recorded in `docs/architecture/GITHUB-MAIN-RULESET-20260817.md`.
 
-`docs/architecture/system-authorities.json` still records baseline `06909cca6814441386f7be25e6e5d5a0e9c636f8` from 2026-08-06 while the current baseline for this audit is `2d02c857507ccf54fb8058aa94e273b2166767f9`.
+### SYS-GATE-002 — authority-map freshness validation (resolved)
 
-The existing validator proves JSON shape, IDs, paths and selected ownership invariants. It does **not** prove that the audit findings still describe current code. Therefore a stale architecture audit can remain green.
+The initial audit found a stale authority baseline and no freshness enforcement. The current `System audit gates` workflow now checks ancestry and bounded drift for both audit contracts, while `validate-system-authorities.mjs` pins closed divergences so they cannot be silently reintroduced.
 
-The current map also retains previously reported Portal P0/P1 divergences although present routing now uses `canAccessPortal`, authoritative capabilities and an operational handoff route rather than `/mapa` or `/radio` inside Sales.
+The semantic authority map was refreshed again against `main@d6dd194d431b5264e78dd57e3235c8e30213a48b` after the final Portal, communication and operational integration. The repository-governance P1 was removed only after GitHub independently reported `main.protected=true` and returned the required rules.
 
-**Classification:** audit-integrity P1.  
-**Solution in this branch:** add a separate freshness-aware system-audit baseline guard.  
-**Follow-up:** re-audit the authority map before changing its baseline or deleting historical divergences; never update the SHA just to make the warning disappear.
+**Classification:** audit-integrity P1, resolved.
 
-### SYS-GATE-003 — PR #97 can be green and still lose or duplicate an alert
+### SYS-GATE-003 — PR #97 could be green and still lose or duplicate an alert (resolved)
 
 The alert-feedback branch is a useful example of why these gates exist.
 
@@ -137,7 +134,7 @@ Confirmed cross-layer blockers on its current head:
 5. `warning` incidents use category `incident` and level `warning`; the FCM transport marks HIGH only critical/call/chat/SOS/emergency. Warning therefore falls back to NORMAL transport priority despite its high-priority UX policy.
 6. Socket wiring has source-string assertions. Those guards prove text is present, not that reconnect/foreground races behave correctly.
 
-**Merge state:** keep Draft / not mergeable by policy until the behavioral contract and physical matrix close these blockers.
+**Resolution:** #97 was corrected and merged with the behavioral gates described above. The remaining real-device alert/restart evidence stays tracked in #29 and is not represented as an automated PASS.
 
 ## 5. Parallel work without collisions
 
