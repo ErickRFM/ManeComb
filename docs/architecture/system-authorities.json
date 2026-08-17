@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "5a645b8e61a62045eef1bead94aa34eea4919fac",
+    "commit": "d6dd194d431b5264e78dd57e3235c8e30213a48b",
     "capturedAt": "2026-08-17",
-    "phase": "post-commercial-payment-authority-and-repository-governance-policy"
+    "phase": "post-portal-communication-operational-integration-and-enforced-main-ruleset"
   },
   "products": [
     {
@@ -368,14 +368,15 @@
     },
     {
       "id": "repository-change-governance",
-      "decision": "Who may approve changes to main and which ownership, signing and required-check controls are policy versus externally enforced GitHub settings",
+      "decision": "Who may change main and which Pull Request, required-check, ownership, history and signing controls govern repository integration",
       "owner": "infrastructure",
-      "status": "external-configuration-pending",
+      "status": "canonical",
       "sourcePaths": [
         ".github/CODEOWNERS",
         ".github/COMMIT_SIGNING.md",
         ".github/workflows/ci.yml",
         ".github/workflows/system-audit-gates.yml",
+        "docs/architecture/GITHUB-MAIN-RULESET-20260817.md",
         "README.md",
         "SECURITY.md"
       ],
@@ -450,19 +451,6 @@
       "phase": 9,
       "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates that repository CI alone cannot prove.",
       "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md", "docs/render-production-readiness.md"]
-    },
-    {
-      "id": "GITHUB-REQUIRED-CHECKS-EXTERNAL",
-      "severity": "P1",
-      "phase": 8,
-      "summary": "CODEOWNERS, signing guidance, System Audit, CI and Dependency checks are versioned policy, but branch protection, required review, signed-commit enforcement and required checks remain GitHub repository configuration and must be enabled externally to make bypass impossible.",
-      "sourcePaths": [
-        ".github/CODEOWNERS",
-        ".github/COMMIT_SIGNING.md",
-        ".github/workflows/ci.yml",
-        ".github/workflows/system-audit-gates.yml",
-        "SECURITY.md"
-      ]
     }
   ]
 }

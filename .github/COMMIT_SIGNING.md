@@ -41,8 +41,10 @@ git config --global --get commit.gpgsign
 
 Un commit firmado correctamente y asociado a la llave registrada debe aparecer como **Verified** en GitHub.
 
-## Regla del repositorio
+## Reglas del repositorio
 
-Cuando la firma del propietario esté configurada y validada, `main` debe protegerse con una ruleset que requiera commits firmados, Pull Request, checks verdes, revisión de `CODEOWNERS`, bloqueo de force-push y bloqueo de eliminación.
+`main` está protegida por una ruleset activa que exige Pull Request y checks verdes, y bloquea force-push y eliminación. `CODEOWNERS` conserva la autoridad de revisión del propietario.
+
+La exigencia de commits firmados sólo debe activarse después de configurar una llave real del propietario, validarla en GitHub y asegurar que los agentes de automatización usan un flujo compatible. Hasta entonces, un commit `unsigned` no debe presentarse como `Verified` ni bloquear artificialmente el mantenimiento legítimo.
 
 No se debe generar, copiar, guardar ni compartir una llave privada dentro de ManeComb.
