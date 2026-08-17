@@ -1,4 +1,7 @@
 const crypto = require("node:crypto");
+// Regla de transicion: autoridad unica compartida con los dos adaptadores de
+// persistencia. Se re-exporta para no romper consumidores existentes.
+const { evaluatePaymentTransition } = require("../domain/commercial-payment-transition");
 const {
   IS_PRODUCTION_RUNTIME,
   MERCADO_PAGO_ACCESS_TOKEN,
@@ -732,31 +735,6 @@ function toMinorUnits(amount, currency = "MXN") {
 
 function reconciliationFailure(code, safeMessage, checks, normalized) {
   return { ok: false, code, safeMessage, checks, normalized };
-}
-
-function normalizePaymentTransitionStatus(value) {
-  const status = String(value || "").trim().toLowerCase();
-  return status === "approved" ? "paid" : status;
-}
-
-function evaluatePaymentTransition(currentState, incomingState) {
-  const current = normalizePaymentTransitionStatus(currentState || "pending");
-  const incoming = normalizePaymentTransitionStatus(incomingState);
-  const known = new Set(["pending", "paid", "rejected", "cancelled"]);
-  if (!known.has(incoming)) return { decision: "unknown", shouldActivate: false };
-  if (current === "paid") {
-    return incoming === "paid"
-      ? { decision: "duplicate", shouldActivate: false }
-      : { decision: "stale", shouldActivate: false };
-  }
-  if (current === incoming) return { decision: "duplicate", shouldActivate: false };
-  if (["pending", "rejected", "cancelled"].includes(current) && incoming === "paid") {
-    return { decision: "apply", shouldActivate: true };
-  }
-  if (known.has(current)) return { decision: "apply", shouldActivate: false };
-  return incoming === "paid"
-    ? { decision: "invalid", shouldActivate: false }
-    : { decision: "unknown", shouldActivate: false };
 }
 
 function reconcileMercadoPagoPaymentWithOrder(payment, order, configuration = {}) {
