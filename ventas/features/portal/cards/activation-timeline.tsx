@@ -7,12 +7,13 @@ import type { PortalActivationEvent } from '@/src/types/app';
 import { formatPortalStatus } from './format-portal-status';
 import { getStatusTone } from './get-portal-status-tone';
 
-export function ActivationTimeline({ events }: { events: PortalActivationEvent[] }) {
+export function ActivationTimeline({ events, limit }: { events: PortalActivationEvent[]; limit?: number }) {
   const theme = { colors: portalPalette };
+  const visible = typeof limit === 'number' ? events.slice(0, limit) : events;
 
   return (
     <View style={styles.timeline}>
-      {events.map((event) => {
+      {visible.map((event) => {
         const done = event.status === 'completed';
 
         return (
