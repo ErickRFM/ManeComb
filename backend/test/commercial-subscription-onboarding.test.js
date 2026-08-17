@@ -138,7 +138,7 @@ async function testCancelledSubscriptionCannotChangePlan() {
     await call(context, "/account/subscription/cancel", { method: "POST", token });
 
     const change = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: PLAN_SMALL }
+      method: "PATCH", token, body: { planId: PLAN_SMALL }
     });
     assert.equal(change.status, 409, "una suscripcion cancelada no puede cambiar de plan");
 
@@ -157,19 +157,19 @@ async function testDowngradeRespectsActiveCapacity() {
 
     // Downgrade valido: sin unidades activas, bajar a 2 debe permitirse.
     const valid = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: PLAN_SMALL }
+      method: "PATCH", token, body: { planId: PLAN_SMALL }
     });
     assert.ok([200, 201].includes(valid.status), `el downgrade valido fallo: ${valid.status}`);
 
     // Upgrade de vuelta: subir capacidad nunca puede bloquearse por uso.
     const upgrade = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: PLAN_LARGE }
+      method: "PATCH", token, body: { planId: PLAN_LARGE }
     });
     assert.ok([200, 201].includes(upgrade.status), `el upgrade fallo: ${upgrade.status}`);
 
     // Plan inexistente: el catalogo manda.
     const forged = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: "plan-inventado-999" }
+      method: "PATCH", token, body: { planId: "plan-inventado-999" }
     });
     assert.ok(forged.status >= 400, "un plan inexistente no puede aplicarse");
 
@@ -186,13 +186,13 @@ async function testRepeatedPlanChangeIsStable() {
     const { token } = await provisionAccount(context, { planId: PLAN_LARGE, tag: "repeat" });
 
     const first = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: PLAN_SMALL }
+      method: "PATCH", token, body: { planId: PLAN_SMALL }
     });
     assert.ok([200, 201].includes(first.status));
 
     // Reenviar el MISMO plan no debe romper ni duplicar suscripcion.
     const repeat = await call(context, "/account/subscription/plan", {
-      method: "POST", token, body: { planId: PLAN_SMALL }
+      method: "PATCH", token, body: { planId: PLAN_SMALL }
     });
     assert.ok([200, 201].includes(repeat.status), "reenviar el mismo plan debe ser estable");
 
@@ -259,6 +259,9 @@ async function testOnboardingRequiresSession() {
 async function run() {
   await testCancellationRequiresActiveSubscription();
   await testCancellationPrimitiveIsAtomic();
+  await testCancelledSubscriptionCannotChangePlan();
+  await testDowngradeRespectsActiveCapacity();
+  await testRepeatedPlanChangeIsStable();
   await testOnboardingIsNotABillingAuthority();
   await testOnboardingRequiresSession();
   console.log("ok - subscription y onboarding certificados con autoridad en backend");

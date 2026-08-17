@@ -29,6 +29,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const { PaymentRepository } = require("../src/data/repositories/payment-repository");
 
 /** Libera cuando `expected` participantes han llegado. */
 function createBarrier(expected) {
@@ -167,8 +168,57 @@ function testPrimitiveRejectsSecondCancellation() {
   console.log("ok - primitivo: aplica una vez y distingue orden inexistente");
 }
 
+async function testMongoRepositoryUsesAtomicGuard() {
+  const calls = [];
+  let result = {
+    _id: "order-mongo",
+    status: "cancelled",
+    activationStatus: "cancelled"
+  };
+  const CommercialLeadModel = {
+    findOneAndUpdate(filter, update, options) {
+      calls.push({ filter, update, options });
+      return { lean: async () => result };
+    },
+    findById() {
+      return { lean: async () => result };
+    }
+  };
+  const repository = new PaymentRepository({}, { CommercialLeadModel });
+  const cancelledAt = new Date().toISOString();
+
+  const applied = await repository.cancelCommercialSubscriptionAtomically("order-mongo", {
+    cancelledAt,
+    reason: "solicitud del cliente"
+  });
+  assert.equal(applied.applied, true);
+  assert.deepEqual(calls[0].filter, {
+    _id: "order-mongo",
+    status: { $ne: "cancelled" },
+    activationStatus: { $ne: "cancelled" }
+  });
+  assert.equal(calls[0].update.$set.status, "cancelled");
+  assert.equal(calls[0].update.$set.activationStatus, "cancelled");
+  assert.equal(calls[0].update.$set.cancelledAt, cancelledAt);
+  assert.equal(calls[0].options.returnDocument, "after");
+
+  result = { _id: "order-mongo", status: "cancelled", activationStatus: "cancelled" };
+  CommercialLeadModel.findOneAndUpdate = () => ({ lean: async () => null });
+  const lostRace = await repository.cancelCommercialSubscriptionAtomically("order-mongo", { cancelledAt });
+  assert.equal(lostRace.applied, false);
+  assert.equal(lostRace.reason, "already_cancelled");
+
+  result = null;
+  const missing = await repository.cancelCommercialSubscriptionAtomically("missing", { cancelledAt });
+  assert.equal(missing.applied, false);
+  assert.equal(missing.reason, "order_not_found");
+
+  console.log("ok - repositorio Mongo: guarda atomica y resultado de carrera certificados");
+}
+
 async function run() {
   testPrimitiveRejectsSecondCancellation();
+  await testMongoRepositoryUsesAtomicGuard();
   await testConcurrentCancellationAppliesOnce();
   console.log("ok - carrera de cancelacion cerrada con evidencia de efectos");
 }
