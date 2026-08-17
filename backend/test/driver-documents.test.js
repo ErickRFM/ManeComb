@@ -6,7 +6,7 @@ process.env.PLATFORM_JWT_SECRET = "platform-test-jwt-secret-with-at-least-32-cha
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
 const { signToken } = require("../src/utils/jwt");
-const { deleteDocumentAsset } = require("../src/services/storage");
+const { deleteDocumentAsset, getCloudinaryDownloadUrl } = require("../src/services/storage");
 const {
   canAccessDocument,
   canDriverMutateDocument,
@@ -311,6 +311,34 @@ async function run() {
       { cloudinaryClient: { uploader: { destroy: async () => { cloudinaryDeleted = true; return { result: "ok" }; } } } }
     );
     assert.equal(cloudinaryDeleted, true);
+    let downloadOptions = null;
+    const expiringUrl = getCloudinaryDownloadUrl(
+      {
+        storageKey: "tenant/document-key",
+        mimeType: "application/pdf",
+        originalFileName: "evidencia.pdf"
+      },
+      {
+        now: () => 1_787_000_000_000,
+        cloudinaryClient: {
+          utils: {
+            private_download_url(publicId, format, options) {
+              downloadOptions = { publicId, format, ...options };
+              return "https://provider.test/expiring-download";
+            }
+          }
+        }
+      }
+    );
+    assert.equal(expiringUrl, "https://provider.test/expiring-download");
+    assert.deepEqual(downloadOptions, {
+      publicId: "tenant/document-key",
+      format: "pdf",
+      attachment: false,
+      expires_at: 1_787_000_300,
+      resource_type: "raw",
+      type: "authenticated"
+    });
 
     console.log("ok - ciclo documental de conductor y administrador protegido");
   } finally {

@@ -258,7 +258,25 @@ function getMongoObjectId(storageKey) {
   }
 }
 
-async function getDocumentDownloadAsset(storageKey, knownDocument = null) {
+function getCloudinaryDownloadUrl(document, dependencies = {}) {
+  const client = dependencies.cloudinaryClient || cloudinary;
+  if (!dependencies.cloudinaryClient) ensureCloudinary();
+  const originalName = String(document.originalFileName || document.name || "documento");
+  const format = path.extname(originalName).replace(/^\./, "").toLowerCase();
+  const resourceType = String(document.mimeType || "").toLowerCase() === "application/pdf"
+    ? "raw"
+    : "image";
+  const nowSeconds = Math.floor(Number(dependencies.now?.() || Date.now()) / 1000);
+
+  return client.utils.private_download_url(document.storageKey, format, {
+    attachment: false,
+    expires_at: nowSeconds + 5 * 60,
+    resource_type: resourceType,
+    type: "authenticated"
+  });
+}
+
+async function getDocumentDownloadAsset(storageKey, knownDocument = null, dependencies = {}) {
   const safeStorageKey = String(storageKey || "").trim();
 
   if (!safeStorageKey) return null;
@@ -270,17 +288,9 @@ async function getDocumentDownloadAsset(storageKey, knownDocument = null) {
   if (!document) return null;
 
   if (document.storageType === "cloudinary") {
-    ensureCloudinary();
-
     return {
       document,
-      redirectUrl: /^https?:\/\//i.test(document.fileUrl || "")
-        ? document.fileUrl
-        : cloudinary.url(document.storageKey, {
-            secure: true,
-            sign_url: true,
-            type: "authenticated"
-          }),
+      redirectUrl: getCloudinaryDownloadUrl(document, dependencies),
       mimeType: document.mimeType || "application/octet-stream",
       originalFileName: document.originalFileName || document.name || "documento"
     };
@@ -405,6 +415,7 @@ async function migrateLegacyLocalDocumentsToMongo({ dryRun = true } = {}) {
 
 module.exports = {
   deleteDocumentAsset,
+  getCloudinaryDownloadUrl,
   getDocumentDownloadAsset,
   getStorageMode,
   getStorageReadiness,
