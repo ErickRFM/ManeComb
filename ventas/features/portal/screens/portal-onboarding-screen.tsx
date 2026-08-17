@@ -106,6 +106,17 @@ export function PortalOnboardingScreen() {
     setFeedback(result.ok ? 'Key generada. Ya puedes copiarla o compartirla con el conductor. El conductor aparecerá en Equipo tras activar su cuenta con la key.' : result.message || null);
   };
 
+  const handleReuseSlot = async () => {
+    if (!canGenerate) return;
+    setFeedback(null);
+    const result = await generateActivationKey();
+    setFeedback(
+      result.ok
+        ? 'Nueva key generada con el cupo liberado.'
+        : result.message || null
+    );
+  };
+
   const handleCopyKey = async (activationKey: PortalActivationKey) => {
     setFeedback(null);
 
@@ -246,6 +257,13 @@ export function PortalOnboardingScreen() {
                     onShare={(currentKey) => void handleShareKey(currentKey)}
                     onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
                     onDelete={(currentKey) => void handleDeleteKey(currentKey)}
+                    onReplace={
+                      canGenerate &&
+                      activationKey.status === 'used' &&
+                      (activationKey.usedByDriverState === 'offboarded' || activationKey.usedByDriverState === 'deleted')
+                        ? () => void handleReuseSlot()
+                        : undefined
+                    }
                     showShare={!hasAvailableKey}
                   />
                 ))}
