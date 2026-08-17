@@ -3,7 +3,7 @@
   X-Frame-Options: DENY
   X-Permitted-Cross-Domain-Policies: none
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(self), payment=(), usb=(), browsing-topics=()
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), browsing-topics=()
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-site
   Origin-Agent-Cluster: ?1

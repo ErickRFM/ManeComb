@@ -1,6 +1,7 @@
 const assert = require("assert");
 const {
   installOperationalCommunicationsGuard,
+  isChatCommunicationUser,
   isOperationalCommunicationUser
 } = require("../src/services/operational-communications-guard");
 
@@ -10,6 +11,7 @@ function buildUser(id, overrides = {}) {
     name: id,
     organizationId: "org-1",
     role: "driver",
+    accountType: "operations",
     userStatus: "active",
     deletedAt: null,
     ...overrides
@@ -22,12 +24,13 @@ function isPromiseLike(value) {
 
 function buildStore() {
   const users = new Map([
-    ["admin", buildUser("admin", { role: "admin" })],
+    ["admin", buildUser("admin", { role: "admin", accountType: "company_owner" })],
     ["active", buildUser("active")],
     ["pending", buildUser("pending", { userStatus: "pending" })],
     ["suspended", buildUser("suspended", { userStatus: "suspended" })],
     ["deleted", buildUser("deleted", { deletedAt: "2026-08-11T06:00:00.000Z" })],
-    ["other-org", buildUser("other-org", { organizationId: "org-2" })]
+    ["other-org", buildUser("other-org", { organizationId: "org-2" })],
+    ["billing", buildUser("billing", { role: "billing_manager", accountType: "company_owner" })]
   ]);
 
   const conversations = new Map([
@@ -55,7 +58,7 @@ function buildStore() {
         id: "general",
         kind: "group",
         channelMode: "chat",
-        participants: ["admin", "active", "suspended", "deleted"]
+        participants: ["admin", "active", "suspended", "deleted", "billing"]
       }
     ]
   ]);
@@ -117,7 +120,7 @@ function buildStore() {
       return users.get(userId) || null;
     },
     listChatContactsForUser() {
-      return ["active", "pending", "suspended", "deleted", "other-org"].map((id) => users.get(id));
+      return ["active", "pending", "suspended", "deleted", "other-org", "billing"].map((id) => users.get(id));
     },
     listPushSubscriptionsForRoles() {
       return ["active", "suspended", "deleted"].map((userId) => ({ userId, token: `token-${userId}` }));
@@ -148,6 +151,11 @@ async function run() {
     isOperationalCommunicationUser(buildUser("deleted", { deletedAt: new Date() })),
     false
   );
+  assert.strictEqual(isChatCommunicationUser(buildUser("active")), true);
+  assert.strictEqual(
+    isChatCommunicationUser(buildUser("billing", { role: "billing_manager", accountType: "company_owner" })),
+    false
+  );
 
   const store = installOperationalCommunicationsGuard(buildStore());
 
@@ -165,6 +173,10 @@ async function run() {
   );
   assert.throws(
     () => store.ensureDirectConversation("admin", "other-org"),
+    /Participante no encontrado/
+  );
+  assert.throws(
+    () => store.ensureDirectConversation("admin", "billing"),
     /Participante no encontrado/
   );
   assert.strictEqual(store.calls.ensureDirectConversation, 0);

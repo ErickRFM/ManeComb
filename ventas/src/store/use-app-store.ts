@@ -110,6 +110,28 @@ let socketSessionKey: string | null = null;
 let socketHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 const SOCKET_HEARTBEAT_MS = 20_000;
 const SOCKET_ACK_TIMEOUT_MS = 8_000;
+type PortalRealtimeSocketSubscriber = (nextSocket: Socket | null) => void;
+const portalRealtimeSocketSubscribers = new Set<PortalRealtimeSocketSubscriber>();
+
+function publishPortalRealtimeSocket() {
+  portalRealtimeSocketSubscribers.forEach((subscriber) => subscriber(socket));
+}
+
+/**
+ * Comunicación, llamadas y operación consumen exactamente el mismo Socket.IO.
+ * Ningún feature del Portal debe crear una segunda conexión autenticada.
+ */
+export function getSharedPortalRealtimeSocket(): Socket | null {
+  return socket;
+}
+
+export function subscribeSharedPortalRealtimeSocket(
+  subscriber: PortalRealtimeSocketSubscriber
+): () => void {
+  portalRealtimeSocketSubscribers.add(subscriber);
+  subscriber(socket);
+  return () => portalRealtimeSocketSubscribers.delete(subscriber);
+}
 
 function extractVehicleFromRealtimePayload(payload: unknown): Vehicle | null {
   const candidate = (payload && typeof payload === 'object' && 'vehicle' in payload ? (payload as { vehicle?: unknown }).vehicle : payload) as Vehicle | null;
@@ -231,6 +253,7 @@ function disconnectSocket() {
     socket.io.removeAllListeners();
     socket.disconnect();
     socket = null;
+    publishPortalRealtimeSocket();
   }
 
   socketSessionKey = null;
@@ -269,6 +292,7 @@ function connectSocket(get: () => AppState) {
     reconnectionDelayMax: 10000,
     autoConnect: false,
   });
+  publishPortalRealtimeSocket();
 
   const emitHeartbeat = () => {
     if (!socket?.connected) return;

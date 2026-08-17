@@ -7,6 +7,7 @@ export type PortalRouteDefinition = {
 
 export const PORTAL_ROUTE_REGISTRY = {
   '/portal': { title: 'Operaciones' },
+  '/portal/comunicacion': { title: 'Comunicación', permission: 'communication' },
   '/portal/usuarios': { title: 'Equipo', permission: 'users' },
   '/portal/unidades': { title: 'Unidades', permission: 'vehicles' },
   '/portal/rutas': { title: 'Rutas', permission: 'routes' },
@@ -60,6 +61,7 @@ export const PORTAL_NAV_SECTIONS: PortalNavSection[] = [
     title: 'Operación',
     items: [
       navItem('/portal', 'Inicio', 'view-dashboard-outline'),
+      navItem('/portal/comunicacion', 'Comunicación', 'message-text-outline'),
       navItem('/portal/rutas', 'Rutas', 'routes'),
       navItem('/portal/incidencias', 'Incidencias', 'alert-circle-outline'),
     ],

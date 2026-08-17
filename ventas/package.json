@@ -8,7 +8,7 @@
     "build": "npm run verify:contracts && vite build && npm run verify:build-meta",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:routes-empty-state && npm run verify:portal-realtime && npm run verify:tracking-presentation && npm run verify:connection-hardening && node scripts/verify-operational-authority-behavior.mjs",
+    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:routes-empty-state && npm run verify:portal-realtime && npm run verify:portal-communication && npm run verify:tracking-presentation && npm run verify:connection-hardening && node scripts/verify-operational-authority-behavior.mjs",
     "verify:tracking-presentation": "node scripts/verify-tracking-presentation.mjs",
     "verify:connection-hardening": "node scripts/verify-connection-hardening.mjs",
     "verify:build-meta": "node scripts/verify-build-metadata.mjs",
@@ -23,9 +23,11 @@
     "verify:portal-load-policy": "node scripts/verify-portal-load-policy.mjs",
     "verify:plan-onboarding": "node scripts/verify-plan-onboarding-gate.cjs",
     "verify:routes-empty-state": "node scripts/verify-routes-empty-state.mjs",
-    "verify:portal-realtime": "node scripts/verify-portal-realtime-recovery.mjs"
+    "verify:portal-realtime": "node scripts/verify-portal-realtime-recovery.mjs",
+    "verify:portal-communication": "node scripts/verify-portal-communication.mjs"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
     "@vitejs/plugin-react": "^5.1.1",
     "axios": "^1.15.0",
     "mapbox-gl": "^2.15.0",
@@ -35,6 +37,8 @@
     "react-native-vector-icons": "^10.3.0",
     "react-native-web": "^0.21.2",
     "socket.io-client": "^4.8.3",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
     "vite": "^7.2.6",
     "zustand": "^5.0.12"
   },
