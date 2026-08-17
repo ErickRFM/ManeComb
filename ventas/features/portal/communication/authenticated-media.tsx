@@ -45,7 +45,13 @@ export function AuthenticatedCommunicationMedia({ kind, source, alt = '' }: Prop
     );
   }
 
-  if (!objectUrl) return <span className="portal-comms-message-meta">Cargando…</span>;
+  if (!objectUrl) {
+    return (
+      <span className="portal-comms-media-loading" role="status">
+        {kind === 'audio' ? 'Cargando audio…' : kind === 'video' ? 'Cargando video…' : 'Cargando imagen…'}
+      </span>
+    );
+  }
 
   if (kind === 'image') {
     return <img className="portal-comms-message-media" src={objectUrl} alt={alt || 'Imagen enviada'} />;
