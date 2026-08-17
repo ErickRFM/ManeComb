@@ -23,7 +23,6 @@ import { portalPalette } from '../portal-theme';
 import type { SessionDetail, Filters, OperationsFilter } from '../dashboard/dashboard.types';
 import { historyPageSize, replayPageSize, replaySpeeds } from '../dashboard/dashboard.constants';
 import {
-  applyOperationalSnapshot,
   downsamplePositions,
   formatDistance,
   formatPercent,
@@ -85,10 +84,6 @@ export function PortalDashboardScreen() {
   const snapshotByVehicle = useMemo(
     () => new Map(operationalUnits.map((unit) => [unit.unitId, unit])),
     [operationalUnits]
-  );
-  const operationalVehicleData = useMemo(
-    () => vehicles.map((vehicle) => applyOperationalSnapshot(vehicle, snapshotByVehicle.get(vehicle.id))),
-    [snapshotByVehicle, vehicles]
   );
   const [filters, setFilters] = useState<Filters>({
     driverId: '',
@@ -182,26 +177,26 @@ export function PortalDashboardScreen() {
 
   const activeView = getParam(params.view) === 'history' ? 'history' : getParam(params.view) === 'detail' ? 'detail' : 'operations';
   const selectedVehicle = useMemo(
-    () => operationalVehicleData.find((vehicle) => vehicle.id === selectedVehicleId) || (activeView === 'operations' ? null : operationalVehicleData[0] || null),
-    [activeView, operationalVehicleData, selectedVehicleId]
+    () => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || (activeView === 'operations' ? null : vehicles[0] || null),
+    [activeView, selectedVehicleId, vehicles]
   );
   const selectedVehicleSessions = selectedVehicle ? sessionsByVehicle.get(selectedVehicle.id) || [] : [];
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
   const operationsCounts = useMemo(() => {
-    const running = operationalVehicleData.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
-    const stopped = operationalVehicleData.filter((vehicle) => vehicle.operationalState === 'stopped').length;
-    const offRoute = operationalVehicleData.filter((vehicle) => Boolean(vehicle.activeRouteProgress?.isOffRoute)).length;
-    return { ALL: operationalVehicleData.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
-  }, [operationalVehicleData, sessionsByVehicle]);
-  const operationalVehicles = useMemo(() => operationalVehicleData.filter((vehicle) => {
+    const running = vehicles.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
+    const stopped = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped').length;
+    const offRoute = vehicles.filter((vehicle) => Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute)).length;
+    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
+  }, [sessionsByVehicle, snapshotByVehicle, vehicles]);
+  const operationalVehicles = useMemo(() => vehicles.filter((vehicle) => {
     const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
     if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
-    if (operationsFilter === 'STOPPED') return vehicle.operationalState === 'stopped';
-    if (operationsFilter === 'OFF_ROUTE') return Boolean(vehicle.activeRouteProgress?.isOffRoute);
+    if (operationsFilter === 'STOPPED') return snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped';
+    if (operationsFilter === 'OFF_ROUTE') return Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute);
     return true;
-  }), [operationalVehicleData, operationsFilter, sessionsByVehicle]);
+  }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
     setOperationsFilter((current) => current === filter ? 'ALL' : filter);
   };
@@ -214,7 +209,7 @@ export function PortalDashboardScreen() {
   }, [operationalVehicles, operationsFilter, routeFocusVehicleId, selectedVehicleId]);
   const operationsKpis = useMemo(() => {
     const active = operationsCounts.RUNNING;
-    const gpsLost = operationalVehicleData.filter((vehicle) => getGpsState(vehicle, sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
+    const gpsLost = vehicles.filter((vehicle) => getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
     const completed = history.filter((session) => session.status === 'FINISHED');
     const productive = completed.map(getSessionProductivity).filter((value) => Number.isFinite(value));
     const productivity = productive.length ? productive.reduce((sum, value) => sum + value, 0) / productive.length : null;
@@ -227,7 +222,7 @@ export function PortalDashboardScreen() {
       { detail: 'Jornadas guardadas', icon: 'chart-line' as const, label: 'Productividad', value: productivity === null ? 'Sin dato' : formatPercent(productivity) },
       { detail: `${history.length} jornadas`, icon: 'map-marker-distance' as const, label: 'Distancia registrada', value: formatDistance(distance) },
     ];
-  }, [history, operationalVehicleData, operationsCounts, sessionsByVehicle]);
+  }, [history, operationsCounts, sessionsByVehicle, snapshotByVehicle, vehicles]);
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -275,7 +270,7 @@ export function PortalDashboardScreen() {
   };
 
   const changeDriver = async (vehicle: Vehicle, driver: User) => {
-    const currentDriver = getActiveDriver(users, vehicle);
+    const currentDriver = getActiveDriver(users, vehicle, snapshotByVehicle.get(vehicle.id));
     if (currentDriver?.id === driver.id) {
       setDriverChangeMessage(`${driver.name} ya es el chofer activo.`);
       return;
@@ -445,6 +440,7 @@ export function PortalDashboardScreen() {
                   height="100%"
                   mapMode="operational"
                   onVehiclePress={openVehicle}
+                  operationalUnits={operationalUnits}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
                   showTraffic={false}
@@ -475,6 +471,7 @@ export function PortalDashboardScreen() {
                       active={vehicle.id === selectedVehicle?.id}
                       activeSession={sessionsByVehicle.get(vehicle.id)?.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null}
                       latestSession={sessionsByVehicle.get(vehicle.id)?.[0] || null}
+                      operationalUnit={snapshotByVehicle.get(vehicle.id)}
                       vehicle={vehicle}
                       onOpen={() => showRoute(vehicle)}
                     />

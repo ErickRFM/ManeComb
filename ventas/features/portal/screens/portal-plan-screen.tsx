@@ -10,6 +10,8 @@ import {
   useCommercialExperience,
 } from '@/features/commercial';
 import { PortalSectionCard } from '../cards';
+import { PortalContentModal } from '../components/portal-content-modal';
+import { PortalButton } from '../components/portal-button';
 import { PortalLayout } from '../components/portal-layout';
 import { portalPalette } from '../portal-theme';
 import { styles } from '../plan/plan.styles';
@@ -18,6 +20,8 @@ import { PlanComparisonCard } from '../plan/components/plan-comparison-card';
 import { PlanChangePreview } from '../plan/components/plan-change-preview';
 import { PlanPurchasePreview } from '../plan/components/plan-purchase-preview';
 import { PlanTrialEntry } from '../plan/components/plan-trial-entry';
+
+const RECENT_ACTIVITY_LIMIT = 3;
 
 export function PortalPlanScreen() {
   const { width } = useWindowDimensions();
@@ -38,6 +42,7 @@ export function PortalPlanScreen() {
     workspace,
   } = useCommercialExperience();
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const plans = workspace?.plans || [];
   const subscription = workspace?.subscription || null;
   const currentPlan = workspace?.currentPlan || null;
@@ -53,6 +58,7 @@ export function PortalPlanScreen() {
   ) || null;
   const canStartTrial = Boolean(isFreshAccount && trialPlan);
   const purchaseMode = !hasOperationalPlan;
+  const activities = workspace?.activities || [];
 
   const pageTitle = hasOperationalPlan
     ? 'Mi plan'
@@ -214,11 +220,27 @@ export function PortalPlanScreen() {
         </View>
       )}
 
-      {workspace?.activities.length ? (
-        <PortalSectionCard title="Historial comercial" subtitle="Movimientos recientes de tu suscripción.">
-          <CommercialActivityList activities={workspace.activities} />
+      {activities.length ? (
+        <PortalSectionCard
+          title="Actividad reciente"
+          subtitle={`${activities.length} movimiento${activities.length === 1 ? '' : 's'} en el historial comercial`}
+          right={activities.length > RECENT_ACTIVITY_LIMIT ? (
+            <PortalButton icon="history" onPress={() => setHistoryOpen(true)} size="sm" variant="secondary">
+              Ver historial
+            </PortalButton>
+          ) : undefined}>
+          <CommercialActivityList activities={activities} limit={RECENT_ACTIVITY_LIMIT} />
         </PortalSectionCard>
       ) : null}
+
+      <PortalContentModal
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title="Historial comercial"
+        subtitle={`${activities.length} movimiento${activities.length === 1 ? '' : 's'} registrados`}>
+        <CommercialActivityList activities={activities} />
+      </PortalContentModal>
+
       <ConfirmModal
         visible={cancelOpen}
         destructive

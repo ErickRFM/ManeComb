@@ -1,15 +1,17 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Share, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
 import { ActivationTimeline, PortalSectionCard } from '../cards';
+import { PortalContentModal } from '../components/portal-content-modal';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
 import { PortalDataList } from '../components/portal-data-list';
+import { PortalPagination } from '../components/portal-pagination';
 import { portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
 import { styles } from '../onboarding/onboarding.styles';
@@ -19,6 +21,9 @@ import { ActivationWizardStep } from '../onboarding/components/activation-wizard
 import { KeyActionButton } from '../onboarding/components/key-action-button';
 import { getStepTarget } from '../onboarding/onboarding.utils';
 import type { PortalActivationKey } from '@/src/types/app';
+
+const ACTIVATION_KEY_PAGE_SIZE = 6;
+const TIMELINE_PREVIEW_LIMIT = 3;
 
 export function PortalOnboardingScreen() {
   const {
@@ -50,6 +55,8 @@ export function PortalOnboardingScreen() {
   );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [keyConfirmation, setKeyConfirmation] = useState<{ type: 'revoke' | 'delete'; key: PortalActivationKey } | null>(null);
+  const [activationPage, setActivationPage] = useState(1);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   const steps = onboarding?.steps || [];
   const completedSteps = steps.filter((step) => step.status === 'completed').length;
@@ -62,6 +69,17 @@ export function PortalOnboardingScreen() {
   const activationComplete = onboarding?.status === 'completed';
   const nextPendingStep = steps.find((step) => step.status !== 'completed');
   const nextStepTarget = nextPendingStep ? getStepTarget(nextPendingStep.id) : null;
+  const activationTimeline = overview?.activationTimeline || [];
+  const activationTotalPages = Math.max(1, Math.ceil(activationKeys.length / ACTIVATION_KEY_PAGE_SIZE));
+  const safeActivationPage = Math.min(activationPage, activationTotalPages);
+  const visibleActivationKeys = activationKeys.slice(
+    (safeActivationPage - 1) * ACTIVATION_KEY_PAGE_SIZE,
+    safeActivationPage * ACTIVATION_KEY_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (activationPage > activationTotalPages) setActivationPage(activationTotalPages);
+  }, [activationPage, activationTotalPages]);
 
   const hasAvailableKey = Boolean(generatedButNotSharedKey || sharedAvailableKey);
   const hasAnyKey = activationKeys.length > 0;
@@ -104,6 +122,17 @@ export function PortalOnboardingScreen() {
     setFeedback(null);
     const result = await generateActivationKey();
     setFeedback(result.ok ? 'Key generada. Ya puedes copiarla o compartirla con el conductor. El conductor aparecerá en Equipo tras activar su cuenta con la key.' : result.message || null);
+  };
+
+  const handleReuseSlot = async () => {
+    if (!canGenerate) return;
+    setFeedback(null);
+    const result = await generateActivationKey();
+    setFeedback(
+      result.ok
+        ? 'Nueva key generada con el cupo liberado.'
+        : result.message || null
+    );
   };
 
   const handleCopyKey = async (activationKey: PortalActivationKey) => {
@@ -236,20 +265,36 @@ export function PortalOnboardingScreen() {
               </View>
             ) : null}
             {activationKeys.length ? (
-              <PortalDataList>
-                {activationKeys.map((activationKey) => (
-                  <ActivationKeyRow
-                    key={activationKey.id}
-                    activationKey={activationKey}
-                    isSubmitting={isSubmitting}
-                    onCopy={(currentKey) => void handleCopyKey(currentKey)}
-                    onShare={(currentKey) => void handleShareKey(currentKey)}
-                    onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
-                    onDelete={(currentKey) => void handleDeleteKey(currentKey)}
-                    showShare={!hasAvailableKey}
-                  />
-                ))}
-              </PortalDataList>
+              <>
+                <PortalDataList>
+                  {visibleActivationKeys.map((activationKey) => (
+                    <ActivationKeyRow
+                      key={activationKey.id}
+                      activationKey={activationKey}
+                      isSubmitting={isSubmitting}
+                      onCopy={(currentKey) => void handleCopyKey(currentKey)}
+                      onShare={(currentKey) => void handleShareKey(currentKey)}
+                      onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
+                      onDelete={(currentKey) => void handleDeleteKey(currentKey)}
+                      onReplace={
+                        canGenerate &&
+                        activationKey.status === 'used' &&
+                        (activationKey.usedByDriverState === 'offboarded' || activationKey.usedByDriverState === 'deleted')
+                          ? () => void handleReuseSlot()
+                          : undefined
+                      }
+                      showShare={!hasAvailableKey}
+                    />
+                  ))}
+                </PortalDataList>
+                <PortalPagination
+                  itemLabel="keys"
+                  onPageChange={setActivationPage}
+                  page={safeActivationPage}
+                  pageSize={ACTIVATION_KEY_PAGE_SIZE}
+                  totalItems={activationKeys.length}
+                />
+              </>
             ) : (
               <EmptyState
                 icon="key-variant"
@@ -284,11 +329,26 @@ export function PortalOnboardingScreen() {
         )}
       </PortalSectionCard>
 
-      {overview?.activationTimeline?.length ? (
-        <PortalSectionCard compact title="Historial de activación" subtitle="Evidencia de los eventos ya registrados.">
-          <ActivationTimeline events={overview.activationTimeline} />
+      {activationTimeline.length ? (
+        <PortalSectionCard
+          compact
+          title="Actividad de activación"
+          subtitle="Eventos recientes ya registrados."
+          right={activationTimeline.length > TIMELINE_PREVIEW_LIMIT ? (
+            <PortalButton icon="history" onPress={() => setTimelineOpen(true)} size="sm" variant="secondary">Ver historial</PortalButton>
+          ) : undefined}>
+          <ActivationTimeline events={activationTimeline} limit={TIMELINE_PREVIEW_LIMIT} />
         </PortalSectionCard>
       ) : null}
+
+      <PortalContentModal
+        visible={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        title="Historial de activación"
+        subtitle={`${activationTimeline.length} evento${activationTimeline.length === 1 ? '' : 's'} registrados`}>
+        <ActivationTimeline events={activationTimeline} />
+      </PortalContentModal>
+
       <ConfirmModal
         visible={Boolean(keyConfirmation)}
         destructive

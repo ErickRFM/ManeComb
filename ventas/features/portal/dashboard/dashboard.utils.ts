@@ -1,7 +1,6 @@
 import type { StatusBadgeTone } from '@/src/components/ui/status-badge';
 import { formatDate, formatDistanceFromMeters, formatDurationFromSeconds } from '@/src/utils/format';
 import { formatPortalStatus, getPortalStatusTone } from '../cards';
-import { getVehicleGpsConnectionState } from '../utils/tracking';
 import {
   RECORDING_JOURNEY_LABEL,
   formatGpsAge,
@@ -49,11 +48,10 @@ function operationalStateTone(state: OperationalState): StatusBadgeTone {
   }
 }
 
-// Estado operativo canonico del snapshot (via applyOperationalSnapshot). Ya no
-// se deriva del blend session/driverId/speed: se lee el operationalState que el
-// backend resolvio y se traduce a etiqueta con stateLabel del contrato.
-export function getVehicleStatus(vehicle: Vehicle): { label: string; tone: StatusBadgeTone } {
-  const state = vehicle.operationalState;
+// Estado operativo canonico: se lee directamente del snapshot y se traduce con
+// stateLabel. Vehicle conserva solo identidad/configuracion.
+export function getVehicleStatus(_vehicle: Vehicle, unit?: OperationalUnitSnapshot): { label: string; tone: StatusBadgeTone } {
+  const state = unit?.operationalState;
   if (!state) return { label: 'Sin estado', tone: 'neutral' };
   return { label: stateLabel(state), tone: operationalStateTone(state) };
 }
@@ -106,12 +104,11 @@ export function getAssignedDrivers(users: User[], vehicle: Vehicle, activeSessio
     .filter(Boolean) as User[];
 }
 
-// §5.2: el conductor sale del snapshot proyectado (vehicle.driverId/driverName
-// vienen de unit.driver via applyOperationalSnapshot). Sin snapshot -> vacio.
+// El conductor operativo sale directamente de unit.driver. Sin snapshot -> vacio.
 // NO se cae al legacy (activeSession.driverId / vehicle.driver) para no
 // reintroducir el drift de fuentes multiples.
-export function getActiveDriver(users: User[], vehicle: Vehicle) {
-  const driverId = vehicle.driverId || null;
+export function getActiveDriver(users: User[], _vehicle: Vehicle, unit?: OperationalUnitSnapshot) {
+  const driverId = unit?.driver?.id || null;
   return users.find((user) => user.id === driverId) || null;
 }
 
@@ -163,8 +160,8 @@ export function getRouteLabel(vehicle?: Vehicle | null, session?: RouteSession |
   return getRouteInfo(vehicle, session).label;
 }
 
-export function getLastGpsUpdate(vehicle: Vehicle) {
-  return vehicle.locationTimestamp ? formatDate(vehicle.locationTimestamp, { fallback: 'Sin GPS' }) : 'Sin GPS';
+export function getLastGpsUpdate(unit?: OperationalUnitSnapshot) {
+  return unit?.gps.recordedAt ? formatDate(unit.gps.recordedAt, { fallback: 'Sin GPS' }) : 'Sin GPS';
 }
 
 export function getTimestamp(value?: string | null) {
@@ -187,62 +184,21 @@ export function getSessionMetricsView(session: RouteSession): SessionMetricsView
   };
 }
 
-export function getRouteProgressPercent(vehicle: Vehicle, session?: RouteSession | null) {
+export function getRouteProgressPercent(unit?: OperationalUnitSnapshot, session?: RouteSession | null) {
   if (session?.status === 'FINISHED') return 100;
   if (!session) return 0;
-  const progress = Number(vehicle.activeRouteProgress?.progressPercent);
+  const progress = Number(unit?.route?.progressRatio) * 100;
   return Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
 }
 
-export function getEtaLabel(vehicle: Vehicle) {
-  if (vehicle.activeRouteProgress?.etaAt) {
-    return formatDate(vehicle.activeRouteProgress.etaAt);
+export function getEtaLabel(unit?: OperationalUnitSnapshot) {
+  if (unit?.route?.etaAt) {
+    return formatDate(unit.route.etaAt);
   }
-  if (typeof vehicle.etaMinutes === 'number') {
-    return `${Math.max(0, Math.round(vehicle.etaMinutes))} min`;
+  if (typeof unit?.route?.remainingTimeSeconds === 'number') {
+    return `${Math.max(0, Math.round(unit.route.remainingTimeSeconds / 60))} min`;
   }
   return 'Sin ETA';
-}
-
-export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUnitSnapshot): Vehicle {
-  if (!unit) return vehicle;
-  return {
-    ...vehicle,
-    operationalState: unit.operationalState,
-    location: unit.gps.lat === null || unit.gps.lng === null
-      ? null
-      : { latitude: unit.gps.lat, longitude: unit.gps.lng },
-    locationTimestamp: unit.gps.recordedAt,
-    // `Vehicle.speed` is the legacy ingestion value in m/s. Projecting the
-    // canonical `speedKmh` into it erases the unit and caused a second 3.6x
-    // conversion in the portal. Operational consumers must read `unit.gps`.
-    heading: unit.gps.heading,
-    gpsFreshness: {
-      // La taxonomia canonica viaja completa. Colapsarla aqui era lo que dejaba
-      // al Portal sin poder distinguir "esperando primera ubicacion" de
-      // "senal perdida".
-      connectionState: unit.gps.connectionState,
-      ageSeconds: unit.gps.ageSeconds,
-      hasEverReported: unit.gps.connectionState !== 'never_reported',
-      state: unit.gps.freshness,
-      isFresh: unit.gps.freshness === 'fresh',
-      evaluatedAt: unit.lastEventAt || new Date().toISOString(),
-      freshUntil: null,
-      thresholdMs: 0,
-    },
-    driverId: unit.driver?.id || null,
-    driverName: unit.driver?.name || null,
-    etaMinutes: unit.route?.remainingTimeSeconds == null
-      ? null
-      : Math.max(0, Math.round(unit.route.remainingTimeSeconds / 60)),
-    activeRouteProgress: vehicle.activeRouteProgress ? {
-      ...vehicle.activeRouteProgress,
-      etaAt: unit.route?.etaAt || null,
-      progressPercent: unit.route?.progressRatio == null
-        ? vehicle.activeRouteProgress.progressPercent
-        : unit.route.progressRatio * 100,
-    } : vehicle.activeRouteProgress,
-  } as Vehicle;
 }
 
 /**
@@ -252,9 +208,9 @@ export function applyOperationalSnapshot(vehicle: Vehicle, unit?: OperationalUni
  * operacional", no "el dato es basura": la ultima posicion conocida se sigue
  * mostrando en el mapa.
  */
-export function getGpsState(vehicle: Vehicle, session?: RouteSession | null): { label: string; stale: boolean; tone: StatusBadgeTone } {
-  const connectionState = getVehicleGpsConnectionState(vehicle);
-  const age = formatGpsAge(vehicle.gpsFreshness?.ageSeconds ?? null);
+export function getGpsState(unit?: OperationalUnitSnapshot, session?: RouteSession | null): { label: string; stale: boolean; tone: StatusBadgeTone } {
+  const connectionState = unit?.gps.connectionState || 'never_reported';
+  const age = formatGpsAge(unit?.gps.ageSeconds ?? null);
 
   // Nunca llego un paquete: no hay nada vencido, hay algo que aun no ocurre.
   if (connectionState === 'never_reported') {
@@ -286,11 +242,11 @@ export function getGpsState(vehicle: Vehicle, session?: RouteSession | null): { 
   };
 }
 
-export function getJourneyState(vehicle: Vehicle, session?: RouteSession | null): JourneyState {
-  if (vehicle.activeRouteProgress?.isOffRoute) return { label: 'Fuera de ruta', tone: 'danger' };
+export function getJourneyState(unit?: OperationalUnitSnapshot, session?: RouteSession | null): JourneyState {
+  if (unit?.route?.isOffRoute) return { label: 'Fuera de ruta', tone: 'danger' };
   // La etiqueta la resuelve la autoridad canonica: una unidad que jamas reporto
   // no puede anunciarse como "GPS perdido".
-  const gps = getGpsState(vehicle, session);
+  const gps = getGpsState(unit, session);
   if (gps.stale && session && session.status !== 'FINISHED') return { label: gps.label, tone: gps.tone };
   if (!session) return { label: 'Esperando salida', tone: 'neutral' };
   return { label: formatPortalStatus(session.status), tone: getPortalStatusTone(session.status) };
@@ -311,13 +267,12 @@ export function downsamplePositions(positions: RouteSessionPosition[], maxPoints
 }
 
 export function getOperationalAlerts(
-  vehicle: Vehicle,
-  session?: RouteSession | null,
-  unit?: OperationalUnitSnapshot
+  unit?: OperationalUnitSnapshot,
+  session?: RouteSession | null
 ) {
   const alerts: { label: string; tone: StatusBadgeTone }[] = [];
-  const gps = getGpsState(vehicle, session);
-  if (vehicle.activeRouteProgress?.isOffRoute) alerts.push({ label: 'Fuera de ruta', tone: 'danger' });
+  const gps = getGpsState(unit, session);
+  if (unit?.route?.isOffRoute) alerts.push({ label: 'Fuera de ruta', tone: 'danger' });
   if (gps.stale) alerts.push({ label: gps.label, tone: 'warning' });
   if (
     session &&

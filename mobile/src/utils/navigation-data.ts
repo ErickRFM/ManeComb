@@ -205,6 +205,8 @@ export function normalizeLiveLocationsData(value: LiveLocationsData | null | und
           .filter((route): route is RouteShape => Boolean(route))
       : [],
     vehicles: Array.isArray(value.vehicles) ? value.vehicles.map(normalizeVehicle) : [],
-    incidents: Array.isArray(value.incidents) ? value.incidents : [],
+    // Incident[] es la unica autoridad mutable. El payload de mapa conserva
+    // geometria y joins estaticos, pero no una segunda coleccion sincronizada.
+    incidents: [],
   };
 }

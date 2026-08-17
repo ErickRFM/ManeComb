@@ -220,6 +220,40 @@ async function runActivationKeyFlow() {
     assert.equal(historicalOrderValidation.payload.data.planId, "starter-2");
     await context.store.deleteActivationKey(historicalOrderKey.id);
 
+    const noExpiryKeyResponse = await requestJson(`${context.url}/admin/activation-keys/generate`, {
+      body: JSON.stringify({ expiresInDays: null }),
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      method: "POST"
+    });
+
+    assert.equal(noExpiryKeyResponse.status, 201);
+    assert.equal(noExpiryKeyResponse.payload.data.activationKey.status, "available");
+    assert.equal(noExpiryKeyResponse.payload.data.activationKey.expiresAt, null);
+
+    const noExpiryValidation = await requestJson(`${context.url}/driver/activation/validate`, {
+      body: JSON.stringify({ key: noExpiryKeyResponse.payload.data.activationKey.key }),
+      method: "POST"
+    });
+
+    assert.equal(noExpiryValidation.status, 200);
+    assert.equal(noExpiryValidation.payload.data.valid, true);
+    assert.equal(noExpiryValidation.payload.data.expiresAt, null);
+
+    const deleteNoExpiryKey = await requestJson(
+      `${context.url}/admin/activation-keys/${noExpiryKeyResponse.payload.data.activationKey.id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        method: "DELETE"
+      }
+    );
+
+    assert.equal(deleteNoExpiryKey.status, 200);
+    assert.equal(deleteNoExpiryKey.payload.data.summary.keysAvailable, 0);
+
     const expiringKeyResponse = await requestJson(`${context.url}/admin/activation-keys/generate`, {
       headers: {
         Authorization: `Bearer ${token}`

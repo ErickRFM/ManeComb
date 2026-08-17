@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
+import { PortalCommunicationRuntime } from '@/features/portal/communication/communication-runtime';
 import { Typography } from '@/constants/theme';
 import {
   canAccessPortal,
@@ -26,6 +27,7 @@ const PasswordUpdatedScreen = lazy(() => import('@/screens/password-recovery/pas
 const PlanCheckoutScreen = lazy(() => import('@/screens/plan-checkout-screen').then((module) => ({ default: module.PlanCheckoutScreen })));
 const LegalScreen = lazy(() => import('@/screens/legal-screen').then((module) => ({ default: module.LegalScreen })));
 const PortalBillingScreen = lazy(() => import('@/features/portal/screens/portal-billing-screen').then((module) => ({ default: module.PortalBillingScreen })));
+const PortalCommunicationScreen = lazy(() => import('@/features/portal/screens/portal-communication-screen').then((module) => ({ default: module.PortalCommunicationScreen })));
 const PortalDashboardScreen = lazy(() => import('@/features/portal/screens/portal-dashboard-screen').then((module) => ({ default: module.PortalDashboardScreen })));
 const PortalOnboardingScreen = lazy(() => import('@/features/portal/screens/portal-onboarding-screen').then((module) => ({ default: module.PortalOnboardingScreen })));
 const PortalPaymentsScreen = lazy(() => import('@/features/portal/screens/portal-payments-screen').then((module) => ({ default: module.PortalPaymentsScreen })));
@@ -195,6 +197,8 @@ function Routes() {
       return <PlanCheckoutScreen />;
     case '/portal':
       return <OperationalPortalGate><ScreenErrorBoundary name="Operaciones"><PortalDashboardScreen /></ScreenErrorBoundary></OperationalPortalGate>;
+    case '/portal/comunicacion':
+      return <OperationalPortalGate><ScreenErrorBoundary name="Comunicación"><PortalCommunicationScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/usuarios':
       return <OperationalPortalGate><ScreenErrorBoundary name="Equipo"><PortalUsersScreen /></ScreenErrorBoundary></OperationalPortalGate>;
     case '/portal/unidades':
@@ -251,6 +255,7 @@ export function App() {
 
   return (
     <RouterProvider>
+      <PortalCommunicationRuntime />
       <Suspense fallback={<BootScreen />}>
         <Routes />
       </Suspense>

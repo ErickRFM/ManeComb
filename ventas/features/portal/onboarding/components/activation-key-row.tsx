@@ -27,6 +27,9 @@ export function ActivationKeyRow({
   showShare?: boolean;
 }) {
   const isAvailable = activationKey.status === 'available';
+  const canReuseSlot =
+    activationKey.status === 'used' &&
+    (activationKey.usedByDriverState === 'offboarded' || activationKey.usedByDriverState === 'deleted');
   const usedBy = activationKey.driver?.name || activationKey.usedByDriverId;
 
   return (
@@ -59,56 +62,55 @@ export function ActivationKeyRow({
                   ? `Conductor eliminado: ${usedBy || 'evidencia conservada'}`
                   : `Conductor: ${usedBy || 'asociado'}`
               : activationKey.status === 'available'
-                ? `Vence: ${activationKey.expiresAt ? new Date(activationKey.expiresAt).toLocaleString('es-MX') : 'sin fecha'}`
+                ? activationKey.expiresAt
+                  ? `Vence: ${new Date(activationKey.expiresAt).toLocaleString('es-MX')}`
+                  : 'Sin vencimiento'
                 : `Historial conservado · Creada: ${activationKey.createdAt ? new Date(activationKey.createdAt).toLocaleDateString('es-MX') : 'sin fecha'}`}
           </Text>
         </>
       }
       actions={
         <View style={styles.keyActions}>
-          <KeyActionButton
-            icon="content-copy"
-            label="Copiar"
-            accessibilityLabel={`Copiar key ${activationKey.key}`}
-            onPress={() => onCopy(activationKey)}
-            disabled={!isAvailable}
-          />
-          <KeyActionButton
-            icon="share-variant-outline"
-            label="Compartir"
-            accessibilityLabel={`Compartir key ${activationKey.key}`}
-            onPress={() => onShare(activationKey)}
-            disabled={!isAvailable}
-            tone="info"
-          />
-          {isAvailable && onReplace ? (
+          {isAvailable ? (
+            <>
+              <KeyActionButton
+                icon="content-copy"
+                label="Copiar"
+                accessibilityLabel={`Copiar key ${activationKey.key}`}
+                onPress={() => onCopy(activationKey)}
+              />
+              <KeyActionButton
+                icon="share-variant-outline"
+                label="Compartir"
+                accessibilityLabel={`Compartir key ${activationKey.key}`}
+                onPress={() => onShare(activationKey)}
+                tone="info"
+              />
+              <KeyActionButton
+                icon="block-helper"
+                label="Revocar"
+                accessibilityLabel={`Revocar key ${activationKey.key}`}
+                onPress={() => onRevoke(activationKey)}
+                disabled={isSubmitting}
+                tone="danger"
+              />
+              <KeyActionButton
+                icon="trash-can-outline"
+                label="Eliminar"
+                accessibilityLabel={`Eliminar key ${activationKey.key}`}
+                onPress={() => onDelete(activationKey)}
+                disabled={isSubmitting}
+                tone="danger"
+              />
+            </>
+          ) : canReuseSlot && onReplace ? (
             <KeyActionButton
-              icon="key-change"
-              label="Reemplazar"
-              accessibilityLabel={`Revocar y reemplazar key ${activationKey.key}`}
+              icon="key-plus"
+              label="Nueva key"
+              accessibilityLabel="Generar una nueva key con el cupo liberado"
               onPress={() => onReplace(activationKey)}
               disabled={isSubmitting}
               tone="info"
-            />
-          ) : null}
-          {isAvailable ? (
-            <KeyActionButton
-              icon="block-helper"
-              label="Revocar"
-              accessibilityLabel={`Revocar key ${activationKey.key}`}
-              onPress={() => onRevoke(activationKey)}
-              disabled={isSubmitting}
-              tone="danger"
-            />
-          ) : null}
-          {isAvailable ? (
-            <KeyActionButton
-              icon="trash-can-outline"
-              label="Eliminar"
-              accessibilityLabel={`Eliminar key ${activationKey.key}`}
-              onPress={() => onDelete(activationKey)}
-              disabled={isSubmitting}
-              tone="danger"
             />
           ) : null}
         </View>

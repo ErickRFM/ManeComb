@@ -12,19 +12,22 @@ import { styles } from '../onboarding.styles';
 import { ActivationMetric } from './activation-metric';
 import type { PortalActivationKeysSummary } from '@/src/types/app';
 
-const TTL_OPTIONS = [
+type ActivationKeyTtlDays = 1 | 7 | 14 | 30 | null;
+
+const TTL_OPTIONS: ReadonlyArray<{ days: ActivationKeyTtlDays; label: string }> = [
   { days: 1, label: '24 horas' },
   { days: 7, label: '7 días' },
   { days: 14, label: '14 días' },
   { days: 30, label: '30 días' },
-] as const;
+  { days: null, label: 'Sin vencimiento' },
+];
 
 export function ActivationKeysSummary({
   summary,
 }: {
   summary: PortalActivationKeysSummary | null;
 }) {
-  const [ttlDays, setTtlDays] = useState(14);
+  const [ttlDays, setTtlDays] = useState<ActivationKeyTtlDays>(14);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const { loadOverview } = usePortalStore(
@@ -49,7 +52,11 @@ export function ActivationKeysSummary({
     try {
       await apiClient.post('/admin/activation-keys/generate', { expiresInDays: ttlDays });
       await loadOverview();
-      setFeedback(`Key generada con vigencia de ${ttlDays === 1 ? '24 horas' : `${ttlDays} días`}.`);
+      setFeedback(
+        ttlDays === null
+          ? 'Key generada sin vencimiento.'
+          : `Key generada con vigencia de ${ttlDays === 1 ? '24 horas' : `${ttlDays} días`}.`
+      );
     } catch (error) {
       setFeedback(
         isAxiosError(error)
@@ -87,7 +94,7 @@ export function ActivationKeysSummary({
         <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {TTL_OPTIONS.map((option) => (
             <PortalButton
-              key={option.days}
+              key={option.label}
               onPress={() => setTtlDays(option.days)}
               size="sm"
               variant={ttlDays === option.days ? 'primary' : 'secondary'}>
@@ -104,7 +111,7 @@ export function ActivationKeysSummary({
           </PortalButton>
         </View>
         <Text style={styles.keyMeta}>
-          La key dejará de funcionar al usarse, vencer o ser revocada. Su evidencia permanecerá enmascarada.
+          La key deja de funcionar al usarse o ser revocada. Si tiene vigencia, también al vencer.
         </Text>
         {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
       </View>

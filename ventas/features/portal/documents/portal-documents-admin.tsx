@@ -18,14 +18,18 @@ import {
   updateDocumentRequest,
 } from '../api';
 import { PortalSectionCard } from '../cards';
+import { PortalContentModal } from '../components/portal-content-modal';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
+import { PortalPagination } from '../components/portal-pagination';
 import { hasPortalPermission } from '../utils/access';
 import { styles } from './documents.styles';
 import { getDocumentSummary, getStatusMeta, isDocumentExpired, matchesDocumentFilter } from './documents.utils';
 
 type HydratedDocument = DocumentItem & { ownerLabel: string; vehicleLabel: string };
 type Dialog = 'review' | 'edit' | 'delete' | 'detail' | 'history' | null;
+
+const PAGE_SIZE = 8;
 
 export function DocumentsAdminScreen() {
   const { loadUsers, loadVehicles, user, users, vehicles } = useAppStore(useShallow((state) => ({
@@ -49,6 +53,8 @@ export function DocumentsAdminScreen() {
   const [name, setName] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [history, setHistory] = useState<DocumentItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [page, setPage] = useState(1);
   const canManage = hasPortalPermission(user, 'documents');
   const editDateValid = !expiresAt.trim() || /^\d{4}-\d{2}-\d{2}$/.test(expiresAt.trim());
   const dialogConfirmDisabled =
@@ -89,6 +95,17 @@ export function DocumentsAdminScreen() {
   )), [documents, users]);
   const summary = useMemo(() => getDocumentSummary(documents, missingDrivers.length), [documents, missingDrivers.length]);
   const filtered = useMemo(() => hydrated.filter((document) => matchesDocumentFilter(document, filter, search)), [hydrated, filter, search]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const visibleDocuments = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, includeDeleted, search]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const openDialog = (next: Dialog, document: HydratedDocument) => {
     setTarget(document);
@@ -100,7 +117,14 @@ export function DocumentsAdminScreen() {
     setMessage(null);
   };
 
-  const closeDialog = () => { if (!submitting) { setDialog(null); setTarget(null); setHistory([]); } };
+  const closeDialog = () => {
+    if (!submitting) {
+      setDialog(null);
+      setTarget(null);
+      setHistory([]);
+      setHistoryLoading(false);
+    }
+  };
 
   const submit = async () => {
     if (!target || !dialog || dialogConfirmDisabled) return;
@@ -127,8 +151,15 @@ export function DocumentsAdminScreen() {
 
   const showHistory = async (document: HydratedDocument) => {
     openDialog('history', document);
-    try { setHistory(await getDocumentHistoryRequest(document.id)); }
-    catch { setMessage('No fue posible cargar el historial.'); }
+    setHistoryLoading(true);
+    setHistory([]);
+    try {
+      setHistory(await getDocumentHistoryRequest(document.id));
+    } catch {
+      setMessage('No fue posible cargar el historial.');
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const downloadDocument = async (document: HydratedDocument) => {
@@ -150,6 +181,7 @@ export function DocumentsAdminScreen() {
   };
 
   const filters = ['', 'pending_review', 'approved', 'rejected', 'expired'];
+  const mutationDialogOpen = Boolean(target && (dialog === 'review' || dialog === 'edit' || dialog === 'delete'));
 
   return (
     <PortalLayout title="Documentos" subtitle="Control de vigencias, revisiones y versiones por conductor y unidad.">
@@ -173,31 +205,84 @@ export function DocumentsAdminScreen() {
           </Pressable> : null}
         </View>
 
-        {loading ? <Text style={styles.docMeta}>Cargando documentos…</Text> : filtered.length ? <PortalDataList>
-          {filtered.map((document) => {
-            const state = document.deletedAt ? 'deleted' : isDocumentExpired(document.expiresAt) ? 'expired' : document.reviewStatus || document.status;
-            const meta = getStatusMeta(state);
-            return <PortalDataRow key={document.id} leading={<View style={styles.docIcon}><MaterialCommunityIcons name="file-document-outline" size={24} color={palette.accent} /></View>}
-              body={<><Text style={styles.docName}>{document.name}</Text><Text style={styles.docMeta}>{document.ownerLabel} · {document.vehicleLabel}</Text><Text style={styles.docMeta}>Versión {document.version || 1} · Vence {formatDate(document.expiresAt, { fallback: 'Sin vigencia' })}</Text></>}
-              meta={<StatusBadge label={meta.label} tone={meta.tone} />}
-              actions={<View style={styles.rowActions}>
-                {!document.deletedAt && document.storageKey ? <Pressable accessibilityRole="button" accessibilityLabel="Descargar documento" onPress={() => void downloadDocument(document)} style={styles.iconAction}><MaterialCommunityIcons name="download" size={16} color={palette.info} /></Pressable> : null}
-                <Pressable accessibilityRole="button" accessibilityLabel="Ver detalle" onPress={() => openDialog('detail', document)} style={styles.iconAction}><MaterialCommunityIcons name="information-outline" size={16} color={palette.info} /></Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel="Ver historial" onPress={() => void showHistory(document)} style={styles.iconAction}><MaterialCommunityIcons name="history" size={16} color={palette.info} /></Pressable>
-                {canManage && !document.deletedAt ? <><Pressable accessibilityRole="button" accessibilityLabel="Editar documento" onPress={() => openDialog('edit', document)} style={styles.iconAction}><MaterialCommunityIcons name="pencil-outline" size={16} color={palette.accent} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Revisar documento" onPress={() => openDialog('review', document)} style={styles.iconAction}><MaterialCommunityIcons name="check-circle-outline" size={16} color={palette.accent} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Eliminar documento" onPress={() => openDialog('delete', document)} style={styles.iconAction}><MaterialCommunityIcons name="delete-outline" size={16} color={palette.danger} /></Pressable></> : null}
-              </View>} />;
-          })}
-        </PortalDataList> : <EmptyState icon="file-document-outline" title="Sin documentos" description="No hay documentos para los filtros seleccionados." />}
+        {loading ? <Text style={styles.docMeta}>Cargando documentos…</Text> : filtered.length ? <>
+          <PortalDataList>
+            {visibleDocuments.map((document) => {
+              const state = document.deletedAt ? 'deleted' : isDocumentExpired(document.expiresAt) ? 'expired' : document.reviewStatus || document.status;
+              const meta = getStatusMeta(state);
+              return <PortalDataRow key={document.id} leading={<View style={styles.docIcon}><MaterialCommunityIcons name="file-document-outline" size={24} color={palette.accent} /></View>}
+                body={<><Text style={styles.docName}>{document.name}</Text><Text style={styles.docMeta}>{document.ownerLabel} · {document.vehicleLabel}</Text><Text style={styles.docMeta}>Versión {document.version || 1} · Vence {formatDate(document.expiresAt, { fallback: 'Sin vigencia' })}</Text></>}
+                meta={<StatusBadge label={meta.label} tone={meta.tone} />}
+                actions={<View style={styles.rowActions}>
+                  {!document.deletedAt && document.storageKey ? <Pressable accessibilityRole="button" accessibilityLabel="Descargar documento" onPress={() => void downloadDocument(document)} style={styles.iconAction}><MaterialCommunityIcons name="download" size={16} color={palette.info} /></Pressable> : null}
+                  <Pressable accessibilityRole="button" accessibilityLabel="Ver detalle" onPress={() => openDialog('detail', document)} style={styles.iconAction}><MaterialCommunityIcons name="information-outline" size={16} color={palette.info} /></Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Ver historial" onPress={() => void showHistory(document)} style={styles.iconAction}><MaterialCommunityIcons name="history" size={16} color={palette.info} /></Pressable>
+                  {canManage && !document.deletedAt ? <><Pressable accessibilityRole="button" accessibilityLabel="Editar documento" onPress={() => openDialog('edit', document)} style={styles.iconAction}><MaterialCommunityIcons name="pencil-outline" size={16} color={palette.accent} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Revisar documento" onPress={() => openDialog('review', document)} style={styles.iconAction}><MaterialCommunityIcons name="check-circle-outline" size={16} color={palette.accent} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Eliminar documento" onPress={() => openDialog('delete', document)} style={styles.iconAction}><MaterialCommunityIcons name="delete-outline" size={16} color={palette.danger} /></Pressable></> : null}
+                </View>} />;
+            })}
+          </PortalDataList>
+          <PortalPagination
+            itemLabel="documentos"
+            onPageChange={setPage}
+            page={safePage}
+            pageSize={PAGE_SIZE}
+            totalItems={filtered.length}
+          />
+        </> : <EmptyState icon="file-document-outline" title="Sin documentos" description="No hay documentos para los filtros seleccionados." />}
       </PortalSectionCard>
 
-      <ConfirmModal visible={Boolean(dialog && target)} title={dialog === 'review' ? 'Revisar documento' : dialog === 'edit' ? 'Editar documento' : dialog === 'delete' ? 'Eliminar documento' : dialog === 'history' ? 'Historial de versiones' : 'Detalle documental'} description={target ? `${target.ownerLabel} · ${target.vehicleLabel}` : ''} confirmLabel={dialog === 'delete' ? 'Eliminar' : dialog === 'detail' || dialog === 'history' ? 'Cerrar' : 'Guardar'} destructive={dialog === 'delete'} processing={submitting} confirmDisabled={dialogConfirmDisabled} onCancel={closeDialog} onConfirm={() => void submit()}>
+      <ConfirmModal
+        visible={mutationDialogOpen}
+        title={dialog === 'review' ? 'Revisar documento' : dialog === 'edit' ? 'Editar documento' : 'Eliminar documento'}
+        description={target ? `${target.ownerLabel} · ${target.vehicleLabel}` : ''}
+        confirmLabel={dialog === 'delete' ? 'Eliminar' : 'Guardar'}
+        destructive={dialog === 'delete'}
+        processing={submitting}
+        confirmDisabled={dialogConfirmDisabled}
+        onCancel={closeDialog}
+        onConfirm={() => void submit()}>
         {dialog === 'review' ? <><View style={styles.reviewSelector}>{(['approved', 'rejected'] as const).map((status) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: reviewStatus === status }} key={status} onPress={() => setReviewStatus(status)} style={[styles.reviewOption, { borderColor: reviewStatus === status ? palette.info : palette.line }]}><Text style={styles.reviewOptionText}>{status === 'approved' ? 'Aprobar' : 'Rechazar'}</Text></Pressable>)}</View><TextInput accessibilityLabel="Notas de revisión" value={notes} onChangeText={setNotes} multiline placeholder={reviewStatus === 'rejected' ? 'Motivo obligatorio del rechazo' : 'Notas de revisión'} placeholderTextColor={palette.muted} style={styles.reviewInput} /></> : null}
         {dialog === 'edit' ? <View style={styles.modalList}><TextInput accessibilityLabel="Nombre del documento" value={name} onChangeText={setName} placeholder="Nombre" placeholderTextColor={palette.muted} style={styles.searchInput} /><TextInput accessibilityLabel="Vigencia del documento" value={expiresAt} onChangeText={setExpiresAt} placeholder="Vigencia AAAA-MM-DD" placeholderTextColor={palette.muted} style={styles.searchInput} /></View> : null}
         {dialog === 'delete' ? <TextInput accessibilityLabel="Motivo de eliminación" value={notes} onChangeText={setNotes} multiline placeholder="Motivo obligatorio" placeholderTextColor={palette.muted} style={styles.reviewInput} /> : null}
-        {dialog === 'detail' && target ? <View style={styles.detailBox}><Text style={styles.docName}>{target.name}</Text><Text style={styles.docMeta}>Archivo: {target.originalFileName || 'No disponible'}</Text><Text style={styles.docMeta}>Tipo: {target.mimeType || 'No registrado'} · Tamaño: {target.fileSize ? `${Math.ceil(target.fileSize / 1024)} KB` : 'No registrado'}</Text><Text style={styles.docMeta}>Subido: {formatDate(target.uploadedAt, { fallback: '—' })}</Text>{target.reviewNotes ? <Text style={styles.docMeta}>Notas: {target.reviewNotes}</Text> : null}</View> : null}
-        {dialog === 'history' ? <View style={styles.modalList}>{history.length ? history.map((entry) => <View key={entry.id} style={styles.detailBox}><Text style={styles.docName}>Versión {entry.version || 1}</Text><Text style={styles.docMeta}>{entry.originalFileName || entry.name} · {entry.deletedAt ? 'Eliminada' : getStatusMeta(entry.reviewStatus || entry.status).label}</Text></View>) : <Text style={styles.docMeta}>Cargando historial…</Text>}</View> : null}
         {message ? <Text style={styles.docMeta}>{message}</Text> : null}
       </ConfirmModal>
+
+      <PortalContentModal
+        visible={Boolean(dialog === 'detail' && target)}
+        onClose={closeDialog}
+        title={target?.name || 'Detalle documental'}
+        subtitle={target ? `${target.ownerLabel} · ${target.vehicleLabel}` : undefined}>
+        {target ? <View style={styles.detailBox}>
+          <Text style={styles.docName}>{target.name}</Text>
+          <Text style={styles.docMeta}>Archivo: {target.originalFileName || 'No disponible'}</Text>
+          <Text style={styles.docMeta}>Tipo: {target.mimeType || 'No registrado'} · Tamaño: {target.fileSize ? `${Math.ceil(target.fileSize / 1024)} KB` : 'No registrado'}</Text>
+          <Text style={styles.docMeta}>Subido: {formatDate(target.uploadedAt, { fallback: '—' })}</Text>
+          <Text style={styles.docMeta}>Vigencia: {formatDate(target.expiresAt, { fallback: 'Sin vigencia' })}</Text>
+          {target.reviewNotes ? <Text style={styles.docMeta}>Notas: {target.reviewNotes}</Text> : null}
+        </View> : null}
+      </PortalContentModal>
+
+      <PortalContentModal
+        visible={Boolean(dialog === 'history' && target)}
+        onClose={closeDialog}
+        title="Historial de versiones"
+        subtitle={target ? `${target.name} · ${target.ownerLabel}` : undefined}
+        width="lg">
+        {historyLoading ? (
+          <Text style={styles.docMeta}>Cargando historial…</Text>
+        ) : history.length ? (
+          <View style={styles.modalList}>
+            {history.map((entry) => <View key={entry.id} style={styles.detailBox}>
+              <Text style={styles.docName}>Versión {entry.version || 1}</Text>
+              <Text style={styles.docMeta}>{entry.originalFileName || entry.name} · {entry.deletedAt ? 'Eliminada' : getStatusMeta(entry.reviewStatus || entry.status).label}</Text>
+              <Text style={styles.docMeta}>{formatDate(entry.uploadedAt, { fallback: 'Sin fecha' })}</Text>
+            </View>)}
+          </View>
+        ) : (
+          <EmptyState icon="history" title="Sin versiones anteriores" description="Este documento todavía no tiene historial de versiones adicional." />
+        )}
+        {message ? <Text style={styles.docMeta}>{message}</Text> : null}
+      </PortalContentModal>
     </PortalLayout>
   );
 }

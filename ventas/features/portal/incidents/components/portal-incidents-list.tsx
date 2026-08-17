@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { Pressable, Text, View } from 'react-native';
 import { palette } from '@/constants/theme';
@@ -7,9 +8,12 @@ import type { Incident } from '@/src/types/app';
 import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../../cards';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
+import { PortalPagination } from '../../components/portal-pagination';
 import { incidentFilterStatuses } from '../incidents.constants';
 import { styles } from '../incidents.styles';
 import { getSeverityMeta, getStatusMeta, getTypeIcon } from '../incidents.utils';
+
+const PAGE_SIZE = 8;
 
 type PortalIncidentsListProps = {
   filterStatus: string;
@@ -26,6 +30,19 @@ export function PortalIncidentsList({
   onFilterChange,
   onSelect,
 }: PortalIncidentsListProps) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(incidents.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const visibleIncidents = incidents.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterStatus]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   return (
     <PortalSectionCard title="Incidencias" subtitle={message || `${incidents.length} registro${incidents.length === 1 ? '' : 's'}`}>
       <View style={styles.filterRow}>
@@ -43,31 +60,40 @@ export function PortalIncidentsList({
       </View>
 
       {incidents.length ? (
-        <PortalDataList>
-          {incidents.map((incident) => {
-            const status = getStatusMeta(incident.status);
-            const severity = getSeverityMeta(incident.severity);
-            return (
-              <PortalDataRow
-                key={incident.id}
-                onPress={() => onSelect(incident)}
-                leading={<View style={[styles.incIcon, { backgroundColor: incident.severity === 'critical' ? palette.dangerSoft : palette.surfaceAlt }]}>
-                  <MaterialCommunityIcons name={getTypeIcon(incident.type)} size={20} color={incident.severity === 'critical' ? palette.danger : palette.accent} />
-                </View>}
-                body={<>
-                  <Text style={[styles.incTitle, { color: palette.text }]}>{incident.title}</Text>
-                  <Text style={[styles.incMeta, { color: palette.muted }]} numberOfLines={1}>
-                    {incident.type} · {incident.vehicle?.code || incident.vehicleId || 'Sin unidad'} · {formatDate(incident.createdAt, { fallback: '' })}
-                  </Text>
-                </>}
-                meta={<View style={styles.incBadges}>
-                  <StatusBadge label={incident.severity === 'critical' ? 'SOS' : severity.label} tone={severity.tone} />
-                  <StatusBadge label={status.label} tone={status.tone} />
-                </View>}
-              />
-            );
-          })}
-        </PortalDataList>
+        <>
+          <PortalDataList>
+            {visibleIncidents.map((incident) => {
+              const status = getStatusMeta(incident.status);
+              const severity = getSeverityMeta(incident.severity);
+              return (
+                <PortalDataRow
+                  key={incident.id}
+                  onPress={() => onSelect(incident)}
+                  leading={<View style={[styles.incIcon, { backgroundColor: incident.severity === 'critical' ? palette.dangerSoft : palette.surfaceAlt }]}>
+                    <MaterialCommunityIcons name={getTypeIcon(incident.type)} size={20} color={incident.severity === 'critical' ? palette.danger : palette.accent} />
+                  </View>}
+                  body={<>
+                    <Text style={[styles.incTitle, { color: palette.text }]}>{incident.title}</Text>
+                    <Text style={[styles.incMeta, { color: palette.muted }]} numberOfLines={1}>
+                      {incident.type} · {incident.vehicle?.code || incident.vehicleId || 'Sin unidad'} · {formatDate(incident.createdAt, { fallback: '' })}
+                    </Text>
+                  </>}
+                  meta={<View style={styles.incBadges}>
+                    <StatusBadge label={incident.severity === 'critical' ? 'SOS' : severity.label} tone={severity.tone} />
+                    <StatusBadge label={status.label} tone={status.tone} />
+                  </View>}
+                />
+              );
+            })}
+          </PortalDataList>
+          <PortalPagination
+            itemLabel="incidencias"
+            onPageChange={setPage}
+            page={safePage}
+            pageSize={PAGE_SIZE}
+            totalItems={incidents.length}
+          />
+        </>
       ) : (
         <EmptyState icon="alert-circle-outline" title="Sin incidencias" description="No hay incidencias registradas." />
       )}

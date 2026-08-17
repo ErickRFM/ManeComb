@@ -4,7 +4,7 @@ import { EmptyState } from '@/src/components/ui/empty-state';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
 import { portalPalette } from '../../portal-theme';
 import type { Vehicle } from '@/src/types/app';
-import type { OperationalState } from '@shared/operational-contract';
+import type { OperationalState, OperationalUnitSnapshot } from '@shared/operational-contract';
 import { getDriverName } from '../routes.utils';
 import { styles } from '../routes.styles';
 
@@ -21,19 +21,22 @@ const SELECTOR_STATUS_LABEL: Partial<Record<OperationalState, string>> = {
   unknown: 'Sin datos',
 };
 
-function getSelectorStatusLabel(vehicle: Vehicle) {
-  return (vehicle.operationalState && SELECTOR_STATUS_LABEL[vehicle.operationalState]) || 'Sin datos';
+function getSelectorStatusLabel(unit?: OperationalUnitSnapshot) {
+  return (unit?.operationalState && SELECTOR_STATUS_LABEL[unit.operationalState]) || 'Sin datos';
 }
 
 export function RouteUnitSelector({
   vehicles,
+  operationalUnits,
   selectedVehicleId,
   onSelectVehicle,
 }: {
   vehicles: Vehicle[];
+  operationalUnits: OperationalUnitSnapshot[];
   selectedVehicleId: string;
   onSelectVehicle: (vehicleId: string) => void;
 }) {
+  const unitByVehicleId = new Map(operationalUnits.map((unit) => [unit.unitId, unit]));
   return (
     <View style={styles.unitsPanel}>
       <View style={styles.panelHeading}>
@@ -59,7 +62,7 @@ export function RouteUnitSelector({
                     <Text style={styles.unitCode}>{vehicle.code}</Text>
                     <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
                     <Text style={styles.unitStatus}>
-                      ● {getSelectorStatusLabel(vehicle)}
+                      ● {getSelectorStatusLabel(unitByVehicleId.get(vehicle.id))}
                     </Text>
                   </>
                 }

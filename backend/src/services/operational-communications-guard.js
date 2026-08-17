@@ -1,3 +1,5 @@
+const { ENTERPRISE_CAPABILITY, hasCapability } = require("./enterprise-capabilities");
+
 function normalizeStatus(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -7,6 +9,13 @@ function isOperationalCommunicationUser(user) {
     user &&
     !user.deletedAt &&
     normalizeStatus(user.userStatus) !== "suspended"
+  );
+}
+
+function isChatCommunicationUser(user) {
+  return Boolean(
+    isOperationalCommunicationUser(user) &&
+    hasCapability(user, ENTERPRISE_CAPABILITY.CHAT_ACCESS)
   );
 }
 
@@ -47,7 +56,9 @@ function resolveUser(store, userOrId) {
 }
 
 function filterConversationSummary(store, conversation, currentUser) {
-  if (!conversation || typeof conversation !== "object") return null;
+  if (!conversation || typeof conversation !== "object" || !isChatCommunicationUser(currentUser)) {
+    return null;
+  }
 
   const participantResults = (Array.isArray(conversation.participants)
     ? conversation.participants
@@ -57,7 +68,7 @@ function filterConversationSummary(store, conversation, currentUser) {
   return mapMaybe(allMaybe(participantResults), (resolvedParticipants) => {
     const participants = resolvedParticipants.filter(
       (user) =>
-        isOperationalCommunicationUser(user) &&
+        isChatCommunicationUser(user) &&
         sameOrganization(currentUser, user)
     );
 
@@ -144,7 +155,7 @@ function installOperationalCommunicationsGuard(store) {
 
   function getEligibleCurrentUser(userId) {
     return mapMaybe(resolveUser(store, userId), (user) =>
-      isOperationalCommunicationUser(user) ? user : null
+      isChatCommunicationUser(user) ? user : null
     );
   }
 
@@ -155,7 +166,7 @@ function installOperationalCommunicationsGuard(store) {
         return mapMaybe(original.listChatContactsForUser(userId), (contacts) =>
           (Array.isArray(contacts) ? contacts : []).filter(
             (contact) =>
-              isOperationalCommunicationUser(contact) &&
+              isChatCommunicationUser(contact) &&
               sameOrganization(currentUser, contact)
           )
         );
@@ -172,7 +183,7 @@ function installOperationalCommunicationsGuard(store) {
         ([sourceUser, targetUser]) => {
           if (
             !sourceUser ||
-            !isOperationalCommunicationUser(targetUser) ||
+            !isChatCommunicationUser(targetUser) ||
             !sameOrganization(sourceUser, targetUser)
           ) {
             throw new Error("Participante no encontrado");
@@ -243,7 +254,7 @@ function installOperationalCommunicationsGuard(store) {
               return mapMaybe(allMaybe(participantResults), (participants) =>
                 participants.every(
                   (participant) =>
-                    isOperationalCommunicationUser(participant) &&
+                    isChatCommunicationUser(participant) &&
                     sameOrganization(currentUser, participant)
                 )
               );
@@ -323,5 +334,6 @@ function installOperationalCommunicationsGuard(store) {
 module.exports = {
   filterConversationSummary,
   installOperationalCommunicationsGuard,
+  isChatCommunicationUser,
   isOperationalCommunicationUser
 };

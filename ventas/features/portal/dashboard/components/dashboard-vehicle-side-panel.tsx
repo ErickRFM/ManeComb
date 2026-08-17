@@ -71,12 +71,12 @@ export function VehicleSidePanel({
   const canChangeDriver = hasPortalPermission(currentUser, 'users');
   const effectiveDriverSelectorOpen = canChangeDriver && driverSelectorOpen;
   const session = activeSession || latestSession;
-  const activeDriver = getActiveDriver(users, vehicle);
+  const activeDriver = getActiveDriver(users, vehicle, operationalUnit);
   const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
   const routeInfo = getRouteInfo(vehicle, session);
-  const journeyState = getJourneyState(vehicle, session);
-  const progress = getRouteProgressPercent(vehicle, session);
-  const alerts = getOperationalAlerts(vehicle, session, operationalUnit).filter((alert) => alert.label !== journeyState.label);
+  const journeyState = getJourneyState(operationalUnit, session);
+  const progress = getRouteProgressPercent(operationalUnit, session);
+  const alerts = getOperationalAlerts(operationalUnit, session).filter((alert) => alert.label !== journeyState.label);
   return (
     <View style={styles.sidePanel}>
       <View style={styles.sideHeader}>
@@ -108,8 +108,8 @@ export function VehicleSidePanel({
       {session ? <ProgressBar value={progress} /> : null}
       <View style={styles.sideHighlightRow}>
         <Fact label="Velocidad" value={operationalUnit ? formatOperationalSpeed(operationalUnit.gps) : 'Sin dato'} />
-        <Fact label="ETA" value={getEtaLabel(vehicle)} />
-        <Fact label="Ultimo GPS" value={getLastGpsUpdate(vehicle)} />
+        <Fact label="ETA" value={getEtaLabel(operationalUnit)} />
+        <Fact label="Ultimo GPS" value={getLastGpsUpdate(operationalUnit)} />
       </View>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
       {assignedDrivers.length > 1 || effectiveDriverSelectorOpen ? (

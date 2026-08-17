@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
+import { transition } from '@/src/native/motion';
 import { portalButtonGradient, portalPalette } from '../portal-theme';
 
 export type PortalButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'icon';
@@ -43,6 +44,7 @@ export function PortalButton({
       onPress={onPress}
       style={({ hovered, pressed }: any) => [
         styles.base,
+        transition('transform, opacity, background-color, border-color', 150),
         getSizeStyle(size),
         variant === 'primary' ? portalButtonGradient() : undefined,
         variant === 'secondary' ? styles.secondary : undefined,
@@ -51,8 +53,8 @@ export function PortalButton({
         variant === 'icon' ? styles.icon : undefined,
         iconOnly ? styles.iconOnly : undefined,
         fullWidth ? styles.fullWidth : undefined,
-        hovered ? styles.hovered : undefined,
-        pressed ? styles.pressed : undefined,
+        hovered && !inactive ? getHoverStyle(variant) : undefined,
+        pressed && !inactive ? styles.pressed : undefined,
         inactive ? styles.disabled : undefined,
       ]}>
       {loading ? (
@@ -113,11 +115,20 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     width: '100%',
   },
-  hovered: {
-    opacity: DesignSystem.opacity.pressed,
+  primaryHovered: {
+    opacity: 1,
+    transform: [{ translateY: -1 }],
+  },
+  neutralHovered: {
+    backgroundColor: 'rgba(255, 255, 255, 0.085)',
+    borderColor: portalPalette.lineStrong,
+  },
+  dangerHovered: {
+    backgroundColor: 'rgba(240, 106, 106, 0.22)',
   },
   pressed: {
-    opacity: DesignSystem.opacity.pressed,
+    opacity: 0.82,
+    transform: [{ scale: 0.98 }],
   },
   disabled: {
     opacity: DesignSystem.opacity.disabled,
@@ -142,4 +153,10 @@ function getIconSize(size: PortalButtonSize) {
   if (size === 'sm') return DesignSystem.icon.xs;
   if (size === 'lg') return DesignSystem.icon.md;
   return DesignSystem.icon.sm;
+}
+
+function getHoverStyle(variant: PortalButtonVariant) {
+  if (variant === 'primary') return styles.primaryHovered;
+  if (variant === 'danger') return styles.dangerHovered;
+  return styles.neutralHovered;
 }

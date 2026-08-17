@@ -41,14 +41,14 @@ type UsePointToPointTrackerArgs = {
 
 export type RouteProgressSnapshot = ActiveRouteProgress;
 
-function createVehiclePoint(vehicle: Vehicle): NavigationPlaceResult | null {
-  if (!vehicle.location) return null;
+function createVehiclePoint(vehicle: Vehicle, trackedLocation: TrackedLocation | null): NavigationPlaceResult | null {
+  if (!trackedLocation) return null;
 
   return {
     id: `vehicle-point-${vehicle.id}`,
     label: `${vehicle.code} salida`,
     address: vehicle.routeName || vehicle.driverName || 'Unidad activa',
-    location: vehicle.location,
+    location: trackedLocation,
   };
 }
 
@@ -392,7 +392,7 @@ export function usePointToPointTracker({
       return;
     }
 
-    const point = createVehiclePoint(selectedVehicle);
+    const point = createVehiclePoint(selectedVehicle, trackedLocation);
     if (!point) {
       setPointMessage('La unidad seleccionada no tiene ubicacion disponible.');
       return;

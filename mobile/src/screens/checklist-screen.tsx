@@ -193,6 +193,15 @@ export function ChecklistScreen() {
   }, [historyRefreshKey, loadSessionHistory, user]);
   const selectedVehicle =
     vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0] || null;
+  const selectedOperationalUnit = selectedVehicle ? unitById.get(selectedVehicle.id) || null : null;
+  const selectedUnitLocation = selectedOperationalUnit?.gps?.lat != null && selectedOperationalUnit.gps.lng != null
+    ? {
+        latitude: selectedOperationalUnit.gps.lat,
+        longitude: selectedOperationalUnit.gps.lng,
+        heading: selectedOperationalUnit.gps.heading,
+        speed: selectedOperationalUnit.gps.speedKmh == null ? null : selectedOperationalUnit.gps.speedKmh / 3.6,
+      }
+    : null;
   const selectedAssignedRoute = useMemo<AssignedRoute | null>(
     () => normalizeAssignedRoute(selectedVehicle?.assignedRoute),
     [selectedVehicle?.assignedRoute]
@@ -200,9 +209,9 @@ export function ChecklistScreen() {
   const trackedLocation =
     user?.vehicleId && selectedVehicle?.id === user.vehicleId && coordinates
       ? coordinates
-      : selectedVehicle?.location || coordinates || null;
+      : selectedUnitLocation || coordinates || null;
   const tracker = usePointToPointTracker({
-    searchAnchor: selectedVehicle?.location || coordinates || null,
+    searchAnchor: selectedUnitLocation || coordinates || null,
     selectedVehicle,
     trackedLocation,
   });
@@ -1283,7 +1292,7 @@ export function ChecklistScreen() {
                   <RoutePreview
                     points={routeStops}
                     route={routeOption}
-                    vehicle={selectedVehicle}
+                    vehicleLocation={selectedUnitLocation}
                     onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
                   />
                   {routeOption ? (
@@ -1411,7 +1420,7 @@ export function ChecklistScreen() {
                   <RoutePreview
                     points={routeStops}
                     route={routeOption}
-                    vehicle={selectedVehicle}
+                    vehicleLocation={selectedUnitLocation}
                     onPress={() => selectedVehicle && openMapForVehicle(selectedVehicle, 'origin')}
                   />
                   <View style={styles.routeSummary}>
@@ -1459,7 +1468,7 @@ export function ChecklistScreen() {
                   <RoutePreview
                     points={routeStops}
                     route={routeOption}
-                    vehicle={selectedVehicle}
+                    vehicleLocation={selectedUnitLocation}
                   />
                   <View style={styles.progressCard}>
                     <View style={styles.progressTop}>
