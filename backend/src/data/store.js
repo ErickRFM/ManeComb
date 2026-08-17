@@ -2235,6 +2235,42 @@ function createEmbeddedStore() {
     return clone(order);
   }
 
+  /**
+   * Cancelacion atomica de la suscripcion.
+   *
+   * Antes la ruta hacia leer -> comprobar -> escribir. Dos peticiones
+   * concurrentes leian la misma orden no cancelada, ambas pasaban la guarda y
+   * ambas escribian, duplicando el correo de cancelacion y la entrada de
+   * auditoria. El estado final coincidia, pero el cliente recibia dos avisos.
+   *
+   * Aqui la comprobacion y la escritura ocurren en el mismo turno sincrono, que
+   * en el adaptador embebido es indivisible. `applied:false` significa que otra
+   * peticion gano la carrera y ESTA no debe ejecutar efectos secundarios.
+   */
+  function cancelCommercialSubscriptionAtomically(orderId, { cancelledAt, reason = "" } = {}) {
+    const order = getCommercialOrderById(orderId);
+    if (!order) return { applied: false, reason: "order_not_found", order: null };
+
+    const alreadyCancelled =
+      String(order.status || "").toLowerCase() === "cancelled" ||
+      String(order.activationStatus || "").toLowerCase() === "cancelled";
+    if (alreadyCancelled) {
+      return { applied: false, reason: "already_cancelled", order: clone(order) };
+    }
+
+    return {
+      applied: true,
+      order: updateCommercialOrder(orderId, {
+        activationStatus: "cancelled",
+        status: "cancelled",
+        cancelAt: cancelledAt,
+        cancelAtPeriodEnd: false,
+        cancelledAt,
+        activationNotes: reason
+      })
+    };
+  }
+
   function claimCheckoutCreation({ scope, keyHash, requestFingerprint, workerId, now = new Date() }) {
     const current = state.checkoutIdempotency.find((entry) => entry.scope === scope && entry.keyHash === keyHash);
     if (!current) {
@@ -4136,6 +4172,7 @@ function createEmbeddedStore() {
     listRouteSessionPositions,
     updateRouteSession,
     updateRoute,
+    cancelCommercialSubscriptionAtomically,
     updateCommercialOrder,
     updateActivationKey,
     updateRtcSession

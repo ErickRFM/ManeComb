@@ -164,25 +164,27 @@ router.post("/subscription/cancel", authenticate, requirePortalAccess, requirePe
   }
 
 
-  if (
-    String(activeOrder.status || "").toLowerCase() === "cancelled" ||
-    String(activeOrder.activationStatus || "").toLowerCase() === "cancelled"
-  ) {
-    return res.status(409).json({
+  const cancelledAt = new Date().toISOString();
+  // Comprobar y escribir en un solo paso. Antes se leia, se comprobaba y se
+  // escribia por separado: dos peticiones concurrentes pasaban ambas la guarda y
+  // ambas ejecutaban los efectos, enviando DOS correos de cancelacion y dejando
+  // DOS entradas de auditoria. `applied:false` significa que otra peticion gano
+  // la carrera y esta no debe repetir los efectos.
+  const cancellation = await req.app.locals.store.cancelCommercialSubscriptionAtomically(activeOrder.id, {
+    cancelledAt,
+    reason: String(req.body?.reason || "").trim()
+  });
+
+  if (!cancellation.applied) {
+    return res.status(cancellation.reason === "order_not_found" ? 404 : 409).json({
       ok: false,
-      message: "La suscripcion ya esta cancelada"
+      message: cancellation.reason === "order_not_found"
+        ? "No hay suscripcion para cancelar"
+        : "La suscripcion ya esta cancelada"
     });
   }
 
-  const cancelledAt = new Date().toISOString();
-  const updatedOrder = await req.app.locals.store.updateCommercialOrder(activeOrder.id, {
-    activationStatus: "cancelled",
-    status: "cancelled",
-    cancelAt: cancelledAt,
-    cancelAtPeriodEnd: false,
-    cancelledAt,
-    activationNotes: String(req.body?.reason || "").trim()
-  });
+  const updatedOrder = cancellation.order;
   const subscription = await buildAccountSubscription(req, updatedOrder);
   const deliveryStatus = await notifyCommercialOrder(
     { ...activeOrder, ...updatedOrder },

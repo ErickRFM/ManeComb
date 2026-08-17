@@ -25,7 +25,8 @@ const PAYMENT_METHODS = [
   "findCommercialOrderByProviderPaymentId",
   "reserveRefundAmount",
   "claimTrialEntitlement",
-  "updateCommercialOrder"
+  "updateCommercialOrder",
+  "cancelCommercialSubscriptionAtomically"
 ];
 
 class PaymentRepository extends StoreDomainRepository {
@@ -258,6 +259,42 @@ class PaymentRepository extends StoreDomainRepository {
     }).lean();
 
     return this.serialize(order);
+  }
+
+  /**
+   * Cancelacion atomica. El filtro excluye las ordenes ya canceladas, asi que
+   * solo la primera peticion concurrente obtiene documento y ejecuta efectos
+   * secundarios. Sin esto, dos cancelaciones simultaneas enviaban dos correos y
+   * dejaban dos entradas de auditoria.
+   */
+  async cancelCommercialSubscriptionAtomically(orderId, { cancelledAt, reason = "" } = {}) {
+    if (!this.CommercialLeadModel) {
+      return this.store.cancelCommercialSubscriptionAtomically(orderId, { cancelledAt, reason });
+    }
+    const updated = await this.CommercialLeadModel.findOneAndUpdate(
+      {
+        _id: orderId,
+        status: { $ne: "cancelled" },
+        activationStatus: { $ne: "cancelled" }
+      },
+      {
+        $set: {
+          activationStatus: "cancelled",
+          status: "cancelled",
+          cancelAt: cancelledAt,
+          cancelAtPeriodEnd: false,
+          cancelledAt,
+          activationNotes: reason
+        }
+      },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (updated) return { applied: true, order: this.serialize(updated) };
+
+    const current = await this.CommercialLeadModel.findById(orderId).lean();
+    if (!current) return { applied: false, reason: "order_not_found", order: null };
+    return { applied: false, reason: "already_cancelled", order: this.serialize(current) };
   }
 
   async updateCommercialOrder(orderId, payload) {
