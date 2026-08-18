@@ -195,6 +195,25 @@ export function hydratePendingSyncOperationForReplay(
   };
 }
 
+// El snapshot y sus patches parciales comparten la misma exclusión mutua. Sin
+// ella, un start/pause offline que persiste activeRouteSession puede competir
+// con refreshAll/saveOfflineCache o logout/clearOfflineCache y resucitar estado
+// obsoleto después de un process death.
+let offlineCacheMutationTail: Promise<void> = Promise.resolve();
+
+function serializeOfflineCacheMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const operation = offlineCacheMutationTail.then(mutation, mutation);
+  offlineCacheMutationTail = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  return operation;
+}
+
+async function readOfflineCacheUnsafe() {
+  return safeJsonParse<OfflineCacheSnapshot>(await AsyncStorage.getItem(CACHE_KEY));
+}
+
 // AsyncStorage no ofrece una operación read-modify-write atómica. Sin una cola
 // local, dos acciones offline concurrentes pueden leer el mismo snapshot y la
 // última escritura borra silenciosamente la operación de la otra. Esta cola es
@@ -219,24 +238,44 @@ async function writePendingSyncQueueUnsafe(queue: PendingSyncOperation[]) {
 }
 
 export async function loadOfflineCache() {
-  return safeJsonParse<OfflineCacheSnapshot>(await AsyncStorage.getItem(CACHE_KEY));
+  await offlineCacheMutationTail;
+  return readOfflineCacheUnsafe();
 }
 
 export async function saveOfflineCache(snapshot: Omit<OfflineCacheSnapshot, 'savedAt'>) {
-  const nextSnapshot: OfflineCacheSnapshot = {
-    ...snapshot,
-    savedAt: new Date().toISOString(),
-  };
+  return serializeOfflineCacheMutation(async () => {
+    const nextSnapshot: OfflineCacheSnapshot = {
+      ...snapshot,
+      savedAt: new Date().toISOString(),
+    };
 
-  await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(nextSnapshot));
-  return nextSnapshot;
+    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(nextSnapshot));
+    return nextSnapshot;
+  });
+}
+
+export async function patchOfflineCachedActiveRouteSession(activeRouteSession: RouteSession | null) {
+  return serializeOfflineCacheMutation(async () => {
+    const current = await readOfflineCacheUnsafe();
+    if (!current) return null;
+
+    const nextSnapshot: OfflineCacheSnapshot = {
+      ...current,
+      activeRouteSession,
+      savedAt: new Date().toISOString(),
+    };
+    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(nextSnapshot));
+    return nextSnapshot;
+  });
 }
 
 export async function clearOfflineCache() {
-  // El snapshot puede limpiarse inmediatamente. La cola, en cambio, debe pasar
-  // por la misma exclusión mutua que enqueue/remove/replace para que un write ya
-  // iniciado no la resucite después de logout o cambio de tenant.
-  await AsyncStorage.removeItem(CACHE_KEY);
+  // El snapshot y la cola tienen exclusión mutua independiente. Cada clear se
+  // encola detrás de writes ya iniciados para que ninguno pueda resucitar datos
+  // después de logout o cambio de tenant.
+  await serializeOfflineCacheMutation(async () => {
+    await AsyncStorage.removeItem(CACHE_KEY);
+  });
   await serializePendingSyncMutation(async () => {
     await AsyncStorage.removeItem(QUEUE_KEY);
   });

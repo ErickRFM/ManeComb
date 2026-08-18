@@ -331,6 +331,19 @@ class ManeCombLocationService : Service(), LocationListener {
     }.start()
   }
 
+  private fun pendingSessionStartedAt(): Long? = synchronized(queueLock) {
+    if (!sessionId.startsWith("pending:")) {
+      return@synchronized null
+    }
+
+    pendingLocations
+      .asSequence()
+      .filter { packet -> packet.optString("sessionId", "") == sessionId }
+      .map { packet -> packet.optLong("timestamp", 0L) }
+      .filter { capturedAt -> capturedAt > 0L }
+      .minOrNull()
+  }
+
   /**
    * `pending:*` is an explicit offline-session marker. A blank session means live tracking only
    * and must never create a RouteSession implicitly.
@@ -349,8 +362,12 @@ class ManeCombLocationService : Service(), LocationListener {
       connection.doOutput = true
       connection.setRequestProperty("Authorization", "Bearer $safeToken")
       connection.setRequestProperty("Content-Type", "application/json")
+      val startPayload = JSONObject().put("vehicleId", vehicleId)
+      pendingSessionStartedAt()?.let { capturedAt ->
+        startPayload.put("startedAt", capturedAt)
+      }
       OutputStreamWriter(connection.outputStream).use { writer ->
-        writer.write(JSONObject().put("vehicleId", vehicleId).toString())
+        writer.write(startPayload.toString())
       }
 
       val responseCode = connection.responseCode
