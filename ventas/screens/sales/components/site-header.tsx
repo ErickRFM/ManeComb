@@ -67,8 +67,9 @@ export function SiteHeader({
         <View style={styles.headerTopRow}>
           <BrandLogo size={stacked ? 'sm' : 'md'} align="left" plain />
           {stacked ? (
-            <View style={styles.headerActions}>
+            <View style={[styles.headerActions, { gap: 6 }]}>
               <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
+              <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
             </View>
           ) : null}
         </View>
