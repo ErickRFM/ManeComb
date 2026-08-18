@@ -10,7 +10,7 @@ import { ActivationTimeline, PortalSectionCard } from '../cards';
 import { PortalContentModal } from '../components/portal-content-modal';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalButton } from '../components/portal-button';
-import { PortalDataList } from '../components/portal-data-list';
+import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { PortalPagination } from '../components/portal-pagination';
 import { portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
@@ -23,6 +23,7 @@ import { getStepTarget } from '../onboarding/onboarding.utils';
 import type { PortalActivationKey } from '@/src/types/app';
 
 const ACTIVATION_KEY_PAGE_SIZE = 6;
+const ACTIVATION_HISTORY_PAGE_SIZE = 8;
 const TIMELINE_PREVIEW_LIMIT = 3;
 
 export function PortalOnboardingScreen() {
@@ -56,6 +57,8 @@ export function PortalOnboardingScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [keyConfirmation, setKeyConfirmation] = useState<{ type: 'revoke' | 'delete'; key: PortalActivationKey } | null>(null);
   const [activationPage, setActivationPage] = useState(1);
+  const [keyHistoryOpen, setKeyHistoryOpen] = useState(false);
+  const [keyHistoryPage, setKeyHistoryPage] = useState(1);
   const [timelineOpen, setTimelineOpen] = useState(false);
 
   const steps = onboarding?.steps || [];
@@ -70,18 +73,33 @@ export function PortalOnboardingScreen() {
   const nextPendingStep = steps.find((step) => step.status !== 'completed');
   const nextStepTarget = nextPendingStep ? getStepTarget(nextPendingStep.id) : null;
   const activationTimeline = overview?.activationTimeline || [];
-  const activationTotalPages = Math.max(1, Math.ceil(activationKeys.length / ACTIVATION_KEY_PAGE_SIZE));
+  const availableActivationKeys = activationKeys.filter((key) => key.status === 'available');
+  const historicalActivationKeys = activationKeys.filter((key) => key.status !== 'available');
+  const usedHistoryCount = historicalActivationKeys.filter((key) => key.status === 'used').length;
+  const revokedHistoryCount = historicalActivationKeys.filter((key) => key.status === 'revoked').length;
+  const expiredHistoryCount = historicalActivationKeys.filter((key) => key.status === 'expired').length;
+  const activationTotalPages = Math.max(1, Math.ceil(availableActivationKeys.length / ACTIVATION_KEY_PAGE_SIZE));
   const safeActivationPage = Math.min(activationPage, activationTotalPages);
-  const visibleActivationKeys = activationKeys.slice(
+  const visibleActivationKeys = availableActivationKeys.slice(
     (safeActivationPage - 1) * ACTIVATION_KEY_PAGE_SIZE,
     safeActivationPage * ACTIVATION_KEY_PAGE_SIZE
+  );
+  const keyHistoryTotalPages = Math.max(1, Math.ceil(historicalActivationKeys.length / ACTIVATION_HISTORY_PAGE_SIZE));
+  const safeKeyHistoryPage = Math.min(keyHistoryPage, keyHistoryTotalPages);
+  const visibleHistoricalActivationKeys = historicalActivationKeys.slice(
+    (safeKeyHistoryPage - 1) * ACTIVATION_HISTORY_PAGE_SIZE,
+    safeKeyHistoryPage * ACTIVATION_HISTORY_PAGE_SIZE
   );
 
   useEffect(() => {
     if (activationPage > activationTotalPages) setActivationPage(activationTotalPages);
   }, [activationPage, activationTotalPages]);
 
-  const hasAvailableKey = Boolean(generatedButNotSharedKey || sharedAvailableKey);
+  useEffect(() => {
+    if (keyHistoryPage > keyHistoryTotalPages) setKeyHistoryPage(keyHistoryTotalPages);
+  }, [keyHistoryPage, keyHistoryTotalPages]);
+
+  const hasAvailableKey = availableActivationKeys.length > 0;
   const hasAnyKey = activationKeys.length > 0;
 
   const assistantStep = activationComplete
@@ -128,6 +146,7 @@ export function PortalOnboardingScreen() {
     if (!canGenerate) return;
     setFeedback(null);
     const result = await generateActivationKey();
+    setKeyHistoryOpen(false);
     setFeedback(
       result.ok
         ? 'Nueva key generada con el cupo liberado.'
@@ -249,7 +268,7 @@ export function PortalOnboardingScreen() {
 
       <PortalSectionCard
         title="Keys de activación para conductores"
-        subtitle="Keys y cupos disponibles del plan actual.">
+        subtitle="Keys disponibles para operar y acceso separado al historial.">
         {isLoading && !activationSummary ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={portalPalette.accent} />
@@ -264,44 +283,74 @@ export function PortalOnboardingScreen() {
                 <Text style={styles.feedbackText}>{feedback}</Text>
               </View>
             ) : null}
-            {activationKeys.length ? (
-              <>
-                <PortalDataList>
-                  {visibleActivationKeys.map((activationKey) => (
-                    <ActivationKeyRow
-                      key={activationKey.id}
-                      activationKey={activationKey}
-                      isSubmitting={isSubmitting}
-                      onCopy={(currentKey) => void handleCopyKey(currentKey)}
-                      onShare={(currentKey) => void handleShareKey(currentKey)}
-                      onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
-                      onDelete={(currentKey) => void handleDeleteKey(currentKey)}
-                      onReplace={
-                        canGenerate &&
-                        activationKey.status === 'used' &&
-                        (activationKey.usedByDriverState === 'offboarded' || activationKey.usedByDriverState === 'deleted')
-                          ? () => void handleReuseSlot()
-                          : undefined
-                      }
-                      showShare={!hasAvailableKey}
+            <View style={{ gap: 10 }}>
+              {availableActivationKeys.length ? (
+                <>
+                  <PortalDataList>
+                    {visibleActivationKeys.map((activationKey) => (
+                      <ActivationKeyRow
+                        key={activationKey.id}
+                        activationKey={activationKey}
+                        isSubmitting={isSubmitting}
+                        onCopy={(currentKey) => void handleCopyKey(currentKey)}
+                        onShare={(currentKey) => void handleShareKey(currentKey)}
+                        onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
+                        onDelete={(currentKey) => void handleDeleteKey(currentKey)}
+                      />
+                    ))}
+                  </PortalDataList>
+                  {availableActivationKeys.length > ACTIVATION_KEY_PAGE_SIZE ? (
+                    <PortalPagination
+                      itemLabel="keys disponibles"
+                      onPageChange={setActivationPage}
+                      page={safeActivationPage}
+                      pageSize={ACTIVATION_KEY_PAGE_SIZE}
+                      totalItems={availableActivationKeys.length}
                     />
-                  ))}
-                </PortalDataList>
-                <PortalPagination
-                  itemLabel="keys"
-                  onPageChange={setActivationPage}
-                  page={safeActivationPage}
-                  pageSize={ACTIVATION_KEY_PAGE_SIZE}
-                  totalItems={activationKeys.length}
+                  ) : null}
+                </>
+              ) : (
+                <EmptyState
+                  icon="key-variant"
+                  title={historicalActivationKeys.length ? 'No hay keys disponibles' : 'Aún no hay keys generadas'}
+                  description={historicalActivationKeys.length
+                    ? 'Las keys que ya no están activas se conservan en Historial. Genera una nueva cuando tengas cupo disponible.'
+                    : 'Genera una key por cada conductor que deba activar su cuenta.'}
                 />
-              </>
-            ) : (
-              <EmptyState
-                icon="key-variant"
-                title="Aún no hay keys generadas"
-                description="Genera una key por cada conductor que deba activar su cuenta."
-              />
-            )}
+              )}
+
+              {historicalActivationKeys.length ? (
+                <PortalDataList>
+                  <PortalDataRow
+                    leading={
+                      <View style={styles.keyIcon}>
+                        <MaterialCommunityIcons name="history" size={21} color={portalPalette.info} />
+                      </View>
+                    }
+                    body={
+                      <>
+                        <Text style={styles.keyValue}>Historial de keys</Text>
+                        <Text style={styles.keyMeta}>
+                          {usedHistoryCount} usadas · {revokedHistoryCount} revocadas · {expiredHistoryCount} expiradas
+                        </Text>
+                      </>
+                    }
+                    actions={
+                      <PortalButton
+                        icon="history"
+                        onPress={() => {
+                          setKeyHistoryPage(1);
+                          setKeyHistoryOpen(true);
+                        }}
+                        size="sm"
+                        variant="secondary">
+                        Ver historial
+                      </PortalButton>
+                    }
+                  />
+                </PortalDataList>
+              ) : null}
+            </View>
           </>
         )}
       </PortalSectionCard>
@@ -340,6 +389,47 @@ export function PortalOnboardingScreen() {
           <ActivationTimeline events={activationTimeline} limit={TIMELINE_PREVIEW_LIMIT} />
         </PortalSectionCard>
       ) : null}
+
+      <PortalContentModal
+        visible={keyHistoryOpen}
+        onClose={() => setKeyHistoryOpen(false)}
+        title="Historial de keys"
+        subtitle={`${historicalActivationKeys.length} key${historicalActivationKeys.length === 1 ? '' : 's'} conservadas como evidencia`}>
+        <View style={{ gap: 12 }}>
+          <Text style={styles.keyMeta}>
+            Aquí se conservan las keys usadas, revocadas o expiradas. Una key usada nunca vuelve a habilitarse.
+          </Text>
+          <PortalDataList>
+            {visibleHistoricalActivationKeys.map((activationKey) => (
+              <ActivationKeyRow
+                key={activationKey.id}
+                activationKey={activationKey}
+                isSubmitting={isSubmitting}
+                onCopy={(currentKey) => void handleCopyKey(currentKey)}
+                onShare={(currentKey) => void handleShareKey(currentKey)}
+                onRevoke={(currentKey) => void handleRevokeKey(currentKey)}
+                onDelete={(currentKey) => void handleDeleteKey(currentKey)}
+                onReplace={
+                  canGenerate &&
+                  activationKey.status === 'used' &&
+                  (activationKey.usedByDriverState === 'offboarded' || activationKey.usedByDriverState === 'deleted')
+                    ? () => void handleReuseSlot()
+                    : undefined
+                }
+              />
+            ))}
+          </PortalDataList>
+          {historicalActivationKeys.length > ACTIVATION_HISTORY_PAGE_SIZE ? (
+            <PortalPagination
+              itemLabel="keys históricas"
+              onPageChange={setKeyHistoryPage}
+              page={safeKeyHistoryPage}
+              pageSize={ACTIVATION_HISTORY_PAGE_SIZE}
+              totalItems={historicalActivationKeys.length}
+            />
+          ) : null}
+        </View>
+      </PortalContentModal>
 
       <PortalContentModal
         visible={timelineOpen}
