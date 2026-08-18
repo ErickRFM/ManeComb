@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { PortalDataList, PortalDataRow } from '../../components/portal-data-list';
@@ -6,6 +6,7 @@ import { portalPalette } from '../../portal-theme';
 import type { Vehicle } from '@/src/types/app';
 import type { OperationalState, OperationalUnitSnapshot } from '@shared/operational-contract';
 import { getDriverName } from '../routes.utils';
+import { getRouteWorkspaceSizing } from '../routes.workspace-layout';
 import { styles } from '../routes.styles';
 
 // Mapeo de etiqueta PROPIO de este selector — NO es el `stateLabel` canónico del dashboard.
@@ -36,40 +37,54 @@ export function RouteUnitSelector({
   selectedVehicleId: string;
   onSelectVehicle: (vehicleId: string) => void;
 }) {
+  const { height, width } = useWindowDimensions();
+  const workspace = getRouteWorkspaceSizing(width, height);
   const unitByVehicleId = new Map(operationalUnits.map((unit) => [unit.unitId, unit]));
+
   return (
-    <View style={styles.unitsPanel}>
+    <View
+      nativeID="route-unit-selector"
+      style={[
+        styles.unitsPanel,
+        workspace.expanded
+          ? { flexBasis: 190, flexGrow: 0, maxWidth: 210, minHeight: workspace.minHeight }
+          : undefined,
+      ]}>
       <View style={styles.panelHeading}>
         <Text style={styles.panelTitle}>Selecciona una unidad</Text>
         <Text style={styles.panelCount}>{vehicles.length}</Text>
       </View>
       {vehicles.length ? (
-        <PortalDataList>
-          {vehicles.map((vehicle) => {
-            const active = selectedVehicleId === vehicle.id;
-            return (
-              <PortalDataRow
-                key={vehicle.id}
-                selected={active}
-                onPress={() => onSelectVehicle(vehicle.id)}
-                leading={
-                  <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}>
-                    <MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} />
-                  </View>
-                }
-                body={
-                  <>
-                    <Text style={styles.unitCode}>{vehicle.code}</Text>
-                    <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
-                    <Text style={styles.unitStatus}>
-                      ● {getSelectorStatusLabel(unitByVehicleId.get(vehicle.id))}
-                    </Text>
-                  </>
-                }
-              />
-            );
-          })}
-        </PortalDataList>
+        <View
+          {...(workspace.expanded ? ({ className: 'portal-scrollbar' } as any) : {})}
+          style={workspace.expanded ? ({ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 } as any) : undefined}>
+          <PortalDataList>
+            {vehicles.map((vehicle) => {
+              const active = selectedVehicleId === vehicle.id;
+              return (
+                <PortalDataRow
+                  key={vehicle.id}
+                  selected={active}
+                  onPress={() => onSelectVehicle(vehicle.id)}
+                  leading={
+                    <View style={[styles.unitIcon, active ? styles.unitIconActive : undefined]}>
+                      <MaterialCommunityIcons name="bus" size={20} color={active ? '#FFFFFF' : portalPalette.accent} />
+                    </View>
+                  }
+                  body={
+                    <>
+                      <Text style={styles.unitCode}>{vehicle.code}</Text>
+                      <Text numberOfLines={1} style={styles.unitDriver}>{getDriverName(vehicle)}</Text>
+                      <Text style={styles.unitStatus}>
+                        ● {getSelectorStatusLabel(unitByVehicleId.get(vehicle.id))}
+                      </Text>
+                    </>
+                  }
+                />
+              );
+            })}
+          </PortalDataList>
+        </View>
       ) : (
         <EmptyState
           icon="bus"
