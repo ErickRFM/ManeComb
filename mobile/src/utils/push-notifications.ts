@@ -13,6 +13,7 @@ type ManeCombNotificationModule = {
   ) => Promise<boolean>;
   getPushToken: () => Promise<string | null>;
   deletePushToken: () => Promise<boolean>;
+  clearSessionNotifications?: () => Promise<boolean>;
   playOperationalAlert?: (
     incidentId: string,
     category: string,
@@ -114,6 +115,17 @@ export async function requestNativePushToken() {
 export async function deleteNativePushToken() {
   if (Platform.OS !== 'android' || !NativeNotification?.deletePushToken) return false;
   return await NativeNotification.deletePushToken().catch(() => false);
+}
+
+/**
+ * Borra tarjetas ya publicadas por ManeComb cuando termina la identidad local.
+ * Es deliberadamente independiente del token FCM: una sesion expirada puede no
+ * tener autorizacion para desregistrar el dispositivo en servidor, pero nunca
+ * debe dejar contenido de la cuenta anterior visible en el notification tray.
+ */
+export async function clearSessionNotifications() {
+  if (Platform.OS !== 'android' || !NativeNotification?.clearSessionNotifications) return false;
+  return await NativeNotification.clearSessionNotifications().catch(() => false);
 }
 
 export async function showInAppNotification(payload: {

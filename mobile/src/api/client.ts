@@ -551,10 +551,20 @@ export async function healthRequest() {
   return response.data;
 }
 
-export async function logoutRequest(refreshToken?: string | null) {
+export async function logoutRequest(
+  refreshToken?: string | null,
+  pushToken?: string | null
+) {
   await apiClient.post('/auth/logout', {
     refreshToken,
-  });
+    pushToken,
+  }, {
+    // Logout no puede disparar otro refresh ni ser replayado por la politica de
+    // red: el bearer actual (sid) es justamente la prueba usada para revocar la
+    // sesion exacta aunque el refreshToken haya rotado en paralelo.
+    _skipAuthRefresh: true,
+    _skipNetworkRetry: true,
+  } as RetryableRequestConfig);
 }
 
 export async function getLocationsRequest() {

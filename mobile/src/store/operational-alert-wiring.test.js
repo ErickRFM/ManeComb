@@ -12,13 +12,17 @@ function source(relativePath) {
  * comportamiento, y se declara como tal. El comportamiento de la politica si
  * esta cubierto por pruebas reales, en JVM (ManeCombAlertPolicyTest) y en
  * operational-alert.test.ts.
+ *
+ * `sessionSocket` es intencional: el lifecycle hardening captura la instancia,
+ * epoch y user que crearon cada listener. Volver a `socket.on` permitiria que un
+ * callback viejo mutara la sesion siguiente despues de logout/login.
  */
 describe('cableado de alertas operativas en el socket', () => {
   const store = source('./root-store.ts');
 
-  it('consume notification:created e incident:sos', () => {
-    expect(store).toContain("socket.on('notification:created'");
-    expect(store).toContain("socket.on('incident:sos'");
+  it('consume notification:created e incident:sos desde el socket de sesion capturado', () => {
+    expect(store).toContain("sessionSocket.on('notification:created'");
+    expect(store).toContain("sessionSocket.on('incident:sos'");
     expect(store).toContain('toOperationalAlertFromNotification');
     expect(store).toContain('toOperationalAlertFromSos');
   });
@@ -28,18 +32,32 @@ describe('cableado de alertas operativas en el socket', () => {
     expect(connections).toHaveLength(1);
   });
 
+  it('falla cerrado si el listener pertenece a una identidad anterior', () => {
+    const created = store.slice(
+      store.indexOf("sessionSocket.on('notification:created'"),
+      store.indexOf("sessionSocket.on('incident:sos'")
+    );
+    const sos = store.slice(
+      store.indexOf("sessionSocket.on('incident:sos'"),
+      store.indexOf("sessionSocket.on('incident:created'")
+    );
+
+    expect(created).toContain('if (!isSocketSessionCurrent()) return;');
+    expect(sos).toContain('if (!isSocketSessionCurrent()) return;');
+  });
+
   it('no hace sonar un cambio de estado', () => {
     const updated = store.slice(
-      store.indexOf("socket.on('incident:updated'"),
-      store.indexOf("socket.on('incident:updated'") + 400
+      store.indexOf("sessionSocket.on('incident:updated'"),
+      store.indexOf("sessionSocket.on('incident:updated'") + 400
     );
     expect(updated).not.toContain('playOperationalAlertFeedback');
   });
 
   it('delega el feedback en la politica nativa y no decide gravedad', () => {
     const created = store.slice(
-      store.indexOf("socket.on('notification:created'"),
-      store.indexOf("socket.on('incident:sos'")
+      store.indexOf("sessionSocket.on('notification:created'"),
+      store.indexOf("sessionSocket.on('incident:sos'")
     );
     expect(created).toContain('playOperationalAlertFeedback');
     // Ninguna traduccion local de severidad a canal/sonido.

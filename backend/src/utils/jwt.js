@@ -41,9 +41,21 @@ function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
+/**
+ * Logout es una operacion de teardown, no de acceso a datos. Para poder revocar
+ * exactamente el `sid` firmado aun cuando el access token expiro mientras un
+ * refresh estaba rotando, se valida SIEMPRE firma/integridad pero se tolera solo
+ * la expiracion. El token no gana permisos: unicamente puede revocar su propia
+ * sesion identificada por `sub + sid`.
+ */
+function verifyTokenForSessionTeardown(token) {
+  return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+}
+
 module.exports = {
   buildAuthSession,
   getTokenExpiration,
   signToken,
-  verifyToken
+  verifyToken,
+  verifyTokenForSessionTeardown
 };

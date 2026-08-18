@@ -12,11 +12,85 @@ import {
   shouldRetrySharedRealtimeSocket,
 } from './shared-realtime-socket';
 import { logRealtimeDiag } from './realtime-diagnostics-log';
+import { installApiSessionBoundary } from '@/src/api/api-session-boundary';
+import {
+  clearSessionNotifications,
+  deleteNativePushToken,
+} from '@/src/utils/push-notifications';
 
 const COLD_START_RECOVERY_RETRY_MS = 3000;
 let coldStartRecoveryKey: string | null = null;
 let coldStartRecoveryInFlight = false;
 let coldStartRecoveryAttemptedAt = 0;
+
+type LifecycleGlobal = typeof globalThis & {
+  __MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__?: boolean;
+};
+
+function teardownNativeSessionResources() {
+  // Son recursos locales del dispositivo: deben fallar cerrado aunque el
+  // backend no sea alcanzable durante el teardown.
+  void Promise.allSettled([
+    clearSessionNotifications(),
+    deleteNativePushToken(),
+  ]);
+}
+
+/**
+ * Root-store conserva la autoridad de autenticacion. Este observer solo limpia
+ * recursos Android que viven fuera de Zustand cuando esa autoridad termina la
+ * identidad local. Asi una expiracion/suspension tambien elimina el token FCM y
+ * las tarjetas de la cuenta anterior, no solo el logout pulsado por el usuario.
+ *
+ * Ademas cubre process death durante logout: en el siguiente arranque espera a
+ * que bootstrap termine de hidratar y, si la autoridad confirma que no existe
+ * identidad, limpia cualquier recurso nativo que haya sobrevivido al proceso.
+ * No rota FCM a ciegas antes de saber si habia una sesion recordada valida.
+ *
+ * El marcador global evita subscriptions duplicadas bajo Fast Refresh/HMR.
+ */
+function ensureNativeSessionTeardownObserver() {
+  const runtime = globalThis as LifecycleGlobal;
+  if (runtime.__MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__) return;
+  runtime.__MANECOMB_NATIVE_SESSION_TEARDOWN_SUBSCRIBED__ = true;
+
+  useAppStore.subscribe((state, previousState) => {
+    const previousHadIdentity = Boolean(previousState.token && previousState.user?.id);
+    const currentHasIdentity = Boolean(state.token && state.user?.id);
+    const identityJustEnded = previousHadIdentity && !currentHasIdentity;
+    const unauthenticatedBootstrapJustSettled =
+      state.isHydrated &&
+      !state.isBootstrapping &&
+      !currentHasIdentity &&
+      (!previousState.isHydrated || previousState.isBootstrapping);
+
+    if (!identityJustEnded && !unauthenticatedBootstrapJustSettled) return;
+
+    // Estos flags son runtime efimero de la identidad anterior. Un Promise viejo
+    // ya no puede limpiarlos despues de que entre otra cuenta (los handlers estan
+    // epoch-fenced), asi que la propia transicion a "sin identidad" los normaliza
+    // de forma sincronica antes de permitir un siguiente login.
+    if (
+      state.isSubmitting ||
+      state.isLoadingConversation ||
+      state.isLoadingChatContacts
+    ) {
+      useAppStore.setState({
+        isSubmitting: false,
+        isLoadingConversation: false,
+        isLoadingChatContacts: false,
+      });
+    }
+
+    teardownNativeSessionResources();
+  });
+}
+
+// Se instala antes de que cualquier pantalla pueda disparar initialize/refresh.
+// La sessionEpoch del root-store sigue siendo la unica autoridad de invalidez;
+// este interceptor solo hace cumplir esa decision en HTTP y SecureStore.
+installApiSessionBoundary();
+ensureNativeSessionTeardownObserver();
 
 export { useAppStore };
 export type { AppState } from './root-store';

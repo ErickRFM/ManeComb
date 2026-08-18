@@ -1,6 +1,7 @@
 package com.anonymous.combiscontrol.notifications
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -62,6 +63,37 @@ class ManeCombNotificationModule(
     }
     FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener {
       promise.resolve(it.isSuccessful)
+    }
+  }
+
+  /**
+   * La bandeja del sistema pertenece a la identidad autenticada, igual que el
+   * cache y el socket. Al cerrar/expirar una sesion ninguna tarjeta con datos de
+   * chat, SOS o llamada de la cuenta anterior puede quedar visible ni tappable.
+   *
+   * No se usa cancelAll(): ManeComb tambien publica foreground-service cards y
+   * una limpieza de identidad nunca debe poder detener/interferir GPS o un
+   * servicio de llamada. En Android O+ la autoridad es el channelId. En 7.x, que
+   * no tiene canales, se conservan explicitamente las notificaciones CATEGORY_SERVICE.
+   */
+  @ReactMethod
+  fun clearSessionNotifications(promise: Promise) {
+    try {
+      val manager = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      manager.activeNotifications.forEach { active ->
+        val belongsToSession = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          active.notification.channelId in SESSION_NOTIFICATION_CHANNEL_IDS
+        } else {
+          active.notification.category != Notification.CATEGORY_SERVICE
+        }
+
+        if (belongsToSession) {
+          manager.cancel(active.tag, active.id)
+        }
+      }
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.resolve(false)
     }
   }
 
@@ -301,6 +333,21 @@ class ManeCombNotificationModule(
     private const val CHANNEL_INCIDENTS = "operacion-incidentes"
     private const val CHANNEL_EMERGENCIES = "operacion-emergencias"
     private const val CHANNEL_SOS = "operacion-sos"
+    private const val LEGACY_CHANNEL_CALLS = "manecomb-incoming-calls"
+
+    private val SESSION_NOTIFICATION_CHANNEL_IDS = setOf(
+      CHANNEL_GENERAL,
+      CHANNEL_RADIO,
+      CHANNEL_INCIDENTS,
+      CHANNEL_EMERGENCIES,
+      CHANNEL_SOS,
+      ManeCombPushNotificationRenderer.CHANNEL_CHAT,
+      ManeCombPushNotificationRenderer.CHANNEL_CALLS,
+      LEGACY_CHANNEL_CALLS,
+      ManeCombAlertPolicy.CHANNEL_SOS,
+      ManeCombAlertPolicy.CHANNEL_HIGH,
+      ManeCombAlertPolicy.CHANNEL_STANDARD
+    )
 
     fun notificationIdFor(category: String, conversationId: String): Int =
       if (conversationId.isNotEmpty()) {

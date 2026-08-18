@@ -200,7 +200,15 @@ async function revokeSession(userId, sessionId, reason = "revoked") {
   if (!isMongoReady()) {
     const session = memorySessions.get(sessionId);
 
-    if (!session || session.userId !== userId) {
+    // Una sesion ya revocada no vuelve a producir una capacidad de teardown.
+    // Esto es importante para logout con bearer expirado: puede cerrar su sid
+    // una vez, pero no reutilizarse indefinidamente para side effects auxiliares.
+    if (
+      !session ||
+      session.userId !== userId ||
+      !session.isActive ||
+      session.revokedAt
+    ) {
       return null;
     }
 
@@ -212,7 +220,12 @@ async function revokeSession(userId, sessionId, reason = "revoked") {
   }
 
   const session = await SessionModel.findOneAndUpdate(
-    { _id: sessionId, userId },
+    {
+      _id: sessionId,
+      userId,
+      isActive: true,
+      revokedAt: null
+    },
     {
       $set: {
         isActive: false,
