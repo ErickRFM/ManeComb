@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "00b41b777433df2356f5e6ca9a139703b82558f9",
+    "commit": "110ae1d11c63b933be1cd5f5d3de1346b62e8f91",
     "capturedAt": "2026-08-18"
   },
   "maxBaselineDriftCommits": 5,
@@ -54,5 +54,8 @@
     "render-production-contract",
     "repository-change-governance"
   ],
-  "blockingSeverities": ["P0", "P1"]
+  "blockingSeverities": [
+    "P0",
+    "P1"
+  ]
 }
