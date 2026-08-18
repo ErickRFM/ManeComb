@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
+const { Readable } = require("stream");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
 const {
@@ -361,8 +362,9 @@ async function getChatMediaAsset(storageKey, options = {}) {
   }
 
   if (safeStorageKey.startsWith(CLOUDINARY_PREFIX)) {
+    ensureCloudinary();
     return {
-      redirectUrl: cloudinary.url(safeStorageKey.replace(CLOUDINARY_PREFIX, ""), {
+      remoteUrl: cloudinary.url(safeStorageKey.replace(CLOUDINARY_PREFIX, ""), {
         resource_type: "auto",
         secure: true,
         sign_url: true,
@@ -410,6 +412,67 @@ function parseMediaRange(rangeHeader, size) {
   };
 }
 
+function copyRemoteMediaHeaders(upstream, res) {
+  for (const headerName of [
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "etag",
+    "last-modified"
+  ]) {
+    const value = upstream.headers.get(headerName);
+    if (value) {
+      res.setHeader(headerName, value);
+    }
+  }
+}
+
+async function proxyRemoteChatMediaAsset(req, res, remoteUrl, options = {}) {
+  const requestHeaders = {};
+  const requestedRange = String(req.headers.range || "").trim();
+
+  if (requestedRange) {
+    requestHeaders.Range = requestedRange;
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(remoteUrl, {
+      headers: requestHeaders,
+      redirect: "follow"
+    });
+  } catch {
+    return false;
+  }
+
+  if (!upstream.ok) {
+    return false;
+  }
+
+  res.status(upstream.status);
+  copyRemoteMediaHeaders(upstream, res);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="${encodeURIComponent(options.fileName || "chat-media")}"`
+  );
+
+  if (!upstream.body) {
+    res.end();
+    return true;
+  }
+
+  const stream = Readable.fromWeb(upstream.body);
+  stream.on("error", () => {
+    if (!res.writableEnded) {
+      res.destroy();
+    }
+  });
+  stream.pipe(res);
+  return true;
+}
+
 async function streamChatMediaAsset(req, res, storageKey, options = {}) {
   const baseAsset = await getChatMediaAsset(storageKey);
 
@@ -417,9 +480,8 @@ async function streamChatMediaAsset(req, res, storageKey, options = {}) {
     return false;
   }
 
-  if (baseAsset.redirectUrl) {
-    res.redirect(baseAsset.redirectUrl);
-    return true;
+  if (baseAsset.remoteUrl) {
+    return await proxyRemoteChatMediaAsset(req, res, baseAsset.remoteUrl, options);
   }
 
   const size = Number(baseAsset.size || 0);
