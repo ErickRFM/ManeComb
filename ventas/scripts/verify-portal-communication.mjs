@@ -71,6 +71,10 @@ assert(communicationCss.includes('height: clamp(560px, calc(100dvh - 170px), 780
 assert(communicationCss.includes('flex: 1 1 auto;\n  flex-direction: column;\n  gap: 7px;\n  overflow-y: auto'), 'el historial debe desplazarse dentro del thread sin empujar header/composer');
 assert(communicationCss.includes('width: fit-content;\n  max-width: min(72%, 560px);\n  align-self: flex-start'), 'las burbujas entrantes deben ajustar su ancho al contenido');
 assert(communicationCss.includes(".portal-comms-message[data-own='true'] {\n  align-self: flex-end"), 'las burbujas propias deben permanecer alineadas a la derecha');
+assert(communicationCss.includes("#portal-mobile-top > [aria-label='Volver a ventas']"), 'Comunicación móvil debe ocultar el logo redundante del top bar');
+assert(communicationCss.includes("content: 'Comunicación'"), 'Comunicación móvil debe titular el top bar');
+assert(communicationCss.includes('#portal-content:has(.portal-comms-shell) #portal-header-text {\n    display: none'), 'Comunicación móvil no debe repetir el título debajo del top bar');
+assert(communicationCss.includes('height: calc(100dvh - 126px);\n    min-height: 0'), 'el thread móvil debe usar el alto dinámico disponible sin un piso que lo recorte');
 
 assert(/Permissions-Policy:.*camera=\(self\).*microphone=\(self\)/.test(headers), 'camera/microphone deben permitirse solo a self');
 assert(/media-src[^\n]*blob:/.test(headers), 'CSP debe permitir media blob local autenticada');
