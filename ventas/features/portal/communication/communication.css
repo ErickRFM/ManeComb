@@ -523,7 +523,7 @@
 }
 
 @media (max-width: 979px) {
-  #portal-content:has(.portal-comms-shell) #portal-mobile-top {
+  #portal-content:has(.portal-comms-shell) {
     position: relative;
   }
 
@@ -531,24 +531,25 @@
     display: none;
   }
 
-  #portal-content:has(.portal-comms-shell) #portal-mobile-top::before {
-    content: 'Comunicación';
+  #portal-content:has(.portal-comms-shell) #portal-header-text {
     position: absolute;
-    left: 54px;
-    right: 54px;
-    overflow: hidden;
-    color: #f5f7fb;
-    font-size: 20px;
-    font-weight: 900;
-    line-height: 1.2;
-    text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    z-index: 3;
+    top: 25px;
+    left: 70px;
+    right: 70px;
+    display: block;
+    min-width: 0;
+    flex-basis: auto;
     pointer-events: none;
   }
 
-  #portal-content:has(.portal-comms-shell) #portal-header-text {
-    display: none;
+  #portal-content:has(.portal-comms-shell) #portal-header-text > * {
+    overflow: hidden;
+    font-size: 20px !important;
+    line-height: 24px !important;
+    text-align: center !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   #portal-content:has(.portal-comms-shell) #portal-header {
