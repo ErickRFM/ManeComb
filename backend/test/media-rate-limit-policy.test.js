@@ -217,7 +217,7 @@ const chatRoutes = fs.readFileSync(
 const chatMedia = fs.readFileSync(
   path.resolve(__dirname, "../src/services/chat-media.js"),
   "utf8"
-);
+).replace(/\r\n/g, "\n");
 const authRoutes = fs.readFileSync(
   path.resolve(__dirname, "../src/modules/auth/routes.js"),
   "utf8"
