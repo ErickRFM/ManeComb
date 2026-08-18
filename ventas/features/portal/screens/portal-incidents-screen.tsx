@@ -10,7 +10,6 @@ import { PortalButton } from '../components/portal-button';
 import { PortalLayout } from '../components/portal-layout';
 import { PortalIncidentDetails } from '../incidents/components/portal-incident-details';
 import { PortalIncidentStatusSelector } from '../incidents/components/portal-incident-status-selector';
-import { PortalIncidentsContextNotice } from '../incidents/components/portal-incidents-context-notice';
 import { PortalIncidentsList } from '../incidents/components/portal-incidents-list';
 import { portalPalette } from '../portal-theme';
 import { usePortalStore } from '../store/use-portal-store';
@@ -74,8 +73,6 @@ export function PortalIncidentsScreen() {
       title="Incidencias"
       subtitle="Reportes operativos, alertas SOS y seguimiento de resolución."
       actions={<PortalButton icon="refresh" onPress={() => void loadIncidents()} size="sm" variant="secondary">Actualizar</PortalButton>}>
-      {canManage ? <PortalIncidentsContextNotice /> : null}
-
       {!detailTarget ? (
         <PortalSectionCard
           compact

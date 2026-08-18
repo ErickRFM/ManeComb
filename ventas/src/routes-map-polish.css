@@ -1,0 +1,191 @@
+/*
+ * Portal + Rutas visual polish.
+ *
+ * UI-only: no cambia autoridad, stores, rutas API, GPS ni Mapbox data. El modo
+ * map-first se activa exclusivamente en Portal > Rutas y solo en desktop ancho.
+ */
+
+/* El logo ya vive en la experiencia comercial. Dentro del Portal repetía marca
+   y consumía altura útil en cada pantalla. Se oculta solo cuando existe el shell
+   autenticado del Portal; login, checkout y ventas públicas conservan su marca. */
+body:has(#portal-content-scroll) [aria-label="Volver a ventas"] {
+  display: none !important;
+}
+
+/* Recupera altura arriba para título/acciones (Actualizar, Nueva ruta, etc.) y
+   mantiene respiración real al final del contenido. */
+body:has(#portal-content-scroll) #portal-content {
+  padding-top: 12px !important;
+  padding-bottom: 28px !important;
+}
+
+body:has(#portal-content-scroll) #portal-header {
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+}
+
+body:has(#portal-content-scroll) #portal-header-actions {
+  align-self: flex-start !important;
+  padding-top: 2px;
+}
+
+/* Marcadores: la cápsula anterior (32px / radio 18px) se percibía ovalada.
+   La unidad ahora usa una "squircle" compacta; checkpoints siguen circulares. */
+.operations-map-marker--pill {
+  border-radius: 10px !important;
+  height: 30px !important;
+  min-width: 40px !important;
+  padding: 0 8px !important;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.operations-map-marker--circle {
+  border-radius: 50% !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  padding: 0 !important;
+  width: 28px !important;
+}
+
+.operations-map-marker:not(.is-active) {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Desktop ancho: mapa como lienzo principal, controles dentro del mapa.
+   Tablet/móvil siguen usando el layout responsive existente. */
+@media (min-width: 1180px) {
+  body:has(#route-unit-selector) #portal-content {
+    max-width: none !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) {
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 18px;
+    display: block !important;
+    height: calc(100dvh - 154px) !important;
+    min-height: 610px !important;
+    overflow: hidden;
+    position: relative !important;
+  }
+
+  #route-unit-selector,
+  #route-catalog-panel {
+    backdrop-filter: blur(18px) saturate(1.08);
+    background: rgba(7, 14, 29, 0.88) !important;
+    border-color: rgba(148, 163, 184, 0.2) !important;
+    bottom: 14px;
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
+    flex-basis: auto !important;
+    flex-grow: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    position: absolute !important;
+    top: 14px;
+    z-index: 8;
+  }
+
+  #route-unit-selector {
+    left: 14px;
+    max-width: 214px !important;
+    width: 214px;
+  }
+
+  #route-catalog-panel {
+    max-width: 282px !important;
+    right: 14px;
+    width: 282px;
+  }
+
+  #route-catalog-panel > div:last-child {
+    flex: 1 !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > div:has(> #route-preview-panel) {
+    bottom: 0;
+    flex: none !important;
+    height: auto !important;
+    left: 0;
+    min-height: 0 !important;
+    min-width: 0 !important;
+    position: absolute !important;
+    right: 0;
+    top: 0;
+    width: auto !important;
+    z-index: 1;
+  }
+
+  #route-preview-panel {
+    height: 100% !important;
+    min-height: 0 !important;
+    position: relative !important;
+    width: 100%;
+  }
+
+  /* Primer hijo = mapa; segundo = barra de identidad/estadísticas. */
+  #route-preview-panel > div:first-child {
+    border-radius: 18px !important;
+    bottom: 0;
+    left: 0;
+    min-height: 0 !important;
+    position: absolute !important;
+    right: 0;
+    top: 0;
+  }
+
+  #route-preview-panel > div:nth-child(2) {
+    backdrop-filter: blur(18px) saturate(1.08);
+    background: rgba(7, 14, 29, 0.88) !important;
+    border: 1px solid rgba(148, 163, 184, 0.2) !important;
+    border-radius: 14px !important;
+    bottom: 14px;
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.3);
+    left: 238px;
+    min-height: 54px !important;
+    padding: 8px 10px !important;
+    position: absolute !important;
+    right: 306px;
+    z-index: 7;
+  }
+
+  /* El aviso ya está explicado por el panel de asignaciones y duplicaba lectura. */
+  #route-preview-panel > div:nth-child(2) > div:last-child {
+    display: none !important;
+  }
+
+  /* Último hijo del workspace = asignaciones. Se comporta como bottom sheet
+     flotante, dejando visible el mapa alrededor y sin empujar el canvas. */
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > div:last-child:not(:has(#route-preview-panel)) {
+    backdrop-filter: blur(18px) saturate(1.08);
+    background: rgba(7, 14, 29, 0.9) !important;
+    border-color: rgba(148, 163, 184, 0.2) !important;
+    bottom: 86px;
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+    left: 238px;
+    max-height: 38%;
+    max-width: none !important;
+    min-width: 0 !important;
+    overflow: auto !important;
+    position: absolute !important;
+    right: 306px;
+    z-index: 6;
+    scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+    scrollbar-width: thin;
+  }
+
+  /* Deja espacio a los paneles flotantes en el encuadre visual sin quitar área
+     al canvas; el mapa sigue ocupando el 100% del workspace. */
+  #route-preview-panel .mapboxgl-ctrl-top-right {
+    margin-right: 292px;
+  }
+}
+
+@media (max-width: 1179px) {
+  body:has(#portal-content-scroll) #portal-content {
+    padding-bottom: 24px !important;
+  }
+}
