@@ -43,6 +43,7 @@ export function RouteUnitSelector({
 
   return (
     <View
+      nativeID="route-unit-selector"
       style={[
         styles.unitsPanel,
         workspace.expanded

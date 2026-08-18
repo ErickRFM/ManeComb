@@ -29,7 +29,7 @@ export function RoutePreviewPanel({
   void onAssignRoute;
 
   return (
-    <>
+    <View nativeID="route-preview-panel" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
       <View style={styles.previewMapShell}>
         <View style={styles.mapLabel}>
           <MaterialCommunityIcons name="map-outline" size={15} color={portalPalette.text} />
@@ -70,6 +70,6 @@ export function RoutePreviewPanel({
           </View>
         </View>
       ) : null}
-    </>
+    </View>
   );
 }

@@ -41,6 +41,7 @@ export function RouteCatalogPanel({
 
   return (
     <View
+      nativeID="route-catalog-panel"
       style={[
         styles.catalogPanel,
         workspace.expanded
